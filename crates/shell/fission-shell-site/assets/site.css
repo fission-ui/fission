@@ -12,6 +12,10 @@ a:hover { text-decoration: underline; }
 img, svg { max-width: 100%; }
 .fission-site-root { min-height: 100vh; }
 .fission-site-node { min-width: 0; }
+.fission-site-footer {
+  position: static;
+  flex: 0 0 auto;
+}
 /* Browsers ignore `justify-content: stretch` on a row flexbox. Native Fission
    stretches a Container child only while its width and max-width are automatic,
    so the renderer emits this class solely for that same lowering shape. */
@@ -374,14 +378,10 @@ h6.fission-site-semantics {
 .fission-site-markdown-align-center { text-align: center; }
 .fission-site-markdown-align-right { text-align: right; }
 
-.fission-site-doc-layout {
-  height: calc(100vh - 4.75rem);
-  overflow: hidden;
-}
-
+.fission-site-doc-layout,
 .fission-site-blog-layout {
-  height: calc(100vh - 4.75rem);
-  overflow: hidden;
+  min-height: calc(100vh - 4.75rem);
+  overflow: visible;
 }
 
 .fission-site-doc-header {
@@ -392,27 +392,33 @@ h6.fission-site-semantics {
 
 .fission-site-doc-layout > .fission-site-row,
 .fission-site-blog-layout > .fission-site-row {
-  height: 100%;
-  align-items: stretch;
+  align-items: flex-start;
 }
 
-.fission-site-doc-sidebar,
-.fission-site-doc-main,
-.fission-site-doc-toc,
-.fission-site-blog-rail {
-  max-height: 100%;
-  overflow-y: auto;
-  overscroll-behavior: auto;
-  scrollbar-gutter: stable;
+.fission-site-doc-main {
+  max-height: none;
+  overflow: visible;
 }
 
 .fission-site-doc-sidebar,
 .fission-site-doc-toc,
 .fission-site-blog-rail {
-  position: sticky;
-  top: 0;
+  position: relative;
   align-self: stretch;
   min-height: 100%;
+  max-height: none;
+  overflow: visible;
+}
+
+.fission-site-doc-sidebar > .fission-site-column,
+.fission-site-doc-toc > .fission-site-column,
+.fission-site-blog-rail > .fission-site-column {
+  position: sticky;
+  top: 4.75rem;
+  max-height: calc(100vh - 4.75rem);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
 }
 
 .fission-site-doc-main {
@@ -755,8 +761,11 @@ h6.fission-site-semantics {
 
   .fission-site-doc-sidebar > .fission-site-column,
   .fission-site-doc-sidebar > .fission-site-column > .fission-site-box {
+    position: static;
     width: 100% !important;
     min-height: 100vh !important;
+    max-height: none;
+    overflow: visible;
   }
 
   .fission-site-sidebar-open {

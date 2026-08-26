@@ -767,7 +767,7 @@ pre,
   max-width: 90rem !important;
   min-height: 70vh;
   margin-inline: auto !important;
-  padding: 3rem clamp(1.25rem, 3vw, 2.75rem) 7rem !important;
+  padding: 0 clamp(1.25rem, 3vw, 2.75rem) !important;
 }
 
 .fission-site-doc-layout > .fission-site-row {
@@ -780,10 +780,18 @@ pre,
 
 .fission-site-doc-sidebar,
 .fission-site-doc-toc {
+  position: relative;
+  align-self: stretch;
+  max-height: none;
+  overflow: visible;
+}
+
+.fission-site-doc-sidebar > .fission-site-column,
+.fission-site-doc-toc > .fission-site-column {
   position: sticky;
-  top: 6.4rem;
-  max-height: calc(100vh - 7.5rem);
-  overflow: auto;
+  top: 4.75rem;
+  max-height: calc(100vh - 4.75rem);
+  overflow-y: auto;
   scrollbar-width: thin;
   scrollbar-color: var(--atlas-line-strong) transparent;
 }
@@ -1086,6 +1094,7 @@ pre,
 
 /* Global footer. */
 [data-fission-semantics="site-footer"] {
+  position: static !important;
   width: 100%;
   padding: clamp(3.5rem, 7vw, 6rem) clamp(1.5rem, 4vw, 3.5rem) !important;
   border-top: 1px solid var(--atlas-line) !important;
@@ -1286,6 +1295,17 @@ pre,
     transition: transform 180ms ease;
   }
 
+  .fission-site-doc-sidebar > .fission-site-column {
+    position: static;
+    padding-top: 0;
+    max-height: none;
+    overflow: visible;
+  }
+
+  .fission-site-doc-main {
+    padding-top: 0;
+  }
+
   .fission-site-sidebar-open {
     overflow: hidden;
   }
@@ -1426,7 +1446,7 @@ pre,
   }
 
   .fission-site-doc-layout {
-    padding: 2rem 1.15rem 5rem !important;
+    padding: 2rem 1.15rem 0 !important;
   }
 
   .fission-site-doc-main h1,
@@ -1523,7 +1543,15 @@ pre,
 
 .fission-site-doc-layout {
   width: min(100%, 90rem) !important;
-  padding: 2.8rem clamp(1.5rem, 3vw, 2.4rem) 7rem !important;
+  padding: 0 clamp(1.5rem, 3vw, 2.4rem) !important;
+}
+
+@media (min-width: 60.001rem) {
+  .fission-site-doc-main,
+  .fission-site-doc-sidebar > .fission-site-column,
+  .fission-site-doc-toc > .fission-site-column {
+    padding-top: 2.8rem;
+  }
 }
 
 .fission-site-doc-layout > .fission-site-row {
@@ -1965,16 +1993,21 @@ pre,
 }
 
 .fission-site-doc-adjacent-pages {
-  display: grid !important;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 1rem !important;
+  display: block !important;
   width: 100% !important;
   margin-top: 4.5rem;
   padding-top: 1.5rem;
   border-top: 1px solid var(--atlas-line);
 }
 
-.fission-site-doc-adjacent-pages > .fission-site-box {
+.fission-site-doc-adjacent-pages > .fission-site-row {
+  display: grid !important;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem !important;
+  width: 100% !important;
+}
+
+.fission-site-doc-adjacent-pages > .fission-site-row > .fission-site-box {
   width: 100% !important;
   min-width: 0 !important;
   border: 0 !important;
@@ -1982,7 +2015,7 @@ pre,
   background: color-mix(in srgb, var(--atlas-surface-2) 64%, transparent) !important;
 }
 
-.fission-site-doc-adjacent-pages > .fission-site-box:only-child:last-child {
+.fission-site-doc-adjacent-pages > .fission-site-row > .fission-site-box:only-child:last-child {
   grid-column: 2;
 }
 
@@ -2087,11 +2120,11 @@ pre,
 }
 
 @media (max-width: 45rem) {
-  .fission-site-doc-adjacent-pages {
+  .fission-site-doc-adjacent-pages > .fission-site-row {
     grid-template-columns: 1fr;
   }
 
-  .fission-site-doc-adjacent-pages > .fission-site-box:only-child:last-child {
+  .fission-site-doc-adjacent-pages > .fission-site-row > .fission-site-box:only-child:last-child {
     grid-column: 1;
   }
 

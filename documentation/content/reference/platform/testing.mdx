@@ -56,7 +56,9 @@ client.tap_selector(SelectorQuery::test_id("settings.save"))?;
 client.assert_text_visible("Saved")?;
 ```
 
-The application must be served before `launch_browser` is called and must have been built by `fission test --target web`, or with `FISSION_WEB_TEST_CONTROL=1` set for the WASM build. Ordinary Web builds do not expose the bridge.
+The application must be served before `launch_browser` is called and must have been built by `fission test --target web`, or with `FISSION_WEB_TEST_CONTROL=1` set on the command that compiles the WASM application. The variable is read by `option_env!` at compile time. Setting it only on the server or browser-test process is too late; rebuild the WASM output. Ordinary Web builds do not expose the bridge.
+
+The complete process-variable reference, including test, renderer, diagnostics, storage, packaging, and provider variables, is at [Environment variables](/reference/config/environment-variables/).
 
 Browser tests cover:
 

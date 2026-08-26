@@ -560,7 +560,6 @@ impl From<ProductMarketingPage> for Widget {
             flex_grow: 1.0,
             ..Default::default()
         })
-        .min_height(tokens.spacing.xxxxl * 9.0)
         .bg_fill(page_fill(tokens))
         .into()
     }

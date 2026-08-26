@@ -29,7 +29,15 @@ curl -s http://127.0.0.1:9876/cmd   -H 'content-type: application/json'   -d '{"
 
 Prefer `LiveTestClient` in Rust tests and `curl` for quick manual QA or screenshot capture.
 
-For Web, build and serve the application with `fission test --target web`, or set `FISSION_WEB_TEST_CONTROL=1` while building WASM, then connect to the served URL:
+For Web, build and serve the application with `fission test --target web`, or set `FISSION_WEB_TEST_CONTROL=1` **on the command that compiles the WASM application**, then connect to the served URL. This is a compile-time switch: setting it only while serving the already-built files or while running the Rust browser test does not install the bridge. Rebuild the WASM output after changing it.
+
+```bash
+FISSION_WEB_TEST_CONTROL=1 ./platforms/web/build-wasm.sh
+```
+
+Ordinary production Web builds deliberately omit `globalThis.__FISSION_TEST__`.
+
+Then use the browser client:
 
 ```rust
 use fission_test_driver::{BrowserTestOptions, LiveTestClient};

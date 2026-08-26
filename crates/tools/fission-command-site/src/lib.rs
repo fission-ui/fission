@@ -70,6 +70,7 @@ pub fn routes(project_dir: &Path) -> Result<()> {
 }
 
 pub fn serve(project_dir: &Path, release: bool, host: String, port: u16, open: bool) -> Result<()> {
+    eprintln!("Building static site before starting local server...");
     if site_entry_configured(project_dir)? {
         let port = port.to_string();
         let open_flag = if open { "" } else { "--no-open" };
@@ -79,8 +80,14 @@ pub fn serve(project_dir: &Path, release: bool, host: String, port: u16, open: b
         }
         return run_site_builder(project_dir, release, "serve", &args);
     }
-    build(project_dir, release)?;
     let options = site_build_options(project_dir)?;
+    let report = fission_shell_site::build_content_site(&options)?;
+    println!(
+        "Built {} static route(s) into {}",
+        report.routes.len(),
+        report.output_dir.display()
+    );
+    eprintln!("Static site build complete; starting local server...");
     serve_static(options.output_dir, host, port, open)
 }
 

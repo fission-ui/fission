@@ -17,7 +17,9 @@ Test process                         Application
                                           TestEvent / Runtime
 ```
 
-Native applications use `FISSION_TEST_CONTROL_PORT=<port>`. Web applications use a test-only bridge included by `fission test --target web` or a WASM build with `FISSION_WEB_TEST_CONTROL=1`.
+Native applications use `FISSION_TEST_CONTROL_PORT=<port>`. Web applications use a test-only bridge included by `fission test --target web` or a WASM build compiled with `FISSION_WEB_TEST_CONTROL=1`. The Web variable is read at compile time: it must be present on the WASM build command, and setting it only while serving an existing build or running the browser test has no effect.
+
+See the [complete environment-variable reference](https://fission.rs/reference/config/environment-variables/) for test, shell, renderer, diagnostics, storage, build, packaging, signing, and publishing variables.
 
 ## Protocol types
 

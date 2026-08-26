@@ -1,0 +1,164 @@
+---
+title: Environment variables
+description: Complete reference for environment variables read or supplied by Fission runtime shells, tests, diagnostics, builds, packaging, and publishing.
+---
+
+# Environment variables
+
+Fission prefers typed Rust APIs and `fission.toml` for durable configuration. Environment variables are reserved for process-local overrides, test instrumentation, tool discovery, generated build-script inputs, and secrets that must not be committed.
+
+The moment at which a variable is read is part of its contract:
+
+| Kind | When it must be set |
+| --- | --- |
+| Compile time | On the command that compiles the affected crate or WASM application. Setting it while serving or launching an existing artifact has no effect. |
+| Runtime | On the application process. A parent test process does not affect an already-running child unless it passes the variable through. |
+| Command | On the `fission`, `cargo fission`, or provider command invocation. |
+| Generated input | Fission sets it for a configured script. Application developers should read it, not set it manually. |
+
+Unless a row explicitly says otherwise, an invalid value is ignored and the documented default is used. Variables described as internal diagnostics are useful for investigation but are not stable application configuration APIs.
+
+## Live testing and browser testing
+
+| Variable | Kind | Values and default | Effect |
+| --- | --- | --- | --- |
+| `FISSION_WEB_TEST_CONTROL` | Compile time, Web only | Unset by default; use `1` | Includes the test-only `globalThis.__FISSION_TEST__` bridge in the compiled WASM application. `fission test --target web` sets this for its build. If you build WASM yourself, use `FISSION_WEB_TEST_CONTROL=1` on the build command and rebuild whenever its presence changes. Setting it only while serving files or running a browser test does nothing. Do not enable it in a production build. |
+| `FISSION_TEST_CONTROL_PORT` | Runtime, native and mobile | TCP port; unset by default | Starts the LiveTest HTTP control server. The builder API is preferred when the app owns the port. |
+| `FISSION_BACKGROUND_TEST` | Runtime | Presence enables it | Marks checked-in example applications as unattended test launches. It is an example convention rather than a general shell mode. |
+| `FISSION_CHROME` | Command/test | Path; automatic discovery by default | Selects the Chrome or Chromium executable used by browser tests and `fission doctor web`. `CHROME` and `CHROME_BIN` are fallback aliases for tool discovery. |
+| `FISSION_WEB_SMOKE_URL` | Test | URL; unset skips the checked-in browser conformance test | Points the `web-smoke` browser test at an already-served application. It does not build or serve the app. |
+| `FISSION_SCREENSHOT_DIR` | Test/examples | Directory; example-specific temporary default | Selects output for checked-in live screenshot tests. |
+| `FISSION_TEST_MEASURER` | Test | `mock` or unset | Selects the deterministic mock text measurer in `fission-test`. |
+| `FISSION_TEST_USE_MOCK_MEASURER` | Test | Boolean; false by default | Legacy boolean spelling for selecting the mock text measurer. Prefer `FISSION_TEST_MEASURER=mock`. |
+| `FISSION_TEST_TRACE` | Test | `1` or unset | Emits `fission-test` frame/input trace output. |
+| `FISSION_TEST_DEBUG` | Test | Presence enables it | Emits extra diagnostics from selected framework test cases. |
+| `FISSION_WEB_HOST` | Generated Web helper scripts | Host; `127.0.0.1` | Selects the local Web server bind address. |
+| `FISSION_WEB_PORT` | Generated Web helper scripts | Port; first available from `8123` | Selects an exact local Web server port. When unset, the helper probes the next available port. |
+| `FISSION_WEB_CDP_PORT` | Generated browser test | Port; first available from `9222` | Selects an exact Chrome DevTools Protocol port. When unset, the helper probes the next available port. |
+| `FISSION_WEB_PROFILE` | Generated Web build | `dev` (default) or `release` | Selects the wasm-pack build profile. Values other than `release` use the development profile. |
+| `FISSION_WEB_OPEN` | Generated Web run helper | `1` or unset | Opens the served URL with the platform browser launcher. |
+| `FISSION_WEB_MAX_AVG_FRAME_MS` | Generated browser test | Milliseconds; `80` | Sets the average-frame-time failure threshold in generated smoke tests. |
+| `FISSION_WEB_MAX_INPUT_LATENCY_MS` | Generated browser test | Milliseconds; `180` | Sets the average-input-latency failure threshold in generated smoke tests. |
+| `FISSION_ALLOW_WEBGPU_FALLBACK` | Generated browser test | `1` or unset | Allows a Canvas2D result on a WebGPU-capable browser without making the generated renderer smoke test fail. It does not change renderer fallback behavior. |
+
+For a manually built Web target, the complete order is:
+
+```bash
+FISSION_WEB_TEST_CONTROL=1 ./platforms/web/build-wasm.sh
+# Serve the generated directory, then point the test at that URL.
+FISSION_WEB_SMOKE_URL=http://127.0.0.1:8123/platforms/web/ \
+  cargo test -p web-smoke --test text_input_browser
+```
+
+## Rendering, layout, text, and input
+
+| Variable | Kind | Values and default | Effect |
+| --- | --- | --- | --- |
+| `FISSION_RENDERER` | Runtime, native | `auto` (default), `native-vello-gpu`, `native-vello-cpu`, or `native-software` | Selects the native renderer. Web renderer selection uses `?fission_renderer=` or `globalThis.FISSION_RENDERER`, because a browser cannot read process environment variables at runtime. |
+| `FISSION_VELLO_USE_CPU` | Runtime, native | Boolean; false | Compatibility alias that forces Vello CPU mode. Prefer `FISSION_RENDERER=native-vello-cpu`. |
+| `FISSION_IMAGE_CACHE_BYTES` | Runtime | Positive byte count; 50 MiB default | Sets the decoded image-cache budget used by Vello and the software renderer. |
+| `FISSION_COMPOSITOR_CACHE_MB` | Runtime | Non-negative MiB count; 256 default | Sets the texture-compositor cache budget. |
+| `FISSION_ENABLE_TEXTURE_COMPOSITOR` | Runtime, internal | `1` or unset | Enables the experimental texture compositor when the scene and device limits allow it. |
+| `FISSION_ENABLE_VELLO_SCENE_CACHE` | Runtime, internal | `1` or unset | Enables retained Vello scene-layer caching. |
+| `FISSION_MAX_FPS` | Runtime | Positive integer; `60` | Caps normal presentation rate. |
+| `FISSION_REPEAT_ANIMATION_FPS` | Runtime | Positive integer, capped by `FISSION_MAX_FPS`; `10` | Sets the redraw rate for repeating animations. |
+| `FISSION_RESIZE_FPS` | Runtime | Positive integer, capped by `FISSION_MAX_FPS`; `60` | Sets the live-resize redraw rate. |
+| `FISSION_RESIZE_SETTLE_MS` | Runtime | Positive milliseconds; `90` | Sets the quiet period before the settled resize frame. |
+| `FISSION_TEXTINPUT_BLINK` | Runtime | Boolean; true | Enables the TextInput caret blink. |
+| `FISSION_TEXTINPUT_BLINK_MS` | Runtime | Positive milliseconds; `530` | Sets the caret blink period. |
+| `FISSION_USE_SYSTEM_FONTS` | Runtime | Boolean; false | Adds operating-system fonts to the packaged font collection. |
+| `FISSION_TEXT_SCALE_FACTOR` | Runtime | Positive finite number; platform setting by default | Overrides the platform accessibility text scale. |
+| `FISSION_IOS_SCALE_FACTOR` | Runtime, iOS | Positive finite number; reported display scale or `3` fallback | Overrides the iOS display scale used by the shell. Intended for platform diagnosis and test hosts. |
+| `FISSION_SCROLL_TRACE` | Runtime, internal diagnostics | `1` or unset | Emits scroll routing, state, and layout diagnostics. |
+| `FISSION_TEXT_TRACE` | Runtime, internal diagnostics | Boolean; false | Emits TextInput latency diagnostics. |
+| `FISSION_FRAME_TRACE` | Runtime, internal diagnostics | Boolean; false | Emits frame scheduling and presentation diagnostics. |
+| `FISSION_RENDER_TRACE` | Runtime, internal diagnostics | Presence enables it | Emits render-pipeline diagnostics. |
+| `FISSION_DEBUG_ANDROID_EVENTS` | Runtime, Android diagnostics | Presence enables it | Emits Android lifecycle and input-event diagnostics. |
+| `FISSION_ANDROID_AUDIO_TRACE` | Runtime, Android diagnostics | Presence enables it | Emits Android audio capability diagnostics. |
+
+## Runtime services, storage, and server rendering
+
+| Variable | Kind | Values and default | Effect |
+| --- | --- | --- | --- |
+| `FISSION_STORE_PATH` | Runtime, native SQLite store | File path; platform application-data path by default | Overrides the database file used by the default native SQLite store. Web SQLite uses OPFS instead. |
+| `FISSION_DEEP_LINK_URL` | Runtime | One URL; unset by default | Adds one startup deep link to the native shell. |
+| `FISSION_DEEP_LINKS` | Runtime | Newline-separated URLs; unset by default | Adds multiple startup deep links. Command-line deep links and platform-delivered links remain supported. |
+| `FISSION_SERVER_ARTIFACTS` | Runtime/build, SSR | Directory; configured server artifact directory by default | Overrides where the server shell reads generated server artifacts. |
+| `FISSION_BUILD_ID` | Build or runtime, SSR | String; generated/fallback identity by default | Supplies the server build identity used for artifact and client compatibility. A compile-time value is used when no runtime value is present. |
+| `FISSION_STATIC_ROOT` | Runtime, packaged Static site/SSR server | Directory; `/srv/fission-site` | Selects the static asset root in generated container entrypoints. |
+| `HOST` | Runtime, packaged Static site/SSR server | Address; `0.0.0.0` | Selects the bind address in generated container entrypoints. |
+| `PORT` | Runtime, packaged Static site/SSR server | TCP port; generated default | Selects the bind port in generated container entrypoints. |
+| `FISSION_WINDOWS_APP_USER_MODEL_ID` | Runtime, Windows | AppUserModelID; package/process identity by default | Supplies the Windows notification AppUserModelID when the process has not already registered one. |
+
+## Diagnostics
+
+Call `fission_diagnostics::init_from_env()` before expecting these variables to configure the diagnostics registry.
+
+| Variable | Kind | Values and default | Effect |
+| --- | --- | --- | --- |
+| `FISSION_DIAG` | Runtime | Comma-separated categories or `*`; empty | Enables diagnostic categories. |
+| `FISSION_DIAG_LEVEL` | Runtime | `error`, `warn`, `info`, `debug`, `trace`; `warn` | Sets the minimum recorded level. |
+| `FISSION_DIAG_SINK` | Runtime | `stdout`, `disabled`, or `file:/path`; `stdout` | Selects the diagnostic sink. |
+| `FISSION_DIAG_SAMPLING` | Runtime | Number from `0.0` to `1.0`; `1.0` | Sets event sampling probability. |
+
+## Build and generated-script inputs
+
+| Variable | Kind | Values and default | Effect |
+| --- | --- | --- | --- |
+| `FISSION_MATERIAL_ICONS_DIR` | Compile time | Directory; vendored Material Symbols source | Overrides the icon source consumed by the `fission-icons` build script. |
+| `FISSION_APP_ICON` | Generated Android/iOS package script | Image path; generated target icon | Overrides the source image used to generate package icon assets. |
+| `FISSION_GRADLE` | Generated Android package script | Command plus arguments; project wrapper or `gradle` discovery by default | Overrides the Gradle command used by generated Android packaging scripts. |
+| `FISSION_VARIANT` | Generated input | Selected desktop variant or unset | Fission supplies the selected variant to configured build and packaging scripts. It removes an inherited value when no variant was selected. |
+| `FISSION_LINUX_PAYLOAD_DIR` | Generated input | Directory | Linux packaging supplies the staged payload directory. |
+| `FISSION_LINUX_NATIVE_PRODUCTS_MANIFEST` | Generated input | JSON file path | Linux packaging supplies the native-products manifest. |
+| `FISSION_WINDOWS_ASSETS_DIR` | Generated input | Directory | Windows packaging supplies generated package assets. |
+| `FISSION_WINDOWS_NATIVE_PRODUCTS_MANIFEST` | Generated input | JSON file path | Windows packaging supplies the native-products manifest. |
+| `FISSION_INSTALL_DIR` | Generated input | Directory | Packaging supplies the intended install root to scripts that declare this input. |
+| `FISSION_CAPTURE_TARGET`, `FISSION_CAPTURE_SCENARIO`, `FISSION_CAPTURE_SET`, `FISSION_CAPTURE_OUTPUT` | Generated input | Strings or paths | Store-screenshot workflows supply the target, scenario, capture set, and output location to configured capture commands. |
+
+`FISSION_WEB_URL` is an internal value passed from the generated browser-test shell script to its embedded DevTools Protocol client. The script owns it; callers should use `FISSION_WEB_HOST` and `FISSION_WEB_PORT` instead.
+
+Cargo also supplies standard build-script variables such as `OUT_DIR`, `CARGO_MANIFEST_DIR`, `CARGO_BUILD_TARGET`, and `CARGO_BIN_EXE_<name>`. Those are Cargo contracts, not Fission configuration.
+
+## Toolchain discovery
+
+These are established platform/tool variables that Fission reads rather than Fission-owned settings.
+
+| Variables | Purpose |
+| --- | --- |
+| `ANDROID_HOME`, `ANDROID_SDK_ROOT` | Android SDK discovery. |
+| `ANDROID_NDK`, `ANDROID_NDK_HOME`, `ANDROID_NDK_ROOT` | Android NDK discovery. |
+| `ANDROID_TOOLCHAIN` | Explicit Android LLVM toolchain directory. |
+| `ANDROID_MIN_API_LEVEL` | Minimum API level used by doctor/build tooling when no stronger project value exists. |
+| `BUNDLETOOL` | Explicit `bundletool` executable or JAR used for local Android App Bundle inspection. |
+| `CHROME`, `CHROME_BIN` | Browser executable fallbacks after `FISSION_CHROME`. |
+| `GH_TOKEN`, `GITHUB_TOKEN` | GitHub release and Pages provider authentication. |
+| `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN` | Cloudflare Pages publishing. |
+| `NETLIFY_AUTH_TOKEN` | Netlify publishing. |
+| `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, `AWS_PROFILE`, `AWS_REGION`, `AWS_ENDPOINT_URL_S3`, `AWS_WEB_IDENTITY_TOKEN_FILE` | S3-compatible publishing through the standard AWS credential chain and endpoint override. |
+| `DROPBOX_ACCESS_TOKEN`, `GOOGLE_DRIVE_ACCESS_TOKEN`, `ONEDRIVE_ACCESS_TOKEN` | File-provider publishing. |
+| `DOCKER_CONFIG` | Docker credential and configuration discovery. |
+| `VISUAL`, `EDITOR` | Editor used for release metadata and notes. |
+
+Normal operating-system variables such as `HOME`, `USERPROFILE`, `LOCALAPPDATA`, `APPDATA`, `XDG_DATA_HOME`, and `PATH` are used only for conventional directory and tool discovery.
+
+## Signing and store credentials
+
+The names below are defaults. Relevant `fission.toml` fields can replace most credential variable names, which is useful when a CI secret store enforces project-specific naming. Never place the secret value itself in `fission.toml`.
+
+| Provider | Default variables |
+| --- | --- |
+| Android signing | `ANDROID_KEYSTORE`, `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_ALIAS`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_PASSWORD` |
+| Windows signing | `WINDOWS_CERTIFICATE`, `WINDOWS_CERTIFICATE_BASE64`, `WINDOWS_CERTIFICATE_THUMBPRINT`, `WINDOWS_CERTIFICATE_PASSWORD`; `WINDOWS_SKIP_SIGNING=1` is limited to deliberate local unsigned validation |
+| Apple signing and notarization | `APPLE_TEAM_ID`, `APP_STORE_CONNECT_KEY_ID`, `APP_STORE_CONNECT_ISSUER_ID`, `APP_STORE_CONNECT_API_KEY`, `APP_STORE_CONNECT_API_KEY_BASE64`, `APP_STORE_CONNECT_API_KEY_PATH` |
+| Google Play | `PLAY_STORE_ACCESS_TOKEN`, `PLAY_STORE_SERVICE_ACCOUNT_JSON`, `PLAY_STORE_SERVICE_ACCOUNT_JSON_BASE64`, `GOOGLE_APPLICATION_CREDENTIALS` |
+| App Store Connect publishing | `APP_STORE_CONNECT_ACCESS_TOKEN`, `APP_STORE_CONNECT_ISSUER_ID`, `APP_STORE_CONNECT_KEY_ID`, `APP_STORE_CONNECT_API_KEY`, `APP_STORE_CONNECT_API_KEY_BASE64`, `APP_STORE_CONNECT_API_KEY_PATH` |
+| Microsoft Store | `MICROSOFT_STORE_TOKEN`, `MICROSOFT_STORE_SELLER_ID`, `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `MICROSOFT_STORE_CLIENT_SECRET`; `PARTNER_CENTER_SELLER_ID`, `PARTNER_CENTER_TENANT_ID`, `PARTNER_CENTER_CLIENT_ID`, and `PARTNER_CENTER_CLIENT_SECRET` remain accepted fallbacks |
+
+Credential precedence and configurable variable-name fields are documented beside the matching sections in [`fission.toml`](/reference/config/fission-toml/). Fission reports the variable name it used but must never print its value.
+
+Generated target and packaging scripts also receive orchestration inputs such as `ANDROID_AVD_NAME`, `ANDROID_EMULATOR_HEADLESS`, `ANDROID_PROFILE`, `IOS_SIM_DEVICE_ID`, `IOS_SIM_HEADLESS`, `IOS_SIM_PROFILE`, `LINUX_PROFILE`, and `WINDOWS_PROFILE`. These are owned by the `fission` command invocation; custom scripts may read them, but users should select the device, headless mode, target, and profile through the corresponding command options instead of setting these variables directly.
+
+## Repository-maintainer and example-only variables
+
+The source tree contains variables used only by Fission's own examples, capture jobs, performance qualification, and release tests. They are not framework configuration for downstream applications. Examples include `FISSION_UPDATE_CHART_DOCS`, `FISSION_CHART_DOC_SLUG`, `FISSION_FIELD_INSPECTOR_DEMO_HOSTS`, `FISSION_REPRO_*`, `FISSION_REDIS_URL` for the opt-in Redis integration test, and test-secret sentinels. Their authoritative usage lives beside the relevant checked-in script or test; they are intentionally not compatibility commitments.

@@ -121,6 +121,9 @@ The render pipeline (`Pipeline`) manages incremental updates:
 | `FISSION_TEXT_TRACE` | `false` | Enable text input latency tracing to stderr. |
 | `FISSION_SCROLL_TRACE` | `false` | Enable scroll event tracing to stderr. |
 | `FISSION_TEST_CONTROL_PORT` | (none) | Start an HTTP test control server on this port. |
+| `FISSION_WEB_TEST_CONTROL` | (none) | Web only: include the test bridge when present at WASM compile time. Use `1`; setting it after compilation has no effect. |
+
+The [complete environment-variable reference](https://fission.rs/reference/config/environment-variables/) covers the additional renderer, diagnostics, storage, build, packaging, signing, and publishing variables and distinguishes compile-time switches from runtime settings.
 
 ## Test control
 

@@ -8,7 +8,7 @@ description: Complete reference for every fission.toml section currently read by
 
 `fission.toml` is the project manifest read by the Fission command-line interface and the static-site shell. It is the place for stable project facts: the app identity, enabled targets, declared host capabilities, site build settings, package references, release entries, provider configuration, and release workflow commands.
 
-Keep this file human-reviewable. Short identifiers and non-secret paths belong here. Long release notes, localized store descriptions, review instructions, privacy declarations, screenshots, and videos can live in referenced files. Certificates, private keys, signing passwords, tokens, keystores, and service-account JSON must come from environment variables, provider tools, platform key stores, or CI secrets.
+Keep this file human-reviewable. Short identifiers and non-secret paths belong here. Long release notes, localized store descriptions, review instructions, privacy declarations, screenshots, and videos can live in referenced files. Certificates, private keys, signing passwords, tokens, keystores, and service-account JSON must come from environment variables, provider tools, platform key stores, or CI secrets. The centralized [environment-variable reference](/reference/config/environment-variables/) lists the framework, testing, toolchain, signing, and publishing names and explains when each is read.
 
 This reference lists accepted fields. For the release reasoning behind those
 fields, use the platform guides:

@@ -223,12 +223,14 @@ pub fn list_content_routes(options: &SiteBuildOptions) -> Result<Vec<SiteRouteRe
 }
 
 pub fn build_site(options: &SiteBuildOptions, site: &FissionSite) -> Result<SiteBuildReport> {
+    eprintln!("Loading static site routes...");
     let mut routes = load_content_routes(options, site.content_transform.as_deref())?;
     let mut styles = StyleRegistry::default();
     let custom_routes = render_custom_routes(options, site, &mut styles)?;
     routes.extend(custom_routes);
     routes.sort_by(|a, b| a.path.cmp(&b.path));
     detect_duplicate_routes(&routes)?;
+    eprintln!("Preparing output for {} static routes...", routes.len());
 
     if options.clean && options.output_dir.exists() {
         fs::remove_dir_all(&options.output_dir).with_context(|| {
@@ -242,15 +244,18 @@ pub fn build_site(options: &SiteBuildOptions, site: &FissionSite) -> Result<Site
     copy_asset_dirs(options)?;
 
     let mut rendered_routes = Vec::new();
-    for route in &routes {
+    for (index, route) in routes.iter().enumerate() {
+        report_route_progress("Rendering", index, routes.len(), &route.path);
         let html = render_route(route, &routes, options, site, &mut styles)?;
         rendered_routes.push((route, html));
     }
+    eprintln!("Writing generated styles and route output...");
     write_site_css(options, site, &styles)?;
     write_site_enhancement_js(options)?;
 
     let mut report_routes = Vec::new();
-    for (route, html) in rendered_routes {
+    for (index, (route, html)) in rendered_routes.into_iter().enumerate() {
+        report_route_progress("Writing", index, routes.len(), &route.path);
         let output = output_path_for_route(&options.output_dir, &route.path);
         if let Some(parent) = output.parent() {
             fs::create_dir_all(parent)?;
@@ -265,16 +270,25 @@ pub fn build_site(options: &SiteBuildOptions, site: &FissionSite) -> Result<Site
         });
     }
 
+    eprintln!("Generating search and discovery assets...");
     write_search_assets_if_needed(options, &routes)?;
     write_root_index_if_needed(options, &routes)?;
     write_sitemap_if_needed(options, &routes)?;
     write_robots_if_needed(options)?;
+    eprintln!("Validating generated internal links...");
     validate_generated_internal_links(&options.output_dir)?;
 
     Ok(SiteBuildReport {
         output_dir: options.output_dir.clone(),
         routes: report_routes,
     })
+}
+
+fn report_route_progress(stage: &str, index: usize, total: usize, path: &str) {
+    let completed = index + 1;
+    if completed == 1 || completed == total || completed % 100 == 0 {
+        eprintln!("{stage} route {completed}/{total}: {path}");
+    }
 }
 
 pub fn check_site(options: &SiteBuildOptions, site: &FissionSite) -> Result<SiteBuildReport> {
@@ -1888,6 +1902,14 @@ mod tests {
         assert!(css.contains(".fission-site-svg-colored svg *"));
         assert!(css.contains("fill: currentColor;"));
         assert!(css.contains(".fission-site-svg-colored svg [fill=\"none\"]"));
+        assert!(css.contains(".fission-site-footer {\n  position: static;"));
+        assert!(css.contains("flex: 0 0 auto;"));
+        assert!(css.contains(".fission-site-doc-main {\n  max-height: none;"));
+        assert!(css.contains("min-height: calc(100vh - 4.75rem);"));
+        assert!(css.contains(".fission-site-doc-sidebar > .fission-site-column,"));
+        assert!(css.contains("align-self: stretch;\n  min-height: 100%;"));
+        assert!(!css.contains(".fission-site-doc-layout {\n  height:"));
+        assert!(!css.contains(".fission-site-doc-main {\n  max-height: 100%;"));
         assert!(!css.contains(
             ".fission-site-route-link,\n.fission-site-heading-link { display: contents; }"
         ));
@@ -1964,6 +1986,10 @@ mod tests {
         assert!(css.contains(":root"));
         assert!(css.contains(".fs_"));
         assert!(css.contains(".fission-doc-tabs"));
+        assert!(
+            !css.contains("min-height:864px"),
+            "the documentation template must not bake its render viewport into browser flow"
+        );
         assert!(temp.join("target/fission/site/sitemap.xml").exists());
         assert!(temp.join("target/fission/site/robots.txt").exists());
         assert!(temp.join("target/fission/site/search/search.js").exists());
