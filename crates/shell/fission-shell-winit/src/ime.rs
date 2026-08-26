@@ -326,7 +326,7 @@ fn report_unsupported(name: &'static str, configured: bool) {
             .expect("text input diagnostic lock poisoned")
             .insert((std::env::consts::OS, name))
     {
-        eprintln!(
+        log::warn!(
             "Fission text input configuration `{name}` is not implemented by the {} shell adapter; the host default remains active",
             std::env::consts::OS
         );
@@ -374,8 +374,22 @@ fn diagnose_web_unsupported(config: &TextInputConfig) {
         "enable_suggestions=false with autocorrect enabled",
         !config.enable_suggestions && config.autocorrect,
     );
-    report_unsupported("smart_dashes=false", !config.smart_dashes);
-    report_unsupported("smart_quotes=false", !config.smart_quotes);
+    // Disabling browser autocorrection also disables its smart substitution
+    // path. Only diagnose the two finer hints when autocorrection remains on
+    // and the browser cannot honor them independently.
+    report_unsupported(
+        "smart_dashes=false",
+        web_smart_hint_needs_advisory(config.autocorrect, config.smart_dashes),
+    );
+    report_unsupported(
+        "smart_quotes=false",
+        web_smart_hint_needs_advisory(config.autocorrect, config.smart_quotes),
+    );
+}
+
+#[cfg(any(target_arch = "wasm32", test))]
+fn web_smart_hint_needs_advisory(autocorrect: bool, hint_enabled: bool) -> bool {
+    autocorrect && !hint_enabled
 }
 
 fn mobile_ime_configuration(config: &TextInputConfig) -> winit::window::ImeConfiguration {
@@ -694,7 +708,8 @@ mod macos {
 mod tests {
     use super::{
         active_platform_config, effective_ime_allowed, mobile_ime_configuration,
-        text_edit_command_from_ime_state, web_autocomplete, TextInputConfig,
+        text_edit_command_from_ime_state, web_autocomplete, web_smart_hint_needs_advisory,
+        TextInputConfig,
     };
     use fission_core::{TextEditCommand, TextEditSource};
     use fission_ir::semantics::{TextInputAction, TextInputType};
@@ -754,6 +769,14 @@ mod tests {
 
         assert_eq!(config.name.as_deref(), Some("email"));
         assert_eq!(web_autocomplete(&config), "section-billing-address email");
+    }
+
+    #[test]
+    fn disabled_web_autocorrection_also_satisfies_disabled_smart_hints() {
+        assert!(!web_smart_hint_needs_advisory(false, false));
+        assert!(!web_smart_hint_needs_advisory(false, true));
+        assert!(!web_smart_hint_needs_advisory(true, true));
+        assert!(web_smart_hint_needs_advisory(true, false));
     }
 
     #[test]

@@ -20,6 +20,7 @@ impl Log for BrowserConsoleLogger {
         let message = format!("[{} {}] {}", record.level(), record.target(), record.args());
         match record.level() {
             Level::Error => error(&message),
+            Level::Warn => warn(&message),
             _ => info(&message),
         }
     }
@@ -50,6 +51,10 @@ pub(crate) fn info(message: &str) {
 
 pub(crate) fn error(message: &str) {
     web_sys::console::error_1(&JsValue::from_str(message));
+}
+
+pub(crate) fn warn(message: &str) {
+    web_sys::console::warn_1(&JsValue::from_str(message));
 }
 
 #[cfg(test)]

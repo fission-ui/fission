@@ -164,6 +164,8 @@ impl From<CounterApp> for Widget {
                             autocorrect: false,
                             enable_suggestions: false,
                             spell_check: false,
+                            smart_dashes: false,
+                            smart_quotes: false,
                             autofill_hints: vec!["one-time-code".into()],
                             ..Default::default()
                         },
