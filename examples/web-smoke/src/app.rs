@@ -9,6 +9,7 @@ pub struct CounterState {
     pub primary_text: String,
     pub secondary_text: String,
     pub password: String,
+    pub verification_code: String,
     pub primary_edits: usize,
     pub secondary_edits: usize,
 }
@@ -43,6 +44,13 @@ fn edit_password(state: &mut CounterState, ctx: &mut ReducerContext<CounterState
     }
 }
 
+#[fission_reducer(EditVerificationCode)]
+fn edit_verification_code(state: &mut CounterState, ctx: &mut ReducerContext<CounterState>) {
+    if let Some(change) = ctx.input.text_change() {
+        state.verification_code = change.new_text.clone();
+    }
+}
+
 #[derive(Clone)]
 pub struct CounterApp;
 
@@ -54,6 +62,8 @@ impl From<CounterApp> for Widget {
         let edit_primary = with_reducer!(ctx, EditPrimary, edit_primary);
         let edit_secondary = with_reducer!(ctx, EditSecondary, edit_secondary);
         let edit_password = with_reducer!(ctx, EditPassword, edit_password);
+        let edit_verification_code =
+            with_reducer!(ctx, EditVerificationCode, edit_verification_code);
 
         let content = Container::new(Column {
             gap: Some(tokens.spacing.m),
@@ -124,6 +134,49 @@ impl From<CounterApp> for Widget {
                     autofill_hints: vec!["current-password".into()],
                     ..Default::default()
                 }
+                .into(),
+                ZStack {
+                    children: widgets![
+                        Container::new(Spacer::default())
+                            .width(360.0)
+                            .height(66.0)
+                            .bg(Color::WHITE),
+                        TextInput {
+                            id: Some(WidgetId::explicit("web-smoke.text.verification")),
+                            semantics_identifier: Some("web-smoke.text.verification".into()),
+                            value: view.state().verification_code.clone(),
+                            on_input: Some(edit_verification_code),
+                            width: Some(360.0),
+                            height: Some(66.0),
+                            padding: Some([9.0, 0.0, 2.0, 0.0]),
+                            borderless: true,
+                            font_family: Some("Unavailable Verification Font".into()),
+                            font_size: Some(42.0),
+                            line_height: Some(52.0),
+                            letter_spacing: Some(22.0),
+                            text_color: Some(Color::BLACK),
+                            show_cursor: false,
+                            keyboard_type: TextInputType::Number,
+                            input_formatters: vec![
+                                InputFormatter::DigitsOnly,
+                                InputFormatter::SingleLine,
+                            ],
+                            autocorrect: false,
+                            enable_suggestions: false,
+                            spell_check: false,
+                            smart_dashes: false,
+                            smart_quotes: false,
+                            autofill_hints: vec!["one-time-code".into()],
+                            ..Default::default()
+                        },
+                    ],
+                    ..Default::default()
+                }
+                .into(),
+                Text::new(format!(
+                    "Verification value: {}",
+                    view.state().verification_code
+                ))
                 .into(),
             ],
             ..Default::default()

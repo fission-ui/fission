@@ -2,6 +2,35 @@ use anyhow::{Context, Result};
 use fission_test_driver::{BrowserTestOptions, LiveTestClient, SelectorQuery};
 use serde_json::Value;
 
+fn changed_pixels_in_bounds(
+    before: &[u8],
+    after: &[u8],
+    bounds: fission_test_driver::Bounds,
+) -> usize {
+    let before = image::load_from_memory(before)
+        .expect("decode baseline PNG")
+        .to_rgba8();
+    let after = image::load_from_memory(after)
+        .expect("decode edited PNG")
+        .to_rgba8();
+    assert_eq!(before.dimensions(), after.dimensions());
+    let left = bounds.x.max(0.0).floor() as u32;
+    let top = bounds.y.max(0.0).floor() as u32;
+    let right = (bounds.x + bounds.width)
+        .ceil()
+        .max(0.0)
+        .min(before.width() as f32) as u32;
+    let bottom = (bounds.y + bounds.height)
+        .ceil()
+        .max(0.0)
+        .min(before.height() as f32) as u32;
+
+    (top..bottom)
+        .flat_map(|y| (left..right).map(move |x| (x, y)))
+        .filter(|&(x, y)| before.get_pixel(x, y) != after.get_pixel(x, y))
+        .count()
+}
+
 fn browser_url() -> Option<String> {
     std::env::var("FISSION_WEB_SMOKE_URL").ok()
 }
@@ -249,5 +278,26 @@ fn canvas_text_adapter_reconciles_complete_browser_edits() -> Result<()> {
     assert!(semantic.masked);
     assert!(semantic.value_present);
     assert_eq!(semantic.value, None, "semantic tree leaked obscured text");
+
+    let verification = SelectorQuery::semantic_identifier("web-smoke.text.verification");
+    client.focus_selector(verification.clone())?;
+    let baseline = client.capture_screenshot_png()?;
+    apply_browser_edit(
+        &client,
+        "123456",
+        6,
+        6,
+        "insertText",
+        Some("123456"),
+        true,
+        false,
+    )?;
+    client.wait_for_text("Verification value: 123456", 5_000)?;
+    let edited = client.capture_screenshot_png()?;
+    let bounds = client.resolve_selector(verification)?.logical_bounds;
+    assert!(
+        changed_pixels_in_bounds(&baseline, &edited, bounds) > 100,
+        "the styled TextInput accepted its value but did not paint visible glyphs"
+    );
     Ok(())
 }

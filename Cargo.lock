@@ -9543,6 +9543,7 @@ dependencies = [
  "console_error_panic_hook",
  "fission",
  "fission-test-driver",
+ "image 0.25.8",
  "serde_json",
  "wasm-bindgen",
 ]
