@@ -16,6 +16,14 @@ use anyhow::{anyhow, Result};
 use base64::Engine;
 use serde::{Deserialize, Serialize};
 
+#[cfg(not(target_arch = "wasm32"))]
+mod developer;
+#[cfg(not(target_arch = "wasm32"))]
+pub use developer::{
+    DEVELOPER_SESSION_PROTOCOL_VERSION, DeveloperSessionClient, DeveloperSessionDescriptor,
+    DeveloperSessionStatus, ReloadOutcome, developer_session_directory, developer_session_path,
+};
+
 pub mod golden;
 pub use golden::{compare_png_to_golden, GoldenOptions, GoldenReport};
 
@@ -721,11 +729,15 @@ pub type TestResponseSender = std::sync::mpsc::Sender<TestResponse>;
 #[cfg(not(target_arch = "wasm32"))]
 pub struct LiveTestClient {
     transport: LiveTestTransport,
+    scope: Option<SelectorQuery>,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 enum LiveTestTransport {
-    Http { base_url: String },
+    Http {
+        base_url: String,
+        bearer_token: Option<String>,
+    },
     Browser(std::sync::Mutex<browser::BrowserController>),
 }
 
@@ -735,8 +747,27 @@ impl LiveTestClient {
         Self {
             transport: LiveTestTransport::Http {
                 base_url: format!("http://127.0.0.1:{port}"),
+                bearer_token: None,
             },
+            scope: None,
         }
+    }
+
+    /// Connects to a loopback test host protected by a per-session capability.
+    pub fn connect_authenticated(port: u16, bearer_token: impl Into<String>) -> Self {
+        Self {
+            transport: LiveTestTransport::Http {
+                base_url: format!("http://127.0.0.1:{port}"),
+                bearer_token: Some(bearer_token.into()),
+            },
+            scope: None,
+        }
+    }
+
+    /// Restricts this client to one semantic subtree.
+    pub fn with_scope(mut self, scope: SelectorQuery) -> Self {
+        self.scope = Some(scope);
+        self
     }
 
     /// Launches Chromium and connects to a Web application built with
@@ -745,6 +776,7 @@ impl LiveTestClient {
         let controller = browser::BrowserController::launch(options, true)?;
         Ok(Self {
             transport: LiveTestTransport::Browser(std::sync::Mutex::new(controller)),
+            scope: None,
         })
     }
 
@@ -776,13 +808,21 @@ impl LiveTestClient {
     }
 
     pub fn wait_for_ready(&self, timeout_ms: u64) -> Result<()> {
-        let LiveTestTransport::Http { base_url } = &self.transport else {
+        let LiveTestTransport::Http {
+            base_url,
+            bearer_token,
+        } = &self.transport
+        else {
             return Ok(());
         };
         let start = std::time::Instant::now();
         let timeout = std::time::Duration::from_millis(timeout_ms);
         loop {
-            match ureq::get(&format!("{base_url}/health")).call() {
+            let mut request = ureq::get(&format!("{base_url}/health"));
+            if let Some(token) = bearer_token {
+                request = request.set("Authorization", &format!("Bearer {token}"));
+            }
+            match request.call() {
                 Ok(_) => return Ok(()),
                 Err(_) => {
                     if start.elapsed() > timeout {
@@ -796,10 +836,17 @@ impl LiveTestClient {
 
     fn send(&self, cmd: TestCommand) -> Result<TestResponse> {
         let response = match &self.transport {
-            LiveTestTransport::Http { base_url } => {
+            LiveTestTransport::Http {
+                base_url,
+                bearer_token,
+            } => {
                 let body = serde_json::to_string(&cmd)?;
-                let response = ureq::post(&format!("{base_url}/cmd"))
-                    .set("Content-Type", "application/json")
+                let mut request = ureq::post(&format!("{base_url}/cmd"))
+                    .set("Content-Type", "application/json");
+                if let Some(token) = bearer_token {
+                    request = request.set("Authorization", &format!("Bearer {token}"));
+                }
+                let response = request
                     .send_string(&body)
                     .map_err(|error| anyhow!("request failed: {error}"))?;
                 serde_json::from_str(&response.into_string()?)?
@@ -818,12 +865,58 @@ impl LiveTestClient {
         Ok(response)
     }
 
+    fn scoped_query(&self, query: SelectorQuery) -> SelectorQuery {
+        if query.scope.is_some() {
+            query
+        } else if let Some(scope) = &self.scope {
+            query.scoped(scope.clone())
+        } else {
+            query
+        }
+    }
+
+    fn scope_node(&self) -> Result<Option<SemanticNode>> {
+        let Some(scope) = &self.scope else {
+            return Ok(None);
+        };
+        match self.send(TestCommand::ResolveSelector {
+            query: scope.clone(),
+        })? {
+            TestResponse::SelectorResolved { node } => Ok(Some(node)),
+            other => Err(anyhow!("unexpected scope response: {other:?}")),
+        }
+    }
+
+    fn translated_point(&self, x: f32, y: f32) -> Result<(f32, f32)> {
+        Ok(self.scope_node()?.map_or((x, y), |scope| {
+            (x + scope.logical_bounds.x, y + scope.logical_bounds.y)
+        }))
+    }
+
     pub fn tap(&self, x: f32, y: f32) -> Result<()> {
+        let (x, y) = self.translated_point(x, y)?;
         self.send(TestCommand::Tap { x, y })?;
         Ok(())
     }
 
     pub fn tap_text(&self, text: &str) -> Result<()> {
+        if self.scope.is_some() {
+            self.pump()?;
+            let item = self
+                .get_text()?
+                .into_iter()
+                .find(|item| item.text == text)
+                .or_else(|| {
+                    self.get_text()
+                        .ok()?
+                        .into_iter()
+                        .find(|item| item.text.contains(text))
+                })
+                .ok_or_else(|| anyhow!("text `{text}` was not found in the test surface"))?;
+            self.tap(item.x + item.width / 2.0, item.y + item.height / 2.0)?;
+            self.pump()?;
+            return Ok(());
+        }
         // Pump first to ensure layout positions are current
         self.pump()?;
         self.send(TestCommand::TapText {
@@ -842,7 +935,9 @@ impl LiveTestClient {
     }
 
     pub fn resolve_selector(&self, query: SelectorQuery) -> Result<SemanticNode> {
-        match self.send(TestCommand::ResolveSelector { query })? {
+        match self.send(TestCommand::ResolveSelector {
+            query: self.scoped_query(query),
+        })? {
             TestResponse::SelectorResolved { node } => Ok(node),
             other => Err(anyhow!(
                 "unexpected response to ResolveSelector: {:?}",
@@ -852,7 +947,9 @@ impl LiveTestClient {
     }
 
     pub fn scroll_into_view(&self, query: SelectorQuery) -> Result<SemanticNode> {
-        let node = match self.send(TestCommand::ScrollIntoView { query })? {
+        let node = match self.send(TestCommand::ScrollIntoView {
+            query: self.scoped_query(query),
+        })? {
             TestResponse::SelectorResolved { node } => node,
             other => {
                 return Err(anyhow!(
@@ -867,7 +964,9 @@ impl LiveTestClient {
 
     pub fn tap_selector(&self, query: SelectorQuery) -> Result<()> {
         self.pump()?;
-        self.send(TestCommand::TapSelector { query })?;
+        self.send(TestCommand::TapSelector {
+            query: self.scoped_query(query),
+        })?;
         self.pump()?;
         Ok(())
     }
@@ -878,28 +977,36 @@ impl LiveTestClient {
 
     pub fn activate_selector(&self, query: SelectorQuery) -> Result<()> {
         self.pump()?;
-        self.send(TestCommand::ActivateSelector { query })?;
+        self.send(TestCommand::ActivateSelector {
+            query: self.scoped_query(query),
+        })?;
         self.pump()?;
         Ok(())
     }
 
     pub fn focus_selector(&self, query: SelectorQuery) -> Result<()> {
         self.pump()?;
-        self.send(TestCommand::FocusSelector { query })?;
+        self.send(TestCommand::FocusSelector {
+            query: self.scoped_query(query),
+        })?;
         self.pump()?;
         Ok(())
     }
 
     pub fn hover_selector(&self, query: SelectorQuery) -> Result<()> {
         self.pump()?;
-        self.send(TestCommand::HoverSelector { query })?;
+        self.send(TestCommand::HoverSelector {
+            query: self.scoped_query(query),
+        })?;
         self.pump()?;
         Ok(())
     }
 
     pub fn right_click_selector(&self, query: SelectorQuery) -> Result<()> {
         self.pump()?;
-        self.send(TestCommand::RightClickSelector { query })?;
+        self.send(TestCommand::RightClickSelector {
+            query: self.scoped_query(query),
+        })?;
         self.pump()?;
         Ok(())
     }
@@ -907,7 +1014,7 @@ impl LiveTestClient {
     pub fn fill_text_selector(&self, query: SelectorQuery, text: &str) -> Result<()> {
         self.pump()?;
         self.send(TestCommand::FillText {
-            query,
+            query: self.scoped_query(query),
             text: text.to_string(),
         })?;
         self.pump()?;
@@ -920,48 +1027,66 @@ impl LiveTestClient {
 
     pub fn clear_text_selector(&self, query: SelectorQuery) -> Result<()> {
         self.pump()?;
-        self.send(TestCommand::ClearText { query })?;
+        self.send(TestCommand::ClearText {
+            query: self.scoped_query(query),
+        })?;
         self.pump()?;
         Ok(())
     }
 
     pub fn toggle_selector(&self, query: SelectorQuery) -> Result<()> {
         self.pump()?;
-        self.send(TestCommand::Toggle { query })?;
+        self.send(TestCommand::Toggle {
+            query: self.scoped_query(query),
+        })?;
         self.pump()?;
         Ok(())
     }
 
     pub fn select_option(&self, query: SelectorQuery) -> Result<()> {
         self.pump()?;
-        self.send(TestCommand::SelectOption { query })?;
+        self.send(TestCommand::SelectOption {
+            query: self.scoped_query(query),
+        })?;
         self.pump()?;
         Ok(())
     }
 
     pub fn wait_for_selector(&self, query: SelectorQuery, timeout_ms: u64) -> Result<()> {
-        self.send(TestCommand::WaitForSelector { query, timeout_ms })?;
+        self.send(TestCommand::WaitForSelector {
+            query: self.scoped_query(query),
+            timeout_ms,
+        })?;
         Ok(())
     }
 
     pub fn wait_for_visible(&self, query: SelectorQuery, timeout_ms: u64) -> Result<()> {
-        self.send(TestCommand::WaitForVisible { query, timeout_ms })?;
+        self.send(TestCommand::WaitForVisible {
+            query: self.scoped_query(query),
+            timeout_ms,
+        })?;
         Ok(())
     }
 
     pub fn wait_for_enabled(&self, query: SelectorQuery, timeout_ms: u64) -> Result<()> {
-        self.send(TestCommand::WaitForEnabled { query, timeout_ms })?;
+        self.send(TestCommand::WaitForEnabled {
+            query: self.scoped_query(query),
+            timeout_ms,
+        })?;
         Ok(())
     }
 
     pub fn wait_for_disabled(&self, query: SelectorQuery, timeout_ms: u64) -> Result<()> {
-        self.send(TestCommand::WaitForDisabled { query, timeout_ms })?;
+        self.send(TestCommand::WaitForDisabled {
+            query: self.scoped_query(query),
+            timeout_ms,
+        })?;
         Ok(())
     }
 
     pub fn wait_for_value(&self, query: SelectorQuery, value: &str, timeout_ms: u64) -> Result<()> {
         self.send(TestCommand::WaitForValue {
-            query,
+            query: self.scoped_query(query),
             value: value.to_string(),
             timeout_ms,
         })?;
@@ -969,6 +1094,20 @@ impl LiveTestClient {
     }
 
     pub fn wait_for_text(&self, text: &str, timeout_ms: u64) -> Result<()> {
+        if self.scope.is_some() {
+            let started = std::time::Instant::now();
+            let timeout = std::time::Duration::from_millis(timeout_ms);
+            loop {
+                if self.get_text()?.iter().any(|item| item.text.contains(text)) {
+                    return Ok(());
+                }
+                if started.elapsed() >= timeout {
+                    return Err(anyhow!("timed out waiting for text `{text}`"));
+                }
+                self.pump()?;
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+        }
         self.send(TestCommand::WaitForText {
             text: text.to_string(),
             timeout_ms,
@@ -977,7 +1116,10 @@ impl LiveTestClient {
     }
 
     pub fn wait_for_gone(&self, query: SelectorQuery, timeout_ms: u64) -> Result<()> {
-        self.send(TestCommand::WaitForGone { query, timeout_ms })?;
+        self.send(TestCommand::WaitForGone {
+            query: self.scoped_query(query),
+            timeout_ms,
+        })?;
         Ok(())
     }
 
@@ -989,6 +1131,8 @@ impl LiveTestClient {
         end_y: f32,
         steps: u32,
     ) -> Result<()> {
+        let (start_x, start_y) = self.translated_point(start_x, start_y)?;
+        let (end_x, end_y) = self.translated_point(end_x, end_y)?;
         self.send(TestCommand::Drag {
             start_x,
             start_y,
@@ -1008,6 +1152,7 @@ impl LiveTestClient {
         y: f32,
         modifiers: u8,
     ) -> Result<()> {
+        let (x, y) = self.translated_point(x, y)?;
         self.send(TestCommand::PointerDown {
             pointer_id,
             kind,
@@ -1026,6 +1171,7 @@ impl LiveTestClient {
         y: f32,
         modifiers: u8,
     ) -> Result<()> {
+        let (x, y) = self.translated_point(x, y)?;
         self.send(TestCommand::PointerMove {
             pointer_id,
             kind,
@@ -1044,6 +1190,7 @@ impl LiveTestClient {
         y: f32,
         modifiers: u8,
     ) -> Result<()> {
+        let (x, y) = self.translated_point(x, y)?;
         self.send(TestCommand::PointerUp {
             pointer_id,
             kind,
@@ -1062,6 +1209,7 @@ impl LiveTestClient {
         y: f32,
         modifiers: u8,
     ) -> Result<()> {
+        let (x, y) = self.translated_point(x, y)?;
         self.send(TestCommand::PointerCancel {
             pointer_id,
             kind,
@@ -1083,6 +1231,7 @@ impl LiveTestClient {
         phase: TestPointerPhase,
         modifiers: u8,
     ) -> Result<()> {
+        let (x, y) = self.translated_point(x, y)?;
         self.send(TestCommand::PointerScroll {
             x,
             y,
@@ -1103,6 +1252,7 @@ impl LiveTestClient {
         phase: TestPointerPhase,
         modifiers: u8,
     ) -> Result<()> {
+        let (x, y) = self.translated_point(x, y)?;
         self.send(TestCommand::Magnify {
             x,
             y,
@@ -1114,6 +1264,7 @@ impl LiveTestClient {
     }
 
     pub fn external_file_hover(&self, x: f32, y: f32, paths: impl Into<Vec<String>>) -> Result<()> {
+        let (x, y) = self.translated_point(x, y)?;
         self.send(TestCommand::ExternalFileHover {
             x,
             y,
@@ -1124,6 +1275,7 @@ impl LiveTestClient {
     }
 
     pub fn external_file_drop(&self, x: f32, y: f32, paths: impl Into<Vec<String>>) -> Result<()> {
+        let (x, y) = self.translated_point(x, y)?;
         self.send(TestCommand::ExternalFileDrop {
             x,
             y,
@@ -1140,6 +1292,7 @@ impl LiveTestClient {
     }
 
     pub fn scroll(&self, x: f32, y: f32, dx: f32, dy: f32) -> Result<()> {
+        let (x, y) = self.translated_point(x, y)?;
         self.send(TestCommand::Scroll { x, y, dx, dy })?;
         Ok(())
     }
@@ -1191,7 +1344,8 @@ impl LiveTestClient {
 
     /// Captures the current frame as encoded PNG bytes.
     pub fn capture_screenshot_png(&self) -> Result<Vec<u8>> {
-        screenshot_bytes(self.send(TestCommand::CaptureScreenshot {})?)
+        let png = screenshot_bytes(self.send(TestCommand::CaptureScreenshot {})?)?;
+        self.crop_to_scope(png)
     }
 
     /// Compares the current frame to a golden image and writes an optional heatmap.
@@ -1243,7 +1397,8 @@ impl LiveTestClient {
 
     /// Advances the clock and returns the resulting frame as encoded PNG bytes.
     pub fn capture_at_png(&self, ms: u64) -> Result<Vec<u8>> {
-        screenshot_bytes(self.send(TestCommand::CaptureAt { ms })?)
+        let png = screenshot_bytes(self.send(TestCommand::CaptureAt { ms })?)?;
+        self.crop_to_scope(png)
     }
 
     /// Waits for finite motion to settle, optionally ignoring repeating motion.
@@ -1257,14 +1412,71 @@ impl LiveTestClient {
 
     pub fn get_text(&self) -> Result<Vec<TextItem>> {
         match self.send(TestCommand::GetText {})? {
-            TestResponse::Text { items } => Ok(items),
+            TestResponse::Text { mut items } => {
+                if let Some(scope) = self.scope_node()? {
+                    let bounds = scope.visible_bounds.unwrap_or(scope.logical_bounds);
+                    items.retain(|item| {
+                        rectangles_intersect(
+                            Bounds {
+                                x: item.x,
+                                y: item.y,
+                                width: item.width,
+                                height: item.height,
+                            },
+                            bounds,
+                        )
+                    });
+                    for item in &mut items {
+                        item.x -= bounds.x;
+                        item.y -= bounds.y;
+                    }
+                }
+                Ok(items)
+            }
             other => Err(anyhow!("unexpected response: {:?}", other)),
         }
     }
 
     pub fn get_tree(&self) -> Result<Vec<SemanticNode>> {
         match self.send(TestCommand::GetTree {})? {
-            TestResponse::Tree { nodes } => Ok(nodes),
+            TestResponse::Tree { mut nodes } => {
+                let Some(scope) = self.scope_node()? else {
+                    return Ok(nodes);
+                };
+                let scope_id = scope.stable_node_id.clone();
+                let mut retained = std::collections::HashSet::from([scope_id.clone()]);
+                loop {
+                    let before = retained.len();
+                    for node in &nodes {
+                        if node
+                            .parent
+                            .as_ref()
+                            .is_some_and(|parent| retained.contains(parent))
+                        {
+                            retained.insert(node.stable_node_id.clone());
+                        }
+                    }
+                    if retained.len() == before {
+                        break;
+                    }
+                }
+                let origin = scope.visible_bounds.unwrap_or(scope.logical_bounds);
+                nodes.retain(|node| node.stable_node_id != scope_id && retained.contains(&node.stable_node_id));
+                for node in &mut nodes {
+                    if node.parent.as_deref() == Some(scope_id.as_str()) {
+                        node.parent = None;
+                    }
+                    node.logical_bounds.x -= origin.x;
+                    node.logical_bounds.y -= origin.y;
+                    if let Some(bounds) = &mut node.visible_bounds {
+                        bounds.x -= origin.x;
+                        bounds.y -= origin.y;
+                    }
+                    node.x -= origin.x;
+                    node.y -= origin.y;
+                }
+                Ok(nodes)
+            }
             other => Err(anyhow!("unexpected response: {:?}", other)),
         }
     }
@@ -1288,20 +1500,51 @@ impl LiveTestClient {
 
     /// Simulate a mouse move to (x, y) — goes through the real CursorMoved path.
     pub fn simulate_mouse_move(&self, x: f32, y: f32) -> Result<()> {
+        let (x, y) = self.translated_point(x, y)?;
         self.send(TestCommand::SimulateMouseMove { x, y })?;
         Ok(())
     }
 
     /// Simulate a right-click at (x, y) — move + down + up with right button.
     pub fn right_click(&self, x: f32, y: f32) -> Result<()> {
+        let (x, y) = self.translated_point(x, y)?;
         self.send(TestCommand::SimulateRightClick { x, y })?;
         Ok(())
     }
 
     /// Simulate a window resize in logical test-space pixels.
     pub fn simulate_resize(&self, width: u32, height: u32) -> Result<()> {
+        let (width, height) = if let Some(scope) = self.scope_node()? {
+            let png = screenshot_bytes(self.send(TestCommand::CaptureScreenshot {})?)?;
+            let image = image::load_from_memory(&png)?.to_rgba8();
+            let extra_width = image.width().saturating_sub(scope.logical_bounds.width.round() as u32);
+            let extra_height = image.height().saturating_sub(scope.logical_bounds.height.round() as u32);
+            (width.saturating_add(extra_width), height.saturating_add(extra_height))
+        } else {
+            (width, height)
+        };
         self.send(TestCommand::SimulateResize { width, height })?;
         Ok(())
+    }
+
+    fn crop_to_scope(&self, png: Vec<u8>) -> Result<Vec<u8>> {
+        let Some(scope) = self.scope_node()? else {
+            return Ok(png);
+        };
+        let bounds = scope.visible_bounds.unwrap_or(scope.logical_bounds);
+        let image = image::load_from_memory(&png)?.to_rgba8();
+        let x = bounds.x.max(0.0).round() as u32;
+        let y = bounds.y.max(0.0).round() as u32;
+        let width = (bounds.width.max(1.0).round() as u32).min(image.width().saturating_sub(x));
+        let height = (bounds.height.max(1.0).round() as u32).min(image.height().saturating_sub(y));
+        if width == 0 || height == 0 {
+            return Err(anyhow!("test surface is outside the captured frame"));
+        }
+        let cropped = image::imageops::crop_imm(&image, x, y, width, height).to_image();
+        let mut encoded = Vec::new();
+        image::DynamicImage::ImageRgba8(cropped)
+            .write_to(&mut std::io::Cursor::new(&mut encoded), image::ImageFormat::Png)?;
+        Ok(encoded)
     }
 
     // --- High-level helpers ---
@@ -1348,6 +1591,13 @@ fn screenshot_bytes(response: TestResponse) -> Result<Vec<u8>> {
             .map_err(|error| anyhow!("invalid screenshot payload: {error}")),
         other => Err(anyhow!("expected screenshot response, received {other:?}")),
     }
+}
+
+fn rectangles_intersect(left: Bounds, right: Bounds) -> bool {
+    left.x < right.x + right.width
+        && left.x + left.width > right.x
+        && left.y < right.y + right.height
+        && left.y + left.height > right.y
 }
 
 #[cfg(test)]

@@ -4594,6 +4594,7 @@ where
     browser_defaults: BrowserDefaults,
     web_navigation: WebNavigationConfig,
     test_control_port: Option<u16>,
+    test_control_token: Option<String>,
     /// Channel pair for receiving completed background effect results.
     effect_result_tx: mpsc::Sender<AsyncMessage>,
     effect_result_rx: mpsc::Receiver<AsyncMessage>,
@@ -4670,6 +4671,7 @@ where
             browser_defaults: BrowserDefaults::NONE,
             web_navigation: WebNavigationConfig::default(),
             test_control_port: None,
+            test_control_token: None,
             effect_result_tx,
             effect_result_rx,
             async_registry,
@@ -4724,6 +4726,12 @@ where
 
     pub fn with_test_control_port(mut self, port: u16) -> Self {
         self.test_control_port = Some(port);
+        self
+    }
+
+    /// Protects the native test-control endpoint with a bearer capability.
+    pub fn with_test_control_token(mut self, token: impl Into<String>) -> Self {
+        self.test_control_token = Some(token.into());
         self
     }
 
@@ -5545,7 +5553,7 @@ where
                 };
                 #[cfg(not(target_os = "android"))]
                 let injector = test_control::EventInjector::Proxy(event_proxy.clone());
-                test_control::spawn_server(port, injector);
+                test_control::spawn_server(port, self.test_control_token.clone(), injector);
                 true
             })
             .unwrap_or(false);

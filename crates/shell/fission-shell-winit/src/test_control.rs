@@ -40,7 +40,11 @@ pub fn create_pending_event_queue() -> PendingEventQueue {
 
 /// Spawn the TCP test-control server.
 #[cfg(not(target_arch = "wasm32"))]
-pub fn spawn_server(port: u16, injector: EventInjector) -> std::thread::JoinHandle<()> {
+pub fn spawn_server(
+    port: u16,
+    bearer_token: Option<String>,
+    injector: EventInjector,
+) -> std::thread::JoinHandle<()> {
     std::thread::spawn(move || {
         let listener = TcpListener::bind(format!("127.0.0.1:{}", port))
             .unwrap_or_else(|e| panic!("failed to bind test control port {}: {}", port, e));
@@ -48,7 +52,7 @@ pub fn spawn_server(port: u16, injector: EventInjector) -> std::thread::JoinHand
 
         for stream in listener.incoming() {
             match stream {
-                Ok(stream) => handle_connection(stream, &injector),
+                Ok(stream) => handle_connection(stream, bearer_token.as_deref(), &injector),
                 Err(e) => eprintln!("[fission-test-control] accept error: {}", e),
             }
         }
@@ -56,7 +60,11 @@ pub fn spawn_server(port: u16, injector: EventInjector) -> std::thread::JoinHand
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-fn handle_connection(mut stream: TcpStream, injector: &EventInjector) {
+fn handle_connection(
+    mut stream: TcpStream,
+    bearer_token: Option<&str>,
+    injector: &EventInjector,
+) {
     let mut buf = Vec::new();
     let mut tmp = [0u8; 4096];
 
@@ -78,6 +86,23 @@ fn handle_connection(mut stream: TcpStream, injector: &EventInjector) {
     let parts: Vec<&str> = first_line.split_whitespace().collect();
     let method = parts.first().copied().unwrap_or("");
     let path = parts.get(1).copied().unwrap_or("");
+
+    if let Some(expected) = bearer_token {
+        let authorized = request.lines().any(|line| {
+            line.split_once(':').is_some_and(|(name, value)| {
+                name.eq_ignore_ascii_case("authorization")
+                    && value.trim() == format!("Bearer {expected}")
+            })
+        });
+        if !authorized {
+            send_http_response(
+                &mut stream,
+                401,
+                r#"{"status":"Error","message":"unauthorized"}"#,
+            );
+            return;
+        }
+    }
 
     if path == "/health" {
         send_http_response(&mut stream, 200, r#"{"status":"ok"}"#);
