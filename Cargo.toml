@@ -28,6 +28,7 @@ members = [
     "crates/shell/fission-shell-server",
     "crates/shell/fission-shell-terminal",
     "crates/tools/fission-diagnostics",
+    "crates/tools/fission-devtools",
     "crates/tools/cargo-fission",
     "crates/tools/fission-command-package",
     "crates/tools/fission-command-release",

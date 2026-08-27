@@ -1,0 +1,61 @@
+---
+title: ProtectedRoute
+description: Select a protected, pending, denied, or redirecting route branch from application state.
+slug: /widgets/protected-route
+---
+# ProtectedRoute
+
+`ProtectedRoute` places an explicit access boundary in a route table. It stores
+concrete component values and converts only the branch selected by its
+`RouteDecision`, preventing a protected component from registering resources or
+reducers before access is allowed.
+
+```rust
+let decision = match &view.state().session {
+    SessionState::Loading => RouteDecision::Pending,
+    SessionState::Authenticated(_) => RouteDecision::Allow,
+    SessionState::SignedOut => RouteRedirect::replace("/sign-in")
+        .return_to(&view.env().current_route)
+        .into(),
+    SessionState::Failed(_) => RouteDecision::Deny,
+};
+
+Router::<AppState>::new()
+    .with_path(view.state().current_path.clone())
+    .route_component(
+        "/account",
+        ProtectedRoute::new(decision, AccountRoute)
+            .pending(SessionLoadingRoute)
+            .denied(SessionUnavailableRoute),
+    )
+    .route_component("/sign-in", SignInRoute)
+```
+
+## Decisions
+
+| Decision | Built branch | Shell behavior |
+| --- | --- | --- |
+| `Pending` | `pending` | Waits for application state to change. |
+| `Allow` | `allowed` | Builds the protected component. |
+| `Deny` | `denied` | Shows denial; SSR responds with 403. |
+| `Redirect` | `pending` | Declares navigation after the build; SSR responds with 302. |
+
+`RouteRedirect::replace` is the normal access-control redirect because it
+removes the rejected route from active history. `RouteRedirect::push` is
+available when retaining that entry is intentional. `return_to` adds the
+origin-free current path, query, and fragment as an encoded query parameter.
+
+The decision should be derived by a pure function or selector from
+`GlobalState`. Reducers remain responsible for changing that state, including
+handling asynchronous Store or authentication results.
+
+Client-side route protection is a presentation and resource-construction
+boundary, not authorization for a server API. SSR prevents protected markup
+from being returned, but every protected operation must independently verify
+the caller's authority.
+
+## Related
+
+[`Router`](/reference/widgets/router), [`Link`](/reference/widgets/link),
+[`Storage and SQLite`](/docs/guides/storage-and-sqlite), and
+[`Deep links`](/reference/capabilities/deep-links).

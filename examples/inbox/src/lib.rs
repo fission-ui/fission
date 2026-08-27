@@ -1,8 +1,11 @@
 use fission::core::Env;
-#[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
+#[cfg(any(feature = "desktop", feature = "devtools"))]
 use fission::core::{reduce_with, ActionRegistry, OpenUrlRequest, ReducerContext, OPEN_URL};
 use fission::i18n::{Locale, TranslationBundle};
-#[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
+#[cfg(all(
+    feature = "desktop",
+    not(any(target_arch = "wasm32", target_os = "android", target_os = "ios"))
+))]
 use fission::prelude::DesktopApp;
 use fission::prelude::{DesignMode, DesignSystem, FissionFluent2DesignSystem};
 use std::collections::HashMap;
@@ -16,11 +19,11 @@ mod model;
 
 pub use app::InboxApp;
 pub use model::InboxState;
-#[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
+#[cfg(any(feature = "desktop", feature = "devtools"))]
 use model::*;
 
 // Handlers for Browser Demo
-#[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
+#[cfg(any(feature = "desktop", feature = "devtools"))]
 fn on_open_system_link(
     _state: &mut InboxState,
     action: OpenSystemLink,
@@ -35,7 +38,7 @@ fn on_open_system_link(
     );
 }
 
-#[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
+#[cfg(any(feature = "desktop", feature = "devtools"))]
 fn on_open_in_app_link(
     _state: &mut InboxState,
     action: OpenInAppLink,
@@ -48,6 +51,12 @@ fn on_open_in_app_link(
             in_app: true,
         },
     );
+}
+
+#[cfg(any(feature = "desktop", feature = "devtools"))]
+fn register_global_handlers(registry: &mut ActionRegistry<InboxState>) {
+    registry.register(reduce_with!(on_open_system_link));
+    registry.register(reduce_with!(on_open_in_app_link));
 }
 
 // --- SETUP ---
@@ -400,7 +409,35 @@ pub fn configure_embedded_env(state: &InboxState, env: &mut Env) {
     });
 }
 
-#[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
+#[cfg(all(
+    feature = "devtools",
+    not(any(target_arch = "wasm32", target_os = "android", target_os = "ios"))
+))]
+pub fn devtools() -> fission_devtools::DevtoolsApp<InboxState, InboxApp> {
+    let mut env = create_env();
+    env.viewport_size = fission::core::LayoutSize::new(1120.0, 900.0);
+    let mut initial_state = InboxState::default();
+    initial_state.theme_mode = "dark".into();
+    fission_devtools::DevtoolsApp::new(
+        "fission.examples.inbox",
+        "Fission Inbox",
+        "inbox-state/v1",
+        initial_state,
+        InboxApp,
+    )
+    .with_env(env)
+    .with_sync_env(configure_embedded_env)
+    .with_route(|state| Some(state.current_path.clone()))
+    .with_runtime(|_, registry| {
+        register_global_handlers(registry);
+        Ok(())
+    })
+}
+
+#[cfg(all(
+    feature = "desktop",
+    not(any(target_arch = "wasm32", target_os = "android", target_os = "ios"))
+))]
 pub fn run_desktop() -> anyhow::Result<()> {
     let mut app = DesktopApp::<InboxState, _>::new(InboxApp)
         .with_title("Fission Inbox")
@@ -433,8 +470,7 @@ pub fn run_desktop() -> anyhow::Result<()> {
 
     // Register global handlers
     let mut registry = ActionRegistry::new();
-    registry.register(reduce_with!(on_open_system_link));
-    registry.register(reduce_with!(on_open_in_app_link));
+    register_global_handlers(&mut registry);
 
     app.absorb_registry(registry);
 

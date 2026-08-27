@@ -271,7 +271,12 @@ where
             self.env.measurer = Some(self.measurer.clone());
         }
 
-        let node_tree = self.build_widget_tree(viewport)?;
+        let route_before_build = self.env.current_route.clone();
+        let mut node_tree = self.build_widget_tree(viewport)?;
+        self.process_navigation()?;
+        if self.env.current_route != route_before_build {
+            node_tree = self.build_widget_tree(viewport)?;
+        }
         let (ir, root_id) = {
             let mut cx = InternalLoweringCx::new(
                 &self.env,
@@ -668,6 +673,19 @@ where
         let video_nodes = ctx.take_video_registrations();
         let web_nodes = ctx.take_web_registrations();
         let portals_with_ids = ctx.take_portals();
+        if let Some(fission_core::RouteBuildOutcome::Redirect(redirect)) = ctx.take_route_outcome()
+        {
+            let destination = RouteLocation::from_route(&redirect.destination);
+            if destination.logical_route() == self.env.current_route.logical_route() {
+                eprintln!(
+                    "protected route redirects to its current location `{}`",
+                    redirect.destination
+                );
+            } else {
+                self.runtime
+                    .queue_runtime_effect(RuntimeEffect::Navigate(redirect.navigation_command()));
+            }
+        }
         self.runtime.absorb_registry(ctx.registry);
         self.runtime
             .sync_motion_declarations(&motion_declarations, self.last_snapshot.as_ref());

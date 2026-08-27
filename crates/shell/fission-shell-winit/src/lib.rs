@@ -4594,6 +4594,7 @@ where
     browser_defaults: BrowserDefaults,
     web_navigation: WebNavigationConfig,
     test_control_port: Option<u16>,
+    test_control_token: Option<String>,
     /// Channel pair for receiving completed background effect results.
     effect_result_tx: mpsc::Sender<AsyncMessage>,
     effect_result_rx: mpsc::Receiver<AsyncMessage>,
@@ -4670,6 +4671,7 @@ where
             browser_defaults: BrowserDefaults::NONE,
             web_navigation: WebNavigationConfig::default(),
             test_control_port: None,
+            test_control_token: None,
             effect_result_tx,
             effect_result_rx,
             async_registry,
@@ -4724,6 +4726,12 @@ where
 
     pub fn with_test_control_port(mut self, port: u16) -> Self {
         self.test_control_port = Some(port);
+        self
+    }
+
+    /// Protects the native test-control endpoint with a bearer capability.
+    pub fn with_test_control_token(mut self, token: impl Into<String>) -> Self {
+        self.test_control_token = Some(token.into());
         self
     }
 
@@ -5545,7 +5553,7 @@ where
                 };
                 #[cfg(not(target_os = "android"))]
                 let injector = test_control::EventInjector::Proxy(event_proxy.clone());
-                test_control::spawn_server(port, injector);
+                test_control::spawn_server(port, self.test_control_token.clone(), injector);
                 true
             })
             .unwrap_or(false);
@@ -8205,6 +8213,7 @@ where
                                     videos,
                                     web_views,
                                     portals,
+                                    route_outcome,
                                 ) = {
                                     let state = runtime.get_global_state::<S>().unwrap();
                                     let view = View::new(
@@ -8229,6 +8238,7 @@ where
                                     let videos = ctx.take_video_registrations();
                                     let web_views = ctx.take_web_registrations();
                                     let portals_with_ids = ctx.take_portals();
+                                    let route_outcome = ctx.take_route_outcome();
 
                                     let portals = portals_with_ids
                                         .into_iter()
@@ -8250,6 +8260,7 @@ where
                                         videos,
                                         web_views,
                                         portals,
+                                        route_outcome,
                                     )
                                 };
 
@@ -8307,6 +8318,27 @@ where
                                 );
                                 runtime.sync_video_nodes(&videos);
                                 runtime.sync_web_nodes(&web_views);
+                                if let Some(fission_core::RouteBuildOutcome::Redirect(redirect)) =
+                                    route_outcome
+                                {
+                                    let destination = fission_core::RouteLocation::from_route(
+                                        &redirect.destination,
+                                    );
+                                    if destination.logical_route()
+                                        == env.current_route.logical_route()
+                                    {
+                                        log::error!(
+                                            "protected route redirects to its current location `{}`",
+                                            redirect.destination
+                                        );
+                                    } else {
+                                        runtime.queue_runtime_effect(
+                                            fission_core::RuntimeEffect::Navigate(
+                                                redirect.navigation_command(),
+                                            ),
+                                        );
+                                    }
+                                }
 
                                 let final_root: fission_core::Widget = fission_core::ui::Overlay {
                                     id: None,

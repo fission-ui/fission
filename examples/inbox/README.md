@@ -10,6 +10,20 @@ Use this example when you want to see recommended module organization for a real
 cargo run -p inbox
 ```
 
+## Fission Developer
+
+Inbox keeps its normal desktop entrypoint and exposes a separate development
+worker through the optional `devtools` feature. Fission Developer selects this
+worker automatically when the Inbox project is opened:
+
+```bash
+cargo run -p fission-developer -- \
+  --project ../fission/examples/inbox
+```
+
+The development host retains rendering and interaction state while candidate
+Inbox generations build, restore application state, and emit fresh Core IR.
+
 ## What to look at
 
 - [`src/main.rs`](src/main.rs) wires the app shell and top-level layout.

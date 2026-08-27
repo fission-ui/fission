@@ -232,6 +232,9 @@ pub use popover::{Popover, PopoverMotion};
 pub mod router;
 pub use router::{Route, RouteParams, Router};
 
+pub mod protected_route;
+pub use protected_route::{DefaultRouteDenied, DefaultRoutePending, ProtectedRoute};
+
 pub mod spotlight;
 pub use spotlight::Spotlight;
 

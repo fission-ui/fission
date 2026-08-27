@@ -770,6 +770,22 @@ where
         let mut build_ctx = BuildCtx::<S>::new();
         let node = fission_core::build::enter(&mut build_ctx, &view, || (*widget).clone().into());
 
+        if let Some(route_outcome) = build_ctx.take_route_outcome() {
+            final_node = Some(node);
+            final_resources = build_ctx.take_resources();
+            final_motion_declarations = build_ctx.take_motion_declarations();
+            final_video_registrations = build_ctx.take_video_registrations();
+            final_web_registrations = build_ctx.take_web_registrations();
+            final_portals = build_ctx.take_portals();
+            match route_outcome {
+                fission_core::RouteBuildOutcome::Denied => ctx.set_response_status(403),
+                fission_core::RouteBuildOutcome::Redirect(redirect) => {
+                    navigation = Some(redirect.navigation_command());
+                }
+            }
+            break;
+        }
+
         if let Some(action) = pending_action.take() {
             if action.action.id == NavigationRequested::static_id() {
                 let request: NavigationRequested = serde_json::from_slice(&action.action.payload)?;

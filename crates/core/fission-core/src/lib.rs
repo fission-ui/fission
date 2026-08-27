@@ -478,7 +478,10 @@ pub use env::{
 #[cfg(feature = "store")]
 pub use fission_store::*;
 pub use motion::*;
-pub use navigation::{NavigationCommand, NavigationRequested};
+pub use navigation::{
+    NavigationCommand, NavigationRequested, RouteBuildOutcome, RouteDecision, RouteRedirect,
+    RouteRedirectHistory,
+};
 pub use runtime::Runtime;
 pub use selection::{
     SelectionRegionCommand, SelectionRegionController, SelectionRegionError, TextRegionPosition,

@@ -946,6 +946,8 @@ fn render_custom_routes(
                 .extend(footer.video_registrations);
             rendered.web_registrations.extend(footer.web_registrations);
             rendered.portals.extend(footer.portals);
+            rendered.route_outcome =
+                merge_static_route_outcomes(rendered.route_outcome, footer.route_outcome)?;
         }
         let node = compose_portals(node, rendered.portals);
         let html = render_node_to_html(
@@ -965,6 +967,7 @@ fn render_custom_routes(
             rendered.web_registrations,
             route.structured_data.clone(),
         )?;
+        let html = apply_static_route_outcome(html, rendered.route_outcome.as_ref())?;
         routes.push(ContentRoute {
             path: route.path.clone(),
             title: route.title.clone(),
@@ -981,6 +984,38 @@ fn render_custom_routes(
         });
     }
     Ok(routes)
+}
+
+fn merge_static_route_outcomes(
+    page: Option<fission_core::RouteBuildOutcome>,
+    footer: Option<fission_core::RouteBuildOutcome>,
+) -> Result<Option<fission_core::RouteBuildOutcome>> {
+    match (page, footer) {
+        (None, outcome) | (outcome, None) => Ok(outcome),
+        (Some(page), Some(footer)) if page == footer => Ok(Some(page)),
+        (Some(page), Some(footer)) => {
+            bail!("conflicting static route outcomes: {page:?} and {footer:?}")
+        }
+    }
+}
+
+fn apply_static_route_outcome(
+    mut html: String,
+    outcome: Option<&fission_core::RouteBuildOutcome>,
+) -> Result<String> {
+    let Some(fission_core::RouteBuildOutcome::Redirect(redirect)) = outcome else {
+        return Ok(html);
+    };
+    let marker = "</head>";
+    let Some(index) = html.find(marker) else {
+        bail!("static protected-route redirect page has no closing head element");
+    };
+    let destination = escape_attr(&redirect.destination);
+    let redirect_markup = format!(
+        "<meta http-equiv=\"refresh\" content=\"0; url={destination}\"><link rel=\"canonical\" href=\"{destination}\">"
+    );
+    html.insert_str(index, &redirect_markup);
+    Ok(html)
 }
 
 fn collect_markdown_files(root: &Path, out: &mut Vec<PathBuf>) -> Result<()> {
@@ -1800,6 +1835,7 @@ mod tests {
     use fission_core::ui::{Text, TextContent, Video};
     use fission_core::{GlobalState, WidgetId};
     use fission_i18n::TranslationBundle;
+    use fission_widgets::ProtectedRoute;
     use std::collections::HashMap;
     use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -2026,6 +2062,40 @@ mod tests {
         assert!(html.contains("Bonjour static"));
         assert!(html.contains("lang=\"fr\""));
         assert!(!html.contains("MISSING:page.title"));
+        let _ = fs::remove_dir_all(temp);
+    }
+
+    #[test]
+    fn static_protected_route_emits_redirect_without_allowed_content() {
+        let temp = std::env::temp_dir().join(format!(
+            "fission-site-protected-route-test-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(temp.join("content")).unwrap();
+        let mut options = SiteBuildOptions::for_project(&temp, "Test site");
+        options.content_routes = Vec::new();
+        let site = FissionSite::new()
+            .route_widget::<TestState, _>(
+                "/account",
+                "Account",
+                None,
+                ProtectedRoute::new(
+                    fission_core::RouteRedirect::replace("/sign-in?from=account").into(),
+                    Text::new("private account"),
+                ),
+            )
+            .route_widget::<TestState, _>("/sign-in", "Sign in", None, Text::new("Sign in"));
+
+        build_site(&options, &site).unwrap();
+        let html = fs::read_to_string(temp.join("target/fission/site/account/index.html")).unwrap();
+
+        assert!(
+            html.contains("<meta http-equiv=\"refresh\" content=\"0; url=/sign-in?from=account\">")
+        );
+        assert!(!html.contains("private account"));
         let _ = fs::remove_dir_all(temp);
     }
 

@@ -129,6 +129,35 @@ impl RouteLocation {
             ..Self::default()
         }
     }
+
+    /// Returns the origin-free logical route represented by this location.
+    pub fn logical_route(&self) -> String {
+        let mut route = if self.pathname.is_empty() {
+            "/".to_string()
+        } else {
+            self.pathname.clone()
+        };
+        if let Some(search) = &self.search {
+            if !search.is_empty() {
+                if !search.starts_with('?') {
+                    route.push('?');
+                }
+                route.push_str(search);
+            }
+        }
+        if let Some(hash) = &self.hash {
+            // In Web hash-routing mode the browser hash is the transport for
+            // `pathname` and `search`, both of which are already represented
+            // above. Only append an ordinary fragment.
+            if !hash.is_empty() && !hash.starts_with("#/") {
+                if !hash.starts_with('#') {
+                    route.push('#');
+                }
+                route.push_str(hash);
+            }
+        }
+        route
+    }
 }
 
 // Static environment data (Theme, I18n)
@@ -1079,6 +1108,18 @@ mod tests {
         assert_eq!(hash.pathname, "/projects/42");
         assert_eq!(hash.search.as_deref(), Some("?tab=activity"));
         assert_eq!(hash.hash, None);
+    }
+
+    #[test]
+    fn logical_route_does_not_duplicate_a_browser_hash_route() {
+        let location = RouteLocation {
+            pathname: "/account".into(),
+            search: Some("?tab=billing".into()),
+            hash: Some("#/account?tab=billing".into()),
+            ..RouteLocation::default()
+        };
+
+        assert_eq!(location.logical_route(), "/account?tab=billing");
     }
 
     #[test]

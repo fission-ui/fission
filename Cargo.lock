@@ -2931,6 +2931,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "fission-devtools"
+version = "0.14.1"
+dependencies = [
+ "anyhow",
+ "fission-core",
+ "fission-ir",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "fission-diagnostics"
 version = "0.14.1"
 dependencies = [
@@ -4839,6 +4850,7 @@ dependencies = [
  "anyhow",
  "chrono",
  "fission",
+ "fission-devtools",
  "fission-ir",
  "fission-test",
  "fission-test-driver",
