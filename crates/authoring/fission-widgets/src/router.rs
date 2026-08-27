@@ -71,6 +71,18 @@ impl<S: GlobalState> Router<S> {
         self
     }
 
+    /// Registers a concrete component and converts it only when its route matches.
+    pub fn route_component<W>(mut self, path: impl Into<String>, component: W) -> Self
+    where
+        W: Clone + Into<Widget> + Send + Sync + 'static,
+    {
+        self.routes.push(Route {
+            path: path.into(),
+            builder: Arc::new(move |_ctx, _view, _| component.clone().into()),
+        });
+        self
+    }
+
     pub fn route_builder(mut self, path: impl Into<String>, builder: PageBuilder<S>) -> Self {
         self.routes.push(Route {
             path: path.into(),
@@ -119,4 +131,46 @@ fn match_route(pattern: &str, path: &str) -> Option<RouteParams> {
     }
 
     Some(params)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use fission_core::internal::BuildCtx;
+    use fission_core::{Env, RuntimeState, Text, View};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    #[derive(Debug, Default)]
+    struct State;
+    impl GlobalState for State {}
+
+    #[derive(Clone)]
+    struct CountedPage(Arc<AtomicUsize>);
+
+    impl From<CountedPage> for Widget {
+        fn from(page: CountedPage) -> Self {
+            page.0.fetch_add(1, Ordering::SeqCst);
+            Text::new("matched").into()
+        }
+    }
+
+    #[test]
+    fn route_component_converts_only_the_matching_component() {
+        let unmatched = Arc::new(AtomicUsize::new(0));
+        let matched = Arc::new(AtomicUsize::new(0));
+        let router = Router::<State>::new()
+            .with_path("/account")
+            .route_component("/settings", CountedPage(unmatched.clone()))
+            .route_component("/account", CountedPage(matched.clone()));
+        let state = State;
+        let runtime = RuntimeState::default();
+        let env = Env::default();
+        let view = View::new(&state, &runtime, &env, None);
+        let mut ctx = BuildCtx::<State>::new();
+
+        let _ = fission_core::build::enter(&mut ctx, &view, || -> Widget { router.into() });
+
+        assert_eq!(unmatched.load(Ordering::SeqCst), 0);
+        assert_eq!(matched.load(Ordering::SeqCst), 1);
+    }
 }

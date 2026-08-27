@@ -17,6 +17,7 @@ struct BuildScope {
     video_nodes: *mut Vec<crate::registry::VideoRegistration>,
     web_nodes: *mut Vec<crate::registry::WebRegistration>,
     portals: *mut Vec<crate::registry::PortalEntry>,
+    route_outcome: *mut Option<crate::RouteBuildOutcome>,
     next_portal_seq: NextPortalSeq,
     register_runtime_reducer: RegisterRuntimeReducer,
     runtime: *const crate::RuntimeState,
@@ -93,6 +94,7 @@ where
             video_nodes: &mut ctx.video_nodes,
             web_nodes: &mut ctx.web_nodes,
             portals: &mut ctx.portals,
+            route_outcome: &mut ctx.route_outcome,
             next_portal_seq: next_portal_seq::<S>,
             register_runtime_reducer: register_runtime_reducer::<S>,
             runtime: view.runtime(),
@@ -617,6 +619,26 @@ impl<S: GlobalState> BuildCtxHandle<S> {
         });
         unsafe {
             (*web_nodes).push(registration);
+        }
+    }
+
+    /// Declares the result of the active protected route for the host shell.
+    pub fn declare_route_outcome(&self, outcome: crate::RouteBuildOutcome) {
+        let route_outcome = BUILD_SCOPES.with(|scopes| {
+            let scopes = scopes.borrow();
+            let Some(scope) = scopes.last() else {
+                panic!("protected route declared outside an active build pass");
+            };
+            scope.route_outcome
+        });
+        unsafe {
+            match &*route_outcome {
+                None => *route_outcome = Some(outcome),
+                Some(current) if current == &outcome => {}
+                Some(current) => panic!(
+                    "conflicting protected-route outcomes in one build: {current:?} and {outcome:?}"
+                ),
+            }
         }
     }
 

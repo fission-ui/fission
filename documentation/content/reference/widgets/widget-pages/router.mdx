@@ -18,11 +18,58 @@ use fission::prelude::*;
 
 let router: Widget = Router::<AppState>::new()
     .with_path(view.state().current_path.clone())
-    .route("/projects", || ProjectList)
-    .route("/settings", || SettingsScreen)
+    .route_component("/projects", ProjectList)
+    .route_component("/settings", SettingsScreen)
     .not_found(|| Text::new("Page not found"))
     .into();
 ```
+
+`route_component` stores a concrete component and converts it only after its
+path matches. The existing closure-based `route` and parameter-aware
+`route_builder` APIs remain available.
+
+## Protected routes
+
+Keep access checks at the route table rather than repeating them inside every
+protected screen. Derive a `RouteDecision` from application state and wrap the
+route component with `ProtectedRoute`:
+
+```rust
+let account_access = match &view.state().session {
+    SessionState::Loading => RouteDecision::Pending,
+    SessionState::Authenticated(_) => RouteDecision::Allow,
+    SessionState::SignedOut => RouteRedirect::replace("/sign-in")
+        .return_to(&view.env().current_route)
+        .into(),
+    SessionState::Failed(_) => RouteDecision::Deny,
+};
+
+let router: Widget = Router::<AppState>::new()
+    .with_path(view.state().current_path.clone())
+    .route_component(
+        "/account",
+        ProtectedRoute::new(account_access, AccountRoute),
+    )
+    .route_component("/sign-in", SignInRoute)
+    .into();
+```
+
+`ProtectedRoute` converts only its selected component. While the decision is
+pending, denied, or redirecting, `AccountRoute` cannot register reducers,
+resources, jobs, or local state. Use `.pending(...)` and `.denied(...)` to
+replace the default progress and access-denied branches.
+
+Authentication restoration remains an ordinary asynchronous Fission effect.
+For example, a startup reducer can read a session from the Store and update
+`SessionState` in its success or failure reducer. The route decision is a pure
+derivation from that state; it is not itself a reducer.
+
+Redirects replace history by default, preventing browser Back from immediately
+retrying the rejected route. SSR returns an HTTP 302 without protected markup,
+and denial returns HTTP 403. Static routes can emit a redirect document when
+the decision is known at build time, but a static artifact cannot authenticate
+a visitor. Route protection controls UI construction; APIs and server actions
+must still enforce authorization independently.
 
 Register the route reducer with `.with_route_handler(...)`, then issue navigation from reducers with `ctx.effects.navigate("/projects/42")`, `replace_route`, `navigation_back`, `navigation_forward`, or `navigation_go`. A navigational `Link::to(...)` enters the same contract.
 
@@ -31,7 +78,7 @@ Register the route reducer with `.with_route_handler(...)`, then issue navigatio
 | Field | Type | Meaning | Notes / default behavior |
 | --- | --- | --- | --- |
 | `current_path` | `String` | The path string to match this frame. | Usually lives in `GlobalState` so reducers can update it explicitly. |
-| `routes` | `Vec<Route<S>>` | Ordered list of route patterns and page builders. | The router returns the first matching route. Order matters. |
+| `routes` | `Vec<Route<S>>` | Ordered list of route patterns and lazily converted route components or page builders. | The router returns the first matching route. Order matters. |
 | `not_found` | `Option<PageBuilder<S>>` | Fallback builder when no route matches. | If omitted, the router renders a plain `404: {current_path}` text node. |
 
 ## Matching behavior
@@ -69,4 +116,4 @@ If a screen starts repeating the same `Router` setup, extract a named component 
 
 ## Related
 
-[`Route`](/reference/widgets/route), [`RouteParams`](/reference/widgets/route-params), [`Link`](/reference/widgets/link), and [`Overview`](/docs/learn/overview).
+[`ProtectedRoute`](/reference/widgets/protected-route), [`Route`](/reference/widgets/route), [`RouteParams`](/reference/widgets/route-params), [`Link`](/reference/widgets/link), and [`Overview`](/docs/learn/overview).

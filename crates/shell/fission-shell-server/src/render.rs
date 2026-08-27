@@ -97,6 +97,18 @@ impl ServerResponse {
         }
     }
 
+    pub fn found(location: impl Into<String>) -> Self {
+        Self {
+            status: 302,
+            headers: vec![
+                ("location".to_string(), location.into()),
+                ("cache-control".to_string(), "no-store".to_string()),
+            ],
+            body: Vec::new(),
+            cache_status: None,
+        }
+    }
+
     pub fn body_string(&self) -> String {
         String::from_utf8_lossy(&self.body).into_owned()
     }
@@ -384,6 +396,28 @@ impl ServerRenderer {
                 }
             }
             let rendered = self.render_uncached_with_env(route, None, &request, &session, env)?;
+            if let Some(location) = rendered
+                .navigation
+                .as_ref()
+                .and_then(server_navigation_location)
+            {
+                let mut response = ServerResponse::found(location);
+                self.attach_session_cookie(&mut response, &session);
+                return Ok(response);
+            }
+            if matches!(rendered.status, 401 | 403) {
+                let mut response = ServerResponse {
+                    status: rendered.status,
+                    headers: vec![(
+                        "content-type".to_string(),
+                        "text/html; charset=utf-8".to_string(),
+                    )],
+                    body: rendered.html.into_bytes(),
+                    cache_status: None,
+                };
+                self.attach_session_cookie(&mut response, &session);
+                return Ok(response);
+            }
             if rendered.server_action_count > 0 {
                 anyhow::bail!(
                     "revalidated route `{}` renders server action forms; use ServerPrivate/Server mode or move the interactive region into an island before caching the page",
@@ -411,6 +445,15 @@ impl ServerRenderer {
         }
 
         let rendered = self.render_uncached(route, None, &request, &session)?;
+        if let Some(location) = rendered
+            .navigation
+            .as_ref()
+            .and_then(server_navigation_location)
+        {
+            let mut response = ServerResponse::found(location);
+            self.attach_session_cookie(&mut response, &session);
+            return Ok(response);
+        }
         let mut response = ServerResponse {
             status: rendered.status,
             headers: vec![(
@@ -1631,7 +1674,7 @@ mod tests {
     };
     use fission_i18n::TranslationBundle;
     use fission_theme::{PackagedFont, PackagedFontStyle};
-    use fission_widgets::MarkdownViewer;
+    use fission_widgets::{MarkdownViewer, ProtectedRoute};
     use serde::{Deserialize, Serialize};
     use std::collections::HashMap;
     use std::fs;
@@ -1663,6 +1706,49 @@ mod tests {
             )),
             None
         );
+    }
+
+    #[test]
+    fn protected_route_redirects_before_rendering_allowed_content() {
+        let app = FissionServerApp::new("Test").route_widget::<TestState, _>(
+            "/account",
+            "Account",
+            None,
+            WebRouteMode::Server(Default::default()),
+            ProtectedRoute::new(
+                fission_core::RouteRedirect::replace("/sign-in").into(),
+                Text::new("private account"),
+            ),
+        );
+        let renderer = ServerRenderer::new(app);
+
+        let response = renderer.handle(ServerRequest::get("/account")).unwrap();
+
+        assert_eq!(response.status, 302);
+        assert_eq!(response_header(&response, "location"), Some("/sign-in"));
+        assert!(!response.body_string().contains("private account"));
+    }
+
+    #[test]
+    fn denied_protected_route_returns_forbidden_content() {
+        let app = FissionServerApp::new("Test").route_widget::<TestState, _>(
+            "/account",
+            "Account",
+            None,
+            WebRouteMode::Server(Default::default()),
+            ProtectedRoute::new(
+                fission_core::RouteDecision::Deny,
+                Text::new("private account"),
+            )
+            .denied(Text::new("No access")),
+        );
+        let renderer = ServerRenderer::new(app);
+
+        let response = renderer.handle(ServerRequest::get("/account")).unwrap();
+
+        assert_eq!(response.status, 403);
+        assert!(response.body_string().contains("No access"));
+        assert!(!response.body_string().contains("private account"));
     }
 
     #[test]

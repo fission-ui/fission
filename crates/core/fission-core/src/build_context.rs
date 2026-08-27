@@ -46,6 +46,8 @@ pub struct BuildCtx<S: GlobalState> {
     pub web_nodes: Vec<WebRegistration>,
     /// Portal entries (overlays, modals, toasts).
     pub portals: Vec<PortalEntry>,
+    /// Declarative result from the active protected route, when any.
+    pub route_outcome: Option<crate::RouteBuildOutcome>,
     portal_seq: u64,
 }
 
@@ -58,6 +60,7 @@ impl<S: GlobalState> BuildCtx<S> {
             video_nodes: Vec::new(),
             web_nodes: Vec::new(),
             portals: Vec::new(),
+            route_outcome: None,
             portal_seq: 0,
         }
     }
@@ -152,6 +155,20 @@ impl<S: GlobalState> BuildCtx<S> {
         let mut entries = std::mem::take(&mut self.portals);
         entries.sort_by(|a, b| (a.layer, a.seq).cmp(&(b.layer, b.seq)));
         entries.into_iter().map(|e| (e.id, e.node)).collect()
+    }
+
+    pub fn declare_route_outcome(&mut self, outcome: crate::RouteBuildOutcome) {
+        match &self.route_outcome {
+            None => self.route_outcome = Some(outcome),
+            Some(current) if current == &outcome => {}
+            Some(current) => panic!(
+                "conflicting protected-route outcomes in one build: {current:?} and {outcome:?}"
+            ),
+        }
+    }
+
+    pub fn take_route_outcome(&mut self) -> Option<crate::RouteBuildOutcome> {
+        self.route_outcome.take()
     }
 
     pub fn video_controls(&self, target: WidgetId) -> VideoControlCtx {

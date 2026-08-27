@@ -8213,6 +8213,7 @@ where
                                     videos,
                                     web_views,
                                     portals,
+                                    route_outcome,
                                 ) = {
                                     let state = runtime.get_global_state::<S>().unwrap();
                                     let view = View::new(
@@ -8237,6 +8238,7 @@ where
                                     let videos = ctx.take_video_registrations();
                                     let web_views = ctx.take_web_registrations();
                                     let portals_with_ids = ctx.take_portals();
+                                    let route_outcome = ctx.take_route_outcome();
 
                                     let portals = portals_with_ids
                                         .into_iter()
@@ -8258,6 +8260,7 @@ where
                                         videos,
                                         web_views,
                                         portals,
+                                        route_outcome,
                                     )
                                 };
 
@@ -8315,6 +8318,27 @@ where
                                 );
                                 runtime.sync_video_nodes(&videos);
                                 runtime.sync_web_nodes(&web_views);
+                                if let Some(fission_core::RouteBuildOutcome::Redirect(redirect)) =
+                                    route_outcome
+                                {
+                                    let destination = fission_core::RouteLocation::from_route(
+                                        &redirect.destination,
+                                    );
+                                    if destination.logical_route()
+                                        == env.current_route.logical_route()
+                                    {
+                                        log::error!(
+                                            "protected route redirects to its current location `{}`",
+                                            redirect.destination
+                                        );
+                                    } else {
+                                        runtime.queue_runtime_effect(
+                                            fission_core::RuntimeEffect::Navigate(
+                                                redirect.navigation_command(),
+                                            ),
+                                        );
+                                    }
+                                }
 
                                 let final_root: fission_core::Widget = fission_core::ui::Overlay {
                                     id: None,

@@ -28,6 +28,7 @@ pub(crate) struct SiteRouteRender {
     pub video_registrations: Vec<VideoRegistration>,
     pub web_registrations: Vec<WebRegistration>,
     pub portals: Vec<(Option<WidgetId>, Widget)>,
+    pub route_outcome: Option<fission_core::RouteBuildOutcome>,
 }
 
 /// Position where raw static-site page markup is inserted.
@@ -416,6 +417,7 @@ impl FissionSite {
                     video_registrations: build_ctx.take_video_registrations(),
                     web_registrations: build_ctx.take_web_registrations(),
                     portals: build_ctx.take_portals(),
+                    route_outcome: build_ctx.take_route_outcome(),
                 })
             }),
         });
@@ -475,6 +477,7 @@ where
         video_registrations: build_ctx.take_video_registrations(),
         web_registrations: build_ctx.take_web_registrations(),
         portals: build_ctx.take_portals(),
+        route_outcome: build_ctx.take_route_outcome(),
     })
 }
 
