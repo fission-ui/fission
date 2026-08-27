@@ -754,6 +754,13 @@ impl LiveTestClient {
         }
     }
 
+    /// Discovers the resident Fission Developer host for `project` and returns
+    /// an application-scoped client using the same API as a directly launched
+    /// native application.
+    pub fn connect_developer(project: impl AsRef<std::path::Path>) -> Result<Self> {
+        Ok(DeveloperSessionClient::discover(project)?.live_test_client())
+    }
+
     /// Connects to a loopback test host protected by a per-session capability.
     pub fn connect_authenticated(port: u16, bearer_token: impl Into<String>) -> Self {
         Self {

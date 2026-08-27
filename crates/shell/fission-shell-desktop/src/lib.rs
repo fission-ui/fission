@@ -85,6 +85,11 @@ where
         self
     }
 
+    pub fn with_test_control_token(mut self, token: impl Into<String>) -> Self {
+        self.inner = self.inner.with_test_control_token(token);
+        self
+    }
+
     pub fn with_state_init<F>(mut self, init: F) -> Self
     where
         F: FnOnce(&mut S),

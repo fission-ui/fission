@@ -84,13 +84,7 @@ fn handle_connection(mut stream: TcpStream, bearer_token: Option<&str>, injector
     let path = parts.get(1).copied().unwrap_or("");
 
     if let Some(expected) = bearer_token {
-        let authorized = request.lines().any(|line| {
-            line.split_once(':').is_some_and(|(name, value)| {
-                name.eq_ignore_ascii_case("authorization")
-                    && value.trim() == format!("Bearer {expected}")
-            })
-        });
-        if !authorized {
+        if !request_has_bearer_token(&request, expected) {
             send_http_response(
                 &mut stream,
                 401,
@@ -150,6 +144,16 @@ fn handle_connection(mut stream: TcpStream, bearer_token: Option<&str>, injector
 
     let response = dispatch_command(cmd, injector);
     send_http_response(&mut stream, 200, &serde_json::to_string(&response).unwrap());
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn request_has_bearer_token(request: &str, expected: &str) -> bool {
+    request.lines().any(|line| {
+        line.split_once(':').is_some_and(|(name, value)| {
+            name.eq_ignore_ascii_case("authorization")
+                && value.trim() == format!("Bearer {expected}")
+        })
+    })
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -730,6 +734,7 @@ fn send_http_response(stream: &mut TcpStream, status: u16, body: &str) {
     let status_text = match status {
         200 => "OK",
         400 => "Bad Request",
+        401 => "Unauthorized",
         404 => "Not Found",
         500 => "Internal Server Error",
         504 => "Gateway Timeout",
@@ -740,4 +745,20 @@ fn send_http_response(stream: &mut TcpStream, status: u16, body: &str) {
         status, status_text, body.len(), body
     );
     let _ = stream.write_all(response.as_bytes());
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod tests {
+    use super::request_has_bearer_token;
+
+    #[test]
+    fn bearer_capability_is_required_exactly() {
+        let request = "GET /health HTTP/1.1\r\nAuthorization: Bearer correct\r\n\r\n";
+        assert!(request_has_bearer_token(request, "correct"));
+        assert!(!request_has_bearer_token(request, "wrong"));
+        assert!(!request_has_bearer_token(
+            "GET /health HTTP/1.1\r\n\r\n",
+            "correct"
+        ));
+    }
 }

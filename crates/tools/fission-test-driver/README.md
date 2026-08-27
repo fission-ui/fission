@@ -95,6 +95,41 @@ let client = LiveTestClient::connect(9876);
 client.wait_for_ready(5000)?; // Wait up to 5s for the app to start
 ```
 
+When the application is already running inside Fission Developer, discover it
+by project and keep using the same client API:
+
+```rust
+use fission_test_driver::LiveTestClient;
+
+let client = LiveTestClient::connect_developer(env!("CARGO_MANIFEST_DIR"))?;
+client.wait_for_ready(5_000)?;
+client.tap_semantic_identifier("compose.open")?;
+client.wait_for_text("New Message", 5_000)?;
+```
+
+The discovered client is authenticated and scoped to the imported application.
+Semantic trees, text geometry, coordinates, viewport resizing, and screenshots
+exclude Fission Developer's own dashboard.
+
+Tests that need to coordinate source edits with hot reload can observe the
+session separately without replacing `LiveTestClient`:
+
+```rust
+use std::time::Duration;
+use fission_test_driver::{DeveloperSessionClient, ReloadOutcome};
+
+let mut developer =
+    DeveloperSessionClient::discover(env!("CARGO_MANIFEST_DIR"))?;
+let client = developer.live_test_client();
+let previous = developer.active_generation();
+
+// Save an application source change here.
+match developer.wait_for_reload_after(previous, Duration::from_secs(30))? {
+    ReloadOutcome::Activated { .. } => client.wait_for_idle(5_000, true)?,
+    ReloadOutcome::Rejected { diagnostic, .. } => panic!("{diagnostic}"),
+}
+```
+
 For a served Web test build:
 
 ```rust

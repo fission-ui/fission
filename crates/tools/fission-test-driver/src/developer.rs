@@ -2,7 +2,7 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant, SystemTime};
+use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, Context, Result};
 use serde::{Deserialize, Serialize};
@@ -94,9 +94,18 @@ impl DeveloperSessionClient {
             .filter_map(|entry| {
                 let modified = entry.metadata().ok()?.modified().ok()?;
                 let descriptor = DeveloperSessionDescriptor::read(&entry.path()).ok()?;
-                (descriptor.project_manifest == manifest
-                    && descriptor.status != DeveloperSessionStatus::Stopped)
-                    .then_some((modified, entry.path(), descriptor))
+                if descriptor.project_manifest != manifest
+                    || descriptor.status == DeveloperSessionStatus::Stopped
+                {
+                    return None;
+                }
+                let reachable = LiveTestClient::connect_authenticated(
+                    descriptor.control_port,
+                    descriptor.bearer_token.clone(),
+                )
+                .wait_for_ready(100)
+                .is_ok();
+                reachable.then_some((modified, entry.path(), descriptor))
             })
             .collect::<Vec<_>>();
         candidates.sort_by_key(|candidate| candidate.0);
