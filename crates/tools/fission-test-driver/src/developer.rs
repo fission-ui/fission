@@ -69,7 +69,9 @@ impl DeveloperSessionDescriptor {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ReloadOutcome {
-    Activated { generation: u64 },
+    Activated {
+        generation: u64,
+    },
     Rejected {
         candidate_generation: u64,
         diagnostic: String,
@@ -183,7 +185,11 @@ impl DeveloperSessionClient {
 pub fn developer_session_directory() -> PathBuf {
     std::env::var_os("FISSION_DEVELOPER_SESSION_DIR")
         .map(PathBuf::from)
-        .unwrap_or_else(|| std::env::temp_dir().join("fission-developer").join("sessions"))
+        .unwrap_or_else(|| {
+            std::env::temp_dir()
+                .join("fission-developer")
+                .join("sessions")
+        })
 }
 
 pub fn developer_session_path(session_id: &str) -> PathBuf {

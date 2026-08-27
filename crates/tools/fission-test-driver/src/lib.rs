@@ -20,8 +20,9 @@ use serde::{Deserialize, Serialize};
 mod developer;
 #[cfg(not(target_arch = "wasm32"))]
 pub use developer::{
-    DEVELOPER_SESSION_PROTOCOL_VERSION, DeveloperSessionClient, DeveloperSessionDescriptor,
-    DeveloperSessionStatus, ReloadOutcome, developer_session_directory, developer_session_path,
+    developer_session_directory, developer_session_path, DeveloperSessionClient,
+    DeveloperSessionDescriptor, DeveloperSessionStatus, ReloadOutcome,
+    DEVELOPER_SESSION_PROTOCOL_VERSION,
 };
 
 pub mod golden;
@@ -841,8 +842,8 @@ impl LiveTestClient {
                 bearer_token,
             } => {
                 let body = serde_json::to_string(&cmd)?;
-                let mut request = ureq::post(&format!("{base_url}/cmd"))
-                    .set("Content-Type", "application/json");
+                let mut request =
+                    ureq::post(&format!("{base_url}/cmd")).set("Content-Type", "application/json");
                 if let Some(token) = bearer_token {
                     request = request.set("Authorization", &format!("Bearer {token}"));
                 }
@@ -1461,7 +1462,9 @@ impl LiveTestClient {
                     }
                 }
                 let origin = scope.visible_bounds.unwrap_or(scope.logical_bounds);
-                nodes.retain(|node| node.stable_node_id != scope_id && retained.contains(&node.stable_node_id));
+                nodes.retain(|node| {
+                    node.stable_node_id != scope_id && retained.contains(&node.stable_node_id)
+                });
                 for node in &mut nodes {
                     if node.parent.as_deref() == Some(scope_id.as_str()) {
                         node.parent = None;
@@ -1517,9 +1520,16 @@ impl LiveTestClient {
         let (width, height) = if let Some(scope) = self.scope_node()? {
             let png = screenshot_bytes(self.send(TestCommand::CaptureScreenshot {})?)?;
             let image = image::load_from_memory(&png)?.to_rgba8();
-            let extra_width = image.width().saturating_sub(scope.logical_bounds.width.round() as u32);
-            let extra_height = image.height().saturating_sub(scope.logical_bounds.height.round() as u32);
-            (width.saturating_add(extra_width), height.saturating_add(extra_height))
+            let extra_width = image
+                .width()
+                .saturating_sub(scope.logical_bounds.width.round() as u32);
+            let extra_height = image
+                .height()
+                .saturating_sub(scope.logical_bounds.height.round() as u32);
+            (
+                width.saturating_add(extra_width),
+                height.saturating_add(extra_height),
+            )
         } else {
             (width, height)
         };
@@ -1542,8 +1552,10 @@ impl LiveTestClient {
         }
         let cropped = image::imageops::crop_imm(&image, x, y, width, height).to_image();
         let mut encoded = Vec::new();
-        image::DynamicImage::ImageRgba8(cropped)
-            .write_to(&mut std::io::Cursor::new(&mut encoded), image::ImageFormat::Png)?;
+        image::DynamicImage::ImageRgba8(cropped).write_to(
+            &mut std::io::Cursor::new(&mut encoded),
+            image::ImageFormat::Png,
+        )?;
         Ok(encoded)
     }
 

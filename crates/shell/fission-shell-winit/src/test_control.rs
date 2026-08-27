@@ -60,11 +60,7 @@ pub fn spawn_server(
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-fn handle_connection(
-    mut stream: TcpStream,
-    bearer_token: Option<&str>,
-    injector: &EventInjector,
-) {
+fn handle_connection(mut stream: TcpStream, bearer_token: Option<&str>, injector: &EventInjector) {
     let mut buf = Vec::new();
     let mut tmp = [0u8; 4096];
 
