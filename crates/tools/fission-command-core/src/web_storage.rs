@@ -34,6 +34,10 @@ pub(crate) fn write_web_sqlite_assets(root: &Path, write_policy: WritePolicy) ->
             fission_store_sqlite::SQLITE_WEB_BRIDGE,
         ),
         (
+            "fission-sqlite-broker.mjs",
+            fission_store_sqlite::SQLITE_WEB_BROKER,
+        ),
+        (
             "fission-sqlite-worker.mjs",
             fission_store_sqlite::SQLITE_WEB_WORKER,
         ),
@@ -129,6 +133,7 @@ fn validate_web_sqlite_assets(root: &Path) -> Result<()> {
         "sqlite3.wasm",
         "sqlite3-opfs-async-proxy.js",
         "fission-sqlite.mjs",
+        "fission-sqlite-broker.mjs",
         "fission-sqlite-worker.mjs",
         "NOTICE.txt",
     ] {

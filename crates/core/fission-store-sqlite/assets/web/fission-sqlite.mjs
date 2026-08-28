@@ -8,10 +8,13 @@ function defaultApplicationId() {
 }
 
 function createBridge(applicationId) {
-  const workerUrl = new URL("./fission-sqlite-worker.mjs", import.meta.url);
-  workerUrl.searchParams.set("fission_app_id", applicationId);
   const workerName = `fission-sqlite:${applicationId}`;
   const shared = typeof SharedWorker === "function";
+  const workerUrl = new URL(
+    shared ? "./fission-sqlite-broker.mjs" : "./fission-sqlite-worker.mjs",
+    import.meta.url,
+  );
+  workerUrl.searchParams.set("fission_app_id", applicationId);
   const worker = shared
     ? new SharedWorker(workerUrl, { type: "module", name: workerName })
     : new Worker(workerUrl, { type: "module", name: workerName });
