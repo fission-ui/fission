@@ -29,45 +29,74 @@ const SITE_CSS: &str = include_str!("../assets/site.css");
 const SITE_ENHANCEMENT_JS: &str = include_str!("../assets/site-enhancement.js");
 const SEARCH_JS: &str = include_str!("../assets/search.js");
 
+/// Returns the framework CSS embedded into generated Static and SSR sites.
 pub fn site_base_css() -> &'static str {
     SITE_CSS
 }
 
+/// Returns the optional browser enhancement script used by generated pages.
 pub fn site_enhancement_js() -> &'static str {
     SITE_ENHANCEMENT_JS
 }
 
 #[derive(Clone, Debug)]
+/// Complete filesystem and document configuration for one static-site build.
 pub struct SiteBuildOptions {
+    /// Project root used to resolve relative source and asset paths.
     pub project_dir: PathBuf,
+    /// Directory receiving generated HTML, CSS, scripts, and copied assets.
     pub output_dir: PathBuf,
+    /// Site-wide brand title used by default document templates.
     pub site_title: String,
+    /// Optional default meta description.
     pub site_description: Option<String>,
+    /// Optional logo URL/path rendered by the default documentation shell.
     pub site_logo: Option<String>,
+    /// Optional favicon URL/path.
     pub site_favicon: Option<String>,
+    /// Public canonical origin used for sitemap and canonical URLs.
     pub base_url: Option<String>,
+    /// Locale used when a route does not declare or resolve another locale.
     pub default_locale: String,
+    /// Top-level navigation entries for the default page chrome.
     pub site_nav: Vec<SiteNavLink>,
+    /// App CSS blocks appended after Fission's base stylesheet.
     pub user_css: Vec<String>,
+    /// Trusted document-level elements inserted into matching pages.
     pub page_elements: Vec<SitePageElement>,
+    /// Filesystem content mounts converted into site routes.
     pub content_routes: Vec<SiteContentRouteConfig>,
+    /// Directories copied verbatim into the output root.
     pub asset_dirs: Vec<PathBuf>,
+    /// Whether to generate `sitemap.xml`.
     pub generate_sitemap: bool,
+    /// Whether to generate `robots.txt`.
     pub generate_robots: bool,
+    /// Syntax-highlighting assets emitted for code-bearing pages.
     pub code_highlighting: CodeHighlightingOptions,
+    /// Static search-index generation settings.
     pub search: SiteSearchOptions,
+    /// Whether the existing output directory is removed before generation.
     pub clean: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+/// One filesystem content tree mounted below a public route prefix.
 pub struct SiteContentRouteConfig {
+    /// Public route prefix, such as `/docs`.
     pub path: String,
+    /// Source directory containing Markdown/MDX documents.
     pub source: PathBuf,
+    /// Optional named page template selected for this content mount.
     pub template: Option<String>,
+    /// Optional sidebar definition path for the mount.
     pub sidebar: Option<PathBuf>,
 }
 
 impl SiteBuildOptions {
+    /// Creates conventional defaults for `project_dir` without reading a
+    /// manifest. Content defaults to `content/` and output to
+    /// `target/fission/site/`.
     pub fn for_project(project_dir: impl Into<PathBuf>, site_title: impl Into<String>) -> Self {
         let project_dir = project_dir.into();
         Self {
@@ -97,6 +126,8 @@ impl SiteBuildOptions {
         }
     }
 
+    /// Loads `[site]` configuration from `project_dir/fission.toml`, resolving
+    /// all relative paths against the project root.
     pub fn from_project_dir(
         project_dir: impl Into<PathBuf>,
         fallback_title: impl Into<String>,
@@ -197,31 +228,44 @@ impl SiteBuildOptions {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+/// One discovered/generated route returned by build and inspection APIs.
 pub struct SiteRouteReport {
+    /// Public normalized route path.
     pub path: String,
+    /// Resolved document title.
     pub title: String,
+    /// Source document path, or a synthetic path for custom routes.
     pub source: PathBuf,
+    /// HTML file path below the build output.
     pub output: PathBuf,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+/// Result of a complete static-site build or validation pass.
 pub struct SiteBuildReport {
+    /// Root output directory associated with the operation.
     pub output_dir: PathBuf,
+    /// Routes in deterministic public-path order.
     pub routes: Vec<SiteRouteReport>,
 }
 
+/// Builds a manifest/content-driven site with no programmatic custom routes.
 pub fn build_content_site(options: &SiteBuildOptions) -> Result<SiteBuildReport> {
     build_site(options, &FissionSite::new())
 }
 
+/// Validates content routes and rendering without writing the output site.
 pub fn check_content_site(options: &SiteBuildOptions) -> Result<SiteBuildReport> {
     check_site(options, &FissionSite::new())
 }
 
+/// Discovers content routes without rendering or writing them.
 pub fn list_content_routes(options: &SiteBuildOptions) -> Result<Vec<SiteRouteReport>> {
     list_site_routes(options, &FissionSite::new())
 }
 
+/// Generates content and programmatic [`FissionSite`] routes into the output
+/// directory described by `options`.
 pub fn build_site(options: &SiteBuildOptions, site: &FissionSite) -> Result<SiteBuildReport> {
     eprintln!("Loading static site routes...");
     let mut routes = load_content_routes(options, site.content_transform.as_deref())?;
@@ -291,6 +335,7 @@ fn report_route_progress(stage: &str, index: usize, total: usize, path: &str) {
     }
 }
 
+/// Fully validates content and programmatic routes without writing output.
 pub fn check_site(options: &SiteBuildOptions, site: &FissionSite) -> Result<SiteBuildReport> {
     let mut routes = load_content_routes(options, site.content_transform.as_deref())?;
     let mut styles = StyleRegistry::default();
@@ -314,6 +359,8 @@ pub fn check_site(options: &SiteBuildOptions, site: &FissionSite) -> Result<Site
     })
 }
 
+/// Returns the combined content and programmatic route inventory without
+/// writing output files.
 pub fn list_site_routes(
     options: &SiteBuildOptions,
     site: &FissionSite,

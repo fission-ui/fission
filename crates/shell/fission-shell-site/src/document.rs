@@ -25,13 +25,18 @@ pub(crate) struct ContentRoute {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+/// One navigation link, optionally containing a nested dropdown/tree.
 pub struct SiteNavLink {
+    /// User-visible label.
     pub title: String,
+    /// Route-relative or absolute destination.
     pub href: String,
+    /// Nested navigation entries rendered beneath this entry.
     pub children: Vec<SiteNavLink>,
 }
 
 impl SiteNavLink {
+    /// Creates a leaf navigation link.
     pub fn new(title: impl Into<String>, href: impl Into<String>) -> Self {
         Self {
             title: title.into(),
@@ -40,6 +45,7 @@ impl SiteNavLink {
         }
     }
 
+    /// Replaces this entry's nested links in iteration order.
     pub fn with_children(mut self, children: impl IntoIterator<Item = SiteNavLink>) -> Self {
         self.children = children.into_iter().collect();
         self

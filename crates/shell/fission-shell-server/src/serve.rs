@@ -7,8 +7,11 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+/// Network address used by the built-in SSR development server.
 pub struct ServeOptions {
+    /// Host name or IP address on which to listen.
     pub host: String,
+    /// TCP port on which to listen.
     pub port: u16,
 }
 
@@ -21,6 +24,10 @@ impl Default for ServeOptions {
     }
 }
 
+/// Runs the built-in Hyper server until it stops or encounters an error.
+///
+/// Production deployments may instead use one of the framework adapters and
+/// integrate [`ServerRenderer`] into an existing HTTP server.
 pub fn serve(renderer: ServerRenderer, options: ServeOptions) -> Result<()> {
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_io()

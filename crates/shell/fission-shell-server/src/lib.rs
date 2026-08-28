@@ -63,6 +63,10 @@ pub use route::{
 };
 pub use serve::{serve, ServeOptions};
 
+/// Executes the SSR command-line interface for a configured application.
+///
+/// The default command is `serve`; `check`, `routes`, and `artifacts` validate
+/// routes, list route metadata, and prepare browser worker/island artifacts.
 pub fn run_from_cli(app: FissionServerApp) -> anyhow::Result<()> {
     let args = CliArgs::parse(std::env::args().skip(1))?;
     match args.command.as_str() {

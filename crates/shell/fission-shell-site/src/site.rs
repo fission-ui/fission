@@ -11,6 +11,10 @@ use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+/// A build-time transformation applied to a content file before it is rendered.
+///
+/// The callback receives the source text, its source path, and the site project
+/// directory. Returning an error aborts the build with that route's context.
 pub type ContentTransform = dyn Fn(&str, &Path, &Path) -> Result<String> + Send + Sync + 'static;
 
 type RouteRenderer =
@@ -186,19 +190,29 @@ impl SitePageElement {
 }
 
 #[derive(Clone)]
+/// A programmatically registered route in a static Fission site.
 pub struct CustomRoute {
+    /// Normalized public route path, such as `/account/`.
     pub path: String,
+    /// Human-readable document title used by the page shell.
     pub title: String,
+    /// Optional description emitted as page metadata.
     pub description: Option<String>,
+    /// Serialized JSON-LD documents emitted for this route.
     pub structured_data: Vec<String>,
     pub(crate) render: Arc<RouteRenderer>,
 }
 
 #[derive(Clone, Debug)]
+/// Build-time context supplied while constructing a programmatic route.
 pub struct SiteRenderContext<'a> {
+    /// Root directory of the site project being built.
     pub project_dir: &'a Path,
+    /// Normalized route currently being rendered.
     pub route_path: &'a str,
+    /// Theme selected for the current document.
     pub theme: &'a Theme,
+    /// Site-wide fallback locale identifier.
     pub default_locale: &'a str,
     pub(crate) env: &'a Env,
 }
@@ -206,20 +220,34 @@ pub struct SiteRenderContext<'a> {
 /// Build-time context used to select a locale for a static route.
 #[derive(Clone, Debug)]
 pub struct SiteLocaleContext<'a> {
+    /// Root directory of the site project being built.
     pub project_dir: &'a Path,
+    /// Normalized route whose locale is being resolved.
     pub route_path: &'a str,
+    /// Theme selected for the current document.
     pub theme: &'a Theme,
+    /// Site-wide fallback locale identifier.
     pub default_locale: &'a str,
+    /// Locale declared by route content, when one was provided.
     pub declared_locale: Option<&'a str>,
 }
 
 impl<'a> SiteRenderContext<'a> {
+    /// Returns the complete environment used to build this route.
+    ///
+    /// This includes the selected locale, translation bundles, theme, and any
+    /// application-defined environment values installed with `with_env`.
     pub fn env(&self) -> &'a Env {
         self.env
     }
 }
 
 #[derive(Clone)]
+/// Builder for a statically generated Fission site.
+///
+/// `FissionSite` combines content routes with programmatic widget routes and a
+/// shared document environment. Calling [`build_from_cli`] applies the selected
+/// command (`build`, `check`, `routes`, or `serve`) to the configured site.
 pub struct FissionSite {
     pub(crate) custom_routes: Vec<CustomRoute>,
     pub(crate) content_transform: Option<Arc<ContentTransform>>,
@@ -245,10 +273,12 @@ impl Default for FissionSite {
 }
 
 impl FissionSite {
+    /// Creates a site with the default document shell and no custom routes.
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Sets the theme used for every generated route.
     pub fn theme(mut self, theme: Theme) -> Self {
         self.document = self.document.with_theme(theme);
         self
@@ -266,21 +296,29 @@ impl FissionSite {
         self
     }
 
+    /// Replaces the complete environment used while building routes.
+    ///
+    /// Use this to install translations and other shared environment services.
+    /// Later theme or i18n builder calls update the corresponding part of this
+    /// environment.
     pub fn with_env(mut self, env: Env) -> Self {
         self.document = self.document.with_env(env);
         self
     }
 
+    /// Replaces the internationalization registry for generated routes.
     pub fn i18n(mut self, i18n: I18nRegistry) -> Self {
         self.document = self.document.with_i18n(i18n);
         self
     }
 
+    /// Adds or replaces one locale's translations in the site environment.
     pub fn translation_bundle(mut self, bundle: TranslationBundle) -> Self {
         self.document = self.document.with_translation_bundle(bundle);
         self
     }
 
+    /// Sets the locale used when neither content nor a resolver selects one.
     pub fn default_locale(mut self, locale: impl Into<Locale>) -> Self {
         self.default_locale = Some(locale.into());
         self
@@ -310,6 +348,10 @@ impl FissionSite {
         self
     }
 
+    /// Provides paired light and dark themes and selects the initial mode.
+    ///
+    /// Both theme variable sets are emitted so generated pages can switch modes
+    /// without rebuilding the site.
     pub fn light_dark_themes(
         mut self,
         light: Theme,
@@ -322,6 +364,7 @@ impl FissionSite {
         self
     }
 
+    /// Appends trusted application CSS to every generated document.
     pub fn user_css(mut self, css: impl Into<String>) -> Self {
         self.document = self.document.with_user_css(css);
         self
@@ -369,6 +412,10 @@ impl FissionSite {
         self.page_element(SitePageElement::body_end(html))
     }
 
+    /// Registers a widget-backed route using a default application state.
+    ///
+    /// The route is normalized, rendered through the normal Fission build and
+    /// lowering pipeline, and receives the same environment as content routes.
     pub fn route_widget<S, W>(
         self,
         path: impl Into<String>,
@@ -440,6 +487,10 @@ impl FissionSite {
         self
     }
 
+    /// Renders a widget below every route's main content.
+    ///
+    /// The footer is built independently for each route with the route's
+    /// selected environment and a fresh default state of `S`.
     pub fn footer_widget<S, W>(mut self, widget: W) -> Self
     where
         S: GlobalState + Default + 'static,
@@ -452,6 +503,10 @@ impl FissionSite {
         self
     }
 
+    /// Installs a build-time transformation for content-source text.
+    ///
+    /// The transform runs before parsing and may return modified source or an
+    /// error. It does not run for routes registered with `route_widget`.
     pub fn content_transform<F>(mut self, transform: F) -> Self
     where
         F: Fn(&str, &Path, &Path) -> Result<String> + Send + Sync + 'static,
@@ -481,6 +536,12 @@ where
     })
 }
 
+/// Runs the static-site CLI command against a configured site.
+///
+/// Arguments are read from the current process. `build` generates files,
+/// `check` validates all routes, `routes` lists discovered routes, and `serve`
+/// builds before starting the local development server. Only the final
+/// `Serving ...` message indicates that the listening socket is ready.
 pub fn build_from_cli(site: FissionSite) -> Result<()> {
     let args = SiteCliArgs::parse(std::env::args().skip(1))?;
     let options = SiteBuildOptions::from_project_dir(&args.project_dir, "Site")?;
