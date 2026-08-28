@@ -31,8 +31,6 @@ pub const SQLITE_WEB_OPFS_ASYNC_PROXY: &[u8] =
     include_bytes!("../assets/web/sqlite3-opfs-async-proxy.js");
 /// Fission's main-thread request bridge for the SQLite worker.
 pub const SQLITE_WEB_BRIDGE: &[u8] = include_bytes!("../assets/web/fission-sqlite.mjs");
-/// Fission's shared-worker broker that owns one database worker across tabs.
-pub const SQLITE_WEB_BROKER: &[u8] = include_bytes!("../assets/web/fission-sqlite-broker.mjs");
 /// Fission's SQLite worker implementation.
 pub const SQLITE_WEB_WORKER: &[u8] = include_bytes!("../assets/web/fission-sqlite-worker.mjs");
 /// Attribution for the vendored official SQLite WebAssembly distribution.
@@ -43,21 +41,17 @@ pub const MISSING_WEB_SQLITE_BRIDGE_ERROR: &str = "Fission Web SQLite is enabled
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        SQLITE_WEB_BRIDGE, SQLITE_WEB_BROKER, SQLITE_WEB_OPFS_ASYNC_PROXY, SQLITE_WEB_WORKER,
-    };
+    use super::{SQLITE_WEB_BRIDGE, SQLITE_WEB_OPFS_ASYNC_PROXY, SQLITE_WEB_WORKER};
 
     #[test]
     fn web_host_uses_multitab_vfs_and_application_namespace() {
         let bridge = std::str::from_utf8(SQLITE_WEB_BRIDGE).expect("bridge is UTF-8");
-        let broker = std::str::from_utf8(SQLITE_WEB_BROKER).expect("broker is UTF-8");
         let worker = std::str::from_utf8(SQLITE_WEB_WORKER).expect("worker is UTF-8");
 
         assert!(bridge.contains("__FISSION_SQLITE_BRIDGE__"));
-        assert!(bridge.contains("new SharedWorker"));
-        assert!(bridge.contains("fission-sqlite-broker.mjs"));
-        assert!(broker.contains("new Worker"));
-        assert!(broker.contains("nextRelayId"));
+        assert!(bridge.contains("navigator.locks"));
+        assert!(bridge.contains("new BroadcastChannel"));
+        assert!(bridge.contains("nextRelayId"));
         assert!(bridge.contains("fission_app_id"));
         assert!(worker.contains("OpfsWlDb"));
         assert!(worker.contains("/fission-apps/${namespace}/store.sqlite3"));

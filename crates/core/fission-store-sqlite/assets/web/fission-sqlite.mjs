@@ -8,54 +8,155 @@ function defaultApplicationId() {
 }
 
 function createBridge(applicationId) {
-  const workerName = `fission-sqlite:${applicationId}`;
-  const shared = typeof SharedWorker === "function";
-  const workerUrl = new URL(
-    shared ? "./fission-sqlite-broker.mjs" : "./fission-sqlite-worker.mjs",
-    import.meta.url,
-  );
+  const workerUrl = new URL("./fission-sqlite-worker.mjs", import.meta.url);
   workerUrl.searchParams.set("fission_app_id", applicationId);
-  const worker = shared
-    ? new SharedWorker(workerUrl, { type: "module", name: workerName })
-    : new Worker(workerUrl, { type: "module", name: workerName });
-  const endpoint = shared ? worker.port : worker;
-  endpoint.start?.();
+  const contextId = crypto.randomUUID();
+  const channelName = `fission-sqlite:${applicationId}`;
+  const lockName = `fission-sqlite-owner:${applicationId}`;
+  const coordinated =
+    typeof BroadcastChannel === "function" && navigator.locks?.request;
 
-  let nextId = 1;
+  let nextClientId = 1;
+  let nextRelayId = 1;
+  let worker = null;
+  let workerReady = false;
+  let ownerId = null;
+  let releaseOwnership = null;
+  let closed = false;
   const pending = new Map();
+  const relays = new Map();
+  const channel = coordinated ? new BroadcastChannel(channelName) : null;
+  const ownershipAbort = coordinated ? new AbortController() : null;
 
-  endpoint.addEventListener("message", ({ data }) => {
-    if (data?.type === "ready") return;
-    const request = pending.get(data?.id);
+  function settle(data) {
+    const request = pending.get(data.id);
     if (!request) return;
     pending.delete(data.id);
     if (data.ok) request.resolve(data.value);
     else request.reject(new Error(data.error || "SQLite worker request failed"));
-  });
+  }
 
-  worker.addEventListener("error", (event) => {
-    const error = event.error || new Error(event.message || "SQLite worker failed");
-    for (const request of pending.values()) request.reject(error);
-    pending.clear();
-  });
+  function respond(recipient, data) {
+    if (recipient === contextId) settle(data);
+    else channel.postMessage({ type: "response", recipient, data });
+  }
+
+  function forward(envelope) {
+    if (!workerReady || envelope.ownerId !== ownerId) return;
+    const relayId = nextRelayId++;
+    relays.set(relayId, {
+      sender: envelope.sender,
+      clientId: envelope.clientId,
+    });
+    worker.postMessage({ id: relayId, request: envelope.request });
+  }
+
+  function sendPendingToOwner() {
+    if (!ownerId) return;
+    for (const request of pending.values()) {
+      if (request.ownerId === ownerId) continue;
+      const envelope = {
+        type: "request",
+        ownerId,
+        sender: contextId,
+        clientId: request.id,
+        request: request.value,
+      };
+      if (ownerId === contextId) {
+        if (!workerReady) continue;
+        request.ownerId = ownerId;
+        forward(envelope);
+      } else if (channel) {
+        request.ownerId = ownerId;
+        channel.postMessage(envelope);
+      }
+    }
+  }
+
+  function startDatabaseWorker() {
+    ownerId = contextId;
+    worker = new Worker(workerUrl, {
+      type: "module",
+      name: `fission-sqlite:${applicationId}`,
+    });
+
+    worker.addEventListener("message", ({ data }) => {
+      if (data?.type === "ready") {
+        workerReady = true;
+        channel?.postMessage({ type: "owner-ready", ownerId });
+        sendPendingToOwner();
+        return;
+      }
+      const relay = relays.get(data?.id);
+      if (!relay) return;
+      relays.delete(data.id);
+      respond(relay.sender, { ...data, id: relay.clientId });
+    });
+
+    worker.addEventListener("error", (event) => {
+      const error = event.message || "SQLite worker failed";
+      for (const [relayId, relay] of relays) {
+        relays.delete(relayId);
+        respond(relay.sender, {
+          id: relay.clientId,
+          ok: false,
+          error,
+        });
+      }
+    });
+  }
+
+  if (coordinated) {
+    channel.addEventListener("message", ({ data }) => {
+      if (data?.type === "discover-owner") {
+        if (workerReady) channel.postMessage({ type: "owner-ready", ownerId });
+      } else if (data?.type === "owner-ready") {
+        ownerId = data.ownerId;
+        sendPendingToOwner();
+      } else if (data?.type === "request") {
+        if (workerReady && data.ownerId === ownerId) forward(data);
+      } else if (data?.type === "response" && data.recipient === contextId) {
+        settle(data.data);
+      }
+    });
+
+    navigator.locks
+      .request(lockName, { mode: "exclusive", signal: ownershipAbort.signal }, async () => {
+        if (closed) return;
+        startDatabaseWorker();
+        await new Promise((resolve) => {
+          releaseOwnership = resolve;
+        });
+      })
+      .catch((error) => {
+        if (error?.name !== "AbortError") console.error(error);
+      });
+    channel.postMessage({ type: "discover-owner" });
+  } else {
+    startDatabaseWorker();
+  }
 
   const request = (value) =>
     new Promise((resolve, reject) => {
-      const id = nextId++;
-      pending.set(id, { resolve, reject });
-      endpoint.postMessage({ id, request: value });
+      const id = nextClientId++;
+      pending.set(id, { id, value, resolve, reject, ownerId: null });
+      if (ownerId) sendPendingToOwner();
+      else channel?.postMessage({ type: "discover-owner" });
     });
 
   const close = () => {
+    closed = true;
     for (const request of pending.values()) {
       request.reject(new Error("SQLite bridge closed"));
     }
     pending.clear();
-    if (shared) endpoint.close();
-    else worker.terminate();
+    ownershipAbort?.abort();
+    worker?.terminate();
+    releaseOwnership?.();
+    channel?.close();
   };
 
-  return { applicationId, request, worker, close };
+  return { applicationId, request, close };
 }
 
 /**
