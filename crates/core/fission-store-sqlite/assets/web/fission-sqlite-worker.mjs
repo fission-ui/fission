@@ -36,12 +36,29 @@ async function legacyPoolExists() {
   }
 }
 
+async function opfsFileExists(filename) {
+  try {
+    const parts = filename.split("/").filter(Boolean);
+    const basename = parts.pop();
+    let directory = await navigator.storage.getDirectory();
+    for (const part of parts) {
+      directory = await directory.getDirectoryHandle(part);
+    }
+    await directory.getFileHandle(basename);
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
 async function migrateLegacyDatabase() {
-  if (await sqlite3.opfs.entryExists(databaseFilename)) return;
+  // sqlite3.opfs is an initialization-only namespace that official release
+  // builds delete before sqlite3InitModule() resolves. Query OPFS directly.
+  if (await opfsFileExists(databaseFilename)) return;
   if (!(await legacyPoolExists())) return;
 
   await navigator.locks.request(`fission-sqlite-migration:${namespace}`, async () => {
-    if (await sqlite3.opfs.entryExists(databaseFilename)) return;
+    if (await opfsFileExists(databaseFilename)) return;
 
     let pool;
     try {

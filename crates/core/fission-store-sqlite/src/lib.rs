@@ -53,6 +53,8 @@ mod tests {
         assert!(worker.contains("OpfsWlDb"));
         assert!(worker.contains("/fission-apps/${namespace}/store.sqlite3"));
         assert!(worker.contains("navigator.locks.request"));
+        assert!(worker.contains("navigator.storage.getDirectory"));
+        assert!(!worker.contains("sqlite3.opfs.entryExists"));
         assert!(!SQLITE_WEB_OPFS_ASYNC_PROXY.is_empty());
     }
 }
