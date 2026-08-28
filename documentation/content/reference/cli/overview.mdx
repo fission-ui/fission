@@ -268,7 +268,11 @@ Adds one or more generated host targets to an existing Fission project.
 fission add-capability <capabilities...> [--project-dir <dir>]
 ```
 
-Records host capabilities in [`fission.toml`](/reference/config/fission-toml/) and updates generated platform config where Fission can do that safely. Current manifest values include `barcode-scanner`, `biometric`, `bluetooth`, `camera`, `geolocation`, `haptics`, `microphone`, `nfc`, `notifications`, `passkeys`, `volume-control`, and `wifi`.
+Records host capabilities in [`fission.toml`](/reference/config/fission-toml/) and updates generated platform config where Fission can do that safely. Current manifest values include `barcode-scanner`, `biometric`, `bluetooth`, `camera`, `geolocation`, `haptics`, `microphone`, `nfc`, `notifications`, `passkeys`, `storage`, `volume-control`, and `wifi`.
+
+`storage` also synchronizes the target-specific SQLite Cargo features. For Web it installs the JavaScript bridge, worker, and SQLite WASM assets. Fission rejects Web run, build, test, and package operations before compilation when the resolved SQLite feature and this capability declaration disagree.
+
+The generated Web storage host uses SQLite's Web-Locks-backed OPFS VFS so the same application can access its database from multiple tabs. `fission serve-web` supplies the required cross-origin isolation headers during development; production hosts must preserve the header requirements documented in the [storage and SQLite guide](/docs/guides/storage-and-sqlite/).
 
 Android changes are written to `platforms/android/AndroidManifest.xml`. iOS usage strings are written to `platforms/ios/Info.plist`, and entitlement-backed features such as NFC and Wi-Fi update `platforms/ios/Entitlements.plist`. See [Platform capabilities](/docs/guides/platform-capabilities/) before shipping because some features still need app-specific routes, usage text, app-store setup, or provider implementation.
 

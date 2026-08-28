@@ -1,13 +1,81 @@
 import sqlite3InitModule from "./sqlite3.mjs";
 
+const applicationId = new URL(globalThis.location.href).searchParams.get("fission_app_id");
+if (!applicationId) {
+  throw new Error("Fission SQLite worker started without an application ID.");
+}
+
+const namespaceDigest = new Uint8Array(
+  await crypto.subtle.digest("SHA-256", new TextEncoder().encode(applicationId)),
+);
+const namespace = Array.from(namespaceDigest.slice(0, 16), (byte) =>
+  byte.toString(16).padStart(2, "0")
+).join("");
+const databaseFilename = `/fission-apps/${namespace}/store.sqlite3`;
+
 const sqlite3 = await sqlite3InitModule({
   locateFile: (file) => new URL(file, import.meta.url).href,
 });
-await sqlite3.installOpfsSAHPoolVfs({
-  name: "fission-opfs",
-  directory: "fission",
-});
-const db = new sqlite3.oo1.DB("file:/store.sqlite3?vfs=fission-opfs", "c");
+
+if (!sqlite3.oo1.OpfsWlDb) {
+  throw new Error(
+    "Fission Web SQLite requires the opfs-wl VFS. Serve the application with " +
+    "Cross-Origin-Opener-Policy: same-origin and " +
+    "Cross-Origin-Embedder-Policy: require-corp, and use a browser with OPFS, " +
+    "Web Locks, SharedArrayBuffer, and Atomics.waitAsync support.",
+  );
+}
+
+async function legacyPoolExists() {
+  try {
+    const root = await navigator.storage.getDirectory();
+    await root.getDirectoryHandle("fission");
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+async function migrateLegacyDatabase() {
+  if (await sqlite3.opfs.entryExists(databaseFilename)) return;
+  if (!(await legacyPoolExists())) return;
+
+  await navigator.locks.request(`fission-sqlite-migration:${namespace}`, async () => {
+    if (await sqlite3.opfs.entryExists(databaseFilename)) return;
+
+    let pool;
+    try {
+      pool = await sqlite3.installOpfsSAHPoolVfs({
+        name: `fission-opfs-migration-${namespace}`,
+        directory: "fission",
+      });
+      const legacyName = pool
+        .getFileNames()
+        .find((name) => name === "/store.sqlite3" || name === "store.sqlite3");
+      if (!legacyName) return;
+      const bytes = pool.exportFile(legacyName);
+      pool.pauseVfs();
+      await sqlite3.oo1.OpfsWlDb.importDb(databaseFilename, bytes);
+    } catch (error) {
+      throw new Error(
+        "Fission could not migrate the existing Web SQLite database. Close pages " +
+        "running an older Fission build and reload: " +
+        (error instanceof Error ? error.message : String(error)),
+      );
+    } finally {
+      if (pool && !pool.isPaused()) {
+        try {
+          pool.pauseVfs();
+        } catch (_) {
+          // The original error is more useful than a secondary cleanup error.
+        }
+      }
+    }
+  });
+}
+
+await migrateLegacyDatabase();
+const db = new sqlite3.oo1.OpfsWlDb(databaseFilename, "c");
 
 db.exec(`
 CREATE TABLE IF NOT EXISTS fission (
@@ -220,4 +288,4 @@ self.addEventListener("message", ({ data }) => {
   }
 });
 
-self.postMessage({ type: "ready" });
+self.postMessage({ type: "ready", applicationId });
