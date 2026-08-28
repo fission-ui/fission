@@ -10,15 +10,18 @@ function defaultApplicationId() {
 function createBridge(applicationId) {
   const workerUrl = new URL("./fission-sqlite-worker.mjs", import.meta.url);
   workerUrl.searchParams.set("fission_app_id", applicationId);
-  const worker = new Worker(workerUrl, {
-    type: "module",
-    name: `fission-sqlite:${applicationId}`,
-  });
+  const workerName = `fission-sqlite:${applicationId}`;
+  const shared = typeof SharedWorker === "function";
+  const worker = shared
+    ? new SharedWorker(workerUrl, { type: "module", name: workerName })
+    : new Worker(workerUrl, { type: "module", name: workerName });
+  const endpoint = shared ? worker.port : worker;
+  endpoint.start?.();
 
   let nextId = 1;
   const pending = new Map();
 
-  worker.addEventListener("message", ({ data }) => {
+  endpoint.addEventListener("message", ({ data }) => {
     if (data?.type === "ready") return;
     const request = pending.get(data?.id);
     if (!request) return;
@@ -37,10 +40,19 @@ function createBridge(applicationId) {
     new Promise((resolve, reject) => {
       const id = nextId++;
       pending.set(id, { resolve, reject });
-      worker.postMessage({ id, request: value });
+      endpoint.postMessage({ id, request: value });
     });
 
-  return { applicationId, request, worker };
+  const close = () => {
+    for (const request of pending.values()) {
+      request.reject(new Error("SQLite bridge closed"));
+    }
+    pending.clear();
+    if (shared) endpoint.close();
+    else worker.terminate();
+  };
+
+  return { applicationId, request, worker, close };
 }
 
 /**

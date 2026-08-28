@@ -292,17 +292,27 @@ function dispatch(operation, request) {
   }
 }
 
-self.addEventListener("message", ({ data }) => {
+function handleMessage(endpoint, data) {
   try {
     const { operation, request } = data.request;
-    self.postMessage({ id: data.id, ok: true, value: dispatch(operation, request) });
+    endpoint.postMessage({ id: data.id, ok: true, value: dispatch(operation, request) });
   } catch (error) {
-    self.postMessage({
+    endpoint.postMessage({
       id: data.id,
       ok: false,
       error: error instanceof Error ? error.message : String(error),
     });
   }
-});
+}
 
-self.postMessage({ type: "ready", applicationId });
+function connect(endpoint) {
+  endpoint.addEventListener("message", ({ data }) => handleMessage(endpoint, data));
+  endpoint.start?.();
+  endpoint.postMessage({ type: "ready", applicationId });
+}
+
+if (typeof SharedWorkerGlobalScope !== "undefined") {
+  self.addEventListener("connect", ({ ports }) => connect(ports[0]));
+} else {
+  connect(self);
+}

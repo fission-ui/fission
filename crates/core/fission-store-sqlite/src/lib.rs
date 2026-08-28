@@ -49,6 +49,7 @@ mod tests {
         let worker = std::str::from_utf8(SQLITE_WEB_WORKER).expect("worker is UTF-8");
 
         assert!(bridge.contains("__FISSION_SQLITE_BRIDGE__"));
+        assert!(bridge.contains("new SharedWorker"));
         assert!(bridge.contains("fission_app_id"));
         assert!(worker.contains("OpfsWlDb"));
         assert!(worker.contains("/fission-apps/${namespace}/store.sqlite3"));

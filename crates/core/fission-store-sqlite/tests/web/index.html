@@ -22,7 +22,7 @@
           { Positional: [{ Text: peerRun }, { Text: "peer" }] },
         );
         parent.postMessage({ type: "fission-sqlite-peer-complete", run: peerRun }, location.origin);
-        globalThis.__FISSION_SQLITE_BRIDGE__.worker.terminate();
+        globalThis.__FISSION_SQLITE_BRIDGE__.close();
       } else {
         await execute(
           "CREATE TABLE IF NOT EXISTS browser_smoke(run TEXT NOT NULL, writer TEXT NOT NULL)",
@@ -64,7 +64,7 @@
         document.body.dataset.status = writers === "parent,peer" ? "passed" : "failed";
         document.body.textContent = writers;
         iframe.remove();
-        globalThis.__FISSION_SQLITE_BRIDGE__.worker.terminate();
+        globalThis.__FISSION_SQLITE_BRIDGE__.close();
       }
     } catch (error) {
       console.error(error);
