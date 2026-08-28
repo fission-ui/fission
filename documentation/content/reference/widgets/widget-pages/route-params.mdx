@@ -28,6 +28,25 @@ let builder = |params: &RouteParams| {
 };
 ```
 
+`route_component` supplies the same captured map as a build-scoped provider so
+a named component does not have to fall back to an anonymous builder:
+
+```rust
+impl From<ProjectRoute> for Widget {
+    fn from(_: ProjectRoute) -> Widget {
+        let params = fission::build::read::<RouteParams>();
+        ProjectScreen {
+            id: params.get("id").cloned(),
+        }
+        .into()
+    }
+}
+```
+
+The map exists only during conversion of the matched route. Copy the values a
+component needs into ordinary widget fields or actions; do not retain a
+build-scope handle.
+
 ## Entry table
 
 | Part | Type | Meaning | Notes / default behavior |
@@ -54,4 +73,3 @@ If a screen starts repeating the same `RouteParams` setup, extract a named compo
 ## Related
 
 [`Route`](/reference/widgets/route), [`Router`](/reference/widgets/router), and [`State system`](/reference/core/state-system).
-

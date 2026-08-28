@@ -28,6 +28,29 @@ let router: Widget = Router::<AppState>::new()
 path matches. The existing closure-based `route` and parameter-aware
 `route_builder` APIs remain available.
 
+Captured parameters are available to every registration form. A
+`route_builder` receives `&RouteParams` directly. A named component registered
+with `route_component` reads the same map from its matched build scope:
+
+```rust
+impl From<ProjectRoute> for Widget {
+    fn from(_: ProjectRoute) -> Widget {
+        let params = fission::build::read::<RouteParams>();
+        let project_id = params.get("project_id").cloned();
+
+        ProjectScreen { project_id }.into()
+    }
+}
+
+Router::<AppState>::new()
+    .with_path(view.state().current_path.clone())
+    .route_component("/projects/:project_id", ProjectRoute)
+```
+
+The provider exists only while the matched component is converted. Nested
+components therefore see the correct values, and unmatched routes cannot read
+stale parameters from another route.
+
 ## Protected routes
 
 Keep access checks at the route table rather than repeating them inside every
@@ -61,8 +84,9 @@ replace the default progress and access-denied branches.
 
 Authentication restoration remains an ordinary asynchronous Fission effect.
 For example, a startup reducer can read a session from the Store and update
-`SessionState` in its success or failure reducer. The route decision is a pure
-derivation from that state; it is not itself a reducer.
+the route decision in its success or failure reducer. See
+[`ProtectedRoute`](/reference/widgets/protected-route) for both the synchronous
+selector and asynchronous SQLite patterns.
 
 Redirects replace history by default, preventing browser Back from immediately
 retrying the rejected route. SSR returns an HTTP 302 without protected markup,

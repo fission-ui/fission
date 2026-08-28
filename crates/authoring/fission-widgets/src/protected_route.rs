@@ -9,13 +9,28 @@ use fission_core::{RouteBuildOutcome, RouteDecision, WidgetId};
 /// cannot register resources or reducers from its protected component.
 #[derive(Clone, Debug)]
 pub struct ProtectedRoute<A, P = DefaultRoutePending, D = DefaultRouteDenied> {
+    /// The already-resolved access result for this route.
+    ///
+    /// Resolve authentication, authorization, feature availability, or other
+    /// prerequisites in application state and reducers. `ProtectedRoute` does
+    /// not execute those checks itself; it only selects the corresponding
+    /// branch without constructing inactive components.
     pub decision: RouteDecision,
+    /// Component constructed when `decision` is [`RouteDecision::Allow`].
     pub allowed: A,
+    /// Component shown while access is pending or a redirect is being applied.
     pub pending: P,
+    /// Component shown when access is explicitly denied.
     pub denied: D,
 }
 
 impl<A> ProtectedRoute<A> {
+    /// Creates an access boundary around `allowed` using Fission's default
+    /// progress and access-denied branches.
+    ///
+    /// `decision` is normally copied from application state or produced by a
+    /// pure selector. Async work belongs in reducers; leave the decision as
+    /// [`RouteDecision::Pending`] until that work completes.
     pub fn new(decision: RouteDecision, allowed: A) -> Self {
         Self {
             decision,
@@ -27,6 +42,8 @@ impl<A> ProtectedRoute<A> {
 }
 
 impl<A, P, D> ProtectedRoute<A, P, D> {
+    /// Replaces the branch shown for [`RouteDecision::Pending`] and while a
+    /// [`RouteDecision::Redirect`] is being handed to the host shell.
     pub fn pending<P2>(self, pending: P2) -> ProtectedRoute<A, P2, D> {
         ProtectedRoute {
             decision: self.decision,
@@ -36,6 +53,10 @@ impl<A, P, D> ProtectedRoute<A, P, D> {
         }
     }
 
+    /// Replaces the branch shown for [`RouteDecision::Deny`].
+    ///
+    /// On SSR this branch is accompanied by a forbidden route outcome so the
+    /// server can return HTTP 403 without rendering the protected component.
     pub fn denied<D2>(self, denied: D2) -> ProtectedRoute<A, P, D2> {
         ProtectedRoute {
             decision: self.decision,
@@ -70,6 +91,7 @@ where
 }
 
 #[derive(Clone, Copy, Debug, Default)]
+/// Default centered progress indicator used while route access is unresolved.
 pub struct DefaultRoutePending;
 
 impl From<DefaultRoutePending> for Widget {
@@ -87,6 +109,7 @@ impl From<DefaultRoutePending> for Widget {
 }
 
 #[derive(Clone, Copy, Debug, Default)]
+/// Default centered "Access denied" branch used for denied routes.
 pub struct DefaultRouteDenied;
 
 impl From<DefaultRouteDenied> for Widget {
