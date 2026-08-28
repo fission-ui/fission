@@ -7,37 +7,57 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+/// Kind of independently compiled browser artifact.
 pub enum BrowserArtifactKind {
+    /// Progressive Web Worker attached to a route.
     Worker,
+    /// Hydrated WebAssembly island mounted into the document.
     Island,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+/// Validated build plan for one generated browser artifact shim.
 pub struct BrowserArtifactPlan {
+    /// Stable worker or island identifier.
     pub id: String,
+    /// Artifact execution kind.
     pub kind: BrowserArtifactKind,
+    /// Rust entry path exported by the application package.
     pub entry: String,
+    /// Public artifact path expected by the rendered document.
     pub artifact: String,
+    /// Directory into which the generated shim crate is written.
     pub shim_dir: PathBuf,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+/// Inputs controlling browser artifact generation and compilation.
 pub struct BrowserArtifactBuildOptions {
+    /// Application project root.
     pub project_dir: PathBuf,
+    /// Root directory for generated shims and compiled assets.
     pub output_dir: PathBuf,
+    /// Cargo package that exports worker and island entry functions.
     pub package_name: String,
+    /// Whether that package's default features remain enabled.
     pub package_default_features: bool,
+    /// Additional package features enabled for artifact builds.
     pub package_features: Vec<String>,
+    /// Whether to compile with Cargo's release profile.
     pub release: bool,
+    /// Whether `write_shims` also invokes compilation.
     pub compile: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+/// Collection of browser artifacts discovered from an SSR application.
 pub struct BrowserArtifactBuild {
+    /// Validated worker and island plans in route declaration order.
     pub plans: Vec<BrowserArtifactPlan>,
 }
 
 impl BrowserArtifactBuild {
+    /// Discovers and validates every worker and island registered by `app`.
     pub fn from_app(app: &FissionServerApp, options: &BrowserArtifactBuildOptions) -> Result<Self> {
         let mut plans = Vec::new();
         for route in app.routes() {
@@ -51,6 +71,7 @@ impl BrowserArtifactBuild {
         Ok(Self { plans })
     }
 
+    /// Writes generated shim crates and optionally compiles their Wasm artifacts.
     pub fn write_shims(&self, options: &BrowserArtifactBuildOptions) -> Result<()> {
         for plan in &self.plans {
             write_shim(plan, options)?;

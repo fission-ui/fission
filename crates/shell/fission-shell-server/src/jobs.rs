@@ -11,8 +11,11 @@ use std::sync::Arc;
 use std::task::{Context, Poll, RawWaker, RawWakerVTable, Waker};
 
 #[derive(Clone, Debug)]
+/// Request-local information and data-stream access supplied to a server job.
 pub struct ServerJobCtx {
+    /// Unique resource request identifier for this render pass.
     pub req_id: u64,
+    /// Stable resource key that requested the job.
     pub resource_key: String,
     data_streams: DataStreamRegistry,
 }
@@ -66,12 +69,16 @@ impl ServerJobCtx {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+/// Encoded typed error or diagnostic returned by a server job.
 pub struct ServerJobError {
+    /// Serialized application error payload, when available.
     pub payload: Option<Vec<u8>>,
+    /// Human-readable infrastructure or decoding error.
     pub message: Option<String>,
 }
 
 impl ServerJobError {
+    /// Creates a diagnostic-only job error.
     pub fn message(message: impl Into<String>) -> Self {
         Self {
             payload: None,
@@ -79,6 +86,7 @@ impl ServerJobError {
         }
     }
 
+    /// Serializes a typed application error for the requesting resource.
     pub fn typed<E: Serialize>(error: &E) -> Self {
         Self {
             payload: serde_json::to_vec(error).ok(),
@@ -91,24 +99,29 @@ type JobHandler =
     dyn Fn(Vec<u8>, ServerJobCtx) -> std::result::Result<Vec<u8>, ServerJobError> + Send + Sync;
 
 #[derive(Clone, Default)]
+/// Typed server-job handlers and request data streams available during SSR.
 pub struct ServerJobRegistry {
     handlers: BTreeMap<String, Arc<JobHandler>>,
     data_streams: DataStreamRegistry,
 }
 
 impl ServerJobRegistry {
+    /// Creates an empty job and stream registry.
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Returns the shared data-stream registry used by job contexts.
     pub fn data_streams(&self) -> DataStreamRegistry {
         self.data_streams.clone()
     }
 
+    /// Registers a one-shot data stream and returns its opaque identifier.
     pub fn register_data_stream(&self, stream: BoxFissionDataStream) -> DataStreamId {
         self.data_streams.register(stream)
     }
 
+    /// Opens and consumes a registered stream handle.
     pub fn open_data_stream(
         &self,
         id: DataStreamId,
@@ -116,10 +129,15 @@ impl ServerJobRegistry {
         self.data_streams.open(id)
     }
 
+    /// Releases a stream without opening it.
     pub fn release_data_stream(&self, id: DataStreamId) -> bool {
         self.data_streams.release(id)
     }
 
+    /// Registers a typed synchronous handler for a declared Fission job.
+    ///
+    /// Requests and successful or error results use the job specification's
+    /// serde contract; malformed payloads become diagnostic job errors.
     pub fn register_job<J, F>(mut self, job: JobRef<J>, handler: F) -> Self
     where
         J: JobSpec,
@@ -144,10 +162,12 @@ impl ServerJobRegistry {
         self
     }
 
+    /// Returns whether a handler is registered for `name`.
     pub fn has_job(&self, name: &str) -> bool {
         self.handlers.contains_key(name)
     }
 
+    /// Runs a job using its encoded request and request-local context.
     pub fn run(
         &self,
         name: &str,
@@ -162,6 +182,7 @@ impl ServerJobRegistry {
         handler(payload, ctx)
     }
 
+    /// Validates that a required job handler was registered.
     pub fn require_job(&self, name: &str) -> AnyResult<()> {
         if self.has_job(name) {
             Ok(())

@@ -9,14 +9,23 @@ use std::path::Path;
 use std::time::Duration;
 
 #[derive(Clone, Debug)]
+/// Effective SSR configuration loaded from the project's `fission.toml`.
 pub struct ServerRuntimeConfig {
+    /// Locale used when a route or request does not select one.
     pub default_locale: String,
+    /// Optional default mode applied to routes without an explicit policy.
     pub default_route_mode: Option<WebRouteMode>,
+    /// Optional cap on reducer/resource render passes per request.
     pub render_pass_limit: Option<usize>,
+    /// Page and resource cache configuration.
     pub cache: ServerCacheConfig,
+    /// HTTP origin and proxy-trust configuration.
     pub http: ServerHttpConfig,
+    /// Session cookie configuration.
     pub sessions: ServerSessionConfig,
+    /// Progressive worker artifact configuration.
     pub workers: ServerBrowserArtifactConfig,
+    /// WebAssembly island artifact configuration.
     pub islands: ServerIslandConfig,
 }
 
@@ -36,14 +45,23 @@ impl Default for ServerRuntimeConfig {
 }
 
 #[derive(Clone, Debug)]
+/// Cache provider, lifetime, and optional layered-cache configuration.
 pub struct ServerCacheConfig {
+    /// Provider used when no explicit layers are configured.
     pub provider: ServerCacheProvider,
+    /// In-process Moka settings.
     pub moka: MokaCacheOptions,
+    /// Optional default fresh lifetime.
     pub ttl: Option<Duration>,
+    /// Optional default stale-serving lifetime.
     pub stale_while_revalidate: Option<Duration>,
+    /// Explicit Redis connection URL, when configured.
     pub redis_url: Option<String>,
+    /// Environment variable from which to load the Redis URL.
     pub redis_url_env: Option<String>,
+    /// Namespace prepended to Redis keys.
     pub redis_prefix: Option<String>,
+    /// Ordered cache layers, from nearest/fastest to farthest.
     pub layers: Vec<ServerCacheLayerConfig>,
 }
 
@@ -63,38 +81,61 @@ impl Default for ServerCacheConfig {
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+/// Cache backend selected by server configuration.
 pub enum ServerCacheProvider {
+    /// Bounded in-process cache.
     #[default]
     Moka,
+    /// Shared Redis cache, available with the `redis` feature.
     Redis,
+    /// Explicit ordered collection of cache layers.
     Pipeline,
 }
 
 #[derive(Clone, Debug)]
+/// Configuration for one layer in a cache pipeline.
 pub struct ServerCacheLayerConfig {
+    /// Diagnostic name of the layer.
     pub name: String,
+    /// Backend used by the layer.
     pub provider: ServerCacheProvider,
+    /// Read/write behavior for the layer.
     pub policy: CacheLayerPolicy,
+    /// In-process cache settings when `provider` is Moka.
     pub moka: MokaCacheOptions,
+    /// Explicit Redis URL for this layer.
     pub redis_url: Option<String>,
+    /// Environment variable containing this layer's Redis URL.
     pub redis_url_env: Option<String>,
+    /// Namespace prepended to this layer's Redis keys.
     pub redis_prefix: Option<String>,
+    /// Optional layer-specific fresh lifetime.
     pub ttl: Option<Duration>,
+    /// Optional layer-specific stale-serving lifetime.
     pub stale_while_revalidate: Option<Duration>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
+/// HTTP-origin behavior used when constructing absolute URLs.
 pub struct ServerHttpConfig {
+    /// Canonical externally visible base URL.
     pub base_url: Option<String>,
+    /// Whether trusted deployment proxy headers may override request origin.
     pub trust_proxy_headers: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+/// Server-side session cookie configuration.
 pub struct ServerSessionConfig {
+    /// Session implementation selected for requests.
     pub provider: ServerSessionProvider,
+    /// Name of the signed session cookie.
     pub cookie_name: String,
+    /// Environment variable containing the signing key.
     pub signing_key_env: Option<String>,
+    /// Whether the cookie is restricted to HTTPS.
     pub secure: bool,
+    /// Browser cross-site cookie policy.
     pub same_site: ServerSameSite,
 }
 
@@ -111,22 +152,31 @@ impl Default for ServerSessionConfig {
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+/// Session persistence backend.
 pub enum ServerSessionProvider {
+    /// Signed browser cookie session identifier.
     #[default]
     Cookie,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+/// `SameSite` policy emitted for the session cookie.
 pub enum ServerSameSite {
+    /// Never send the cookie with cross-site requests.
     Strict,
+    /// Send for safe top-level cross-site navigation.
     #[default]
     Lax,
+    /// Allow cross-site use; normally requires a secure cookie.
     None,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+/// Build configuration for progressive browser workers.
 pub struct ServerBrowserArtifactConfig {
+    /// Whether every worker is compiled as its own browser artifact.
     pub separate_artifacts: bool,
+    /// Main-thread bridge implementation emitted for workers.
     pub bridge: ServerWorkerBridge,
 }
 
@@ -140,8 +190,11 @@ impl Default for ServerBrowserArtifactConfig {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+/// Build and preload configuration for WebAssembly islands.
 pub struct ServerIslandConfig {
+    /// Whether every island is compiled as its own browser artifact.
     pub separate_artifacts: bool,
+    /// When island artifacts are preloaded.
     pub preload: ServerIslandPreload,
 }
 
@@ -155,14 +208,19 @@ impl Default for ServerIslandConfig {
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+/// Main-thread bridge source for progressive workers.
 pub enum ServerWorkerBridge {
+    /// Generate Fission's version-matched bridge during the build.
     #[default]
     Generated,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+/// Preload strategy for browser island artifacts.
 pub enum ServerIslandPreload {
+    /// Load only when normal browser execution reaches the island.
     None,
+    /// Emit preloads for islands attached to the current route.
     #[default]
     Route,
 }
@@ -242,6 +300,10 @@ struct ServerIslandsToml {
 }
 
 impl ServerRuntimeConfig {
+    /// Loads `[server]` configuration from `project_dir/fission.toml`.
+    ///
+    /// A missing file or section yields defaults; malformed or unsupported
+    /// values return an error rather than silently changing runtime behavior.
     pub fn load(project_dir: &Path) -> Result<Self> {
         let path = project_dir.join("fission.toml");
         if !path.exists() {

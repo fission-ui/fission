@@ -31,21 +31,30 @@ use std::sync::atomic::{AtomicU16, AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, SystemTime};
 
+/// Maximum encoded action submission accepted by the built-in SSR endpoint.
 pub const MAX_SERVER_ACTION_BODY_BYTES: usize = 1024 * 1024;
+/// Default name used for Fission's signed session cookie.
 pub const DEFAULT_SESSION_COOKIE_NAME: &str = "fission_session";
 const SERVER_BROWSER_RUNTIME_JS: &str = include_str!("../assets/server-runtime.js");
 static SESSION_COUNTER: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
+/// Framework-neutral HTTP request consumed by [`ServerRenderer`].
 pub struct ServerRequest {
+    /// Uppercase HTTP method.
     pub method: String,
+    /// Request path without query text.
     pub path: String,
+    /// Decoded query parameters.
     pub query: BTreeMap<String, String>,
+    /// Lowercase header names and their decoded values.
     pub headers: BTreeMap<String, String>,
+    /// Complete request body bytes.
     pub body: Vec<u8>,
 }
 
 impl ServerRequest {
+    /// Creates an empty GET request for `path`.
     pub fn get(path: impl Into<String>) -> Self {
         Self {
             method: "GET".to_string(),
@@ -56,6 +65,7 @@ impl ServerRequest {
         }
     }
 
+    /// Creates a POST request with body bytes and no headers or query values.
     pub fn post(path: impl Into<String>, body: impl Into<Vec<u8>>) -> Self {
         Self {
             method: "POST".to_string(),
@@ -68,14 +78,20 @@ impl ServerRequest {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+/// Framework-neutral HTTP response produced by [`ServerRenderer`].
 pub struct ServerResponse {
+    /// HTTP status code.
     pub status: u16,
+    /// Response header name/value pairs.
     pub headers: Vec<(String, String)>,
+    /// Complete response body bytes.
     pub body: Vec<u8>,
+    /// Cache freshness when the response came from cache.
     pub cache_status: Option<Freshness>,
 }
 
 impl ServerResponse {
+    /// Creates a response with a content type and arbitrary bytes.
     pub fn text(status: u16, content_type: &str, body: impl Into<Vec<u8>>) -> Self {
         Self {
             status,
@@ -85,6 +101,7 @@ impl ServerResponse {
         }
     }
 
+    /// Creates a non-cacheable `303 See Other` redirect.
     pub fn see_other(location: impl Into<String>) -> Self {
         Self {
             status: 303,
@@ -97,6 +114,7 @@ impl ServerResponse {
         }
     }
 
+    /// Creates a non-cacheable `302 Found` redirect.
     pub fn found(location: impl Into<String>) -> Self {
         Self {
             status: 302,
@@ -109,22 +127,26 @@ impl ServerResponse {
         }
     }
 
+    /// Decodes the body lossily as UTF-8 for diagnostics and tests.
     pub fn body_string(&self) -> String {
         String::from_utf8_lossy(&self.body).into_owned()
     }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+/// Signed-session identity resolved for one request.
 pub struct ServerSession {
     id: String,
     is_new: bool,
 }
 
 impl ServerSession {
+    /// Returns the stable opaque session identifier.
     pub fn id(&self) -> &str {
         &self.id
     }
 
+    /// Returns whether this request created the session.
     pub fn is_new(&self) -> bool {
         self.is_new
     }
@@ -139,16 +161,25 @@ struct CacheInvalidationPayload {
 }
 
 #[derive(Clone, Debug)]
+/// Route metadata and render products before conversion to an HTTP response.
 pub struct RenderedServerRoute {
+    /// Registered route that matched the request.
     pub route: WebRoute,
+    /// Rendered HTML document.
     pub html: String,
+    /// CSS generated for the rendered Fission nodes.
     pub css: String,
+    /// Runtime resource declarations encountered during rendering.
     pub resources: Vec<RuntimeResourceDeclaration>,
+    /// Number of signed server actions emitted into the document.
     pub server_action_count: usize,
+    /// HTTP status selected by the route.
     pub status: u16,
+    /// Navigation requested while reducers settled the route.
     pub navigation: Option<NavigationCommand>,
 }
 
+/// Request renderer and HTTP dispatcher for a configured Fission SSR app.
 pub struct ServerRenderer {
     app: FissionServerApp,
     cache: Arc<dyn Cache>,
@@ -167,6 +198,9 @@ pub struct ServerRenderer {
 }
 
 impl ServerRenderer {
+    /// Creates a renderer from programmatic app configuration and safe defaults.
+    ///
+    /// Use `configured` when the project should also load `fission.toml`.
     pub fn new(app: FissionServerApp) -> Self {
         let jobs = app.jobs.clone();
         let default_locale = app.default_locale.0.clone();
@@ -188,11 +222,13 @@ impl ServerRenderer {
         }
     }
 
+    /// Loads project runtime configuration and creates a renderer.
     pub fn configured(app: FissionServerApp) -> Result<Self> {
         let config = ServerRuntimeConfig::load(&app.project_dir)?;
         Self::with_config(app, config)
     }
 
+    /// Creates a renderer from an already loaded runtime configuration.
     pub fn with_config(mut app: FissionServerApp, config: ServerRuntimeConfig) -> Result<Self> {
         if let Some(mode) = config.default_route_mode {
             app.apply_default_route_mode(mode);
@@ -212,20 +248,24 @@ impl ServerRenderer {
         Ok(renderer)
     }
 
+    /// Replaces the page and resource cache backend.
     pub fn with_cache(mut self, cache: Arc<dyn Cache>) -> Self {
         self.cache = cache;
         self
     }
 
+    /// Returns the active cache provider.
     pub fn cache(&self) -> Arc<dyn Cache> {
         self.cache.clone()
     }
 
+    /// Removes one exact cache key.
     pub fn remove_cache_entry(&self, key: &CacheKey) -> Result<()> {
         self.cache.remove(key)?;
         Ok(())
     }
 
+    /// Removes multiple exact cache keys and reports affected entries.
     pub fn remove_cache_entries<I, K>(&self, keys: I) -> Result<InvalidationReport>
     where
         I: IntoIterator<Item = K>,
@@ -243,10 +283,12 @@ impl ServerRenderer {
         Ok(report)
     }
 
+    /// Invalidates every entry associated with one logical tag.
     pub fn invalidate_cache_tag(&self, tag: impl Into<CacheTag>) -> Result<InvalidationReport> {
         Ok(self.cache.invalidate_tag(&tag.into())?)
     }
 
+    /// Invalidates entries associated with any supplied tag.
     pub fn invalidate_cache_tags<I, T>(&self, tags: I) -> Result<InvalidationReport>
     where
         I: IntoIterator<Item = T>,
@@ -256,26 +298,31 @@ impl ServerRenderer {
         Ok(self.cache.invalidate_tags(&tags)?)
     }
 
+    /// Sets the logical viewport used by server layout.
     pub fn with_viewport_size(mut self, size: LayoutSize) -> Self {
         self.viewport_size = size;
         self
     }
 
+    /// Replaces the server-job registry used while settling resources.
     pub fn with_jobs(mut self, jobs: ServerJobRegistry) -> Self {
         self.jobs = jobs;
         self
     }
 
+    /// Replaces the signer used for interactive server actions.
     pub fn with_action_signer(mut self, signer: ServerActionSigner) -> Self {
         self.action_signer = signer;
         self
     }
 
+    /// Allows one browser origin to submit signed actions.
     pub fn with_allowed_action_origin(mut self, origin: impl Into<String>) -> Self {
         self.allowed_action_origins.insert(origin.into());
         self
     }
 
+    /// Replaces the set of browser origins allowed to submit signed actions.
     pub fn with_allowed_action_origins<I, O>(mut self, origins: I) -> Self
     where
         I: IntoIterator<Item = O>,
@@ -286,11 +333,13 @@ impl ServerRenderer {
         self
     }
 
+    /// Caps reducer/resource rebuild passes for one request.
     pub fn with_render_pass_limit(mut self, limit: usize) -> Self {
         self.render_pass_limit = limit;
         self
     }
 
+    /// Signs an application action for one route and widget node.
     pub fn sign_action<A: fission_core::Action>(
         &self,
         route_path: impl Into<String>,
@@ -302,10 +351,12 @@ impl ServerRenderer {
             .sign(route_path, target_node, action, ttl)
     }
 
+    /// Returns the configured route inventory.
     pub fn routes(&self) -> Vec<WebRoute> {
         self.app.routes()
     }
 
+    /// Renders a registered route without adapting it to an HTTP response.
     pub fn render_route(&self, path: &str) -> Result<RenderedServerRoute> {
         let path = normalize_server_path(path);
         let route = self
@@ -317,6 +368,8 @@ impl ServerRenderer {
         self.render_uncached(route, None, &request, &session)
     }
 
+    /// Dispatches a framework-neutral request to actions, handlers, static files,
+    /// or the matching SSR route and returns the resulting response.
     pub fn handle(&self, request: ServerRequest) -> Result<ServerResponse> {
         if request.method == "POST" && normalize_server_path(&request.path) == "/__fission/action/"
         {

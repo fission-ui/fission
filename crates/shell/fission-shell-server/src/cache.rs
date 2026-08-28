@@ -5,11 +5,13 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+/// Error returned by a configured SSR cache backend.
 pub struct CacheError {
     message: String,
 }
 
 impl CacheError {
+    /// Creates an error with a provider-facing diagnostic message.
     pub fn new(message: impl Into<String>) -> Self {
         Self {
             message: message.into(),
@@ -26,26 +28,32 @@ impl fmt::Display for CacheError {
 impl std::error::Error for CacheError {}
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+/// Stable, provider-independent cache entry key.
 pub struct CacheKey(String);
 
 impl CacheKey {
+    /// Creates a cache key from its complete namespaced value.
     pub fn new(value: impl Into<String>) -> Self {
         Self(value.into())
     }
 
+    /// Returns the underlying key string used by providers.
     pub fn as_str(&self) -> &str {
         &self.0
     }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+/// Logical label used to invalidate related entries together.
 pub struct CacheTag(String);
 
 impl CacheTag {
+    /// Creates an invalidation tag.
     pub fn new(value: impl Into<String>) -> Self {
         Self(value.into())
     }
 
+    /// Returns the underlying tag value.
     pub fn as_str(&self) -> &str {
         &self.0
     }
@@ -64,28 +72,40 @@ impl From<String> for CacheTag {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+/// Isolation boundary controlling where cached data may be reused.
 pub enum CacheScope {
+    /// Shareable across all requests and users.
     Public,
+    /// Reusable only within one session.
     PrivateSession,
+    /// Reusable only for one authenticated user.
     PrivateUser,
+    /// Reusable only within one tenant.
     PrivateTenant,
+    /// Must not be stored.
     NoStore,
 }
 
 impl CacheScope {
+    /// Returns whether an entry may be served to unrelated requests.
     pub fn is_publicly_shareable(&self) -> bool {
         matches!(self, Self::Public)
     }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+/// Descriptive metadata stored beside a cache value.
 pub struct CacheMetadata {
+    /// Route that produced the value.
     pub route_path: String,
+    /// MIME content type of the value.
     pub content_type: String,
+    /// Component or service that produced the value.
     pub source: String,
 }
 
 impl CacheMetadata {
+    /// Creates metadata for a complete HTML page rendered by Fission.
     pub fn full_page(route_path: impl Into<String>) -> Self {
         Self {
             route_path: route_path.into(),
@@ -96,41 +116,65 @@ impl CacheMetadata {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+/// Rendered document material stored as one cache value.
 pub struct RenderedPage {
+    /// HTML document or fragment.
     pub html: String,
+    /// CSS required by the rendered nodes.
     pub css: String,
+    /// HTTP status associated with the response.
     pub status: u16,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+/// Serialized result of a server job.
 pub struct StoredJobResult {
+    /// Registered job name.
     pub job_name: String,
+    /// Job-specific encoded result payload.
     pub payload: Vec<u8>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+/// Values supported by the shared cache abstraction.
 pub enum CacheValue {
+    /// Complete page output.
     FullPage(RenderedPage),
+    /// Reusable rendered fragment.
     Fragment(String),
+    /// Encoded server-job result.
     JobResult(StoredJobResult),
+    /// Metadata associated with a generated asset.
     AssetMetadata(BTreeMap<String, String>),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+/// Cache value plus its freshness, isolation, invalidation, and provenance data.
 pub struct CacheEntry {
+    /// Provider-independent cache key.
     pub key: CacheKey,
+    /// Stored page, fragment, job, or asset value.
     pub value: CacheValue,
+    /// Isolation boundary for reuse.
     pub scope: CacheScope,
+    /// Creation time.
     pub created_at: SystemTime,
+    /// Time through which the value is fresh.
     pub fresh_until: SystemTime,
+    /// Optional time through which stale serving remains allowed.
     pub stale_until: Option<SystemTime>,
+    /// Logical invalidation tags.
     pub tags: Vec<CacheTag>,
+    /// Request field names included in the cache variance contract.
     pub vary: Vec<String>,
+    /// Stable content fingerprint used for change detection.
     pub content_hash: u64,
+    /// Origin and content metadata.
     pub metadata: CacheMetadata,
 }
 
 impl CacheEntry {
+    /// Creates a complete-page entry and computes its freshness boundaries.
     pub fn full_page(
         key: CacheKey,
         page: RenderedPage,
@@ -158,6 +202,7 @@ impl CacheEntry {
         }
     }
 
+    /// Classifies this entry at the supplied time.
     pub fn freshness(&self, now: SystemTime) -> Freshness {
         if now <= self.fresh_until {
             Freshness::Fresh
@@ -171,6 +216,7 @@ impl CacheEntry {
         }
     }
 
+    /// Returns the page value when this entry stores a complete page.
     pub fn rendered_page(&self) -> Option<&RenderedPage> {
         match &self.value {
             CacheValue::FullPage(page) => Some(page),
@@ -180,25 +226,39 @@ impl CacheEntry {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// Current freshness state of a cache entry.
 pub enum Freshness {
+    /// The value is within its primary TTL.
     Fresh,
+    /// The primary TTL elapsed but stale serving is still allowed.
     Stale,
+    /// The value must no longer be served.
     Expired,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+/// Counts produced by one cache invalidation operation.
 pub struct InvalidationReport {
+    /// Number of unique keys removed.
     pub removed_keys: usize,
+    /// Number of requested tags successfully processed.
     pub removed_tags: usize,
+    /// Number of cache layers from which entries were removed.
     pub layers_affected: usize,
 }
 
+/// Synchronous cache-provider contract used by the SSR renderer.
 pub trait Cache: Send + Sync + 'static {
+    /// Loads an entry by exact key.
     fn get(&self, key: &CacheKey) -> Result<Option<CacheEntry>, CacheError>;
+    /// Stores or replaces an entry, respecting its `NoStore` scope.
     fn put(&self, entry: CacheEntry) -> Result<(), CacheError>;
+    /// Removes an entry by exact key.
     fn remove(&self, key: &CacheKey) -> Result<(), CacheError>;
+    /// Removes entries associated with one tag.
     fn invalidate_tag(&self, tag: &CacheTag) -> Result<InvalidationReport, CacheError>;
 
+    /// Invalidates multiple tags and combines their reports.
     fn invalidate_tags(&self, tags: &[CacheTag]) -> Result<InvalidationReport, CacheError> {
         let mut out = InvalidationReport::default();
         for tag in tags {
@@ -210,6 +270,7 @@ pub trait Cache: Send + Sync + 'static {
         Ok(out)
     }
 
+    /// Returns whether the provider currently contains a fresh entry.
     fn contains_fresh(&self, key: &CacheKey, now: SystemTime) -> Result<bool, CacheError> {
         Ok(self
             .get(key)?
@@ -218,7 +279,9 @@ pub trait Cache: Send + Sync + 'static {
 }
 
 #[derive(Clone, Debug)]
+/// Capacity settings for the in-process Moka cache.
 pub struct MokaCacheOptions {
+    /// Maximum weighted entry capacity retained by Moka.
     pub max_capacity: u64,
 }
 
@@ -230,12 +293,14 @@ impl Default for MokaCacheOptions {
     }
 }
 
+/// Bounded in-process implementation of [`Cache`].
 pub struct MokaCache {
     inner: moka::sync::Cache<String, CacheEntry>,
     tag_index: Mutex<BTreeMap<String, BTreeSet<String>>>,
 }
 
 impl MokaCache {
+    /// Creates an in-process cache with the supplied capacity.
     pub fn new(options: MokaCacheOptions) -> Self {
         Self {
             inner: moka::sync::Cache::builder()
@@ -309,17 +374,23 @@ impl Cache for MokaCache {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// Read/write policy for one cache-pipeline layer.
 pub enum CacheLayerPolicy {
+    /// Read from and write through this layer.
     WriteThrough,
+    /// Read existing values but never populate the layer.
     ReadOnly,
+    /// Use as a hot near-cache populated from lower layers.
     HotOnly,
 }
 
+/// Ordered cache that reads through and promotes values across multiple layers.
 pub struct CachePipeline {
     layers: Vec<(Arc<dyn Cache>, CacheLayerPolicy)>,
 }
 
 #[cfg(feature = "redis")]
+/// Redis-backed cache suitable for sharing entries across server processes.
 pub struct RedisCache {
     client: redis::Client,
     prefix: String,
@@ -327,6 +398,7 @@ pub struct RedisCache {
 
 #[cfg(feature = "redis")]
 impl RedisCache {
+    /// Connects to Redis and namespaces all keys with `prefix`.
     pub fn new(url: &str, prefix: impl Into<String>) -> Result<Self, CacheError> {
         let client = redis::Client::open(url)
             .map_err(|error| CacheError::new(format!("failed to create redis client: {error}")))?;
@@ -430,6 +502,7 @@ impl Cache for RedisCache {
 }
 
 impl CachePipeline {
+    /// Creates a write-through pipeline from nearest to farthest layers.
     pub fn new(layers: Vec<Arc<dyn Cache>>) -> Self {
         Self {
             layers: layers
@@ -439,14 +512,17 @@ impl CachePipeline {
         }
     }
 
+    /// Creates a pipeline with an explicit policy for every ordered layer.
     pub fn with_policies(layers: Vec<(Arc<dyn Cache>, CacheLayerPolicy)>) -> Self {
         Self { layers }
     }
 
+    /// Returns the number of configured cache layers.
     pub fn len(&self) -> usize {
         self.layers.len()
     }
 
+    /// Returns whether this pipeline contains no cache layers.
     pub fn is_empty(&self) -> bool {
         self.layers.is_empty()
     }
