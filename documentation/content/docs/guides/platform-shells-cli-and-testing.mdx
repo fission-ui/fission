@@ -86,13 +86,25 @@ These runtime wrappers revolve around the same product questions. What is the in
 
 That shared shape is the important part. It means the same mental model travels with you across platforms.
 
-The public wrappers are not completely symmetrical, so it helps to understand the differences by purpose rather than memorizing a method inventory.
+The stateful wrappers deliberately share the same core setup vocabulary.
+`DesktopApp`, `MobileApp`, `WebApp`, and `TerminalApp` all accept a prepared
+environment with `with_env(...)`, synchronize it with `with_sync_env(...)`,
+prepare state, dispatch a startup action, install a host key handler and frame
+hook, and register persistent host-owned reducers. The setup used to install
+translations therefore does not change merely because an app moves from a
+desktop entrypoint to Web.
 
-`DesktopApp` currently exposes the broadest public setup API. It can replace the initial environment with `with_env(...)`, it exposes reducer-registration helpers directly, and it can open the live test-control port with `with_test_control_port(...)`. That makes it a very convenient host for local iteration and automated live testing.
+`DesktopApp` and `MobileApp` can open the native live test-control port with
+`with_test_control_port(...)` and protect it with
+`with_test_control_token(...)`. Web testing uses the browser control bridge
+instead of opening a TCP listener inside WebAssembly. `MobileApp` also includes
+the Android-specific `run_with_android_app(...)` entrypoint used when the host
+activity hands control to Fission.
 
-`MobileApp` exposes the same core runtime ideas: state setup, startup action flow, environment synchronization, async registration, and live test-control support. It also includes the Android-specific `run_with_android_app(...)` host entrypoint used when the Android shell hands control to Fission.
-
-`WebApp` keeps the browser wrapper intentionally small. It supports the same shared startup and async-registration story, but it does not currently expose a public live test-control port or a public key-handler hook. That should be read as a shell-tooling difference in the current browser wrapper, not as a statement that the browser target is less real. A web app still runs the same shared runtime and can still be a production app.
+`WebApp` adds browser-owned configuration such as its mount selector, selective
+browser defaults, and pathname/hash navigation strategy. Those methods do not
+appear on native wrappers because there is no DOM or browser history to
+configure there.
 
 `TerminalApp` runs the same build, lower, layout, verify, and render pipeline inside a terminal. It is useful for command tools, dashboards, setup flows, and developer workflows where the user already lives in a terminal. It verifies terminal compatibility from Core IR and semantics rather than from hard-coded widget names. Continue to [Terminal user interfaces](/docs/guides/terminal-user-interfaces/) for a full guide.
 
@@ -106,7 +118,13 @@ A good rule is to use the wrapper for host startup concerns and keep product beh
 
 `with_state_init(...)` is for synchronous state preparation before the first frame. `with_startup_action(...)` is for entering the normal reducer flow as soon as the runtime is ready. `with_sync_env(...)` is for values that belong in `Env`, such as theme, locale, translation bundles, or other read-only context widgets should consume during component conversion.
 
-`with_async(...)` is where you register jobs, services, and capabilities that the host may need to run outside pure reducers. `with_frame_hook(...)` exists for narrow polling or wakeup cases, but it should stay a host-level helper instead of becoming your primary application architecture.
+`with_async(...)` is where graphical shells register jobs, services, and
+capabilities that the host may need to run outside pure reducers. Terminal
+currently hosts storage operations but does not yet expose the general async
+job/service builder; use its frame hook for terminal-specific polling rather
+than assuming a background service registration exists. `with_frame_hook(...)`
+should remain a narrow host-level helper instead of becoming your primary
+application architecture.
 
 The practical lesson is simple: the shell should prepare the platform around your app, not become the place where your app logic drifts.
 

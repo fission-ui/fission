@@ -6,8 +6,11 @@ use std::fs;
 use std::path::Path;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// Pixel dimensions used to rasterize each terminal cell into a PNG.
 pub struct ScreenshotOptions {
+    /// Width of one output cell in pixels.
     pub cell_width: u32,
+    /// Height of one output cell in pixels.
     pub cell_height: u32,
 }
 
@@ -20,6 +23,11 @@ impl Default for ScreenshotOptions {
     }
 }
 
+/// Rasterizes `frame` with Fission's bundled font and writes a PNG to `path`.
+///
+/// Parent directories are created automatically. The result is intended for
+/// deterministic tests and documentation; a live terminal may use a different
+/// font and cell aspect ratio.
 pub fn write_frame_png(
     frame: &TerminalFrame,
     path: impl AsRef<Path>,

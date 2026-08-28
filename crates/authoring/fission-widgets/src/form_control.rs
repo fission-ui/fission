@@ -25,11 +25,17 @@ use serde::{Deserialize, Serialize};
 /// ```
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct FormControl {
+    /// Optional stable identity for the complete labelled field group.
     pub id: Option<WidgetId>,
+    /// Optional user-facing field label.
     pub label: Option<String>,
+    /// Input or other form field associated with the label and messages.
     pub child: Widget,
+    /// Validation message; when present it takes precedence over helper text.
     pub error: Option<String>,
+    /// Optional guidance shown while no validation error is present.
     pub helper: Option<String>,
+    /// Whether to mark the label as required.
     pub required: bool,
 }
 

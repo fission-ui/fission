@@ -60,7 +60,7 @@ pub fn run_publish_tui(options: PublishUiOptions) -> Result<()> {
     let state = PublishUiState::load(options);
     fission::terminal::TerminalApp::with_state(PublishApp, state)
         .with_title("Fission publish")
-        .with_env(|env| env.theme = fission::theme::Theme::dark())
+        .configure_env(|env| env.theme = fission::theme::Theme::dark())
         .with_sync_env(|state, env| env.theme = theme_for_mode(state.theme_mode))
         .with_key_handler(publish_key_handler)
         .with_state_update(|state, _runtime, _env| state.poll_background_tasks())

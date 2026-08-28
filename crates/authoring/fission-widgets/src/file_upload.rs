@@ -5,10 +5,18 @@ use fission_core::ActionEnvelope;
 use fission_icons::material;
 use serde::{Deserialize, Serialize};
 
+/// File-selection row containing a browse action and the selected file label.
+///
+/// The widget does not open a platform picker itself. Bind `on_browse` to a
+/// reducer that requests Fission's file-picker capability and pass the returned
+/// display name back through `selected_file`.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct FileUpload {
+    /// Text shown on the browse button.
     pub label: String,
+    /// Optional selected file name shown beside the button.
     pub selected_file: Option<String>,
+    /// Action dispatched when the browse button is pressed.
     pub on_browse: Option<ActionEnvelope>,
 }
 

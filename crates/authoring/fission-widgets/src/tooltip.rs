@@ -138,9 +138,13 @@ impl TooltipMotionPlan {
 /// * `is_visible` - Force the tooltip visible regardless of hover state.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Tooltip {
+    /// Stable identity used for hover state and overlay anchoring.
     pub id: WidgetId,
+    /// Trigger content over which the tooltip is anchored.
     pub child: Widget,
+    /// Explanatory text displayed in the overlay.
     pub text: String,
+    /// Controlled visibility override in addition to framework hover state.
     pub is_visible: bool,
     /// Optional explicit tooltip motion. `None` emits no tooltip-owned motion declarations.
     #[serde(default, skip_serializing_if = "Option::is_none")]

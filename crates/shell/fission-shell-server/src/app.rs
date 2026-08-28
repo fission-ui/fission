@@ -22,6 +22,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU16, Ordering};
 use std::sync::Arc;
 
+/// Named values captured from dynamic route segments such as `:project_id`.
 pub type ServerRouteParams = BTreeMap<String, String>;
 
 pub(crate) type RouteRenderer =
@@ -51,32 +52,56 @@ pub(crate) struct ServerRenderedNode {
 }
 
 #[derive(Clone)]
+/// Request information available while selecting locale and constructing `Env`.
 pub struct ServerEnvContext<'a> {
+    /// Root directory of the server application.
     pub project_dir: &'a Path,
+    /// Concrete normalized request path.
     pub route_path: &'a str,
+    /// Base document theme before request-specific synchronization.
     pub theme: &'a Theme,
+    /// Logical viewport used for server layout.
     pub viewport_size: LayoutSize,
+    /// Registry of jobs executable during server rendering.
     pub jobs: &'a ServerJobRegistry,
+    /// Current normalized HTTP request.
     pub request: &'a ServerRequest,
+    /// Session resolved for the request.
     pub session: &'a ServerSession,
+    /// Verified action being handled, when this is an action submission.
     pub action: Option<&'a VerifiedServerAction>,
+    /// Maximum reducer/resource rebuild passes allowed for this request.
     pub render_pass_limit: usize,
+    /// Configured fallback locale identifier.
     pub default_locale: &'a str,
+    /// Values captured from dynamic route segments.
     pub route_params: ServerRouteParams,
 }
 
 #[derive(Clone)]
+/// Complete request context supplied to route state factories and renderers.
 pub struct ServerRenderContext<'a> {
+    /// Root directory of the server application.
     pub project_dir: &'a Path,
+    /// Concrete normalized request path.
     pub route_path: &'a str,
+    /// Theme selected for this request.
     pub theme: &'a Theme,
+    /// Logical viewport used for server layout.
     pub viewport_size: LayoutSize,
+    /// Registry of server-executable jobs.
     pub jobs: &'a ServerJobRegistry,
+    /// Current normalized HTTP request.
     pub request: &'a ServerRequest,
+    /// Session resolved for the request.
     pub session: &'a ServerSession,
+    /// Verified action being handled, when present.
     pub action: Option<&'a VerifiedServerAction>,
+    /// Maximum reducer/resource rebuild passes allowed for this request.
     pub render_pass_limit: usize,
+    /// Configured fallback locale identifier.
     pub default_locale: &'a str,
+    /// Values captured from dynamic route segments.
     pub route_params: ServerRouteParams,
     #[cfg(feature = "store")]
     pub(crate) store: Option<&'a (dyn fission_store::StoreProvider + Send + Sync)>,
@@ -87,19 +112,28 @@ pub struct ServerRenderContext<'a> {
 }
 
 impl<'a> ServerRenderContext<'a> {
+    /// Returns the request-specific environment used to build widgets.
     pub fn env(&self) -> &'a Env {
         self.env
     }
 
+    /// Selects the HTTP status returned with the rendered route.
+    ///
+    /// This can be used by a route to render a Fission error page while still
+    /// returning an appropriate status such as 404 or 403.
     pub fn set_response_status(&self, status: u16) {
         self.response_status.store(status, Ordering::Relaxed);
     }
 }
 
 #[derive(Clone)]
+/// Minimal request context supplied to custom HTTP and form handlers.
 pub struct ServerHttpContext<'a> {
+    /// Root directory of the server application.
     pub project_dir: &'a Path,
+    /// Current normalized HTTP request.
     pub request: &'a ServerRequest,
+    /// Session resolved for the request.
     pub session: &'a ServerSession,
 }
 
@@ -167,14 +201,20 @@ pub(crate) struct CacheInvalidationEndpoint {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+/// Directory mounted below a public URL prefix.
 pub struct StaticMount {
+    /// Normalized public path prefix.
     pub url_prefix: String,
+    /// Filesystem directory from which files are served.
     pub directory: PathBuf,
+    /// Optional index filename for application-style mounts.
     pub index_file: Option<String>,
+    /// Whether unresolved paths fall back to the index file for SPA routing.
     pub fallback_to_index: bool,
 }
 
 #[derive(Clone)]
+/// Builder describing an SSR application, its document environment, and routes.
 pub struct FissionServerApp {
     pub(crate) project_name: String,
     pub(crate) project_dir: std::path::PathBuf,
@@ -198,6 +238,10 @@ pub struct FissionServerApp {
 }
 
 impl FissionServerApp {
+    /// Creates an SSR app with default environment, jobs, and route inventory.
+    ///
+    /// When native SQLite storage is enabled, the default provider is prepared
+    /// here and any initialization failure is retained for explicit reporting.
     pub fn new(project_name: impl Into<String>) -> Self {
         let project_name = project_name.into();
         #[cfg(feature = "store-sqlite-native")]
@@ -245,6 +289,7 @@ impl FissionServerApp {
     }
 
     #[cfg(feature = "store")]
+    /// Replaces the request-visible key/value storage provider.
     pub fn with_store_provider<P>(mut self, provider: P) -> Self
     where
         P: fission_store::StoreProvider + Send + Sync,
@@ -255,6 +300,7 @@ impl FissionServerApp {
     }
 
     #[cfg(feature = "store-sql")]
+    /// Replaces both key/value and SQL storage with one SQL-capable provider.
     pub fn with_sql_store_provider<P>(mut self, provider: P) -> Self
     where
         P: fission_store::SqlStoreProvider + Send + Sync,
@@ -266,11 +312,13 @@ impl FissionServerApp {
         self
     }
 
+    /// Sets the project root used for configuration, content, and static files.
     pub fn project_dir(mut self, project_dir: impl Into<std::path::PathBuf>) -> Self {
         self.project_dir = project_dir.into();
         self
     }
 
+    /// Sets the base theme used for every request.
     pub fn theme(mut self, theme: Theme) -> Self {
         self.document = self.document.with_theme(theme);
         self
@@ -288,6 +336,10 @@ impl FissionServerApp {
         self
     }
 
+    /// Replaces the complete base environment cloned for each request.
+    ///
+    /// This is the SSR equivalent of `WebApp::with_env` and is the normal way to
+    /// install translation bundles or other immutable environment services.
     pub fn with_env(mut self, env: Env) -> Self {
         self.document = self.document.with_env(env);
         self
@@ -310,16 +362,19 @@ impl FissionServerApp {
         self
     }
 
+    /// Replaces the internationalization registry in the base environment.
     pub fn i18n(mut self, i18n: I18nRegistry) -> Self {
         self.document = self.document.with_i18n(i18n);
         self
     }
 
+    /// Adds or replaces one locale's translation bundle.
     pub fn translation_bundle(mut self, bundle: TranslationBundle) -> Self {
         self.document = self.document.with_translation_bundle(bundle);
         self
     }
 
+    /// Selects the fallback locale used when a request resolver does not override it.
     pub fn default_locale(mut self, locale: impl Into<Locale>) -> Self {
         let locale = locale.into();
         let mut env = self.document.env().clone();
@@ -329,6 +384,7 @@ impl FissionServerApp {
         self
     }
 
+    /// Selects a locale from request, session, route, or other server context.
     pub fn locale_resolver<F>(mut self, resolver: F) -> Self
     where
         F: for<'a> Fn(&ServerEnvContext<'a>) -> Result<Locale> + Send + Sync + 'static,
@@ -353,6 +409,10 @@ impl FissionServerApp {
         self
     }
 
+    /// Mutates a fresh request environment after locale selection.
+    ///
+    /// Use this for request-scoped presentation values. It runs once per request
+    /// rather than once per client frame, which is the intentional SSR lifetime.
     pub fn with_request_env<F>(mut self, sync: F) -> Self
     where
         F: for<'a> Fn(&ServerEnvContext<'a>, &mut Env) -> Result<()> + Send + Sync + 'static,
@@ -361,11 +421,13 @@ impl FissionServerApp {
         self
     }
 
+    /// Replaces the registry of jobs available during server rendering.
     pub fn jobs(mut self, jobs: ServerJobRegistry) -> Self {
         self.jobs = jobs;
         self
     }
 
+    /// Appends trusted application CSS to every rendered document.
     pub fn user_css(mut self, css: impl Into<String>) -> Self {
         self.document = self.document.with_user_css(css);
         self
@@ -416,6 +478,7 @@ impl FissionServerApp {
         self
     }
 
+    /// Registers a synchronous custom HTTP handler for a method and exact path.
     pub fn http_handler<F>(
         mut self,
         method: impl Into<String>,
@@ -433,6 +496,7 @@ impl FissionServerApp {
         self
     }
 
+    /// Registers a convenience POST handler for an HTML form endpoint.
     pub fn form_post<F>(self, path: impl Into<String>, handler: F) -> Self
     where
         F: for<'a> Fn(&ServerHttpContext<'a>) -> Result<ServerResponse> + Send + Sync + 'static,
@@ -440,6 +504,7 @@ impl FissionServerApp {
         self.http_handler("POST", path, handler)
     }
 
+    /// Adds a bearer-protected endpoint that invalidates configured cache entries.
     pub fn cache_invalidation_endpoint(
         mut self,
         path: impl Into<String>,
@@ -453,6 +518,7 @@ impl FissionServerApp {
         self
     }
 
+    /// Mounts a directory of files below a URL prefix without index fallback.
     pub fn static_dir(
         mut self,
         url_prefix: impl Into<String>,
@@ -467,6 +533,7 @@ impl FissionServerApp {
         self
     }
 
+    /// Mounts a browser SPA and falls back to its index file for deep links.
     pub fn static_app(
         mut self,
         url_prefix: impl Into<String>,
@@ -482,6 +549,7 @@ impl FissionServerApp {
         self
     }
 
+    /// Registers an exact or parameterized widget route with default state.
     pub fn route_widget<S, W>(
         self,
         path: impl Into<String>,
@@ -497,6 +565,9 @@ impl FissionServerApp {
         self.route_widget_with_state(path, title, description, mode, widget, |_| Ok(S::default()))
     }
 
+    /// Registers a widget route whose initial state is loaded per request.
+    ///
+    /// Dynamic `:segments` are exposed through `ServerRenderContext::route_params`.
     pub fn route_widget_with_state<S, W, F>(
         mut self,
         path: impl Into<String>,
@@ -533,6 +604,7 @@ impl FissionServerApp {
         self
     }
 
+    /// Registers a prefix route whose initial state is loaded per request.
     pub fn route_prefix_widget_with_state<S, W, F>(
         mut self,
         path_prefix: impl Into<String>,
@@ -569,6 +641,7 @@ impl FissionServerApp {
         self
     }
 
+    /// Attaches a progressive browser worker to an existing route.
     pub fn worker(mut self, path: &str, worker: ProgressiveWorker) -> Self {
         let path = normalize_server_path(path);
         if let Some(route) = self
@@ -581,6 +654,7 @@ impl FissionServerApp {
         self
     }
 
+    /// Attaches a WebAssembly island to an existing route.
     pub fn island(mut self, path: &str, island: WasmIsland) -> Self {
         let path = normalize_server_path(path);
         if let Some(route) = self
@@ -593,6 +667,7 @@ impl FissionServerApp {
         self
     }
 
+    /// Registers a conventional uncached server-rendered widget route.
     pub fn server_route_widget<S, W>(
         self,
         path: impl Into<String>,
@@ -613,6 +688,7 @@ impl FissionServerApp {
         )
     }
 
+    /// Returns a cloned inventory of registered public route metadata.
     pub fn routes(&self) -> Vec<WebRoute> {
         self.routes
             .iter()
@@ -620,6 +696,7 @@ impl FissionServerApp {
             .collect()
     }
 
+    /// Attaches serialized JSON-LD documents to an existing route.
     pub fn with_route_structured_data<I, S>(mut self, path: impl Into<String>, data: I) -> Self
     where
         I: IntoIterator<Item = S>,

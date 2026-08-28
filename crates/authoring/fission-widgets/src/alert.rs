@@ -5,18 +5,27 @@ use fission_core::ui::{Container, Row, Text, Widget};
 use fission_icons::material;
 use serde::{Deserialize, Serialize};
 
+/// Semantic tone controlling an [`Alert`]'s icon and color treatment.
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub enum AlertKind {
+    /// Neutral information.
     Info,
+    /// Potential problem requiring attention.
     Warning,
+    /// Failed or invalid state.
     Error,
+    /// Successful or confirmed state.
     Success,
 }
 
+/// Persistent inline message with semantic tone, title, and optional detail.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Alert {
+    /// Tone used to resolve icon and design-system colors.
     pub kind: AlertKind,
+    /// Concise primary message.
     pub title: String,
+    /// Optional supporting explanation.
     pub description: Option<String>,
 }
 

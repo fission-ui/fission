@@ -10,15 +10,27 @@ concrete component values and converts only the branch selected by its
 `RouteDecision`, preventing a protected component from registering resources or
 reducers before access is allowed.
 
+The decision is resolved once at the route boundary and may be reused by every
+route in the same protection group. Individual page widgets do not perform an
+authentication check.
+
+## Synchronous decisions
+
+When all required information is already in application state, derive the
+decision with a pure selector:
+
 ```rust
-let decision = match &view.state().session {
-    SessionState::Loading => RouteDecision::Pending,
-    SessionState::Authenticated(_) => RouteDecision::Allow,
-    SessionState::SignedOut => RouteRedirect::replace("/sign-in")
-        .return_to(&view.env().current_route)
-        .into(),
-    SessionState::Failed(_) => RouteDecision::Deny,
-};
+fn account_access(state: &AppState, current_route: &str) -> RouteDecision {
+    if state.session.is_some() {
+        RouteDecision::Allow
+    } else {
+        RouteRedirect::replace("/sign-in")
+            .return_to(current_route)
+            .into()
+    }
+}
+
+let decision = account_access(view.state(), &view.env().current_route);
 
 Router::<AppState>::new()
     .with_path(view.state().current_path.clone())
@@ -30,6 +42,111 @@ Router::<AppState>::new()
     )
     .route_component("/sign-in", SignInRoute)
 ```
+
+The selector is read-only. It does not dispatch, read storage, contact a server,
+or mutate state during component conversion. If several routes use the same
+policy, compute the decision once and clone it into each `ProtectedRoute`.
+
+## Asynchronous decisions from SQLite
+
+Do not start a Store read from `ProtectedRoute` or from every protected page.
+Dispatch one startup action, let reducers resolve SQLite into a
+`RouteDecision` stored in `GlobalState`, and have the route table consume that
+already-resolved value.
+
+```rust
+use fission::prelude::*;
+use fission::store::{StoreErrorKind, StoreKey};
+
+struct AppState {
+    current_path: String,
+    session: Option<Session>,
+    account_access: RouteDecision,
+}
+
+impl Default for AppState {
+    fn default() -> Self {
+        Self {
+            current_path: "/".into(),
+            session: None,
+            account_access: RouteDecision::Pending,
+        }
+    }
+}
+
+impl GlobalState for AppState {}
+
+#[fission_reducer(LoadSession)]
+fn load_session(_state: &mut AppState, ctx: &mut ReducerContext<AppState>) {
+    ctx.effects
+        .store()
+        .get(StoreKey::<Session>::new("auth", "session"))
+        .on_ok(ActionEnvelope::from(SessionLoaded))
+        .on_err(ActionEnvelope::from(SessionLoadFailed));
+}
+
+#[fission_reducer(SessionLoaded)]
+fn session_loaded(state: &mut AppState, ctx: &mut ReducerContext<AppState>) {
+    match ctx.input.store_value::<Session>() {
+        Some(Ok(session)) => {
+            state.session = Some(session);
+            state.account_access = RouteDecision::Allow;
+        }
+        Some(Err(error)) if error.kind == StoreErrorKind::InvalidRequest => {
+            state.session = None;
+            state.account_access = RouteRedirect::replace("/sign-in")
+                .return_to("/account")
+                .into();
+        }
+        Some(Err(error)) => {
+            state.account_access = RouteDecision::Deny;
+            // Store `error.message` separately when the denied page should
+            // explain why session restoration failed.
+        }
+        None => state.account_access = RouteDecision::Deny,
+    }
+}
+
+#[fission_reducer(SessionLoadFailed)]
+fn session_load_failed(state: &mut AppState) {
+    state.account_access = RouteDecision::Deny;
+}
+```
+
+Register these reducers once in the application root. The route declaration has
+no persistence logic:
+
+```rust
+let decision = view.state().account_access.clone();
+
+Router::<AppState>::new()
+    .with_path(view.state().current_path.clone())
+    .route_component(
+        "/account",
+        ProtectedRoute::new(decision, AccountRoute)
+            .pending(SessionLoadingRoute)
+            .denied(SessionUnavailableRoute),
+    )
+    .route_component("/sign-in", SignInRoute)
+```
+
+Start the asynchronous read exactly once after the runtime is ready:
+
+```rust
+WebApp::<AppState, _>::new(App)
+    .with_startup_action(LoadSession)
+    .run()
+```
+
+The state transition is therefore `Pending -> Allow`, `Pending -> Redirect`, or
+`Pending -> Deny`. Login and logout reducers should update SQLite through Store
+effects and update the same decision from their completion actions. On Web,
+enable the storage capability with `fission add-capability storage`.
+
+Web SQLite uses browser-local OPFS and is unavailable during SSR. An SSR host
+must resolve its initial session from request data, normally a cookie backed by
+server-side storage, then provide the corresponding decision before rendering.
+The `ProtectedRoute` contract remains the same.
 
 ## Decisions
 
@@ -45,9 +162,9 @@ removes the rejected route from active history. `RouteRedirect::push` is
 available when retaining that entry is intentional. `return_to` adds the
 origin-free current path, query, and fragment as an encoded query parameter.
 
-The decision should be derived by a pure function or selector from
-`GlobalState`. Reducers remain responsible for changing that state, including
-handling asynchronous Store or authentication results.
+For synchronous policies, derive the decision with a pure function or selector
+from `GlobalState`. For asynchronous policies, reducers should store the
+resolved decision in `GlobalState`; route widgets only consume it.
 
 Client-side route protection is a presentation and resource-construction
 boundary, not authorization for a server API. SSR prevents protected markup

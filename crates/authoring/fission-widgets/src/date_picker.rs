@@ -5,16 +5,27 @@ use fission_core::ui::{TextInput, Widget};
 use fission_core::{ActionEnvelope, WidgetId};
 use std::sync::Arc;
 
+/// Controlled date field with an anchored calendar popup.
 pub struct DatePicker {
+    /// Stable identity used for the field and popup anchor.
     pub id: WidgetId,
+    /// Current selected date, or `None` for an empty field.
     pub value: Option<NaiveDate>,
+    /// Whether the controlled calendar popup is open.
     pub is_open: bool,
+    /// Optional preferred logical field and popup width.
     pub width: Option<f32>,
+    /// Optional year displayed by the popup, independent of the selected date.
     pub view_year: Option<i32>,
+    /// Optional one-based month displayed by the popup.
     pub view_month: Option<u32>,
+    /// Factory producing an action for calendar month navigation.
     pub on_navigate: Option<Arc<dyn Fn(i32, u32) -> ActionEnvelope + Send + Sync>>,
+    /// Factory producing an action for a newly selected date.
     pub on_change: Option<Arc<dyn Fn(NaiveDate) -> ActionEnvelope + Send + Sync>>,
+    /// Action dispatched when the field requests an open-state toggle.
     pub on_toggle: Option<ActionEnvelope>,
+    /// Action dispatched when popup behavior requests dismissal.
     pub on_close: Option<ActionEnvelope>,
 }
 

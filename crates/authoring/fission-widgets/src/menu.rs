@@ -11,8 +11,11 @@ use serde::{Deserialize, Serialize};
 /// A single entry in a [`Menu`]: label text, optional SVG icon, and selection action.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MenuItem {
+    /// Text displayed for the menu entry.
     pub label: String,
+    /// Optional SVG markup displayed before the label.
     pub icon: Option<String>,
+    /// Action dispatched when the entry is selected.
     pub on_select: Option<ActionEnvelope>,
 }
 
@@ -26,8 +29,11 @@ pub struct MenuItem {
 /// [`crate::Select`], and other selection widgets.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Menu {
+    /// Menu entries in display order.
     pub items: Vec<MenuItem>,
+    /// Optional logical width; defaults to the widget's standard menu width.
     pub width: Option<f32>,
+    /// Optional maximum logical height before vertical scrolling is enabled.
     pub max_height: Option<f32>,
 }
 
@@ -138,10 +144,15 @@ impl From<Menu> for Widget {
 /// to the button.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MenuButton {
+    /// Stable identity used to anchor and retain the flyout.
     pub id: WidgetId,
+    /// Trigger-button label.
     pub label: String,
+    /// Entries shown in the controlled menu.
     pub items: Vec<MenuItem>,
+    /// Whether the controlled menu is currently open.
     pub is_open: bool,
+    /// Action dispatched when the trigger requests an open-state change.
     pub on_toggle: Option<ActionEnvelope>,
 }
 

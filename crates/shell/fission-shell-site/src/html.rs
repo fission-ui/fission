@@ -16,31 +16,57 @@ use fission_theme::{DesignMode, PackagedFont, PackagedFontStyle, Theme};
 use std::collections::{BTreeMap, HashSet};
 
 #[derive(Clone, Debug)]
+/// Document, enhancement, and renderer inputs for semantic HTML lowering.
 pub struct HtmlRenderOptions {
+    /// BCP 47 language emitted on the root HTML element.
     pub lang: String,
+    /// Browser document title.
     pub document_title: String,
+    /// Optional meta description.
     pub description: Option<String>,
+    /// Optional absolute canonical URL.
     pub canonical_url: Option<String>,
+    /// Optional Open Graph site name.
     pub site_name: Option<String>,
+    /// Optional favicon URL.
     pub favicon_href: Option<String>,
+    /// URL of the generated/shared site stylesheet.
     pub stylesheet_href: String,
+    /// CSS class placed on the rendered app root.
     pub root_class: String,
+    /// Current public path used to resolve links and current-page state.
     pub current_route_path: String,
+    /// CSS custom properties resolved from the active theme.
     pub css_variables: CssVariableMap,
+    /// Initially selected light/dark mode when switching is enabled.
     pub default_theme_mode: Option<DesignMode>,
+    /// Whether browser theme controls and persistence are enabled.
     pub theme_switching: bool,
+    /// Conditional syntax-highlighting asset configuration.
     pub code_highlighting: CodeHighlightingOptions,
+    /// Optional browser search-controller script URL.
     pub search_script_href: Option<String>,
+    /// SSR endpoint receiving signed server-action form posts.
     pub server_action_post_path: Option<String>,
+    /// Signed token indexed by semantic target and action ID.
     pub server_action_tokens: BTreeMap<(WidgetId, u128), String>,
+    /// Whether browser-island action attributes are emitted.
     pub browser_action_bindings: bool,
+    /// Trusted JSON-LD documents inserted into the page head.
     pub structured_data: Vec<String>,
+    /// Trusted markup inserted immediately after opening `<head>`.
     pub head_start_html: Vec<String>,
+    /// Trusted markup inserted immediately before closing `</head>`.
     pub head_end_html: Vec<String>,
+    /// Trusted markup inserted immediately after opening `<body>`.
     pub body_start_html: Vec<String>,
+    /// Trusted markup inserted immediately before closing `</body>`.
     pub body_end_html: Vec<String>,
+    /// Build-time motion declarations lowered to CSS.
     pub motion_declarations: Vec<MotionDeclaration>,
+    /// Video registrations keyed by lowered semantic node.
     pub video_registrations: BTreeMap<WidgetId, VideoRegistration>,
+    /// WebView/iframe registrations keyed by lowered semantic node.
     pub web_registrations: BTreeMap<WidgetId, WebRegistration>,
     /// Font faces embedded by the selected design system.
     pub font_faces: &'static [PackagedFont],
@@ -80,9 +106,13 @@ impl Default for HtmlRenderOptions {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+/// External assets used to highlight code blocks in generated pages.
 pub struct CodeHighlightingOptions {
+    /// Whether highlighting assets and initialization are emitted.
     pub enabled: bool,
+    /// Highlighting theme stylesheet URL.
     pub stylesheet_href: String,
+    /// Highlighting JavaScript URL.
     pub script_src: String,
 }
 
@@ -101,9 +131,13 @@ impl Default for CodeHighlightingOptions {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+/// HTML and CSS products of lowering one Core IR document.
 pub struct RenderedHtml {
+    /// Complete standalone HTML document.
     pub html: String,
+    /// Rendered app-root fragment without surrounding document chrome.
     pub body_html: String,
+    /// Deduplicated CSS generated while rendering.
     pub css: String,
 }
 
@@ -160,11 +194,13 @@ fn default_form_field_kind() -> StaticFormFieldKind {
     StaticFormFieldKind::Text
 }
 
+/// Validates and lowers Core IR using a fresh style registry.
 pub fn render_ir_to_html(ir: &CoreIR, options: &HtmlRenderOptions) -> Result<RenderedHtml> {
     let mut registry = StyleRegistry::default();
     render_ir_to_html_with_styles(ir, options, &mut registry)
 }
 
+/// Lowers Core IR while reusing `styles` to deduplicate CSS across routes.
 pub fn render_ir_to_html_with_styles(
     ir: &CoreIR,
     options: &HtmlRenderOptions,
@@ -463,12 +499,14 @@ fn site_enhancement_script_href(stylesheet_href: &str) -> String {
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
+/// Deterministic CSS custom-property lookup resolved from a Fission theme.
 pub struct CssVariableMap {
     color_vars: Vec<(Color, &'static str)>,
     font_vars: Vec<(String, &'static str)>,
 }
 
 impl CssVariableMap {
+    /// Builds color and font variable mappings from `theme`.
     pub fn from_theme(theme: &Theme) -> Self {
         Self {
             color_vars: theme_color_vars(theme)
@@ -496,6 +534,7 @@ impl CssVariableMap {
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
+/// Deduplicates normalized declaration sets into stable generated classes.
 pub struct StyleRegistry {
     style_to_class: BTreeMap<String, String>,
     class_to_style: BTreeMap<String, String>,
@@ -503,6 +542,8 @@ pub struct StyleRegistry {
 }
 
 impl StyleRegistry {
+    /// Returns a stable class for `style`, creating it if needed. Empty
+    /// declaration sets return `None`.
     pub fn class_for(&mut self, style: Vec<String>) -> Option<String> {
         let style = normalize_style(style)?;
         if let Some(class_name) = self.style_to_class.get(&style) {
@@ -525,6 +566,7 @@ impl StyleRegistry {
         Some(class_name)
     }
 
+    /// Serializes generated classes and raw rules in deterministic order.
     pub fn to_css(&self) -> String {
         let mut out = String::new();
         for (class_name, style) in &self.class_to_style {
@@ -543,11 +585,13 @@ impl StyleRegistry {
         out
     }
 
+    /// Registers a complete trusted CSS rule under a deterministic dedup key.
     pub fn raw_rule(&mut self, key: impl Into<String>, rule: impl Into<String>) {
         self.raw_rules.insert(key.into(), rule.into());
     }
 }
 
+/// Serializes `theme` as CSS custom properties beneath `selector`.
 pub fn theme_variables_css(selector: &str, theme: &Theme) -> String {
     let mut out = String::new();
     out.push_str(selector);

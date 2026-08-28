@@ -9,8 +9,14 @@ use serde::{Deserialize, Serialize};
 /// shadow. Content is padded with the `spacing.m` (16px) token.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Card {
+    /// Content grouped by the card surface.
     pub child: Widget,
+    /// Visual treatment, such as raised, outlined, or filled.
     pub pattern: CardPattern,
+    /// Whether to resolve the design system's interactive card treatment.
+    ///
+    /// This changes presentation only; wrap or compose the card with an input
+    /// widget when it should dispatch an action.
     pub interactive: bool,
 }
 

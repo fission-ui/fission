@@ -2,9 +2,12 @@ use crate::stack::{HStack, VStack};
 use fission_core::ui::{Align, Container, Text, Widget};
 use serde::{Deserialize, Serialize};
 
+/// Ordered progress indicator for a finite multi-step workflow.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Stepper {
+    /// Step labels in workflow order.
     pub steps: Vec<String>,
+    /// Zero-based current step; earlier steps receive completed treatment.
     pub active_index: usize,
 }
 

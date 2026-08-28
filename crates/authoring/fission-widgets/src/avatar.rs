@@ -14,8 +14,11 @@ use serde::{Deserialize, Serialize};
 /// * `size` - Diameter in logical pixels (default 40).
 #[derive(Default, Clone, Debug, Serialize, Deserialize)]
 pub struct Avatar {
+    /// Display name used to derive up to two initials when no image is supplied.
     pub name: Option<String>,
+    /// Network URL or application asset path for the avatar image.
     pub src: Option<String>,
+    /// Diameter in logical pixels; defaults to 40 when omitted.
     pub size: Option<f32>,
 }
 

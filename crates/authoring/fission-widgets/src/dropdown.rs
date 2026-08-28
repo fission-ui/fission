@@ -13,9 +13,15 @@ use fission_icons::material;
 /// with a popup menu.
 #[derive(Default, Clone)]
 pub struct DropDown {
+    /// Action dispatched when the trigger is pressed.
     pub on_toggle: Option<ActionEnvelope>,
+    /// Candidate labels retained for compatibility with existing dropdown
+    /// models; this trigger-only widget does not render them.
     pub options: Vec<String>,
+    /// Selection action retained for compatibility; use [`crate::Select`] when
+    /// the widget itself should present and dispatch option selection.
     pub on_select: Option<ActionEnvelope>,
+    /// Label displayed in the trigger, or the default placeholder when absent.
     pub selected: Option<String>,
 }
 

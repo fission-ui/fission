@@ -16,7 +16,9 @@ use serde::{Deserialize, Serialize};
 /// * `child` - The widget to animate.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Hero {
+    /// Stable shared-element name that identifies the same visual across routes.
     pub tag: String,
+    /// Element whose bounds and appearance participate in the transition.
     pub child: Widget,
 }
 

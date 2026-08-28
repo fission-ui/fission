@@ -11,14 +11,20 @@ use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
 #[derive(Clone, Debug)]
+/// Converts verified Fission Core IR and layout geometry into terminal cells.
 pub struct TerminalRenderer {
+    /// Default canvas background used for otherwise unpainted cells.
     pub background: TerminalColor,
+    /// Default text color.
     pub foreground: TerminalColor,
+    /// Default color for borders and separators.
     pub border: TerminalColor,
+    /// Theme accent used by interactive controls and focus indicators.
     pub accent: TerminalColor,
 }
 
 impl TerminalRenderer {
+    /// Resolves terminal colors from the active Fission theme.
     pub fn from_theme(theme: &Theme) -> Self {
         Self {
             background: TerminalColor::from(theme.tokens.colors.background),
@@ -28,6 +34,11 @@ impl TerminalRenderer {
         }
     }
 
+    /// Renders `ir` using `snapshot` geometry and current scroll offsets into
+    /// a frame of `width` columns by `height` rows.
+    ///
+    /// Call [`crate::verify_terminal_ir`] first when rendering IR that did not
+    /// come through [`crate::TerminalApp`].
     pub fn render(
         &self,
         ir: &CoreIR,

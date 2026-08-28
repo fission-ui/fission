@@ -5,18 +5,30 @@ use fission_core::ui::{Text, Widget};
 use fission_core::{ActionEnvelope, WidgetId};
 use std::sync::Arc;
 
+/// Controlled inclusive start/end date range composed from two date pickers.
 pub struct DateRangePicker {
+    /// Stable identity of the start-date field and popup.
     pub id_start: WidgetId,
+    /// Stable identity of the end-date field and popup.
     pub id_end: WidgetId,
+    /// Optional inclusive start date.
     pub start: Option<NaiveDate>,
+    /// Optional inclusive end date.
     pub end: Option<NaiveDate>,
+    /// Whether the controlled start-date popup is open.
     pub is_start_open: bool,
+    /// Whether the controlled end-date popup is open.
     pub is_end_open: bool,
+    /// Factory producing an action for the proposed complete range.
     pub on_change:
         Option<Arc<dyn Fn(Option<NaiveDate>, Option<NaiveDate>) -> ActionEnvelope + Send + Sync>>,
+    /// Action requesting a start-popup state toggle.
     pub on_toggle_start: Option<ActionEnvelope>,
+    /// Action requesting an end-popup state toggle.
     pub on_toggle_end: Option<ActionEnvelope>,
+    /// Action dispatched when the start popup requests dismissal.
     pub on_close_start: Option<ActionEnvelope>,
+    /// Action dispatched when the end popup requests dismissal.
     pub on_close_end: Option<ActionEnvelope>,
 }
 

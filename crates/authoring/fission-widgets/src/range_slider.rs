@@ -5,13 +5,20 @@ use fission_core::ActionEnvelope;
 use fission_ir::{LayoutOp, Op, PaintOp, WidgetId};
 use serde::{Deserialize, Serialize};
 
+/// Controlled two-thumb slider selecting an inclusive numeric interval.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct RangeSlider {
+    /// Optional stable identity for retained hit and interaction state.
     pub id: Option<WidgetId>,
+    /// Current controlled lower value.
     pub start: f32,
+    /// Current controlled upper value.
     pub end: f32,
+    /// Minimum value represented by the track.
     pub min: f32,
+    /// Maximum value represented by the track.
     pub max: f32,
+    /// Action dispatched when interaction proposes a changed range.
     pub on_change: Option<ActionEnvelope>,
 }
 

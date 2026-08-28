@@ -136,9 +136,13 @@ impl ToastMotionPlan {
 /// The severity level of a [`Toast`] notification, which determines the icon and color.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum ToastKind {
+    /// Neutral informational update.
     Info,
+    /// Successful completion or positive result.
     Success,
+    /// Condition requiring attention but not an immediate failure.
     Warning,
+    /// Failed operation or invalid state.
     Error,
 }
 
@@ -153,9 +157,13 @@ pub enum ToastKind {
 /// when `on_close` fires or after a timeout.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Toast {
+    /// Stable identity used for retained motion and independent instances.
     pub id: WidgetId,
+    /// Semantic tone controlling the icon and color treatment.
     pub kind: ToastKind,
+    /// User-facing notification text.
     pub message: String,
+    /// Optional action dispatched from the close button.
     pub on_close: Option<ActionEnvelope>,
     /// Optional explicit toast motion. `None` emits no toast-owned motion declarations.
     #[serde(default, skip_serializing_if = "Option::is_none")]

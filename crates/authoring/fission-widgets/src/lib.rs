@@ -52,106 +52,140 @@ pub use fission_core::ui::{
 
 mod motion_support;
 
+/// Compact dropdown trigger; use `select` for the complete popup selection control.
 pub mod dropdown;
 pub use dropdown::DropDown;
 
+/// Horizontal and vertical convenience stacks built on Fission flex layout.
 pub mod stack;
 pub use stack::{HStack, VStack};
 
+/// Themed status, category, and count badges.
 pub mod badge;
 pub use badge::Badge;
 
+/// Compact removable labels represented as tags.
 pub mod tag;
 pub use tag::Tag;
 
+/// Circular image and initials-based identity avatars.
 pub mod avatar;
 pub use avatar::Avatar;
 
+/// Horizontal and vertical visual separators.
 pub mod divider;
 pub use divider::Divider;
 
+/// Design-system card surfaces for grouping related content.
 pub mod card;
 pub use card::Card;
 
+/// Determinate linear progress presentation.
 pub mod progress;
 pub use progress::ProgressBar;
 
+/// Indeterminate loading spinner and its motion policy.
 pub mod spinner;
 pub use spinner::{Spinner, SpinnerMotion};
 
+/// Controlled tab navigation and animated selection presentation.
 pub mod tabs;
 pub use tabs::{TabItem, Tabs, TabsMotion};
 
+/// Controlled popup selection field and option model.
 pub mod select;
 pub use select::{Select, SelectItem};
 
+/// Expandable sections with controlled open state.
 pub mod accordion;
 pub use accordion::{Accordion, AccordionItem, AccordionMotion};
 
+/// Anchored explanatory overlay with configurable motion.
 pub mod tooltip;
 pub use tooltip::{Tooltip, TooltipMotion};
+/// Action menus, menu items, and trigger composition.
 pub mod menu;
 pub use menu::{Menu, MenuButton, MenuItem};
 
+/// Transient status notifications and their semantic tone.
 pub mod toast;
 pub use toast::{Toast, ToastKind, ToastMotion};
 
+/// Modal dialog surface, actions, and entrance/exit motion.
 pub mod modal;
 pub use modal::{Modal, ModalAction, ModalMotion};
 
+/// Declarative tabular data columns, rows, and presentation.
 pub mod data_table;
 pub use data_table::{DataTable, TableColumn, TableRow};
 
+/// Two-pane horizontal or vertical split layout.
 pub mod split_view;
 pub use split_view::{SplitDirection, SplitView};
 
+/// Edge-mounted overlay drawer with controlled visibility.
 pub mod drawer;
 pub use drawer::{Drawer, DrawerMotion, DrawerSide};
 
+/// Label, help, validation, and field composition for form controls.
 pub mod form_control;
 pub use form_control::FormControl;
 
+/// Controlled numeric stepper with increment and decrement actions.
 pub mod number_input;
 pub use number_input::NumberInput;
 
+/// Persistent inline status and warning messages.
 pub mod alert;
 pub use alert::{Alert, AlertKind};
 
+/// Placeholder loading surfaces and shimmer motion.
 pub mod skeleton;
 pub use skeleton::{Skeleton, SkeletonMotion};
 
+/// Ordered navigation trail and actionable breadcrumb items.
 pub mod breadcrumb;
 pub use breadcrumb::{Breadcrumb, BreadcrumbItem};
 
+/// Controlled month calendar and day selection.
 pub mod calendar;
 pub use calendar::Calendar;
 
+/// Controlled date selection field composed with a calendar.
 pub mod date_picker;
 pub use date_picker::DatePicker;
 
+/// Controlled 24-hour hour-and-minute selector.
 pub mod time_picker;
 pub use time_picker::TimePicker;
 
+/// Controlled inclusive start/end date selection.
 pub mod date_range_picker;
 pub use date_range_picker::DateRangePicker;
 
+/// Colour selection controls and HSVA colour representation.
 pub mod colour_picker;
 pub use colour_picker::{
     ColorPicker, ColorPickerVariant, ColourHsva, ColourPicker, ColourPickerVariant,
 };
 
+/// Filterable text-and-option selection control.
 pub mod combobox;
 pub use combobox::Combobox;
 
+/// Mutually exclusive selection presented as adjacent segments.
 pub mod segmented_control;
 pub use segmented_control::SegmentedControl;
 
+/// Ordered event presentation with markers and supporting content.
 pub mod timeline;
 pub use timeline::{Timeline, TimelineItem};
 
+/// Shared-element identity annotation for route transitions.
 pub mod hero;
 pub use hero::Hero;
 
+/// Platform web-document embedding for graphical targets.
 pub mod web_view;
 pub use web_view::WebView;
 
@@ -159,6 +193,7 @@ pub use web_view::WebView;
     feature = "terminal",
     not(any(target_os = "ios", target_os = "android", target_arch = "wasm32"))
 ))]
+/// Native pseudo-terminal session and retained terminal-view widgets.
 pub mod terminal;
 #[cfg(all(
     feature = "terminal",
@@ -166,79 +201,104 @@ pub mod terminal;
 ))]
 pub use terminal::{TerminalLaunchConfig, TerminalSession, TerminalView};
 
+/// Internal drag sources, previews, payloads, and target declarations.
 pub mod draggable;
 pub use draggable::{DragPreviewOptions, DragTarget, Draggable};
 
+/// Empty-collection messaging with optional illustration and action.
 pub mod empty_state;
 pub use empty_state::EmptyState;
 
+/// File-picker trigger and selected-file presentation.
 pub mod file_upload;
 pub use file_upload::FileUpload;
 
+/// Internal and external file-drop target presentation.
 pub mod dropzone;
 pub use dropzone::Dropzone;
 
+/// Hierarchical controlled tree items and expansion.
 pub mod tree_view;
 pub use tree_view::{TreeItem, TreeView};
 
+/// Responsive minimum-width wrapping grid.
 pub mod simple_grid;
 pub use simple_grid::SimpleGrid;
 
+/// Row- or column-oriented wrapping flow layout.
 pub mod wrap;
 pub use wrap::Wrap;
 
+/// Convenience centering layout.
 pub mod center;
 pub use center::Center;
 
+/// Width-to-height constraint wrapper.
 pub mod aspect_ratio;
 pub use aspect_ratio::AspectRatio;
 
+/// Controlled two-thumb numeric range selection.
 pub mod range_slider;
 pub use range_slider::RangeSlider;
 
+/// Inline read/edit presentation for a controlled string.
 pub mod editable;
 pub use editable::Editable;
 
+/// Inline code and keyboard-key text presentation.
 pub mod code;
 pub use code::{Code, Kbd};
 
+/// Compact dashboard metric presentation.
 pub mod stat;
 pub use stat::Stat;
 
+/// Determinate or indeterminate circular progress indicator.
 pub mod circular_progress;
 pub use circular_progress::{CircularProgress, CircularProgressMotion};
 
+/// Declarative rendering of asynchronous job snapshots.
 pub mod future_builder;
 pub use future_builder::{AsyncConnectionState, AsyncSnapshot, AsyncWidgetBuilder, FutureBuilder};
 
+/// Pull-to-refresh state, appearance, and action dispatch.
 pub mod refresh_indicator;
 pub use refresh_indicator::{RefreshIndicator, RefreshIndicatorStatus};
 
+/// Ordered multi-step progress presentation.
 pub mod stepper;
 pub use stepper::Stepper;
 
+/// Navigational link with host-lowered hyperlink metadata.
 pub mod link;
 pub use link::Link;
 
+/// Markdown text rendering and scrollable document presentation.
 pub mod markdown;
 pub use markdown::{MarkdownContent, MarkdownViewer};
 
+/// Controlled page-number navigation.
 pub mod pagination;
 pub use pagination::Pagination;
 
+/// Anchored popup content and visibility motion.
 pub mod popover;
 pub use popover::{Popover, PopoverMotion};
 
+/// Ordered declarative path routing and route-parameter capture.
 pub mod router;
 pub use router::{Route, RouteParams, Router};
 
+/// Lazy access boundary for allowed, pending, denied, and redirect branches.
 pub mod protected_route;
 pub use protected_route::{DefaultRouteDenied, DefaultRoutePending, ProtectedRoute};
 
+/// Geometry for revealing an anchored element through an inverse overlay.
 pub mod spotlight;
 pub use spotlight::Spotlight;
 
 #[cfg(feature = "interactive-canvas")]
+/// Pan/zoom canvas authoring, nodes, edges, selection, and interaction models.
 pub mod infinite_canvas;
 #[cfg(feature = "interactive-canvas")]
 pub use infinite_canvas::{
@@ -260,8 +320,12 @@ use std::sync::Arc;
 /// Wraps a painter closure that produces child node IDs within a `Group` node,
 /// placed inside a fixed-size `Box` layout node.
 pub struct CanvasLowerer {
+    /// Optional logical width of the canvas layout box.
     pub width: Option<f32>,
+    /// Optional logical height of the canvas layout box.
     pub height: Option<f32>,
+    /// Painter invoked during lowering to append renderer-independent child
+    /// nodes and return their stable IDs.
     pub painter: Arc<dyn Fn(&mut InternalLoweringCx) -> Vec<WidgetId> + Send + Sync>,
 }
 
@@ -414,6 +478,7 @@ pub fn flyout(anchor: WidgetId, content: Widget) -> Widget {
 /// [`Popover`], and [`Tooltip`] to render above the main content.
 #[derive(Debug, Clone)]
 pub struct Portal {
+    /// Content registered in the window-level overlay instead of normal layout.
     pub child: Widget,
 }
 

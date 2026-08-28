@@ -7,23 +7,38 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+/// A serialized application action authenticated for one SSR route and node.
 pub struct SignedServerAction {
+    /// Route against which the action was issued.
     pub route_path: String,
+    /// Stable widget node that should receive the action.
     pub target_node: u128,
+    /// Typed action identifier and encoded payload to dispatch.
     pub action: ActionEnvelope,
+    /// Expiry time as Unix seconds.
     pub expires_unix: u64,
+    /// Per-token replay identifier covered by the signature.
     pub nonce: String,
+    /// Keyed BLAKE3 signature encoded as hexadecimal.
     pub signature: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+/// Trusted action data returned after token verification.
 pub struct VerifiedServerAction {
+    /// Verified route path.
     pub route_path: String,
+    /// Verified target widget node.
     pub target_node: u128,
+    /// Verified action envelope.
     pub action: ActionEnvelope,
 }
 
 #[derive(Clone)]
+/// Signs and verifies expiring server-action tokens.
+///
+/// A signer also tracks consumed nonces for `verify_once`, preventing a valid
+/// mutation token from being replayed within this process.
 pub struct ServerActionSigner {
     key: [u8; 32],
     used_tokens: Arc<Mutex<BTreeMap<String, u64>>>,
@@ -32,6 +47,7 @@ pub struct ServerActionSigner {
 const MAX_REPLAY_CACHE_TOKENS: usize = 100_000;
 
 impl ServerActionSigner {
+    /// Creates a signer by deriving a fixed-size key from `secret`.
     pub fn new(secret: impl AsRef<[u8]>) -> Self {
         let hash = blake3::hash(secret.as_ref());
         Self {
@@ -40,10 +56,14 @@ impl ServerActionSigner {
         }
     }
 
+    /// Creates a predictable development signer.
+    ///
+    /// This key is public and must not be used for a deployed application.
     pub fn development() -> Self {
         Self::new(b"fission-development-server-action-key")
     }
 
+    /// Signs a typed action for a route and target node for the supplied TTL.
     pub fn sign<A: Action>(
         &self,
         route_path: impl Into<String>,
@@ -54,6 +74,7 @@ impl ServerActionSigner {
         self.sign_envelope(route_path, target_node, action.into(), ttl)
     }
 
+    /// Signs an existing action envelope without decoding its payload.
     pub fn sign_envelope(
         &self,
         route_path: impl Into<String>,
@@ -75,6 +96,7 @@ impl ServerActionSigner {
         }
     }
 
+    /// Verifies signature and expiry without consuming the token.
     pub fn verify(&self, token: &SignedServerAction) -> Result<VerifiedServerAction> {
         if token.expires_unix < unix_now() {
             bail!("server action token expired");
@@ -96,6 +118,7 @@ impl ServerActionSigner {
         })
     }
 
+    /// Verifies and consumes a token, rejecting subsequent replay attempts.
     pub fn verify_once(&self, token: &SignedServerAction) -> Result<VerifiedServerAction> {
         let verified = self.verify(token)?;
         let replay_key = replay_key(token);
@@ -115,11 +138,13 @@ impl ServerActionSigner {
         Ok(verified)
     }
 
+    /// Encodes a token as URL-safe, unpadded base64 JSON.
     pub fn encode(&self, token: &SignedServerAction) -> Result<String> {
         let bytes = serde_json::to_vec(token).context("failed to encode server action token")?;
         Ok(BASE64_URL_SAFE_NO_PAD.encode(bytes))
     }
 
+    /// Decodes a token; call `verify` or `verify_once` before trusting it.
     pub fn decode(&self, encoded: &str) -> Result<SignedServerAction> {
         let bytes = BASE64_URL_SAFE_NO_PAD
             .decode(encoded)

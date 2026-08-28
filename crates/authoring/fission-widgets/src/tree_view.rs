@@ -8,20 +8,31 @@ use fission_core::{
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
+/// One recursively nested entry in a [`TreeView`].
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct TreeItem {
+    /// Stable application identity used by expansion and selection state.
     pub id: String,
+    /// Optional SVG markup displayed before the label.
     pub icon: Option<String>,
+    /// User-facing item label.
     pub label: String,
+    /// Child entries displayed when this item is expanded.
     pub children: Vec<TreeItem>,
+    /// Action dispatched when the disclosure control is pressed.
     pub on_toggle: Option<ActionEnvelope>,
+    /// Action dispatched when the item row is selected.
     pub on_select: Option<ActionEnvelope>,
 }
 
+/// Controlled hierarchical navigation or data browser.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct TreeView {
+    /// Root items in display order.
     pub items: Vec<TreeItem>,
+    /// IDs of items whose children should currently be visible.
     pub expanded_ids: HashSet<String>,
+    /// Optional ID receiving selected-row treatment.
     pub selected_id: Option<String>,
 }
 

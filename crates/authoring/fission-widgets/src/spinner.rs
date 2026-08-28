@@ -22,7 +22,9 @@ const LOW_PRIORITY_REPEAT_FRAME_MS: u64 = 166;
 /// * `color` - Override dot color (defaults to `tokens.colors.primary`).
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Spinner {
+    /// Stable identity used to retain independent motion state for each dot.
     pub id: WidgetId,
+    /// Optional dot color; the design-system primary color is used when absent.
     pub color: Option<fission_core::op::Color>,
     /// Optional explicit spinner motion. `None` emits no spinner-owned motion declarations.
     #[serde(default, skip_serializing_if = "Option::is_none")]

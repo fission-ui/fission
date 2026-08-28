@@ -20,10 +20,10 @@ use fission_core::internal::BuildCtx;
 use fission_core::internal::InternalLoweringCx;
 use fission_core::ui::{Container, Overlay, Widget, ZStack};
 use fission_core::{
-    ActionRegistry, Effect, Env, GlobalState, InputEvent, KeyCode, KeyEvent, LayoutEngine,
-    LayoutPoint, LayoutSize, LayoutSnapshot, NavigationCommand, PointerButton, PointerEvent,
-    RouteLocation, Runtime, RuntimeEffect, RuntimeState, ShellRouteChanged, View, WidgetId,
-    WidgetIdExt, WindowTitle,
+    Action, ActionEnvelope, ActionId, ActionRegistry, Effect, Env, GlobalState, InputEvent,
+    KeyCode, KeyEvent, LayoutEngine, LayoutPoint, LayoutSize, LayoutSnapshot, NavigationCommand,
+    PointerButton, PointerEvent, RouteLocation, Runtime, RuntimeEffect, RuntimeState,
+    ShellRouteChanged, View, WidgetId, WidgetIdExt, WindowTitle,
 };
 use fission_ir::CoreIR;
 use fission_layout::TextMeasurer;
@@ -35,11 +35,17 @@ use std::sync::Arc;
 use std::time::Duration;
 
 #[derive(Clone, Debug)]
+/// Runtime and capture options for [`TerminalApp::run_with_options`].
 pub struct TerminalRunOptions {
+    /// Fixed terminal width, or `None` to use the current TTY width.
     pub width: Option<u16>,
+    /// Fixed terminal height, or `None` to use the current TTY height.
     pub height: Option<u16>,
+    /// Optional PNG path written after each rendered frame.
     pub screenshot: Option<PathBuf>,
+    /// Render once and return instead of entering the interactive input loop.
     pub exit_after_render: bool,
+    /// Maximum interval between terminal input/state polling iterations.
     pub poll_interval: Duration,
 }
 
@@ -55,6 +61,12 @@ impl Default for TerminalRunOptions {
     }
 }
 
+/// Stateful Fission application hosted in a terminal cell grid.
+///
+/// `S` is the app's [`GlobalState`] and `W` is its retained root widget. The
+/// shell uses the normal build, lower, layout, action, and reducer pipeline,
+/// then verifies that the resulting Core IR can be represented honestly in a
+/// terminal before drawing it.
 pub struct TerminalApp<S, W>
 where
     S: GlobalState + 'static,
@@ -83,6 +95,7 @@ where
     route_initialized: bool,
     navigation_entries: Vec<RouteLocation>,
     navigation_index: usize,
+    startup_action: Option<ActionEnvelope>,
     _state: std::marker::PhantomData<S>,
 }
 
@@ -91,6 +104,7 @@ where
     S: GlobalState + Default + 'static,
     W: Clone + Into<Widget>,
 {
+    /// Creates a terminal app with `S::default()` as its global state.
     pub fn new(root: W) -> Self {
         Self::new_with_global_state(root, S::default())
     }
@@ -101,6 +115,7 @@ where
     S: GlobalState + 'static,
     W: Clone + Into<Widget>,
 {
+    /// Creates a terminal app with an explicitly prepared global state.
     pub fn new_with_global_state(root: W, state: S) -> Self {
         let measurer: Arc<dyn TextMeasurer> = Arc::new(TerminalTextMeasurer);
         let mut runtime = Runtime::default().with_measurer(measurer.clone());
@@ -135,6 +150,7 @@ where
             route_initialized: false,
             navigation_entries: vec![RouteLocation::default()],
             navigation_index: 0,
+            startup_action: None,
             _state: std::marker::PhantomData,
         }
     }
@@ -144,6 +160,7 @@ where
         Self::new_with_global_state(root, state)
     }
 
+    /// Replaces the registered global state before the first frame.
     pub fn with_global_state(mut self, global_state: S) -> Self {
         *self.runtime.get_global_state_mut::<S>().expect(
             "Fission global state must be registered before TerminalApp::with_global_state is called",
@@ -151,11 +168,14 @@ where
         self
     }
 
+    /// Sets the stable identity from which implicit descendant widget IDs are
+    /// derived. Use a durable app-specific value when several roots coexist.
     pub fn with_root_id(mut self, root_id: WidgetId) -> Self {
         self.root_id = root_id;
         self
     }
 
+    /// Sets the terminal title and the app name used by default host services.
     pub fn with_title(mut self, title: impl Into<String>) -> Self {
         let title = title.into();
         self.env.window.title = WindowTitle::plain(title.clone());
@@ -164,6 +184,7 @@ where
     }
 
     #[cfg(feature = "store")]
+    /// Replaces the key/value provider used by terminal Store effects.
     pub fn with_store_provider<P>(mut self, provider: P) -> Self
     where
         P: fission_store::StoreProvider + Send + Sync,
@@ -176,6 +197,7 @@ where
     }
 
     #[cfg(feature = "store-sql")]
+    /// Replaces the SQL-capable provider used by terminal Store and SQL effects.
     pub fn with_sql_store_provider<P>(mut self, provider: P) -> Self
     where
         P: fission_store::SqlStoreProvider + Send + Sync,
@@ -187,11 +209,62 @@ where
         self
     }
 
-    pub fn with_env(mut self, configure: impl FnOnce(&mut Env)) -> Self {
+    /// Replaces the environment used to build terminal frames.
+    ///
+    /// This has the same contract as the graphical app builders: pass a
+    /// complete base environment containing translation bundles, an initial
+    /// locale, theme, and other app-wide presentation inputs. The terminal
+    /// shell restores its own text measurer and viewport before every frame.
+    pub fn with_env(mut self, env: Env) -> Self {
+        self.env = env;
+        self
+    }
+
+    /// Mutates the terminal shell's initial environment in place.
+    ///
+    /// This preserves the older terminal convenience API without giving
+    /// `with_env` a different meaning from every other shell.
+    pub fn configure_env(mut self, configure: impl FnOnce(&mut Env)) -> Self {
         configure(&mut self.env);
         self
     }
 
+    /// Installs a generated design system's theme for the requested mode.
+    ///
+    /// Packaged font faces are intentionally not registered: a terminal
+    /// emulator, rather than Fission, owns the font used to draw terminal
+    /// cells. All non-font design tokens remain available to widgets.
+    pub fn with_design_system<D: fission_theme::DesignSystem>(
+        mut self,
+        mode: fission_theme::DesignMode,
+    ) -> Self {
+        self.env.theme = D::theme(mode);
+        self
+    }
+
+    /// Mutates the initial global state before the first terminal frame.
+    pub fn with_state_init<F>(mut self, init: F) -> Self
+    where
+        F: FnOnce(&mut S),
+    {
+        if let Some(state) = self.runtime.get_global_state_mut::<S>() {
+            init(state);
+        }
+        self
+    }
+
+    /// Queues one typed action for dispatch when the terminal runtime starts.
+    ///
+    /// Dispatch is deferred until the first frame so persistent handlers may
+    /// be registered later in the builder chain without making method order
+    /// observable.
+    pub fn with_startup_action<A: Action>(mut self, action: A) -> Self {
+        self.startup_action = Some(action.into());
+        self
+    }
+
+    /// Mirrors global-state presentation choices into the environment before
+    /// each build. The closure must not perform I/O or mutate app state.
     pub fn with_sync_env<F>(mut self, sync: F) -> Self
     where
         F: Fn(&S, &mut Env) + 'static,
@@ -200,6 +273,10 @@ where
         self
     }
 
+    /// Installs a terminal polling hook with access to app state, retained
+    /// runtime state, and the current environment.
+    ///
+    /// Return `true` when a state change requires another frame.
     pub fn with_state_update<F>(mut self, update: F) -> Self
     where
         F: FnMut(&mut S, &mut RuntimeState, &Env) -> bool + 'static,
@@ -208,6 +285,21 @@ where
         self
     }
 
+    /// Runs a lightweight state hook between terminal input polls.
+    ///
+    /// Return `true` to request another frame. Use [`Self::with_state_update`]
+    /// when the hook also needs terminal runtime state or environment access.
+    pub fn with_frame_hook<F>(self, hook: F) -> Self
+    where
+        F: Fn(&mut S) -> bool + 'static,
+    {
+        self.with_state_update(move |state, _runtime, _env| hook(state))
+    }
+
+    /// Handles a user-requested exit, such as `Esc` or `Ctrl+C`.
+    ///
+    /// Return `true` to leave the interactive loop. The hook may update state
+    /// to present confirmation UI and return `false` instead.
     pub fn with_exit_request<F>(mut self, request: F) -> Self
     where
         F: FnMut(&mut S, &mut RuntimeState, &Env) -> bool + 'static,
@@ -216,6 +308,8 @@ where
         self
     }
 
+    /// Adds a state predicate checked after updates to end the interactive
+    /// terminal loop without requiring a key event.
     pub fn with_should_exit<F>(mut self, should_exit: F) -> Self
     where
         F: Fn(&S, &RuntimeState, &Env) -> bool + 'static,
@@ -224,6 +318,8 @@ where
         self
     }
 
+    /// Registers an app-wide key handler before normal widget input routing.
+    /// Return `true` to consume the key.
     pub fn with_key_handler<F>(mut self, handler: F) -> Self
     where
         F: FnMut(&mut S, &KeyCode, u8) -> bool + 'static,
@@ -243,6 +339,22 @@ where
         self
     }
 
+    /// Registers one reducer in the shell's persistent action registry.
+    pub fn register_reducer(
+        &mut self,
+        action_id: ActionId,
+        reducer: fission_core::action::Reducer<S>,
+    ) -> Result<()> {
+        self.runtime.register_reducer::<S>(action_id, reducer)
+    }
+
+    /// Merges an action registry into the shell's persistent registry.
+    pub fn absorb_registry(&mut self, registry: ActionRegistry<S>) {
+        self.runtime.absorb_persistent_registry(registry);
+    }
+
+    /// Builds, lays out, verifies, and renders one frame at the given cell
+    /// dimensions. Runtime state and reducers remain alive for later frames.
     pub fn render_frame(&mut self, width: u16, height: u16) -> Result<TerminalFrame> {
         if !self.route_initialized {
             self.route_initialized = true;
@@ -273,6 +385,11 @@ where
 
         let route_before_build = self.env.current_route.clone();
         let mut node_tree = self.build_widget_tree(viewport)?;
+        if let Some(action) = self.startup_action.take() {
+            self.runtime.dispatch(action, WidgetId::from_u128(0))?;
+            self.process_navigation()?;
+            node_tree = self.build_widget_tree(viewport)?;
+        }
         self.process_navigation()?;
         if self.env.current_route != route_before_build {
             node_tree = self.build_widget_tree(viewport)?;
@@ -317,6 +434,11 @@ where
         Ok(frame)
     }
 
+    /// Sends one normalized Fission input event through the most recently
+    /// rendered IR and layout snapshot.
+    ///
+    /// Events sent before the first frame are ignored because no hit-test or
+    /// focus geometry exists yet.
     pub fn send_event(&mut self, event: InputEvent) -> Result<()> {
         let (Some(ir), Some(snapshot)) = (&self.last_ir, &self.last_snapshot) else {
             return Ok(());
@@ -408,10 +530,13 @@ where
         Ok(handler(state, key_code, *modifiers))
     }
 
+    /// Runs an interactive terminal app using detected TTY dimensions and the
+    /// default polling interval.
     pub fn run(self) -> Result<()> {
         self.run_with_options(TerminalRunOptions::default())
     }
 
+    /// Runs the terminal app with explicit sizing, capture, and loop options.
     pub fn run_with_options(mut self, options: TerminalRunOptions) -> Result<()> {
         #[cfg(feature = "store-sqlite-native")]
         fission_shell::store_host::register_default_native_store(
@@ -956,7 +1081,7 @@ mod navigation_tests {
     #[test]
     fn terminal_dispatches_initial_and_programmatic_route_changes() {
         let mut app = TerminalApp::<RouteState, _>::new(fission_core::ui::Text::new("route"))
-            .with_env(|env| env.current_route = RouteLocation::new("/initial"))
+            .configure_env(|env| env.current_route = RouteLocation::new("/initial"))
             .with_route_handler(route_changed);
 
         app.render_frame(40, 10).expect("initial frame");
@@ -975,5 +1100,24 @@ mod navigation_tests {
         let state = app.runtime.get_global_state::<RouteState>().unwrap();
         assert_eq!(state.path, "/next");
         assert_eq!(state.changes, 2);
+    }
+
+    #[test]
+    fn terminal_accepts_the_common_environment_and_startup_contract() {
+        let mut env = Env::default();
+        env.current_route = RouteLocation::new("/initial");
+        let mut app = TerminalApp::<RouteState, _>::new(fission_core::ui::Text::new("route"))
+            .with_env(env)
+            .with_state_init(|state| state.path = "/prepared".into())
+            .with_route_handler(route_changed)
+            .with_startup_action(ShellRouteChanged {
+                location: RouteLocation::new("/startup"),
+            });
+
+        app.render_frame(40, 10).expect("initial frame");
+        let state = app.runtime.get_global_state::<RouteState>().unwrap();
+        assert_eq!(state.path, "/startup");
+        assert_eq!(state.changes, 2);
+        assert_eq!(app.env.current_route.pathname, "/initial");
     }
 }

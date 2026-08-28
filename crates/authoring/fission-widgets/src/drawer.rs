@@ -12,7 +12,9 @@ use std::ops::Add;
 /// The edge from which a [`Drawer`] slides out.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DrawerSide {
+    /// Anchor the panel to the left viewport edge.
     Left,
+    /// Anchor the panel to the right viewport edge.
     Right,
 }
 
@@ -203,11 +205,17 @@ impl DrawerMotionPlan {
 /// * `on_dismiss` - Action dispatched when the backdrop is tapped.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Drawer {
+    /// Stable identity used for portal registration and motion slots.
     pub id: WidgetId,
+    /// Viewport edge from which the panel appears.
     pub side: DrawerSide,
+    /// Controlled visibility state.
     pub is_open: bool,
+    /// Action dispatched when the backdrop requests dismissal.
     pub on_dismiss: Option<ActionEnvelope>,
+    /// Panel contents.
     pub content: Widget,
+    /// Preferred logical panel width, clamped to the viewport.
     pub width: Option<f32>,
     /// Optional explicit drawer motion. `None` emits no drawer-owned motion declarations.
     #[serde(default, skip_serializing_if = "Option::is_none")]

@@ -24,9 +24,13 @@ const LOW_PRIORITY_REPEAT_FRAME_MS: u64 = 166;
 /// * `circle` - If `true`, uses `border_radius: 9999` for a circular shape.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Skeleton {
+    /// Stable identity required for independent pulse motion.
     pub id: WidgetId,
+    /// Optional logical width; defaults to 100.
     pub width: Option<f32>,
+    /// Optional logical height; defaults to 20.
     pub height: Option<f32>,
+    /// Whether to use a fully rounded shape instead of the normal radius.
     pub circle: bool,
     /// Optional explicit skeleton motion. `None` emits no skeleton-owned motion declarations.
     #[serde(default, skip_serializing_if = "Option::is_none")]

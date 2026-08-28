@@ -2,10 +2,17 @@ use crate::stack::VStack;
 use fission_core::ui::{Container, Text, Widget};
 use serde::{Deserialize, Serialize};
 
+/// Compact themed presentation of one labelled metric.
+///
+/// `Stat` is intended for dashboard summaries: it renders a subdued label, a
+/// prominent value, and optional explanatory text inside a bordered surface.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Stat {
+    /// Short description of the metric, such as `Active users`.
     pub label: String,
+    /// Preformatted value displayed prominently.
     pub value: String,
+    /// Optional secondary explanation or comparison.
     pub help_text: Option<String>,
 }
 

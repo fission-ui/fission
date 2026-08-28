@@ -16,7 +16,9 @@ use serde::{Deserialize, Serialize};
 /// ```
 #[derive(Default, Clone, Debug, Serialize, Deserialize)]
 pub struct HStack {
+    /// Children arranged from start to end along the horizontal axis.
     pub children: Vec<Widget>,
+    /// Optional logical-pixel gap between adjacent children.
     pub spacing: Option<f32>,
 }
 
@@ -34,7 +36,9 @@ pub struct HStack {
 /// ```
 #[derive(Default, Clone, Debug, Serialize, Deserialize)]
 pub struct VStack {
+    /// Children arranged from start to end along the vertical axis.
     pub children: Vec<Widget>,
+    /// Optional logical-pixel gap between adjacent children.
     pub spacing: Option<f32>,
 }
 

@@ -5,12 +5,22 @@ use fission_core::{Widget, WidgetId};
 use fission_ir::{EmbedKind, LayoutOp, Op};
 use serde::{Deserialize, Serialize};
 
+/// Embeds a web document inside a graphical Fission application.
+///
+/// Native shells register a platform web view, while Web lowers the same
+/// contract to an iframe. Static site, SSR, and Terminal builds do not provide
+/// an interactive embedded browser surface.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct WebView {
+    /// Stable identity used to retain and update the platform-owned surface.
     pub id: WidgetId,
+    /// Absolute or application-supported URL loaded by the embedded browser.
     pub url: String,
+    /// Optional user-agent override where the platform web-view API supports it.
     pub user_agent: Option<String>,
+    /// Optional logical width; surrounding constraints apply when absent.
     pub width: Option<f32>,
+    /// Optional logical height; surrounding constraints apply when absent.
     pub height: Option<f32>,
 }
 

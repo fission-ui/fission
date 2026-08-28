@@ -4,14 +4,19 @@ use fission_core::ActionEnvelope;
 use fission_icons::material;
 use serde::{Deserialize, Serialize};
 
+/// One segment of a [`Breadcrumb`] navigation trail.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct BreadcrumbItem {
+    /// Segment label.
     pub label: String,
+    /// Optional navigation action; the final segment is rendered as current location.
     pub on_click: Option<ActionEnvelope>,
 }
 
+/// Ordered navigation trail from a broad parent to the current location.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Breadcrumb {
+    /// Segments in ancestor-to-current order.
     pub items: Vec<BreadcrumbItem>,
 }
 

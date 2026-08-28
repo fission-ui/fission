@@ -1,11 +1,13 @@
 use crate::{ServerRenderer, ServerRequest, ServerResponse};
 use std::sync::Arc;
 
+/// Adapter for Hyper request and response types.
 pub mod hyper_adapter {
     use super::*;
     use hyper::{Body, Request, Response, StatusCode};
     use std::convert::Infallible;
 
+    /// Converts a Hyper request, renders it, and converts the result back to Hyper.
     pub async fn handle(
         renderer: Arc<ServerRenderer>,
         request: Request<Body>,
@@ -61,6 +63,7 @@ pub mod axum_adapter {
         http::{Response, StatusCode},
     };
 
+    /// Axum handler that delegates a request to the shared Fission renderer.
     pub async fn handle(
         State(renderer): State<Arc<ServerRenderer>>,
         request: axum::http::Request<axum::body::Body>,
@@ -108,6 +111,7 @@ pub mod actix_adapter {
     use super::*;
     use actix_web::{web, HttpRequest, HttpResponse};
 
+    /// Actix handler that delegates a request to the shared Fission renderer.
     pub async fn handle(
         renderer: web::Data<Arc<ServerRenderer>>,
         request: HttpRequest,

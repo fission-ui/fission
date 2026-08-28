@@ -158,8 +158,11 @@ impl TabsMotionPlan {
 /// A single tab definition containing a title, content node, and selection action.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct TabItem {
+    /// Label displayed in the tab bar.
     pub title: String,
+    /// Content shown when this item is selected.
     pub content: Widget,
+    /// Action dispatched when this tab's trigger is pressed.
     pub on_press: Option<ActionEnvelope>,
 }
 
@@ -182,8 +185,11 @@ pub struct TabItem {
 /// ```
 #[derive(Default, Clone, Debug, Serialize, Deserialize)]
 pub struct Tabs {
+    /// Zero-based selected item index; an out-of-range value shows no content.
     pub active_index: usize,
+    /// Tab definitions in display order.
     pub items: Vec<TabItem>,
+    /// Design-system size used for tab typography, spacing, and indicator style.
     pub size: ComponentSize,
     /// Optional explicit tabs motion. `None` emits no tabs-owned motion declarations.
     #[serde(default, skip_serializing_if = "Option::is_none")]

@@ -4,6 +4,10 @@ use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 #[derive(Clone, Debug, Default)]
+/// Cell-based text measurer used by the terminal layout backend.
+///
+/// Horizontal values are terminal column widths and vertical values are line
+/// counts; font pixel size is intentionally irrelevant.
 pub struct TerminalTextMeasurer;
 
 impl TerminalTextMeasurer {
@@ -47,6 +51,8 @@ impl TerminalTextMeasurer {
         (width, height)
     }
 
+    /// Returns the number of terminal columns occupied by `ch`, with
+    /// zero-width/unknown scalars conservatively treated as one column.
     pub fn char_width(ch: char) -> usize {
         UnicodeWidthChar::width(ch).unwrap_or(1).max(1)
     }

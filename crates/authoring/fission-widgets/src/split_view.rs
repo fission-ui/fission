@@ -6,7 +6,9 @@ use serde::{Deserialize, Serialize};
 /// The axis along which a [`SplitView`] divides its two panes.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum SplitDirection {
+    /// Places the panes left and right with a vertical divider.
     Horizontal,
+    /// Places the panes top and bottom with a horizontal divider.
     Vertical,
 }
 
@@ -25,12 +27,18 @@ pub enum SplitDirection {
 /// * `on_resize` - Action dispatched when the handle is dragged (user must update `split_ratio`).
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SplitView {
+    /// Stable identity for the split region and its drag handle.
     pub id: WidgetId,
+    /// Axis along which available space is divided.
     pub direction: SplitDirection,
+    /// Leading or top pane.
     pub first: Widget,
+    /// Trailing or bottom pane.
     pub second: Widget,
-    pub split_ratio: f32,                  // 0.0 to 1.0
-    pub on_resize: Option<ActionEnvelope>, // Action(f32)
+    /// Controlled fraction allocated to `first`, clamped to `0.1..=0.9`.
+    pub split_ratio: f32,
+    /// Action dispatched by drag interaction so the application can update the ratio.
+    pub on_resize: Option<ActionEnvelope>,
 }
 
 // Since we can't easily capture local drag state without a reducer in the user app,

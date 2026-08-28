@@ -10,9 +10,13 @@ use serde::{Deserialize, Serialize};
 /// parent using [`Center`].
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct EmptyState {
+    /// Optional illustration or icon shown above the title.
     pub icon: Option<Widget>,
+    /// Primary explanation of the empty state.
     pub title: String,
+    /// Optional supporting guidance.
     pub description: Option<String>,
+    /// Optional action widget, commonly a button that creates the first item.
     pub action: Option<Widget>,
 }
 

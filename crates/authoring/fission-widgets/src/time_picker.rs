@@ -4,9 +4,16 @@ use fission_core::ui::{Text, Widget};
 use fission_core::ActionEnvelope;
 use std::sync::Arc;
 
+/// Controlled 24-hour time picker with increment and decrement controls.
+///
+/// The application owns the selected time. `on_change` receives the proposed
+/// hour and minute and should dispatch an action that updates application state.
 pub struct TimePicker {
-    pub hour: u32,   // 0-23
-    pub minute: u32, // 0-59
+    /// Hour in the inclusive range `0..=23`.
+    pub hour: u32,
+    /// Minute in the inclusive range `0..=59`.
+    pub minute: u32,
+    /// Factory used to create an action for a proposed `(hour, minute)` value.
     pub on_change: Option<Arc<dyn Fn(u32, u32) -> ActionEnvelope + Send + Sync>>,
 }
 

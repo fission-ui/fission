@@ -7,26 +7,40 @@ use fission_icons::material;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
+/// Declarative description of one data-table column.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct TableColumn {
+    /// Stable application identifier for sorting and column-specific behavior.
     pub id: String,
+    /// Header label.
     pub title: String,
+    /// Logical width allocated to each cell in the column.
     pub width: f32,
+    /// Whether the header should expose sorting affordance.
     pub sortable: bool,
 }
 
+/// One table row containing cells in the same order as the column declarations.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct TableRow {
+    /// Stable application identifier used for controlled selection.
     pub id: String,
+    /// Preformatted cell text corresponding positionally to table columns.
     pub cells: Vec<String>,
 }
 
+/// Scrollable controlled data table with row selection.
 #[derive(Clone)]
 pub struct DataTable {
+    /// Stable widget identity used by retained interaction state.
     pub id: WidgetId,
+    /// Column definitions in display order.
     pub columns: Vec<TableColumn>,
+    /// Row values in display order.
     pub rows: Vec<TableRow>,
+    /// Application-owned set of selected row IDs.
     pub selected_ids: Vec<String>,
+    /// Factory that produces an action when a row selection is toggled.
     pub on_selection_change: Option<Arc<dyn Fn(String) -> ActionEnvelope + Send + Sync>>,
 }
 

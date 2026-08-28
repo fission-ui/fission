@@ -3,8 +3,12 @@ use fission_ir::{CoreIR, Op, WidgetId};
 use std::fmt;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+/// Explanation of a Core IR operation that cannot be represented by terminal
+/// cells without silently changing its meaning.
 pub struct TerminalSupportError {
+    /// Node containing the unsupported layout or paint operation.
     pub node_id: WidgetId,
+    /// Human-readable description of the unsupported capability.
     pub reason: String,
 }
 
@@ -20,6 +24,11 @@ impl fmt::Display for TerminalSupportError {
 
 impl std::error::Error for TerminalSupportError {}
 
+/// Verifies that every layout and paint operation in `ir` has an honest
+/// terminal representation.
+///
+/// The first unsupported node is returned. Call this before rendering custom
+/// or generated IR so graphical-only effects do not disappear silently.
 pub fn verify_terminal_ir(ir: &CoreIR) -> Result<(), TerminalSupportError> {
     for (node_id, node) in &ir.nodes {
         match &node.op {

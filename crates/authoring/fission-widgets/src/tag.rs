@@ -9,7 +9,9 @@ use serde::{Deserialize, Serialize};
 /// The close button (an "x" character) appears when `on_close` is provided.
 #[derive(Default, Clone, Debug, Serialize, Deserialize)]
 pub struct Tag {
+    /// Text displayed inside the tag.
     pub label: String,
+    /// Optional removal action; supplying it also displays the close affordance.
     pub on_close: Option<ActionEnvelope>,
 }
 
