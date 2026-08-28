@@ -1,41 +1,77 @@
 <!doctype html>
 <meta charset="utf-8">
-<title>Fission SQLite Web smoke test</title>
+<title>Fission SQLite Web multi-context test</title>
+<link rel="icon" href="data:,">
 <body data-status="running">
   <script type="module">
     import { installFissionSqlite } from "/assets/web/fission-sqlite.mjs";
 
-    installFissionSqlite();
+    installFissionSqlite({ appId: "dev.fission.sqlite-web-test" });
+
+    const request = (operation, value) =>
+      globalThis.__fissionSqliteRequest({ operation, request: value });
+    const execute = (sql, parameters = "None") =>
+      request("sql_execute", { sql, parameters });
+
     try {
-      await globalThis.__fissionSqliteRequest({
-        operation: "sql_execute",
-        request: {
-          sql: "CREATE TABLE IF NOT EXISTS browser_smoke(id INTEGER PRIMARY KEY, value TEXT)",
-          parameters: "None",
-        },
-      });
-      await globalThis.__fissionSqliteRequest({
-        operation: "sql_execute",
-        request: {
-          sql: "INSERT INTO browser_smoke(value) VALUES (?1)",
-          parameters: { Positional: [{ Text: "OPFS works" }] },
-        },
-      });
-      const rows = await globalThis.__fissionSqliteRequest({
-        operation: "sql_query",
-        request: {
+      const run = crypto.randomUUID();
+      if (new URL(location.href).searchParams.has("peer")) {
+        const peerRun = new URL(location.href).searchParams.get("run");
+        await execute(
+          "INSERT INTO browser_smoke(run, writer) VALUES (?1, ?2)",
+          { Positional: [{ Text: peerRun }, { Text: "peer" }] },
+        );
+        parent.postMessage({ type: "fission-sqlite-peer-complete", run: peerRun }, location.origin);
+        globalThis.__FISSION_SQLITE_BRIDGE__.close();
+      } else {
+        await execute(
+          "CREATE TABLE IF NOT EXISTS browser_smoke(run TEXT NOT NULL, writer TEXT NOT NULL)",
+        );
+        await execute(
+          "INSERT INTO browser_smoke(run, writer) VALUES (?1, ?2)",
+          { Positional: [{ Text: run }, { Text: "parent" }] },
+        );
+
+        const peerComplete = new Promise((resolve, reject) => {
+          const timeout = setTimeout(() => reject(new Error("peer context timed out")), 15000);
+          addEventListener("message", (event) => {
+            if (
+              event.origin === location.origin &&
+              event.data?.type === "fission-sqlite-peer-complete" &&
+              event.data?.run === run
+            ) {
+              clearTimeout(timeout);
+              resolve();
+            }
+          });
+        });
+        const iframe = document.createElement("iframe");
+        iframe.hidden = true;
+        const peerUrl = new URL(location.href);
+        peerUrl.searchParams.set("peer", "1");
+        peerUrl.searchParams.set("run", run);
+        iframe.src = peerUrl;
+        document.body.append(iframe);
+        await peerComplete;
+
+        const rows = await request("sql_query", {
           statement: {
-            sql: "SELECT value FROM browser_smoke ORDER BY id DESC LIMIT 1",
-            parameters: "None",
+            sql: "SELECT writer FROM browser_smoke WHERE run=?1 ORDER BY writer",
+            parameters: { Positional: [{ Text: run }] },
           },
-        },
-      });
-      const value = rows.rows[0].values[0].Text;
-      document.body.dataset.status = value === "OPFS works" ? "passed" : "failed";
-      document.body.textContent = value;
+        });
+        const writers = rows.rows.map((row) => row.values[0].Text).join(",");
+        document.body.dataset.status = writers === "parent,peer" ? "passed" : "failed";
+        document.body.textContent = writers;
+        iframe.remove();
+        globalThis.__FISSION_SQLITE_BRIDGE__.close();
+      }
     } catch (error) {
+      console.error(error);
       document.body.dataset.status = "failed";
-      document.body.textContent = error instanceof Error ? error.stack : String(error);
+      // The browser driver treats console errors as failures. Keep the body
+      // empty so DOM readiness cannot accidentally report success first.
+      document.body.textContent = "";
     }
   </script>
 </body>

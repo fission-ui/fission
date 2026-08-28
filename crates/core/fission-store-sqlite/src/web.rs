@@ -12,8 +12,8 @@ use wasm_bindgen_futures::JsFuture;
 
 #[wasm_bindgen]
 extern "C" {
-    #[wasm_bindgen(js_namespace = globalThis, js_name = __fissionSqliteRequest)]
-    fn sqlite_request(request: JsValue) -> js_sys::Promise;
+    #[wasm_bindgen(catch, js_namespace = globalThis, js_name = __fissionSqliteRequest)]
+    fn sqlite_request(request: JsValue) -> Result<js_sys::Promise, JsValue>;
 }
 
 /// Browser provider. The generated Web bootstrap installs its worker bridge
@@ -32,6 +32,7 @@ where
     Q: Serialize,
     R: DeserializeOwned,
 {
+    ensure_sqlite_bridge()?;
     #[derive(Serialize)]
     struct Request<'a, Q> {
         operation: &'a str,
@@ -40,10 +41,22 @@ where
 
     let value = serde_wasm_bindgen::to_value(&Request { operation, request })
         .map_err(|error| error.to_string())?;
-    let response = JsFuture::from(sqlite_request(value))
-        .await
-        .map_err(js_error_message)?;
+    let promise = sqlite_request(value).map_err(js_error_message)?;
+    let response = JsFuture::from(promise).await.map_err(js_error_message)?;
     serde_wasm_bindgen::from_value(response).map_err(|error| error.to_string())
+}
+
+fn ensure_sqlite_bridge() -> Result<(), String> {
+    let bridge = js_sys::Reflect::get(
+        &js_sys::global(),
+        &JsValue::from_str("__fissionSqliteRequest"),
+    )
+    .map_err(js_error_message)?;
+    if bridge.is_function() {
+        Ok(())
+    } else {
+        Err(crate::MISSING_WEB_SQLITE_BRIDGE_ERROR.to_string())
+    }
 }
 
 fn js_error_message(value: JsValue) -> String {

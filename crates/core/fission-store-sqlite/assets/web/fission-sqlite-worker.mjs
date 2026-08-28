@@ -1,13 +1,98 @@
 import sqlite3InitModule from "./sqlite3.mjs";
 
+const applicationId = new URL(globalThis.location.href).searchParams.get("fission_app_id");
+if (!applicationId) {
+  throw new Error("Fission SQLite worker started without an application ID.");
+}
+
+const namespaceDigest = new Uint8Array(
+  await crypto.subtle.digest("SHA-256", new TextEncoder().encode(applicationId)),
+);
+const namespace = Array.from(namespaceDigest.slice(0, 16), (byte) =>
+  byte.toString(16).padStart(2, "0")
+).join("");
+const databaseFilename = `/fission-apps/${namespace}/store.sqlite3`;
+
 const sqlite3 = await sqlite3InitModule({
   locateFile: (file) => new URL(file, import.meta.url).href,
 });
-await sqlite3.installOpfsSAHPoolVfs({
-  name: "fission-opfs",
-  directory: "fission",
-});
-const db = new sqlite3.oo1.DB("file:/store.sqlite3?vfs=fission-opfs", "c");
+
+if (!sqlite3.oo1.OpfsWlDb) {
+  throw new Error(
+    "Fission Web SQLite requires the opfs-wl VFS. Serve the application with " +
+    "Cross-Origin-Opener-Policy: same-origin and " +
+    "Cross-Origin-Embedder-Policy: require-corp, and use a browser with OPFS, " +
+    "Web Locks, SharedArrayBuffer, and Atomics.waitAsync support.",
+  );
+}
+
+async function legacyPoolExists() {
+  try {
+    const root = await navigator.storage.getDirectory();
+    await root.getDirectoryHandle("fission");
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+async function opfsFileExists(filename) {
+  try {
+    const parts = filename.split("/").filter(Boolean);
+    const basename = parts.pop();
+    let directory = await navigator.storage.getDirectory();
+    for (const part of parts) {
+      directory = await directory.getDirectoryHandle(part);
+    }
+    await directory.getFileHandle(basename);
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+async function migrateLegacyDatabase() {
+  // sqlite3.opfs is an initialization-only namespace that official release
+  // builds delete before sqlite3InitModule() resolves. Query OPFS directly.
+  if (await opfsFileExists(databaseFilename)) return;
+  if (!(await legacyPoolExists())) return;
+
+  await navigator.locks.request(`fission-sqlite-migration:${namespace}`, async () => {
+    if (await opfsFileExists(databaseFilename)) return;
+
+    let pool;
+    try {
+      pool = await sqlite3.installOpfsSAHPoolVfs({
+        name: `fission-opfs-migration-${namespace}`,
+        directory: "fission",
+      });
+      const legacyName = pool
+        .getFileNames()
+        .find((name) => name === "/store.sqlite3" || name === "store.sqlite3");
+      if (!legacyName) return;
+      const bytes = pool.exportFile(legacyName);
+      pool.pauseVfs();
+      await sqlite3.oo1.OpfsWlDb.importDb(databaseFilename, bytes);
+    } catch (error) {
+      throw new Error(
+        "Fission could not migrate the existing Web SQLite database. Close pages " +
+        "running an older Fission build and reload: " +
+        (error instanceof Error ? error.message : String(error)),
+      );
+    } finally {
+      if (pool && !pool.isPaused()) {
+        try {
+          pool.pauseVfs();
+        } catch (_) {
+          // The original error is more useful than a secondary cleanup error.
+        }
+      }
+    }
+  });
+}
+
+await migrateLegacyDatabase();
+const db = new sqlite3.oo1.OpfsWlDb(databaseFilename, "c");
 
 db.exec(`
 CREATE TABLE IF NOT EXISTS fission (
@@ -207,17 +292,27 @@ function dispatch(operation, request) {
   }
 }
 
-self.addEventListener("message", ({ data }) => {
+function handleMessage(endpoint, data) {
   try {
     const { operation, request } = data.request;
-    self.postMessage({ id: data.id, ok: true, value: dispatch(operation, request) });
+    endpoint.postMessage({ id: data.id, ok: true, value: dispatch(operation, request) });
   } catch (error) {
-    self.postMessage({
+    endpoint.postMessage({
       id: data.id,
       ok: false,
       error: error instanceof Error ? error.message : String(error),
     });
   }
-});
+}
 
-self.postMessage({ type: "ready" });
+function connect(endpoint) {
+  endpoint.addEventListener("message", ({ data }) => handleMessage(endpoint, data));
+  endpoint.start?.();
+  endpoint.postMessage({ type: "ready", applicationId });
+}
+
+if (typeof SharedWorkerGlobalScope !== "undefined") {
+  self.addEventListener("connect", ({ ports }) => connect(ports[0]));
+} else {
+  connect(self);
+}

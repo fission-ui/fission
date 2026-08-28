@@ -1256,12 +1256,16 @@ mkdir -p "$(dirname "$artifact")"
         assert!(dir.join("platforms/web/sqlite/sqlite3.wasm").exists());
         assert!(dir.join("platforms/web/sqlite/sqlite3.mjs").exists());
         assert!(dir
+            .join("platforms/web/sqlite/sqlite3-opfs-async-proxy.js")
+            .exists());
+        assert!(dir
             .join("platforms/web/sqlite/fission-sqlite-worker.mjs")
             .exists());
         let bootstrap = std::fs::read_to_string(dir.join("platforms/web/bootstrap.mjs")).unwrap();
         assert!(
             bootstrap.find("installFissionSqlite").unwrap() < bootstrap.find("await init").unwrap()
         );
+        assert!(bootstrap.contains(&format!("appId: {:?}", project.app.app_id)));
     }
 
     #[test]

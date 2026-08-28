@@ -85,6 +85,29 @@ jobs:
           FISSION_WEB_SMOKE_URL='http://127.0.0.1:8126/?fission_renderer=canvas2d-software' \
             cargo test --locked -p web-smoke --test text_input_browser -- --nocapture
 
+      - name: Run Web SQLite multi-context conformance in Chromium
+        run: |
+          cd crates/core/fission-store-sqlite
+          python3 -c 'from http.server import ThreadingHTTPServer,SimpleHTTPRequestHandler
+          class Handler(SimpleHTTPRequestHandler):
+              def end_headers(self):
+                  self.send_header("Cross-Origin-Opener-Policy", "same-origin")
+                  self.send_header("Cross-Origin-Embedder-Policy", "require-corp")
+                  super().end_headers()
+          ThreadingHTTPServer(("127.0.0.1", 8127), Handler).serve_forever()' &
+          server_pid=$!
+          trap 'kill "$server_pid"' EXIT
+          cd ../../..
+          for attempt in $(seq 1 50); do
+            if curl --fail --silent http://127.0.0.1:8127/tests/web/index.html >/dev/null; then
+              break
+            fi
+            sleep 0.1
+          done
+          curl --fail --silent http://127.0.0.1:8127/tests/web/index.html >/dev/null
+          FISSION_SQLITE_WEB_TEST_URL='http://127.0.0.1:8127/tests/web/index.html' \
+            cargo test --locked -p fission-store-sqlite --test web_multitab_browser -- --nocapture
+
   android:
     name: Android package smoke
     if: >-

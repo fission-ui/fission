@@ -3288,7 +3288,9 @@ dependencies = [
 name = "fission-store-sqlite"
 version = "0.14.1"
 dependencies = [
+ "anyhow",
  "fission-store",
+ "fission-test-driver",
  "futures-lite",
  "js-sys",
  "rusqlite",

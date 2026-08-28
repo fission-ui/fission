@@ -13,7 +13,7 @@ Storage is opt-in, so applications that do not use it do not compile SQLite or s
 fission add-capability storage --project-dir .
 ```
 
-For a manually managed Cargo dependency, enable `store-sqlite-native` for native targets and `store-sqlite-web` for Web alongside the target feature.
+The capability declaration is required even when the Cargo manifest is managed manually because it also installs the Web worker, bridge, and SQLite WASM assets. The official Fission build commands inspect the resolved Web dependency graph and stop before compilation if `store-sqlite-web` and the `storage` capability disagree. Running the command above is idempotent and enables `store-sqlite-native` for native targets and `store-sqlite-web` for Web alongside the configured target features.
 
 Storage is requested as an effect. Reducers remain synchronous and deterministic: they describe the operation, then handle its success or failure through another action.
 
@@ -143,6 +143,19 @@ ctx.effects.sql().migrate(migrations);
 ## Providers and compile-time target support
 
 The storage capability selects the provider appropriate to each configured target. Native targets use `store-sqlite-native`; Web uses `store-sqlite-web`. The CLI manages both features for multi-target projects. `site` deliberately selects neither, so a static-site-only project cannot enable storage through the capability.
+
+Before a Web run, build, test, or package operation, Fission verifies that the capability, resolved Cargo features, bootstrap initialization, and generated SQLite assets agree. Missing generated assets are restored when the capability is declared. A feature enabled directly or transitively without the capability is rejected with the `fission add-capability storage` command before Rust compilation starts. Builds that bypass the Fission CLI still receive a typed configuration error from the Web provider instead of a wasm-bindgen trap if the JavaScript bridge is absent.
+
+Web SQLite uses SQLite's `opfs-wl` VFS. Separate tabs and windows keep independent SQLite connections while Web Locks coordinate access to the same application database. The generated bridge is idempotent within one page, and the database path is derived from `app.app_id`, so two Fission applications hosted on one origin do not accidentally share storage. The first run after upgrading from the earlier SAH-pool implementation migrates its existing database automatically; pages still running the older build must be closed during that one-time migration.
+
+The Web host must enable cross-origin isolation because `opfs-wl` uses `SharedArrayBuffer` and `Atomics.waitAsync`. `fission run`, `fission serve-web`, and the generated browser test server emit the required headers:
+
+```text
+Cross-Origin-Opener-Policy: same-origin
+Cross-Origin-Embedder-Policy: require-corp
+```
+
+Production hosting must emit the same headers for the application and its same-origin assets. If the headers or required browser APIs are absent, Fission reports an actionable storage initialization error instead of silently falling back to a non-persistent or single-tab store.
 
 Applications can replace the default while keeping the same API:
 

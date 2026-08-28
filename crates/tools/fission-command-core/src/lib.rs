@@ -20,6 +20,7 @@ mod macos_signing;
 mod native_cargo;
 mod native_variant;
 mod splash;
+mod web_storage;
 mod windows_native;
 pub use desktop_features::{read_desktop_cargo_options, DesktopCargoOptions};
 pub use icons::{copy_icon_for_bundle, normalized_extension, resolve_app_icon, ResolvedIcon};
@@ -40,6 +41,7 @@ pub use macos_signing::{
 };
 pub use native_variant::{ensure_native_variant_target, variant_output_path, NativeVariant};
 pub use splash::{SplashConfig, SplashResizeMode};
+pub use web_storage::prepare_web_target;
 pub use windows_native::{
     build_windows_native_modules, stage_windows_runtime_products, test_windows_native_modules,
     BuiltWindowsNativeProduct, NativeWindowsModuleConfig, NativeWindowsProductConfig,
@@ -598,7 +600,7 @@ pub fn add_capabilities(project_dir: &Path, capabilities: &[PlatformCapability])
     if capabilities.contains(&PlatformCapability::Storage) {
         update_cargo_fission_features(project_dir, &project)?;
         if project.targets.contains(&Target::Web) {
-            enable_web_sqlite_scaffold(project_dir)?;
+            web_storage::enable_web_sqlite_scaffold(project_dir, &project.app.app_id)?;
         }
     }
     Ok(())
@@ -3341,7 +3343,7 @@ fn scaffold_web_bundle(
         write_policy,
     )?;
     if project.capabilities.contains(&PlatformCapability::Storage) {
-        write_web_sqlite_assets(root, write_policy)?;
+        web_storage::write_web_sqlite_assets(root, write_policy)?;
     }
     write_file_with_policy(
         &root.join("platforms/web/build-wasm.sh"),
@@ -3377,60 +3379,6 @@ fn scaffold_web_bundle(
     }
 
     Ok(())
-}
-
-fn write_web_sqlite_assets(root: &Path, write_policy: WritePolicy) -> Result<()> {
-    for (name, contents) in [
-        ("sqlite3.mjs", fission_store_sqlite::SQLITE_WEB_MODULE),
-        ("sqlite3.wasm", fission_store_sqlite::SQLITE_WEB_WASM),
-        (
-            "fission-sqlite.mjs",
-            fission_store_sqlite::SQLITE_WEB_BRIDGE,
-        ),
-        (
-            "fission-sqlite-worker.mjs",
-            fission_store_sqlite::SQLITE_WEB_WORKER,
-        ),
-        ("NOTICE.txt", fission_store_sqlite::SQLITE_WEB_NOTICE),
-    ] {
-        write_binary_file_with_policy(
-            &root.join("platforms/web/sqlite").join(name),
-            contents,
-            write_policy,
-        )?;
-    }
-    Ok(())
-}
-
-fn enable_web_sqlite_scaffold(root: &Path) -> Result<()> {
-    write_web_sqlite_assets(root, WritePolicy::PreserveExisting)?;
-    let path = root.join("platforms/web/bootstrap.mjs");
-    let bootstrap =
-        fs::read_to_string(&path).with_context(|| format!("failed to read {}", path.display()))?;
-    if bootstrap.contains("installFissionSqlite") {
-        return Ok(());
-    }
-    let import_end = bootstrap.find('\n').ok_or_else(|| {
-        anyhow::anyhow!(
-            "cannot enable Web SQLite because {} has no import section",
-            path.display()
-        )
-    })?;
-    let init = "await init();";
-    bootstrap.find(init).ok_or_else(|| {
-        anyhow::anyhow!(
-            "cannot enable Web SQLite because {} has no `{init}` call",
-            path.display()
-        )
-    })?;
-    let mut updated = bootstrap;
-    let sqlite_import = "import { installFissionSqlite } from \"./sqlite/fission-sqlite.mjs\";\n";
-    updated.insert_str(import_end + 1, sqlite_import);
-    let init_start = updated
-        .find(init)
-        .expect("the validated init call remains after inserting an import");
-    updated.insert_str(init_start, "installFissionSqlite();\n");
-    fs::write(&path, updated).with_context(|| format!("failed to write {}", path.display()))
 }
 
 fn write_generated_app_agents(project_root: &Path) -> Result<()> {
@@ -5539,8 +5487,10 @@ fn render_web_index(project: &FissionProject) -> String {
 fn render_web_bootstrap(project: &FissionProject) -> String {
     let module_name = project.app.name.replace('-', "_");
     if project.capabilities.contains(&PlatformCapability::Storage) {
+        let app_id = serde_json::to_string(&project.app.app_id)
+            .expect("a Fission application ID is always JSON-encodable");
         format!(
-            "import init from \"./pkg/{module_name}.js\";\nimport {{ installFissionSqlite }} from \"./sqlite/fission-sqlite.mjs\";\n\ninstallFissionSqlite();\nawait init();\n"
+            "import init from \"./pkg/{module_name}.js\";\nimport {{ installFissionSqlite }} from \"./sqlite/fission-sqlite.mjs\";\n\ninstallFissionSqlite({{ appId: {app_id} }});\nawait init();\n"
         )
     } else {
         format!("import init from \"./pkg/{module_name}.js\";\n\nawait init();\n")
@@ -5723,7 +5673,8 @@ require_node_websocket
 
 mkdir -p "$SCRIPT_DIR/build"
 cd "$SCRIPT_DIR"
-python3 -m http.server "$PORT" --bind "$HOST" >"$SCRIPT_DIR/build/web-server.log" 2>&1 &
+cargo fission serve-web --project-dir "$PROJECT_DIR" --host "$HOST" --port "$PORT" \
+  >"$SCRIPT_DIR/build/web-server.log" 2>&1 &
 SERVER_PID=$!
 
 cleanup() {

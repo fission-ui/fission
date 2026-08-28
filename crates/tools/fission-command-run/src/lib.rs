@@ -4,12 +4,12 @@ use anyhow::{bail, Context, Result};
 use fission_command_core::{
     build_linux_native_modules, build_macos_native_modules, build_windows_native_modules,
     embed_and_sign_macos_native_modules, ensure_native_variant_target, ios_executable_name,
-    normalized_extension, read_desktop_cargo_options, read_macos_run_config_for_profile,
-    read_project_config, resolve_app_icon, sign_macos_app_if_configured,
-    stage_linux_native_products, stage_project_assets, stage_windows_runtime_products,
-    sync_platform_config, test_linux_native_modules, test_macos_native_modules,
-    test_windows_native_modules, variant_output_path, FissionProject, MacosNativeBundleMode,
-    MacosPackageConfig, NativeVariant, PlatformCapability, Target,
+    normalized_extension, prepare_web_target, read_desktop_cargo_options,
+    read_macos_run_config_for_profile, read_project_config, resolve_app_icon,
+    sign_macos_app_if_configured, stage_linux_native_products, stage_project_assets,
+    stage_windows_runtime_products, sync_platform_config, test_linux_native_modules,
+    test_macos_native_modules, test_windows_native_modules, variant_output_path, FissionProject,
+    MacosNativeBundleMode, MacosPackageConfig, NativeVariant, PlatformCapability, Target,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::hash_map::DefaultHasher;
@@ -319,8 +319,10 @@ fn sync_target_platform_config(
     project: &FissionProject,
     target: Target,
 ) -> Result<()> {
-    if matches!(target, Target::Android | Target::Ios) {
-        sync_platform_config(project_dir, project)?;
+    match target {
+        Target::Android | Target::Ios => sync_platform_config(project_dir, project)?,
+        Target::Web => prepare_web_target(project_dir, project)?,
+        _ => {}
     }
     Ok(())
 }

@@ -237,7 +237,7 @@ fn handle_http_request(mut stream: TcpStream, root: &Path, spa_fallback: bool) -
     if method == "POST" && path == "/__fission/renderer" {
         let body = read_http_body(&mut reader)?;
         println!("{}", format_renderer_diagnostic(&body));
-        stream.write_all(&http_response(204, "text/plain", b""))?;
+        stream.write_all(&http_response(204, "text/plain", b"", spa_fallback))?;
         return Ok(());
     }
     let response = static_response(root, path, spa_fallback)?;
@@ -335,17 +335,22 @@ fn static_response(root: &Path, request_path: &str, spa_fallback: bool) -> Resul
         if index.is_file() {
             let body = fs::read(index)?;
             println!("GET {} 200 (SPA fallback)", request_path);
-            return Ok(http_response(200, "text/html; charset=utf-8", &body));
+            return Ok(http_response(
+                200,
+                "text/html; charset=utf-8",
+                &body,
+                spa_fallback,
+            ));
         }
     }
     if !path.exists() || !path.is_file() {
         println!("GET {} 404", request_path);
-        return Ok(http_response(404, "text/plain", b"not found"));
+        return Ok(http_response(404, "text/plain", b"not found", spa_fallback));
     }
     let body = fs::read(&path)?;
     let content_type = content_type(&path);
     println!("GET {} 200", request_path);
-    Ok(http_response(200, content_type, &body))
+    Ok(http_response(200, content_type, &body, spa_fallback))
 }
 
 fn sanitize_static_path(root: &Path, relative: &str) -> Result<PathBuf> {
@@ -362,14 +367,24 @@ fn sanitize_static_path(root: &Path, relative: &str) -> Result<PathBuf> {
     Ok(path)
 }
 
-fn http_response(status: u16, content_type: &str, body: &[u8]) -> Vec<u8> {
+fn http_response(
+    status: u16,
+    content_type: &str,
+    body: &[u8],
+    cross_origin_isolated: bool,
+) -> Vec<u8> {
     let reason = match status {
         200 => "OK",
         404 => "Not Found",
         _ => "Error",
     };
+    let isolation_headers = if cross_origin_isolated {
+        "Cross-Origin-Opener-Policy: same-origin\r\nCross-Origin-Embedder-Policy: require-corp\r\n"
+    } else {
+        ""
+    };
     let mut response = format!(
-        "HTTP/1.1 {status} {reason}\r\nContent-Length: {}\r\nContent-Type: {content_type}\r\nConnection: close\r\n\r\n",
+        "HTTP/1.1 {status} {reason}\r\nContent-Length: {}\r\nContent-Type: {content_type}\r\n{isolation_headers}Connection: close\r\n\r\n",
         body.len()
     )
     .into_bytes();
@@ -442,11 +457,18 @@ mod tests {
         fs::write(root.join("index.html"), "spa index").expect("write index");
 
         let route = static_response(&root, "/projects/42", true).expect("route response");
-        assert!(String::from_utf8_lossy(&route).contains("200 OK"));
-        assert!(String::from_utf8_lossy(&route).contains("spa index"));
+        let route = String::from_utf8_lossy(&route);
+        assert!(route.contains("200 OK"));
+        assert!(route.contains("spa index"));
+        assert!(route.contains("Cross-Origin-Opener-Policy: same-origin"));
+        assert!(route.contains("Cross-Origin-Embedder-Policy: require-corp"));
 
         let asset = static_response(&root, "/missing.js", true).expect("asset response");
         assert!(String::from_utf8_lossy(&asset).contains("404 Not Found"));
+
+        let site = static_response(&root, "/", false).expect("site response");
+        let site = String::from_utf8_lossy(&site);
+        assert!(!site.contains("Cross-Origin-Opener-Policy"));
         fs::remove_dir_all(root).expect("remove web root");
     }
 }
