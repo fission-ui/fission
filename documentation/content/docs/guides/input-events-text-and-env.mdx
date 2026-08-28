@@ -156,7 +156,10 @@ A user may toggle dark mode. They may choose a locale from a settings screen. Yo
 
 That is what `.with_sync_env(...)` is for.
 
-The public `DesktopApp`, `MobileApp`, and `WebApp` builders all expose `.with_sync_env(...)`. The hook receives the current app state and a mutable `Env`, and it runs as part of the shell-managed app setup so the environment can reflect the latest state before widgets build.
+The public `DesktopApp`, `MobileApp`, `WebApp`, and `TerminalApp` builders all
+expose `.with_env(...)` and `.with_sync_env(...)`. Browser islands do as well.
+The sync hook receives the current app state and a mutable `Env`, and runs
+before widgets build so the environment reflects the latest state.
 
 A typical example looks like this:
 

@@ -10,7 +10,7 @@ use fission_core::{
     WidgetId,
 };
 use fission_ir::{semantics::ActionTrigger, CoreIR, Op, Role, Semantics};
-use fission_theme::Theme;
+use fission_theme::{DesignMode, DesignSystem, Theme};
 use serde_json::{json, Value};
 use std::any::Any;
 use std::cell::RefCell;
@@ -36,7 +36,8 @@ where
     mount_id: String,
     runtime: Runtime,
     widget: W,
-    theme: Theme,
+    env: Env,
+    sync_env: Option<Box<dyn Fn(&S, &mut Env)>>,
     _state: std::marker::PhantomData<fn() -> S>,
 }
 
@@ -58,7 +59,8 @@ where
             mount_id: mount_id.into(),
             runtime,
             widget,
-            theme: Theme::default(),
+            env: Env::default(),
+            sync_env: None,
             _state: std::marker::PhantomData,
         }
     }
@@ -69,7 +71,37 @@ where
     /// visually blend into the server-rendered page. If omitted, the default
     /// Fission theme is used.
     pub fn theme(mut self, theme: Theme) -> Self {
-        self.theme = theme;
+        self.env.theme = theme;
+        self
+    }
+
+    /// Replaces the environment used to build and lower this browser island.
+    ///
+    /// Use the same prepared `Env` as the surrounding route when the island
+    /// needs matching translations, locale, theme, or other presentation
+    /// context. The island owns its copy and never mutates the server's request
+    /// environment.
+    pub fn with_env(mut self, env: Env) -> Self {
+        self.env = env;
+        self
+    }
+
+    /// Installs a generated design system's theme for the requested mode.
+    pub fn with_design_system<D: DesignSystem>(mut self, mode: DesignMode) -> Self {
+        self.env.theme = D::theme(mode);
+        self
+    }
+
+    /// Mirrors island state into its environment before every build.
+    ///
+    /// This is the browser-island equivalent of the stateful shell builders'
+    /// `with_sync_env`: use it for app-selected locale or theme values, not for
+    /// side effects or durable product data.
+    pub fn with_sync_env<F>(mut self, sync: F) -> Self
+    where
+        F: Fn(&S, &mut Env) + 'static,
+    {
+        self.sync_env = Some(Box::new(sync));
         self
     }
 
@@ -165,7 +197,7 @@ where
         let ir = lower_browser_island_widget(
             output.node,
             output.portals,
-            &self.theme,
+            &output.env,
             &self.runtime.runtime_state,
         );
         let semantics = ir
@@ -200,7 +232,7 @@ where
         let ir = lower_browser_island_widget(
             output.node,
             output.portals,
-            &self.theme,
+            &output.env,
             &self.runtime.runtime_state,
         );
 
@@ -210,7 +242,7 @@ where
             &HtmlRenderOptions {
                 document_title: self.id.clone(),
                 root_class: "fission-browser-island-root".to_string(),
-                css_variables: CssVariableMap::from_theme(&self.theme),
+                css_variables: CssVariableMap::from_theme(&output.env.theme),
                 browser_action_bindings: true,
                 motion_declarations: output.motion_declarations,
                 video_registrations: output
@@ -259,12 +291,14 @@ where
     }
 
     fn build_widget(&self) -> BrowserIslandBuildOutput<S> {
-        let mut env = Env::default();
-        env.theme = self.theme.clone();
+        let mut env = self.env.clone();
         let state = self
             .runtime
             .get_global_state::<S>()
             .expect("browser island state is registered at construction");
+        if let Some(sync_env) = &self.sync_env {
+            sync_env(state, &mut env);
+        }
         let view = View::new(state, &self.runtime.runtime_state, &env, None);
         let mut ctx = BuildCtx::<S>::new();
         let node = fission_core::build::enter(&mut ctx, &view, || self.widget.clone().into());
@@ -280,6 +314,7 @@ where
             video_registrations,
             web_registrations,
             portals,
+            env,
         }
     }
 
@@ -325,13 +360,11 @@ fn validate_browser_text_target(target: WidgetId, semantics: &Semantics) -> Resu
 fn lower_browser_island_widget(
     node: Widget,
     portals: Vec<(Option<WidgetId>, Widget)>,
-    theme: &Theme,
+    env: &Env,
     runtime: &RuntimeState,
 ) -> CoreIR {
     let node = compose_browser_island_portals(node, portals);
-    let mut env = Env::default();
-    env.theme = theme.clone();
-    let mut lowering = InternalLoweringCx::new(&env, runtime, None, None);
+    let mut lowering = InternalLoweringCx::new(env, runtime, None, None);
     let root = fission_core::internal::lower_widget(&node, &mut lowering);
     lowering.ir.set_root(root);
     lowering.ir
@@ -357,6 +390,7 @@ struct BrowserIslandBuildOutput<S: GlobalState> {
     video_registrations: Vec<VideoRegistration>,
     web_registrations: Vec<WebRegistration>,
     portals: Vec<(Option<WidgetId>, Widget)>,
+    env: Env,
 }
 
 fn compose_browser_island_portals(
@@ -535,6 +569,16 @@ mod tests {
                 ..Default::default()
             }
             .into()
+        }
+    }
+
+    #[derive(Clone)]
+    struct LocaleIsland;
+
+    impl From<LocaleIsland> for Widget {
+        fn from(_component: LocaleIsland) -> Widget {
+            let (_, view) = fission_core::build::current::<CounterState>();
+            Text::new(format!("locale:{}", view.env().locale.0)).into()
         }
     }
 
@@ -788,6 +832,24 @@ mod tests {
             BrowserIslandApp::new(&id, "counter-mount", CounterState::default(), CounterIsland)
         });
         assert!(update.contains("1 clicks"));
+    }
+
+    #[test]
+    fn browser_island_uses_seed_and_state_synchronized_environment() {
+        let id = format!("locale-{}", std::process::id());
+        let mut env = Env::default();
+        env.locale = "es".into();
+        let boot = run_browser_island(&id, r#"{"type":"boot"}"#, || {
+            BrowserIslandApp::new(&id, "locale-mount", CounterState::default(), LocaleIsland)
+                .with_env(env)
+                .with_sync_env(|state, env| {
+                    if state.count == 0 {
+                        env.locale = "es-MX".into();
+                    }
+                })
+        });
+
+        assert!(boot.contains("locale:es-MX"));
     }
 
     #[test]

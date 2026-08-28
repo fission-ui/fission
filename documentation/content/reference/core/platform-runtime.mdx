@@ -51,14 +51,15 @@ That does not mean the shell is unimportant. It means the shell should do real h
 
 ## The public shell wrappers
 
-The current public shell wrappers are:
+The current public app and document builders are:
 
 - `DesktopApp<S, W>`
 - `MobileApp<S, W>`
 - `WebApp<S, W>`
 - `TerminalApp<S, W>`
 - `FissionSite`
-- `FissionServerApp<S, W>`
+- `FissionServerApp`
+- `BrowserIslandApp<S, W>`
 
 They host the same shared runtime model. Where a wrapper has type parameters, they mean:
 
@@ -102,47 +103,36 @@ Even though the wrappers do not expose identical method sets, several concepts r
 
 Those concepts matter more than memorizing every wrapper method immediately, because they tell you how the shell participates in the runtime boundary.
 
-## Wrapper differences
+## Builder parity and intentional differences
 
-The wrappers are intentionally similar, but not identical.
+The continuously running Desktop, Mobile, Web, and Terminal shells share the
+same environment and startup vocabulary. They all accept a complete base
+`Env`, can synchronize it from `GlobalState`, can prepare initial state, can
+dispatch a startup action, can install an app-wide key handler and frame hook,
+and can register host-owned reducers. This means i18n and design-system setup do
+not need a target-specific workaround.
 
-`DesktopApp` currently has the richest public setup API. In addition to the common startup and environment hooks, it exposes:
+| Capability | Desktop | Mobile | Web | Terminal | Static site | SSR |
+| --- | --- | --- | --- | --- | --- | --- |
+| Seed a complete environment with `with_env` | Yes | Yes | Yes | Yes | Yes | Yes |
+| Install a design system | Yes | Yes | Yes | Yes | Yes | Yes |
+| Synchronize environment from live app state | `with_sync_env` | `with_sync_env` | `with_sync_env` | `with_sync_env` | Not applicable | `with_request_env` uses request context |
+| Prepare live app state | Yes | Yes | Yes | Yes | Per-route state factory | Per-route state factory |
+| Dispatch a startup action | Yes | Yes | Yes | Yes | Not applicable | Not applicable |
+| Register packaged fonts | Yes | Yes | Yes | No; terminal emulator owns fonts | Yes | Yes |
+| Configure browser history/path strategy | Not applicable | Host deep links | `with_navigation` | In-memory navigation | Route output paths | Request routes |
+| Native live-test TCP port | Yes | Yes | No; browser control bridge | No | Not applicable | Not applicable |
 
-- `with_key_handler(...)`
-- `with_test_control_port(...)`
-- `with_env(...)`
-- `register_reducer(...)`
-- `absorb_registry(...)`
+Static site and SSR builders intentionally do not pretend to have a persistent
+frame loop. A static route is built once, while an SSR route is built for an
+HTTP request. Their locale resolvers and SSR's `with_request_env` therefore
+express real build/request inputs instead of imitating `with_sync_env` with the
+wrong lifetime.
 
-`with_env(...)` replaces the default `Env` up front on shells that expose a base environment, including desktop, SSR apps, and Static site targets. `register_reducer(...)` and `absorb_registry(...)` are direct reducer-registration helpers on the desktop wrapper. `with_test_control_port(...)` is the desktop live-shell testing entrypoint.
-
-`MobileApp` keeps the same overall model but exposes a smaller public setup API. It currently supports:
-
-- `with_key_handler(...)`
-- `with_test_control_port(...)`
-- `with_state_init(...)`
-- `with_startup_action(...)`
-- `with_sync_env(...)`
-- `with_frame_hook(...)`
-- `with_async(...)`
-- `run()`
-- `run_with_android_app(...)` on Android
-
-It does not currently expose public `with_env(...)`, `register_reducer(...)`, or `absorb_registry(...)` methods of its own.
-
-`WebApp` is smaller still. It currently supports:
-
-- `with_title(...)`
-- `with_state_init(...)`
-- `with_startup_action(...)`
-- `with_sync_env(...)`
-- `with_frame_hook(...)`
-- `with_async(...)`
-- `run()`
-
-It does not currently expose public `with_key_handler(...)` or `with_test_control_port(...)`.
-
-These differences matter for reference work, but they should be read as wrapper API differences, not as different application architectures. The same shared runtime is still underneath.
+Browser-only methods such as `with_mount_selector`, `with_browser_defaults`,
+and `with_navigation` stay on `WebApp`. Desktop window, tray, and AppUserModelID
+configuration stays on `DesktopApp`. Android host injection stays on Mobile.
+Those are host capabilities, not gaps in the shared app model.
 
 ## Practical boundary guidance
 

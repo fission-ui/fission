@@ -624,7 +624,7 @@ pub fn run_release_config_tui(options: ReleaseConfigEditorOptions) -> Result<()>
     let state = ReleaseConfigEditorState::load(options);
     fission::terminal::TerminalApp::with_state(ReleaseConfigEditorApp, state)
         .with_title("Fission release config")
-        .with_env(|env| env.theme = fission::theme::Theme::dark())
+        .configure_env(|env| env.theme = fission::theme::Theme::dark())
         .with_sync_env(|state, env| {
             env.theme = match state.theme_mode {
                 EditorThemeMode::Dark => fission::theme::Theme::dark(),

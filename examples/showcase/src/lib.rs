@@ -70,14 +70,13 @@ pub fn run_desktop() -> Result<()> {
 
 #[cfg(target_arch = "wasm32")]
 fn web_app() -> WebApp<ShowcaseState, ShowcaseApp> {
-    let base_env = create_env().expect("showcase translations must parse");
     WebApp::<ShowcaseState, _>::new(ShowcaseApp)
         .mount("#fission-web-mount")
         .with_title("Fission Example Showcase")
+        .with_env(create_env().expect("showcase translations must parse"))
         .with_design_system::<ShowcaseDesignSystem>(DesignMode::Light)
         .with_async(|asyncs| register_example_jobs!(asyncs))
-        .with_sync_env(move |state: &ShowcaseState, env: &mut Env| {
-            env.i18n = base_env.i18n.clone();
+        .with_sync_env(|state: &ShowcaseState, env: &mut Env| {
             env.locale = state.locale.clone();
             env.theme = ShowcaseDesignSystem::theme(state.theme_mode);
         })

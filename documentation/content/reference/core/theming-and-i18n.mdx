@@ -55,7 +55,11 @@ Use a preset when it matches the platform or brand direction you want. Copy it i
 
 `Env` carries the active theme, internationalization registry, locale, and other app-wide presentation context. During component conversion, widgets can read those values through `view.env` or convenience helpers such as `view.theme()`.
 
-Desktop exposes both `with_env(...)` and `with_sync_env(...)`. Mobile and web expose `with_sync_env(...)`. Static site and SSR apps expose `with_env(...)`, `i18n(...)`, `translation_bundle(...)`, `default_locale(...)`, and `locale_resolver(...)`. SSR additionally exposes `with_request_env(...)` for request-owned environment values.
+Desktop, Mobile, Web, and Terminal expose both `with_env(...)` and
+`with_sync_env(...)`. Browser islands expose the same pair. Static site and SSR
+apps expose `with_env(...)`, `i18n(...)`, `translation_bundle(...)`,
+`default_locale(...)`, and `locale_resolver(...)`. SSR additionally exposes
+`with_request_env(...)` for request-owned environment values.
 
 Use `with_env(...)` to seed a base environment before the first frame, such as one that already contains translation bundles.
 
@@ -65,12 +69,29 @@ Use `translation_bundle(...)` or `i18n(...)` on `FissionServerApp` to register s
 
 ```rust
 DesktopApp::new(MyApp)
+    .with_env(create_env()?)
     .with_sync_env(|state: &MyState, env: &mut Env| {
         env.theme = AppDesignSystem::theme(state.theme_mode);
         env.locale = state.locale.clone();
     })
     .run()?;
 ```
+
+The setup is identical for a Web app:
+
+```rust
+WebApp::new(MyApp)
+    .with_env(create_env()?)
+    .with_sync_env(|state: &MyState, env: &mut Env| {
+        env.theme = AppDesignSystem::theme(state.theme_mode);
+        env.locale = state.locale.clone();
+    })
+    .run()?;
+```
+
+Terminal supports the same design-system and environment data. Packaged font
+registration is the deliberate exception: the terminal emulator owns the font
+used for its cell grid, so Fission cannot install an app font there.
 
 ## Internationalization types
 

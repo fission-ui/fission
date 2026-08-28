@@ -33,6 +33,8 @@ where
     S: GlobalState + 'static,
     W: Clone + Into<fission_core::ui::Widget>,
 {
+    /// Creates a headless terminal session and renders its initial frame using
+    /// the supplied cell dimensions.
     pub fn new(mut app: TerminalApp<S, W>, width: u16, height: u16) -> Result<Self> {
         let frame = app.render_frame(width, height)?;
         Ok(Self {
@@ -44,14 +46,19 @@ where
         })
     }
 
+    /// Returns the most recently rendered terminal frame.
     pub fn frame(&self) -> &TerminalFrame {
         &self.frame
     }
 
+    /// Reports whether a dispatched test command requested that the session
+    /// terminate.
     pub fn is_quit_requested(&self) -> bool {
         self.quit_requested
     }
 
+    /// Executes one cross-shell test command and returns a protocol response.
+    /// Errors are converted to [`TestResponse::Error`] instead of panicking.
     pub fn dispatch(&mut self, command: TestCommand) -> TestResponse {
         match self.try_dispatch(command) {
             Ok(response) => response,
