@@ -142,12 +142,18 @@ impl PopoverMotionPlan {
 /// * `content` - The popup content rendered in the flyout layer.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Popover {
+    /// Stable identity used to derive the anchor and portal motion slots.
     pub id: WidgetId,
+    /// Controlled popup visibility.
     pub is_open: bool,
+    /// Optional action requesting an open-state toggle.
     pub on_toggle: Option<ActionEnvelope>,
+    /// Optional action dispatched by backdrop dismissal.
     pub on_close: Option<ActionEnvelope>,
 
+    /// Inline anchor content.
     pub trigger: Widget,
+    /// Content rendered in the flyout layer while open or retained by motion.
     pub content: Widget,
     /// Optional explicit popover motion. `None` emits no popover-owned motion declarations.
     #[serde(default, skip_serializing_if = "Option::is_none")]

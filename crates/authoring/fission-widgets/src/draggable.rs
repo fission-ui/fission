@@ -49,6 +49,8 @@ pub struct Draggable {
 }
 
 impl Draggable {
+    /// Sets the stable semantic/test identifier used to retain and locate this
+    /// source when an explicit widget ID is not supplied.
     pub fn semantics_identifier(mut self, identifier: impl Into<String>) -> Self {
         self.semantics_identifier = Some(identifier.into());
         self
@@ -118,6 +120,10 @@ fn maybe_register_drag_preview(source: &Draggable, preview: Widget) {
     );
 }
 
+/// Drop target for internal Fission drags and shell-provided external drops.
+///
+/// The runtime supplies the dropped payload through contextual `ActionInput`;
+/// `hover_child` can provide a distinct visual while this target is active.
 #[derive(Clone, Debug)]
 pub struct DragTarget {
     /// Stable identity for the drop target.
@@ -133,6 +139,7 @@ pub struct DragTarget {
 }
 
 impl DragTarget {
+    /// Sets the stable semantic/test identifier used to retain and locate this target.
     pub fn semantics_identifier(mut self, identifier: impl Into<String>) -> Self {
         self.semantics_identifier = Some(identifier.into());
         self

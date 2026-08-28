@@ -6,6 +6,8 @@ use serde::{Deserialize, Serialize};
 /// A convenience wrapper around [`Align`].
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Center {
+    /// Content positioned at the center of the available horizontal and
+    /// vertical space.
     pub child: Widget,
 }
 

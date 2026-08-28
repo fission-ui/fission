@@ -12,7 +12,8 @@ use serde::{Deserialize, Serialize};
 /// * `value` - Progress fraction from 0.0 (empty) to 1.0 (full).
 #[derive(Default, Clone, Debug, Serialize, Deserialize)]
 pub struct ProgressBar {
-    pub value: f32, // 0.0 to 1.0
+    /// Completion fraction; values outside `0.0..=1.0` are clamped for paint.
+    pub value: f32,
 }
 
 impl From<ProgressBar> for Widget {

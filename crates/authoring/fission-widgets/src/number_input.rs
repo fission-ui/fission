@@ -4,18 +4,33 @@ use fission_core::{ActionEnvelope, WidgetId};
 use fission_icons::material;
 use serde::{Deserialize, Serialize};
 
+/// Controlled numeric field with increment and decrement buttons.
+///
+/// Button presses dispatch the supplied actions; typed text is delivered
+/// through the normal contextual text-input contract for application parsing.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct NumberInput {
+    /// Optional stable identity, also used to derive the inner text-field ID.
     pub id: Option<WidgetId>,
+    /// Current numeric value owned by application state.
     pub value: f32,
+    /// Optional preformatted text; otherwise `value` is formatted directly.
     pub display_text: Option<String>,
+    /// Optional inclusive lower bound communicated to button behavior.
     pub min: Option<f32>,
+    /// Optional inclusive upper bound communicated to button behavior.
     pub max: Option<f32>,
+    /// Amount represented by each increment or decrement action.
     pub step: f32,
+    /// Optional logical width of the editable field.
     pub field_width: Option<f32>,
+    /// Optional logical square size of each step button.
     pub button_size: Option<f32>,
+    /// Optional logical gap between buttons and field.
     pub gap: Option<f32>,
+    /// Action dispatched when increment is available and requested.
     pub on_increment: Option<ActionEnvelope>,
+    /// Action dispatched when decrement is available and requested.
     pub on_decrement: Option<ActionEnvelope>,
     /// Action dispatched for typed edits. Parse `ctx.input.text_change().new_text`
     /// in the reducer so validation remains an application decision.

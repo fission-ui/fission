@@ -2,18 +2,30 @@ use fission_core::ui::{Button, ButtonVariant, Text, TextInput, Widget};
 use fission_core::{ActionEnvelope, WidgetId};
 use serde::{Deserialize, Serialize};
 
+/// Inline value that switches between read and edit presentations.
+///
+/// The application owns `is_editing` and `value`; actions let reducers enter
+/// editing and accept or cancel changes. This keeps the editable value in the
+/// normal retained Fission state flow rather than hidden inside the widget.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Editable {
+    /// Optional stable identity used to derive the inner text field identity.
     pub id: Option<WidgetId>,
+    /// Current controlled text value.
     pub value: String,
+    /// Text shown when `value` is empty and as the editor placeholder.
     pub placeholder: String,
+    /// Whether to render the text editor instead of the read-only button.
     pub is_editing: bool,
     /// Action dispatched when the editor text changes. The new text and
     /// selection are available through `ReducerContext::input.text_change()`.
     pub on_input: Option<ActionEnvelope>,
-    pub on_submit: Option<ActionEnvelope>, // Enter key
-    pub on_edit: Option<ActionEnvelope>,   // Click to edit
-    pub on_cancel: Option<ActionEnvelope>, // Esc or blur
+    /// Action intended to accept the current edit.
+    pub on_submit: Option<ActionEnvelope>,
+    /// Action dispatched from the read presentation to enter editing.
+    pub on_edit: Option<ActionEnvelope>,
+    /// Action intended to abandon editing and restore application state.
+    pub on_cancel: Option<ActionEnvelope>,
 }
 
 impl From<Editable> for Widget {

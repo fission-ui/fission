@@ -172,9 +172,13 @@ impl AccordionMotionPlan {
 /// The header displays a chevron indicator (triangledown/triangleright) and the title text.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct AccordionItem {
+    /// Header label for this section.
     pub title: String,
+    /// Panel content built while the section is expanded or retained by motion.
     pub content: Widget,
+    /// Controlled expanded state.
     pub is_expanded: bool,
+    /// Action dispatched when the header requests a state change.
     pub on_toggle: Option<ActionEnvelope>,
 }
 
@@ -184,6 +188,7 @@ pub struct AccordionItem {
 /// Items are stacked with zero gap, creating a continuous bordered surface.
 #[derive(Default, Clone, Debug, Serialize, Deserialize)]
 pub struct Accordion {
+    /// Collapsible sections in display order.
     pub items: Vec<AccordionItem>,
     /// Optional explicit accordion motion. `None` emits no accordion-owned motion declarations.
     #[serde(default, skip_serializing_if = "Option::is_none")]

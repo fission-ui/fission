@@ -22,7 +22,9 @@ use serde::{Deserialize, Serialize};
 /// Container nodes so it stays in the Fission rendering pipeline.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MarkdownViewer {
+    /// Source Markdown parsed into native Fission nodes.
     pub markdown: String,
+    /// Whether the widget-owned vertical viewport displays a scrollbar.
     pub show_scrollbar: bool,
 }
 
@@ -34,10 +36,12 @@ pub struct MarkdownViewer {
 /// document to participate in the parent's intrinsic layout.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct MarkdownContent {
+    /// Source Markdown parsed into native Fission nodes without a viewport.
     pub markdown: String,
 }
 
 impl MarkdownContent {
+    /// Creates non-scrolling native Markdown content from `markdown`.
     pub fn new(markdown: impl Into<String>) -> Self {
         Self {
             markdown: markdown.into(),
@@ -68,6 +72,7 @@ impl Default for MarkdownViewer {
 }
 
 impl MarkdownViewer {
+    /// Creates a scrollable native Markdown document with its scrollbar visible.
     pub fn new(markdown: impl Into<String>) -> Self {
         Self {
             markdown: markdown.into(),

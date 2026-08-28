@@ -4,13 +4,21 @@ use fission_core::ui::{Button, ButtonVariant, Container, Text, Widget};
 use fission_core::ActionEnvelope;
 use std::sync::Arc;
 
+/// Controlled month calendar with navigation and day-selection actions.
 pub struct Calendar {
+    /// Four-digit year currently displayed.
     pub year: i32,
+    /// One-based month currently displayed (`1..=12`).
     pub month: u32,
+    /// Optional selected date highlighted in the grid.
     pub selected_date: Option<NaiveDate>,
+    /// Factory producing an action for a selected day.
     pub on_select: Option<Arc<dyn Fn(NaiveDate) -> ActionEnvelope + Send + Sync>>,
+    /// Factory producing an action for a requested `(year, month)` view change.
     pub on_navigate: Option<Arc<dyn Fn(i32, u32) -> ActionEnvelope + Send + Sync>>,
+    /// Optional logical square size for each day cell.
     pub cell_size: Option<f32>,
+    /// Optional logical padding around the calendar surface.
     pub padding: Option<f32>,
 }
 

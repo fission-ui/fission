@@ -3,9 +3,15 @@ use fission_core::ui::Widget;
 use fission_ir::{LayoutOp, Op, WidgetId};
 use serde::{Deserialize, Serialize};
 
+/// Constrains one child to a width-to-height ratio.
+///
+/// The ratio must be positive; `16.0 / 9.0`, for example, produces a widescreen
+/// box while allowing the surrounding layout to choose its final size.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct AspectRatio {
+    /// Desired width divided by height.
     pub ratio: f32,
+    /// Content laid out inside the ratio-constrained box.
     pub child: Widget,
 }
 

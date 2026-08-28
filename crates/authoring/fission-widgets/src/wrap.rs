@@ -14,8 +14,11 @@ use serde::{Deserialize, Serialize};
 /// * `children` - The child nodes to lay out.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Wrap {
+    /// Main axis along which children are placed before wrapping.
     pub direction: FlexDirection,
+    /// Optional logical-pixel gap between adjacent children and lines.
     pub spacing: Option<f32>,
+    /// Children placed in declaration order.
     pub children: Vec<Widget>,
 }
 

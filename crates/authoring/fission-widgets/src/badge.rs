@@ -18,10 +18,15 @@ use serde::{Deserialize, Serialize};
 /// ```
 #[derive(Default, Clone, Debug, Serialize, Deserialize)]
 pub struct Badge {
+    /// Short label or count displayed inside the badge.
     pub text: String,
+    /// Optional background override; otherwise the active badge theme applies.
     pub color: Option<Color>,
+    /// Optional foreground override; otherwise the active badge theme applies.
     pub text_color: Option<Color>,
+    /// Semantic color treatment resolved through the design system.
     pub tone: BadgeTone,
+    /// Design-system size used to resolve padding and typography.
     pub size: ComponentSize,
 }
 

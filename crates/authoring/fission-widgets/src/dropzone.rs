@@ -32,6 +32,8 @@ pub struct Dropzone {
 }
 
 impl Dropzone {
+    /// Assigns the stable accessibility and LiveTest identifier used to locate
+    /// this drop target when no explicit widget ID is available.
     pub fn semantics_identifier(mut self, identifier: impl Into<String>) -> Self {
         self.semantics_identifier = Some(identifier.into());
         self

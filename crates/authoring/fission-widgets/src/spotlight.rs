@@ -13,8 +13,11 @@ use std::sync::Arc;
 /// accessibility semantics.
 #[derive(Debug)]
 pub struct Spotlight {
+    /// Stable ID of the already-laid-out widget to reveal.
     pub anchor: WidgetId,
+    /// Logical-pixel clearance between the anchor bounds and focus ring.
     pub padding: f32,
+    /// Top, bottom, left, right, and focus-ring children in that order.
     pub children: [Widget; 5],
 }
 

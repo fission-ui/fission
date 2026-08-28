@@ -20,15 +20,24 @@ use std::sync::Arc;
 /// * `on_select` - Closure that produces an action when an item is picked.
 /// * `on_toggle` - Action dispatched to open/close the dropdown.
 pub struct Combobox {
+    /// Stable identity used for the editable field and popup anchor.
     pub id: WidgetId,
+    /// Current controlled filter or selected text.
     pub value: String,
+    /// Candidate labels presented in the popup.
     pub items: Vec<String>,
+    /// Whether the controlled popup is open.
     pub is_open: bool,
+    /// Optional logical width shared by field and popup.
     pub width: Option<f32>,
+    /// Optional maximum popup height before scrolling.
     pub max_popup_height: Option<f32>,
-    pub on_input: Option<ActionEnvelope>, // Text details arrive through ActionInput.
-    pub on_select: Option<Arc<dyn Fn(String) -> ActionEnvelope + Send + Sync>>, // Item picked
-    pub on_toggle: Option<ActionEnvelope>, // Focus/Blur handling usually
+    /// Action dispatched for edits; text details arrive through `ActionInput`.
+    pub on_input: Option<ActionEnvelope>,
+    /// Factory producing an action when an item is selected.
+    pub on_select: Option<Arc<dyn Fn(String) -> ActionEnvelope + Send + Sync>>,
+    /// Action requesting a popup open-state change.
+    pub on_toggle: Option<ActionEnvelope>,
 }
 
 impl std::fmt::Debug for Combobox {

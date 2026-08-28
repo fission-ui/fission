@@ -5,6 +5,7 @@ use fission_core::{
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
+/// Lifecycle state of the asynchronous resource represented by [`AsyncSnapshot`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AsyncConnectionState {
     /// No async work is currently connected to the builder.
@@ -23,6 +24,10 @@ impl Default for AsyncConnectionState {
     }
 }
 
+/// Immutable value/error snapshot used to render one asynchronous operation.
+///
+/// Application state owns this snapshot; completion reducers replace it after
+/// the corresponding job action arrives.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AsyncSnapshot<T, E> {
     /// Current async connection state.
@@ -34,10 +39,12 @@ pub struct AsyncSnapshot<T, E> {
 }
 
 impl<T, E> AsyncSnapshot<T, E> {
+    /// Compatibility alias for [`AsyncSnapshot::nothing`].
     pub fn none() -> Self {
         Self::nothing()
     }
 
+    /// Creates a disconnected snapshot with neither data nor error.
     pub fn nothing() -> Self {
         Self {
             connection_state: AsyncConnectionState::None,
@@ -46,6 +53,7 @@ impl<T, E> AsyncSnapshot<T, E> {
         }
     }
 
+    /// Creates a waiting snapshot before a result is available.
     pub fn waiting() -> Self {
         Self {
             connection_state: AsyncConnectionState::Waiting,
@@ -54,6 +62,7 @@ impl<T, E> AsyncSnapshot<T, E> {
         }
     }
 
+    /// Creates a snapshot containing successful data in the supplied lifecycle state.
     pub fn with_data(connection_state: AsyncConnectionState, data: T) -> Self {
         Self {
             connection_state,
@@ -62,6 +71,7 @@ impl<T, E> AsyncSnapshot<T, E> {
         }
     }
 
+    /// Creates a snapshot containing an error in the supplied lifecycle state.
     pub fn with_error(connection_state: AsyncConnectionState, error: E) -> Self {
         Self {
             connection_state,
@@ -70,27 +80,36 @@ impl<T, E> AsyncSnapshot<T, E> {
         }
     }
 
+    /// Returns this snapshot with a different lifecycle state while preserving its value.
     pub fn in_state(mut self, connection_state: AsyncConnectionState) -> Self {
         self.connection_state = connection_state;
         self
     }
 
+    /// Returns whether successful data is present.
     pub fn has_data(&self) -> bool {
         self.data.is_some()
     }
 
+    /// Returns whether an error is present.
     pub fn has_error(&self) -> bool {
         self.error.is_some()
     }
 
+    /// Borrows the successful value when present.
     pub fn data(&self) -> Option<&T> {
         self.data.as_ref()
     }
 
+    /// Borrows the error value when present.
     pub fn error(&self) -> Option<&E> {
         self.error.as_ref()
     }
 
+    /// Borrows successful data or panics when this snapshot has none.
+    ///
+    /// Prefer [`AsyncSnapshot::data`] for branches that can legitimately render
+    /// before completion.
     pub fn require_data(&self) -> &T {
         self.data
             .as_ref()
@@ -98,6 +117,7 @@ impl<T, E> AsyncSnapshot<T, E> {
     }
 }
 
+/// Shared builder that converts the current async snapshot into a widget tree.
 pub type AsyncWidgetBuilder<S, T, E> = Arc<
     dyn Fn(BuildCtxHandle<S>, ViewHandle<S>, &AsyncSnapshot<T, E>) -> Widget
         + Send
@@ -115,14 +135,23 @@ where
     S: GlobalState,
     J: JobSpec,
 {
+    /// Stable key used to retain and reconcile this declared job resource.
     pub key: ResourceKey,
+    /// Registered typed job to execute.
     pub job: JobRef<J>,
+    /// Request value sent to the job.
     pub request: J::Request,
+    /// Application-owned snapshot rendered during this build.
     pub snapshot: AsyncSnapshot<J::Ok, J::Err>,
+    /// Optional action receiving a successful contextual job result.
     pub on_ok: Option<ActionEnvelope>,
+    /// Optional action receiving a failed contextual job result.
     pub on_err: Option<ActionEnvelope>,
+    /// Optional serialized dependency identity used to detect input changes.
     pub deps: Option<Vec<u8>>,
+    /// Whether changing dependencies restarts or preserves the existing resource.
     pub policy: ResourcePolicy,
+    /// Renderer for the current snapshot.
     pub builder: AsyncWidgetBuilder<S, J::Ok, J::Err>,
 }
 
@@ -131,6 +160,7 @@ where
     S: GlobalState,
     J: JobSpec,
 {
+    /// Creates a job-backed builder using restart-on-change resource policy.
     pub fn new<F>(
         key: ResourceKey,
         job: JobRef<J>,
@@ -157,27 +187,34 @@ where
         }
     }
 
+    /// Dispatches `action` when the job completes successfully.
     pub fn on_ok(mut self, action: ActionEnvelope) -> Self {
         self.on_ok = Some(action);
         self
     }
 
+    /// Dispatches `action` when the job fails.
     pub fn on_err(mut self, action: ActionEnvelope) -> Self {
         self.on_err = Some(action);
         self
     }
 
+    /// Sets serializable dependency data used to recognize request changes.
+    ///
+    /// Serialization failure is a programming error and therefore panics.
     pub fn deps<T: Serialize>(mut self, deps: T) -> Self {
         self.deps =
             Some(serde_json::to_vec(&deps).expect("FutureBuilder deps serialization must succeed"));
         self
     }
 
+    /// Keeps the existing resource alive when dependency bytes change.
     pub fn preserve_on_change(mut self) -> Self {
         self.policy = ResourcePolicy::PreserveOnChange;
         self
     }
 
+    /// Restarts the job resource when dependency bytes change.
     pub fn restart_on_change(mut self) -> Self {
         self.policy = ResourcePolicy::RestartOnChange;
         self

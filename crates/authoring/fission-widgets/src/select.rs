@@ -8,8 +8,11 @@ use serde::{Deserialize, Serialize};
 /// A single option in a [`Select`] dropdown.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SelectItem {
+    /// Text displayed for the option.
     pub label: String,
+    /// Optional SVG markup displayed before the label.
     pub icon: Option<String>,
+    /// Action dispatched when the option is selected.
     pub on_select: ActionEnvelope,
 }
 
@@ -37,12 +40,19 @@ pub struct SelectItem {
 /// ```
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Select {
+    /// Stable identity used to anchor and retain the popup surface.
     pub id: WidgetId,
+    /// Current controlled selection label, or `None` to show `placeholder`.
     pub selected_label: Option<String>,
+    /// Options presented in the popup menu.
     pub items: Vec<SelectItem>,
+    /// Whether the controlled popup is currently open.
     pub is_open: bool,
+    /// Action dispatched when the trigger requests an open-state change.
     pub on_toggle: Option<ActionEnvelope>,
+    /// Text shown when no selection is present.
     pub placeholder: String,
+    /// Optional logical width shared by the trigger and popup.
     pub width: Option<f32>,
 }
 

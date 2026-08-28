@@ -3,9 +3,16 @@ use fission_core::ActionEnvelope;
 use fission_core::{Action, Hyperlink, NavigationCommand, NavigationRequested};
 use serde::{Deserialize, Serialize};
 
+/// Text link backed by either a normal action or Fission navigation metadata.
+///
+/// Use [`Link::to`] or [`Link::hyperlink`] for navigation so Web, Static site,
+/// and SSR can lower a real `href`; use `on_click` directly for a non-navigation
+/// action that merely uses link styling.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Link {
+    /// Visible link label.
     pub text: String,
+    /// Action dispatched when activated; navigation actions also carry hyperlink metadata.
     pub on_click: Option<ActionEnvelope>,
 }
 

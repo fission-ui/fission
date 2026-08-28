@@ -3,10 +3,13 @@ use fission_core::ui::{Button, ButtonVariant, Text, Widget};
 use fission_core::ActionEnvelope;
 use std::sync::Arc;
 
+/// Controlled page-number navigation with previous and next controls.
 pub struct Pagination {
+    /// Current one-based page number.
     pub current_page: usize,
+    /// Total number of available pages.
     pub total_pages: usize,
-    // Callback factory
+    /// Factory producing an action for a requested one-based page number.
     pub on_change: Option<Arc<dyn Fn(usize) -> ActionEnvelope + Send + Sync>>,
 }
 

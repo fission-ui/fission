@@ -2,15 +2,21 @@ use crate::stack::VStack;
 use fission_core::ui::{Container, Text, Widget};
 use serde::{Deserialize, Serialize};
 
+/// One event displayed in a [`Timeline`].
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct TimelineItem {
+    /// Primary event label.
     pub title: String,
+    /// Optional supporting detail.
     pub description: Option<String>,
+    /// Optional preformatted time or date label.
     pub timestamp: Option<String>,
 }
 
+/// Ordered vertical presentation of related events.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Timeline {
+    /// Events displayed from first to last.
     pub items: Vec<TimelineItem>,
 }
 

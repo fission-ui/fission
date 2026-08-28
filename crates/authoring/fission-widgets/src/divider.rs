@@ -4,7 +4,9 @@ use serde::{Deserialize, Serialize};
 /// The direction of a [`Divider`] line.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub enum Orientation {
+    /// A line that expands across the available width.
     Horizontal,
+    /// A line that expands across the available height.
     Vertical,
 }
 
@@ -21,6 +23,7 @@ impl Default for Orientation {
 /// (horizontal) or height (vertical).
 #[derive(Default, Clone, Debug, Serialize, Deserialize)]
 pub struct Divider {
+    /// Axis along which the separator is drawn.
     pub orientation: Orientation,
 }
 

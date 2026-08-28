@@ -227,12 +227,19 @@ impl ModalMotionPlan {
 /// ```
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Modal {
+    /// Stable identity used for focus, portal registration, and motion slots.
     pub id: WidgetId,
+    /// Dialog heading exposed visually and through semantics.
     pub title: String,
+    /// Main dialog body.
     pub content: Widget,
+    /// Controlled visibility state.
     pub is_open: bool,
+    /// Action dispatched when the backdrop or another dismissal affordance is used.
     pub on_dismiss: Option<ActionEnvelope>,
+    /// Footer actions in display order.
     pub actions: Vec<ModalAction>,
+    /// Preferred logical width, clamped to the available viewport.
     pub width: Option<f32>,
     /// Optional explicit modal motion. `None` emits no modal-owned motion declarations.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -245,8 +252,11 @@ pub struct Modal {
 /// the primary color. Otherwise it uses `ButtonVariant::Outline`.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ModalAction {
+    /// Button label displayed in the modal footer.
     pub label: String,
+    /// Action dispatched when the button is pressed.
     pub on_press: Option<ActionEnvelope>,
+    /// Whether this action receives the primary filled-button treatment.
     pub is_primary: bool,
 }
 

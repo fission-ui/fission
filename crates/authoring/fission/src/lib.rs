@@ -203,6 +203,11 @@ pub mod test_driver {
     pub use fission_test_driver::*;
 }
 
+/// Declarative motion specifications, transitions, curves, and animated values.
+///
+/// These types describe framework-owned motion without embedding imperative
+/// animation loops in application widgets. Most application code can import
+/// them directly from [`prelude`].
 pub mod motion {
     pub use fission_core::motion::*;
 }
@@ -352,6 +357,11 @@ pub use fission_core::{
 // Build-scope access for authoring code. The facade intentionally exposes the
 // scoped authoring functions, not the framework-only build entry point used by
 // shells and test harnesses.
+/// Build-scope access used while converting components into widget trees.
+///
+/// Handles returned here borrow the current build and must not be stored in
+/// application state, services, async tasks, or statics. Use them to read state,
+/// register reducers, or access a provider only during component conversion.
 pub mod build {
     pub use fission_core::build::{current, provide, read, try_read, BuildCtxHandle, ViewHandle};
 }
@@ -438,7 +448,11 @@ pub use fission_shell_mobile::{
     UnsupportedPasskeyHost, UnsupportedVolumeHost, UnsupportedWifiHost, VolumeHost, WifiHost,
 };
 #[cfg(feature = "terminal-shell")]
-pub use fission_shell_terminal::TerminalApp;
+pub use fission_shell_terminal::{
+    write_frame_png, ScreenshotOptions, TerminalApp, TerminalCell, TerminalColor, TerminalFrame,
+    TerminalLiveTest, TerminalRenderer, TerminalRunOptions, TerminalStyle, TerminalSupportError,
+    TerminalTextMeasurer,
+};
 #[cfg(all(
     any(feature = "web", feature = "platform-shells"),
     target_arch = "wasm32"
@@ -465,8 +479,52 @@ pub use fission_macros::{
 
 // ── Prelude ──────────────────────────────────────────────────────────────
 
-/// Prelude for UI authoring — import this for the most common types.
+/// Complete application-authoring prelude.
+///
+/// `use fission::prelude::*` exposes every built-in type that Fission presents
+/// through its public facade, together with all authoring widgets. Target- and
+/// capability-specific APIs remain controlled by their Cargo features, so for
+/// example `DesktopApp` appears only in a desktop build and Store types appear
+/// only when storage is enabled.
+///
+/// The glob from the facade is intentional: the crate root is the authority for
+/// conflict-resolved public names, and the prelude must not drift into a second
+/// manually maintained list. Namespaces such as [`crate::render`] and
+/// [`crate::text_engine`] remain available when two subsystems use an equally
+/// appropriate short type name.
 pub mod prelude {
+    // Keep the facade root as the authority for public names. Explicit imports
+    // below provide whole widget/theme families that the root intentionally
+    // exposes primarily through namespaces.
+    pub use crate::*;
+    pub use fission_core::public::*;
+    pub use fission_diagnostics::{
+        begin_frame, emit, end_frame, init, init_from_env, DiagCategory, DiagEvent, DiagEventKind,
+        DiagLevel, DiagSink, DiagnosticsConfig, FrameStats, SnapshotBlob, SnapshotKind,
+        SnapshotProvider,
+    };
+    pub use fission_i18n::*;
+    pub use fission_layout::*;
+    pub use fission_render::{
+        embed_surface_id, surface_placeholder_color, DisplayList, DisplayOp, LayerClip, LayerStyle,
+        RenderLayer, RenderNode, RenderScene, Renderer,
+    };
+    pub use fission_render::{
+        BoxShadow as RenderBoxShadow, Color as RenderColor, Fill as RenderFill,
+        ImageFit as RenderImageFit, LineCap as RenderLineCap, LineJoin as RenderLineJoin,
+        Stroke as RenderStroke, TextRun as RenderTextRun, TextStyle as RenderTextStyle,
+    };
+    pub use fission_text_engine::*;
+
+    #[cfg(feature = "three-d")]
+    pub use fission_3d::*;
+    #[cfg(feature = "charts")]
+    pub use fission_charts::*;
+    #[cfg(feature = "store")]
+    pub use fission_store::*;
+    #[cfg(any(feature = "store-sqlite-native", feature = "store-sqlite-web"))]
+    pub use fission_store_sqlite::*;
+
     // Widgets
     pub use fission_core::ui::{
         ActionScope, Align, BadgeTone, Builder, Button, ButtonContentAlign, ButtonHierarchy,
@@ -706,7 +764,11 @@ pub mod prelude {
     #[cfg(feature = "site")]
     pub use fission_shell_site::*;
     #[cfg(feature = "terminal-shell")]
-    pub use fission_shell_terminal::TerminalApp;
+    pub use fission_shell_terminal::{
+        write_frame_png, ScreenshotOptions, TerminalApp, TerminalCell, TerminalColor,
+        TerminalFrame, TerminalLiveTest, TerminalRenderer, TerminalRunOptions, TerminalStyle,
+        TerminalSupportError, TerminalTextMeasurer,
+    };
     #[cfg(all(
         any(feature = "web", feature = "platform-shells"),
         target_arch = "wasm32"
@@ -720,8 +782,8 @@ pub mod prelude {
         NotificationHost, PasskeyHost, UnsupportedBarcodeScannerHost, UnsupportedBiometricHost,
         UnsupportedBluetoothHost, UnsupportedCameraHost, UnsupportedGeolocationHost,
         UnsupportedHapticHost, UnsupportedMicrophoneHost, UnsupportedNfcHost,
-        UnsupportedNotificationHost, UnsupportedPasskeyHost, UnsupportedWifiHost, WebApp,
-        WebNavigationConfig, WebRouteStrategy, WifiHost,
+        UnsupportedNotificationHost, UnsupportedPasskeyHost, UnsupportedVolumeHost,
+        UnsupportedWifiHost, VolumeHost, WebApp, WebNavigationConfig, WebRouteStrategy, WifiHost,
     };
 
     // Serde (commonly needed for actions)
