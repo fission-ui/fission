@@ -40,7 +40,7 @@ Required package outputs:
 - iOS: `ipa`
 - macOS: `app`, `pkg`
 - Windows: `exe`, `msi`, `msix`
-- Linux: `run`
+- Linux: `appimage`, `run`
 - Web: `static`
 - Static site: `static`, `docker-image`
 - SSR: `docker-image`
@@ -64,6 +64,25 @@ Required provider families:
 - Dropbox
 
 Provider support does not mean every provider supports every metadata field or lifecycle action. The readiness model must report supported, unsupported, recommended, optional, and required items explicitly.
+
+### 2.4 Linux package roles
+
+AppImage and `.run` are both first-class Linux outputs, but they are not aliases:
+
+- `appimage` is the recommended portable download for an ordinary graphical
+  application. It runs as one architecture-specific file without first
+  installing the application.
+- `run` is the installable format for applications that need an installed
+  location, desktop or system integration, services, privileged helpers,
+  explicit repair/uninstall behavior, or operation without an AppImage mount.
+- Terminal continues to use `run`; AppImage's desktop-oriented application
+  bundle does not replace the Terminal package contract.
+
+"Portable Linux" does not mean one artifact works on every architecture or
+arbitrary distribution baseline. Every AppImage is produced for a declared
+architecture, bundles the non-base libraries it needs, is built against the
+oldest supported runtime baseline, and is qualified on the supported
+distributions.
 
 ## 3. Product contract
 
@@ -472,6 +491,92 @@ Packaging must:
 - validate the artifact;
 - write `artifact-manifest.json` with hashes, MIME types, target, format, version, build, and source config facts.
 
+#### 7.4.1 Linux AppImage
+
+```text
+fission package --target linux --format appimage --release
+```
+
+produces:
+
+```text
+target/fission/release/linux/appimage/<app-name>-<version>-<arch>.AppImage
+target/fission/release/linux/appimage/artifact-manifest.json
+```
+
+Fission stages a standard AppDir before creating the final image:
+
+```text
+<app-name>.AppDir/
+  AppRun
+  <app-id>.desktop
+  <application-icon>
+  usr/bin/<install-name>
+  usr/lib/<bundled-runtime-libraries>
+  usr/libexec/<native-helper-products>
+  usr/share/<app-id>/...
+  usr/share/icons/hicolor/<size>/apps/<app-id>.<ext>
+  usr/share/metainfo/<app-id>.metainfo.xml
+```
+
+The staged executable, application assets, generated icons, native runtime
+products, desktop entry, and AppStream metadata must come from the same package
+inputs used by the rest of the Fission lifecycle. AppImage packaging must not
+rebuild the app, search arbitrary host directories, or create a second package
+configuration authority.
+
+Fission should invoke the current official `appimagetool` over the staged AppDir
+rather than maintaining an independent ELF/SquashFS writer. Tool acquisition is
+explicit and versioned: readiness reports whether the approved tool and runtime
+for the selected architecture are available, and the artifact manifest records
+the tool/runtime identity used. Packaging must not silently download and execute
+an unpinned tool.
+
+The packager must follow AppImage library-bundling guidance: bundle application
+dependencies that cannot be assumed on the target baseline, do not indiscriminately
+bundle foundational host libraries, avoid compiled-in installation paths, and
+build on a baseline no newer than the oldest supported distribution. Readiness
+must reject a package whose declared architecture does not match its executable
+or embedded AppImage runtime.
+
+AppImage execution normally mounts its embedded filesystem through the Linux
+FUSE facility. Current static runtimes avoid requiring a separately installed
+`libfuse` library, but the host must still permit the userspace filesystem mount.
+The AppImage extraction/run fallback must be documented and qualified; `.run`
+remains available for environments where mounting is unavailable or installation
+is required.
+
+AppImage itself is not a sandbox. Fission must not describe the format as adding
+process, filesystem, network, or capability isolation.
+
+The package must not embed a conventional AppImage zsync update route by default.
+Fission's [TUF application-update RFC](rfc-tuf-application-updates.md) owns
+authenticated update discovery and policy. When enabled there, the `.zsync`
+control file is a separately authenticated TUF
+target, zsync is only a transfer optimization, and the reconstructed AppImage is
+verified against the authoritative final TUF target before activation. Projects
+that explicitly choose the conventional AppImage updater are selecting a
+different update policy and must do so visibly.
+
+AppImage validation must, at minimum:
+
+- inspect the ELF and AppImage architecture rather than trusting the filename;
+- verify the expected AppImage magic/runtime and a readable embedded filesystem;
+- extract the AppDir and validate `AppRun`, the executable, desktop entry, icon,
+  AppStream metadata, assets, libraries, and native-product destinations;
+- verify executable permissions and reject unsafe absolute paths or missing
+  runtime libraries detectable at packaging time;
+- run an extraction-based launch smoke so validation does not depend solely on
+  FUSE availability in CI;
+- run the finished image normally on clean Linux baselines for the declared
+  support matrix;
+- record structural, extraction, and launch evidence in package validation and
+  `artifact-manifest.json`.
+
+GitHub Releases and general artifact/file providers may distribute AppImage and
+optional TUF/zsync sidecars exactly like other manifest-listed artifacts. Store
+or portal integration is not implied by producing an AppImage.
+
 ### 7.5 Release content
 
 Release content includes:
@@ -845,10 +950,27 @@ The UI crate must not shell out independently to package/publish commands for be
 - GitHub Releases handles existing releases and duplicate assets according to explicit config.
 - S3/object upload prints an upload plan and respects overwrite policy.
 
+### 13.7 Linux packaging
+
+- `linux/appimage` produces a standards-conforming, architecture-specific
+  AppImage and a complete artifact manifest from the shared staged package
+  inputs.
+- The packaged AppImage passes structural extraction validation and launch
+  qualification on every declared Linux baseline.
+- `linux/run` remains available and is not implemented as an AppImage alias.
+- A project can select AppImage for portable graphical distribution and `.run`
+  for installation, helpers, services, or explicit system integration without
+  changing its application code.
+- Enabling TUF/zsync output never permits the reconstructed AppImage to activate
+  before its final TUF target length and hash are verified.
+
 ## 14. Current implementation status
 
 The current implementation now shares the release workflow across command surfaces and records auditable package/distribution state. Remaining gaps are called out explicitly where behavior still depends on provider handoff or future target work:
 
+- Linux `.run` packaging is implemented; `linux/appimage`, AppDir staging,
+  pinned `appimagetool` integration, AppImage validation, and optional
+  TUF-authenticated zsync sidecars remain implementation work under this RFC;
 - Play Store metadata and release-content images are pushed during `fission publish`; Play Store `--track internal-sharing` uses the internal app sharing upload path for APK/AAB artifacts and returns the generated download URL without mutating a formal Play release track; release-content capture scenarios can wait for semantic/test/accessibility/widget-id/role/label selectors through the Fission test-control protocol and can drive selector actions such as tap, focus, scroll-into-view, fill, clear, toggle, and select before screenshots are captured; App Store Connect screenshots, app previews, and review attachments use direct asset reservation/upload/commit and require explicit display-type/preview-type directories such as `APP_IPHONE_67`, `APP_IPAD_PRO_3GEN_129`, or `IPHONE_67`; Microsoft Store screenshots/logos use direct listing asset SAS upload/commit; Microsoft Store trailers are still staged into auditable handoff manifests rather than fully uploaded through provider asset APIs;
 - direct CLI, guided CLI, TUI, and windowed UI consume the shared release plan and publish workflow; release plans now include an explicit context block, distribution setup writes an action receipt, distribution publish/status/lifecycle operations return structured events retained in unique receipts, receipt-written events are retained in the receipt payload, non-dry-run publish observes provider status after upload, provider request/response summaries, upload plans, per-asset planned/uploaded events, and captured uploaded assets are reported as events, provider stdout/stderr retained in receipts is also split into bounded line events, direct distribution config, publish, and lifecycle failures write failed distribution receipts, package, metadata, release-content, and provider publish failures write failed workflow receipts with the stage event and error attached to the relevant receipt payload such as `release_metadata.error`, `release_content.error`, or `distribution.error`, Docker registry status inspects every configured tag or falls back to tags from the supplied docker-image artifact metadata and records per-tag manifest status plus manifest digest where Docker exposes it, S3 status can inspect the exact object keys planned from a supplied artifact manifest and reports `ok`, `partial`, or `missing` object state, S3, Google Drive, OneDrive, and Dropbox now emit per-item upload events plus chunk/session progress where the provider API is chunked, TUI/windowed wizard navigation uses the same state model with arrow-key step navigation, terminal file picker arrows/Enter/Escape, UI gates remain `not checked` until deterministic check results exist, and that receipt includes release id, version/build, artifact hashes, release-content assets, uploaded assets, uploaded byte totals, provider ids/URLs, provider status, manual follow-up, and omitted/skipped requirements; store and provider-CLI backends still expose provider-stage events rather than every underlying HTTP request;
 - direct publish/readiness resolves missing target/format/track from the artifact manifest when available or from the same provider defaults used by the guided flow, JSON readiness output still exits non-zero when provider-required or operation-required checks block the run, and Microsoft Store readiness uses the selected Windows package format before an artifact exists so MSIX checks do not incorrectly require an MSI/EXE package URL;
