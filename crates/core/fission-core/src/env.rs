@@ -249,6 +249,7 @@ pub struct RuntimeState {
     pub local_widget_state: LocalStateStore,
     pub scroll: ScrollStateMap,
     pub viewport: crate::input::viewport::ViewportStateMap,
+    pub range_slider: crate::input::range_slider::RangeSliderStateMap,
     pub video: VideoStateMap,
     pub web: WebStateMap,
     pub motion: MotionStateMap,

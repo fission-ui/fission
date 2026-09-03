@@ -58,16 +58,19 @@ impl From<NavigationSection> for Widget {
                             title: "Tab A".into(),
                             content: Text::new("Content of Tab A").into(),
                             on_press: Some(with_reducer!(ctx, SetTab(0), set_tab)),
+                            semantics_identifier: Some("gallery.tabs.a".into()),
                         },
                         TabItem {
                             title: "Tab B".into(),
                             content: Text::new("Content of Tab B").into(),
                             on_press: Some(with_reducer!(ctx, SetTab(1), set_tab)),
+                            semantics_identifier: Some("gallery.tabs.b".into()),
                         },
                         TabItem {
                             title: "Tab C".into(),
                             content: Text::new("Content of Tab C").into(),
                             on_press: Some(with_reducer!(ctx, SetTab(2), set_tab)),
+                            semantics_identifier: Some("gallery.tabs.c".into()),
                         },
                     ],
                     ..Default::default()
@@ -110,15 +113,18 @@ impl From<NavigationSection> for Widget {
                             label: "Edit".into(),
                             icon: None,
                             on_select: None,
+                            semantics_identifier: Some("gallery.menu.edit".into()),
                         },
                         MenuItem {
                             label: "Delete".into(),
                             icon: None,
                             on_select: None,
+                            semantics_identifier: Some("gallery.menu.delete".into()),
                         },
                     ],
                     is_open: state.menu_open,
                     on_toggle: Some(with_reducer!(ctx, ToggleMenu, toggle_menu)),
+                    trigger_semantics_identifier: Some("gallery.menu.trigger".into()),
                 },
             ],
         )

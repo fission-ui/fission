@@ -224,11 +224,13 @@ impl From<AllWidgets> for Widget {
                             title: "A".into(),
                             content: Text::new("A content").into(),
                             on_press: None,
+                            semantics_identifier: None,
                         },
                         TabItem {
                             title: "B".into(),
                             content: Text::new("B content").into(),
                             on_press: None,
+                            semantics_identifier: None,
                         },
                     ],
                     ..Default::default()
@@ -351,6 +353,7 @@ impl From<AllWidgets> for Widget {
                     items: vec![],
                     is_open: false,
                     on_toggle: None,
+                    trigger_semantics_identifier: None,
                     placeholder: "Select".into(),
                     width: Some(200.0),
                 }
@@ -362,9 +365,11 @@ impl From<AllWidgets> for Widget {
                         label: "Edit".into(),
                         icon: None,
                         on_select: None,
+                        semantics_identifier: None,
                     }],
                     is_open: false,
                     on_toggle: None,
+                    trigger_semantics_identifier: None,
                 }
                 .into(),
             ],

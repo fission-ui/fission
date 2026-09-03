@@ -42,6 +42,75 @@ pub fn hit_test_with_viewports(
     hit_test_internal(ir, layout, Some(scroll_map), Some(viewport_map), point)
 }
 
+/// Maps a screen-space point into the layout coordinate space used by `target`.
+///
+/// Controllers use this after hit testing so interaction math remains correct
+/// inside scrolled, transformed, and interactive-viewport ancestors.
+pub fn point_to_node_space(
+    ir: &CoreIR,
+    layout: &LayoutSnapshot,
+    scroll_map: &ScrollStateMap,
+    viewport_map: &ViewportStateMap,
+    target: WidgetId,
+    point: LayoutPoint,
+) -> LayoutPoint {
+    let mut ancestors = Vec::new();
+    let mut current = ir.nodes.get(&target).and_then(|node| node.parent);
+    while let Some(id) = current {
+        ancestors.push(id);
+        current = ir.nodes.get(&id).and_then(|node| node.parent);
+    }
+    ancestors.reverse();
+
+    let mut mapped = point;
+    for id in ancestors {
+        let Some(node) = ir.nodes.get(&id) else {
+            continue;
+        };
+        let Some(geometry) = layout.get_node_geometry(id) else {
+            continue;
+        };
+        match &node.op {
+            Op::Layout(LayoutOp::Scroll { direction, .. }) => {
+                let offset = scroll_map.get_offset(id);
+                match direction {
+                    fission_ir::FlexDirection::Column => mapped.y += offset,
+                    fission_ir::FlexDirection::Row => mapped.x += offset,
+                }
+            }
+            Op::Layout(LayoutOp::Transform { transform }) => {
+                let inverse = Mat4::from_cols_array(transform).inverse();
+                let local = Vec4::new(
+                    mapped.x - geometry.rect.origin.x,
+                    mapped.y - geometry.rect.origin.y,
+                    0.0,
+                    1.0,
+                );
+                let transformed = inverse * local;
+                mapped = LayoutPoint::new(
+                    transformed.x + geometry.rect.origin.x,
+                    transformed.y + geometry.rect.origin.y,
+                );
+            }
+            Op::Layout(LayoutOp::InteractiveViewport { .. }) => {
+                if let Some(transform) = viewport_map.transform(id) {
+                    let local = [
+                        mapped.x - geometry.rect.origin.x,
+                        mapped.y - geometry.rect.origin.y,
+                    ];
+                    let world = transform.screen_to_world(local);
+                    mapped = LayoutPoint::new(
+                        world[0] + geometry.rect.origin.x,
+                        world[1] + geometry.rect.origin.y,
+                    );
+                }
+            }
+            _ => {}
+        }
+    }
+    mapped
+}
+
 fn hit_test_internal(
     ir: &CoreIR,
     layout: &LayoutSnapshot,

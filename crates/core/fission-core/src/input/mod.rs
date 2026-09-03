@@ -12,6 +12,7 @@ use std::sync::Arc;
 pub mod canvas;
 pub mod gesture;
 pub mod hover;
+pub mod range_slider;
 pub mod selectable_text;
 pub mod slider;
 pub mod text;

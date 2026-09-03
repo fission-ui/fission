@@ -213,6 +213,9 @@ pub struct Drawer {
     pub is_open: bool,
     /// Action dispatched when the backdrop requests dismissal.
     pub on_dismiss: Option<ActionEnvelope>,
+    /// Stable identifier exposed on the generated dismissal backdrop.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dismiss_semantics_identifier: Option<String>,
     /// Panel contents.
     pub content: Widget,
     /// Preferred logical panel width, clamped to the viewport.
@@ -249,6 +252,7 @@ impl From<Drawer> for Widget {
 
         // Backdrop
         let mut backdrop: Widget = GestureDetector {
+            semantics_identifier: this.dismiss_semantics_identifier.clone(),
             on_tap: this.on_dismiss.clone(),
             child: Container::new(fission_core::ui::widgets::Spacer::default())
                 .bg(Color {

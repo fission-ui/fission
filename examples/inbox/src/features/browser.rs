@@ -22,6 +22,9 @@ impl From<BrowserModal> for Widget {
                     (|s: &mut InboxState, a: ToggleBrowserDemo, _| s.show_browser_demo = a.0)
                 ),
             )),
+            backdrop_semantics_identifier: Some("inbox.browser.backdrop".into()),
+            close_semantics_identifier: Some("inbox.browser.close".into()),
+            surface_semantics_identifier: Some("inbox.browser.surface".into()),
             width: Some(modal_width),
             content: VStack {
                 spacing: Some(24.0),
@@ -97,6 +100,7 @@ impl From<BrowserModal> for Widget {
                         (|s: &mut InboxState, a: ToggleBrowserDemo, _| s.show_browser_demo = a.0)
                     ),
                 )),
+                semantics_identifier: Some("inbox.browser.done".into()),
             }],
             motion: None,
         }

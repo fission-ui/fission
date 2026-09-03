@@ -59,5 +59,6 @@ fn tab(title: &str) -> TabItem {
         }
         .into(),
         on_press: None,
+        semantics_identifier: None,
     }
 }

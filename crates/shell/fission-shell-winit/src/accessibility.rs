@@ -1234,6 +1234,17 @@ mod imp {
         semantics: &Semantics,
         direction: f32,
     ) -> bool {
+        if let Some((owner, action, input)) =
+            fission_core::input::range_slider::prepare_range_slider_adjustment(
+                ir,
+                target,
+                direction,
+                fission_core::input::range_slider::RangeSliderChangeSource::Accessibility,
+                0,
+            )
+        {
+            return runtime.dispatch_with_input(action, owner, &input).is_ok();
+        }
         let Some(current) = semantics.current_value else {
             return false;
         };
@@ -1250,6 +1261,17 @@ mod imp {
         semantics: &Semantics,
         value: f32,
     ) -> bool {
+        if let Some((owner, action, input)) =
+            fission_core::input::range_slider::prepare_range_slider_change(
+                ir,
+                target,
+                value,
+                fission_core::input::range_slider::RangeSliderChangeSource::Accessibility,
+                0,
+            )
+        {
+            return runtime.dispatch_with_input(action, owner, &input).is_ok();
+        }
         if semantics.current_value.is_none() {
             return false;
         }

@@ -14,6 +14,9 @@ pub struct SelectItem {
     pub icon: Option<String>,
     /// Action dispatched when the option is selected.
     pub on_select: ActionEnvelope,
+    /// Stable identifier exposed on this option's actionable semantics node.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub semantics_identifier: Option<String>,
 }
 
 /// A dropdown selector that displays the selected label and opens a [`Menu`] flyout.
@@ -29,11 +32,12 @@ pub struct SelectItem {
 ///     id: WidgetId::explicit("country"),
 ///     selected_label: Some("United States".into()),
 ///     items: vec![
-///         SelectItem { label: "United States".into(), icon: None, on_select: us_action },
-///         SelectItem { label: "Canada".into(), icon: None, on_select: ca_action },
+///         SelectItem { label: "United States".into(), icon: None, on_select: us_action, semantics_identifier: Some("country.us".into()) },
+///         SelectItem { label: "Canada".into(), icon: None, on_select: ca_action, semantics_identifier: Some("country.ca".into()) },
 ///     ],
 ///     is_open: state.country_open,
 ///     on_toggle: Some(toggle_action),
+///     trigger_semantics_identifier: Some("country.open".into()),
 ///     placeholder: "Choose country...".into(),
 ///     width: Some(250.0),
 /// }
@@ -50,6 +54,9 @@ pub struct Select {
     pub is_open: bool,
     /// Action dispatched when the trigger requests an open-state change.
     pub on_toggle: Option<ActionEnvelope>,
+    /// Stable identifier exposed on the generated trigger button.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trigger_semantics_identifier: Option<String>,
     /// Text shown when no selection is present.
     pub placeholder: String,
     /// Optional logical width shared by the trigger and popup.
@@ -64,6 +71,7 @@ impl Default for Select {
             items: Vec::new(),
             is_open: false,
             on_toggle: None,
+            trigger_semantics_identifier: None,
             placeholder: "Select...".into(),
             width: Some(200.0),
         }
@@ -110,7 +118,7 @@ impl From<Select> for Widget {
         }
         .into();
 
-        let trigger = Button {
+        let mut trigger = Button {
             id: Some(anchor_id.into()),
             variant: ButtonVariant::Outline,
             content_align: ButtonContentAlign::Start,
@@ -118,8 +126,11 @@ impl From<Select> for Widget {
             on_press: this.on_toggle.clone(),
             width: this.width,
             ..Default::default()
+        };
+        if let Some(identifier) = &this.trigger_semantics_identifier {
+            trigger = trigger.semantics_identifier(identifier.clone());
         }
-        .into();
+        let trigger = trigger.into();
 
         if this.is_open {
             let menu_items = this
@@ -129,6 +140,7 @@ impl From<Select> for Widget {
                     label: item.label.clone(),
                     icon: item.icon.clone(),
                     on_select: Some(item.on_select.clone()),
+                    semantics_identifier: item.semantics_identifier.clone(),
                 })
                 .collect();
 

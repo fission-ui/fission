@@ -75,6 +75,7 @@ fn menu_item_text_stays_single_line() {
                     label: "New event".into(),
                     icon: None,
                     on_select: None,
+                    semantics_identifier: None,
                 }],
                 width: Some(220.0),
                 max_height: Some(200.0),

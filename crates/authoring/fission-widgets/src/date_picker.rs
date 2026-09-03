@@ -117,7 +117,6 @@ impl From<DatePicker> for Widget {
         Popover {
             id: this.id,
             is_open: this.is_open,
-            on_toggle: this.on_toggle.clone(),
             on_close: this.on_close.clone(),
             trigger: trigger_btn,
             content,

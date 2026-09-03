@@ -292,6 +292,9 @@ pub mod public {
     pub use crate::input::canvas::{
         CanvasInteraction, CanvasInteractionKind, CanvasInteractionPhase,
     };
+    pub use crate::input::range_slider::{
+        RangeSliderChangeSource, RangeSliderChanged, RangeSliderThumb,
+    };
     pub use crate::input::viewport::{
         ViewportInputKind, ViewportInteraction, ViewportInteractionPhase, ViewportStateMap,
     };
@@ -520,6 +523,7 @@ pub use fission_layout::{
     LayoutPoint, LayoutRect, LayoutSize, LayoutSnapshot, LayoutUnit, TextMeasurer,
 };
 pub use input::canvas::{CanvasInteraction, CanvasInteractionKind, CanvasInteractionPhase};
+pub use input::range_slider::{RangeSliderChangeSource, RangeSliderChanged, RangeSliderThumb};
 pub use input::viewport::{
     ViewportInputKind, ViewportInteraction, ViewportInteractionPhase, ViewportStateMap,
 };

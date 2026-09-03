@@ -214,6 +214,7 @@ impl From<SettingsModal> for Widget {
                     id: theme_id,
                     payload: serde_json::to_vec(&SetTheme("Light".into())).unwrap(),
                 },
+                semantics_identifier: Some("settings.theme.light".into()),
             },
             SelectItem {
                 label: t("settings.theme.dark"),
@@ -222,6 +223,7 @@ impl From<SettingsModal> for Widget {
                     id: theme_id,
                     payload: serde_json::to_vec(&SetTheme("Dark".into())).unwrap(),
                 },
+                semantics_identifier: Some("settings.theme.dark".into()),
             },
             SelectItem {
                 label: t("settings.theme.system"),
@@ -230,6 +232,7 @@ impl From<SettingsModal> for Widget {
                     id: theme_id,
                     payload: serde_json::to_vec(&SetTheme("System".into())).unwrap(),
                 },
+                semantics_identifier: Some("settings.theme.system".into()),
             },
         ];
 
@@ -241,6 +244,7 @@ impl From<SettingsModal> for Widget {
                     id: density_id,
                     payload: serde_json::to_vec(&SetDensity("Comfortable".into())).unwrap(),
                 },
+                semantics_identifier: Some("settings.density.comfortable".into()),
             },
             SelectItem {
                 label: t("settings.density.compact"),
@@ -249,6 +253,7 @@ impl From<SettingsModal> for Widget {
                     id: density_id,
                     payload: serde_json::to_vec(&SetDensity("Compact".into())).unwrap(),
                 },
+                semantics_identifier: Some("settings.density.compact".into()),
             },
             SelectItem {
                 label: t("settings.density.cozy"),
@@ -257,6 +262,7 @@ impl From<SettingsModal> for Widget {
                     id: density_id,
                     payload: serde_json::to_vec(&SetDensity("Cozy".into())).unwrap(),
                 },
+                semantics_identifier: Some("settings.density.cozy".into()),
             },
         ];
 
@@ -370,6 +376,9 @@ impl From<SettingsModal> for Widget {
                 SetSettingsOpen(false),
                 reduce_with!((|s: &mut InboxState, a: SetSettingsOpen, _| s.show_settings = a.0)),
             )),
+            backdrop_semantics_identifier: Some("settings.modal.backdrop".into()),
+            close_semantics_identifier: Some("settings.modal.close".into()),
+            surface_semantics_identifier: Some("settings.modal.surface".into()),
             width: Some(modal_width),
             content: Scroll {
                 direction: FlexDirection::Column,
@@ -429,6 +438,9 @@ impl From<SettingsModal> for Widget {
                                                 ))
                                                 .unwrap(),
                                             },
+                                            semantics_identifier: Some(
+                                                "settings.inbox-type.default".into(),
+                                            ),
                                         },
                                         SelectItem {
                                             label: t("settings.inbox_type.priority"),
@@ -440,6 +452,9 @@ impl From<SettingsModal> for Widget {
                                                 ))
                                                 .unwrap(),
                                             },
+                                            semantics_identifier: Some(
+                                                "settings.inbox-type.priority".into(),
+                                            ),
                                         },
                                     ],
                                     ..Default::default()
@@ -836,6 +851,7 @@ impl From<SettingsModal> for Widget {
                         (|s: &mut InboxState, a: SetSettingsOpen, _| s.show_settings = a.0)
                     ),
                 )),
+                semantics_identifier: Some("settings.modal.done".into()),
             }],
             motion: None,
         }

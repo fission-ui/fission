@@ -44,6 +44,7 @@ impl From<DrawerPreview<'_>> for Widget {
                         side: DrawerSide::Right,
                         is_open: preview_active(preview.state),
                         on_dismiss: Some(close.clone()),
+                        dismiss_semantics_identifier: Some("gallery.real.drawer.backdrop".into()),
                         content: Column {
                             gap: Some(tokens.spacing.s),
                             children: widgets![

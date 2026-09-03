@@ -133,7 +133,6 @@ impl From<Combobox> for Widget {
         Popover {
             id: this.id,
             is_open: this.is_open && !this.items.is_empty(),
-            on_toggle: this.on_toggle.clone(),
             on_close: this.on_toggle.clone(), // Close on click outside
             trigger: input,
             content: list_content,

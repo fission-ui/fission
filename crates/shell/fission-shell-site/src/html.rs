@@ -4252,7 +4252,9 @@ mod tests {
     use super::*;
     use fission_core::internal::BuildCtx;
     use fission_core::ui::widgets::text::{RichTextChild, RichTextSpan, WidgetSpan};
-    use fission_core::ui::{Column, Grid, RichText, SemanticsRegion, Text, Widget};
+    use fission_core::ui::{
+        Checkbox, Column, Grid, Radio, RichText, SemanticsRegion, Switch, Text, Widget,
+    };
     use fission_core::{build, Env, RuntimeState, View};
     use fission_ir::{
         ActionEntry, ActionSet, CompositeScalar, CompositeStyle, CoreIR, CoreNode, Op, Semantics,
@@ -4840,6 +4842,67 @@ mod tests {
             .html
             .contains("data-fission-semantics=\"shipping.express\""));
         assert!(!rendered.html.contains("type=\"checkbox\""));
+    }
+
+    #[test]
+    fn disabled_toggle_widgets_render_checked_native_controls() {
+        let rendered = render_test_component(|| {
+            Column {
+                children: vec![
+                    Checkbox {
+                        checked: true,
+                        disabled: true,
+                        semantics_identifier: Some("disabled-checkbox".into()),
+                        ..Default::default()
+                    }
+                    .into(),
+                    Radio {
+                        checked: true,
+                        disabled: true,
+                        semantics_identifier: Some("disabled-radio".into()),
+                        ..Default::default()
+                    }
+                    .into(),
+                    Switch {
+                        checked: true,
+                        disabled: true,
+                        semantics_identifier: Some("disabled-switch".into()),
+                        ..Default::default()
+                    }
+                    .into(),
+                ],
+                ..Default::default()
+            }
+            .into()
+        });
+
+        fn input_tag<'a>(html: &'a str, identifier: &str) -> &'a str {
+            let marker = format!("data-fission-semantics=\"{identifier}\"");
+            let marker_offset = html.find(&marker).expect("semantic identifier");
+            let start = html[..marker_offset].rfind("<input").expect("input start");
+            let end = marker_offset
+                + html[marker_offset..]
+                    .find('>')
+                    .expect("input closing bracket")
+                + 1;
+            &html[start..end]
+        }
+
+        let checkbox = input_tag(&rendered.html, "disabled-checkbox");
+        assert!(checkbox.contains("type=\"checkbox\""));
+        assert!(checkbox.contains(" checked"));
+        assert!(checkbox.contains(" disabled"));
+
+        let radio = input_tag(&rendered.html, "disabled-radio");
+        assert!(radio.contains("type=\"radio\""));
+        assert!(radio.contains(" checked"));
+        assert!(radio.contains(" disabled"));
+
+        let switch = input_tag(&rendered.html, "disabled-switch");
+        assert!(switch.contains("type=\"checkbox\""));
+        assert!(switch.contains("role=\"switch\""));
+        assert!(switch.contains(" checked"));
+        assert!(switch.contains(" disabled"));
     }
 
     #[test]

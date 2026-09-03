@@ -42,12 +42,22 @@ pub struct Radio {
     pub on_select: Option<ActionEnvelope>,
     /// Optional text label rendered next to the indicator.
     pub label: Option<String>,
+    /// Whether the radio button is visibly disabled and cannot receive focus
+    /// or dispatch its selection action.
+    #[serde(default)]
+    pub disabled: bool,
 }
 
 impl Radio {
     /// Sets the stable identifier exposed to accessibility and test tooling.
     pub fn semantics_identifier(mut self, identifier: impl Into<String>) -> Self {
         self.semantics_identifier = Some(identifier.into());
+        self
+    }
+
+    /// Sets whether the radio button is disabled.
+    pub fn disabled(mut self, disabled: bool) -> Self {
+        self.disabled = disabled;
         self
     }
 }
@@ -61,9 +71,21 @@ impl InternalLower for Radio {
         let size = 18.0;
         let dot_size = size * 0.5;
         let _radius = size / 2.0;
-        let border_color = tokens.colors.text_secondary;
-        let active_color = tokens.colors.primary;
-        let text_color = tokens.colors.text_primary;
+        let border_color = if self.disabled {
+            tokens.colors.text_muted
+        } else {
+            tokens.colors.text_secondary
+        };
+        let active_color = if self.disabled {
+            tokens.colors.text_muted
+        } else {
+            tokens.colors.primary
+        };
+        let text_color = if self.disabled {
+            tokens.colors.text_muted
+        } else {
+            tokens.colors.text_primary
+        };
 
         // Outer Circle
         let bg_paint = if self.checked {
@@ -247,7 +269,7 @@ impl InternalLower for Radio {
             actions: Default::default(),
             canvas_target: None,
             action_scope_id: None,
-            focusable: true,
+            focusable: !self.disabled,
             focus_policy: fission_ir::FocusPolicy::FocusOnPointer,
             multiline: false,
             text_wrap_mode: fission_ir::semantics::TextWrapMode::Soft,
@@ -260,7 +282,7 @@ impl InternalLower for Radio {
             selection_region: None,
             context_menu: false,
             checked: Some(self.checked),
-            disabled: false,
+            disabled: self.disabled,
             read_only: false,
             autofocus: false,
             draggable: false,
@@ -298,12 +320,14 @@ impl InternalLower for Radio {
             capture_tab: false,
             auto_indent: false,
         };
-        if let Some(action) = &self.on_select {
-            semantics.actions.entries.push(fission_ir::ActionEntry {
-                trigger: fission_ir::semantics::ActionTrigger::Default,
-                action_id: action.id.as_u128(),
-                payload_data: Some(action.payload.clone()),
-            });
+        if !self.disabled {
+            if let Some(action) = &self.on_select {
+                semantics.actions.entries.push(fission_ir::ActionEntry {
+                    trigger: fission_ir::semantics::ActionTrigger::Default,
+                    action_id: action.id.as_u128(),
+                    payload_data: Some(action.payload.clone()),
+                });
+            }
         }
 
         let mut sem_node = InternalIrBuilder::new(id, Op::Semantics(semantics));

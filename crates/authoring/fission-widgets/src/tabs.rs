@@ -164,6 +164,12 @@ pub struct TabItem {
     pub content: Widget,
     /// Action dispatched when this tab's trigger is pressed.
     pub on_press: Option<ActionEnvelope>,
+    /// Stable identifier exposed on this tab's actionable semantics node.
+    ///
+    /// Use this to address tabs independently when visible titles are
+    /// duplicated or localized.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub semantics_identifier: Option<String>,
 }
 
 /// A tab bar with an active indicator and swappable content area.
@@ -178,8 +184,8 @@ pub struct TabItem {
 /// Tabs {
 ///     active_index: 0,
 ///     items: vec![
-///         TabItem { title: "General".into(), content: general_view, on_press: Some(tab0) },
-///         TabItem { title: "Advanced".into(), content: advanced_view, on_press: Some(tab1) },
+///         TabItem { title: "General".into(), content: general_view, on_press: Some(tab0), semantics_identifier: Some("settings.general".into()) },
+///         TabItem { title: "Advanced".into(), content: advanced_view, on_press: Some(tab1), semantics_identifier: Some("settings.advanced".into()) },
 ///     ],
 /// }
 /// ```
@@ -257,31 +263,32 @@ impl From<Tabs> for Widget {
                 }
             }
 
+            let mut trigger = Button {
+                variant: ButtonVariant::Ghost,
+                child: Some(
+                    Text::new(item.title.clone())
+                        .size(style.font_size.unwrap_or(14.0))
+                        .weight(style.font_weight.unwrap_or(400))
+                        .color(color)
+                        .into(),
+                ),
+                on_press: item.on_press.clone(),
+                height: style.height.or(Some(38.0)),
+                padding: Some([
+                    10.0,
+                    10.0,
+                    style.padding_y.unwrap_or(0.0),
+                    style.padding_y.unwrap_or(0.0),
+                ]),
+                ..Default::default()
+            };
+            if let Some(identifier) = &item.semantics_identifier {
+                trigger = trigger.semantics_identifier(identifier.clone());
+            }
+
             let tab_button: Widget = VStack {
                 spacing: Some(0.0),
-                children: vec![
-                    Button {
-                        variant: ButtonVariant::Ghost,
-                        child: Some(
-                            Text::new(item.title.clone())
-                                .size(style.font_size.unwrap_or(14.0))
-                                .weight(style.font_weight.unwrap_or(400))
-                                .color(color)
-                                .into(),
-                        ),
-                        on_press: item.on_press.clone(),
-                        height: style.height.or(Some(38.0)),
-                        padding: Some([
-                            10.0,
-                            10.0,
-                            style.padding_y.unwrap_or(0.0),
-                            style.padding_y.unwrap_or(0.0),
-                        ]),
-                        ..Default::default()
-                    }
-                    .id(trigger_id),
-                    indicator,
-                ],
+                children: vec![trigger.id(trigger_id), indicator],
             }
             .into();
 

@@ -47,6 +47,7 @@ impl From<CheckboxPreview<'_>> for Widget {
                             checked: preview_active(preview.state),
                             on_toggle: Some(on_toggle),
                             label: Some("Accept motion terms".into()),
+                            disabled: false,
                         }
                         .into(),
                         ..Default::default()

@@ -33,12 +33,22 @@ pub struct Switch {
     pub checked: bool,
     /// Action dispatched when the switch is tapped.
     pub on_toggle: Option<ActionEnvelope>,
+    /// Whether the switch is visibly disabled and cannot receive focus or
+    /// dispatch its toggle action.
+    #[serde(default)]
+    pub disabled: bool,
 }
 
 impl Switch {
     /// Sets the stable identifier exposed to accessibility and test tooling.
     pub fn semantics_identifier(mut self, identifier: impl Into<String>) -> Self {
         self.semantics_identifier = Some(identifier.into());
+        self
+    }
+
+    /// Sets whether the switch is disabled.
+    pub fn disabled(mut self, disabled: bool) -> Self {
+        self.disabled = disabled;
         self
     }
 }
@@ -54,12 +64,18 @@ impl InternalLower for Switch {
         let thumb_size = 16.0;
         let padding = 2.0;
 
-        let track_color = if self.checked {
+        let track_color = if self.disabled {
+            tokens.colors.surface_sunken
+        } else if self.checked {
             tokens.colors.primary
         } else {
             tokens.colors.border
         };
-        let thumb_color = tokens.colors.on_primary;
+        let thumb_color = if self.disabled {
+            tokens.colors.text_muted
+        } else {
+            tokens.colors.on_primary
+        };
 
         // Track
         let track_paint = Op::Paint(PaintOp::DrawRect {
@@ -169,7 +185,7 @@ impl InternalLower for Switch {
             actions: Default::default(),
             canvas_target: None,
             action_scope_id: None,
-            focusable: true,
+            focusable: !self.disabled,
             focus_policy: fission_ir::FocusPolicy::FocusOnPointer,
             multiline: false,
             text_wrap_mode: fission_ir::semantics::TextWrapMode::Soft,
@@ -182,7 +198,7 @@ impl InternalLower for Switch {
             selection_region: None,
             context_menu: false,
             checked: Some(self.checked),
-            disabled: false,
+            disabled: self.disabled,
             read_only: false,
             autofocus: false,
             draggable: false,
@@ -220,12 +236,14 @@ impl InternalLower for Switch {
             capture_tab: false,
             auto_indent: false,
         };
-        if let Some(action) = &self.on_toggle {
-            semantics.actions.entries.push(fission_ir::ActionEntry {
-                trigger: fission_ir::semantics::ActionTrigger::Default,
-                action_id: action.id.as_u128(),
-                payload_data: Some(action.payload.clone()),
-            });
+        if !self.disabled {
+            if let Some(action) = &self.on_toggle {
+                semantics.actions.entries.push(fission_ir::ActionEntry {
+                    trigger: fission_ir::semantics::ActionTrigger::Default,
+                    action_id: action.id.as_u128(),
+                    payload_data: Some(action.payload.clone()),
+                });
+            }
         }
 
         let mut sem_node = InternalIrBuilder::new(id, Op::Semantics(semantics));

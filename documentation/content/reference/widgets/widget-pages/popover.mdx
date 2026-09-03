@@ -19,7 +19,6 @@ use fission::prelude::*;
 let popover = Popover {
     id: WidgetId::explicit("sort_popover"),
     is_open: view.state().show_sort_menu,
-    on_toggle: None,
     on_close: Some(ctx.bind(
         ToggleSortMenu(false),
         reduce_with!((|state: &mut GlobalState, action: ToggleSortMenu, _| {
@@ -54,9 +53,8 @@ Notice that the trigger's own button handles the open and close action. That kee
 | --- | --- | --- | --- |
 | `id` | `WidgetId` | Stable identity for the anchor and portal entry. | Required. The widget derives an internal anchor id from this value. |
 | `is_open` | `bool` | Whether the popup content should be visible. | When `false`, only the trigger is rendered. |
-| `on_toggle` | `Option<ActionEnvelope>` | Intended toggle action for the trigger. | Present on the public struct, but the current implementation does not invoke it for you. Wire trigger presses on the `trigger` widget itself. |
 | `on_close` | `Option<ActionEnvelope>` | Action dispatched when the optional backdrop is tapped. | If set, the widget adds a transparent full-screen backdrop behind the popup. |
-| `trigger` | `Widget` | Inline trigger content. | Always rendered in normal layout. |
+| `trigger` | `Widget` | Inline anchor and activation owner. | Supply an actionable semantic widget such as `Button` or `Pressable`; Popover never wraps or replaces its action. |
 | `content` | `Widget` | Popup body shown in the flyout layer when open. | Positioned relative to the trigger and clamped within the viewport. |
 
 ## Overlay behavior
@@ -69,13 +67,13 @@ This is why popovers are a good fit for controls inside toolbars, tables, and de
 
 Keep a popover focused on one local task. If it grows into a long workflow, a modal or routed page is usually clearer. Also do not hide essential instructions inside a popover that only appears after an extra click.
 
-The current implementation assumes the trigger already knows how to open the popover. In practice, that means using a button or gesture-aware widget inside `trigger` and dispatching your own toggle action from there.
+The trigger owns opening and closing the popover. Use a button, pressable, or another semantic interaction widget inside `trigger` and dispatch the controlled-state action from that widget. Keeping one activation owner avoids nested controls and duplicate dispatch for custom triggers.
 
 ## Production checklist
 
-For `Popover`, review the fields that change behavior before treating the widget as finished: `id`, `is_open`, `on_toggle`, `on_close`, `trigger`, `content`. The goal is to make the product rule visible in state and actions, not hidden inside ad-hoc construction code.
+For `Popover`, review the fields that change behavior before treating the widget as finished: `id`, `is_open`, `on_close`, `trigger`, `content`. The goal is to make the product rule visible in state and actions, not hidden inside ad-hoc construction code.
 
-- Bind `on_toggle`, `on_close` to explicit reducer actions and test that the reducer handles unavailable, duplicate, or invalid input safely.
+- Bind the trigger action and `on_close` to explicit reducer actions and test that the reducer handles unavailable, duplicate, or invalid input safely.
 - When child widgets are generated from data, give reordered or filtered rows an explicit `WidgetId` so retained local state and scroll behavior do not drift between items.
 - Set `id` only when identity must be stable across filtering, reordering, diagnostics, or tests; otherwise let Fission derive identity from structure.
 - Check the semantics tree for the user-facing label or role that makes this widget understandable without relying only on pixels.

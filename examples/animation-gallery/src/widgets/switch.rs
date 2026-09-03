@@ -67,6 +67,7 @@ const SOURCE: &str = r#"Motion {
         semantics_identifier: Some("gallery.switch.sync".into()),
         checked: state.sync_enabled,
         on_toggle: Some(toggle_sync),
+        disabled: false,
     }.into(),
     ..Default::default()
 }.into()"#;

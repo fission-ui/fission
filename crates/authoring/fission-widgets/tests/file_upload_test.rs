@@ -19,6 +19,7 @@ fn test_file_upload_structure() {
         label: "Browse".into(),
         selected_file: None,
         on_browse: None,
+        browse_semantics_identifier: None,
     };
 
     let node = build::enter(&mut ctx, &view, || upload.into());

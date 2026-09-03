@@ -122,17 +122,22 @@ impl From<TextLabModal> for Widget {
             title: "Text Lab Modal".to_string(),
             is_open: view.state().show_modal,
             on_dismiss: Some(close_modal.clone()),
+            backdrop_semantics_identifier: None,
+            close_semantics_identifier: Some("text-lab.modal.close".into()),
+            surface_semantics_identifier: Some("text-lab.modal".into()),
             width: Some(MODAL_MAX_WIDTH),
             actions: vec![
                 ModalAction {
                     label: "Cancel".to_string(),
                     on_press: Some(close_modal),
                     is_primary: false,
+                    semantics_identifier: Some("text-lab.modal.cancel".into()),
                 },
                 ModalAction {
                     label: "Apply".to_string(),
                     on_press: Some(apply_modal),
                     is_primary: true,
+                    semantics_identifier: Some("text-lab.modal.apply".into()),
                 },
             ],
             content,

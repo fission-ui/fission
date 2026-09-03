@@ -37,12 +37,22 @@ pub struct Checkbox {
     pub on_toggle: Option<ActionEnvelope>,
     /// Optional text label rendered next to the indicator.
     pub label: Option<String>,
+    /// Whether the checkbox is visibly disabled and cannot receive focus or
+    /// dispatch its toggle action.
+    #[serde(default)]
+    pub disabled: bool,
 }
 
 impl Checkbox {
     /// Sets the stable identifier exposed to accessibility and test tooling.
     pub fn semantics_identifier(mut self, identifier: impl Into<String>) -> Self {
         self.semantics_identifier = Some(identifier.into());
+        self
+    }
+
+    /// Sets whether the checkbox is disabled.
+    pub fn disabled(mut self, disabled: bool) -> Self {
+        self.disabled = disabled;
         self
     }
 }
@@ -55,9 +65,26 @@ impl InternalLower for Checkbox {
         let tokens = &cx.env.theme.tokens;
         let size = 18.0;
         let radius = tokens.radii.small;
-        let border_color = tokens.colors.text_secondary;
-        let active_color = tokens.colors.primary;
-        let text_color = tokens.colors.text_primary;
+        let border_color = if self.disabled {
+            tokens.colors.text_muted
+        } else {
+            tokens.colors.text_secondary
+        };
+        let active_color = if self.disabled {
+            tokens.colors.text_muted
+        } else {
+            tokens.colors.primary
+        };
+        let indicator_color = if self.disabled {
+            tokens.colors.surface
+        } else {
+            tokens.colors.on_primary
+        };
+        let text_color = if self.disabled {
+            tokens.colors.text_muted
+        } else {
+            tokens.colors.text_primary
+        };
 
         // Square indicator
         let square_id = cx.next_node_id();
@@ -90,7 +117,7 @@ impl InternalLower for Checkbox {
             let check = InternalIrBuilder::new(
                 cx.next_node_id(),
                 Op::Paint(PaintOp::DrawRect {
-                    fill: Some(fission_ir::op::Fill::Solid(tokens.colors.on_primary)),
+                    fill: Some(fission_ir::op::Fill::Solid(indicator_color)),
                     stroke: None,
                     corner_radius: 1.0,
                     shadow: None,
@@ -219,7 +246,7 @@ impl InternalLower for Checkbox {
             actions: Default::default(),
             canvas_target: None,
             action_scope_id: None,
-            focusable: true,
+            focusable: !self.disabled,
             focus_policy: fission_ir::FocusPolicy::FocusOnPointer,
             multiline: false,
             text_wrap_mode: fission_ir::semantics::TextWrapMode::Soft,
@@ -232,7 +259,7 @@ impl InternalLower for Checkbox {
             selection_region: None,
             context_menu: false,
             checked: Some(self.checked),
-            disabled: false,
+            disabled: self.disabled,
             read_only: false,
             autofocus: false,
             draggable: false,
@@ -270,12 +297,14 @@ impl InternalLower for Checkbox {
             capture_tab: false,
             auto_indent: false,
         };
-        if let Some(action) = &self.on_toggle {
-            semantics.actions.entries.push(fission_ir::ActionEntry {
-                trigger: fission_ir::semantics::ActionTrigger::Default,
-                action_id: action.id.as_u128(),
-                payload_data: Some(action.payload.clone()),
-            });
+        if !self.disabled {
+            if let Some(action) = &self.on_toggle {
+                semantics.actions.entries.push(fission_ir::ActionEntry {
+                    trigger: fission_ir::semantics::ActionTrigger::Default,
+                    action_id: action.id.as_u128(),
+                    payload_data: Some(action.payload.clone()),
+                });
+            }
         }
 
         let mut sem_node = InternalIrBuilder::new(id, Op::Semantics(semantics));

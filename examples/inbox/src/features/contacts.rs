@@ -48,6 +48,9 @@ impl From<ContactsModal> for Widget {
                 SetContactsOpen(false),
                 reduce_with!((|s: &mut InboxState, a: SetContactsOpen, _| s.show_contacts = a.0)),
             )),
+            backdrop_semantics_identifier: Some("inbox.contacts.backdrop".into()),
+            close_semantics_identifier: Some("inbox.contacts.close".into()),
+            surface_semantics_identifier: Some("inbox.contacts.surface".into()),
             width: Some((viewport_width - 48.0).clamp(320.0, 560.0)),
             content: DataTable {
                 id: WidgetId::explicit("contacts_table"),
@@ -82,6 +85,7 @@ impl From<ContactsModal> for Widget {
                         (|s: &mut InboxState, a: SetContactsOpen, _| s.show_contacts = a.0)
                     ),
                 )),
+                semantics_identifier: Some("inbox.contacts.done".into()),
             }],
             motion: None,
         }

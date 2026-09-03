@@ -218,9 +218,12 @@ impl ModalMotionPlan {
 ///     content: Text::new("This cannot be undone.").into(),
 ///     is_open: state.show_confirm,
 ///     on_dismiss: Some(dismiss_action),
+///     backdrop_semantics_identifier: Some("confirm.dismiss-backdrop".into()),
+///     close_semantics_identifier: Some("confirm.close".into()),
+///     surface_semantics_identifier: Some("confirm.surface".into()),
 ///     actions: vec![
-///         ModalAction { label: "Cancel".into(), on_press: Some(cancel), is_primary: false },
-///         ModalAction { label: "Delete".into(), on_press: Some(delete), is_primary: true },
+///         ModalAction { label: "Cancel".into(), on_press: Some(cancel), is_primary: false, semantics_identifier: Some("confirm.cancel".into()) },
+///         ModalAction { label: "Delete".into(), on_press: Some(delete), is_primary: true, semantics_identifier: Some("confirm.delete".into()) },
 ///     ],
 ///     width: None,
 /// }
@@ -237,6 +240,18 @@ pub struct Modal {
     pub is_open: bool,
     /// Action dispatched when the backdrop or another dismissal affordance is used.
     pub on_dismiss: Option<ActionEnvelope>,
+    /// Stable identifier exposed on the full-screen dismissal backdrop.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub backdrop_semantics_identifier: Option<String>,
+    /// Stable identifier exposed on the generated close button.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub close_semantics_identifier: Option<String>,
+    /// Stable identifier exposed on the modal surface semantics node.
+    ///
+    /// When omitted, the historical `fission-modal-surface` identifier is
+    /// retained for compatibility.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub surface_semantics_identifier: Option<String>,
     /// Footer actions in display order.
     pub actions: Vec<ModalAction>,
     /// Preferred logical width, clamped to the available viewport.
@@ -258,6 +273,9 @@ pub struct ModalAction {
     pub on_press: Option<ActionEnvelope>,
     /// Whether this action receives the primary filled-button treatment.
     pub is_primary: bool,
+    /// Stable identifier exposed on this footer button's actionable semantics node.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub semantics_identifier: Option<String>,
 }
 
 impl From<Modal> for Widget {
@@ -301,6 +319,7 @@ impl From<Modal> for Widget {
                 .into();
 
         let mut backdrop_btn: Widget = GestureDetector {
+            semantics_identifier: this.backdrop_semantics_identifier.clone(),
             on_tap: this.on_dismiss.clone(),
             child: backdrop,
             ..Default::default()
@@ -322,27 +341,28 @@ impl From<Modal> for Widget {
         // Modal Content
         let mut action_buttons = Vec::new();
         for action in &this.actions {
-            action_buttons.push(
-                Button {
-                    variant: if action.is_primary {
-                        ButtonVariant::Primary
-                    } else {
-                        ButtonVariant::SecondaryGray
-                    },
-                    child: Some(
-                        Text::new(action.label.clone())
-                            .color(if action.is_primary {
-                                tokens.colors.on_primary
-                            } else {
-                                tokens.colors.primary
-                            })
-                            .into(),
-                    ),
-                    on_press: action.on_press.clone(),
-                    ..Default::default()
-                }
-                .into(),
-            );
+            let mut button = Button {
+                variant: if action.is_primary {
+                    ButtonVariant::Primary
+                } else {
+                    ButtonVariant::SecondaryGray
+                },
+                child: Some(
+                    Text::new(action.label.clone())
+                        .color(if action.is_primary {
+                            tokens.colors.on_primary
+                        } else {
+                            tokens.colors.primary
+                        })
+                        .into(),
+                ),
+                on_press: action.on_press.clone(),
+                ..Default::default()
+            };
+            if let Some(identifier) = &action.semantics_identifier {
+                button = button.semantics_identifier(identifier.clone());
+            }
+            action_buttons.push(button.into());
         }
 
         let mut header_children = vec![
@@ -354,19 +374,20 @@ impl From<Modal> for Widget {
             .into(),
         ];
         if let Some(on_dismiss) = this.on_dismiss.clone() {
-            header_children.push(
-                Button {
-                    variant: ButtonVariant::Ghost,
-                    child: Some(
-                        Icon::svg(fission_icons::material::navigation::close::regular())
-                            .size(20.0)
-                            .into(),
-                    ),
-                    on_press: Some(on_dismiss),
-                    ..Default::default()
-                }
-                .into(),
-            );
+            let mut close_button = Button {
+                variant: ButtonVariant::Ghost,
+                child: Some(
+                    Icon::svg(fission_icons::material::navigation::close::regular())
+                        .size(20.0)
+                        .into(),
+                ),
+                on_press: Some(on_dismiss),
+                ..Default::default()
+            };
+            if let Some(identifier) = &this.close_semantics_identifier {
+                close_button = close_button.semantics_identifier(identifier.clone());
+            }
+            header_children.push(close_button.into());
         }
 
         let mut card_children = vec![
@@ -419,7 +440,11 @@ impl From<Modal> for Widget {
                 .height_length(Length::fit_content(None))
                 .padding_all(24.0),
         )
-        .identifier("fission-modal-surface")
+        .identifier(
+            this.surface_semantics_identifier
+                .clone()
+                .unwrap_or_else(|| "fission-modal-surface".into()),
+        )
         .role(fission_ir::Role::Generic)
         .into();
         if let Some(plan) = &motion_plan {

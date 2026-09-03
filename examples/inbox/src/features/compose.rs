@@ -295,6 +295,7 @@ impl From<ComposeModal> for Widget {
                     label: "Attach File".into(),
                     selected_file: view.state().compose_attachments.first().cloned(),
                     on_browse: None,
+                    browse_semantics_identifier: Some("inbox.compose.attach".into()),
                 }
                 .into(),
                 // Message
@@ -331,6 +332,9 @@ impl From<ComposeModal> for Widget {
                 SetComposeOpen(false),
                 reduce_with!((|s: &mut InboxState, a: SetComposeOpen, _| s.show_compose = a.0)),
             )),
+            backdrop_semantics_identifier: Some("inbox.compose.backdrop".into()),
+            close_semantics_identifier: Some("inbox.compose.close".into()),
+            surface_semantics_identifier: Some("inbox.compose.surface".into()),
             width: Some(modal_width),
             content: FocusScope {
                 id: None,
@@ -367,6 +371,7 @@ impl From<ComposeModal> for Widget {
                             (|s: &mut InboxState, a: SetComposeOpen, _| s.show_compose = a.0)
                         ),
                     )),
+                    semantics_identifier: Some("inbox.compose.cancel".into()),
                 },
                 ModalAction {
                     label: "Send".into(),
@@ -375,6 +380,7 @@ impl From<ComposeModal> for Widget {
                         id: send_id,
                         payload: serde_json::to_vec(&SendCompose).unwrap(),
                     }),
+                    semantics_identifier: Some("inbox.compose.send".into()),
                 },
             ],
             motion: None,

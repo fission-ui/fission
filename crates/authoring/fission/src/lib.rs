@@ -373,8 +373,9 @@ pub use fission_core::event::{
 };
 pub use fission_core::{reduce, reduce_with, widgets, with_reducer};
 pub use fission_core::{
-    CanvasInteraction, CanvasInteractionKind, CanvasInteractionPhase, ViewportInputKind,
-    ViewportInteraction, ViewportInteractionPhase,
+    CanvasInteraction, CanvasInteractionKind, CanvasInteractionPhase, RangeSliderChangeSource,
+    RangeSliderChanged, RangeSliderThumb, ViewportInputKind, ViewportInteraction,
+    ViewportInteractionPhase,
 };
 
 // Core env types
@@ -651,8 +652,9 @@ pub mod prelude {
         GET_CAMERA_AVAILABILITY, REQUEST_CAMERA_PERMISSION, SET_CAMERA_FLASHLIGHT,
     };
     pub use fission_core::{
-        CanvasInteraction, CanvasInteractionKind, CanvasInteractionPhase, ViewportInputKind,
-        ViewportInteraction, ViewportInteractionPhase,
+        CanvasInteraction, CanvasInteractionKind, CanvasInteractionPhase, RangeSliderChangeSource,
+        RangeSliderChanged, RangeSliderThumb, ViewportInputKind, ViewportInteraction,
+        ViewportInteractionPhase,
     };
     pub use fission_core::{
         ClearClipboardCapability, ClipboardContent, ClipboardEffects, ClipboardError,

@@ -79,9 +79,11 @@ fn test_menu_button_registers_portal_when_open() {
             label: "Item 1".into(),
             icon: None,
             on_select: None,
+            semantics_identifier: None,
         }],
         is_open: true,
         on_toggle: None,
+        trigger_semantics_identifier: None,
     };
 
     let _: Widget = build::enter(&mut ctx, &view, || menu_button.into());
@@ -154,6 +156,9 @@ fn motion_enabled_widgets_do_not_reuse_wrapper_id_for_wrapped_widget() {
             content: Text::new("Body").into(),
             is_open: true,
             on_dismiss: None,
+            backdrop_semantics_identifier: None,
+            close_semantics_identifier: None,
+            surface_semantics_identifier: None,
             actions: vec![],
             width: None,
             motion: Some(ModalMotion::Default),
@@ -167,6 +172,7 @@ fn motion_enabled_widgets_do_not_reuse_wrapper_id_for_wrapped_widget() {
             side: DrawerSide::Right,
             is_open: true,
             on_dismiss: None,
+            dismiss_semantics_identifier: None,
             content: Text::new("Drawer").into(),
             width: None,
             motion: Some(DrawerMotion::Default),
@@ -178,7 +184,6 @@ fn motion_enabled_widgets_do_not_reuse_wrapper_id_for_wrapped_widget() {
         Popover {
             id: WidgetId::explicit("motion_id.popover"),
             is_open: true,
-            on_toggle: None,
             on_close: None,
             trigger: Text::new("Trigger").into(),
             content: Text::new("Popover").into(),
@@ -229,6 +234,7 @@ fn motion_enabled_widgets_do_not_reuse_wrapper_id_for_wrapped_widget() {
                 title: "One".into(),
                 content: Text::new("Tab").into(),
                 on_press: None,
+                semantics_identifier: None,
             }],
             motion: Some(TabsMotion::Default),
             ..Default::default()
@@ -282,6 +288,9 @@ fn test_modal_motion_keeps_closed_modal_on_presence_path() {
             content: Text::new("Body").into(),
             is_open: false,
             on_dismiss: None,
+            backdrop_semantics_identifier: None,
+            close_semantics_identifier: None,
+            surface_semantics_identifier: None,
             actions: vec![],
             width: None,
             motion: Some(ModalMotion::Default),
@@ -341,7 +350,6 @@ fn test_popover_without_on_close_does_not_add_backdrop_layer() {
         Popover {
             id: WidgetId::explicit("test_popover_no_close"),
             is_open: true,
-            on_toggle: None,
             on_close: None,
             trigger: Text::new("trigger").into(),
             content: Text::new("content").into(),
@@ -379,7 +387,6 @@ fn test_popover_with_on_close_adds_backdrop_layer() {
         Popover {
             id: WidgetId::explicit("test_popover_with_close"),
             is_open: true,
-            on_toggle: None,
             on_close: Some(fission_core::ActionEnvelope {
                 id: fission_core::ActionId::from_u128(42),
                 payload: vec![],

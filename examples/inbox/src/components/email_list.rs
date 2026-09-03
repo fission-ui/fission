@@ -310,13 +310,6 @@ impl From<EmailList> for Widget {
                     Popover {
                         id: WidgetId::explicit("advanced_filters"),
                         is_open: view.state().show_advanced_filters,
-                        on_toggle: Some(ActionEnvelope {
-                            id: filters_open_id,
-                            payload: serde_json::to_vec(&SetAdvancedFiltersOpen(
-                                !view.state().show_advanced_filters,
-                            ))
-                            .unwrap(),
-                        }),
                         on_close: Some(ActionEnvelope {
                             id: filters_open_id,
                             payload: serde_json::to_vec(&SetAdvancedFiltersOpen(false)).unwrap(),
@@ -372,10 +365,12 @@ impl From<EmailList> for Widget {
                                     .into(),
                                 RangeSlider {
                                     id: None,
+                                    semantics_identifier: None,
                                     start: 5.0,
                                     end: 50.0,
                                     min: 0.0,
                                     max: 100.0,
+                                    step: None,
                                     on_change: None,
                                 }
                                 .into(),
@@ -424,6 +419,7 @@ impl From<EmailList> for Widget {
                             id: tab_id,
                             payload: serde_json::to_vec(&SelectTab(0)).unwrap(),
                         }),
+                        semantics_identifier: Some("inbox.tabs.primary".into()),
                     },
                     TabItem {
                         title: t("tabs.social"),
@@ -432,6 +428,7 @@ impl From<EmailList> for Widget {
                             id: tab_id,
                             payload: serde_json::to_vec(&SelectTab(1)).unwrap(),
                         }),
+                        semantics_identifier: Some("inbox.tabs.social".into()),
                     },
                     TabItem {
                         title: t("tabs.promotions"),
@@ -440,6 +437,7 @@ impl From<EmailList> for Widget {
                             id: tab_id,
                             payload: serde_json::to_vec(&SelectTab(2)).unwrap(),
                         }),
+                        semantics_identifier: Some("inbox.tabs.promotions".into()),
                     },
                 ],
                 size: ComponentSize::Sm,

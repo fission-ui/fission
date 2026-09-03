@@ -98,15 +98,18 @@ impl From<OverlaySection> for Widget {
                         label: "Option A".into(),
                         icon: None,
                         on_select: with_reducer!(ctx, SelectValue("Option A".into()), select_value),
+                        semantics_identifier: Some("gallery.select.a".into()),
                     },
                     SelectItem {
                         label: "Option B".into(),
                         icon: None,
                         on_select: with_reducer!(ctx, SelectValue("Option B".into()), select_value),
+                        semantics_identifier: Some("gallery.select.b".into()),
                     },
                 ],
                 is_open: state.select_open,
                 on_toggle: Some(with_reducer!(ctx, ToggleSelect, toggle_select)),
+                trigger_semantics_identifier: Some("gallery.select.trigger".into()),
                 placeholder: "Choose...".into(),
                 width: None,
             },
@@ -121,16 +124,21 @@ impl From<OverlaySection> for Widget {
                         .into(),
                     is_open: true,
                     on_dismiss: Some(close_modal.clone()),
+                    backdrop_semantics_identifier: Some("gallery.modal.backdrop".into()),
+                    close_semantics_identifier: Some("gallery.modal.close".into()),
+                    surface_semantics_identifier: Some("gallery.modal.surface".into()),
                     actions: vec![
                         ModalAction {
                             label: "Cancel".into(),
                             on_press: Some(close_modal.clone()),
                             is_primary: false,
+                            semantics_identifier: Some("gallery.modal.cancel".into()),
                         },
                         ModalAction {
                             label: "Confirm".into(),
                             on_press: Some(close_modal),
                             is_primary: true,
+                            semantics_identifier: Some("gallery.modal.confirm".into()),
                         },
                     ],
                     width: None,
@@ -147,6 +155,7 @@ impl From<OverlaySection> for Widget {
                     side: DrawerSide::Right,
                     is_open: true,
                     on_dismiss: Some(close_drawer),
+                    dismiss_semantics_identifier: Some("gallery.drawer.backdrop".into()),
                     content: VStack {
                         spacing: Some(tokens.spacing.s),
                         children: widgets![
