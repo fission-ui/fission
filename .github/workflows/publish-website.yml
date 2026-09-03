@@ -10,7 +10,6 @@ on:
       - 'documentation/**'
       - 'crates/**'
       - 'examples/chart-gallery/**'
-      - 'examples/showcase/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
       - '.github/workflows/publish-website.yml'
@@ -38,14 +37,9 @@ jobs:
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: wasm32-unknown-unknown
 
       - name: Cache Rust build output
         uses: Swatinem/rust-cache@v2
-
-      - name: Install wasm-pack
-        run: cargo install wasm-pack --version 0.13.1 --locked
 
       - name: Install Linux native build dependencies
         run: sudo apt-get update && sudo apt-get install -y libfontconfig1-dev pkg-config
@@ -77,18 +71,6 @@ jobs:
       - name: Check static site routes
         run: cargo run -p cargo-fission --bin fission -- site check --project-dir documentation --release
 
-      - name: Build Example Showcase for Web
-        run: cargo run -p cargo-fission --bin fission -- build --target web --project-dir examples/showcase --release
-
-      - name: Stage Example Showcase as a site asset
-        run: |
-          showcase_out="documentation/static/example-showcase"
-          mkdir -p "$showcase_out"
-          cp examples/showcase/platforms/web/index.html "$showcase_out/index.html"
-          cp examples/showcase/platforms/web/bootstrap.mjs "$showcase_out/bootstrap.mjs"
-          cp examples/showcase/platforms/web/app-icon.png "$showcase_out/app-icon.png"
-          cp -R examples/showcase/platforms/web/pkg "$showcase_out/pkg"
-
       - name: Package static site
         run: cargo run -p cargo-fission --bin fission -- package --project-dir documentation --target site --format static --release
 
@@ -103,10 +85,6 @@ jobs:
           test -f documentation/target/fission/release/static-site/static/search/docs.json
           test -f documentation/target/fission/release/static-site/static/img/fission-mark.svg
           test -f documentation/target/fission/release/static-site/static/img/charts/line-gradient-area.png
-          test -f documentation/target/fission/release/static-site/static/example-showcase/index.html
-          test -f documentation/target/fission/release/static-site/static/example-showcase/bootstrap.mjs
-          test -f documentation/target/fission/release/static-site/static/example-showcase/pkg/example_showcase.js
-          test -f documentation/target/fission/release/static-site/static/example-showcase/pkg/example_showcase_bg.wasm
           test -f documentation/target/fission/release/static-site/static/artifact-manifest.json
           test -f documentation/target/fission/release/static-site/static/crates/index.html
 
