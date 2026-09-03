@@ -33,7 +33,6 @@ impl From<DocsFooter> for Widget {
                                 ("Documentation", "/docs/learn/overview/"),
                                 ("Guides", "/docs/guides/layout-and-widgets/"),
                                 ("Cookbook", "/docs/cookbook/add-platform-targets/"),
-                                ("Examples", "/example-showcase/"),
                             ],
                         )
                         .into(),

@@ -4,8 +4,8 @@ mod registry;
 
 use anyhow::Result;
 use components::{
-    CrateDetailPage, CrateDirectoryPage, DocsFooter, DocsState, ExampleShowcasePage,
-    LocalizedLandingPage, MarketingPageKind, ProductMarketingPage, RoutedHomePage,
+    CrateDetailPage, CrateDirectoryPage, DocsFooter, DocsState, LocalizedLandingPage,
+    MarketingPageKind, ProductMarketingPage, RoutedHomePage,
 };
 use fission::prelude::*;
 use fission::site::{build_from_cli, FissionSite};
@@ -47,15 +47,6 @@ fn site_app() -> FissionSite {
             "Fission",
             Some("Crea aplicaciones Rust para todas las plataformas.".to_string()),
             LocalizedLandingPage,
-        )
-        .route_widget::<DocsState, _>(
-            "/example-showcase/",
-            "Fission example showcase",
-            Some(
-                "Working Fission applications, galleries, and platform examples with direct run commands."
-                    .to_string(),
-            ),
-            ExampleShowcasePage::new(),
         )
         .route_widget::<DocsState, _>(
             "/product/overview/",
