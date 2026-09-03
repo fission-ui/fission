@@ -1550,6 +1550,15 @@ fn build_desktop_binary_with_cargo_options(
     cargo_features: &[String],
     cargo_no_default_features: bool,
 ) -> Result<PathBuf> {
+    #[cfg(target_os = "windows")]
+    let project_dir = if project_dir.is_absolute() {
+        project_dir.to_path_buf()
+    } else {
+        env::current_dir()
+            .context("failed to resolve the current directory")?
+            .join(project_dir)
+    };
+    #[cfg(not(target_os = "windows"))]
     let project_dir = fs::canonicalize(project_dir).with_context(|| {
         format!(
             "failed to resolve project directory {}",
@@ -1603,8 +1612,8 @@ fn desktop_cargo_build_command(
         .arg("--manifest-path")
         .arg(&manifest_path)
         .arg("--package")
-        .arg(&name)
-        .current_dir(&project_dir);
+        .arg(&name);
+    set_desktop_cargo_working_directory(&mut command, project_dir);
     if release {
         command.arg("--release").arg("--locked");
     }
@@ -1636,14 +1645,16 @@ struct CargoTargetMetadata {
 }
 
 fn cargo_target_directory(project_dir: &Path, manifest_path: &Path) -> Result<PathBuf> {
-    let output = Command::new("cargo")
+    let mut command = Command::new("cargo");
+    command
         .arg("metadata")
         .arg("--format-version")
         .arg("1")
         .arg("--no-deps")
         .arg("--manifest-path")
-        .arg(manifest_path)
-        .current_dir(project_dir)
+        .arg(manifest_path);
+    set_desktop_cargo_working_directory(&mut command, project_dir);
+    let output = command
         .output()
         .context("failed to run cargo metadata for desktop package")?;
     if !output.status.success() {
@@ -1656,6 +1667,14 @@ fn cargo_target_directory(project_dir: &Path, manifest_path: &Path) -> Result<Pa
     let metadata: CargoTargetMetadata = serde_json::from_slice(&output.stdout)
         .context("failed to parse cargo metadata for desktop package")?;
     Ok(metadata.target_directory)
+}
+
+#[cfg(target_os = "windows")]
+fn set_desktop_cargo_working_directory(_command: &mut Command, _project_dir: &Path) {}
+
+#[cfg(not(target_os = "windows"))]
+fn set_desktop_cargo_working_directory(command: &mut Command, project_dir: &Path) {
+    command.current_dir(project_dir);
 }
 
 fn create_macos_app_bundle(

@@ -53,8 +53,16 @@ pub(super) fn prepare_icon_manifest(
     };
 
     let icon_root = project_dir.join("target/fission/icons");
-    fs::create_dir_all(&icon_root)
-        .with_context(|| format!("failed to create {}", icon_root.display()))?;
+    if let Err(error) = fs::create_dir_all(&icon_root) {
+        // Some remote Windows filesystems report ERROR_ALREADY_EXISTS for
+        // CreateDirectory even when the existing path is a directory.
+        // Preserve create_dir_all's idempotent contract after confirming the
+        // path really is a directory; a file or an inaccessible path must
+        // still fail closed.
+        if !icon_root.is_dir() {
+            return Err(error).with_context(|| format!("failed to create {}", icon_root.display()));
+        }
+    }
     let manifest_path = icon_root.join("icon-manifest.json");
     let (source_sha256, source_size_bytes) = hash_file(&icon.path)?;
     let outputs = collect_icon_package_outputs(package_root)?;

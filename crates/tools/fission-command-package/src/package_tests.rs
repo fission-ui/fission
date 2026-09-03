@@ -79,6 +79,10 @@ fn release_desktop_builds_require_the_existing_lockfile() {
         .collect::<Vec<_>>();
     assert!(release_args.iter().any(|argument| argument == "--release"));
     assert!(release_args.iter().any(|argument| argument == "--locked"));
+    #[cfg(target_os = "windows")]
+    assert_eq!(release.get_current_dir(), None);
+    #[cfg(not(target_os = "windows"))]
+    assert_eq!(release.get_current_dir(), Some(project_dir));
 
     let debug =
         desktop_cargo_build_command(project_dir, &manifest_path, "example", false, &[], false);

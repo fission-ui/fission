@@ -16,14 +16,16 @@ pub(crate) fn cargo_target_directory(
     module_name: &str,
     platform: &str,
 ) -> Result<PathBuf> {
-    let output = Command::new("cargo")
+    let mut command = Command::new("cargo");
+    command
         .arg("metadata")
         .arg("--format-version")
         .arg("1")
         .arg("--no-deps")
         .arg("--manifest-path")
-        .arg(manifest)
-        .current_dir(project_dir)
+        .arg(manifest);
+    set_cargo_working_directory(&mut command, project_dir);
+    let output = command
         .output()
         .with_context(|| {
             format!(
@@ -52,6 +54,14 @@ pub(crate) fn cargo_target_directory(
         );
     }
     Ok(metadata.target_directory)
+}
+
+#[cfg(target_os = "windows")]
+pub(crate) fn set_cargo_working_directory(_command: &mut Command, _project_dir: &Path) {}
+
+#[cfg(not(target_os = "windows"))]
+pub(crate) fn set_cargo_working_directory(command: &mut Command, project_dir: &Path) {
+    command.current_dir(project_dir);
 }
 
 pub(crate) fn expand_cargo_target_directory(
