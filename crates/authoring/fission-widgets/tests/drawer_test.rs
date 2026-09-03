@@ -22,6 +22,7 @@ fn test_drawer_registers_portal_when_open() {
         side: DrawerSide::Left,
         is_open: true,
         on_dismiss: None,
+        dismiss_semantics_identifier: None,
         content: Text::new("Drawer Content").into(),
         width: Some(250.0),
         motion: None,

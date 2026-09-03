@@ -47,6 +47,7 @@ impl From<InboxApp> for Widget {
                             })
                         ),
                     )),
+                    dismiss_semantics_identifier: Some("inbox.mobile-drawer.dismiss".into()),
                     content: Sidebar.into(),
                     width: Some(MOBILE_DRAWER_WIDTH),
                     motion: None,

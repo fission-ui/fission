@@ -1109,6 +1109,7 @@ impl Runtime {
     /// first frame.
     pub fn reconcile_ir(&mut self, ir: &CoreIR) {
         self.runtime_state.viewport.reconcile(ir);
+        self.runtime_state.range_slider.reconcile(ir);
         crate::selection::reconcile_selection_state(&mut self.runtime_state.selectable_text, ir);
         let active_scroll_nodes: HashSet<WidgetId> = ir
             .nodes
@@ -1578,6 +1579,18 @@ impl Runtime {
                                 for (target, envelope) in result.actions {
                                     self.dispatch_node(envelope, target)?;
                                 }
+                                self.dispatch_input_actions(
+                                    result
+                                        .input_actions
+                                        .into_iter()
+                                        .map(|(target, envelope, input)| {
+                                            let input = crate::input::scoped_action_input(
+                                                ir, target, input,
+                                            );
+                                            (target, envelope, input)
+                                        })
+                                        .collect(),
+                                )?;
                                 self.update_focused_ime_state(ir, layout);
                                 return Ok(());
                             }
@@ -1612,6 +1625,18 @@ impl Runtime {
                                 for (target, envelope) in result.actions {
                                     self.dispatch_node(envelope, target)?;
                                 }
+                                self.dispatch_input_actions(
+                                    result
+                                        .input_actions
+                                        .into_iter()
+                                        .map(|(target, envelope, input)| {
+                                            let input = crate::input::scoped_action_input(
+                                                ir, target, input,
+                                            );
+                                            (target, envelope, input)
+                                        })
+                                        .collect(),
+                                )?;
                                 self.update_focused_ime_state(ir, layout);
                                 return Ok(());
                             }
@@ -1620,6 +1645,33 @@ impl Runtime {
                     walk_id = ir.nodes.get(&nid).and_then(|n| n.parent);
                 }
             }
+        }
+
+        let (range_slider_handled, range_slider_actions) = {
+            let mut ctx = crate::input::range_slider::RangeSliderControllerContext {
+                ir,
+                layout,
+                scroll: &self.runtime_state.scroll,
+                viewport: &self.runtime_state.viewport,
+                interaction: &mut self.runtime_state.interaction,
+                state: &mut self.runtime_state.range_slider,
+                dispatched_actions: Vec::new(),
+            };
+            let mut controller = crate::input::range_slider::RangeSliderController;
+            let handled = controller.handle_event(&mut ctx, &event);
+            (handled, ctx.dispatched_actions)
+        };
+        self.dispatch_input_actions(range_slider_actions)?;
+        if range_slider_handled {
+            if matches!(
+                event,
+                InputEvent::Pointer(PointerEvent::Up { .. } | PointerEvent::Cancel { .. })
+            ) {
+                self.runtime_state.interaction.pressed.clear();
+                self.runtime_state.interaction.last_down_point = None;
+            }
+            self.update_focused_ime_state(ir, layout);
+            return Ok(());
         }
 
         let (viewport_handled, viewport_actions) = {

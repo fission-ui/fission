@@ -32,6 +32,7 @@ impl From<TabsPreview<'_>> for Widget {
                                 .ctx
                                 .bind(ScrubTimeline(0), reduce_with!(scrub_timeline)),
                         ),
+                        semantics_identifier: Some("animation-gallery.tabs.api".into()),
                     },
                     TabItem {
                         title: "IR".into(),
@@ -41,6 +42,7 @@ impl From<TabsPreview<'_>> for Widget {
                                 .ctx
                                 .bind(ScrubTimeline(300), reduce_with!(scrub_timeline)),
                         ),
+                        semantics_identifier: Some("animation-gallery.tabs.ir".into()),
                     },
                 ],
                 size: ComponentSize::Sm,

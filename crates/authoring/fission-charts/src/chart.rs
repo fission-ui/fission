@@ -31,6 +31,7 @@ use std::sync::Arc;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Chart {
+    /// Stable retained identity used for state, animation, and interaction source routing.
     pub id: Option<WidgetId>,
     pub width: Option<f32>,
     pub height: Option<f32>,
@@ -52,6 +53,12 @@ pub struct Chart {
     pub timeline: Option<ChartTimeline>,
     pub theme: Option<ChartTheme>,
     pub interaction: ChartInteraction,
+    /// Application action dispatched for each enabled chart interaction.
+    ///
+    /// Its bound payload is preserved. Read the dynamic event with
+    /// [`ChartInteractionEvent::from_action_input`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub on_interaction: Option<ActionEnvelope>,
     pub animation: crate::animation::ChartAnimation,
     pub animate: bool,
 }
@@ -86,6 +93,7 @@ impl Chart {
             timeline: None,
             theme: None,
             interaction: ChartInteraction::default(),
+            on_interaction: None,
             animation: crate::animation::ChartAnimation::default(),
             animate: false,
         }
@@ -213,6 +221,12 @@ impl Chart {
         self
     }
 
+    /// Binds chart interactions to an application action.
+    pub fn on_interaction(mut self, action: ActionEnvelope) -> Self {
+        self.on_interaction = Some(action);
+        self
+    }
+
     pub fn hit_test(&self, width: f32, height: f32, point: LayoutPoint) -> Option<ChartHit> {
         let model = ChartModel::from_chart(self);
         let area = chart_area_for_size(self, width, height);
@@ -221,8 +235,11 @@ impl Chart {
 }
 
 impl From<Chart> for Widget {
-    fn from(component: Chart) -> Self {
+    fn from(mut component: Chart) -> Self {
         let (ctx, _) = fission_core::build::current::<()>();
+        component.id = fission_core::build::current_widget_id()
+            .or(component.id)
+            .or_else(|| fission_core::build::next_implicit_widget_id(0xC4A7_0001));
         let this = &component;
         if this.animation.enabled {
             ctx.register_motion(MotionDeclaration {
@@ -245,7 +262,7 @@ impl From<Chart> for Widget {
             });
         }
 
-        let render_object = if this.interaction.enabled {
+        let render_object = if this.interaction.enabled || this.on_interaction.is_some() {
             Some(Arc::new(ChartRenderObject {
                 chart: this.clone(),
             }) as Arc<dyn CustomRenderObject>)
@@ -330,7 +347,7 @@ impl CustomRenderObject for ChartRenderObject {
         event: &InputEvent,
         node_rect: LayoutRect,
     ) -> CustomEventResult {
-        if !self.chart.interaction.emit_events {
+        if !self.chart.interaction.emit_events && self.chart.on_interaction.is_none() {
             return CustomEventResult::ignored();
         }
 
@@ -342,6 +359,7 @@ impl CustomRenderObject for ChartRenderObject {
             .chart
             .hit_test(node_rect.width(), node_rect.height(), local);
         let event = ChartInteractionEvent {
+            source_id: Some(node_id),
             chart_id: self.chart.title.clone(),
             kind,
             local_x: local.x,
@@ -349,11 +367,34 @@ impl CustomRenderObject for ChartRenderObject {
             modifiers,
             hit,
         };
-        let envelope = ActionEnvelope {
-            id: ChartInteractionEvent::static_id(),
-            payload: event.encode(),
-        };
-        CustomEventResult::consumed_with(vec![(node_id, envelope)])
+        let encoded_event = event.encode();
+        let mut actions = Vec::new();
+        if self.chart.interaction.emit_events {
+            actions.push((
+                node_id,
+                ActionEnvelope {
+                    id: ChartInteractionEvent::static_id(),
+                    payload: encoded_event.clone(),
+                },
+            ));
+        }
+        let mut input_actions = Vec::new();
+        if let Some(action) = &self.chart.on_interaction {
+            input_actions.push((
+                node_id,
+                action.clone(),
+                fission_core::ActionInput::ComponentInteraction {
+                    source: node_id,
+                    event_type: ChartInteractionEvent::EVENT_TYPE.into(),
+                    payload: encoded_event,
+                },
+            ));
+        }
+        CustomEventResult {
+            handled: true,
+            actions,
+            input_actions,
+        }
     }
 }
 
@@ -467,6 +508,129 @@ mod chart_theme_tests {
         let theme = ChartTheme::from_env(&env);
 
         assert_eq!(theme.palette, env.theme.tokens.data_visualization.palette);
+    }
+
+    #[test]
+    fn chart_callback_preserves_payload_and_reports_stable_source() {
+        let source = WidgetId::explicit("revenue-chart");
+        let callback = ActionEnvelope {
+            id: fission_core::ActionId::from_name("chart.selected"),
+            payload: br#"{"panel":"revenue"}"#.to_vec(),
+        };
+        let chart = Chart::new().id(source).on_interaction(callback.clone());
+        let render = ChartRenderObject { chart };
+        let result = render.handle_event(
+            source,
+            &InputEvent::Pointer(PointerEvent::Down {
+                pointer_id: fission_core::event::PointerId::MOUSE,
+                kind: fission_core::event::PointerKind::Mouse,
+                point: LayoutPoint::new(100.0, 100.0),
+                button: fission_core::event::PointerButton::Primary,
+                modifiers: 5,
+            }),
+            LayoutRect::new(0.0, 0.0, 320.0, 200.0),
+        );
+
+        assert!(result.handled);
+        assert!(
+            result.actions.is_empty(),
+            "a component callback must not require the global event channel"
+        );
+        assert_eq!(result.input_actions.len(), 1);
+        let (target, envelope, input) = &result.input_actions[0];
+        assert_eq!(*target, source);
+        assert_eq!(envelope.id, callback.id);
+        assert_eq!(envelope.payload, callback.payload);
+        let (reported_source, event) =
+            ChartInteractionEvent::from_action_input(input).expect("typed chart input");
+        assert_eq!(reported_source, source);
+        assert_eq!(event.source_id, Some(source));
+        assert_eq!(event.chart_id, None);
+        assert_eq!(event.kind, ChartInteractionKind::Press);
+        assert_eq!((event.local_x, event.local_y), (100.0, 100.0));
+        assert_eq!(event.modifiers, 5);
+        assert!(event.hit.is_some(), "hit details must remain available");
+
+        let mismatched = fission_core::ActionInput::ComponentInteraction {
+            source: WidgetId::explicit("different-chart"),
+            event_type: ChartInteractionEvent::EVENT_TYPE.into(),
+            payload: event.encode(),
+        };
+        assert!(
+            ChartInteractionEvent::from_action_input(&mismatched).is_none(),
+            "the contextual source is authoritative over encoded event data"
+        );
+    }
+
+    #[test]
+    fn global_chart_event_remains_available_with_component_callback() {
+        let source = WidgetId::explicit("compatibility-chart");
+        let chart = Chart::new()
+            .interaction(ChartInteraction::new().emit_events(true))
+            .on_interaction(ActionEnvelope {
+                id: fission_core::ActionId::from_name("chart.callback"),
+                payload: Vec::new(),
+            });
+        let result = ChartRenderObject { chart }.handle_event(
+            source,
+            &InputEvent::Pointer(PointerEvent::Down {
+                pointer_id: fission_core::event::PointerId::MOUSE,
+                kind: fission_core::event::PointerKind::Mouse,
+                point: LayoutPoint::new(100.0, 100.0),
+                button: fission_core::event::PointerButton::Primary,
+                modifiers: 0,
+            }),
+            LayoutRect::new(0.0, 0.0, 320.0, 200.0),
+        );
+
+        assert_eq!(result.actions.len(), 1);
+        assert_eq!(result.actions[0].1.id, ChartInteractionEvent::static_id());
+        assert_eq!(result.input_actions.len(), 1);
+    }
+
+    fn automatic_same_title_chart_ids() -> Vec<u128> {
+        use fission_core::internal::BuildCtx;
+        use fission_core::ui::Row;
+
+        let env = fission_core::Env::default();
+        let runtime = fission_core::RuntimeState::default();
+        let view = fission_core::View::new(&(), &runtime, &env, None);
+        let mut context = BuildCtx::<()>::new();
+        let callback = ActionEnvelope {
+            id: fission_core::ActionId::from_name("chart.selected"),
+            payload: Vec::new(),
+        };
+        let root: Widget = fission_core::build::enter(&mut context, &view, || {
+            Row {
+                children: vec![
+                    Chart::new()
+                        .title("Same")
+                        .on_interaction(callback.clone())
+                        .into(),
+                    Chart::new().title("Same").on_interaction(callback).into(),
+                ],
+                ..Default::default()
+            }
+            .into()
+        });
+        let ir = fission_core::internal::lower_widget_to_ir(&root);
+        let mut ids: Vec<_> = ir
+            .custom_render_objects
+            .keys()
+            .map(|id| id.as_u128())
+            .collect();
+        ids.sort_unstable();
+        ids
+    }
+
+    #[test]
+    fn automatic_ids_distinguish_same_titled_charts_and_survive_rebuild() {
+        let first_build = automatic_same_title_chart_ids();
+        let second_build = automatic_same_title_chart_ids();
+
+        assert_eq!(first_build.len(), 2);
+        assert_ne!(first_build[0], first_build[1]);
+        assert_eq!(first_build, second_build);
     }
 }
 

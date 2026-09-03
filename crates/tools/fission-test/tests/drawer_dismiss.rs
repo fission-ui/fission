@@ -29,6 +29,7 @@ fn drawer_renders_content_and_backdrop_dismisses() -> Result<()> {
                 side: DrawerSide::Left,
                 is_open: view.state().drawer_open,
                 on_dismiss: Some(with_reducer!(ctx, DismissDrawer, dismiss)),
+                dismiss_semantics_identifier: None,
                 content: content,
                 width: Some(300.0),
                 motion: None,

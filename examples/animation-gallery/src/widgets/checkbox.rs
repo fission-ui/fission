@@ -69,6 +69,7 @@ const SOURCE: &str = r#"Motion {
         checked: state.accepted,
         label: Some("Accept terms".into()),
         on_toggle: Some(toggle_terms),
+        disabled: false,
     }.into(),
     ..Default::default()
 }.into()"#;

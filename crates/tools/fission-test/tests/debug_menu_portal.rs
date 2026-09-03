@@ -77,16 +77,19 @@ impl From<Root> for Widget {
                             label: "Filter".into(),
                             is_open: true,
                             on_toggle: None,
+                            trigger_semantics_identifier: None,
                             items: vec![
                                 MenuItem {
                                     label: "All".into(),
                                     icon: None,
                                     on_select: None,
+                                    semantics_identifier: None,
                                 },
                                 MenuItem {
                                     label: "Unread".into(),
                                     icon: None,
                                     on_select: None,
+                                    semantics_identifier: None,
                                 },
                             ],
                         }

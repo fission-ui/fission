@@ -78,6 +78,7 @@ impl From<RightSidebar> for Widget {
                         id: toast_id,
                         payload: serde_json::to_vec(&ShowToast(t("toast.new_event"))).unwrap(),
                     }),
+                    semantics_identifier: Some("inbox.quick.new-event".into()),
                 },
                 MenuItem {
                     label: t("quick.new_task"),
@@ -86,6 +87,7 @@ impl From<RightSidebar> for Widget {
                         id: toast_id,
                         payload: serde_json::to_vec(&ShowToast(t("toast.new_task"))).unwrap(),
                     }),
+                    semantics_identifier: Some("inbox.quick.new-task".into()),
                 },
                 MenuItem {
                     label: t("quick.add_reminder"),
@@ -94,6 +96,7 @@ impl From<RightSidebar> for Widget {
                         id: toast_id,
                         payload: serde_json::to_vec(&ShowToast(t("toast.add_reminder"))).unwrap(),
                     }),
+                    semantics_identifier: Some("inbox.quick.add-reminder".into()),
                 },
             ],
             width: None,

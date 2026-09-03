@@ -300,6 +300,12 @@ pub enum ActionInput {
     TextSelectionChanged(crate::action::UpdateTextSelection),
     /// Runtime details accompanying an interactive viewport action.
     ViewportInteraction(crate::input::viewport::ViewportInteraction),
+    /// Proposed values from a two-thumb range slider interaction.
+    ///
+    /// The application-defined action payload is preserved independently;
+    /// reducers read the live values and originating thumb through
+    /// [`ActionInput::range_slider_change`].
+    RangeSliderChanged(crate::input::range_slider::RangeSliderChanged),
     /// Runtime details accompanying an InfiniteCanvas action.
     CanvasInteraction(crate::input::canvas::CanvasInteraction),
     /// External file drop (e.g. from the OS file manager).
@@ -319,6 +325,17 @@ pub enum ActionInput {
         /// Modifier bitmask active during the drop (Shift=1, Alt=2,
         /// Ctrl=4, Super=8).
         modifiers: u8,
+    },
+    /// Runtime details emitted by a composed or custom-rendered control.
+    ///
+    /// The configured action envelope remains unchanged so reducers can retain
+    /// their application-defined context. `event_type` names the versioned
+    /// event schema carried by `payload`, while `source` identifies the
+    /// retained control that produced it.
+    ComponentInteraction {
+        source: WidgetId,
+        event_type: String,
+        payload: Vec<u8>,
     },
     /// The action was dispatched from a subtree with a raw action scope.
     ScopedRaw {
@@ -419,6 +436,14 @@ impl ActionInput {
         }
     }
 
+    /// Returns the proposed range accompanying a range-slider action.
+    pub fn range_slider_change(&self) -> Option<&crate::input::range_slider::RangeSliderChanged> {
+        match self.unscoped() {
+            ActionInput::RangeSliderChanged(change) => Some(change),
+            _ => None,
+        }
+    }
+
     /// Returns the node, edge, resize, or marquee change for a canvas action.
     pub fn canvas_interaction(&self) -> Option<&crate::input::canvas::CanvasInteraction> {
         match self.unscoped() {
@@ -439,6 +464,29 @@ impl ActionInput {
             ActionInput::InternalDrop { payload, .. } => Some(payload),
             _ => None,
         }
+    }
+
+    /// Returns an encoded component interaction when its schema name matches.
+    pub fn component_interaction(&self, event_type: &str) -> Option<(WidgetId, &[u8])> {
+        match self.unscoped() {
+            ActionInput::ComponentInteraction {
+                source,
+                event_type: actual,
+                payload,
+            } if actual == event_type => Some((*source, payload.as_slice())),
+            _ => None,
+        }
+    }
+
+    /// Decodes a versioned component interaction into its public event type.
+    pub fn decode_component_interaction<T: serde::de::DeserializeOwned>(
+        &self,
+        event_type: &str,
+    ) -> Option<(WidgetId, T)> {
+        let (source, payload) = self.component_interaction(event_type)?;
+        serde_json::from_slice(payload)
+            .ok()
+            .map(|event| (source, event))
     }
 
     /// Modifier bitmask active during a drop action.
@@ -785,5 +833,36 @@ mod action_input_codec_tests {
         let bytes = input.encode_opaque().expect("input should encode");
         let decoded = ActionInput::decode_opaque(&bytes).expect("input should decode");
         assert_eq!(decoded, input);
+    }
+
+    #[test]
+    fn component_interaction_is_versioned_and_decodes_typed_payload() {
+        #[derive(Debug, PartialEq, Serialize, Deserialize)]
+        struct Event {
+            value: u32,
+        }
+
+        let source = WidgetId::from_u128(42);
+        let input = ActionInput::ComponentInteraction {
+            source,
+            event_type: "example.control.changed.v1".into(),
+            payload: serde_json::to_vec(&Event { value: 7 }).unwrap(),
+        };
+
+        let decoded = input
+            .decode_component_interaction::<Event>("example.control.changed.v1")
+            .expect("matching event schema");
+        assert_eq!(decoded, (source, Event { value: 7 }));
+        assert!(input
+            .decode_component_interaction::<Event>("example.control.changed.v2")
+            .is_none());
+
+        let scoped = ActionInput::scoped_raw(91, source, input);
+        let scoped_decoded = scoped
+            .decode_component_interaction::<Event>("example.control.changed.v1")
+            .expect("component input should remain typed inside an action scope");
+        assert_eq!(scoped.action_scope_id(), Some(91));
+        assert_eq!(scoped.scoped_target(), Some(source));
+        assert_eq!(scoped_decoded, (source, Event { value: 7 }));
     }
 }

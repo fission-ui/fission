@@ -47,16 +47,21 @@ impl From<ModalPreview<'_>> for Widget {
                         .into(),
                         is_open: preview_active(preview.state),
                         on_dismiss: Some(close.clone()),
+                        backdrop_semantics_identifier: Some("gallery.real.modal.backdrop".into()),
+                        close_semantics_identifier: Some("gallery.real.modal.close".into()),
+                        surface_semantics_identifier: Some("gallery.real.modal.surface".into()),
                         actions: vec![
                             ModalAction {
                                 label: "Cancel".into(),
                                 on_press: Some(close.clone()),
                                 is_primary: false,
+                                semantics_identifier: Some("gallery.real.modal.cancel".into()),
                             },
                             ModalAction {
                                 label: "Confirm".into(),
                                 on_press: Some(close),
                                 is_primary: true,
+                                semantics_identifier: Some("gallery.real.modal.confirm".into()),
                             },
                         ],
                         width: Some(MODAL_WIDTH),

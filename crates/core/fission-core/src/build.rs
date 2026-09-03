@@ -298,7 +298,13 @@ pub fn current_widget_id() -> Option<crate::WidgetId> {
     })
 }
 
-pub(crate) fn next_implicit_widget_id(salt: u32) -> Option<crate::WidgetId> {
+/// Allocates the next deterministic identity for a composed widget in the
+/// active authoring scope.
+///
+/// Framework crates use a stable, widget-specific `salt` so independently
+/// composed controls cannot consume one another's identity namespace.
+#[doc(hidden)]
+pub fn next_implicit_widget_id(salt: u32) -> Option<crate::WidgetId> {
     BUILD_SCOPES.with(|scopes| {
         let mut scopes = scopes.borrow_mut();
         let scope = scopes.last_mut()?;

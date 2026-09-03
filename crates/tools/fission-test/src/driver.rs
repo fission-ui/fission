@@ -120,6 +120,29 @@ impl<S: GlobalState> TestDriver<S> {
         results
     }
 
+    /// Finds one semantic node by its stable author-facing identifier.
+    ///
+    /// This is useful for controls with multiple independently addressable
+    /// semantic parts, such as the `.start` and `.end` thumbs of a range
+    /// slider. It queries the last pumped frame.
+    pub fn find_semantics_identifier(&self, identifier: &str) -> Option<SemanticMatch> {
+        let ir = self.harness.last_ir.as_ref()?;
+        let snapshot = self.harness.last_snapshot.as_ref()?;
+        ir.nodes.iter().find_map(|(id, node)| {
+            let Op::Semantics(semantics) = &node.op else {
+                return None;
+            };
+            (semantics.identifier.as_deref() == Some(identifier)).then(|| SemanticMatch {
+                role: semantics.role,
+                label: semantics.label.clone(),
+                bounds: snapshot
+                    .get_node_rect(*id)
+                    .unwrap_or(LayoutRect::new(0.0, 0.0, 0.0, 0.0)),
+                node_id: *id,
+            })
+        })
+    }
+
     pub fn get_all_visible_text(&self) -> Vec<String> {
         let dl = match self.harness.get_last_display_list() {
             Some(dl) => dl,

@@ -57,6 +57,9 @@ pub struct CustomEventResult {
     pub handled: bool,
     /// Zero or more actions to dispatch as a consequence of the event.
     pub actions: Vec<(WidgetId, ActionEnvelope)>,
+    /// Actions whose application payload is accompanied by runtime interaction
+    /// data. This is the custom-control equivalent of text and viewport input.
+    pub input_actions: Vec<(WidgetId, ActionEnvelope, crate::ActionInput)>,
 }
 
 impl CustomEventResult {
@@ -65,6 +68,7 @@ impl CustomEventResult {
         Self {
             handled: false,
             actions: Vec::new(),
+            input_actions: Vec::new(),
         }
     }
 
@@ -73,6 +77,7 @@ impl CustomEventResult {
         Self {
             handled: true,
             actions: Vec::new(),
+            input_actions: Vec::new(),
         }
     }
 
@@ -81,6 +86,18 @@ impl CustomEventResult {
         Self {
             handled: true,
             actions,
+            input_actions: Vec::new(),
+        }
+    }
+
+    /// The event was consumed and produced actions with contextual runtime input.
+    pub fn consumed_with_input(
+        actions: Vec<(WidgetId, ActionEnvelope, crate::ActionInput)>,
+    ) -> Self {
+        Self {
+            handled: true,
+            actions: Vec::new(),
+            input_actions: actions,
         }
     }
 }
@@ -95,6 +112,13 @@ impl CustomEventResult {
 /// Implementors are stored behind `Arc<dyn CustomRenderObject>` so they must
 /// be `Send + Sync`.  The trait is object-safe.
 pub trait CustomRenderObject: Send + Sync + Debug {
+    /// Returns range-slider configuration when this object owns a retained
+    /// two-thumb range control.
+    #[doc(hidden)]
+    fn range_slider_config(&self) -> Option<&crate::input::range_slider::RangeSliderRuntimeConfig> {
+        None
+    }
+
     /// Whether this render object should be treated as runtime-dynamic by the
     /// retained pipeline even when the surrounding widget tree is otherwise
     /// static.

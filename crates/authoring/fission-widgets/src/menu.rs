@@ -17,6 +17,9 @@ pub struct MenuItem {
     pub icon: Option<String>,
     /// Action dispatched when the entry is selected.
     pub on_select: Option<ActionEnvelope>,
+    /// Stable identifier exposed on this entry's actionable semantics node.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub semantics_identifier: Option<String>,
 }
 
 /// A vertical dropdown menu rendered as a scrollable list of [`MenuItem`] entries.
@@ -59,26 +62,27 @@ impl From<Menu> for Widget {
                     .into(),
             );
 
-            menu_items.push(
-                Button {
-                    variant: ButtonVariant::Ghost,
-                    content_align: ButtonContentAlign::Start,
-                    child: Some(
-                        Container::new(HStack {
-                            spacing: Some(12.0),
-                            children: row_children,
-                        })
-                        .flex_grow(1.0)
-                        .into(),
-                    ),
-                    on_press: item.on_select.clone(),
-                    width: Some(item_width),
-                    height: Some(36.0),
-                    padding: Some([12.0, 12.0, 0.0, 0.0]),
-                    ..Default::default()
-                }
-                .into(),
-            );
+            let mut button = Button {
+                variant: ButtonVariant::Ghost,
+                content_align: ButtonContentAlign::Start,
+                child: Some(
+                    Container::new(HStack {
+                        spacing: Some(12.0),
+                        children: row_children,
+                    })
+                    .flex_grow(1.0)
+                    .into(),
+                ),
+                on_press: item.on_select.clone(),
+                width: Some(item_width),
+                height: Some(36.0),
+                padding: Some([12.0, 12.0, 0.0, 0.0]),
+                ..Default::default()
+            };
+            if let Some(identifier) = &item.semantics_identifier {
+                button = button.semantics_identifier(identifier.clone());
+            }
+            menu_items.push(button.into());
 
             if idx + 1 < this.items.len() {
                 menu_items.push(
@@ -154,6 +158,9 @@ pub struct MenuButton {
     pub is_open: bool,
     /// Action dispatched when the trigger requests an open-state change.
     pub on_toggle: Option<ActionEnvelope>,
+    /// Stable identifier exposed on the generated trigger button.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trigger_semantics_identifier: Option<String>,
 }
 
 impl From<MenuButton> for Widget {
@@ -169,7 +176,7 @@ impl From<MenuButton> for Widget {
         let anchor_id = WidgetId::derived(this.id.as_u128(), &[]);
 
         // Trigger Button
-        let trigger = Button {
+        let mut trigger = Button {
             id: Some(anchor_id.into()),
             variant: ButtonVariant::Outline,
             content_align: ButtonContentAlign::Start,
@@ -195,8 +202,11 @@ impl From<MenuButton> for Widget {
             height: Some(40.0),
             padding: Some([12.0, 12.0, 0.0, 0.0]),
             ..Default::default()
+        };
+        if let Some(identifier) = &this.trigger_semantics_identifier {
+            trigger = trigger.semantics_identifier(identifier.clone());
         }
-        .into();
+        let trigger = trigger.into();
 
         // Menu Overlay
         if this.is_open {

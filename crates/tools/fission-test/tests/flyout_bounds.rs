@@ -28,7 +28,6 @@ impl From<Root> for Widget {
                 Popover {
                     id: WidgetId::explicit("edge_popover"),
                     is_open: view.state().open,
-                    on_toggle: None,
                     on_close: None,
                     trigger: Button {
                         child: Some(Text::new("Open").into()),

@@ -102,11 +102,7 @@ fn text_dispatch_runtime() -> Runtime {
     let mut registry = ActionRegistry::<TextDispatchState>::new();
     registry.register(
         record_contextual_edit
-            as fn(
-                &mut TextDispatchState,
-                UpdateField,
-                &mut ReducerContext<TextDispatchState>,
-            ),
+            as fn(&mut TextDispatchState, UpdateField, &mut ReducerContext<TextDispatchState>),
     );
     runtime.absorb_registry(registry);
     runtime
@@ -298,6 +294,157 @@ fn maps_radio_semantics_to_accesskit_radio_button() {
     };
 
     assert_eq!(access_role_for(&semantics), AccessRole::RadioButton);
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct UpdateRange(String);
+
+impl FissionAction for UpdateRange {
+    fn static_id() -> FissionActionId {
+        FissionActionId::from_name("accessibility_tests::UpdateRange")
+    }
+}
+
+#[derive(Debug, Default)]
+struct RangeDispatchState {
+    field: Option<String>,
+    changes: Vec<fission_core::RangeSliderChanged>,
+}
+
+impl GlobalState for RangeDispatchState {}
+
+fn record_range_change(
+    state: &mut RangeDispatchState,
+    action: UpdateRange,
+    ctx: &mut ReducerContext<RangeDispatchState>,
+) {
+    state.field = Some(action.0);
+    state.changes.push(
+        ctx.input
+            .range_slider_change()
+            .expect("range input")
+            .clone(),
+    );
+}
+
+fn accessible_range_slider() -> (CoreIR, LayoutSnapshot, WidgetId, WidgetId) {
+    let range_id = WidgetId::explicit("accessible-range");
+    let widget: fission_core::Widget = fission_widgets::RangeSlider {
+        id: Some(range_id),
+        semantics_identifier: Some("filters.price".into()),
+        start: 20.0,
+        end: 80.0,
+        min: 0.0,
+        max: 100.0,
+        step: Some(5.0),
+        on_change: Some(ActionEnvelope {
+            id: UpdateRange::static_id(),
+            payload: UpdateRange("price".into()).encode(),
+        }),
+    }
+    .into();
+    let env = fission_core::Env::default();
+    let runtime = fission_core::RuntimeState::default();
+    let mut lowering = fission_core::internal::InternalLoweringCx::new(&env, &runtime, None, None);
+    let root = fission_core::internal::lower_widget(&widget, &mut lowering);
+    lowering.ir.root = Some(root);
+    let input = fission_core::internal::build_layout_tree(&lowering.ir, &env);
+    let mut engine = fission_layout::LayoutEngine::new();
+    engine.rebuild(&input).unwrap();
+    let layout = engine
+        .compute_layout(&input, root, LayoutSize::new(400.0, 80.0), &|_| 0.0)
+        .unwrap();
+    let find = |identifier: &str| {
+        lowering
+            .ir
+            .nodes
+            .iter()
+            .find_map(|(id, node)| match &node.op {
+                Op::Semantics(semantics) if semantics.identifier.as_deref() == Some(identifier) => {
+                    Some(*id)
+                }
+                _ => None,
+            })
+            .unwrap()
+    };
+    let start = find("filters.price.start");
+    let end = find("filters.price.end");
+    (lowering.ir, layout, start, end)
+}
+
+fn range_dispatch_runtime() -> Runtime {
+    let mut runtime = Runtime::default();
+    runtime
+        .add_app_state(Box::new(RangeDispatchState::default()))
+        .unwrap();
+    let mut registry = ActionRegistry::<RangeDispatchState>::new();
+    registry.register(
+        record_range_change
+            as fn(&mut RangeDispatchState, UpdateRange, &mut ReducerContext<RangeDispatchState>),
+    );
+    runtime.absorb_registry(registry);
+    runtime
+}
+
+#[test]
+fn accesskit_range_thumbs_set_and_increment_with_contextual_input() {
+    let (ir, layout, start, end) = accessible_range_slider();
+    let runtime = Runtime::default();
+    let update = build_tree_update(&ir, &layout, &runtime, 1.0).update;
+    let slider_nodes = update
+        .nodes
+        .iter()
+        .filter(|(_, node)| node.role() == AccessRole::Slider)
+        .map(|(_, node)| node)
+        .collect::<Vec<_>>();
+    assert_eq!(slider_nodes.len(), 2);
+    assert!(slider_nodes.iter().all(|node| {
+        node.supports_action(Action::SetValue)
+            && node.supports_action(Action::Increment)
+            && node.supports_action(Action::Decrement)
+    }));
+
+    let mut runtime = range_dispatch_runtime();
+    assert!(dispatch_set_value_data(
+        &mut runtime,
+        &ir,
+        &layout,
+        start,
+        ActionData::NumericValue(35.0),
+    ));
+
+    let access_node = NodeId((end.as_u128() as u64).max(2));
+    let node_map = HashMap::from([(access_node, end)]);
+    assert!(dispatch_mapped_accessibility_action(
+        ActionRequest {
+            action: Action::Increment,
+            target_tree: TreeId::ROOT,
+            target_node: access_node,
+            data: None,
+        },
+        &mut runtime,
+        &ir,
+        &layout,
+        &node_map,
+    ));
+
+    let state = runtime.get_app_state::<RangeDispatchState>().unwrap();
+    assert_eq!(state.field.as_deref(), Some("price"));
+    assert_eq!(state.changes.len(), 2);
+    assert_eq!((state.changes[0].start, state.changes[0].end), (35.0, 80.0));
+    assert_eq!(
+        state.changes[0].active_thumb,
+        fission_core::RangeSliderThumb::Start
+    );
+    assert_eq!(
+        state.changes[0].source,
+        fission_core::RangeSliderChangeSource::Accessibility
+    );
+    assert_eq!((state.changes[1].start, state.changes[1].end), (20.0, 85.0));
+    assert_eq!(
+        state.changes[1].active_thumb,
+        fission_core::RangeSliderThumb::End
+    );
 }
 
 #[test]

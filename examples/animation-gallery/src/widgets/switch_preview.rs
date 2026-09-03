@@ -46,6 +46,7 @@ impl From<SwitchPreview<'_>> for Widget {
                             semantics_identifier: Some("gallery.switch.sync_preview".into(),),
                             checked: preview_active(preview.state),
                             on_toggle: Some(on_toggle),
+                            disabled: false,
                         }
                         .into(),
                         ..Default::default()

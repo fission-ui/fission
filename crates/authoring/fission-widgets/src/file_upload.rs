@@ -18,6 +18,9 @@ pub struct FileUpload {
     pub selected_file: Option<String>,
     /// Action dispatched when the browse button is pressed.
     pub on_browse: Option<ActionEnvelope>,
+    /// Stable identifier exposed on the generated browse button.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub browse_semantics_identifier: Option<String>,
 }
 
 impl From<FileUpload> for Widget {
@@ -27,27 +30,31 @@ impl From<FileUpload> for Widget {
 
         let tokens = &view.env().theme.tokens;
 
+        let mut browse_button = Button {
+            variant: ButtonVariant::Outline,
+            child: Some(
+                HStack {
+                    spacing: Some(4.0),
+                    children: vec![
+                        Icon::svg(material::file::folder_open::regular())
+                            .size(16.0)
+                            .into(),
+                        Text::new(this.label.clone()).flex_shrink(0.0).into(),
+                    ],
+                }
+                .into(),
+            ),
+            on_press: this.on_browse.clone(),
+            ..Default::default()
+        };
+        if let Some(identifier) = &this.browse_semantics_identifier {
+            browse_button = browse_button.semantics_identifier(identifier.clone());
+        }
+
         HStack {
             spacing: Some(8.0),
             children: vec![
-                Button {
-                    variant: ButtonVariant::Outline,
-                    child: Some(
-                        HStack {
-                            spacing: Some(4.0),
-                            children: vec![
-                                Icon::svg(material::file::folder_open::regular())
-                                    .size(16.0)
-                                    .into(),
-                                Text::new(this.label.clone()).flex_shrink(0.0).into(),
-                            ],
-                        }
-                        .into(),
-                    ),
-                    on_press: this.on_browse.clone(),
-                    ..Default::default()
-                }
-                .into(),
+                browse_button.into(),
                 Text::new(
                     this.selected_file
                         .clone()

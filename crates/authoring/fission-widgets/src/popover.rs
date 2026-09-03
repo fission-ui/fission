@@ -136,9 +136,8 @@ impl PopoverMotionPlan {
 ///
 /// * `id` - Stable widget identity for the portal system.
 /// * `is_open` - Controls visibility of the popup content.
-/// * `on_toggle` - Action dispatched to toggle the popover.
 /// * `on_close` - Action dispatched when the backdrop is tapped (if set, a backdrop is rendered).
-/// * `trigger` - The inline widget that the popover is anchored to.
+/// * `trigger` - The actionable inline widget that owns opening and closing the popover.
 /// * `content` - The popup content rendered in the flyout layer.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Popover {
@@ -146,12 +145,14 @@ pub struct Popover {
     pub id: WidgetId,
     /// Controlled popup visibility.
     pub is_open: bool,
-    /// Optional action requesting an open-state toggle.
-    pub on_toggle: Option<ActionEnvelope>,
     /// Optional action dispatched by backdrop dismissal.
     pub on_close: Option<ActionEnvelope>,
 
-    /// Inline anchor content.
+    /// Inline anchor and sole activation owner.
+    ///
+    /// Supply a semantic control such as `Button` or `Pressable` with its own
+    /// action. Popover does not inspect, wrap, replace, or duplicate trigger
+    /// actions.
     pub trigger: Widget,
     /// Content rendered in the flyout layer while open or retained by motion.
     pub content: Widget,
@@ -175,10 +176,6 @@ impl From<Popover> for Widget {
         let trigger_wrapper = Container::new(this.trigger.clone())
             .flex_shrink(0.0)
             .id(anchor_id);
-
-        // Wrap trigger in a clickable area if on_toggle provided?
-        // Or assume trigger handles clicks.
-        // Usually trigger handles clicks.
 
         if this.is_open || this.motion.is_some() {
             let mut content_node = this.content.clone();

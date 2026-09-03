@@ -32,7 +32,6 @@ impl From<PopoverPreview<'_>> for Widget {
                     Popover {
                         id: WidgetId::explicit("gallery.real.popover"),
                         is_open: preview_active(preview.state),
-                        on_toggle: None,
                         on_close: Some(close.clone()),
                         trigger: Button {
                             variant: ButtonVariant::Outline,

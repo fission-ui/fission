@@ -287,12 +287,34 @@ impl ChartHit {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ChartInteractionEvent {
+    /// Stable retained identity of the chart that produced this event.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_id: Option<fission_core::WidgetId>,
+    /// Legacy title-derived identifier. Prefer [`Self::source_id`].
     pub chart_id: Option<String>,
     pub kind: ChartInteractionKind,
     pub local_x: f32,
     pub local_y: f32,
     pub modifiers: u8,
     pub hit: Option<ChartHit>,
+}
+
+impl ChartInteractionEvent {
+    /// Versioned schema name used by component-bound chart interaction input.
+    pub const EVENT_TYPE: &'static str = "fission.chart.interaction.v1";
+
+    /// Decodes the chart interaction accompanying a component-bound action.
+    pub fn from_action_input(
+        input: &fission_core::ActionInput,
+    ) -> Option<(fission_core::WidgetId, Self)> {
+        let (source, mut event): (_, Self) =
+            input.decode_component_interaction(Self::EVENT_TYPE)?;
+        if event.source_id.is_some_and(|encoded| encoded != source) {
+            return None;
+        }
+        event.source_id = Some(source);
+        Some((source, event))
+    }
 }
 
 impl Action for ChartInteractionEvent {

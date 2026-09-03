@@ -130,6 +130,7 @@ impl From<TextLabContent> for Widget {
                             label: "Actions".to_string(),
                             is_open: view.state().menu_open,
                             on_toggle: Some(menu_toggle),
+                            trigger_semantics_identifier: Some("text-lab.actions".into()),
                             items: vec![
                                 MenuItem {
                                     label: "Mark all as read".to_string(),
@@ -141,6 +142,7 @@ impl From<TextLabContent> for Widget {
                                         ))
                                         .unwrap(),
                                     }),
+                                    semantics_identifier: Some("text-lab.mark-all-read".into()),
                                 },
                                 MenuItem {
                                     label: "Archive selected".to_string(),
@@ -152,6 +154,7 @@ impl From<TextLabContent> for Widget {
                                         ))
                                         .unwrap(),
                                     }),
+                                    semantics_identifier: Some("text-lab.archive-selected".into()),
                                 },
                             ],
                         }
