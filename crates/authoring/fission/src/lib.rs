@@ -432,14 +432,15 @@ pub use fission_widgets::{HStack, VStack};
 ))]
 pub use fission_shell_desktop::{
     BarcodeScannerHost, BiometricHost, BluetoothHost, CameraHost, ClipboardHost, DesktopApp,
-    GeolocationHost, HapticHost, MemoryBarcodeScannerHost, MemoryBiometricHost,
-    MemoryBluetoothHost, MemoryCameraHost, MemoryClipboardHost, MemoryGeolocationHost,
-    MemoryHapticHost, MemoryMicrophoneHost, MemoryNfcHost, MemoryNotificationHost,
-    MemoryPasskeyHost, MemoryVolumeHost, MemoryWifiHost, MicrophoneHost, NfcHost, NotificationHost,
-    PasskeyHost, UnsupportedBarcodeScannerHost, UnsupportedBiometricHost, UnsupportedBluetoothHost,
-    UnsupportedCameraHost, UnsupportedGeolocationHost, UnsupportedHapticHost,
-    UnsupportedMicrophoneHost, UnsupportedNfcHost, UnsupportedNotificationHost,
-    UnsupportedPasskeyHost, UnsupportedVolumeHost, UnsupportedWifiHost, VolumeHost, WifiHost,
+    FrameDriverContext, FrameDriverResult, GeolocationHost, HapticHost, MemoryBarcodeScannerHost,
+    MemoryBiometricHost, MemoryBluetoothHost, MemoryCameraHost, MemoryClipboardHost,
+    MemoryGeolocationHost, MemoryHapticHost, MemoryMicrophoneHost, MemoryNfcHost,
+    MemoryNotificationHost, MemoryPasskeyHost, MemoryVolumeHost, MemoryWifiHost, MicrophoneHost,
+    NfcHost, NotificationHost, PasskeyHost, UnsupportedBarcodeScannerHost,
+    UnsupportedBiometricHost, UnsupportedBluetoothHost, UnsupportedCameraHost,
+    UnsupportedGeolocationHost, UnsupportedHapticHost, UnsupportedMicrophoneHost,
+    UnsupportedNfcHost, UnsupportedNotificationHost, UnsupportedPasskeyHost, UnsupportedVolumeHost,
+    UnsupportedWifiHost, VolumeHost, WifiHost,
 };
 #[cfg(all(
     feature = "desktop-tray",
@@ -460,15 +461,16 @@ pub use fission_shell_desktop::{
     any(target_os = "android", target_os = "ios")
 ))]
 pub use fission_shell_mobile::{
-    BarcodeScannerHost, BiometricHost, BluetoothHost, CameraHost, ClipboardHost, GeolocationHost,
-    HapticHost, MemoryBarcodeScannerHost, MemoryBiometricHost, MemoryBluetoothHost,
-    MemoryCameraHost, MemoryClipboardHost, MemoryGeolocationHost, MemoryHapticHost,
-    MemoryMicrophoneHost, MemoryNfcHost, MemoryNotificationHost, MemoryPasskeyHost,
-    MemoryVolumeHost, MemoryWifiHost, MicrophoneHost, MobileApp, NfcHost, NotificationHost,
-    PasskeyHost, UnsupportedBarcodeScannerHost, UnsupportedBiometricHost, UnsupportedBluetoothHost,
-    UnsupportedCameraHost, UnsupportedGeolocationHost, UnsupportedHapticHost,
-    UnsupportedMicrophoneHost, UnsupportedNfcHost, UnsupportedNotificationHost,
-    UnsupportedPasskeyHost, UnsupportedVolumeHost, UnsupportedWifiHost, VolumeHost, WifiHost,
+    BarcodeScannerHost, BiometricHost, BluetoothHost, CameraHost, ClipboardHost,
+    FrameDriverContext, FrameDriverResult, GeolocationHost, HapticHost, MemoryBarcodeScannerHost,
+    MemoryBiometricHost, MemoryBluetoothHost, MemoryCameraHost, MemoryClipboardHost,
+    MemoryGeolocationHost, MemoryHapticHost, MemoryMicrophoneHost, MemoryNfcHost,
+    MemoryNotificationHost, MemoryPasskeyHost, MemoryVolumeHost, MemoryWifiHost, MicrophoneHost,
+    MobileApp, NfcHost, NotificationHost, PasskeyHost, UnsupportedBarcodeScannerHost,
+    UnsupportedBiometricHost, UnsupportedBluetoothHost, UnsupportedCameraHost,
+    UnsupportedGeolocationHost, UnsupportedHapticHost, UnsupportedMicrophoneHost,
+    UnsupportedNfcHost, UnsupportedNotificationHost, UnsupportedPasskeyHost, UnsupportedVolumeHost,
+    UnsupportedWifiHost, VolumeHost, WifiHost,
 };
 #[cfg(feature = "terminal-shell")]
 pub use fission_shell_terminal::{
@@ -482,15 +484,15 @@ pub use fission_shell_terminal::{
 ))]
 pub use fission_shell_web::{
     BarcodeScannerHost, BiometricHost, BluetoothHost, BrowserDefaults, CameraHost, ClipboardHost,
-    GeolocationHost, HapticHost, MemoryBarcodeScannerHost, MemoryBiometricHost,
-    MemoryBluetoothHost, MemoryCameraHost, MemoryClipboardHost, MemoryGeolocationHost,
-    MemoryHapticHost, MemoryMicrophoneHost, MemoryNfcHost, MemoryNotificationHost,
-    MemoryPasskeyHost, MemoryVolumeHost, MemoryWifiHost, MicrophoneHost, NfcHost, NotificationHost,
-    PasskeyHost, UnsupportedBarcodeScannerHost, UnsupportedBiometricHost, UnsupportedBluetoothHost,
-    UnsupportedCameraHost, UnsupportedGeolocationHost, UnsupportedHapticHost,
-    UnsupportedMicrophoneHost, UnsupportedNfcHost, UnsupportedNotificationHost,
-    UnsupportedPasskeyHost, UnsupportedVolumeHost, UnsupportedWifiHost, VolumeHost, WebApp,
-    WebNavigationConfig, WebRouteStrategy, WifiHost,
+    FrameDriverContext, FrameDriverResult, GeolocationHost, HapticHost, MemoryBarcodeScannerHost,
+    MemoryBiometricHost, MemoryBluetoothHost, MemoryCameraHost, MemoryClipboardHost,
+    MemoryGeolocationHost, MemoryHapticHost, MemoryMicrophoneHost, MemoryNfcHost,
+    MemoryNotificationHost, MemoryPasskeyHost, MemoryVolumeHost, MemoryWifiHost, MicrophoneHost,
+    NfcHost, NotificationHost, PasskeyHost, UnsupportedBarcodeScannerHost,
+    UnsupportedBiometricHost, UnsupportedBluetoothHost, UnsupportedCameraHost,
+    UnsupportedGeolocationHost, UnsupportedHapticHost, UnsupportedMicrophoneHost,
+    UnsupportedNfcHost, UnsupportedNotificationHost, UnsupportedPasskeyHost, UnsupportedVolumeHost,
+    UnsupportedWifiHost, VolumeHost, WebApp, WebNavigationConfig, WebRouteStrategy, WifiHost,
 };
 
 // Macros
@@ -747,15 +749,15 @@ pub mod prelude {
     ))]
     pub use fission_shell_desktop::{
         BarcodeScannerHost, BiometricHost, BluetoothHost, CameraHost, ClipboardHost, DesktopApp,
-        GeolocationHost, HapticHost, MemoryBarcodeScannerHost, MemoryBiometricHost,
-        MemoryBluetoothHost, MemoryCameraHost, MemoryClipboardHost, MemoryGeolocationHost,
-        MemoryHapticHost, MemoryMicrophoneHost, MemoryNfcHost, MemoryNotificationHost,
-        MemoryPasskeyHost, MemoryVolumeHost, MemoryWifiHost, MicrophoneHost, NfcHost,
-        NotificationHost, PasskeyHost, UnsupportedBarcodeScannerHost, UnsupportedBiometricHost,
-        UnsupportedBluetoothHost, UnsupportedCameraHost, UnsupportedGeolocationHost,
-        UnsupportedHapticHost, UnsupportedMicrophoneHost, UnsupportedNfcHost,
-        UnsupportedNotificationHost, UnsupportedPasskeyHost, UnsupportedVolumeHost,
-        UnsupportedWifiHost, VolumeHost, WifiHost,
+        FrameDriverContext, FrameDriverResult, GeolocationHost, HapticHost,
+        MemoryBarcodeScannerHost, MemoryBiometricHost, MemoryBluetoothHost, MemoryCameraHost,
+        MemoryClipboardHost, MemoryGeolocationHost, MemoryHapticHost, MemoryMicrophoneHost,
+        MemoryNfcHost, MemoryNotificationHost, MemoryPasskeyHost, MemoryVolumeHost, MemoryWifiHost,
+        MicrophoneHost, NfcHost, NotificationHost, PasskeyHost, UnsupportedBarcodeScannerHost,
+        UnsupportedBiometricHost, UnsupportedBluetoothHost, UnsupportedCameraHost,
+        UnsupportedGeolocationHost, UnsupportedHapticHost, UnsupportedMicrophoneHost,
+        UnsupportedNfcHost, UnsupportedNotificationHost, UnsupportedPasskeyHost,
+        UnsupportedVolumeHost, UnsupportedWifiHost, VolumeHost, WifiHost,
     };
     #[cfg(all(
         any(feature = "android", feature = "mobile", feature = "platform-shells"),
@@ -773,15 +775,15 @@ pub mod prelude {
     ))]
     pub use fission_shell_mobile::{
         BarcodeScannerHost, BiometricHost, BluetoothHost, CameraHost, ClipboardHost,
-        GeolocationHost, HapticHost, MemoryBarcodeScannerHost, MemoryBiometricHost,
-        MemoryBluetoothHost, MemoryCameraHost, MemoryClipboardHost, MemoryGeolocationHost,
-        MemoryHapticHost, MemoryMicrophoneHost, MemoryNfcHost, MemoryNotificationHost,
-        MemoryPasskeyHost, MemoryVolumeHost, MemoryWifiHost, MicrophoneHost, MobileApp, NfcHost,
-        NotificationHost, PasskeyHost, UnsupportedBarcodeScannerHost, UnsupportedBiometricHost,
-        UnsupportedBluetoothHost, UnsupportedCameraHost, UnsupportedGeolocationHost,
-        UnsupportedHapticHost, UnsupportedMicrophoneHost, UnsupportedNfcHost,
-        UnsupportedNotificationHost, UnsupportedPasskeyHost, UnsupportedVolumeHost,
-        UnsupportedWifiHost, VolumeHost, WifiHost,
+        FrameDriverContext, FrameDriverResult, GeolocationHost, HapticHost,
+        MemoryBarcodeScannerHost, MemoryBiometricHost, MemoryBluetoothHost, MemoryCameraHost,
+        MemoryClipboardHost, MemoryGeolocationHost, MemoryHapticHost, MemoryMicrophoneHost,
+        MemoryNfcHost, MemoryNotificationHost, MemoryPasskeyHost, MemoryVolumeHost, MemoryWifiHost,
+        MicrophoneHost, MobileApp, NfcHost, NotificationHost, PasskeyHost,
+        UnsupportedBarcodeScannerHost, UnsupportedBiometricHost, UnsupportedBluetoothHost,
+        UnsupportedCameraHost, UnsupportedGeolocationHost, UnsupportedHapticHost,
+        UnsupportedMicrophoneHost, UnsupportedNfcHost, UnsupportedNotificationHost,
+        UnsupportedPasskeyHost, UnsupportedVolumeHost, UnsupportedWifiHost, VolumeHost, WifiHost,
     };
     #[cfg(feature = "server")]
     pub use fission_shell_server::*;
@@ -799,15 +801,16 @@ pub mod prelude {
     ))]
     pub use fission_shell_web::{
         BarcodeScannerHost, BiometricHost, BluetoothHost, BrowserDefaults, CameraHost,
-        ClipboardHost, GeolocationHost, HapticHost, MemoryBarcodeScannerHost, MemoryBiometricHost,
-        MemoryBluetoothHost, MemoryCameraHost, MemoryClipboardHost, MemoryGeolocationHost,
-        MemoryHapticHost, MemoryMicrophoneHost, MemoryNfcHost, MemoryNotificationHost,
-        MemoryPasskeyHost, MemoryVolumeHost, MemoryWifiHost, MicrophoneHost, NfcHost,
-        NotificationHost, PasskeyHost, UnsupportedBarcodeScannerHost, UnsupportedBiometricHost,
-        UnsupportedBluetoothHost, UnsupportedCameraHost, UnsupportedGeolocationHost,
-        UnsupportedHapticHost, UnsupportedMicrophoneHost, UnsupportedNfcHost,
-        UnsupportedNotificationHost, UnsupportedPasskeyHost, UnsupportedVolumeHost,
-        UnsupportedWifiHost, VolumeHost, WebApp, WebNavigationConfig, WebRouteStrategy, WifiHost,
+        ClipboardHost, FrameDriverContext, FrameDriverResult, GeolocationHost, HapticHost,
+        MemoryBarcodeScannerHost, MemoryBiometricHost, MemoryBluetoothHost, MemoryCameraHost,
+        MemoryClipboardHost, MemoryGeolocationHost, MemoryHapticHost, MemoryMicrophoneHost,
+        MemoryNfcHost, MemoryNotificationHost, MemoryPasskeyHost, MemoryVolumeHost, MemoryWifiHost,
+        MicrophoneHost, NfcHost, NotificationHost, PasskeyHost, UnsupportedBarcodeScannerHost,
+        UnsupportedBiometricHost, UnsupportedBluetoothHost, UnsupportedCameraHost,
+        UnsupportedGeolocationHost, UnsupportedHapticHost, UnsupportedMicrophoneHost,
+        UnsupportedNfcHost, UnsupportedNotificationHost, UnsupportedPasskeyHost,
+        UnsupportedVolumeHost, UnsupportedWifiHost, VolumeHost, WebApp, WebNavigationConfig,
+        WebRouteStrategy, WifiHost,
     };
 
     // Serde (commonly needed for actions)

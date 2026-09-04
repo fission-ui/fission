@@ -12,15 +12,15 @@ use fission_shell_winit::WinitApp;
 
 pub use fission_shell_winit::{
     BarcodeScannerHost, BiometricHost, BluetoothHost, BrowserDefaults, CameraHost, ClipboardHost,
-    GeolocationHost, HapticHost, MemoryBarcodeScannerHost, MemoryBiometricHost,
-    MemoryBluetoothHost, MemoryCameraHost, MemoryClipboardHost, MemoryGeolocationHost,
-    MemoryHapticHost, MemoryMicrophoneHost, MemoryNfcHost, MemoryNotificationHost,
-    MemoryPasskeyHost, MemoryVolumeHost, MemoryWifiHost, MicrophoneHost, NfcHost, NotificationHost,
-    PasskeyHost, UnsupportedBarcodeScannerHost, UnsupportedBiometricHost, UnsupportedBluetoothHost,
-    UnsupportedCameraHost, UnsupportedGeolocationHost, UnsupportedHapticHost,
-    UnsupportedMicrophoneHost, UnsupportedNfcHost, UnsupportedNotificationHost,
-    UnsupportedPasskeyHost, UnsupportedVolumeHost, UnsupportedWifiHost, VolumeHost,
-    WebNavigationConfig, WebRouteStrategy, WifiHost,
+    FrameDriverContext, FrameDriverResult, GeolocationHost, HapticHost, MemoryBarcodeScannerHost,
+    MemoryBiometricHost, MemoryBluetoothHost, MemoryCameraHost, MemoryClipboardHost,
+    MemoryGeolocationHost, MemoryHapticHost, MemoryMicrophoneHost, MemoryNfcHost,
+    MemoryNotificationHost, MemoryPasskeyHost, MemoryVolumeHost, MemoryWifiHost, MicrophoneHost,
+    NfcHost, NotificationHost, PasskeyHost, UnsupportedBarcodeScannerHost,
+    UnsupportedBiometricHost, UnsupportedBluetoothHost, UnsupportedCameraHost,
+    UnsupportedGeolocationHost, UnsupportedHapticHost, UnsupportedMicrophoneHost,
+    UnsupportedNfcHost, UnsupportedNotificationHost, UnsupportedPasskeyHost, UnsupportedVolumeHost,
+    UnsupportedWifiHost, VolumeHost, WebNavigationConfig, WebRouteStrategy, WifiHost,
 };
 
 /// Stateful Fission application mounted into a browser document.
@@ -48,6 +48,10 @@ mod tests {
             .with_env(Env::default())
             .with_state_init(|_state| {})
             .with_key_handler(|_state, _key, _modifiers| false)
+            .with_frame_driver(|_state, context: FrameDriverContext| {
+                let _elapsed = context.elapsed;
+                FrameDriverResult::new(false, false)
+            })
             .with_sync_env(|_state, _env| {});
     }
 }
@@ -194,6 +198,23 @@ where
         F: Fn(&mut S) -> bool + Send + Sync + 'static,
     {
         self.inner = self.inner.with_frame_hook(hook);
+        self
+    }
+
+    /// Installs a host-side driver that advances external real-time state
+    /// before each browser frame is built.
+    ///
+    /// The driver receives the elapsed frame duration in
+    /// [`FrameDriverContext`]. Its [`FrameDriverResult`] independently reports
+    /// whether the mutation changed the declarative application state and
+    /// whether another frame is needed. This is appropriate for game,
+    /// simulation, or media adapters whose high-frequency state should not be
+    /// advanced through reducers.
+    pub fn with_frame_driver<F>(mut self, driver: F) -> Self
+    where
+        F: Fn(&mut S, FrameDriverContext) -> FrameDriverResult + Send + Sync + 'static,
+    {
+        self.inner = self.inner.with_frame_driver(driver);
         self
     }
 

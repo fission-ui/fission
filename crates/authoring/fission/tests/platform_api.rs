@@ -33,6 +33,11 @@ impl From<PlatformApiApp> for Widget {
 #[test]
 fn facade_exports_notifications_and_deep_links() {
     let _app = DesktopApp::<PlatformApiState, _>::new(PlatformApiApp)
+        .with_frame_hook(|_state| false)
+        .with_frame_driver(|_state, context: FrameDriverContext| {
+            let _elapsed = context.elapsed;
+            FrameDriverResult::new(false, false)
+        })
         .with_notification_host(MemoryNotificationHost)
         .with_nfc_host(MemoryNfcHost::default())
         .with_biometric_host(MemoryBiometricHost::default())

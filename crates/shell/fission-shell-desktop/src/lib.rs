@@ -13,15 +13,15 @@ use fission_shell_winit::WinitApp;
 
 pub use fission_shell_winit::{
     test_control, BarcodeScannerHost, BiometricHost, BluetoothHost, CameraHost, ClipboardHost,
-    GeolocationHost, HapticHost, InvalidationSet, MemoryBarcodeScannerHost, MemoryBiometricHost,
-    MemoryBluetoothHost, MemoryCameraHost, MemoryClipboardHost, MemoryGeolocationHost,
-    MemoryHapticHost, MemoryMicrophoneHost, MemoryNfcHost, MemoryNotificationHost,
-    MemoryPasskeyHost, MemoryVolumeHost, MemoryWifiHost, MicrophoneHost, NfcHost, NotificationHost,
-    PasskeyHost, Pipeline, UnsupportedBarcodeScannerHost, UnsupportedBiometricHost,
-    UnsupportedBluetoothHost, UnsupportedCameraHost, UnsupportedGeolocationHost,
-    UnsupportedHapticHost, UnsupportedMicrophoneHost, UnsupportedNfcHost,
-    UnsupportedNotificationHost, UnsupportedPasskeyHost, UnsupportedVolumeHost,
-    UnsupportedWifiHost, VolumeHost, WifiHost,
+    FrameDriverContext, FrameDriverResult, GeolocationHost, HapticHost, InvalidationSet,
+    MemoryBarcodeScannerHost, MemoryBiometricHost, MemoryBluetoothHost, MemoryCameraHost,
+    MemoryClipboardHost, MemoryGeolocationHost, MemoryHapticHost, MemoryMicrophoneHost,
+    MemoryNfcHost, MemoryNotificationHost, MemoryPasskeyHost, MemoryVolumeHost, MemoryWifiHost,
+    MicrophoneHost, NfcHost, NotificationHost, PasskeyHost, Pipeline,
+    UnsupportedBarcodeScannerHost, UnsupportedBiometricHost, UnsupportedBluetoothHost,
+    UnsupportedCameraHost, UnsupportedGeolocationHost, UnsupportedHapticHost,
+    UnsupportedMicrophoneHost, UnsupportedNfcHost, UnsupportedNotificationHost,
+    UnsupportedPasskeyHost, UnsupportedVolumeHost, UnsupportedWifiHost, VolumeHost, WifiHost,
 };
 #[cfg(feature = "tray")]
 pub use fission_shell_winit::{
@@ -151,6 +151,23 @@ where
         F: Fn(&mut S) -> bool + Send + Sync + 'static,
     {
         self.inner = self.inner.with_frame_hook(f);
+        self
+    }
+
+    /// Installs a host-side driver that advances external real-time state
+    /// before each native frame is built.
+    ///
+    /// The driver receives the elapsed frame duration in
+    /// [`FrameDriverContext`]. Its [`FrameDriverResult`] independently reports
+    /// whether the mutation changed the declarative application state and
+    /// whether another frame is needed. This is appropriate for game,
+    /// simulation, or media adapters whose high-frequency state should not be
+    /// advanced through reducers.
+    pub fn with_frame_driver<F>(mut self, driver: F) -> Self
+    where
+        F: Fn(&mut S, FrameDriverContext) -> FrameDriverResult + Send + Sync + 'static,
+    {
+        self.inner = self.inner.with_frame_driver(driver);
         self
     }
 

@@ -108,6 +108,11 @@ use web_time::Instant;
 
 mod compositor;
 use compositor::TextureLayerCompositor;
+mod frame_driver;
+use frame_driver::{
+    invoke as invoke_frame_driver, is_startup_registry_bootstrap, FrameDriver, FrameTimingState,
+};
+pub use frame_driver::{FrameDriverContext, FrameDriverResult};
 mod accessibility;
 use accessibility::AccessibilityBridge;
 mod pipeline;
@@ -4587,6 +4592,7 @@ where
     sync_env: Option<Arc<dyn Fn(&S, &mut Env) + Send + Sync>>,
     key_handler: Option<KeyHandler<S>>,
     frame_hook: Option<FrameHook<S>>,
+    frame_driver: Option<FrameDriver<S>>,
     native_surface_handlers: NativeSurfaceRegistry,
     title: String,
     initial_maximized: bool,
@@ -4664,6 +4670,7 @@ where
             sync_env: None,
             key_handler: None,
             frame_hook: None,
+            frame_driver: None,
             native_surface_handlers: NativeSurfaceRegistry::default(),
             title: "Fission".into(),
             initial_maximized: false,
@@ -4795,6 +4802,23 @@ where
         F: Fn(&mut S) -> bool + Send + Sync + 'static,
     {
         self.frame_hook = Some(Arc::new(f));
+        self
+    }
+
+    /// Installs a host-side update that runs once before each graphical frame
+    /// is built.
+    ///
+    /// The driver receives the same elapsed duration used by Fission's runtime
+    /// clock, including deterministic LiveTest clock advances. Return
+    /// [`FrameDriverResult::state_changed`] to rebuild from the state mutation
+    /// in the current frame, and [`FrameDriverResult::request_next_frame`] to
+    /// keep the event loop rendering. This is intended for fixed-step game or
+    /// media adapters whose high-frequency state belongs outside reducers.
+    pub fn with_frame_driver<F>(mut self, driver: F) -> Self
+    where
+        F: Fn(&mut S, FrameDriverContext) -> FrameDriverResult + Send + Sync + 'static,
+    {
+        self.frame_driver = Some(Arc::new(driver));
         self
     }
 
@@ -5505,7 +5529,8 @@ where
             .checked_sub(min_frame)
             .unwrap_or_else(Instant::now);
         let mut redraw_pending = false;
-        let mut last_frame_time = Instant::now();
+        let mut frame_timing = FrameTimingState::default();
+        let mut frame_driver_next_frame = false;
         let mut test_animations_paused = false;
         let mut pending_test_clock_advance_ms: Option<u64> = None;
         let blink_enabled = std::env::var("FISSION_TEXTINPUT_BLINK")
@@ -6675,7 +6700,7 @@ where
                     }
                     TestEvent::ResumeAnimations { response_tx } => {
                         test_animations_paused = false;
-                        last_frame_time = Instant::now();
+                        frame_timing.rebase();
                         if let Some(window) = platform_window.active_window() {
                             window.request_redraw();
                         }
@@ -6981,6 +7006,9 @@ where
                     let Some(window) = platform_window.active_window() else {
                         return;
                     };
+                    // Rendering resumes with a fresh time origin. Time spent
+                    // suspended must not be delivered as one enormous frame.
+                    frame_timing.rebase();
                     if let Some(host) = native_surface_host(window) {
                         native_surface_handlers.attach_host(host);
                     }
@@ -7047,6 +7075,8 @@ where
                     );
                 }
                 Event::Suspended => {
+                    frame_timing.rebase();
+                    frame_driver_next_frame = false;
                     #[cfg(not(target_arch = "wasm32"))]
                     {
                         render_state = None;
@@ -7608,6 +7638,7 @@ where
 
                     let has_pending_work = effect_results_dispatched
                         || frame_hook_wants_redraw
+                        || frame_driver_next_frame
                         || image_cache_changed
                         || invalidations.any()
                         || resize_unsettled
@@ -7637,6 +7668,8 @@ where
                             "pending_work:effects"
                         } else if frame_hook_wants_redraw {
                             "pending_work:frame_hook"
+                        } else if frame_driver_next_frame {
+                            "pending_work:frame_driver"
                         } else {
                             "pending_work"
                         };
@@ -7869,73 +7902,6 @@ where
                             redraw_pending = false;
                             diag::begin_frame(None);
                             let now = Instant::now();
-                            let dt = now.duration_since(last_frame_time);
-                            last_frame_time = now;
-                            let dt_ms = pending_test_clock_advance_ms.take().unwrap_or_else(|| {
-                                if test_animations_paused {
-                                    0
-                                } else {
-                                    dt.as_millis() as u64
-                                }
-                            });
-                            let pre_tick_active = active_animation_keys(&runtime);
-                            match runtime.tick(dt_ms) {
-                                Ok(tick_result) => {
-                                    if tick_result.resource_actions_dispatched > 0 {
-                                        invalidations.mark_build();
-                                    }
-                                    let tick_invalidations = pipeline
-                                        .classify_animation_updates(&tick_result.changed_motions);
-                                    invalidations.merge(tick_invalidations);
-                                    let reasons = if tick_result.changed_motions.is_empty() {
-                                        Vec::new()
-                                    } else {
-                                        tick_result
-                                            .changed_motions
-                                            .iter()
-                                            .map(|(target, property)| {
-                                                format!(
-                                                    "tick:{}:{:?}:{}",
-                                                    target.as_u128(),
-                                                    property,
-                                                    tick_invalidations.highest_class()
-                                                )
-                                            })
-                                            .collect::<Vec<_>>()
-                                    };
-                                    frame_trace.emit(
-                                        "redraw_requested",
-                                        presented_frames + 1,
-                                        &pre_tick_active,
-                                        tick_invalidations,
-                                        &reasons,
-                                        &format!("dt_ms={}", dt_ms),
-                                    );
-                                }
-                                Err(e) => {
-                                    eprintln!("Runtime tick error: {:?}", e);
-                                }
-                            }
-                            if process_pending_effects(
-                                &mut runtime,
-                                &effect_result_tx,
-                                &event_proxy,
-                                &async_registry,
-                                &mut active_services,
-                                &mut service_bindings,
-                                &mut next_service_instance_id,
-                            ) {
-                                invalidations.mark_build();
-                                request_redraw_logged(
-                                    &window,
-                                    elwt,
-                                    &mut last_redraw_at,
-                                    min_frame,
-                                    &mut redraw_pending,
-                                    &mut frame_trace,
-                                    "redraw:effects",
-                                );
-                            }
                             let viewport_state = pending_resize.unwrap_or_else(|| {
                                 #[cfg(not(target_os = "android"))]
                                 {
@@ -7957,6 +7923,8 @@ where
                             }
                             let swapchain_size = viewport_state.physical_size;
                             if swapchain_size.width == 0 || swapchain_size.height == 0 {
+                                frame_timing.rebase();
+                                frame_driver_next_frame = false;
                                 diag::end_frame(diag::FrameStats::default());
                                 return;
                             }
@@ -7985,6 +7953,8 @@ where
                                         }
                                         Err(err) => {
                                             eprintln!("web canvas not ready yet: {err}");
+                                            frame_timing.rebase();
+                                            frame_driver_next_frame = false;
                                             request_redraw_logged(
                                                 &window,
                                                 elwt,
@@ -8034,6 +8004,8 @@ where
                                                 eprintln!(
                                                         "web renderer fallback failed; webgpu error: {error}; canvas error: {err}"
                                                     );
+                                                frame_timing.rebase();
+                                                frame_driver_next_frame = false;
                                                 request_redraw_logged(
                                                     &window,
                                                     elwt,
@@ -8073,6 +8045,8 @@ where
                                             }
                                         }
                                     }
+                                    frame_timing.rebase();
+                                    frame_driver_next_frame = false;
                                     request_redraw_logged(
                                         &window,
                                         elwt,
@@ -8099,6 +8073,8 @@ where
                                 if render_state.is_none() {
                                     let Some(render_window) = platform_window.active_window_arc()
                                     else {
+                                        frame_timing.rebase();
+                                        frame_driver_next_frame = false;
                                         diag::end_frame(diag::FrameStats::default());
                                         return;
                                     };
@@ -8113,6 +8089,8 @@ where
                                         }
                                         Err(err) => {
                                             eprintln!("render surface not ready yet: {err}");
+                                            frame_timing.rebase();
+                                            frame_driver_next_frame = false;
                                             request_redraw_logged(
                                                 &window,
                                                 elwt,
@@ -8172,6 +8150,94 @@ where
                                     }
                                     render_state.target_texture_size = render_target_size;
                                 }
+                            }
+
+                            // A startup action needs the first authored registry before it can
+                            // dispatch. Treat that authored pass as bootstrap rather than as a
+                            // simulation/runtime frame: it must not consume elapsed or synthetic
+                            // time, and the rebuilt first visible frame receives the initial zero
+                            // baseline (unless LiveTest supplied an explicit duration).
+                            let startup_registry_bootstrap = is_startup_registry_bootstrap(
+                                startup_dispatched,
+                                startup_action.is_some(),
+                            );
+                            if !startup_registry_bootstrap {
+                                let elapsed = frame_timing.elapsed_for_eligible_frame(
+                                    now,
+                                    test_animations_paused,
+                                    &mut pending_test_clock_advance_ms,
+                                );
+                                let dt_ms = u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX);
+                                let frame_driver_result = {
+                                    let state = runtime
+                                        .get_global_state_mut::<S>()
+                                        .expect("Fission global state must remain registered");
+                                    invoke_frame_driver(self.frame_driver.as_ref(), state, elapsed)
+                                };
+                                if frame_driver_result.state_changed {
+                                    invalidations.mark_build();
+                                }
+                                frame_driver_next_frame = frame_driver_result.request_next_frame;
+                                let pre_tick_active = active_animation_keys(&runtime);
+                                match runtime.tick(dt_ms) {
+                                    Ok(tick_result) => {
+                                        if tick_result.resource_actions_dispatched > 0 {
+                                            invalidations.mark_build();
+                                        }
+                                        let tick_invalidations = pipeline
+                                            .classify_animation_updates(
+                                                &tick_result.changed_motions,
+                                            );
+                                        invalidations.merge(tick_invalidations);
+                                        let reasons = if tick_result.changed_motions.is_empty() {
+                                            Vec::new()
+                                        } else {
+                                            tick_result
+                                                .changed_motions
+                                                .iter()
+                                                .map(|(target, property)| {
+                                                    format!(
+                                                        "tick:{}:{:?}:{}",
+                                                        target.as_u128(),
+                                                        property,
+                                                        tick_invalidations.highest_class()
+                                                    )
+                                                })
+                                                .collect::<Vec<_>>()
+                                        };
+                                        frame_trace.emit(
+                                            "redraw_requested",
+                                            presented_frames + 1,
+                                            &pre_tick_active,
+                                            tick_invalidations,
+                                            &reasons,
+                                            &format!("dt_ms={}", dt_ms),
+                                        );
+                                    }
+                                    Err(e) => {
+                                        eprintln!("Runtime tick error: {:?}", e);
+                                    }
+                                }
+                            }
+                            if process_pending_effects(
+                                &mut runtime,
+                                &effect_result_tx,
+                                &event_proxy,
+                                &async_registry,
+                                &mut active_services,
+                                &mut service_bindings,
+                                &mut next_service_instance_id,
+                            ) {
+                                invalidations.mark_build();
+                                request_redraw_logged(
+                                    &window,
+                                    elwt,
+                                    &mut last_redraw_at,
+                                    min_frame,
+                                    &mut redraw_pending,
+                                    &mut frame_trace,
+                                    "redraw:effects",
+                                );
                             }
 
                             let resize_settled =
@@ -8286,7 +8352,12 @@ where
                                 if let Err(err) = runtime.reconcile_resources(resources) {
                                     eprintln!("Runtime resource reconciliation error: {:?}", err);
                                 }
-                                let mut startup_needs_rebuild = false;
+                                // The registry-only startup pass intentionally skipped the frame
+                                // driver/runtime clock above, so always follow it with the first
+                                // real frame. This remains true if the startup action reports an
+                                // error: that error must not turn the bootstrap pass into the
+                                // first presented frame after timing was deferred.
+                                let mut startup_needs_rebuild = startup_registry_bootstrap;
                                 if !startup_dispatched {
                                     if let Some(action) = startup_action.clone() {
                                         match runtime.dispatch(action, WidgetId::from_u128(0)) {
