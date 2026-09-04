@@ -6,11 +6,17 @@
 mod collision;
 mod geometry;
 mod identity;
+mod runtime;
 mod scene2d;
 
 pub use collision::{Area2D, TouchArea, Touchable2D};
 pub use geometry::{Bounds2D, Degrees, Place, Px, PxPerSecond, Size};
 pub use identity::{StableKey, StableKeyValue, StableSymbol};
+pub use runtime::{
+    Game, GameConfig, GameCtx, GameFrame, GameKey, GameRuntime, GameState, GameTestHarness,
+    GameTime, GameView, HostInputEvent, InputBinding, InputMap, InputTrigger, RuntimeDiagnostic,
+    StepCtx,
+};
 pub use scene2d::{
     Anchor, BlendMode2D, GameDiagnostic, ImageAsset, ImageInstance2D, ImageSampling, Layer,
     Scene2D, Scene2DCommand, Scene2DIR, SceneNodeId, Transform2D,
