@@ -2723,9 +2723,11 @@ name = "fission"
 version = "0.14.1"
 dependencies = [
  "fission-3d",
+ "fission-assets",
  "fission-charts",
  "fission-core",
  "fission-diagnostics",
+ "fission-game",
  "fission-i18n",
  "fission-icons",
  "fission-ir",
@@ -2773,6 +2775,13 @@ dependencies = [
  "accesskit_windows",
  "fission-winit",
  "raw-window-handle",
+]
+
+[[package]]
+name = "fission-assets"
+version = "0.14.1"
+dependencies = [
+ "serde",
 ]
 
 [[package]]
@@ -2988,6 +2997,13 @@ dependencies = [
  "tree-sitter",
  "tree-sitter-language",
  "tree-sitter-rust",
+]
+
+[[package]]
+name = "fission-game"
+version = "0.14.1"
+dependencies = [
+ "serde",
 ]
 
 [[package]]

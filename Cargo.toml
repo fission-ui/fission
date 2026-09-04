@@ -5,6 +5,8 @@ members = [
     "crates/core/fission-layout",
     "crates/core/fission-core",
     "crates/core/fission-3d",
+    "crates/core/fission-assets",
+    "crates/core/fission-game",
     "crates/core/fission-text-engine",
     "crates/core/fission-theme",
     "crates/core/fission-store",

@@ -1,0 +1,17 @@
+[package]
+name = "fission-game"
+version = "0.14.1"
+edition = "2021"
+license = "Apache-2.0"
+repository = "https://github.com/fission-ui/fission"
+homepage = "https://fission.rs"
+documentation = "https://fission.rs"
+description = "Deterministic runtime primitives shared by Fission 2D and 3D games"
+categories = ["game-development", "game-engines"]
+keywords = ["fission", "game", "deterministic", "2d", "3d"]
+
+[package.metadata.fission]
+platforms = ["android", "ios", "linux", "macos", "windows", "web"]
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
