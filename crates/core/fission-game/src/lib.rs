@@ -9,6 +9,7 @@ mod handles;
 mod identity;
 mod runtime;
 mod scene2d;
+mod world;
 
 pub use collision::{Area2D, TouchArea, Touchable2D};
 pub use geometry::{Bounds2D, Degrees, Place, Px, PxPerSecond, Size};
@@ -23,6 +24,7 @@ pub use scene2d::{
     Anchor, BlendMode2D, GameDiagnostic, ImageAsset, ImageInstance2D, ImageSampling, Layer,
     Scene2D, Scene2DCommand, Scene2DIR, SceneNodeId, Transform2D,
 };
+pub use world::{GameStateWorldExt, World, WorldObjectRef};
 
 use std::time::Duration;
 
