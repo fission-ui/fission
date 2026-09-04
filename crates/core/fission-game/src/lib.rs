@@ -1,8 +1,15 @@
 //! Deterministic game-runtime primitives shared by 2D and 3D Fission games.
 //!
-//! This initial foundation owns simulation time only. It has no renderer,
-//! window, network, or product dependency and can therefore be used by
-//! headless tests and every graphical Fission shell.
+//! This foundation has no renderer, window, network, or product dependency and
+//! can therefore be used by headless tests and every graphical Fission shell.
+
+mod collision;
+mod geometry;
+mod identity;
+
+pub use collision::{Area2D, TouchArea, Touchable2D};
+pub use geometry::{Bounds2D, Degrees, Place, Px, PxPerSecond, Size};
+pub use identity::{StableKey, StableKeyValue, StableSymbol};
 
 use std::time::Duration;
 

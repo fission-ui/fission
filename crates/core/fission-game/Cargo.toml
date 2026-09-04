@@ -14,4 +14,4 @@ keywords = ["fission", "game", "deterministic", "2d", "3d"]
 platforms = ["android", "ios", "linux", "macos", "windows", "web"]
 
 [dependencies]
-serde = { version = "1.0", features = ["derive"] }
+serde = { version = "1.0", features = ["derive", "rc"] }

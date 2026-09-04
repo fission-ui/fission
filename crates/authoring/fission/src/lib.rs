@@ -101,7 +101,10 @@ pub use fission_assets::{
     RedistributionPolicy,
 };
 #[cfg(feature = "game")]
-pub use fission_game::{FixedStepClock, StepBatch, StepDuration, Tick};
+pub use fission_game::{
+    Area2D, Bounds2D, Degrees, FixedStepClock, Place, Px, PxPerSecond, Size, StableKey,
+    StableKeyValue, StableSymbol, StepBatch, StepDuration, Tick, TouchArea, Touchable2D,
+};
 
 /// Authoring widgets — Modal, Popover, Tooltip, Menu, Combobox, SplitView, etc.
 pub mod widgets {
