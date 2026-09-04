@@ -110,7 +110,8 @@ mod compositor;
 use compositor::TextureLayerCompositor;
 mod frame_driver;
 use frame_driver::{
-    invoke as invoke_frame_driver, is_startup_registry_bootstrap, FrameDriver, FrameTimingState,
+    invoke as invoke_frame_driver, is_startup_registry_bootstrap, schedule_next_frame, FrameDriver,
+    FrameTimingState,
 };
 pub use frame_driver::{FrameDriverContext, FrameDriverResult};
 mod accessibility;
@@ -6696,6 +6697,7 @@ where
                     }
                     TestEvent::PauseAnimations { response_tx } => {
                         test_animations_paused = true;
+                        frame_driver_next_frame = false;
                         let _ = response_tx.send(fission_test_driver::TestResponse::Ok {});
                     }
                     TestEvent::ResumeAnimations { response_tx } => {
@@ -8177,7 +8179,10 @@ where
                                 if frame_driver_result.state_changed {
                                     invalidations.mark_build();
                                 }
-                                frame_driver_next_frame = frame_driver_result.request_next_frame;
+                                frame_driver_next_frame = schedule_next_frame(
+                                    frame_driver_result.request_next_frame,
+                                    test_animations_paused,
+                                );
                                 let pre_tick_active = active_animation_keys(&runtime);
                                 match runtime.tick(dt_ms) {
                                     Ok(tick_result) => {

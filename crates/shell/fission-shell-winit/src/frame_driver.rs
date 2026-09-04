@@ -53,6 +53,13 @@ pub(crate) fn invoke<S>(
         .unwrap_or_default()
 }
 
+/// Applies LiveTest's paused-clock contract to continuous frame requests.
+/// Synthetic clock advances still schedule their own redraw; a driver must not
+/// keep a paused test browser in an unbounded render loop between them.
+pub(crate) const fn schedule_next_frame(requested: bool, animations_paused: bool) -> bool {
+    requested && !animations_paused
+}
+
 /// Returns whether this renderable redraw exists only to build the registry
 /// required by a pending startup action.
 pub(crate) const fn is_startup_registry_bootstrap(
@@ -143,6 +150,13 @@ mod tests {
             invoke::<()>(None, &mut state, Duration::from_secs(1)),
             FrameDriverResult::default()
         );
+    }
+
+    #[test]
+    fn paused_test_clock_suppresses_continuous_driver_frames() {
+        assert!(schedule_next_frame(true, false));
+        assert!(!schedule_next_frame(true, true));
+        assert!(!schedule_next_frame(false, false));
     }
 
     #[test]
