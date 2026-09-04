@@ -497,7 +497,7 @@ pub use fission_shell_web::{
 pub use fission_core::{video_asset, video_file, video_network};
 pub use fission_macros::{
     fission_action, fission_component, fission_reducer, Action as ActionDerive, FissionGlobalState,
-    FissionStateView,
+    FissionStateView, GameState, StableKey,
 };
 
 // ── Prelude ──────────────────────────────────────────────────────────────
@@ -737,7 +737,7 @@ pub mod prelude {
     // Macros
     pub use fission_macros::{
         fission_action, fission_component, fission_reducer, Action, FissionGlobalState,
-        FissionStateView,
+        FissionStateView, GameState, StableKey,
     };
 
     // Shell

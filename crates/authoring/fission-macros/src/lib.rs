@@ -12,8 +12,9 @@ use syn::{
     parse::{Parse, ParseStream, Parser},
     parse_macro_input, parse_quote,
     punctuated::Punctuated,
-    Attribute, DeriveInput, Expr, Fields, FnArg, GenericParam, Ident, Item, ItemFn, ItemStruct,
-    LitStr, Meta, Pat, PatIdent, PatType, Path, ReturnType, Token, Type, TypeReference, Visibility,
+    Attribute, Data, DeriveInput, Expr, Fields, FnArg, GenericArgument, GenericParam, Ident, Item,
+    ItemFn, ItemStruct, LitStr, Meta, Pat, PatIdent, PatType, Path, PathArguments, ReturnType,
+    Token, Type, TypeReference, Visibility,
 };
 
 /// Derives the `Action` trait for a struct.
@@ -166,6 +167,34 @@ pub fn derive_fission_global_state(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
 
     match expand_state_view(input, true) {
+        Ok(tokens) => tokens.into(),
+        Err(error) => error.to_compile_error().into(),
+    }
+}
+
+/// Derives deterministic structural identity for a domain key.
+///
+/// The generated representation includes the Rust module/type and enum variant
+/// names plus every field value. It never uses `Hash`, memory addresses,
+/// `TypeId`, or collection position.
+#[proc_macro_derive(StableKey)]
+pub fn derive_stable_key(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+    match expand_stable_key(input) {
+        Ok(tokens) => tokens.into(),
+        Err(error) => error.to_compile_error().into(),
+    }
+}
+
+/// Marks authoritative game state and generates typed field/query handles.
+///
+/// Use `#[game(object)]`, `#[game(area)]`, or
+/// `#[game(objects, key = id)]` to select the stronger handle categories used
+/// by world queries. Unmarked fields receive an ordinary `FieldHandle`.
+#[proc_macro_derive(GameState, attributes(game))]
+pub fn derive_game_state(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+    match expand_game_state(input) {
         Ok(tokens) => tokens.into(),
         Err(error) => error.to_compile_error().into(),
     }
@@ -764,6 +793,305 @@ fn fission_core_path() -> Path {
     }
 
     parse_quote!(fission_core)
+}
+
+fn fission_game_path() -> Path {
+    if let Ok(found) = crate_name("fission") {
+        return match found {
+            FoundCrate::Itself => parse_quote!(::fission::game),
+            FoundCrate::Name(name) => {
+                let crate_ident = format_ident!("{}", name);
+                parse_quote!(::#crate_ident::game)
+            }
+        };
+    }
+
+    if let Ok(found) = crate_name("fission-game") {
+        return match found {
+            FoundCrate::Itself => parse_quote!(::fission_game),
+            FoundCrate::Name(name) => {
+                let crate_ident = format_ident!("{}", name);
+                parse_quote!(::#crate_ident)
+            }
+        };
+    }
+
+    parse_quote!(fission_game)
+}
+
+fn expand_stable_key(input: DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
+    let game = fission_game_path();
+    let name = input.ident;
+    let mut generics = input.generics;
+    let mut field_types = Vec::new();
+
+    let body = match input.data {
+        Data::Struct(data) => {
+            let values = stable_key_struct_values(&game, &data.fields, &mut field_types);
+            quote! {
+                #game::StableKeyValue::Tuple(vec![
+                    #game::StableKeyValue::Str(::std::sync::Arc::from(
+                        concat!(module_path!(), "::", stringify!(#name))
+                    )),
+                    #(#values),*
+                ])
+            }
+        }
+        Data::Enum(data) => {
+            let arms = data.variants.into_iter().map(|variant| {
+                let variant_name = variant.ident;
+                match variant.fields {
+                    Fields::Named(fields) => {
+                        let names = fields
+                            .named
+                            .iter()
+                            .map(|field| field.ident.clone().expect("named field"))
+                            .collect::<Vec<_>>();
+                        field_types.extend(fields.named.iter().map(|field| field.ty.clone()));
+                        quote! {
+                            Self::#variant_name { #(#names),* } => #game::StableKeyValue::Tuple(vec![
+                                #game::StableKeyValue::Str(::std::sync::Arc::from(
+                                    concat!(module_path!(), "::", stringify!(#name))
+                                )),
+                                #game::StableKeyValue::Str(::std::sync::Arc::from(
+                                    stringify!(#variant_name)
+                                )),
+                                #(#game::StableKey::stable_key(#names)),*
+                            ])
+                        }
+                    }
+                    Fields::Unnamed(fields) => {
+                        let names = (0..fields.unnamed.len())
+                            .map(|index| format_ident!("field_{index}"))
+                            .collect::<Vec<_>>();
+                        field_types.extend(fields.unnamed.iter().map(|field| field.ty.clone()));
+                        quote! {
+                            Self::#variant_name(#(#names),*) => #game::StableKeyValue::Tuple(vec![
+                                #game::StableKeyValue::Str(::std::sync::Arc::from(
+                                    concat!(module_path!(), "::", stringify!(#name))
+                                )),
+                                #game::StableKeyValue::Str(::std::sync::Arc::from(
+                                    stringify!(#variant_name)
+                                )),
+                                #(#game::StableKey::stable_key(#names)),*
+                            ])
+                        }
+                    }
+                    Fields::Unit => quote! {
+                        Self::#variant_name => #game::StableKeyValue::Tuple(vec![
+                            #game::StableKeyValue::Str(::std::sync::Arc::from(
+                                concat!(module_path!(), "::", stringify!(#name))
+                            )),
+                            #game::StableKeyValue::Str(::std::sync::Arc::from(
+                                stringify!(#variant_name)
+                            )),
+                        ])
+                    },
+                }
+            });
+            quote! { match self { #(#arms),* } }
+        }
+        Data::Union(data) => {
+            return Err(syn::Error::new_spanned(
+                data.union_token,
+                "StableKey cannot be derived for unions",
+            ));
+        }
+    };
+
+    let where_clause = generics.make_where_clause();
+    for ty in field_types {
+        where_clause
+            .predicates
+            .push(parse_quote!(#ty: #game::StableKey));
+    }
+    let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
+    Ok(quote! {
+        #[automatically_derived]
+        impl #impl_generics #game::StableKey for #name #ty_generics #where_clause {
+            fn stable_key(&self) -> #game::StableKeyValue {
+                #body
+            }
+        }
+    })
+}
+
+fn stable_key_struct_values(
+    game: &Path,
+    fields: &Fields,
+    field_types: &mut Vec<Type>,
+) -> Vec<proc_macro2::TokenStream> {
+    match fields {
+        Fields::Named(fields) => fields
+            .named
+            .iter()
+            .map(|field| {
+                let name = field.ident.as_ref().expect("named field");
+                field_types.push(field.ty.clone());
+                quote!(#game::StableKey::stable_key(&self.#name))
+            })
+            .collect(),
+        Fields::Unnamed(fields) => fields
+            .unnamed
+            .iter()
+            .enumerate()
+            .map(|(index, field)| {
+                let index = syn::Index::from(index);
+                field_types.push(field.ty.clone());
+                quote!(#game::StableKey::stable_key(&self.#index))
+            })
+            .collect(),
+        Fields::Unit => Vec::new(),
+    }
+}
+
+#[derive(Default)]
+struct GameFieldOptions {
+    object: bool,
+    area: bool,
+    objects: bool,
+    key: Option<Ident>,
+}
+
+fn parse_game_field_options(attrs: &[Attribute]) -> syn::Result<GameFieldOptions> {
+    let mut options = GameFieldOptions::default();
+    for attr in attrs.iter().filter(|attr| attr.path().is_ident("game")) {
+        attr.parse_nested_meta(|meta| {
+            if meta.path.is_ident("object") {
+                options.object = true;
+            } else if meta.path.is_ident("area") {
+                options.area = true;
+            } else if meta.path.is_ident("objects") {
+                options.objects = true;
+            } else if meta.path.is_ident("key") {
+                options.key = Some(meta.value()?.parse()?);
+            } else {
+                return Err(meta.error("supported options: object, area, objects, key = field"));
+            }
+            Ok(())
+        })?;
+    }
+    let categories = u8::from(options.object) + u8::from(options.area) + u8::from(options.objects);
+    if categories > 1 {
+        return Err(syn::Error::new_spanned(
+            &attrs[0],
+            "a game field can be object, area, or objects, but not more than one",
+        ));
+    }
+    if options.objects != options.key.is_some() {
+        return Err(syn::Error::new_spanned(
+            &attrs[0],
+            "#[game(objects)] requires exactly one `key = field`",
+        ));
+    }
+    Ok(options)
+}
+
+fn expand_game_state(input: DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
+    let game = fission_game_path();
+    let name = input.ident;
+    let generics = input.generics;
+    let Data::Struct(data) = input.data else {
+        return Err(syn::Error::new_spanned(
+            name,
+            "GameState can only be derived for structs",
+        ));
+    };
+    let Fields::Named(fields) = data.fields else {
+        return Err(syn::Error::new_spanned(
+            name,
+            "GameState requires named fields",
+        ));
+    };
+
+    let mut methods = Vec::new();
+    for field in fields.named {
+        let field_name = field.ident.expect("named field");
+        let field_ty = field.ty;
+        let options = parse_game_field_options(&field.attrs)?;
+        let symbol = quote!(concat!(
+            module_path!(),
+            "::",
+            stringify!(#name),
+            ".",
+            stringify!(#field_name)
+        ));
+        if options.objects {
+            let item_ty = vec_item_type(&field_ty)?;
+            let key = options.key.expect("validated key");
+            methods.push(quote! {
+                pub fn #field_name(&self) -> #game::ObjectGroupHandle<Self, #item_ty> {
+                    #game::ObjectGroupHandle::generated(
+                        #symbol,
+                        |state: &Self| state.#field_name.as_slice(),
+                        |item: &#item_ty| #game::StableKey::stable_key(&item.#key),
+                    )
+                }
+            });
+        } else if options.object {
+            methods.push(quote! {
+                pub fn #field_name(&self) -> #game::ObjectHandle<Self, #field_ty> {
+                    #game::ObjectHandle::generated(#symbol, |state: &Self| &state.#field_name)
+                }
+            });
+        } else if options.area {
+            methods.push(quote! {
+                pub fn #field_name(&self) -> #game::AreaHandle<Self, #field_ty> {
+                    #game::AreaHandle::generated(#symbol, |state: &Self| &state.#field_name)
+                }
+            });
+        } else {
+            methods.push(quote! {
+                pub fn #field_name(&self) -> #game::FieldHandle<Self, #field_ty> {
+                    #game::FieldHandle::generated(#symbol, |state: &Self| &state.#field_name)
+                }
+            });
+        }
+    }
+
+    let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
+    Ok(quote! {
+        #[automatically_derived]
+        impl #impl_generics #game::GameState for #name #ty_generics #where_clause {}
+
+        impl #impl_generics #name #ty_generics #where_clause {
+            #(#methods)*
+        }
+    })
+}
+
+fn vec_item_type(ty: &Type) -> syn::Result<Type> {
+    let Type::Path(path) = ty else {
+        return Err(syn::Error::new_spanned(
+            ty,
+            "#[game(objects)] requires Vec<Item>",
+        ));
+    };
+    let Some(segment) = path
+        .path
+        .segments
+        .last()
+        .filter(|segment| segment.ident == "Vec")
+    else {
+        return Err(syn::Error::new_spanned(
+            ty,
+            "#[game(objects)] requires Vec<Item>",
+        ));
+    };
+    let PathArguments::AngleBracketed(arguments) = &segment.arguments else {
+        return Err(syn::Error::new_spanned(
+            ty,
+            "#[game(objects)] requires Vec<Item>",
+        ));
+    };
+    arguments
+        .args
+        .iter()
+        .find_map(|argument| match argument {
+            GenericArgument::Type(ty) => Some(ty.clone()),
+            _ => None,
+        })
+        .ok_or_else(|| syn::Error::new_spanned(ty, "Vec is missing its item type"))
 }
 
 fn serde_derive_path(derive_name: &str) -> Path {

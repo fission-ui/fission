@@ -5,12 +5,14 @@
 
 mod collision;
 mod geometry;
+mod handles;
 mod identity;
 mod runtime;
 mod scene2d;
 
 pub use collision::{Area2D, TouchArea, Touchable2D};
 pub use geometry::{Bounds2D, Degrees, Place, Px, PxPerSecond, Size};
+pub use handles::{AreaHandle, FieldHandle, ObjectGroupHandle, ObjectHandle};
 pub use identity::{StableKey, StableKeyValue, StableSymbol};
 pub use runtime::{
     Game, GameConfig, GameCtx, GameFrame, GameKey, GameRuntime, GameState, GameTestHarness,
