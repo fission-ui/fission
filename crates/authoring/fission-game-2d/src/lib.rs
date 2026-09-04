@@ -366,6 +366,41 @@ mod tests {
     }
 
     #[test]
+    fn multiple_interactive_images_keep_visual_and_action_identities_distinct() {
+        let first = SceneNodeId::from_key(&101_u32);
+        let second = SceneNodeId::from_key(&102_u32);
+        let action = ActionEnvelope {
+            id: fission_core::ActionId::from_name("catch"),
+            payload: Vec::new(),
+        };
+        let mut scene = fission_game::Scene2D::new();
+        scene.image(
+            first.clone(),
+            fission_game::ImageAsset::asset(&101_u32, "fish-blue.png", 192, 192),
+            Transform2D::at(Place::new(Px(60.0), Px(80.0))),
+            Size::new(Px(48.0), Px(48.0)),
+            Layer(1),
+        );
+        scene.image(
+            second.clone(),
+            fission_game::ImageAsset::asset(&102_u32, "fish-orange.png", 192, 192),
+            Transform2D::at(Place::new(Px(180.0), Px(120.0))),
+            Size::new(Px(48.0), Px(48.0)),
+            Layer(1),
+        );
+
+        let widget: Widget = Scene2DView::new(scene.finish(fission_game::Tick(0)), 240.0, 180.0)
+            .on_tap(first.clone(), "Catch blue fish", action.clone())
+            .on_tap(second.clone(), "Catch orange fish", action)
+            .into();
+        let ir = fission_core::internal::lower_widget_to_ir(&widget);
+
+        assert!(ir.nodes.contains_key(&first.widget_id()));
+        assert!(ir.nodes.contains_key(&second.widget_id()));
+        assert_ne!(first.widget_id(), second.widget_id());
+    }
+
+    #[test]
     fn center_transform_rotates_and_scales_around_the_sprite_center() {
         let matrix = transform_matrix(
             Transform2D {

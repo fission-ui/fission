@@ -99,6 +99,16 @@ impl StableKey for Arc<str> {
     }
 }
 
+impl<A, B> StableKey for (A, B)
+where
+    A: StableKey,
+    B: StableKey,
+{
+    fn stable_key(&self) -> StableKeyValue {
+        StableKeyValue::Tuple(vec![self.0.stable_key(), self.1.stable_key()])
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -110,6 +120,10 @@ mod tests {
         assert_eq!(
             "object".to_owned().stable_key(),
             StableKeyValue::Str(Arc::from("object"))
+        );
+        assert_eq!(
+            (7_u32, 2_u8).stable_key(),
+            StableKeyValue::Tuple(vec![StableKeyValue::U64(7), StableKeyValue::U64(2)])
         );
     }
 }
