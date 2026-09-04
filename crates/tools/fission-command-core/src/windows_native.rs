@@ -1,5 +1,7 @@
 use crate::{
-    native_cargo::{cargo_target_directory, expand_cargo_target_directory},
+    native_cargo::{
+        cargo_target_directory, expand_cargo_target_directory, set_cargo_working_directory,
+    },
     FissionProject, NativeVariant,
 };
 use anyhow::{bail, Context, Result};
@@ -367,8 +369,8 @@ fn run_cargo_module_command(
         .arg("--manifest-path")
         .arg(&manifest)
         .arg("--package")
-        .arg(package)
-        .current_dir(project_dir);
+        .arg(package);
+    set_cargo_working_directory(&mut command, project_dir);
     if release && cargo_command == "build" {
         command.arg("--release");
     }
@@ -563,6 +565,18 @@ fn resolve_project_path(project_dir: &Path, value: &str) -> PathBuf {
 }
 
 fn canonical_project_dir(project_dir: &Path) -> Result<PathBuf> {
+    #[cfg(target_os = "windows")]
+    {
+        return if project_dir.is_absolute() {
+            Ok(project_dir.to_path_buf())
+        } else {
+            Ok(env::current_dir()
+                .context("failed to resolve the current directory")?
+                .join(project_dir))
+        };
+    }
+
+    #[cfg(not(target_os = "windows"))]
     fs::canonicalize(project_dir).with_context(|| {
         format!(
             "failed to resolve project directory {}",
@@ -846,6 +860,14 @@ destination = "tools/demo-helper.exe"
         let path = r"D:\a\demo\packages".encode_utf16().collect::<Vec<_>>();
 
         assert!(normalize_windows_verbatim_units(&path).is_none());
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn preserves_absolute_mapped_drive_project_path() {
+        let project_dir = Path::new(r"Z:\shared\example");
+
+        assert_eq!(canonical_project_dir(project_dir).unwrap(), project_dir);
     }
 
     fn unique_dir(label: &str) -> PathBuf {
