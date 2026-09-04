@@ -102,6 +102,8 @@ pub use fission_assets::{
 };
 #[cfg(feature = "game")]
 pub use fission_game::*;
+#[cfg(feature = "game")]
+pub use fission_game_2d::*;
 
 /// Authoring widgets — Modal, Popover, Tooltip, Menu, Combobox, SplitView, etc.
 pub mod widgets {

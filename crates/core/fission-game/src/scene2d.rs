@@ -2,7 +2,8 @@
 
 use std::cmp::Ordering;
 
-use fission_ir::op::Color;
+use fission_ir::op::{Color, ImageRequest, ImageSource};
+use fission_ir::WidgetId;
 use serde::{Deserialize, Serialize};
 
 use crate::{Bounds2D, Degrees, Place, Px, Size, StableKey, StableKeyValue, Tick};
@@ -18,6 +19,12 @@ pub struct SceneNodeId(pub StableKeyValue);
 impl SceneNodeId {
     pub fn from_key(key: &impl StableKey) -> Self {
         Self(key.stable_key())
+    }
+
+    /// Converts the structural game identity into Fission's retained widget
+    /// identity domain for scene hit testing and runtime-state preservation.
+    pub fn widget_id(&self) -> WidgetId {
+        WidgetId::explicit(&format!("fission.game.scene:{}", self.0.canonical()))
     }
 }
 
@@ -77,20 +84,46 @@ impl Transform2D {
 }
 
 /// Typed reference to an image prepared by an asset pipeline.
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ImageAsset {
     pub id: StableKeyValue,
+    /// Renderer-facing source and loading policy produced by the asset build.
+    pub request: ImageRequest,
     pub pixel_width: u32,
     pub pixel_height: u32,
 }
 
 impl ImageAsset {
-    pub fn from_key(key: &impl StableKey, pixel_width: u32, pixel_height: u32) -> Self {
+    pub fn new(
+        key: &impl StableKey,
+        request: ImageRequest,
+        pixel_width: u32,
+        pixel_height: u32,
+    ) -> Self {
         Self {
             id: key.stable_key(),
+            request,
             pixel_width,
             pixel_height,
         }
+    }
+
+    /// Creates a compiled application asset reference.
+    pub fn asset(
+        key: &impl StableKey,
+        path: impl Into<String>,
+        pixel_width: u32,
+        pixel_height: u32,
+    ) -> Self {
+        Self::new(
+            key,
+            ImageRequest {
+                source: ImageSource::Asset { path: path.into() },
+                ..Default::default()
+            },
+            pixel_width,
+            pixel_height,
+        )
     }
 }
 
@@ -515,7 +548,7 @@ mod tests {
 
     #[test]
     fn finish_validates_culls_and_batches_without_reordering() {
-        let image = ImageAsset::from_key(&7_u32, 64, 64);
+        let image = ImageAsset::asset(&7_u32, "fish.png", 64, 64);
         let mut scene = Scene2D::new();
         scene.camera_bounds(Bounds2D::from_top_left(
             Place::new(Px(0.0), Px(0.0)),

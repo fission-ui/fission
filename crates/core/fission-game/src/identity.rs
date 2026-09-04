@@ -41,6 +41,24 @@ pub enum StableKeyValue {
     Tuple(Vec<Self>),
 }
 
+impl StableKeyValue {
+    pub(crate) fn canonical(&self) -> String {
+        match self {
+            Self::U64(value) => format!("u:{value}"),
+            Self::I64(value) => format!("i:{value}"),
+            Self::Str(value) => format!("s:{}:{value}", value.len()),
+            Self::Tuple(values) => {
+                let mut encoded = String::from("t:");
+                for value in values {
+                    let value = value.canonical();
+                    encoded.push_str(&format!("{}:{value}", value.len()));
+                }
+                encoded
+            }
+        }
+    }
+}
+
 /// Converts a durable domain key into a deterministic structural value.
 pub trait StableKey: Clone + Eq + std::fmt::Debug + 'static {
     fn stable_key(&self) -> StableKeyValue;

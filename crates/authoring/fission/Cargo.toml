@@ -17,7 +17,7 @@ readme = "README.md"
 [features]
 default = []
 assets = ["dep:fission-assets"]
-game = ["assets", "dep:fission-game"]
+game = ["assets", "dep:fission-game", "dep:fission-game-2d"]
 charts = ["dep:fission-charts"]
 desktop = ["dep:fission-shell-desktop", "interactive-canvas"]
 desktop-tray = ["desktop", "fission-shell-desktop?/tray"]
@@ -77,6 +77,7 @@ fission-core = { path = "../../core/fission-core", version = "0.14.1" }
 fission-3d = { path = "../../core/fission-3d", version = "0.14.1", optional = true }
 fission-assets = { path = "../../core/fission-assets", version = "0.14.1", optional = true }
 fission-game = { path = "../../core/fission-game", version = "0.14.1", optional = true }
+fission-game-2d = { path = "../fission-game-2d", version = "0.14.1", optional = true }
 fission-ir = { path = "../../core/fission-ir", version = "0.14.1" }
 fission-layout = { path = "../../core/fission-layout", version = "0.14.1" }
 fission-text-engine = { path = "../../core/fission-text-engine", version = "0.14.1" }

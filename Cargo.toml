@@ -12,6 +12,7 @@ members = [
     "crates/core/fission-store",
     "crates/core/fission-store-sqlite",
     "crates/authoring/fission-macros",
+    "crates/authoring/fission-game-2d",
     "crates/authoring/fission-widgets",
     "crates/authoring/fission-icons",
     "crates/authoring/fission-charts",

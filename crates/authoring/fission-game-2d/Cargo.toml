@@ -1,0 +1,19 @@
+[package]
+name = "fission-game-2d"
+version = "0.14.1"
+edition = "2021"
+license = "Apache-2.0"
+repository = "https://github.com/fission-ui/fission"
+homepage = "https://fission.rs"
+documentation = "https://fission.rs"
+description = "Retained 2D scene widgets for Fission games and applications"
+categories = ["game-development", "game-engines", "graphics"]
+keywords = ["fission", "game", "2d", "sprites", "cross-platform"]
+
+[package.metadata.fission]
+platforms = ["android", "ios", "linux", "macos", "windows", "web"]
+
+[dependencies]
+fission-core = { path = "../../core/fission-core", version = "0.14.1" }
+fission-game = { path = "../../core/fission-game", version = "0.14.1" }
+fission-ir = { path = "../../core/fission-ir", version = "0.14.1" }

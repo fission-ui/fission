@@ -2728,6 +2728,7 @@ dependencies = [
  "fission-core",
  "fission-diagnostics",
  "fission-game",
+ "fission-game-2d",
  "fission-i18n",
  "fission-icons",
  "fission-ir",
@@ -3005,6 +3006,15 @@ version = "0.14.1"
 dependencies = [
  "fission-ir",
  "serde",
+]
+
+[[package]]
+name = "fission-game-2d"
+version = "0.14.1"
+dependencies = [
+ "fission-core",
+ "fission-game",
+ "fission-ir",
 ]
 
 [[package]]

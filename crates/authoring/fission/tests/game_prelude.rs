@@ -21,6 +21,7 @@ impl Game for PreludeGame {
 fn game_runtime_and_scene_types_are_available_from_the_prelude() {
     let mut game = GameTestHarness::new(PreludeGame);
     let frame = game.advance(Duration::from_millis(17));
-    let _: Scene2DIR = frame.scene;
+    let scene: Scene2DIR = frame.scene;
+    let _: Widget = Scene2DView::new(scene, 320.0, 180.0).into();
     let _: InputTrigger = InputTrigger::Confirm;
 }
