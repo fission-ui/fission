@@ -8,8 +8,8 @@ use std::collections::BTreeMap;
 
 use fission_core::ui::widgets::Transform;
 use fission_core::ui::{
-    Composite, Container, Image, Positioned, Pressable, PressableRole, PressableStyle, Text,
-    Widget, ZStack,
+    Composite, Container, GestureDetector, Image, Positioned, Pressable, PressableRole,
+    PressableStyle, SemanticsRegion, Text, Widget, ZStack,
 };
 use fission_core::ActionEnvelope;
 use fission_game::{
@@ -51,6 +51,110 @@ impl SceneTapAction {
     }
 }
 
+/// Semantic interactions attached to one retained scene object.
+///
+/// The action payloads normally contain the object's durable domain identity;
+/// live pointer coordinates and deltas remain in `ReducerContext::input`.
+/// Disabled declarations keep the object visible but suppress every action.
+#[derive(Clone, Debug)]
+pub struct SceneObjectActions {
+    /// Localized accessible name for the scene object.
+    pub label: String,
+    /// Action dispatched for ordinary pointer, keyboard, accessibility, and
+    /// LiveTest activation.
+    pub on_tap: Option<ActionEnvelope>,
+    /// Action dispatched once when an object drag crosses Fission's gesture
+    /// threshold.
+    pub on_drag_start: Option<ActionEnvelope>,
+    /// Action dispatched for subsequent drag movement.
+    pub on_drag_update: Option<ActionEnvelope>,
+    /// Action dispatched when a captured drag finishes.
+    pub on_drag_end: Option<ActionEnvelope>,
+    /// Action dispatched after the platform long-press threshold.
+    pub on_long_press: Option<ActionEnvelope>,
+    /// Whether all interaction and focus are suppressed.
+    pub disabled: bool,
+    /// Optional stable identifier used by semantic tests and automation.
+    pub semantics_identifier: Option<String>,
+}
+
+impl SceneObjectActions {
+    /// Creates an interaction declaration with a localized accessible label
+    /// and no actions. Add only the gestures the object supports.
+    pub fn new(label: impl Into<String>) -> Self {
+        Self {
+            label: label.into(),
+            on_tap: None,
+            on_drag_start: None,
+            on_drag_update: None,
+            on_drag_end: None,
+            on_long_press: None,
+            disabled: false,
+            semantics_identifier: None,
+        }
+    }
+
+    /// Dispatches `action` when the object is activated through pointer,
+    /// keyboard, accessibility, or LiveTest input.
+    pub fn on_tap(mut self, action: ActionEnvelope) -> Self {
+        self.on_tap = Some(action);
+        self
+    }
+
+    /// Dispatches `action` once a pointer movement becomes a drag.
+    pub fn on_drag_start(mut self, action: ActionEnvelope) -> Self {
+        self.on_drag_start = Some(action);
+        self
+    }
+
+    /// Dispatches `action` for each movement after drag capture. The reducer
+    /// reads the current point and incremental delta from its action input.
+    pub fn on_drag_update(mut self, action: ActionEnvelope) -> Self {
+        self.on_drag_update = Some(action);
+        self
+    }
+
+    /// Dispatches `action` when the captured drag ends.
+    pub fn on_drag_end(mut self, action: ActionEnvelope) -> Self {
+        self.on_drag_end = Some(action);
+        self
+    }
+
+    /// Dispatches `action` after Fission recognizes a long press.
+    pub fn on_long_press(mut self, action: ActionEnvelope) -> Self {
+        self.on_long_press = Some(action);
+        self
+    }
+
+    /// Keeps the object visible and described semantically while suppressing
+    /// all configured gestures and focus.
+    pub fn disabled(mut self, disabled: bool) -> Self {
+        self.disabled = disabled;
+        self
+    }
+
+    /// Sets a stable identifier for accessibility and LiveTest selectors.
+    pub fn semantics_identifier(mut self, identifier: impl Into<String>) -> Self {
+        self.semantics_identifier = Some(identifier.into());
+        self
+    }
+}
+
+impl From<SceneTapAction> for SceneObjectActions {
+    fn from(tap: SceneTapAction) -> Self {
+        Self {
+            label: tap.label,
+            on_tap: Some(tap.action),
+            disabled: tap.disabled,
+            semantics_identifier: tap.semantics_identifier,
+            on_drag_start: None,
+            on_drag_update: None,
+            on_drag_end: None,
+            on_long_press: None,
+        }
+    }
+}
+
 /// Graphical adapter for a validated renderer-independent 2D scene.
 ///
 /// Scene declarations become ordinary retained widgets rather than a private
@@ -61,7 +165,7 @@ pub struct Scene2DView {
     pub scene: Scene2DIR,
     pub width: f32,
     pub height: f32,
-    taps: BTreeMap<SceneNodeId, SceneTapAction>,
+    interactions: BTreeMap<SceneNodeId, SceneObjectActions>,
 }
 
 impl Scene2DView {
@@ -70,7 +174,7 @@ impl Scene2DView {
             scene,
             width: finite_non_negative(width),
             height: finite_non_negative(height),
-            taps: BTreeMap::new(),
+            interactions: BTreeMap::new(),
         }
     }
 
@@ -82,14 +186,22 @@ impl Scene2DView {
         label: impl Into<String>,
         action: ActionEnvelope,
     ) -> Self {
-        self.taps.insert(id, SceneTapAction::new(label, action));
+        self.interactions
+            .insert(id, SceneObjectActions::new(label).on_tap(action));
         self
     }
 
     /// Attaches a complete activation declaration, including disabled state
     /// and a stable semantic-test identifier.
     pub fn tap_action(mut self, id: SceneNodeId, tap: SceneTapAction) -> Self {
-        self.taps.insert(id, tap);
+        self.interactions.insert(id, tap.into());
+        self
+    }
+
+    /// Attaches tap, drag, and long-press behavior to one retained scene
+    /// object without introducing a renderer-specific input path.
+    pub fn object_actions(mut self, id: SceneNodeId, actions: SceneObjectActions) -> Self {
+        self.interactions.insert(id, actions);
         self
     }
 }
@@ -98,7 +210,7 @@ impl From<Scene2DView> for Widget {
     fn from(view: Scene2DView) -> Self {
         let mut children = Vec::new();
         for command in view.scene.commands {
-            append_command(&mut children, command, &view.taps);
+            append_command(&mut children, command, &view.interactions);
         }
 
         Container::new(ZStack {
@@ -113,7 +225,7 @@ impl From<Scene2DView> for Widget {
 fn append_command(
     children: &mut Vec<Widget>,
     command: Scene2DCommand,
-    taps: &BTreeMap<SceneNodeId, SceneTapAction>,
+    interactions: &BTreeMap<SceneNodeId, SceneObjectActions>,
 ) {
     match command {
         Scene2DCommand::Clear { color } => children.push(
@@ -138,7 +250,7 @@ fn append_command(
             children.push(positioned(
                 id.clone(),
                 bounds,
-                with_interaction(id, with_opacity(visual, opacity), taps),
+                with_interaction(id, with_opacity(visual, opacity), interactions),
             ));
         }
         Scene2DCommand::DrawImage {
@@ -154,7 +266,7 @@ fn append_command(
             transform,
             size,
             opacity,
-            taps,
+            interactions,
         )),
         Scene2DCommand::DrawText {
             id,
@@ -171,7 +283,7 @@ fn append_command(
             children.push(positioned(
                 id.clone(),
                 bounds,
-                with_interaction(id, visual, taps),
+                with_interaction(id, visual, interactions),
             ));
         }
         Scene2DCommand::ImageBatch {
@@ -190,7 +302,7 @@ fn append_command(
                     transform,
                     size,
                     opacity,
-                    taps,
+                    interactions,
                 ));
             }
         }
@@ -203,7 +315,7 @@ fn image_widget(
     transform: Transform2D,
     size: Size,
     opacity: f32,
-    taps: &BTreeMap<SceneNodeId, SceneTapAction>,
+    interactions: &BTreeMap<SceneNodeId, SceneObjectActions>,
 ) -> Widget {
     let visual: Widget = Image {
         request,
@@ -216,27 +328,59 @@ fn image_widget(
     .into();
     let visual = transformed(with_opacity(visual, opacity), transform, size);
     let bounds = placement_bounds(transform, size);
-    positioned(id.clone(), bounds, with_interaction(id, visual, taps))
+    positioned(
+        id.clone(),
+        bounds,
+        with_interaction(id, visual, interactions),
+    )
 }
 
 fn with_interaction(
     id: SceneNodeId,
     visual: Widget,
-    taps: &BTreeMap<SceneNodeId, SceneTapAction>,
+    interactions: &BTreeMap<SceneNodeId, SceneObjectActions>,
 ) -> Widget {
     let retained_id = id.widget_id();
-    if let Some(tap) = taps.get(&id) {
+    let Some(actions) = interactions.get(&id) else {
+        return Container {
+            id: Some(retained_id),
+            child: Some(visual),
+            ..Default::default()
+        }
+        .into();
+    };
+
+    let interactive_visual: Widget = GestureDetector {
+        child: visual,
+        on_drag_start: (!actions.disabled)
+            .then(|| actions.on_drag_start.clone())
+            .flatten(),
+        on_drag_update: (!actions.disabled)
+            .then(|| actions.on_drag_update.clone())
+            .flatten(),
+        on_drag_end: (!actions.disabled)
+            .then(|| actions.on_drag_end.clone())
+            .flatten(),
+        on_long_press: (!actions.disabled)
+            .then(|| actions.on_long_press.clone())
+            .flatten(),
+        ..Default::default()
+    }
+    .into();
+    let identifier = actions
+        .semantics_identifier
+        .clone()
+        .or_else(|| Some(format!("game.scene.{}", retained_id.as_u128())));
+
+    if let Some(on_tap) = &actions.on_tap {
         Pressable {
             id: Some(retained_id),
-            child: visual,
-            on_press: Some(tap.action.clone()),
-            label: Some(tap.label.clone()),
-            semantics_identifier: tap
-                .semantics_identifier
-                .clone()
-                .or_else(|| Some(format!("game.scene.{}", retained_id.as_u128()))),
+            child: interactive_visual,
+            on_press: Some(on_tap.clone()),
+            label: Some(actions.label.clone()),
+            semantics_identifier: identifier,
             role: PressableRole::Button,
-            disabled: tap.disabled,
+            disabled: actions.disabled,
             hover_style: Some(PressableStyle {
                 scale: Some(1.08),
                 ..Default::default()
@@ -249,12 +393,12 @@ fn with_interaction(
         }
         .into()
     } else {
-        Container {
-            id: Some(retained_id),
-            child: Some(visual),
-            ..Default::default()
-        }
-        .into()
+        let mut region = SemanticsRegion::new(interactive_visual)
+            .label(actions.label.clone())
+            .role(fission_ir::semantics::Role::Generic);
+        region.id = Some(retained_id);
+        region.identifier = identifier;
+        region.into()
     }
 }
 
@@ -323,7 +467,10 @@ fn finite_non_negative(value: f32) -> f32 {
 #[cfg(test)]
 mod tests {
     use fission_game::{Layer, Place, Px};
-    use fission_ir::op::{Color, Op};
+    use fission_ir::{
+        op::{Color, Op},
+        semantics::ActionTrigger,
+    };
 
     use super::*;
 
@@ -398,6 +545,103 @@ mod tests {
         assert!(ir.nodes.contains_key(&first.widget_id()));
         assert!(ir.nodes.contains_key(&second.widget_id()));
         assert_ne!(first.widget_id(), second.widget_id());
+    }
+
+    #[test]
+    fn scene_object_actions_preserve_drag_contract_and_payloads() {
+        let object = SceneNodeId::from_key(&88_u32);
+        let drag_start = ActionEnvelope {
+            id: fission_core::ActionId::from_name("scene-drag-start"),
+            payload: vec![1, 3, 5],
+        };
+        let drag_update = ActionEnvelope {
+            id: fission_core::ActionId::from_name("scene-drag-update"),
+            payload: vec![2, 4, 6],
+        };
+        let drag_end = ActionEnvelope {
+            id: fission_core::ActionId::from_name("scene-drag-end"),
+            payload: vec![7, 8, 9],
+        };
+        let mut scene = fission_game::Scene2D::new();
+        scene.rect(
+            object.clone(),
+            Bounds2D::from_top_left(Place::new(Px(8.0), Px(12.0)), Size::new(Px(36.0), Px(28.0))),
+            Color::BLUE,
+            Layer(1),
+        );
+
+        let widget: Widget = Scene2DView::new(scene.finish(fission_game::Tick(0)), 120.0, 90.0)
+            .object_actions(
+                object.clone(),
+                SceneObjectActions::new("Move survivor")
+                    .on_drag_start(drag_start.clone())
+                    .on_drag_update(drag_update.clone())
+                    .on_drag_end(drag_end.clone())
+                    .semantics_identifier("game.scene.survivor"),
+            )
+            .into();
+        let ir = fission_core::internal::lower_widget_to_ir(&widget);
+
+        let semantic_nodes = ir
+            .nodes
+            .values()
+            .filter_map(|node| match &node.op {
+                Op::Semantics(semantics) => Some((node.id, semantics)),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert!(semantic_nodes.iter().any(|(id, semantics)| {
+            *id == object.widget_id()
+                && semantics.identifier.as_deref() == Some("game.scene.survivor")
+                && semantics.label.as_deref() == Some("Move survivor")
+        }));
+
+        let assert_action = |trigger, expected: &ActionEnvelope| {
+            assert!(semantic_nodes.iter().any(|(_, semantics)| {
+                semantics.actions.entries.iter().any(|entry| {
+                    entry.trigger == trigger
+                        && entry.action_id == expected.id.as_u128()
+                        && entry.payload_data.as_ref() == Some(&expected.payload)
+                })
+            }));
+        };
+        assert_action(ActionTrigger::DragStart, &drag_start);
+        assert_action(ActionTrigger::DragUpdate, &drag_update);
+        assert_action(ActionTrigger::DragEnd, &drag_end);
+    }
+
+    #[test]
+    fn disabled_scene_object_suppresses_every_interaction() {
+        let object = SceneNodeId::from_key(&99_u32);
+        let action = ActionEnvelope {
+            id: fission_core::ActionId::from_name("disabled-scene-action"),
+            payload: vec![42],
+        };
+        let mut scene = fission_game::Scene2D::new();
+        scene.rect(
+            object.clone(),
+            Bounds2D::from_top_left(Place::new(Px(0.0), Px(0.0)), Size::new(Px(20.0), Px(20.0))),
+            Color::BLUE,
+            Layer(1),
+        );
+
+        let widget: Widget = Scene2DView::new(scene.finish(fission_game::Tick(0)), 40.0, 40.0)
+            .object_actions(
+                object,
+                SceneObjectActions::new("Unavailable salvage")
+                    .on_tap(action.clone())
+                    .on_drag_start(action.clone())
+                    .on_drag_update(action.clone())
+                    .on_drag_end(action)
+                    .disabled(true),
+            )
+            .into();
+        let ir = fission_core::internal::lower_widget_to_ir(&widget);
+
+        assert!(ir.nodes.values().all(|node| match &node.op {
+            Op::Semantics(semantics) => semantics.actions.entries.is_empty(),
+            _ => true,
+        }));
     }
 
     #[test]

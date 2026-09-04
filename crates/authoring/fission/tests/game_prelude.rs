@@ -56,6 +56,9 @@ fn game_runtime_and_scene_types_are_available_from_the_prelude() {
     let mut game = GameTestHarness::new(state);
     let frame = game.advance(Duration::from_millis(17));
     let scene: Scene2DIR = frame.scene;
-    let _: Widget = Scene2DView::new(scene, 320.0, 180.0).into();
+    let scene_object = SceneNodeId::from_key(&EntityId::Player);
+    let _: Widget = Scene2DView::new(scene, 320.0, 180.0)
+        .object_actions(scene_object, SceneObjectActions::new("Player"))
+        .into();
     let _: InputTrigger = InputTrigger::Confirm;
 }
