@@ -8,7 +8,8 @@ use std::collections::BTreeMap;
 
 use fission_core::ui::widgets::Transform;
 use fission_core::ui::{
-    Composite, Container, Image, Positioned, Pressable, PressableRole, Text, Widget, ZStack,
+    Composite, Container, Image, Positioned, Pressable, PressableRole, PressableStyle, Text,
+    Widget, ZStack,
 };
 use fission_core::ActionEnvelope;
 use fission_game::{
@@ -23,6 +24,31 @@ pub struct SceneTapAction {
     pub label: String,
     /// Context-preserving application action dispatched on activation.
     pub action: ActionEnvelope,
+    /// Whether activation and focus are suppressed while retaining semantics.
+    pub disabled: bool,
+    /// Optional stable identifier used by semantic tests and automation.
+    pub semantics_identifier: Option<String>,
+}
+
+impl SceneTapAction {
+    pub fn new(label: impl Into<String>, action: ActionEnvelope) -> Self {
+        Self {
+            label: label.into(),
+            action,
+            disabled: false,
+            semantics_identifier: None,
+        }
+    }
+
+    pub fn disabled(mut self, disabled: bool) -> Self {
+        self.disabled = disabled;
+        self
+    }
+
+    pub fn semantics_identifier(mut self, identifier: impl Into<String>) -> Self {
+        self.semantics_identifier = Some(identifier.into());
+        self
+    }
 }
 
 /// Graphical adapter for a validated renderer-independent 2D scene.
@@ -56,13 +82,14 @@ impl Scene2DView {
         label: impl Into<String>,
         action: ActionEnvelope,
     ) -> Self {
-        self.taps.insert(
-            id,
-            SceneTapAction {
-                label: label.into(),
-                action,
-            },
-        );
+        self.taps.insert(id, SceneTapAction::new(label, action));
+        self
+    }
+
+    /// Attaches a complete activation declaration, including disabled state
+    /// and a stable semantic-test identifier.
+    pub fn tap_action(mut self, id: SceneNodeId, tap: SceneTapAction) -> Self {
+        self.taps.insert(id, tap);
         self
     }
 }
@@ -204,8 +231,20 @@ fn with_interaction(
             child: visual,
             on_press: Some(tap.action.clone()),
             label: Some(tap.label.clone()),
-            semantics_identifier: Some(format!("game.scene.{}", retained_id.as_u128())),
+            semantics_identifier: tap
+                .semantics_identifier
+                .clone()
+                .or_else(|| Some(format!("game.scene.{}", retained_id.as_u128()))),
             role: PressableRole::Button,
+            disabled: tap.disabled,
+            hover_style: Some(PressableStyle {
+                scale: Some(1.08),
+                ..Default::default()
+            }),
+            pressed_style: Some(PressableStyle {
+                scale: Some(0.94),
+                ..Default::default()
+            }),
             ..Default::default()
         }
         .into()

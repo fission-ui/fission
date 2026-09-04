@@ -108,8 +108,8 @@ mod tests {
         assert_eq!(42_u32.stable_key(), StableKeyValue::U64(42));
         assert_eq!((-7_i16).stable_key(), StableKeyValue::I64(-7));
         assert_eq!(
-            "raft".to_owned().stable_key(),
-            StableKeyValue::Str(Arc::from("raft"))
+            "object".to_owned().stable_key(),
+            StableKeyValue::Str(Arc::from("object"))
         );
     }
 }

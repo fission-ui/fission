@@ -548,7 +548,7 @@ mod tests {
 
     #[test]
     fn finish_validates_culls_and_batches_without_reordering() {
-        let image = ImageAsset::asset(&7_u32, "fish.png", 64, 64);
+        let image = ImageAsset::asset(&7_u32, "sprite.png", 64, 64);
         let mut scene = Scene2D::new();
         scene.camera_bounds(Bounds2D::from_top_left(
             Place::new(Px(0.0), Px(0.0)),
