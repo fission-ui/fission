@@ -14,4 +14,5 @@ keywords = ["fission", "game", "deterministic", "2d", "3d"]
 platforms = ["android", "ios", "linux", "macos", "windows", "web"]
 
 [dependencies]
+fission-ir = { path = "../fission-ir", version = "0.14.1" }
 serde = { version = "1.0", features = ["derive", "rc"] }
