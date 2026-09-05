@@ -604,12 +604,12 @@ mod tests {
         let widget: Widget = Scene2DView::new(scene.finish(fission_game::Tick(0)), 120.0, 90.0)
             .object_actions(
                 object.clone(),
-                SceneObjectActions::new("Move survivor")
+                SceneObjectActions::new("Move scene object")
                     .on_drag_start(drag_start.clone())
                     .on_drag_update(drag_update.clone())
                     .on_drag_end(drag_end.clone())
                     .on_drag_cancel(drag_cancel.clone())
-                    .semantics_identifier("game.scene.survivor"),
+                    .semantics_identifier("demo.scene.movable"),
             )
             .into();
         let ir = fission_core::internal::lower_widget_to_ir(&widget);
@@ -624,8 +624,8 @@ mod tests {
             .collect::<Vec<_>>();
         assert!(semantic_nodes.iter().any(|(id, semantics)| {
             *id == object.widget_id()
-                && semantics.identifier.as_deref() == Some("game.scene.survivor")
-                && semantics.label.as_deref() == Some("Move survivor")
+                && semantics.identifier.as_deref() == Some("demo.scene.movable")
+                && semantics.label.as_deref() == Some("Move scene object")
         }));
 
         let assert_action = |trigger, expected: &ActionEnvelope| {
@@ -729,7 +729,7 @@ mod tests {
         let widget: Widget = Scene2DView::new(scene.finish(fission_game::Tick(0)), 40.0, 40.0)
             .object_actions(
                 object,
-                SceneObjectActions::new("Unavailable salvage")
+                SceneObjectActions::new("Unavailable object")
                     .on_tap(action.clone())
                     .on_drag_start(action.clone())
                     .on_drag_update(action.clone())
