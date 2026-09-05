@@ -41,6 +41,7 @@ This is a good use case because the interaction is more specific than a plain bu
 | `on_drag_start` | `Option<ActionEnvelope>` | Action for drag start. | Defaults to `None`. |
 | `on_drag_update` | `Option<ActionEnvelope>` | Action for drag movement. | Defaults to `None`. |
 | `on_drag_end` | `Option<ActionEnvelope>` | Action for drag end. | Defaults to `None`. |
+| `on_drag_cancel` | `Option<ActionEnvelope>` | Action for an active drag interrupted by the platform. When absent, `on_drag_end` is used as a compatibility fallback. | Defaults to `None`. |
 | `on_hover_enter` | `Option<ActionEnvelope>` | Action when the pointer enters the bounds. | Useful on desktop and web. |
 | `on_hover_exit` | `Option<ActionEnvelope>` | Action when the pointer leaves the bounds. | Useful on desktop and web. |
 | `on_drop` | `Option<ActionEnvelope>` | Action when a drag payload is dropped on this widget. | Defaults to `None`. |
@@ -54,6 +55,8 @@ This is a good use case because the interaction is more specific than a plain bu
 `GestureDetector` lowers to a semantics node rather than a visual node. That matters because it means the wrapped child keeps its layout and appearance, while the detector adds interaction triggers around it.
 
 The lowered semantics also advertise drag capability when drag handlers or drag payload are present. That is what makes it a useful building block for custom drag-and-drop flows.
+
+A normal pointer release dispatches `on_drag_end`. A platform interruption dispatches `on_drag_cancel` instead. If no cancel action is configured, Fission falls back to `on_drag_end` so existing drag declarations keep their behavior; one cancellation never dispatches both actions.
 
 ## Specific advice
 

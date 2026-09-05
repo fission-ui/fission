@@ -40,18 +40,26 @@ fn record_drag(state: &mut DragState, action: RecordDrag, ctx: &mut ReducerConte
 }
 
 fn action(event: &str) -> ActionEntry {
-    let action = RecordDrag {
-        event: event.into(),
-    };
-    ActionEntry {
-        trigger: match event {
+    triggered_action(
+        match event {
             "drop" => ActionTrigger::Drop,
             "enter" => ActionTrigger::DragEnter,
             "leave" => ActionTrigger::DragLeave,
             "start" => ActionTrigger::DragStart,
             "end" => ActionTrigger::DragEnd,
+            "cancel" => ActionTrigger::DragCancel,
             _ => ActionTrigger::Default,
         },
+        event,
+    )
+}
+
+fn triggered_action(trigger: ActionTrigger, event: &str) -> ActionEntry {
+    let action = RecordDrag {
+        event: event.into(),
+    };
+    ActionEntry {
+        trigger,
         action_id: RecordDrag::static_id().as_u128(),
         payload_data: Some(action.encode()),
     }
@@ -76,7 +84,7 @@ fn drag_tree() -> (CoreIR, LayoutSnapshot, WidgetId, WidgetId, WidgetId) {
         identifier: Some("demo.drag.source".into()),
         drag_payload: Some(b"card-1".to_vec()),
         actions: ActionSet {
-            entries: vec![action("start"), action("end")],
+            entries: vec![action("start"), action("end"), action("cancel")],
         },
         ..Default::default()
     };
@@ -122,6 +130,151 @@ fn drag_tree() -> (CoreIR, LayoutSnapshot, WidgetId, WidgetId, WidgetId) {
     );
 
     (ir, layout, root, source, target)
+}
+
+#[test]
+fn pointer_cancel_dispatches_cancel_without_dispatching_normal_end() -> Result<()> {
+    let (ir, layout, _, _, _) = drag_tree();
+    let mut runtime = runtime()?;
+    let source_point = LayoutPoint::new(20.0, 20.0);
+    let drag_point = LayoutPoint::new(90.0, 30.0);
+
+    runtime.handle_input(
+        InputEvent::Pointer(PointerEvent::Down {
+            pointer_id: Default::default(),
+            kind: Default::default(),
+            point: source_point,
+            button: PointerButton::Primary,
+            modifiers: 0,
+        }),
+        &ir,
+        &layout,
+    )?;
+    runtime.handle_input(
+        InputEvent::Pointer(PointerEvent::Move {
+            pointer_id: Default::default(),
+            kind: Default::default(),
+            point: drag_point,
+            modifiers: 0,
+        }),
+        &ir,
+        &layout,
+    )?;
+    runtime.handle_input(
+        InputEvent::Pointer(PointerEvent::Cancel {
+            pointer_id: Default::default(),
+            kind: Default::default(),
+            point: drag_point,
+            modifiers: 0,
+        }),
+        &ir,
+        &layout,
+    )?;
+
+    assert_eq!(
+        state(&runtime).events,
+        vec!["start:pointer", "cancel:pointer"]
+    );
+    assert!(runtime.runtime_state.gesture.pressed_button.is_none());
+    assert!(runtime.runtime_state.gesture.target_node.is_none());
+    Ok(())
+}
+
+#[test]
+fn pointer_cancel_falls_back_to_drag_end_for_legacy_declarations() -> Result<()> {
+    let (mut ir, layout, _, source, _) = drag_tree();
+    let Op::Semantics(semantics) = &mut ir.nodes.get_mut(&source).unwrap().op else {
+        unreachable!("drag source must be semantic");
+    };
+    semantics
+        .actions
+        .entries
+        .retain(|entry| entry.trigger != ActionTrigger::DragCancel);
+    let mut runtime = runtime()?;
+    let source_point = LayoutPoint::new(20.0, 20.0);
+    let drag_point = LayoutPoint::new(90.0, 30.0);
+
+    for event in [
+        InputEvent::Pointer(PointerEvent::Down {
+            pointer_id: Default::default(),
+            kind: Default::default(),
+            point: source_point,
+            button: PointerButton::Primary,
+            modifiers: 0,
+        }),
+        InputEvent::Pointer(PointerEvent::Move {
+            pointer_id: Default::default(),
+            kind: Default::default(),
+            point: drag_point,
+            modifiers: 0,
+        }),
+        InputEvent::Pointer(PointerEvent::Cancel {
+            pointer_id: Default::default(),
+            kind: Default::default(),
+            point: drag_point,
+            modifiers: 0,
+        }),
+    ] {
+        runtime.handle_input(event, &ir, &layout)?;
+    }
+
+    assert_eq!(state(&runtime).events, vec!["start:pointer", "end:pointer"]);
+    Ok(())
+}
+
+#[test]
+fn nearer_legacy_drag_end_owns_cancel_before_ancestor_drag_cancel() -> Result<()> {
+    let (mut ir, mut layout, root, source, _) = drag_tree();
+    let outer = WidgetId::explicit("drag.outer-cancel-handler");
+    let Op::Semantics(source_semantics) = &mut ir.nodes.get_mut(&source).unwrap().op else {
+        unreachable!("drag source must be semantic");
+    };
+    source_semantics
+        .actions
+        .entries
+        .retain(|entry| entry.trigger != ActionTrigger::DragCancel);
+    ir.add_node(
+        outer,
+        semantics(
+            Role::Generic,
+            vec![triggered_action(ActionTrigger::DragCancel, "outer-cancel")],
+        ),
+        vec![source],
+    );
+    ir.nodes.get_mut(&outer).unwrap().parent = Some(root);
+    ir.nodes.get_mut(&root).unwrap().children[0] = outer;
+    let source_geometry = layout.nodes.get(&source).unwrap().clone();
+    layout.nodes.insert(outer, source_geometry);
+
+    let mut runtime = runtime()?;
+    let source_point = LayoutPoint::new(20.0, 20.0);
+    let drag_point = LayoutPoint::new(50.0, 30.0);
+    for event in [
+        InputEvent::Pointer(PointerEvent::Down {
+            pointer_id: Default::default(),
+            kind: Default::default(),
+            point: source_point,
+            button: PointerButton::Primary,
+            modifiers: 0,
+        }),
+        InputEvent::Pointer(PointerEvent::Move {
+            pointer_id: Default::default(),
+            kind: Default::default(),
+            point: drag_point,
+            modifiers: 0,
+        }),
+        InputEvent::Pointer(PointerEvent::Cancel {
+            pointer_id: Default::default(),
+            kind: Default::default(),
+            point: drag_point,
+            modifiers: 0,
+        }),
+    ] {
+        runtime.handle_input(event, &ir, &layout)?;
+    }
+
+    assert_eq!(state(&runtime).events, vec!["start:pointer", "end:pointer"]);
+    Ok(())
 }
 
 fn runtime() -> Result<Runtime> {

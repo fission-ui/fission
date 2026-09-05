@@ -46,6 +46,14 @@ pub struct Draggable {
     pub on_drag_start: Option<ActionEnvelope>,
     /// Action dispatched when the drag gesture ends.
     pub on_drag_end: Option<ActionEnvelope>,
+    /// Action dispatched when the platform interrupts an active drag.
+    ///
+    /// When present, cancellation dispatches only this action; ordinary
+    /// pointer release continues to dispatch only `on_drag_end`.
+    ///
+    /// If omitted, `on_drag_end` remains the compatibility fallback for both
+    /// release and cancellation.
+    pub on_drag_cancel: Option<ActionEnvelope>,
 }
 
 impl Draggable {
@@ -72,6 +80,7 @@ impl From<Draggable> for Widget {
             drag_payload: Some(this.payload.clone()),
             on_drag_start: this.on_drag_start.clone(),
             on_drag_end: this.on_drag_end.clone(),
+            on_drag_cancel: this.on_drag_cancel.clone(),
             ..Default::default()
         }
         .into()

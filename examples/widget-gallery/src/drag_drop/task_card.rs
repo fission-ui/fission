@@ -62,6 +62,7 @@ impl From<TaskCard> for Widget {
                 ctx.bind(DragStarted(card.label.clone()), reduce_with!(drag_started)),
             ),
             on_drag_end: Some(ctx.bind(DragEnded(card.label), reduce_with!(drag_ended))),
+            on_drag_cancel: None,
         }
         .into()
     }

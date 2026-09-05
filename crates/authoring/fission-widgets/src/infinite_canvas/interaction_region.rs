@@ -30,6 +30,7 @@ impl InternalLowerer for CanvasInteractionRegion {
                 entry(action, ActionTrigger::DragStart),
                 entry(action, ActionTrigger::DragUpdate),
                 entry(action, ActionTrigger::DragEnd),
+                entry(action, ActionTrigger::DragCancel),
             ]);
         }
         cx.insert_node(

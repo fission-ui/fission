@@ -70,6 +70,14 @@ pub struct SceneObjectActions {
     pub on_drag_update: Option<ActionEnvelope>,
     /// Action dispatched when a captured drag finishes.
     pub on_drag_end: Option<ActionEnvelope>,
+    /// Action dispatched when the platform cancels a captured drag.
+    ///
+    /// When present, cancellation dispatches only this action; ordinary
+    /// pointer release continues to dispatch only `on_drag_end`.
+    ///
+    /// If omitted, `on_drag_end` remains the compatibility fallback for both
+    /// release and cancellation.
+    pub on_drag_cancel: Option<ActionEnvelope>,
     /// Action dispatched after the platform long-press threshold.
     pub on_long_press: Option<ActionEnvelope>,
     /// Whether all interaction and focus are suppressed.
@@ -88,6 +96,7 @@ impl SceneObjectActions {
             on_drag_start: None,
             on_drag_update: None,
             on_drag_end: None,
+            on_drag_cancel: None,
             on_long_press: None,
             disabled: false,
             semantics_identifier: None,
@@ -117,6 +126,14 @@ impl SceneObjectActions {
     /// Dispatches `action` when the captured drag ends.
     pub fn on_drag_end(mut self, action: ActionEnvelope) -> Self {
         self.on_drag_end = Some(action);
+        self
+    }
+
+    /// Dispatches `action` when a captured drag is interrupted rather than
+    /// released normally. Its bound payload is preserved; the live pointer
+    /// position remains available through the reducer action input.
+    pub fn on_drag_cancel(mut self, action: ActionEnvelope) -> Self {
+        self.on_drag_cancel = Some(action);
         self
     }
 
@@ -150,6 +167,7 @@ impl From<SceneTapAction> for SceneObjectActions {
             on_drag_start: None,
             on_drag_update: None,
             on_drag_end: None,
+            on_drag_cancel: None,
             on_long_press: None,
         }
     }
@@ -361,6 +379,9 @@ fn with_interaction(
         on_drag_end: (!actions.disabled)
             .then(|| actions.on_drag_end.clone())
             .flatten(),
+        on_drag_cancel: (!actions.disabled)
+            .then(|| actions.on_drag_cancel.clone())
+            .flatten(),
         on_long_press: (!actions.disabled)
             .then(|| actions.on_long_press.clone())
             .flatten(),
@@ -562,6 +583,10 @@ mod tests {
             id: fission_core::ActionId::from_name("scene-drag-end"),
             payload: vec![7, 8, 9],
         };
+        let drag_cancel = ActionEnvelope {
+            id: fission_core::ActionId::from_name("scene-drag-cancel"),
+            payload: vec![10, 11, 12],
+        };
         let mut scene = fission_game::Scene2D::new();
         scene.rect(
             object.clone(),
@@ -577,6 +602,7 @@ mod tests {
                     .on_drag_start(drag_start.clone())
                     .on_drag_update(drag_update.clone())
                     .on_drag_end(drag_end.clone())
+                    .on_drag_cancel(drag_cancel.clone())
                     .semantics_identifier("game.scene.survivor"),
             )
             .into();
@@ -608,6 +634,7 @@ mod tests {
         assert_action(ActionTrigger::DragStart, &drag_start);
         assert_action(ActionTrigger::DragUpdate, &drag_update);
         assert_action(ActionTrigger::DragEnd, &drag_end);
+        assert_action(ActionTrigger::DragCancel, &drag_cancel);
     }
 
     #[test]
@@ -632,7 +659,8 @@ mod tests {
                     .on_tap(action.clone())
                     .on_drag_start(action.clone())
                     .on_drag_update(action.clone())
-                    .on_drag_end(action)
+                    .on_drag_end(action.clone())
+                    .on_drag_cancel(action)
                     .disabled(true),
             )
             .into();

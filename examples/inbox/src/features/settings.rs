@@ -281,6 +281,7 @@ impl From<SettingsModal> for Widget {
                         id: drag_active_id,
                         payload: serde_json::to_vec(&SetDragInProgress(false)).unwrap(),
                     }),
+                    on_drag_cancel: None,
                     child: Tag {
                         label: (*label).into(),
                         on_close: None,

@@ -54,6 +54,7 @@ fn test_internal_drag_drop_flow() {
                     payload: "hello".as_bytes().to_vec(),
                     on_drag_start: None,
                     on_drag_end: None,
+                    on_drag_cancel: None,
                     child: Button {
                         on_press: Some(ActionEnvelope {
                             id: ActionId::from_u128(100),

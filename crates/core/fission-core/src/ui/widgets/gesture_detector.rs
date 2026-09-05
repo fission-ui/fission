@@ -31,8 +31,10 @@ use serde::{Deserialize, Serialize};
 /// # Drag and drop
 ///
 /// Set `on_drag_start` / `on_drag_update` / `on_drag_end` for the source, and
-/// `on_drop` / `on_drag_enter` / `on_drag_leave` for the target. Attach
-/// `drag_payload` bytes to the source so the target can inspect the data.
+/// `on_drop` / `on_drag_enter` / `on_drag_leave` for the target. Use
+/// `on_drag_cancel` when an interrupted gesture must be distinguished from a
+/// successful pointer release. Attach `drag_payload` bytes to the source so
+/// the target can inspect the data.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GestureDetector {
     /// Explicit node identity.
@@ -54,6 +56,16 @@ pub struct GestureDetector {
     pub on_drag_update: Option<ActionEnvelope>,
     /// Action dispatched when the drag gesture ends.
     pub on_drag_end: Option<ActionEnvelope>,
+    /// Action dispatched when the platform cancels an active drag.
+    ///
+    /// When this is `Some`, the same cancellation does not dispatch
+    /// `on_drag_end`. Normal pointer release still dispatches only
+    /// `on_drag_end`.
+    ///
+    /// When this is `None`, Fission dispatches `on_drag_end` for cancellation
+    /// as a compatibility fallback. Canvas interactions still identify that
+    /// fallback with `CanvasInteractionPhase::Cancel`.
+    pub on_drag_cancel: Option<ActionEnvelope>,
     /// Action dispatched when the pointer enters the child bounds.
     pub on_hover_enter: Option<ActionEnvelope>,
     /// Action dispatched when the pointer leaves the child bounds.
@@ -84,6 +96,7 @@ impl Default for GestureDetector {
             on_drag_start: None,
             on_drag_update: None,
             on_drag_end: None,
+            on_drag_cancel: None,
             on_hover_enter: None,
             on_hover_exit: None,
             on_drop: None,
@@ -145,6 +158,8 @@ impl InternalLower for GestureDetector {
             autofocus: false,
             draggable: self.on_drag_start.is_some()
                 || self.on_drag_update.is_some()
+                || self.on_drag_end.is_some()
+                || self.on_drag_cancel.is_some()
                 || self.drag_payload.is_some(),
             scrollable_x: false,
             scrollable_y: false,
@@ -221,6 +236,14 @@ impl InternalLower for GestureDetector {
             });
         }
 
+        if let Some(a) = &self.on_drag_cancel {
+            semantics.actions.entries.push(ActionEntry {
+                trigger: ActionTrigger::DragCancel,
+                action_id: a.id.as_u128(),
+                payload_data: Some(a.payload.clone()),
+            });
+        }
+
         if let Some(a) = &self.on_hover_enter {
             semantics.actions.entries.push(ActionEntry {
                 trigger: ActionTrigger::HoverEnter,
@@ -264,5 +287,51 @@ impl InternalLower for GestureDetector {
         let mut node = InternalIrBuilder::new(id, Op::Semantics(semantics));
         node.add_child(child_id);
         node.build(cx)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{ActionId, Env, RuntimeState};
+
+    #[test]
+    fn lowering_preserves_distinct_drag_end_and_cancel_actions() {
+        let drag_end = ActionEnvelope {
+            id: ActionId::from_name("gesture-detector-drag-end"),
+            payload: vec![1, 2, 3],
+        };
+        let drag_cancel = ActionEnvelope {
+            id: ActionId::from_name("gesture-detector-drag-cancel"),
+            payload: vec![4, 5, 6],
+        };
+        let widget: Widget = GestureDetector {
+            on_drag_end: Some(drag_end.clone()),
+            on_drag_cancel: Some(drag_cancel.clone()),
+            ..Default::default()
+        }
+        .into();
+        let env = Env::default();
+        let runtime = RuntimeState::default();
+        let mut cx = InternalLoweringCx::new(&env, &runtime, None, None);
+        let root = widget.lower(&mut cx);
+        let Op::Semantics(semantics) = &cx.ir.nodes.get(&root).unwrap().op else {
+            panic!("gesture detector must lower to semantics");
+        };
+        assert!(semantics.draggable);
+
+        for (trigger, expected) in [
+            (ActionTrigger::DragEnd, drag_end),
+            (ActionTrigger::DragCancel, drag_cancel),
+        ] {
+            let entry = semantics
+                .actions
+                .entries
+                .iter()
+                .find(|entry| entry.trigger == trigger)
+                .unwrap();
+            assert_eq!(entry.action_id, expected.id.as_u128());
+            assert_eq!(entry.payload_data.as_ref(), Some(&expected.payload));
+        }
     }
 }

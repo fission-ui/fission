@@ -9,6 +9,32 @@ use fission_ir::op::RichTextAnnotation;
 use fission_ir::{semantics::ActionTrigger, Op, WidgetId};
 use fission_layout::{LayoutPoint, LayoutSnapshot};
 
+fn drag_cancel_route(
+    ir: &fission_ir::CoreIR,
+    start_node: WidgetId,
+) -> Option<(WidgetId, ActionTrigger)> {
+    let mut current_id = Some(start_node);
+    while let Some(node_id) = current_id {
+        let node = ir.nodes.get(&node_id)?;
+        if let Op::Semantics(semantics) = &node.op {
+            let trigger = [ActionTrigger::DragCancel, ActionTrigger::DragEnd]
+                .into_iter()
+                .find(|trigger| {
+                    semantics
+                        .actions
+                        .entries
+                        .iter()
+                        .any(|entry| entry.trigger == *trigger)
+                });
+            if let Some(trigger) = trigger {
+                return Some((node_id, trigger));
+            }
+        }
+        current_id = node.parent;
+    }
+    None
+}
+
 pub(crate) fn cancel_active_drag_for_viewport(
     ir: &fission_ir::CoreIR,
     layout: &LayoutSnapshot,
@@ -20,52 +46,52 @@ pub(crate) fn cancel_active_drag_for_viewport(
     let Some(start_node) = gesture.target_node.filter(|_| gesture.is_panning) else {
         return;
     };
-    let mut current_id = Some(start_node);
-    while let Some(node_id) = current_id {
-        let Some(node) = ir.nodes.get(&node_id) else {
-            break;
-        };
-        if let Op::Semantics(semantics) = &node.op {
-            if let Some(entry) = semantics
-                .actions
-                .entries
-                .iter()
-                .find(|entry| entry.trigger == ActionTrigger::DragEnd)
-            {
-                let input = if let Some(target) = &semantics.canvas_target {
-                    ActionInput::CanvasInteraction(crate::input::canvas::canvas_interaction(
-                        node_id,
-                        target,
-                        crate::input::canvas::CanvasInteractionPhase::Cancel,
-                        point,
-                        LayoutPoint::ZERO,
-                        gesture.start_point,
-                        layout,
-                        viewport,
-                        gesture.pointer_kind,
-                        gesture.modifiers,
-                    ))
-                } else {
-                    ActionInput::Pointer {
-                        x: point.x,
-                        y: point.y,
-                        delta_x: 0.0,
-                        delta_y: 0.0,
-                    }
-                };
-                dispatched_actions.push((
-                    node_id,
-                    ActionEnvelope {
-                        id: ActionId::from_u128(entry.action_id),
-                        payload: entry.payload_data.clone().unwrap_or_default(),
-                    },
-                    crate::input::scoped_action_input(ir, node_id, input),
-                ));
-                return;
-            }
+    let Some((node_id, trigger)) = drag_cancel_route(ir, start_node) else {
+        return;
+    };
+    let Some(node) = ir.nodes.get(&node_id) else {
+        return;
+    };
+    let Op::Semantics(semantics) = &node.op else {
+        return;
+    };
+    let Some(entry) = semantics
+        .actions
+        .entries
+        .iter()
+        .find(|entry| entry.trigger == trigger)
+    else {
+        return;
+    };
+    let input = if let Some(target) = &semantics.canvas_target {
+        ActionInput::CanvasInteraction(crate::input::canvas::canvas_interaction(
+            node_id,
+            target,
+            crate::input::canvas::CanvasInteractionPhase::Cancel,
+            point,
+            LayoutPoint::ZERO,
+            gesture.start_point,
+            layout,
+            viewport,
+            gesture.pointer_kind,
+            gesture.modifiers,
+        ))
+    } else {
+        ActionInput::Pointer {
+            x: point.x,
+            y: point.y,
+            delta_x: 0.0,
+            delta_y: 0.0,
         }
-        current_id = node.parent;
-    }
+    };
+    dispatched_actions.push((
+        node_id,
+        ActionEnvelope {
+            id: ActionId::from_u128(entry.action_id),
+            payload: entry.payload_data.clone().unwrap_or_default(),
+        },
+        crate::input::scoped_action_input(ir, node_id, input),
+    ));
 }
 
 pub struct GestureController;
@@ -421,14 +447,16 @@ impl InputController for GestureController {
                         ctx.gesture.modifiers = *modifiers;
                         if ctx.gesture.is_panning {
                             if let Some(target) = ctx.gesture.target_node {
-                                self.dispatch_trigger_with_phase(
-                                    ctx,
-                                    target,
-                                    ActionTrigger::DragEnd,
-                                    *point,
-                                    None,
-                                    Some(crate::input::canvas::CanvasInteractionPhase::Cancel),
-                                );
+                                if let Some((owner, trigger)) = drag_cancel_route(ctx.ir, target) {
+                                    self.dispatch_trigger_with_phase(
+                                        ctx,
+                                        owner,
+                                        trigger,
+                                        *point,
+                                        None,
+                                        Some(crate::input::canvas::CanvasInteractionPhase::Cancel),
+                                    );
+                                }
                             }
                         }
                         ctx.gesture.scrollbar_drag = None;
@@ -998,6 +1026,7 @@ fn canvas_phase(trigger: ActionTrigger) -> crate::input::canvas::CanvasInteracti
         ActionTrigger::DragStart => CanvasInteractionPhase::Start,
         ActionTrigger::DragUpdate => CanvasInteractionPhase::Update,
         ActionTrigger::DragEnd => CanvasInteractionPhase::End,
+        ActionTrigger::DragCancel => CanvasInteractionPhase::Cancel,
         _ => CanvasInteractionPhase::Activate,
     }
 }

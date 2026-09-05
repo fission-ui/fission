@@ -273,6 +273,7 @@ impl From<RefreshIndicator> for Widget {
             } else {
                 this.on_pull_cancel.clone()
             },
+            on_drag_cancel: this.on_pull_cancel.clone(),
             ..Default::default()
         }
         .into()

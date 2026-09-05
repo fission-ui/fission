@@ -40,7 +40,7 @@ fn refresh_indicator_dispatches_refresh_when_armed() {
             .status(RefreshIndicatorStatus::Armed)
             .pulled_extent(90.0)
             .on_refresh(refresh.clone())
-            .on_pull_cancel(cancel)
+            .on_pull_cancel(cancel.clone())
             .into()
     });
 
@@ -48,6 +48,7 @@ fn refresh_indicator_dispatches_refresh_when_armed() {
         .expect("RefreshIndicator should wrap content in a gesture detector");
 
     assert_eq!(detector.on_drag_end.as_ref(), Some(&refresh));
+    assert_eq!(detector.on_drag_cancel.as_ref(), Some(&cancel));
     let stack = fission_core::internal::widget_as_zstack(&detector.child)
         .expect("RefreshIndicator should use a stack for the overlay");
     assert_eq!(stack.children.len(), 2);
@@ -73,6 +74,7 @@ fn refresh_indicator_dispatches_cancel_when_not_armed() {
     let detector = fission_core::internal::widget_as_gesture_detector(&node)
         .expect("RefreshIndicator should wrap content in a gesture detector");
     assert_eq!(detector.on_drag_end.as_ref(), Some(&cancel));
+    assert_eq!(detector.on_drag_cancel.as_ref(), Some(&cancel));
 }
 
 #[test]

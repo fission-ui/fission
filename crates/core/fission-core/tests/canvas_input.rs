@@ -45,17 +45,17 @@ fn update(
 fn canvas_tree() -> (CoreIR, LayoutSnapshot, WidgetId) {
     let viewer = WidgetId::explicit("canvas");
     let node = WidgetId::explicit("canvas.node");
-    let action = UpdateCanvas("document-alpha".into());
     let entries = [
-        ActionTrigger::DragStart,
-        ActionTrigger::DragUpdate,
-        ActionTrigger::DragEnd,
+        (ActionTrigger::DragStart, "start-context"),
+        (ActionTrigger::DragUpdate, "update-context"),
+        (ActionTrigger::DragEnd, "end-context"),
+        (ActionTrigger::DragCancel, "cancel-context"),
     ]
     .into_iter()
-    .map(|trigger| ActionEntry {
+    .map(|(trigger, payload)| ActionEntry {
         trigger,
         action_id: UpdateCanvas::static_id().as_u128(),
-        payload_data: Some(action.encode()),
+        payload_data: Some(UpdateCanvas(payload.into()).encode()),
     })
     .collect();
 
@@ -166,7 +166,10 @@ fn node_drag_preserves_context_and_delivers_world_geometry() {
     }
 
     let state = runtime.get_app_state::<CanvasState>().unwrap();
-    assert_eq!(state.payloads, ["document-alpha"; 3]);
+    assert_eq!(
+        state.payloads,
+        ["start-context", "update-context", "end-context"]
+    );
     assert_eq!(
         state
             .interactions
@@ -238,6 +241,10 @@ fn cancelling_node_drag_dispatches_cancel_and_clears_the_sequence() {
             .map(|interaction| interaction.phase),
         Some(CanvasInteractionPhase::Cancel)
     );
+    assert_eq!(
+        state.payloads.last().map(String::as_str),
+        Some("cancel-context")
+    );
     assert!(runtime.runtime_state.gesture.pressed_button.is_none());
     assert!(runtime.runtime_state.gesture.target_node.is_none());
 }
@@ -287,5 +294,9 @@ fn second_contact_cancels_an_active_node_drag_before_viewport_capture() {
             .last()
             .map(|interaction| interaction.phase),
         Some(CanvasInteractionPhase::Cancel)
+    );
+    assert_eq!(
+        state.payloads.last().map(String::as_str),
+        Some("cancel-context")
     );
 }

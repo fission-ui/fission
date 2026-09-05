@@ -57,8 +57,15 @@ fn game_runtime_and_scene_types_are_available_from_the_prelude() {
     let frame = game.advance(Duration::from_millis(17));
     let scene: Scene2DIR = frame.scene;
     let scene_object = SceneNodeId::from_key(&EntityId::Player);
+    let cancel = ActionEnvelope {
+        id: ActionId::from_name("game-prelude-drag-cancel"),
+        payload: vec![1, 2, 3],
+    };
     let _: Widget = Scene2DView::new(scene, 320.0, 180.0)
-        .object_actions(scene_object, SceneObjectActions::new("Player"))
+        .object_actions(
+            scene_object,
+            SceneObjectActions::new("Player").on_drag_cancel(cancel),
+        )
         .into();
     let _: InputTrigger = InputTrigger::Confirm;
 }
