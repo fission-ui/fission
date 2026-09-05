@@ -43,6 +43,10 @@ pub struct BrowserTestOptions {
     pub cdp_port: Option<u16>,
     pub viewport_width: u32,
     pub viewport_height: u32,
+    /// Maximum time allowed for browser startup/readiness and for each Chrome
+    /// DevTools Protocol round trip. LiveTest wait commands retain their own
+    /// explicit `timeout_ms`, which controls how long the app state may take
+    /// to reach the requested condition after a CDP call succeeds.
     pub timeout_ms: u64,
     pub screenshot_path: Option<PathBuf>,
 }
@@ -151,7 +155,7 @@ impl BrowserController {
             &options.url,
             Duration::from_millis(options.timeout_ms),
         )?;
-        let mut client = CdpClient::connect(&ws_url)?;
+        let mut client = CdpClient::connect(&ws_url, Duration::from_millis(options.timeout_ms))?;
         client.send("Runtime.enable", json!({}))?;
         client.send("Log.enable", json!({}))?;
         client.send("Page.enable", json!({}))?;
@@ -856,11 +860,12 @@ struct CdpClient {
     next_id: u64,
     backlog: VecDeque<Value>,
     errors: Vec<String>,
+    command_timeout: Duration,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 impl CdpClient {
-    fn connect(ws_url: &str) -> Result<Self> {
+    fn connect(ws_url: &str, command_timeout: Duration) -> Result<Self> {
         let (mut socket, _) =
             connect(ws_url).context("failed to connect to Chrome CDP websocket")?;
         if let tungstenite::stream::MaybeTlsStream::Plain(stream) = socket.get_mut() {
@@ -871,6 +876,7 @@ impl CdpClient {
             next_id: 1,
             backlog: VecDeque::new(),
             errors: Vec::new(),
+            command_timeout,
         })
     }
 
@@ -880,7 +886,7 @@ impl CdpClient {
         self.socket.send(Message::Text(serde_json::to_string(
             &json!({ "id": id, "method": method, "params": params }),
         )?))?;
-        let deadline = Instant::now() + Duration::from_secs(15);
+        let deadline = Instant::now() + self.command_timeout;
         loop {
             if let Some(message) = self.backlog.pop_front() {
                 if message.get("id").and_then(Value::as_u64) == Some(id) {
