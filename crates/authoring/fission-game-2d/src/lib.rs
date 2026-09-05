@@ -368,35 +368,20 @@ fn with_interaction(
         .into();
     };
 
-    let interactive_visual: Widget = GestureDetector {
-        child: visual,
-        on_drag_start: (!actions.disabled)
-            .then(|| actions.on_drag_start.clone())
-            .flatten(),
-        on_drag_update: (!actions.disabled)
-            .then(|| actions.on_drag_update.clone())
-            .flatten(),
-        on_drag_end: (!actions.disabled)
-            .then(|| actions.on_drag_end.clone())
-            .flatten(),
-        on_drag_cancel: (!actions.disabled)
-            .then(|| actions.on_drag_cancel.clone())
-            .flatten(),
-        on_long_press: (!actions.disabled)
-            .then(|| actions.on_long_press.clone())
-            .flatten(),
-        ..Default::default()
-    }
-    .into();
     let identifier = actions
         .semantics_identifier
         .clone()
         .or_else(|| Some(format!("game.scene.{}", retained_id.as_u128())));
 
-    if let Some(on_tap) = &actions.on_tap {
+    // Keep gesture semantics outside the activation semantics. Hit testing may
+    // legitimately stop at the Pressable itself when the visual is transparent
+    // or non-painting. Gesture dispatch walks from that hit node toward its
+    // ancestors, so nesting the GestureDetector inside the Pressable would make
+    // drag and long-press actions unreachable for those scene objects.
+    let activation_visual: Widget = if let Some(on_tap) = &actions.on_tap {
         Pressable {
             id: Some(retained_id),
-            child: interactive_visual,
+            child: visual,
             on_press: Some(on_tap.clone()),
             label: Some(actions.label.clone()),
             semantics_identifier: identifier,
@@ -414,13 +399,34 @@ fn with_interaction(
         }
         .into()
     } else {
-        let mut region = SemanticsRegion::new(interactive_visual)
+        let mut region = SemanticsRegion::new(visual)
             .label(actions.label.clone())
             .role(fission_ir::semantics::Role::Generic);
         region.id = Some(retained_id);
         region.identifier = identifier;
         region.into()
+    };
+
+    GestureDetector {
+        child: activation_visual,
+        on_drag_start: (!actions.disabled)
+            .then(|| actions.on_drag_start.clone())
+            .flatten(),
+        on_drag_update: (!actions.disabled)
+            .then(|| actions.on_drag_update.clone())
+            .flatten(),
+        on_drag_end: (!actions.disabled)
+            .then(|| actions.on_drag_end.clone())
+            .flatten(),
+        on_drag_cancel: (!actions.disabled)
+            .then(|| actions.on_drag_cancel.clone())
+            .flatten(),
+        on_long_press: (!actions.disabled)
+            .then(|| actions.on_long_press.clone())
+            .flatten(),
+        ..Default::default()
     }
+    .into()
 }
 
 fn positioned(_id: SceneNodeId, bounds: Bounds2D, child: Widget) -> Widget {
@@ -635,6 +641,74 @@ mod tests {
         assert_action(ActionTrigger::DragUpdate, &drag_update);
         assert_action(ActionTrigger::DragEnd, &drag_end);
         assert_action(ActionTrigger::DragCancel, &drag_cancel);
+    }
+
+    #[test]
+    fn tap_and_drag_actions_share_a_reachable_path_for_transparent_objects() {
+        let object = SceneNodeId::from_key(&188_u32);
+        let tap = ActionEnvelope {
+            id: fission_core::ActionId::from_name("transparent-tap"),
+            payload: vec![1],
+        };
+        let drag = ActionEnvelope {
+            id: fission_core::ActionId::from_name("transparent-drag"),
+            payload: vec![2],
+        };
+        let mut scene = fission_game::Scene2D::new();
+        scene.rect(
+            object.clone(),
+            Bounds2D::from_top_left(
+                Place::new(Px(10.0), Px(10.0)),
+                Size::new(Px(44.0), Px(44.0)),
+            ),
+            Color::TRANSPARENT,
+            Layer(1),
+        );
+        let widget: Widget = Scene2DView::new(scene.finish(fission_game::Tick(0)), 80.0, 80.0)
+            .object_actions(
+                object.clone(),
+                SceneObjectActions::new("Transparent control")
+                    .on_tap(tap.clone())
+                    .on_drag_start(drag.clone())
+                    .on_drag_update(drag.clone()),
+            )
+            .into();
+        let ir = fission_core::internal::lower_widget_to_ir(&widget);
+
+        let activation_id = object.widget_id();
+        let activation_node = ir
+            .nodes
+            .get(&activation_id)
+            .expect("scene identity should remain on the activation semantics");
+        let Op::Semantics(activation) = &activation_node.op else {
+            panic!("scene identity should lower to semantics");
+        };
+        assert!(activation.actions.entries.iter().any(|entry| {
+            entry.trigger == ActionTrigger::Default
+                && entry.action_id == tap.id.as_u128()
+                && entry.payload_data.as_ref() == Some(&tap.payload)
+        }));
+
+        let mut ancestor = activation_node.parent;
+        let mut drag_is_reachable = false;
+        while let Some(id) = ancestor {
+            let node = ir.nodes.get(&id).expect("ancestor must exist");
+            if let Op::Semantics(semantics) = &node.op {
+                drag_is_reachable = semantics.actions.entries.iter().any(|entry| {
+                    entry.trigger == ActionTrigger::DragStart
+                        && entry.action_id == drag.id.as_u128()
+                        && entry.payload_data.as_ref() == Some(&drag.payload)
+                });
+                if drag_is_reachable {
+                    break;
+                }
+            }
+            ancestor = node.parent;
+        }
+        assert!(
+            drag_is_reachable,
+            "gesture dispatch starts at the activation hit and walks ancestors"
+        );
     }
 
     #[test]
