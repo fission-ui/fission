@@ -1,4 +1,4 @@
-use fission_core::event::{InputEvent, PointerButton, PointerEvent};
+use fission_core::event::{InputEvent, KeyCode, KeyEvent, PointerButton, PointerEvent};
 use fission_core::{ActionEnvelope, ActionId, GlobalState, Runtime};
 use fission_ir::semantics::ActionTrigger;
 use fission_ir::{
@@ -29,6 +29,29 @@ fn primary_click_dispatches_default_action_only() -> anyhow::Result<()> {
     let state = runtime.get_app_state::<ClickState>().expect("click state");
     assert_eq!(state.primary, 1);
     assert_eq!(state.secondary, 0);
+    Ok(())
+}
+
+#[test]
+fn produced_text_activation_keys_dispatch_default_action() -> anyhow::Result<()> {
+    for (key_code, text) in [(KeyCode::Enter, "\r"), (KeyCode::Space, " ")] {
+        let (mut runtime, ir, layout, node_id) = click_runtime(false)?;
+        runtime.runtime_state.interaction.set_focused(Some(node_id));
+
+        runtime.handle_input(
+            InputEvent::Keyboard(KeyEvent::DownWithText {
+                key_code,
+                modifiers: 0,
+                text: text.into(),
+            }),
+            &ir,
+            &layout,
+        )?;
+
+        let state = runtime.get_app_state::<ClickState>().expect("click state");
+        assert_eq!(state.primary, 1);
+        assert_eq!(state.secondary, 0);
+    }
     Ok(())
 }
 

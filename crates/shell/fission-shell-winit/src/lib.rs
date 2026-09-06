@@ -118,6 +118,8 @@ mod accessibility;
 use accessibility::AccessibilityBridge;
 mod pipeline;
 mod platform_text_scale;
+#[cfg(any(target_arch = "wasm32", test))]
+mod web_accessibility;
 pub use pipeline::{InvalidationSet, Pipeline};
 mod renderer_diagnostics;
 #[cfg(target_arch = "wasm32")]
@@ -5369,7 +5371,8 @@ where
                 let _ = proxy.send_event(TestEvent::Wake);
             })
         });
-        let mut accessibility_bridge = AccessibilityBridge::new(event_proxy.clone());
+        let mut accessibility_bridge =
+            AccessibilityBridge::new(event_proxy.clone(), self.browser_defaults);
         #[cfg(feature = "tray")]
         let tray_event_rx = self
             .tray_config

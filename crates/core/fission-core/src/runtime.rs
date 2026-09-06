@@ -1935,10 +1935,21 @@ impl Runtime {
                     eprintln!("[scroll-trace] hit_test: no node");
                 }
             }
-            InputEvent::Keyboard(KeyEvent::Down {
-                key_code,
-                modifiers,
-            }) => match key_code {
+            // Some platforms attach produced text to Tab, Enter, and Space.
+            // Text inputs and other controllers already had first refusal
+            // above; when they decline the event, retain the same generic
+            // focus and Default-action behavior as a plain key down.
+            InputEvent::Keyboard(
+                KeyEvent::Down {
+                    key_code,
+                    modifiers,
+                }
+                | KeyEvent::DownWithText {
+                    key_code,
+                    modifiers,
+                    ..
+                },
+            ) => match key_code {
                 KeyCode::Tab => {
                     let reverse = (modifiers & 1) != 0;
                     let old_focus = self.runtime_state.interaction.focused;

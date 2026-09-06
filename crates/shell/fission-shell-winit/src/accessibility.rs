@@ -94,7 +94,10 @@ mod imp {
     }
 
     impl AccessibilityBridge {
-        pub fn new(proxy: EventLoopProxy<TestEvent>) -> Self {
+        pub fn new(
+            proxy: EventLoopProxy<TestEvent>,
+            _browser_defaults: crate::BrowserDefaults,
+        ) -> Self {
             Self {
                 adapter: None,
                 shared: Arc::new(AccessibilityShared {
@@ -1388,47 +1391,11 @@ mod imp {
 
 #[cfg(target_arch = "wasm32")]
 mod imp {
-    use fission_core::Runtime;
-    use fission_ir::CoreIR;
-    use fission_layout::LayoutSnapshot;
-    use fission_test_driver::TestEvent;
-    use winit::event::WindowEvent;
-    use winit::event_loop::{ActiveEventLoop, EventLoopProxy};
-    use winit::window::Window;
-
-    pub struct AccessibilityBridge;
-
-    impl AccessibilityBridge {
-        pub fn new(_proxy: EventLoopProxy<TestEvent>) -> Self {
-            Self
-        }
-
-        pub fn ensure_adapter(&mut self, _event_loop: &ActiveEventLoop, _window: &Window) {}
-
-        pub fn process_window_event(&mut self, _window: &Window, _event: &WindowEvent) {}
-
-        pub fn update_tree(
-            &mut self,
-            _ir: &CoreIR,
-            _layout: &LayoutSnapshot,
-            _runtime: &Runtime,
-            _scale_factor: f64,
-        ) {
-        }
-
-        pub fn drain_events(
-            &mut self,
-            _runtime: &mut Runtime,
-            _ir: Option<&CoreIR>,
-            _layout: Option<&LayoutSnapshot>,
-        ) -> bool {
-            false
-        }
-    }
+    pub(crate) use crate::web_accessibility::WebAccessibilityBridge as AccessibilityBridge;
 
     pub fn window_must_start_hidden() -> bool {
         false
     }
 }
 
-pub use imp::{window_must_start_hidden, AccessibilityBridge};
+pub(crate) use imp::{window_must_start_hidden, AccessibilityBridge};
