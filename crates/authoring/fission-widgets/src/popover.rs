@@ -130,13 +130,13 @@ impl PopoverMotionPlan {
 /// The trigger widget is rendered inline in the normal layout tree. When `is_open`
 /// is `true`, the `content` is placed into a flyout portal positioned relative to
 /// the trigger's computed rect. An optional transparent backdrop handles dismiss
-/// via `on_close`.
+/// via `on_close` while the popover is open.
 ///
 /// # Fields
 ///
 /// * `id` - Stable widget identity for the portal system.
 /// * `is_open` - Controls visibility of the popup content.
-/// * `on_close` - Action dispatched when the backdrop is tapped (if set, a backdrop is rendered).
+/// * `on_close` - Action dispatched when the open popover's dismissal backdrop is tapped.
 /// * `trigger` - The actionable inline widget that owns opening and closing the popover.
 /// * `content` - The popup content rendered in the flyout layer.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -145,7 +145,7 @@ pub struct Popover {
     pub id: WidgetId,
     /// Controlled popup visibility.
     pub is_open: bool,
-    /// Optional action dispatched by backdrop dismissal.
+    /// Optional action dispatched by backdrop dismissal while open.
     pub on_close: Option<ActionEnvelope>,
 
     /// Inline anchor and sole activation owner.
@@ -193,7 +193,11 @@ impl From<Popover> for Widget {
                 .into();
             }
             let flyout_node = crate::flyout(anchor_id, content_node);
-            if this.on_close.is_some() {
+            // Presence may retain the flyout surface for its exit animation,
+            // but dismissal belongs only to the open interaction state. An
+            // exiting or otherwise hidden popover must not block content
+            // beneath it or dispatch `on_close` again.
+            if this.is_open && this.on_close.is_some() {
                 let backdrop = GestureDetector {
                     on_tap: this.on_close.clone(),
                     child: Container::new(fission_core::ui::widgets::Spacer::default())
