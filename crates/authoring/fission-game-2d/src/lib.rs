@@ -264,7 +264,10 @@ fn append_command(
             opacity,
             ..
         } => {
-            let visual: Widget = Container::default().bg(fill).into();
+            let visual: Widget = Container::default()
+                .bg(fill)
+                .size(bounds.width().0, bounds.height().0)
+                .into();
             children.push(positioned(
                 id.clone(),
                 bounds,
@@ -498,8 +501,58 @@ mod tests {
         op::{Color, Op},
         semantics::ActionTrigger,
     };
+    use fission_render::{Color as RenderColor, DisplayOp, Fill};
+    use fission_test::TestHarness;
 
     use super::*;
+
+    #[test]
+    fn actionless_rect_paints_at_its_declared_scene_bounds() {
+        let expected_color = RenderColor {
+            r: 23,
+            g: 117,
+            b: 203,
+            a: 231,
+        };
+        let mut scene = fission_game::Scene2D::new();
+        scene.rect(
+            SceneNodeId::from_key(&31_u32),
+            Bounds2D::from_top_left(
+                Place::new(Px(13.0), Px(17.0)),
+                Size::new(Px(31.0), Px(23.0)),
+            ),
+            Color {
+                r: expected_color.r,
+                g: expected_color.g,
+                b: expected_color.b,
+                a: expected_color.a,
+            },
+            Layer(4),
+        );
+        let view = Scene2DView::new(scene.finish(fission_game::Tick(0)), 100.0, 80.0);
+        let mut harness = TestHarness::new_with_mock_measurer(()).with_root_widget(view);
+
+        harness.pump().expect("scene should render");
+
+        let painted = harness
+            .get_last_display_list()
+            .expect("rendered display list")
+            .ops
+            .into_iter()
+            .find_map(|op| match op {
+                DisplayOp::DrawRect {
+                    rect,
+                    fill: Some(Fill::Solid(color)),
+                    ..
+                } if color == expected_color => Some(rect),
+                _ => None,
+            })
+            .expect("declared scene rectangle should reach the display list");
+        assert!((painted.x() - 13.0).abs() < 0.01, "{painted:?}");
+        assert!((painted.y() - 17.0).abs() < 0.01, "{painted:?}");
+        assert!((painted.width() - 31.0).abs() < 0.01, "{painted:?}");
+        assert!((painted.height() - 23.0).abs() < 0.01, "{painted:?}");
+    }
 
     #[test]
     fn scene_objects_lower_as_retained_visuals_with_standard_actions() {

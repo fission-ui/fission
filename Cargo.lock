@@ -3015,6 +3015,8 @@ dependencies = [
  "fission-core",
  "fission-game",
  "fission-ir",
+ "fission-render",
+ "fission-test",
 ]
 
 [[package]]

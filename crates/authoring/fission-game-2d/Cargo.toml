@@ -17,3 +17,7 @@ platforms = ["android", "ios", "linux", "macos", "windows", "web"]
 fission-core = { path = "../../core/fission-core", version = "0.14.1" }
 fission-game = { path = "../../core/fission-game", version = "0.14.1" }
 fission-ir = { path = "../../core/fission-ir", version = "0.14.1" }
+
+[dev-dependencies]
+fission-render = { path = "../../rendering/fission-render", version = "0.14.1" }
+fission-test = { path = "../../tools/fission-test", version = "0.14.1" }
