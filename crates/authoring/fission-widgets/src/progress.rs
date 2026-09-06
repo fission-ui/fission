@@ -25,17 +25,11 @@ impl From<ProgressBar> for Widget {
 
         let height = theme.track_style.height.unwrap_or(theme.height);
         let radius = theme.track_style.radius.unwrap_or(theme.radius);
-        let track = Container::new(fission_core::ui::widgets::spacer::Spacer::default())
-            .height(height)
-            .bg_fill(
-                theme
-                    .track_style
-                    .background
-                    .clone()
-                    .unwrap_or(Fill::Solid(theme.track_color)),
-            )
-            .border_radius(radius)
-            .into();
+        let track_fill = theme
+            .track_style
+            .background
+            .clone()
+            .unwrap_or(Fill::Solid(theme.track_color));
 
         let progress_pct = (this.value * 100.0).clamp(0.0, 100.0);
 
@@ -50,29 +44,33 @@ impl From<ProgressBar> for Widget {
             )
             .border_radius(theme.fill_style.radius.unwrap_or(radius))
             .into();
+        let bar_children: Vec<Widget> = if progress_pct > 0.0 {
+            vec![GridItem {
+                col_start: fission_ir::op::GridPlacement::Line(1),
+                child: bar,
+                ..Default::default()
+            }
+            .into()]
+        } else {
+            Vec::new()
+        };
 
-        let bar_grid = fission_core::ui::Grid {
+        let bar_grid: Widget = fission_core::ui::Grid {
             columns: vec![
                 fission_ir::op::GridTrack::Percent(progress_pct),
                 fission_ir::op::GridTrack::Fr(1.0),
             ],
             rows: vec![fission_ir::op::GridTrack::Points(height)],
-            children: vec![GridItem {
-                col_start: fission_ir::op::GridPlacement::Line(1),
-                child: bar,
-                ..Default::default()
-            }
-            .into()],
+            children: bar_children,
             ..Default::default()
         }
         .into();
 
-        Container::new(fission_core::ui::ZStack {
-            children: vec![track, bar_grid],
-            ..Default::default()
-        })
-        .height(height)
-        .flex_grow(1.0)
-        .into()
+        Container::new(bar_grid)
+            .height(height)
+            .bg_fill(track_fill)
+            .border_radius(radius)
+            .flex_grow(1.0)
+            .into()
     }
 }
