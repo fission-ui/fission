@@ -32,7 +32,8 @@ pub use golden::{compare_png_to_golden, GoldenOptions, GoldenReport};
 pub mod browser;
 #[cfg(not(target_arch = "wasm32"))]
 pub use browser::{
-    detect_chrome, run_browser_smoke, BrowserSmokeMode, BrowserSmokeReport, BrowserTestOptions,
+    detect_chrome, run_browser_smoke, run_browser_smoke_with_diagnostics, BrowserSmokeDiagnostics,
+    BrowserSmokeMode, BrowserSmokeReport, BrowserTestOptions,
 };
 
 // --- Protocol types (shared between client and server) ---
@@ -1523,7 +1524,12 @@ impl LiveTestClient {
     }
 
     /// Simulate a window resize in logical test-space pixels.
+    ///
+    /// Browser transports update Chromium's logical viewport before enqueueing
+    /// the shell resize. Call [`Self::pump`] before observing the presented
+    /// layout, just as with other queued test input.
     pub fn simulate_resize(&self, width: u32, height: u32) -> Result<()> {
+        validate_viewport_size(width, height)?;
         let (width, height) = if let Some(scope) = self.scope_node()? {
             let png = screenshot_bytes(self.send(TestCommand::CaptureScreenshot {})?)?;
             let image = image::load_from_memory(&png)?.to_rgba8();
@@ -1540,7 +1546,15 @@ impl LiveTestClient {
         } else {
             (width, height)
         };
-        self.send(TestCommand::SimulateResize { width, height })?;
+        match &self.transport {
+            LiveTestTransport::Http { .. } => {
+                self.send(TestCommand::SimulateResize { width, height })?;
+            }
+            LiveTestTransport::Browser(controller) => controller
+                .lock()
+                .map_err(|_| anyhow!("browser test controller lock is poisoned"))?
+                .resize_viewport(width, height)?,
+        }
         Ok(())
     }
 
@@ -1599,6 +1613,14 @@ impl LiveTestClient {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
+fn validate_viewport_size(width: u32, height: u32) -> Result<()> {
+    if width == 0 || height == 0 {
+        return Err(anyhow!("test viewport dimensions must be non-zero"));
+    }
+    Ok(())
+}
+
+#[cfg(not(target_arch = "wasm32"))]
 fn screenshot_bytes(response: TestResponse) -> Result<Vec<u8>> {
     match response {
         TestResponse::Screenshot {
@@ -1621,7 +1643,17 @@ fn rectangles_intersect(left: Bounds, right: Bounds) -> bool {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(not(target_arch = "wasm32"))]
+    use super::validate_viewport_size;
     use super::{TestCommand, TestPointerKind, TestPointerPhase, TestScrollDeltaMode};
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn viewport_resize_rejects_zero_dimensions() {
+        assert!(validate_viewport_size(568, 320).is_ok());
+        assert!(validate_viewport_size(0, 320).is_err());
+        assert!(validate_viewport_size(568, 0).is_err());
+    }
 
     #[test]
     fn deterministic_motion_commands_have_stable_wire_shapes() {

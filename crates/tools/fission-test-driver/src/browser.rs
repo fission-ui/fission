@@ -90,6 +90,22 @@ pub struct BrowserSmokeReport {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct BrowserSmokeDiagnostics {
+    /// The backwards-compatible browser smoke summary.
+    pub report: BrowserSmokeReport,
+    /// The renderer requested by the page before Fission selected a backend.
+    pub renderer_requested: Option<String>,
+    /// The application frames presented before the final readiness sample.
+    pub rendered_frames: u64,
+    /// Whether the test-only in-page command bridge was present.
+    pub test_bridge_ready: bool,
+    /// Browser errors observed after instrumentation was enabled and through
+    /// the final post-screenshot status sample.
+    pub browser_errors: Vec<String>,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
 pub fn detect_chrome() -> Option<PathBuf> {
     if let Some(path) = std::env::var_os("FISSION_CHROME").map(PathBuf::from) {
         if path.is_file() {
@@ -125,19 +141,47 @@ pub fn detect_chrome() -> Option<PathBuf> {
 
 #[cfg(not(target_arch = "wasm32"))]
 pub fn run_browser_smoke(options: BrowserTestOptions) -> Result<BrowserSmokeReport> {
+    Ok(run_browser_smoke_with_diagnostics(options)?.report)
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub fn run_browser_smoke_with_diagnostics(
+    options: BrowserTestOptions,
+) -> Result<BrowserSmokeDiagnostics> {
     let mut controller = BrowserController::launch(options.clone(), false)?;
     if let Some(path) = &options.screenshot_path {
         let bytes = controller.capture_page_screenshot()?;
         write_screenshot(path, &bytes)?;
     }
-    Ok(controller.report.clone())
+    controller.client.drain_events(Duration::from_millis(250))?;
+    if !controller.client.errors.is_empty() {
+        return Err(anyhow!(
+            "browser reported errors:\n{}",
+            controller.client.errors.join("\n")
+        ));
+    }
+    let status = read_runtime_status(&mut controller.client)?;
+    controller.client.drain_events(Duration::from_millis(25))?;
+    if !controller.client.errors.is_empty() {
+        return Err(anyhow!(
+            "browser reported errors:\n{}",
+            controller.client.errors.join("\n")
+        ));
+    }
+    if !runtime_status_ready(options.mode, &status, false) {
+        return Err(anyhow!(
+            "browser stopped satisfying smoke readiness after capture: {status:?}"
+        ));
+    }
+    controller.diagnostics = smoke_diagnostics(&options, status, controller.client.errors.clone());
+    Ok(controller.diagnostics.clone())
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) struct BrowserController {
     _session: ChromeSession,
     client: CdpClient,
-    report: BrowserSmokeReport,
+    diagnostics: BrowserSmokeDiagnostics,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -152,7 +196,7 @@ impl BrowserController {
         let session = ChromeSession::launch(&chrome, cdp_port, &options)?;
         let ws_url = wait_for_target(
             cdp_port,
-            &options.url,
+            "about:blank",
             Duration::from_millis(options.timeout_ms),
         )?;
         let mut client = CdpClient::connect(&ws_url, Duration::from_millis(options.timeout_ms))?;
@@ -171,13 +215,14 @@ impl BrowserController {
         )?;
         client.send(
             "Emulation.setDeviceMetricsOverride",
-            json!({
-                "width": options.viewport_width,
-                "height": options.viewport_height,
-                "deviceScaleFactor": 1,
-                "mobile": false
-            }),
+            device_metrics(options.viewport_width, options.viewport_height),
         )?;
+        let navigation = client.send("Page.navigate", json!({ "url": &options.url }))?;
+        if let Some(error) = navigation.get("errorText").and_then(Value::as_str) {
+            if !error.is_empty() {
+                return Err(anyhow!("browser navigation failed: {error}"));
+            }
+        }
 
         let deadline = Instant::now() + Duration::from_millis(options.timeout_ms);
         let mut last_status = None;
@@ -190,24 +235,19 @@ impl BrowserController {
                 ));
             }
             let status = read_runtime_status(&mut client)?;
-            let ready = match options.mode {
-                BrowserSmokeMode::Dom => status.ready_dom,
-                BrowserSmokeMode::FissionCanvas => status.ready_canvas && status.renderer.is_some(),
-            } && (!require_live_control || status.test_bridge_ready);
+            if !client.errors.is_empty() {
+                return Err(anyhow!(
+                    "browser reported errors:\n{}",
+                    client.errors.join("\n")
+                ));
+            }
+            let ready = runtime_status_ready(options.mode, &status, require_live_control);
             if ready {
-                let report = BrowserSmokeReport {
-                    url: options.url.clone(),
-                    title: status.title,
-                    width: status.width,
-                    height: status.height,
-                    renderer: status.renderer,
-                    body_text_len: status.body_text_len,
-                    screenshot_path: options.screenshot_path.clone(),
-                };
+                let diagnostics = smoke_diagnostics(&options, status, client.errors.clone());
                 return Ok(Self {
                     _session: session,
                     client,
-                    report,
+                    diagnostics,
                 });
             }
             last_status = Some(status);
@@ -226,7 +266,7 @@ impl BrowserController {
     }
 
     pub(crate) fn report(&self) -> BrowserSmokeReport {
-        self.report.clone()
+        self.diagnostics.report.clone()
     }
 
     pub(crate) fn evaluate_json(&mut self, expression: &str) -> Result<Value> {
@@ -311,6 +351,19 @@ impl BrowserController {
             TestCommand::PressKey { key, modifiers } => self.press_dom_key(&key, modifiers),
             command => self.send_bridge_command(command),
         }
+    }
+
+    pub(crate) fn resize_viewport(&mut self, width: u32, height: u32) -> Result<()> {
+        self.client.send(
+            "Emulation.setDeviceMetricsOverride",
+            device_metrics(width, height),
+        )?;
+        ensure_response_ok(
+            self.send_bridge_command(TestCommand::SimulateResize { width, height })?,
+        )?;
+        self.diagnostics.report.width = width;
+        self.diagnostics.report.height = height;
+        Ok(())
     }
 
     fn right_click_selector(&mut self, query: SelectorQuery) -> Result<TestResponse> {
@@ -628,6 +681,16 @@ fn ensure_response_ok(response: TestResponse) -> Result<()> {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
+fn device_metrics(width: u32, height: u32) -> Value {
+    json!({
+        "width": width,
+        "height": height,
+        "deviceScaleFactor": 1,
+        "mobile": false
+    })
+}
+
+#[cfg(not(target_arch = "wasm32"))]
 fn cdp_modifiers(fission: u8) -> u8 {
     let mut cdp = 0;
     if fission & 1 != 0 {
@@ -706,12 +769,53 @@ fn runtime_exception(result: &Value) -> Result<()> {
 struct RuntimeStatus {
     ready_dom: bool,
     ready_canvas: bool,
+    url: String,
     title: String,
     width: u32,
     height: u32,
     body_text_len: usize,
     renderer: Option<String>,
+    renderer_requested: Option<String>,
+    rendered_frames: u64,
     test_bridge_ready: bool,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn runtime_status_ready(
+    mode: BrowserSmokeMode,
+    status: &RuntimeStatus,
+    require_live_control: bool,
+) -> bool {
+    let surface_ready = match mode {
+        BrowserSmokeMode::Dom => status.ready_dom,
+        BrowserSmokeMode::FissionCanvas => {
+            status.ready_canvas && status.renderer.is_some() && status.rendered_frames > 0
+        }
+    };
+    surface_ready && (!require_live_control || status.test_bridge_ready)
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn smoke_diagnostics(
+    options: &BrowserTestOptions,
+    status: RuntimeStatus,
+    browser_errors: Vec<String>,
+) -> BrowserSmokeDiagnostics {
+    BrowserSmokeDiagnostics {
+        report: BrowserSmokeReport {
+            url: status.url,
+            title: status.title,
+            width: status.width,
+            height: status.height,
+            renderer: status.renderer,
+            body_text_len: status.body_text_len,
+            screenshot_path: options.screenshot_path.clone(),
+        },
+        renderer_requested: status.renderer_requested,
+        rendered_frames: status.rendered_frames,
+        test_bridge_ready: status.test_bridge_ready,
+        browser_errors,
+    }
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -721,14 +825,20 @@ fn read_runtime_status(client: &mut CdpClient) -> Result<RuntimeStatus> {
       const canvas = document.querySelector('canvas');
       const rect = canvas ? canvas.getBoundingClientRect() : { width: 0, height: 0 };
       const renderer = globalThis.__FISSION_RENDERER_INFO ?? null;
+      const renderedFrames = Number(globalThis.__FISSION_RENDERED_FRAME_COUNT ?? 0);
       return {
         ready_dom: document.readyState === 'complete' && !!body && body.innerText.trim().length > 0,
         ready_canvas: !!canvas && rect.width > 0 && rect.height > 0,
+        url: window.location.href,
         title: document.title || '',
         width: Math.round(rect.width || window.innerWidth || 0),
         height: Math.round(rect.height || window.innerHeight || 0),
         body_text_len: body ? body.innerText.trim().length : 0,
         renderer: renderer ? renderer.active : null,
+        renderer_requested: renderer ? renderer.requested : null,
+        rendered_frames: Number.isSafeInteger(renderedFrames) && renderedFrames > 0
+          ? renderedFrames
+          : 0,
         test_bridge_ready: !!globalThis.__FISSION_TEST__
           && typeof globalThis.__FISSION_TEST__.submit === 'function'
           && typeof globalThis.__FISSION_TEST__.poll === 'function',
@@ -827,7 +937,10 @@ impl ChromeSession {
                 "--window-size={},{}",
                 options.viewport_width, options.viewport_height
             ))
-            .arg(&options.url)
+            // Attach CDP instrumentation before loading the application so
+            // startup exceptions and console errors cannot race the smoke
+            // gate. BrowserController performs the real Page.navigate call.
+            .arg("about:blank")
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn()
@@ -1103,20 +1216,50 @@ mod tests {
 
     #[test]
     fn browser_status_requires_explicit_live_bridge_signal() {
-        let status: RuntimeStatus = serde_json::from_value(serde_json::json!({
+        let mut status: RuntimeStatus = serde_json::from_value(serde_json::json!({
             "ready_dom": true,
             "ready_canvas": true,
+            "url": "http://127.0.0.1:8123/",
             "title": "Fission",
             "width": 1280,
             "height": 900,
             "body_text_len": 0,
             "renderer": "webgpu-vello",
+            "renderer_requested": "auto",
+            "rendered_frames": 1,
             "test_bridge_ready": true
         }))
         .expect("decode browser status");
 
+        assert_eq!(status.url, "http://127.0.0.1:8123/");
         assert!(status.test_bridge_ready);
         assert_eq!(status.renderer.as_deref(), Some("webgpu-vello"));
+        assert_eq!(status.renderer_requested.as_deref(), Some("auto"));
+        assert_eq!(status.rendered_frames, 1);
+        assert!(runtime_status_ready(
+            BrowserSmokeMode::FissionCanvas,
+            &status,
+            true
+        ));
+        status.rendered_frames = 0;
+        assert!(!runtime_status_ready(
+            BrowserSmokeMode::FissionCanvas,
+            &status,
+            true
+        ));
+    }
+
+    #[test]
+    fn browser_viewport_metrics_preserve_logical_test_pixels() {
+        assert_eq!(
+            device_metrics(568, 320),
+            serde_json::json!({
+                "width": 568,
+                "height": 320,
+                "deviceScaleFactor": 1,
+                "mobile": false
+            })
+        );
     }
 
     #[test]
