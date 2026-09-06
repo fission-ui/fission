@@ -50,7 +50,11 @@ resolver = "2"
 [workspace.lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(cargo_clippy)', 'cfg(feature, values("cargo-clippy"))'] }
 
+[profile.dev]
+debug = "line-tables-only"
+
 [profile.dev.package."*"]
+debug = false
 opt-level = 1
 
 [profile.release]

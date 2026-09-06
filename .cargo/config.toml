@@ -1,0 +1,6 @@
+# The Debian controller supplies its project-specific build settings here.
+# Other shared-checkout hosts skip the absent optional file and retain their
+# own Cargo target configuration.
+include = [
+    { path = "/home/zcourts/.config/fission/cargo-debian.toml", optional = true },
+]
