@@ -5,7 +5,7 @@ use fission_ir::WidgetId;
 use fission_render::LayoutSize;
 use fission_test_driver::TestEvent;
 use wasm_bindgen::{closure::Closure, JsCast};
-use web_sys::{HtmlCanvasElement, HtmlElement, MouseEvent};
+use web_sys::{Event, HtmlCanvasElement, HtmlElement, MouseEvent};
 use winit::event_loop::EventLoopProxy;
 
 use crate::SemanticRecord;
@@ -19,6 +19,7 @@ pub(crate) struct WebLinkOverlay {
     canvas: HtmlCanvasElement,
     root: HtmlElement,
     click_handlers: Vec<Closure<dyn FnMut(MouseEvent)>>,
+    focus_handlers: Vec<Closure<dyn FnMut(Event)>>,
 }
 
 impl WebLinkOverlay {
@@ -47,6 +48,7 @@ impl WebLinkOverlay {
             canvas,
             root,
             click_handlers: Vec::new(),
+            focus_handlers: Vec::new(),
         })
     }
 
@@ -56,9 +58,11 @@ impl WebLinkOverlay {
         viewport: LayoutSize,
         activations: &Rc<RefCell<VecDeque<WidgetId>>>,
         proxy: &EventLoopProxy<TestEvent>,
+        accessibility_mirror_active: bool,
     ) -> Result<(), String> {
         self.root.set_text_content(None);
         self.click_handlers.clear();
+        self.focus_handlers.clear();
         if viewport.width <= 0.0 || viewport.height <= 0.0 {
             return Ok(());
         }
@@ -119,8 +123,53 @@ impl WebLinkOverlay {
                     .set_attribute("aria-label", label)
                     .map_err(crate::js_error_to_string)?;
             }
+            if accessibility_mirror_active {
+                // The accessibility mirror owns sequential focus, keyboard
+                // activation, and the AX link node. This genuine anchor stays
+                // as the pointer/context-menu/native-navigation authority.
+                anchor
+                    .set_attribute("tabindex", "-1")
+                    .map_err(crate::js_error_to_string)?;
+                anchor
+                    .set_attribute("aria-hidden", "true")
+                    .map_err(crate::js_error_to_string)?;
+                anchor
+                    .set_attribute("data-fission-link-proxy", "")
+                    .map_err(crate::js_error_to_string)?;
+
+                let prevent_pointer_focus = Closure::wrap(Box::new(move |event: MouseEvent| {
+                    if event.button() == 0 {
+                        event.prevent_default();
+                    }
+                }) as Box<dyn FnMut(_)>);
+                anchor
+                    .add_event_listener_with_callback(
+                        "mousedown",
+                        prevent_pointer_focus.as_ref().unchecked_ref(),
+                    )
+                    .map_err(crate::js_error_to_string)?;
+                self.click_handlers.push(prevent_pointer_focus);
+
+                let proxy = proxy.clone();
+                let clear_accidental_focus = Closure::wrap(Box::new(move |event: Event| {
+                    if let Some(element) = event
+                        .current_target()
+                        .and_then(|target| target.dyn_into::<HtmlElement>().ok())
+                    {
+                        let _ = element.blur();
+                    }
+                    let _ = proxy.send_event(TestEvent::Wake);
+                }) as Box<dyn FnMut(_)>);
+                anchor
+                    .add_event_listener_with_callback(
+                        "focus",
+                        clear_accidental_focus.as_ref().unchecked_ref(),
+                    )
+                    .map_err(crate::js_error_to_string)?;
+                self.focus_handlers.push(clear_accidental_focus);
+            }
             anchor
-                .set_attribute("data-fission-widget-id", &record.id.to_string())
+                .set_attribute("data-fission-widget-id", &record.id.as_u128().to_string())
                 .map_err(crate::js_error_to_string)?;
             anchor
                 .set_attribute(

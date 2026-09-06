@@ -108,6 +108,10 @@ fn web_key(key: &str) -> Option<(KeyCode, Option<String>)> {
     Some((code, produced_text))
 }
 
+fn bridge_owns_key(code: &KeyCode, focus_barrier_active: bool) -> bool {
+    !matches!(code, KeyCode::Tab) || focus_barrier_active
+}
+
 #[cfg(target_arch = "wasm32")]
 mod imp {
     use std::cell::{Cell, RefCell};
@@ -127,7 +131,7 @@ mod imp {
     use winit::platform::web::WindowExtWebSys;
     use winit::window::Window;
 
-    use super::{web_key, SemanticDescriptor, Semantics};
+    use super::{bridge_owns_key, web_key, SemanticDescriptor, Semantics};
     use crate::BrowserDefaults;
 
     static NEXT_ROOT_ID: AtomicU32 = AtomicU32::new(1);
@@ -157,6 +161,7 @@ mod imp {
     #[derive(Debug)]
     enum QueuedAccessibilityEvent {
         Focus(WidgetId),
+        Blur(WidgetId),
         Activate(WidgetId),
         KeyDown {
             target: WidgetId,
@@ -165,7 +170,6 @@ mod imp {
             produced_text: Option<String>,
         },
         KeyUp {
-            target: WidgetId,
             code: fission_core::KeyCode,
             modifiers: u8,
         },
@@ -173,6 +177,14 @@ mod imp {
 
     struct WebNode {
         element: HtmlElement,
+    }
+
+    struct WebImeElement {
+        element: HtmlElement,
+        aria_hidden: Option<String>,
+        aria_multiline: Option<String>,
+        marker: Option<String>,
+        widget_id: Option<String>,
     }
 
     struct CanvasAttributes {
@@ -187,10 +199,13 @@ mod imp {
         dom_order: Vec<WidgetId>,
         id_prefix: String,
         canvas_attributes: CanvasAttributes,
+        ime_elements: Vec<WebImeElement>,
         _focus_listener: Closure<dyn FnMut(Event)>,
+        _focus_out_listener: Closure<dyn FnMut(Event)>,
         _click_listener: Closure<dyn FnMut(Event)>,
         _key_down_listener: Closure<dyn FnMut(KeyboardEvent)>,
         _key_up_listener: Closure<dyn FnMut(KeyboardEvent)>,
+        _ime_focus_out_listeners: Vec<Closure<dyn FnMut(Event)>>,
     }
 
     impl Drop for WebAccessibilityRoot {
@@ -208,6 +223,28 @@ mod imp {
             let _ = self
                 .canvas
                 .remove_attribute("data-fission-semantics-mirrored");
+            for (ime, listener) in self.ime_elements.iter().zip(&self._ime_focus_out_listeners) {
+                let _ = ime.element.remove_event_listener_with_callback(
+                    "focusout",
+                    listener.as_ref().unchecked_ref(),
+                );
+                restore_html_attribute(&ime.element, "aria-hidden", ime.aria_hidden.as_deref());
+                restore_html_attribute(
+                    &ime.element,
+                    "aria-multiline",
+                    ime.aria_multiline.as_deref(),
+                );
+                restore_html_attribute(
+                    &ime.element,
+                    "data-fission-ime-proxy",
+                    ime.marker.as_deref(),
+                );
+                restore_html_attribute(
+                    &ime.element,
+                    "data-fission-widget-id",
+                    ime.widget_id.as_deref(),
+                );
+            }
             if let Some(parent) = self.root.parent_node() {
                 let _ = parent.remove_child(&self.root);
             }
@@ -222,6 +259,7 @@ mod imp {
         root: Option<WebAccessibilityRoot>,
         mount_failed: bool,
         last_runtime_focus: Option<WidgetId>,
+        focus_barrier_active: Rc<Cell<bool>>,
     }
 
     impl WebAccessibilityBridge {
@@ -234,6 +272,7 @@ mod imp {
                 root: None,
                 mount_failed: false,
                 last_runtime_focus: None,
+                focus_barrier_active: Rc::new(Cell::new(false)),
             }
         }
 
@@ -254,6 +293,10 @@ mod imp {
 
         pub fn process_window_event(&mut self, _window: &Window, _event: &WindowEvent) {}
 
+        pub fn is_active(&self) -> bool {
+            self.root.is_some()
+        }
+
         pub fn update_tree(
             &mut self,
             ir: &CoreIR,
@@ -266,7 +309,7 @@ mod imp {
             };
             sync_root_geometry(root, scale_factor);
 
-            let ordered_ids = semantic_ids_in_tree_order(ir);
+            let ordered_ids = accessible_ids_in_tree_order(ir);
             let retained_ids = ordered_ids.iter().copied().collect::<HashSet<_>>();
             let stale_ids = root
                 .nodes
@@ -283,6 +326,7 @@ mod imp {
             }
 
             let active_barrier = fission_core::hit_test::topmost_focus_barrier(ir);
+            self.focus_barrier_active.set(active_barrier.is_some());
             let active_ids = ordered_ids
                 .iter()
                 .copied()
@@ -295,9 +339,6 @@ mod imp {
 
             for id in &ordered_ids {
                 let Some(node) = ir.nodes.get(id) else {
-                    continue;
-                };
-                let Op::Semantics(semantics) = &node.op else {
                     continue;
                 };
                 if !root.nodes.contains_key(id) {
@@ -317,13 +358,30 @@ mod imp {
                     .nodes
                     .get(id)
                     .expect("created Web accessibility node remains retained");
-                let label = semantics
-                    .label
-                    .clone()
-                    .or_else(|| collect_descendant_text(ir, *id));
-                let value = semantic_value(runtime, *id, semantics);
                 let active = active_ids.contains(id);
-                apply_semantics(&web_node.element, semantics, label, value, active);
+                match &node.op {
+                    Op::Semantics(semantics) => {
+                        let label = semantics.label.clone().or_else(|| {
+                            semantics_consumes_descendant_text(semantics)
+                                .then(|| collect_descendant_text(ir, *id))
+                                .flatten()
+                        });
+                        let value = semantic_value(runtime, *id, semantics);
+                        let modal = semantics.role == fission_ir::Role::Dialog
+                            && active_barrier.is_some_and(|barrier| {
+                                fission_core::hit_test::is_descendant_or_self(ir, *id, barrier)
+                            });
+                        apply_semantics(&web_node.element, semantics, label, value, active, modal);
+                    }
+                    Op::Paint(PaintOp::DrawText { text, .. }) if !text.is_empty() => {
+                        apply_text(&web_node.element, text, active);
+                    }
+                    Op::Paint(PaintOp::DrawRichText { runs, .. }) => {
+                        let text = runs.iter().map(|run| run.text.as_str()).collect::<String>();
+                        apply_text(&web_node.element, &text, active);
+                    }
+                    _ => continue,
+                }
                 apply_node_geometry(
                     &web_node.element,
                     root,
@@ -337,7 +395,7 @@ mod imp {
             // frames, which would otherwise disrupt browser focus.
             let mut owned_children = HashMap::<Option<WidgetId>, Vec<WidgetId>>::new();
             for id in ordered_ids.iter().filter(|id| active_ids.contains(id)) {
-                let parent = nearest_active_semantic_parent(ir, *id, &active_ids);
+                let parent = nearest_active_accessible_parent(ir, *id, &active_ids);
                 owned_children.entry(parent).or_default().push(*id);
             }
             set_owned_nodes(&root.root, owned_children.get(&None), &root.nodes);
@@ -359,7 +417,7 @@ mod imp {
                 }
                 root.dom_order.clone_from(&ordered_ids);
             }
-            self.sync_dom_focus(runtime);
+            self.sync_dom_focus(runtime, ir);
         }
 
         pub fn drain_events(
@@ -384,7 +442,34 @@ mod imp {
                 };
                 changed |= match event {
                     QueuedAccessibilityEvent::Focus(target) => {
-                        focus_semantic_node(runtime, ir, target)
+                        self.syncing_focus.set(true);
+                        let changed = focus_semantic_node(runtime, ir, target);
+                        if editable_text_input(ir, runtime.runtime_state.interaction.focused)
+                            .is_some()
+                        {
+                            // Focusing through the DOM/assistive-technology
+                            // mirror must populate the native IME proxy just
+                            // like pointer and core-keyboard focus paths do.
+                            runtime.update_focused_ime_state(ir, layout);
+                        }
+                        self.syncing_focus.set(false);
+                        changed
+                    }
+                    QueuedAccessibilityEvent::Blur(target) => {
+                        if runtime.runtime_state.interaction.focused != Some(target)
+                            || self.dom_focus_matches_widget(target)
+                        {
+                            false
+                        } else {
+                            let prior_dom_focus = self.active_html_element();
+                            self.syncing_focus.set(true);
+                            let changed = runtime
+                                .set_focused_widget(ir, None, TextEditSource::Accessibility)
+                                .unwrap_or(false);
+                            self.restore_focus_displaced_by_ime_shutdown(prior_dom_focus);
+                            self.syncing_focus.set(false);
+                            changed
+                        }
                     }
                     QueuedAccessibilityEvent::Activate(target) => {
                         activate_semantic_node(runtime, ir, target)
@@ -395,7 +480,9 @@ mod imp {
                         modifiers,
                         produced_text,
                     } => {
+                        self.syncing_focus.set(true);
                         let _ = focus_semantic_node(runtime, ir, target);
+                        self.syncing_focus.set(false);
                         let event = produced_text.map_or_else(
                             || KeyEvent::Down {
                                 key_code: code.clone(),
@@ -411,26 +498,19 @@ mod imp {
                             .handle_input(InputEvent::Keyboard(event), ir, layout)
                             .is_ok()
                     }
-                    QueuedAccessibilityEvent::KeyUp {
-                        target,
-                        code,
-                        modifiers,
-                    } => {
-                        let _ = focus_semantic_node(runtime, ir, target);
-                        runtime
-                            .handle_input(
-                                InputEvent::Keyboard(KeyEvent::Up {
-                                    key_code: code,
-                                    modifiers,
-                                }),
-                                ir,
-                                layout,
-                            )
-                            .is_ok()
-                    }
+                    QueuedAccessibilityEvent::KeyUp { code, modifiers } => runtime
+                        .handle_input(
+                            InputEvent::Keyboard(KeyEvent::Up {
+                                key_code: code,
+                                modifiers,
+                            }),
+                            ir,
+                            layout,
+                        )
+                        .is_ok(),
                 };
             }
-            self.sync_dom_focus(runtime);
+            self.sync_dom_focus(runtime, ir);
             changed
         }
 
@@ -498,6 +578,11 @@ mod imp {
                 aria_hidden: canvas.get_attribute("aria-hidden"),
                 tabindex: canvas.get_attribute("tabindex"),
             };
+            let ime_elements = find_winit_ime_elements(&canvas);
+            for ime in &ime_elements {
+                let _ = ime.element.set_attribute("aria-hidden", "true");
+                let _ = ime.element.set_attribute("data-fission-ime-proxy", "");
+            }
             if let Some(canvas_element) = canvas.dyn_ref::<HtmlElement>() {
                 let _ = canvas_element.blur();
             }
@@ -517,6 +602,12 @@ mod imp {
                 self.proxy.clone(),
                 self.syncing_focus.clone(),
             )?;
+            let focus_out_listener = make_focus_out_listener(
+                &root,
+                self.queue.clone(),
+                self.proxy.clone(),
+                self.syncing_focus.clone(),
+            )?;
             let click_listener =
                 make_click_listener(&root, self.queue.clone(), self.proxy.clone())?;
             let key_down_listener = make_key_down_listener(
@@ -524,13 +615,26 @@ mod imp {
                 self.queue.clone(),
                 self.proxy.clone(),
                 self.browser_defaults,
+                self.focus_barrier_active.clone(),
             )?;
             let key_up_listener = make_key_up_listener(
                 &root,
                 self.queue.clone(),
                 self.proxy.clone(),
                 self.browser_defaults,
+                self.focus_barrier_active.clone(),
             )?;
+            let ime_focus_out_listeners = ime_elements
+                .iter()
+                .map(|ime| {
+                    make_ime_focus_out_listener(
+                        &ime.element,
+                        self.queue.clone(),
+                        self.proxy.clone(),
+                        self.syncing_focus.clone(),
+                    )
+                })
+                .collect::<Result<Vec<_>, _>>()?;
 
             Ok(WebAccessibilityRoot {
                 canvas,
@@ -539,29 +643,75 @@ mod imp {
                 dom_order: Vec::new(),
                 id_prefix,
                 canvas_attributes,
+                ime_elements,
                 _focus_listener: focus_listener,
+                _focus_out_listener: focus_out_listener,
                 _click_listener: click_listener,
                 _key_down_listener: key_down_listener,
                 _key_up_listener: key_up_listener,
+                _ime_focus_out_listeners: ime_focus_out_listeners,
             })
         }
 
-        fn sync_dom_focus(&mut self, runtime: &Runtime) {
+        fn sync_dom_focus(&mut self, runtime: &Runtime, ir: &CoreIR) {
             let focused = runtime.runtime_state.interaction.focused;
+            let focused_text_input = editable_text_input(ir, focused);
+            if let Some(root) = self.root.as_ref() {
+                let native_ime_owns_focus = sync_ime_visibility(root, focused_text_input);
+                if native_ime_owns_focus {
+                    if let Some(element) = focused.and_then(|id| root.nodes.get(&id)) {
+                        let _ = element.element.remove_attribute("tabindex");
+                        let _ = element.element.set_attribute("aria-hidden", "true");
+                    }
+                    // Winit's native textarea/password proxy owns composition,
+                    // selection and mobile-keyboard input while a TextInput is
+                    // focused. Never steal that focus back to the mirror.
+                    self.last_runtime_focus = focused;
+                    return;
+                }
+                if focused_text_input.is_some() && root.ime_elements.is_empty() {
+                    // Without a uniquely identified native proxy, do not steal
+                    // focus from whichever private element winit may be using
+                    // for composition. The mirror remains exposed to AX; a
+                    // per-window upstream proxy marker can make this handoff
+                    // fully observable in a future winit release.
+                    self.last_runtime_focus = focused;
+                    return;
+                }
+            }
             let Some(element) = focused
                 .and_then(|id| self.root.as_ref()?.nodes.get(&id))
                 .map(|node| node.element.clone())
             else {
                 self.last_runtime_focus = focused;
+                let root = self.root.as_ref();
+                let active_managed = root
+                    .and_then(|root| root.root.owner_document())
+                    .and_then(|document| document.active_element())
+                    .filter(|element| {
+                        element.has_attribute("data-fission-a11y-node")
+                            || element.has_attribute("data-fission-link-proxy")
+                            || root.is_some_and(|root| {
+                                element.is_same_node(Some(root.canvas.unchecked_ref()))
+                            })
+                    });
+                if let Some(element) = active_managed
+                    .as_ref()
+                    .and_then(|element| element.dyn_ref::<HtmlElement>())
+                {
+                    // Runtime focus is authoritative. Clear only a stale
+                    // mirror/link focus or this bridge's exact canvas, never
+                    // an unrelated browser control.
+                    self.syncing_focus.set(true);
+                    let _ = element.blur();
+                    self.syncing_focus.set(false);
+                }
                 return;
             };
             let dom_has_focus = element
                 .owner_document()
                 .and_then(|document| document.active_element())
-                .is_some_and(|active| {
-                    active.get_attribute("data-fission-widget-id")
-                        == element.get_attribute("data-fission-widget-id")
-                });
+                .is_some_and(|active| active.is_same_node(Some(&element)));
             if focused == self.last_runtime_focus && dom_has_focus {
                 return;
             }
@@ -572,6 +722,44 @@ mod imp {
             self.syncing_focus.set(true);
             let _ = element.focus();
             self.syncing_focus.set(false);
+        }
+
+        fn dom_focus_matches_widget(&self, id: WidgetId) -> bool {
+            self.active_html_element().is_some_and(|element| {
+                element.get_attribute("data-fission-widget-id") == Some(id.as_u128().to_string())
+            })
+        }
+
+        fn active_html_element(&self) -> Option<HtmlElement> {
+            self.root
+                .as_ref()
+                .and_then(|root| root.root.owner_document())
+                .and_then(|document| document.active_element())
+                .and_then(|element| element.dyn_into::<HtmlElement>().ok())
+        }
+
+        fn restore_focus_displaced_by_ime_shutdown(&self, prior: Option<HtmlElement>) {
+            let Some(root) = self.root.as_ref() else {
+                return;
+            };
+            let canvas: &HtmlElement = root.canvas.unchecked_ref();
+            let canvas_has_focus = || {
+                root.root
+                    .owner_document()
+                    .and_then(|document| document.active_element())
+                    .is_some_and(|active| active.is_same_node(Some(canvas)))
+            };
+            if !canvas_has_focus() {
+                return;
+            }
+            if let Some(prior) = prior
+                .filter(|element| element.is_connected() && !element.is_same_node(Some(canvas)))
+            {
+                let _ = prior.focus();
+            }
+            if canvas_has_focus() {
+                let _ = canvas.blur();
+            }
         }
     }
 
@@ -593,6 +781,157 @@ mod imp {
             }
         }) as Box<dyn FnMut(_)>);
         root.add_event_listener_with_callback("focusin", listener.as_ref().unchecked_ref())
+            .map_err(crate::js_error_to_string)?;
+        Ok(listener)
+    }
+
+    fn find_winit_ime_elements(canvas: &HtmlCanvasElement) -> Vec<WebImeElement> {
+        let Some(body) = canvas.owner_document().and_then(|document| document.body()) else {
+            return Vec::new();
+        };
+        let mut matches = Vec::new();
+        let mut current = body.first_element_child();
+        while let Some(element) = current {
+            current = element.next_element_sibling();
+            let Ok(element) = element.dyn_into::<HtmlElement>() else {
+                continue;
+            };
+            if is_winit_ime_element(&element, "TEXTAREA", None)
+                || is_winit_ime_element(&element, "INPUT", Some("password"))
+            {
+                matches.push(element);
+            }
+        }
+        // Fission-winit creates exactly one consecutive textarea/password pair
+        // for each Web window. Refuse to alter host-page fields when that exact
+        // private proxy shape is not unique.
+        if matches.len() != 2
+            || !is_winit_ime_element(&matches[0], "TEXTAREA", None)
+            || !is_winit_ime_element(&matches[1], "INPUT", Some("password"))
+            || matches[0]
+                .next_element_sibling()
+                .is_none_or(|next| !next.is_same_node(Some(&matches[1])))
+        {
+            return Vec::new();
+        }
+        matches
+            .into_iter()
+            .map(|element| WebImeElement {
+                aria_hidden: element.get_attribute("aria-hidden"),
+                aria_multiline: element.get_attribute("aria-multiline"),
+                marker: element.get_attribute("data-fission-ime-proxy"),
+                widget_id: element.get_attribute("data-fission-widget-id"),
+                element,
+            })
+            .collect()
+    }
+
+    fn is_winit_ime_element(
+        element: &HtmlElement,
+        expected_tag: &str,
+        expected_type: Option<&str>,
+    ) -> bool {
+        if element.tag_name() != expected_tag
+            || expected_type.is_some_and(|value| {
+                element
+                    .get_attribute("type")
+                    .is_none_or(|actual| !actual.eq_ignore_ascii_case(value))
+            })
+            || element.tab_index() != -1
+        {
+            return false;
+        }
+        let style = element.style();
+        [
+            ("position", "fixed"),
+            ("width", "1px"),
+            ("height", "1px"),
+            ("opacity", "0"),
+            ("pointer-events", "none"),
+        ]
+        .into_iter()
+        .all(|(name, expected)| {
+            style
+                .get_property_value(name)
+                .is_ok_and(|actual| actual == expected)
+        })
+    }
+
+    fn sync_ime_visibility(
+        root: &WebAccessibilityRoot,
+        focused_text_input: Option<(WidgetId, bool)>,
+    ) -> bool {
+        let active = root
+            .root
+            .owner_document()
+            .and_then(|document| document.active_element());
+        let mut active_proxy = false;
+        for ime in &root.ime_elements {
+            let owns_focus = active
+                .as_ref()
+                .is_some_and(|active| active.is_same_node(Some(&ime.element)));
+            if let Some((id, _)) = focused_text_input {
+                let _ = ime
+                    .element
+                    .set_attribute("data-fission-widget-id", &id.as_u128().to_string());
+            } else {
+                let _ = ime.element.remove_attribute("data-fission-widget-id");
+            }
+            if let Some((_, multiline)) = focused_text_input.filter(|_| owns_focus) {
+                active_proxy = true;
+                let _ = ime.element.remove_attribute("aria-hidden");
+                let _ = ime
+                    .element
+                    .set_attribute("aria-multiline", bool_string(multiline));
+            } else {
+                let _ = ime.element.set_attribute("aria-hidden", "true");
+                let _ = ime.element.remove_attribute("aria-multiline");
+            }
+        }
+        active_proxy
+    }
+
+    fn make_ime_focus_out_listener(
+        element: &HtmlElement,
+        queue: Rc<RefCell<VecDeque<QueuedAccessibilityEvent>>>,
+        proxy: EventLoopProxy<TestEvent>,
+        syncing_focus: Rc<Cell<bool>>,
+    ) -> Result<Closure<dyn FnMut(Event)>, String> {
+        let listener = Closure::wrap(Box::new(move |event: Event| {
+            if syncing_focus.get() {
+                return;
+            }
+            if let Some(target) = event_widget_id(&event) {
+                queue
+                    .borrow_mut()
+                    .push_back(QueuedAccessibilityEvent::Blur(target));
+                let _ = proxy.send_event(TestEvent::Wake);
+            }
+        }) as Box<dyn FnMut(_)>);
+        element
+            .add_event_listener_with_callback("focusout", listener.as_ref().unchecked_ref())
+            .map_err(crate::js_error_to_string)?;
+        Ok(listener)
+    }
+
+    fn make_focus_out_listener(
+        root: &HtmlElement,
+        queue: Rc<RefCell<VecDeque<QueuedAccessibilityEvent>>>,
+        proxy: EventLoopProxy<TestEvent>,
+        syncing_focus: Rc<Cell<bool>>,
+    ) -> Result<Closure<dyn FnMut(Event)>, String> {
+        let listener = Closure::wrap(Box::new(move |event: Event| {
+            if syncing_focus.get() {
+                return;
+            }
+            if let Some(target) = event_widget_id(&event) {
+                queue
+                    .borrow_mut()
+                    .push_back(QueuedAccessibilityEvent::Blur(target));
+                let _ = proxy.send_event(TestEvent::Wake);
+            }
+        }) as Box<dyn FnMut(_)>);
+        root.add_event_listener_with_callback("focusout", listener.as_ref().unchecked_ref())
             .map_err(crate::js_error_to_string)?;
         Ok(listener)
     }
@@ -623,6 +962,7 @@ mod imp {
         queue: Rc<RefCell<VecDeque<QueuedAccessibilityEvent>>>,
         proxy: EventLoopProxy<TestEvent>,
         browser_defaults: BrowserDefaults,
+        focus_barrier_active: Rc<Cell<bool>>,
     ) -> Result<Closure<dyn FnMut(KeyboardEvent)>, String> {
         let listener = Closure::wrap(Box::new(move |event: KeyboardEvent| {
             let Some(target) = keyboard_event_widget_id(&event) else {
@@ -631,8 +971,15 @@ mod imp {
             let Some((code, produced_text)) = web_key(&event.key()) else {
                 return;
             };
-            if !browser_defaults.contains(BrowserDefaults::KEYBOARD)
-                && !is_browser_clipboard_shortcut(&event)
+            if !bridge_owns_key(&code, focus_barrier_active.get()) {
+                // The retained DOM order is the production accessibility
+                // order. Outside a modal focus barrier, browser Tab traversal
+                // must be able to enter and leave the canvas application.
+                return;
+            }
+            if matches!(code, fission_core::KeyCode::Tab)
+                || (!browser_defaults.contains(BrowserDefaults::KEYBOARD)
+                    && !is_browser_clipboard_shortcut(&event))
             {
                 event.prevent_default();
             }
@@ -658,23 +1005,27 @@ mod imp {
         queue: Rc<RefCell<VecDeque<QueuedAccessibilityEvent>>>,
         proxy: EventLoopProxy<TestEvent>,
         browser_defaults: BrowserDefaults,
+        focus_barrier_active: Rc<Cell<bool>>,
     ) -> Result<Closure<dyn FnMut(KeyboardEvent)>, String> {
         let listener = Closure::wrap(Box::new(move |event: KeyboardEvent| {
-            let Some(target) = keyboard_event_widget_id(&event) else {
+            let Some(_target) = keyboard_event_widget_id(&event) else {
                 return;
             };
             let Some((code, _)) = web_key(&event.key()) else {
                 return;
             };
-            if !browser_defaults.contains(BrowserDefaults::KEYBOARD)
-                && !is_browser_clipboard_shortcut(&event)
+            if !bridge_owns_key(&code, focus_barrier_active.get()) {
+                return;
+            }
+            if matches!(code, fission_core::KeyCode::Tab)
+                || (!browser_defaults.contains(BrowserDefaults::KEYBOARD)
+                    && !is_browser_clipboard_shortcut(&event))
             {
                 event.prevent_default();
             }
             queue
                 .borrow_mut()
                 .push_back(QueuedAccessibilityEvent::KeyUp {
-                    target,
                     code,
                     modifiers: modifiers(&event),
                 });
@@ -731,33 +1082,64 @@ mod imp {
         )
     }
 
-    fn semantic_ids_in_tree_order(ir: &CoreIR) -> Vec<WidgetId> {
+    fn accessible_ids_in_tree_order(ir: &CoreIR) -> Vec<WidgetId> {
         let mut ids = Vec::new();
         if let Some(root) = ir.root {
-            collect_semantic_ids(ir, root, &mut ids);
+            collect_accessible_ids(ir, root, &mut ids, false);
         }
         ids
     }
 
-    fn collect_semantic_ids(ir: &CoreIR, id: WidgetId, ids: &mut Vec<WidgetId>) {
+    fn collect_accessible_ids(
+        ir: &CoreIR,
+        id: WidgetId,
+        ids: &mut Vec<WidgetId>,
+        text_consumed_by_ancestor: bool,
+    ) {
         let Some(node) = ir.nodes.get(&id) else {
             return;
         };
-        if let Op::Semantics(semantics) = &node.op {
-            // Hyperlinks already have one genuine anchor authority in
-            // `WebLinkOverlay`, including modified-click/download/popover
-            // behavior. Mirroring that subtree again would create duplicate
-            // accessibility and Tab stops.
-            if semantics.hyperlink.is_some() {
-                return;
+        let mut text_consumed = text_consumed_by_ancestor;
+        match &node.op {
+            Op::Semantics(semantics) => {
+                if include_semantics(semantics) {
+                    ids.push(id);
+                }
+                text_consumed |= semantics_consumes_descendant_text(semantics);
             }
-            if include_semantics(semantics) {
+            Op::Paint(PaintOp::DrawText { text, .. })
+                if !text_consumed_by_ancestor && !text.is_empty() =>
+            {
                 ids.push(id);
             }
+            Op::Paint(PaintOp::DrawRichText { runs, .. })
+                if !text_consumed_by_ancestor && runs.iter().any(|run| !run.text.is_empty()) =>
+            {
+                ids.push(id);
+            }
+            _ => {}
         }
         for child in &node.children {
-            collect_semantic_ids(ir, *child, ids);
+            collect_accessible_ids(ir, *child, ids, text_consumed);
         }
+    }
+
+    fn semantics_consumes_descendant_text(semantics: &Semantics) -> bool {
+        semantics.focusable
+            || matches!(
+                semantics.role,
+                fission_ir::Role::Button
+                    | fission_ir::Role::Link
+                    | fission_ir::Role::MenuItem
+                    | fission_ir::Role::Text
+                    | fission_ir::Role::TextInput
+                    | fission_ir::Role::Input
+                    | fission_ir::Role::Image
+                    | fission_ir::Role::Checkbox
+                    | fission_ir::Role::Radio
+                    | fission_ir::Role::Switch
+                    | fission_ir::Role::Slider
+            )
     }
 
     fn include_semantics(semantics: &Semantics) -> bool {
@@ -773,7 +1155,7 @@ mod imp {
             || !semantics.actions.entries.is_empty()
     }
 
-    fn nearest_active_semantic_parent(
+    fn nearest_active_accessible_parent(
         ir: &CoreIR,
         id: WidgetId,
         active_ids: &HashSet<WidgetId>,
@@ -821,11 +1203,14 @@ mod imp {
         label: Option<String>,
         value: Option<String>,
         active: bool,
+        modal: bool,
     ) {
         for attribute in MANAGED_ATTRIBUTES {
             let _ = element.remove_attribute(attribute);
         }
-        let descriptor = SemanticDescriptor::new(semantics, label, value);
+        let _ = element.remove_attribute("data-fission-a11y-text");
+        let mut descriptor = SemanticDescriptor::new(semantics, label, value);
+        descriptor.modal = modal;
         set_optional_attribute(element, "role", descriptor.role);
         set_optional_attribute(element, "aria-label", descriptor.accessible_name.as_deref());
         set_optional_attribute(element, "aria-checked", descriptor.checked.map(bool_string));
@@ -876,6 +1261,18 @@ mod imp {
                 let _ = element.set_attribute("tabindex", "0");
             }
         } else {
+            let _ = element.set_attribute("aria-hidden", "true");
+        }
+    }
+
+    fn apply_text(element: &HtmlElement, text: &str, active: bool) {
+        for attribute in MANAGED_ATTRIBUTES {
+            let _ = element.remove_attribute(attribute);
+        }
+        let _ = element.remove_attribute("data-fission-semantic-id");
+        let _ = element.set_attribute("data-fission-a11y-text", "");
+        element.set_text_content(Some(text));
+        if !active {
             let _ = element.set_attribute("aria-hidden", "true");
         }
     }
@@ -1005,6 +1402,18 @@ mod imp {
             .unwrap_or(false)
     }
 
+    fn editable_text_input(ir: &CoreIR, focused: Option<WidgetId>) -> Option<(WidgetId, bool)> {
+        let id = focused?;
+        let node = ir.nodes.get(&id)?;
+        let Op::Semantics(semantics) = &node.op else {
+            return None;
+        };
+        (semantics.role == fission_ir::Role::TextInput
+            && !semantics.read_only
+            && !semantics.disabled)
+            .then_some((id, semantics.multiline))
+    }
+
     fn activate_semantic_node(runtime: &mut Runtime, ir: &CoreIR, id: WidgetId) -> bool {
         let Some(node) = ir.nodes.get(&id) else {
             return false;
@@ -1050,6 +1459,14 @@ mod imp {
     }
 
     fn restore_attribute(element: &HtmlCanvasElement, name: &str, value: Option<&str>) {
+        if let Some(value) = value {
+            let _ = element.set_attribute(name, value);
+        } else {
+            let _ = element.remove_attribute(name);
+        }
+    }
+
+    fn restore_html_attribute(element: &HtmlElement, name: &str, value: Option<&str>) {
         if let Some(value) = value {
             let _ = element.set_attribute(name, value);
         } else {
@@ -1158,5 +1575,12 @@ mod tests {
         assert_eq!(web_key("Tab"), Some((KeyCode::Tab, None)));
         assert_eq!(web_key("é"), Some((KeyCode::Char('é'), Some("é".into()))));
         assert_eq!(web_key("Dead"), None);
+    }
+
+    #[test]
+    fn leaves_tab_traversal_to_the_browser_except_inside_a_focus_barrier() {
+        assert!(!bridge_owns_key(&KeyCode::Tab, false));
+        assert!(bridge_owns_key(&KeyCode::Tab, true));
+        assert!(bridge_owns_key(&KeyCode::Enter, false));
     }
 }

@@ -8892,16 +8892,26 @@ where
                                             pipeline.prev_ir.as_ref(),
                                             pipeline.last_snapshot.as_ref(),
                                         ) {
-                                            let records = collect_semantic_records(
+                                            let mut records = collect_semantic_records(
                                                 ir,
                                                 layout,
                                                 &runtime.runtime_state.scroll,
                                             );
+                                            if let Some(barrier) =
+                                                fission_core::hit_test::topmost_focus_barrier(ir)
+                                            {
+                                                records.retain(|record| {
+                                                    fission_core::hit_test::is_descendant_or_self(
+                                                        ir, record.id, barrier,
+                                                    )
+                                                });
+                                            }
                                             if let Err(error) = overlay.sync(
                                                 &records,
                                                 target_viewport,
                                                 &web_link_activation_queue,
                                                 &event_proxy,
+                                                accessibility_bridge.is_active(),
                                             ) {
                                                 eprintln!(
                                                     "fission-shell-winit: link DOM projection failed: {error}"
