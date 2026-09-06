@@ -548,16 +548,27 @@ mod imp {
 
         fn sync_dom_focus(&mut self, runtime: &Runtime) {
             let focused = runtime.runtime_state.interaction.focused;
-            if focused == self.last_runtime_focus {
-                return;
-            }
-            self.last_runtime_focus = focused;
             let Some(element) = focused
                 .and_then(|id| self.root.as_ref()?.nodes.get(&id))
                 .map(|node| node.element.clone())
             else {
+                self.last_runtime_focus = focused;
                 return;
             };
+            let dom_has_focus = element
+                .owner_document()
+                .and_then(|document| document.active_element())
+                .is_some_and(|active| {
+                    active.get_attribute("data-fission-widget-id")
+                        == element.get_attribute("data-fission-widget-id")
+                });
+            if focused == self.last_runtime_focus && dom_has_focus {
+                return;
+            }
+            // Reordering retained DOM nodes can make Chromium drop focus even
+            // though Fission's runtime focus did not change. Reassert the one
+            // authoritative runtime target whenever the browser diverges.
+            self.last_runtime_focus = focused;
             self.syncing_focus.set(true);
             let _ = element.focus();
             self.syncing_focus.set(false);
