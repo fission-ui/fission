@@ -374,6 +374,8 @@ pub fn list_site_routes(
     for route in &site.custom_routes {
         routes.push(ContentRoute {
             path: route.path.clone(),
+            mount_path: route.path.clone(),
+            template: None,
             title: route.title.clone(),
             description: route.description.clone(),
             locale: None,
@@ -667,6 +669,8 @@ fn load_content_routes(
                 .unwrap_or_else(|| route_path_from_file(&config.path, &config.source, &file));
             routes.push(ContentRoute {
                 path: normalize_site_path(&route_path),
+                mount_path: normalize_site_path(&config.path),
+                template: config.template.clone(),
                 title,
                 description: front.description,
                 locale: front.locale,
@@ -816,6 +820,8 @@ fn render_custom_routes(
         let html = apply_static_route_outcome(html, rendered.route_outcome.as_ref())?;
         routes.push(ContentRoute {
             path: route.path.clone(),
+            mount_path: route.path.clone(),
+            template: None,
             title: route.title.clone(),
             description: route.description.clone(),
             locale: None,
@@ -901,6 +907,7 @@ fn render_route(
     let state = SitePageState;
     let view = View::new(&state, &runtime, &env, None);
     let mut build_ctx = BuildCtx::<SitePageState>::new();
+    let header = render_content_header_node(options, site, route, &env)?;
     let page = DocumentationPage {
         site_title: &options.site_title,
         site_logo: options.site_logo.as_deref(),
@@ -909,6 +916,7 @@ fn render_route(
         search_enabled: options.search.enabled,
         route,
         all_routes: routes,
+        header_override: header.as_ref().map(|header| header.widget.clone()),
     };
     let page_node = fission_core::build::enter(&mut build_ctx, &view, || page.into());
     let footer = render_footer_node(options, site, &route.path, &env)?;
@@ -918,6 +926,12 @@ fn render_route(
     let mut video_registrations = build_ctx.take_video_registrations();
     let mut web_registrations = build_ctx.take_web_registrations();
     let mut portals = build_ctx.take_portals();
+    if let Some(header) = header {
+        motion_declarations.extend(header.motion_declarations);
+        video_registrations.extend(header.video_registrations);
+        web_registrations.extend(header.web_registrations);
+        portals.extend(header.portals);
+    }
     if let Some(footer) = footer {
         motion_declarations.extend(footer.motion_declarations);
         video_registrations.extend(footer.video_registrations);
@@ -942,6 +956,25 @@ fn render_route(
         web_registrations,
         Vec::new(),
     )
+}
+
+fn render_content_header_node(
+    options: &SiteBuildOptions,
+    site: &FissionSite,
+    route: &ContentRoute,
+    env: &Env,
+) -> Result<Option<SiteRouteRender>> {
+    let Some(header) = &site.content_header else {
+        return Ok(None);
+    };
+    let ctx = SiteRenderContext {
+        project_dir: &options.project_dir,
+        route_path: &route.path,
+        theme: &env.theme,
+        default_locale: &options.default_locale,
+        env,
+    };
+    header(&ctx).map(Some)
 }
 
 fn site_env_for_route(
@@ -1872,7 +1905,7 @@ href = "/docs/reference/"
     }
 
     #[test]
-    fn blog_routes_get_generated_index_and_strip_truncate_marker() {
+    fn blog_template_generates_routes_for_the_configured_mount() {
         let temp = std::env::temp_dir().join(format!(
             "fission-site-blog-test-{}",
             SystemTime::now()
@@ -1889,55 +1922,94 @@ href = "/docs/reference/"
 
         let mut options = SiteBuildOptions::for_project(&temp, "Test site");
         options.content_routes = vec![SiteContentRouteConfig {
-            path: "/blog".to_string(),
+            path: "/journal".to_string(),
             source: temp.join("content/blog"),
-            template: None,
+            template: Some("fission::site::blog".to_string()),
             sidebar: None,
         }];
 
         let report = build_content_site(&options).unwrap();
-        assert!(report.routes.iter().any(|route| route.path == "/blog/"));
+        assert!(report.routes.iter().any(|route| route.path == "/journal/"));
         assert!(report
             .routes
             .iter()
-            .any(|route| route.path == "/blog/2026-06-02-release/"));
+            .any(|route| route.path == "/journal/2026-06-02-release/"));
         assert!(report
             .routes
             .iter()
-            .any(|route| route.path == "/blog/categories/updates/"));
+            .any(|route| route.path == "/journal/categories/updates/"));
         assert!(report
             .routes
             .iter()
-            .any(|route| route.path == "/blog/tags/release/"));
+            .any(|route| route.path == "/journal/tags/release/"));
 
-        let index = fs::read_to_string(temp.join("target/fission/site/blog/index.html")).unwrap();
+        let index =
+            fs::read_to_string(temp.join("target/fission/site/journal/index.html")).unwrap();
         assert!(index.contains("Featured"));
         assert!(index.contains("Release post"));
         assert!(index.contains("release"));
         assert!(index.contains("updates"));
-        assert!(index.contains("blog/categories/updates/"));
-        assert!(index.contains("blog/tags/release/"));
+        assert!(index.contains("journal/categories/updates/"));
+        assert!(index.contains("journal/tags/release/"));
 
-        let post =
-            fs::read_to_string(temp.join("target/fission/site/blog/2026-06-02-release/index.html"))
-                .unwrap();
+        let post = fs::read_to_string(
+            temp.join("target/fission/site/journal/2026-06-02-release/index.html"),
+        )
+        .unwrap();
         assert!(post.contains("Post"));
         assert!(post.contains("body."));
         assert!(!post.contains("truncate"));
         assert!(post.contains("site-blog-adjacent-posts") || !post.contains("Older post"));
-        assert!(post.contains("blog/categories/updates/"));
-        assert!(post.contains("blog/tags/release/"));
+        assert!(post.contains("journal/categories/updates/"));
+        assert!(post.contains("journal/tags/release/"));
 
-        let category =
-            fs::read_to_string(temp.join("target/fission/site/blog/categories/updates/index.html"))
-                .unwrap();
+        let category = fs::read_to_string(
+            temp.join("target/fission/site/journal/categories/updates/index.html"),
+        )
+        .unwrap();
         assert!(category.contains("Category: updates"));
         assert!(category.contains("Release post"));
 
-        let tag = fs::read_to_string(temp.join("target/fission/site/blog/tags/release/index.html"))
-            .unwrap();
+        let tag =
+            fs::read_to_string(temp.join("target/fission/site/journal/tags/release/index.html"))
+                .unwrap();
         assert!(tag.contains("Tag: #release"));
         assert!(tag.contains("Release post"));
+        let _ = fs::remove_dir_all(temp);
+    }
+
+    #[test]
+    fn content_header_widget_replaces_the_default_content_header() {
+        let temp = std::env::temp_dir().join(format!(
+            "fission-site-content-header-test-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(temp.join("content/docs")).unwrap();
+        fs::write(
+            temp.join("content/docs/index.md"),
+            "---\ntitle: Guide\n---\n# Guide\n\nContent body.",
+        )
+        .unwrap();
+
+        let mut options = SiteBuildOptions::for_project(&temp, "Test site");
+        options.content_routes = vec![SiteContentRouteConfig {
+            path: "/docs".to_string(),
+            source: temp.join("content/docs"),
+            template: Some("fission::site::documentation".to_string()),
+            sidebar: None,
+        }];
+        let site = FissionSite::new().content_header_widget::<TestState, _, _>(|ctx| {
+            Text::new(format!("Custom header for {}", ctx.route_path))
+        });
+
+        build_site(&options, &site).unwrap();
+        let html = fs::read_to_string(temp.join("target/fission/site/docs/index.html")).unwrap();
+
+        assert!(html.contains("Custom header for /docs/"));
+        assert!(!html.contains("fission-site-doc-header"));
         let _ = fs::remove_dir_all(temp);
     }
 

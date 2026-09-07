@@ -255,6 +255,7 @@ pub struct FissionSite {
     pub(crate) default_locale: Option<Locale>,
     pub(crate) locale_resolver: Option<Arc<LocaleResolver>>,
     pub(crate) document_metadata_resolver: Option<Arc<DocumentMetadataResolver>>,
+    pub(crate) content_header: Option<Arc<RouteRenderer>>,
     pub(crate) footer: Option<Arc<RouteRenderer>>,
 }
 
@@ -267,6 +268,7 @@ impl Default for FissionSite {
             default_locale: None,
             locale_resolver: None,
             document_metadata_resolver: None,
+            content_header: None,
             footer: None,
         }
     }
@@ -499,6 +501,24 @@ impl FissionSite {
         let widget = Arc::new(widget);
         self.footer = Some(Arc::new(move |ctx| {
             render_widget_node::<S, W>(widget.as_ref(), ctx)
+        }));
+        self
+    }
+
+    /// Replaces the default header on content-backed routes.
+    ///
+    /// The factory runs once per generated content route, so a site can select
+    /// different retained header components from [`SiteRenderContext::route_path`].
+    /// Programmatic routes keep ownership of their complete page chrome.
+    pub fn content_header_widget<S, W, F>(mut self, factory: F) -> Self
+    where
+        S: GlobalState + Default + 'static,
+        W: Clone + Into<Widget> + Send + Sync + 'static,
+        F: for<'a> Fn(&SiteRenderContext<'a>) -> W + Send + Sync + 'static,
+    {
+        self.content_header = Some(Arc::new(move |ctx| {
+            let widget = factory(ctx);
+            render_widget_node::<S, W>(&widget, ctx)
         }));
         self
     }

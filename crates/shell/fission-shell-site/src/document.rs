@@ -11,6 +11,8 @@ use std::path::PathBuf;
 #[derive(Clone, Debug)]
 pub(crate) struct ContentRoute {
     pub path: String,
+    pub mount_path: String,
+    pub template: Option<String>,
     pub title: String,
     pub description: Option<String>,
     pub locale: Option<String>,
@@ -80,6 +82,7 @@ pub(crate) struct DocumentationPage<'a> {
     pub search_enabled: bool,
     pub route: &'a ContentRoute,
     pub all_routes: &'a [ContentRoute],
+    pub header_override: Option<Widget>,
 }
 
 impl From<DocumentationPage<'_>> for Widget {
@@ -90,8 +93,12 @@ impl From<DocumentationPage<'_>> for Widget {
         // content-sized so the footer remains in normal document flow; a fixed
         // render-time minimum becomes stale as soon as the browser viewport or
         // content height differs from the static renderer's default viewport.
+        let header = page
+            .header_override
+            .clone()
+            .unwrap_or_else(|| page.header(tokens));
         Container::new(Column {
-            children: vec![page.header(tokens), page.document_grid(view)],
+            children: vec![header, page.document_grid(view)],
             flex_grow: 1.0,
             ..Default::default()
         })
@@ -191,7 +198,7 @@ impl DocumentationPage<'_> {
 
     fn document_grid(&self, view: ViewHandle<SitePageState>) -> Widget {
         let tokens = &view.env().theme.tokens;
-        if is_blog_route(&self.route.path) {
+        if is_blog_route(self.route) {
             return Row {
                 children: vec![
                     self.sidebar(tokens),
@@ -217,7 +224,7 @@ impl DocumentationPage<'_> {
 
     fn sidebar(&self, tokens: &Tokens) -> Widget {
         let mut children = Vec::new();
-        if is_blog_route(&self.route.path) {
+        if is_blog_route(self.route) {
             children.extend(self.blog_sidebar_items(tokens));
         } else if self.route.sidebar.is_empty() {
             let section_prefix = section_prefix(&self.route.path);
@@ -269,7 +276,7 @@ impl DocumentationPage<'_> {
 
     fn blog_sidebar_items(&self, tokens: &Tokens) -> Vec<Widget> {
         let mut children = Vec::new();
-        children.push(self.sidebar_item("Blog", "/blog/", 0, true, 0, tokens));
+        children.push(self.sidebar_item("Blog", &self.route.mount_path, 0, true, 0, tokens));
 
         for (index, route) in ordered_blog_routes(self.all_routes).iter().enumerate() {
             children.push(self.sidebar_item(
@@ -340,11 +347,11 @@ impl DocumentationPage<'_> {
         if let Some(breadcrumbs) = self.breadcrumbs(tokens) {
             children.push(breadcrumbs);
         }
-        if is_blog_index_route(&self.route.path) {
+        if is_blog_index_route(self.route) {
             children.push(self.blog_index_article(tokens));
-        } else if is_blog_taxonomy_route(&self.route.path) {
+        } else if is_blog_taxonomy_route(self.route) {
             children.push(self.blog_taxonomy_article(tokens));
-        } else if is_blog_post_route(&self.route.path) {
+        } else if is_blog_post_route(self.route) {
             children.push(self.blog_post_article(tokens));
         } else {
             if !body_first_heading_matches_title(&self.route.body, &self.route.title) {
@@ -402,7 +409,7 @@ impl DocumentationPage<'_> {
 
     fn blog_index_article(&self, tokens: &Tokens) -> Widget {
         let posts = ordered_blog_routes(self.all_routes);
-        let page = blog_page_number(&self.route.path).unwrap_or(1);
+        let page = blog_page_number(self.route).unwrap_or(1);
         let page_count = posts.len().div_ceil(BLOG_PAGE_SIZE).max(1);
         let page_start = (page.saturating_sub(1) * BLOG_PAGE_SIZE).min(posts.len());
         let page_end = (page_start + BLOG_PAGE_SIZE).min(posts.len());
@@ -413,41 +420,50 @@ impl DocumentationPage<'_> {
             post_cards.push(blog_post_card(route, false, tokens));
         }
 
-        let mut children = vec![
-            Container::new(Column {
-                children: vec![
-                    Text::new("Fission journal")
-                        .size(tokens.typography.font_size_xs)
-                        .family(tokens.typography.font_family_mono.clone())
-                        .weight(tokens.typography.font_weight_bold)
-                        .color(tokens.colors.primary)
-                        .into(),
-                    Text::new("How Fission is built, tested, and released.")
-                        .size(tokens.typography.heading1_size)
-                        .family(tokens.typography.font_family_serif.clone())
-                        .weight(tokens.typography.font_weight_bold)
-                        .line_height(
-                            tokens.typography.heading1_size
-                                * tokens.typography.line_height_heading,
-                        )
-                        .color(tokens.colors.heading)
-                        .semantics_identifier("site-blog-index-title")
-                        .into(),
-                    Text::new("Release notes explain what changed and who it helps. Engineering articles document the decisions behind Fission's application model, platform boundaries, rendering, testing, and production tooling.")
-                        .size(tokens.typography.body_large_size)
-                        .line_height(
-                            tokens.typography.body_large_size
-                                * tokens.typography.line_height_relaxed,
-                        )
-                        .color(tokens.colors.text_secondary)
-                        .into(),
-                ],
-                gap: Some(tokens.spacing.m),
-                semantics: Some(site_semantics("site-blog-index-hero")),
-                ..Default::default()
-            })
-            .into(),
-        ];
+        let headline = self
+            .route
+            .body
+            .lines()
+            .find_map(|line| line.strip_prefix("# ").map(str::trim))
+            .filter(|title| !title.is_empty())
+            .unwrap_or(&self.route.title)
+            .to_string();
+        let summary = self
+            .route
+            .description
+            .clone()
+            .unwrap_or_else(|| format!("The latest posts from {}.", self.site_title));
+        let mut children = vec![Container::new(Column {
+            children: vec![
+                Text::new(self.route.title.clone())
+                    .size(tokens.typography.font_size_xs)
+                    .family(tokens.typography.font_family_mono.clone())
+                    .weight(tokens.typography.font_weight_bold)
+                    .color(tokens.colors.primary)
+                    .into(),
+                Text::new(headline)
+                    .size(tokens.typography.heading1_size)
+                    .family(tokens.typography.font_family_serif.clone())
+                    .weight(tokens.typography.font_weight_bold)
+                    .line_height(
+                        tokens.typography.heading1_size * tokens.typography.line_height_heading,
+                    )
+                    .color(tokens.colors.heading)
+                    .semantics_identifier("site-blog-index-title")
+                    .into(),
+                Text::new(summary)
+                    .size(tokens.typography.body_large_size)
+                    .line_height(
+                        tokens.typography.body_large_size * tokens.typography.line_height_relaxed,
+                    )
+                    .color(tokens.colors.text_secondary)
+                    .into(),
+            ],
+            gap: Some(tokens.spacing.m),
+            semantics: Some(site_semantics("site-blog-index-hero")),
+            ..Default::default()
+        })
+        .into()];
 
         if let Some(route) = featured {
             children.push(
@@ -493,7 +509,12 @@ impl DocumentationPage<'_> {
         }
 
         if page_count > 1 {
-            children.push(blog_index_pagination(page, page_count, tokens));
+            children.push(blog_index_pagination(
+                &self.route.mount_path,
+                page,
+                page_count,
+                tokens,
+            ));
         }
 
         Column {
@@ -555,7 +576,7 @@ impl DocumentationPage<'_> {
                     .size(tokens.typography.label_large_size)
                     .weight(tokens.typography.font_weight_bold)
                     .color(tokens.colors.text_link)
-                    .semantics_identifier("site-route:/blog/")
+                    .semantics_identifier(format!("site-route:{}", self.route.mount_path))
                     .into(),
             ],
             gap: Some(tokens.spacing.m),
@@ -642,7 +663,7 @@ impl DocumentationPage<'_> {
                 .size(tokens.typography.label_large_size)
                 .weight(tokens.typography.font_weight_bold)
                 .color(tokens.colors.text_link)
-                .semantics_identifier("site-route:/blog/")
+                .semantics_identifier(format!("site-route:{}", self.route.mount_path))
                 .into(),
         );
         Column {
@@ -657,10 +678,15 @@ impl DocumentationPage<'_> {
     fn blog_metadata(&self, tokens: &Tokens) -> Option<Widget> {
         let mut chips = Vec::new();
         for category in &self.route.categories {
-            chips.push(taxonomy_chip("Category", category, tokens));
+            chips.push(taxonomy_chip(
+                &self.route.mount_path,
+                "Category",
+                category,
+                tokens,
+            ));
         }
         for tag in &self.route.tags {
-            chips.push(taxonomy_chip("Tag", tag, tokens));
+            chips.push(taxonomy_chip(&self.route.mount_path, "Tag", tag, tokens));
         }
         if chips.is_empty() {
             return None;
@@ -734,7 +760,13 @@ impl DocumentationPage<'_> {
                 category_groups
                     .iter()
                     .map(|(label, count)| {
-                        blog_count_chip(BlogTaxonomyKind::Category, label, *count, tokens)
+                        blog_count_chip(
+                            &self.route.mount_path,
+                            BlogTaxonomyKind::Category,
+                            label,
+                            *count,
+                            tokens,
+                        )
                     })
                     .collect(),
                 tokens,
@@ -747,7 +779,13 @@ impl DocumentationPage<'_> {
                 tag_groups
                     .iter()
                     .map(|(label, count)| {
-                        blog_count_chip(BlogTaxonomyKind::Tag, label, *count, tokens)
+                        blog_count_chip(
+                            &self.route.mount_path,
+                            BlogTaxonomyKind::Tag,
+                            label,
+                            *count,
+                            tokens,
+                        )
                     })
                     .collect(),
                 tokens,
@@ -812,7 +850,7 @@ impl DocumentationPage<'_> {
     }
 
     fn content_adjacent_pages(&self, tokens: &Tokens) -> Option<Widget> {
-        let prefix = section_prefix(&self.route.path);
+        let prefix = self.route.mount_path.as_str();
         let mut routes = Vec::<&ContentRoute>::new();
         if let Some(route) = self.all_routes.iter().find(|route| route.path == prefix) {
             routes.push(route);
@@ -955,7 +993,7 @@ fn nav_item(link: &SiteNavLink, depth: usize, index: usize, tokens: &Tokens) -> 
     .into()
 }
 
-fn taxonomy_chip(kind: &str, value: &str, tokens: &Tokens) -> Widget {
+fn taxonomy_chip(mount_path: &str, kind: &str, value: &str, tokens: &Tokens) -> Widget {
     let label = match kind {
         "Category" => value.to_string(),
         "Tag" => format!("#{value}"),
@@ -965,7 +1003,7 @@ fn taxonomy_chip(kind: &str, value: &str, tokens: &Tokens) -> Widget {
         .size(tokens.typography.font_size_sm)
         .weight(tokens.typography.font_weight_semibold)
         .color(tokens.colors.text_secondary);
-    if let Some(href) = blog_taxonomy_href(kind, value) {
+    if let Some(href) = blog_taxonomy_href(mount_path, kind, value) {
         text = text
             .color(tokens.colors.text_link)
             .semantics_identifier(format!("site-route:{href}"));
@@ -1162,12 +1200,12 @@ fn blog_route_chips(route: &ContentRoute, tokens: &Tokens) -> Vec<Widget> {
     route
         .categories
         .iter()
-        .map(|category| taxonomy_chip("Category", category, tokens))
+        .map(|category| taxonomy_chip(&route.mount_path, "Category", category, tokens))
         .chain(
             route
                 .tags
                 .iter()
-                .map(|tag| taxonomy_chip("Tag", tag, tokens)),
+                .map(|tag| taxonomy_chip(&route.mount_path, "Tag", tag, tokens)),
         )
         .collect()
 }
@@ -1200,8 +1238,14 @@ fn blog_rail_link(label: &str, href: &str, tokens: &Tokens) -> Widget {
         .into()
 }
 
-fn blog_count_chip(kind: BlogTaxonomyKind, label: &str, count: usize, tokens: &Tokens) -> Widget {
-    let href = blog_taxonomy_route(kind, label);
+fn blog_count_chip(
+    mount_path: &str,
+    kind: BlogTaxonomyKind,
+    label: &str,
+    count: usize,
+    tokens: &Tokens,
+) -> Widget {
+    let href = blog_taxonomy_route(mount_path, kind, label);
     Container::new(
         Text::new(format!("{label} ({count})"))
             .size(tokens.typography.font_size_sm)
@@ -1389,37 +1433,45 @@ fn section_prefix(path: &str) -> &str {
     }
 }
 
-fn is_blog_route(path: &str) -> bool {
-    path == "/blog/" || path.starts_with("/blog/")
+fn is_blog_route(route: &ContentRoute) -> bool {
+    route.template.as_deref() == Some("fission::site::blog")
 }
 
-fn is_blog_post_route(path: &str) -> bool {
-    is_blog_route(path) && !is_blog_index_route(path) && !is_blog_taxonomy_route(path)
+fn is_blog_post_route(route: &ContentRoute) -> bool {
+    is_blog_route(route) && !is_blog_index_route(route) && !is_blog_taxonomy_route(route)
 }
 
-fn is_blog_index_route(path: &str) -> bool {
-    path == "/blog/" || blog_page_number(path).is_some()
+fn is_blog_index_route(route: &ContentRoute) -> bool {
+    route.path == route.mount_path || blog_page_number(route).is_some()
 }
 
-fn blog_page_number(path: &str) -> Option<usize> {
-    let page = path
-        .strip_prefix("/blog/page/")?
+fn blog_page_number(route: &ContentRoute) -> Option<usize> {
+    let page_prefix = format!("{}page/", route.mount_path);
+    let page = route
+        .path
+        .strip_prefix(&page_prefix)?
         .trim_end_matches('/')
         .parse::<usize>()
         .ok()?;
     (page >= 2).then_some(page)
 }
 
-fn blog_page_path(page: usize) -> String {
+fn blog_page_path(mount_path: &str, page: usize) -> String {
     if page <= 1 {
-        "/blog/".to_string()
+        mount_path.to_string()
     } else {
-        format!("/blog/page/{page}/")
+        format!("{mount_path}page/{page}/")
     }
 }
 
-fn blog_index_pagination(page: usize, page_count: usize, tokens: &Tokens) -> Widget {
+fn blog_index_pagination(
+    mount_path: &str,
+    page: usize,
+    page_count: usize,
+    tokens: &Tokens,
+) -> Widget {
     SemanticBlogPagination {
+        mount_path: mount_path.to_string(),
         previous: page.checked_sub(1).filter(|value| *value >= 1),
         next: (page < page_count).then_some(page + 1),
         page,
@@ -1429,6 +1481,7 @@ fn blog_index_pagination(page: usize, page_count: usize, tokens: &Tokens) -> Wid
 }
 
 struct SemanticBlogPagination {
+    mount_path: String,
     previous: Option<usize>,
     next: Option<usize>,
     page: usize,
@@ -1439,13 +1492,13 @@ impl SemanticBlogPagination {
     fn into_widget(self, tokens: &Tokens) -> Widget {
         Row {
             children: vec![
-                blog_page_link("← Previous page", self.previous, tokens),
+                blog_page_link("← Previous page", &self.mount_path, self.previous, tokens),
                 Text::new(format!("Page {} of {}", self.page, self.page_count))
                     .size(tokens.typography.font_size_xs)
                     .family(tokens.typography.font_family_mono.clone())
                     .color(tokens.colors.text_muted)
                     .into(),
-                blog_page_link("Next page →", self.next, tokens),
+                blog_page_link("Next page →", &self.mount_path, self.next, tokens),
             ],
             gap: Some(tokens.spacing.l),
             align_items: AlignItems::Center,
@@ -1457,7 +1510,7 @@ impl SemanticBlogPagination {
     }
 }
 
-fn blog_page_link(label: &str, page: Option<usize>, tokens: &Tokens) -> Widget {
+fn blog_page_link(label: &str, mount_path: &str, page: Option<usize>, tokens: &Tokens) -> Widget {
     let mut text = Text::new(label.to_string())
         .size(tokens.typography.label_large_size)
         .weight(tokens.typography.font_weight_bold)
@@ -1467,19 +1520,25 @@ fn blog_page_link(label: &str, page: Option<usize>, tokens: &Tokens) -> Widget {
             tokens.colors.text_muted.with_alpha(110)
         });
     if let Some(page) = page {
-        text = text.semantics_identifier(format!("site-route:{}", blog_page_path(page)));
+        text =
+            text.semantics_identifier(format!("site-route:{}", blog_page_path(mount_path, page)));
     }
     text.into()
 }
 
-fn is_blog_taxonomy_route(path: &str) -> bool {
-    path.starts_with("/blog/categories/") || path.starts_with("/blog/tags/")
+fn is_blog_taxonomy_route(route: &ContentRoute) -> bool {
+    route
+        .path
+        .starts_with(&format!("{}categories/", route.mount_path))
+        || route
+            .path
+            .starts_with(&format!("{}tags/", route.mount_path))
 }
 
 fn ordered_blog_routes<'a>(routes: &'a [ContentRoute]) -> Vec<&'a ContentRoute> {
     let mut posts = routes
         .iter()
-        .filter(|route| is_blog_post_route(&route.path) && route.rendered.is_none())
+        .filter(|route| is_blog_post_route(route) && route.rendered.is_none())
         .collect::<Vec<_>>();
     posts.sort_by(|a, b| blog_sort_key(b).cmp(&blog_sort_key(a)));
     posts
@@ -1501,20 +1560,22 @@ enum BlogTaxonomyKind {
 }
 
 fn blog_taxonomy_from_route(route: &ContentRoute) -> Option<(BlogTaxonomyKind, String)> {
-    if route.path.starts_with("/blog/categories/") {
+    let categories_prefix = format!("{}categories/", route.mount_path);
+    if route.path.starts_with(&categories_prefix) {
         return route
             .categories
             .first()
             .cloned()
-            .or_else(|| taxonomy_value_from_path(&route.path, "/blog/categories/"))
+            .or_else(|| taxonomy_value_from_path(&route.path, &categories_prefix))
             .map(|value| (BlogTaxonomyKind::Category, value));
     }
-    if route.path.starts_with("/blog/tags/") {
+    let tags_prefix = format!("{}tags/", route.mount_path);
+    if route.path.starts_with(&tags_prefix) {
         return route
             .tags
             .first()
             .cloned()
-            .or_else(|| taxonomy_value_from_path(&route.path, "/blog/tags/"))
+            .or_else(|| taxonomy_value_from_path(&route.path, &tags_prefix))
             .map(|value| (BlogTaxonomyKind::Tag, value));
     }
     None
@@ -1538,20 +1599,28 @@ fn blog_route_has_taxonomy(route: &ContentRoute, kind: BlogTaxonomyKind, value: 
     source.iter().any(|item| slug(item) == target)
 }
 
-fn blog_taxonomy_href(kind: &str, value: &str) -> Option<String> {
+fn blog_taxonomy_href(mount_path: &str, kind: &str, value: &str) -> Option<String> {
     match kind {
-        "Category" => Some(blog_taxonomy_route(BlogTaxonomyKind::Category, value)),
-        "Tag" => Some(blog_taxonomy_route(BlogTaxonomyKind::Tag, value)),
+        "Category" => Some(blog_taxonomy_route(
+            mount_path,
+            BlogTaxonomyKind::Category,
+            value,
+        )),
+        "Tag" => Some(blog_taxonomy_route(
+            mount_path,
+            BlogTaxonomyKind::Tag,
+            value,
+        )),
         _ => None,
     }
 }
 
-fn blog_taxonomy_route(kind: BlogTaxonomyKind, value: &str) -> String {
+fn blog_taxonomy_route(mount_path: &str, kind: BlogTaxonomyKind, value: &str) -> String {
     let segment = match kind {
         BlogTaxonomyKind::Category => "categories",
         BlogTaxonomyKind::Tag => "tags",
     };
-    format!("/blog/{segment}/{}/", slug(value))
+    format!("{mount_path}{segment}/{}/", slug(value))
 }
 
 fn blog_taxonomy_values(routes: &[ContentRoute], kind: BlogTaxonomyKind) -> Vec<(String, usize)> {
@@ -1752,13 +1821,36 @@ mod tests {
 
     #[test]
     fn blog_page_routes_are_indexes_not_posts() {
-        assert!(is_blog_index_route("/blog/"));
-        assert!(is_blog_index_route("/blog/page/2/"));
-        assert!(!is_blog_post_route("/blog/page/2/"));
-        assert!(is_blog_post_route("/blog/2026/09/07/example/"));
-        assert_eq!(blog_page_number("/blog/page/4/"), Some(4));
-        assert_eq!(blog_page_number("/blog/page/1/"), None);
-        assert_eq!(blog_page_path(1), "/blog/");
-        assert_eq!(blog_page_path(3), "/blog/page/3/");
+        let index = test_blog_route("/journal/");
+        let page = test_blog_route("/journal/page/2/");
+        let post = test_blog_route("/journal/2026/09/07/example/");
+        let invalid_page = test_blog_route("/journal/page/1/");
+        assert!(is_blog_index_route(&index));
+        assert!(is_blog_index_route(&page));
+        assert!(!is_blog_post_route(&page));
+        assert!(is_blog_post_route(&post));
+        assert_eq!(blog_page_number(&page), Some(2));
+        assert_eq!(blog_page_number(&invalid_page), None);
+        assert_eq!(blog_page_path("/journal/", 1), "/journal/");
+        assert_eq!(blog_page_path("/journal/", 3), "/journal/page/3/");
+    }
+
+    fn test_blog_route(path: &str) -> ContentRoute {
+        ContentRoute {
+            path: path.to_string(),
+            mount_path: "/journal/".to_string(),
+            template: Some("fission::site::blog".to_string()),
+            title: "Journal".to_string(),
+            description: None,
+            locale: None,
+            body: String::new(),
+            headings: Vec::new(),
+            sidebar: Vec::new(),
+            tags: Vec::new(),
+            categories: Vec::new(),
+            show_adjacent_posts: false,
+            source_path: PathBuf::from("post.mdx"),
+            rendered: None,
+        }
     }
 }
