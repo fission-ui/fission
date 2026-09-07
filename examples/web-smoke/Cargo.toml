@@ -14,7 +14,7 @@ standalone-entry = []
 
 [dependencies]
 anyhow = "1.0"
-fission = { path = "../../crates/authoring/fission", default-features = false, features = ["desktop", "web", "android", "ios"] }
+fission = { path = "../../crates/authoring/fission", default-features = false, features = ["desktop", "web", "android", "ios", "game"] }
 console_error_panic_hook = "0.1"
 wasm-bindgen = "0.2"
 

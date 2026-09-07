@@ -1,7 +1,14 @@
 use fission::prelude::*;
 
+#[path = "path_smoke.rs"]
+mod path_smoke;
+
+use path_smoke::ScenePathSmoke;
+
 const CONTENT_MIN_WIDTH: f32 = 240.0;
 const CONTENT_MAX_WIDTH: f32 = 420.0;
+const NARROW_SPANISH_COPY: &str =
+    "El comité de vecinos revisó con calma el sitio disponible y ordenó los materiales para la jornada común.";
 
 #[derive(Default, Debug, Clone, PartialEq)]
 pub struct CounterState {
@@ -76,6 +83,21 @@ impl From<CounterApp> for Widget {
                     .size(tokens.typography.body_large_size)
                     .color(tokens.colors.text_secondary)
                     .into(),
+                Container::new(
+                    Text::new(NARROW_SPANISH_COPY)
+                        .width(342.0)
+                        .height(36.4)
+                        .size(13.0)
+                        .line_height(18.2)
+                        .max_lines(2)
+                        .color(Color::BLACK)
+                        .semantics_identifier("web-smoke.spanish-wrap"),
+                )
+                .width(342.0)
+                .height(36.4)
+                .bg(Color::WHITE)
+                .into(),
+                ScenePathSmoke.into(),
                 Text::new(format!("Count: {}", view.state().count))
                     .size(tokens.typography.font_size_xl)
                     .color(tokens.colors.primary)
