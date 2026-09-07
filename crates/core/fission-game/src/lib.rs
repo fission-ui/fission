@@ -32,9 +32,10 @@ pub use physics_rapier2d::{Physics2DError, RapierPhysicsWorld2D};
 #[cfg(feature = "physics-rapier3d")]
 pub use physics_rapier3d::{Physics3DError, RapierPhysicsWorld3D};
 pub use runtime::{
-    Game, GameConfig, GameCtx, GameFrame, GameKey, GameRuntime, GameSnapshot, GameSnapshotError,
-    GameState, GameTestHarness, GameTime, GameView, HostInputEvent, InputBinding, InputMap,
-    InputTrigger, RuntimeDiagnostic, StepCtx,
+    Game, GameConfig, GameCtx, GameFrame, GameKey, GameRecorder, GameReplay, GameReplayError,
+    GameReplayEvent, GameReplayRun, GameRuntime, GameSnapshot, GameSnapshotError, GameState,
+    GameTestHarness, GameTime, GameView, HostInputEvent, InputBinding, InputMap, InputTrigger,
+    RuntimeDiagnostic, StepCtx,
 };
 pub use scene2d::{
     Anchor, BlendMode2D, GameDiagnostic, ImageAsset, ImageInstance2D, ImageSampling, Layer,

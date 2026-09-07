@@ -143,6 +143,52 @@ impl std::fmt::Display for GameSnapshotError {
 
 impl std::error::Error for GameSnapshotError {}
 
+/// One external operation captured in a deterministic game replay.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case", tag = "operation", content = "value")]
+pub enum GameReplayEvent<M> {
+    /// Input delivered through the runtime's declarative input map.
+    Input(HostInputEvent),
+    /// Typed application message sent directly by the host.
+    Message(M),
+    /// Presentation time supplied before producing one frame.
+    Advance { elapsed_nanos: u128 },
+}
+
+/// Versioned renderer-independent input and timing recording.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct GameReplay<S, M> {
+    pub format_version: u16,
+    pub initial_snapshot: GameSnapshot<S, M>,
+    pub events: Vec<GameReplayEvent<M>>,
+}
+
+impl<S, M> GameReplay<S, M> {
+    pub const FORMAT_VERSION: u16 = 1;
+}
+
+/// Invalid or incompatible game replay.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GameReplayError {
+    message: String,
+}
+
+impl GameReplayError {
+    fn new(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+        }
+    }
+}
+
+impl std::fmt::Display for GameReplayError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&self.message)
+    }
+}
+
+impl std::error::Error for GameReplayError {}
+
 impl Default for GameConfig {
     fn default() -> Self {
         Self {
@@ -285,6 +331,12 @@ pub struct GameRuntime<G: Game> {
     completed_tick: Option<Tick>,
 }
 
+/// Headless result of executing every operation in a [`GameReplay`].
+pub struct GameReplayRun<G: Game> {
+    pub runtime: GameRuntime<G>,
+    pub frames: Vec<GameFrame>,
+}
+
 impl<G: Game> GameRuntime<G> {
     pub fn new(game: G) -> Self {
         Self::with_config(game, GameConfig::default())
@@ -383,6 +435,34 @@ impl<G: Game> GameRuntime<G> {
         })
     }
 
+    /// Replays captured input, host messages, and frame timing from a checkpoint.
+    pub fn replay(replay: GameReplay<G, G::Message>) -> Result<GameReplayRun<G>, GameReplayError> {
+        if replay.format_version != GameReplay::<G, G::Message>::FORMAT_VERSION {
+            return Err(GameReplayError::new(
+                "game replay format version is unsupported",
+            ));
+        }
+        let mut runtime = Self::from_snapshot(replay.initial_snapshot).map_err(|error| {
+            GameReplayError::new(format!("game replay snapshot is invalid: {error}"))
+        })?;
+        let mut frames = Vec::new();
+        for (index, event) in replay.events.into_iter().enumerate() {
+            match event {
+                GameReplayEvent::Input(input) => runtime.handle_input(input),
+                GameReplayEvent::Message(message) => runtime.send(message),
+                GameReplayEvent::Advance { elapsed_nanos } => {
+                    let elapsed = duration_from_nanos(elapsed_nanos).ok_or_else(|| {
+                        GameReplayError::new(format!(
+                            "game replay event {index} elapsed time is out of range"
+                        ))
+                    })?;
+                    frames.push(runtime.advance(elapsed));
+                }
+            }
+        }
+        Ok(GameReplayRun { runtime, frames })
+    }
+
     pub fn advance(&mut self, elapsed: Duration) -> GameFrame {
         let steps = self.clock.advance(elapsed);
         let mut diagnostics = Vec::new();
@@ -437,6 +517,81 @@ impl<G: Game> GameRuntime<G> {
             });
         }
     }
+}
+
+/// Runtime wrapper that records only host-owned operations.
+///
+/// Messages emitted from [`GameCtx`] or [`StepCtx`] are deterministic
+/// consequences of the recorded operations and are therefore not duplicated
+/// in the replay stream.
+pub struct GameRecorder<G: Game> {
+    runtime: GameRuntime<G>,
+    replay: GameReplay<G, G::Message>,
+}
+
+impl<G: Game> GameRecorder<G> {
+    pub fn new(game: G) -> Self {
+        Self::from_runtime(GameRuntime::new(game))
+    }
+
+    pub fn with_config(game: G, config: GameConfig) -> Self {
+        Self::from_runtime(GameRuntime::with_config(game, config))
+    }
+
+    pub fn from_runtime(runtime: GameRuntime<G>) -> Self {
+        let initial_snapshot = runtime.snapshot();
+        Self {
+            runtime,
+            replay: GameReplay {
+                format_version: GameReplay::<G, G::Message>::FORMAT_VERSION,
+                initial_snapshot,
+                events: Vec::new(),
+            },
+        }
+    }
+
+    pub const fn state(&self) -> &G {
+        self.runtime.state()
+    }
+
+    pub fn state_mut(&mut self) -> &mut G {
+        self.runtime.state_mut()
+    }
+
+    pub fn handle_input(&mut self, event: HostInputEvent) {
+        self.replay
+            .events
+            .push(GameReplayEvent::Input(event.clone()));
+        self.runtime.handle_input(event);
+    }
+
+    pub fn send(&mut self, message: G::Message) {
+        self.replay
+            .events
+            .push(GameReplayEvent::Message(message.clone()));
+        self.runtime.send(message);
+    }
+
+    pub fn advance(&mut self, elapsed: Duration) -> GameFrame {
+        self.replay.events.push(GameReplayEvent::Advance {
+            elapsed_nanos: elapsed.as_nanos(),
+        });
+        self.runtime.advance(elapsed)
+    }
+
+    pub const fn recording(&self) -> &GameReplay<G, G::Message> {
+        &self.replay
+    }
+
+    pub fn into_parts(self) -> (GameRuntime<G>, GameReplay<G, G::Message>) {
+        (self.runtime, self.replay)
+    }
+}
+
+fn duration_from_nanos(nanos: u128) -> Option<Duration> {
+    let seconds = u64::try_from(nanos / 1_000_000_000).ok()?;
+    let subsecond_nanos = (nanos % 1_000_000_000) as u32;
+    Some(Duration::new(seconds, subsecond_nanos))
 }
 
 /// Headless deterministic game fixture using the production runtime authority.
@@ -624,5 +779,78 @@ mod tests {
         invalid_accumulator.clock.accumulator_nanos =
             u128::from(invalid_accumulator.clock.step.as_nanos());
         assert!(GameRuntime::<CounterGame>::from_snapshot(invalid_accumulator).is_err());
+    }
+
+    #[test]
+    fn serialized_replay_reproduces_external_operations_without_internal_duplicates() {
+        let config = GameConfig {
+            step: StepDuration::from_hz(20),
+            max_steps_per_frame: 4,
+            max_messages_per_step: 8,
+        };
+        let mut recorder = GameRecorder::with_config(CounterGame::default(), config);
+        recorder.handle_input(HostInputEvent::Trigger(InputTrigger::KeyPressed(
+            GameKey::Space,
+        )));
+        let expected_frames = vec![
+            recorder.advance(Duration::from_millis(60)),
+            {
+                recorder.send(Message::AddAgain);
+                recorder.handle_input(HostInputEvent::Trigger(InputTrigger::Tap(
+                    SceneNodeId::from_key(&7_u32),
+                )));
+                recorder.advance(Duration::from_millis(40))
+            },
+            recorder.advance(Duration::from_millis(50)),
+        ];
+        let (expected_runtime, replay) = recorder.into_parts();
+
+        let encoded = serde_json::to_string(&replay).unwrap();
+        let decoded = serde_json::from_str(&encoded).unwrap();
+        let replayed = GameRuntime::<CounterGame>::replay(decoded).unwrap();
+
+        assert_eq!(replayed.runtime.state(), expected_runtime.state());
+        assert_eq!(replayed.frames, expected_frames);
+        assert_eq!(replayed.runtime.state().value, 14);
+        assert_eq!(
+            replayed.runtime.state().steps,
+            vec![Tick(0), Tick(1), Tick(2)]
+        );
+        assert_eq!(
+            replay.events,
+            vec![
+                GameReplayEvent::Input(HostInputEvent::Trigger(InputTrigger::KeyPressed(
+                    GameKey::Space,
+                ))),
+                GameReplayEvent::Advance {
+                    elapsed_nanos: 60_000_000,
+                },
+                GameReplayEvent::Message(Message::AddAgain),
+                GameReplayEvent::Input(HostInputEvent::Trigger(InputTrigger::Tap(
+                    SceneNodeId::from_key(&7_u32),
+                ))),
+                GameReplayEvent::Advance {
+                    elapsed_nanos: 40_000_000,
+                },
+                GameReplayEvent::Advance {
+                    elapsed_nanos: 50_000_000,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn replay_rejects_unsupported_versions_and_out_of_range_time() {
+        let recorder = GameRecorder::new(CounterGame::default());
+        let (_, mut replay) = recorder.into_parts();
+        replay.format_version += 1;
+        assert!(GameRuntime::<CounterGame>::replay(replay).is_err());
+
+        let recorder = GameRecorder::new(CounterGame::default());
+        let (_, mut replay) = recorder.into_parts();
+        replay.events.push(GameReplayEvent::Advance {
+            elapsed_nanos: u128::MAX,
+        });
+        assert!(GameRuntime::<CounterGame>::replay(replay).is_err());
     }
 }
