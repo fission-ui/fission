@@ -266,6 +266,17 @@ impl Scene3D {
         picking::raycast(self, ray)
     }
 
+    /// Returns the closest visible node under a viewport-space point.
+    ///
+    /// Coordinates use the UI convention: `(0, 0)` is the viewport's top-left
+    /// corner and `width, height` are logical or physical units matching the
+    /// supplied point.
+    pub fn hit_test_viewport(&self, x: f32, y: f32, width: f32, height: f32) -> Option<Scene3DHit> {
+        self.camera
+            .viewport_ray(x, y, width, height)
+            .and_then(|ray| self.raycast(ray))
+    }
+
     pub(crate) fn render_nodes(&self) -> std::borrow::Cow<'_, [ResolvedNode3D]> {
         if self.resolved_nodes.is_empty() && !self.nodes.is_empty() {
             std::borrow::Cow::Owned(self.finish().nodes)

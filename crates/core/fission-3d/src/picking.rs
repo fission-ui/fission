@@ -1,6 +1,6 @@
 //! Backend-neutral ray picking for retained 3D scene nodes.
 
-use crate::{Node3DId, Point3D, Primitive3D, Scene3D};
+use crate::{Camera3D, CameraProjection3D, Node3DId, Point3D, Primitive3D, Scene3D};
 
 const INTERSECTION_EPSILON: f32 = 1.0e-6;
 
@@ -27,6 +27,72 @@ impl Ray3D {
             origin: vec3_to_point(origin),
             direction: vec3_to_point(direction.normalize()),
         })
+    }
+}
+
+impl Camera3D {
+    /// Unprojects one top-left-origin viewport coordinate into a world-space ray.
+    pub fn viewport_ray(&self, x: f32, y: f32, width: f32, height: f32) -> Option<Ray3D> {
+        if !self.is_valid()
+            || !x.is_finite()
+            || !y.is_finite()
+            || !width.is_finite()
+            || !height.is_finite()
+            || width <= 0.0
+            || height <= 0.0
+        {
+            return None;
+        }
+
+        let eye = point_to_vec3(self.eye);
+        let target = point_to_vec3(self.target);
+        let up = point_to_vec3(self.up).normalize();
+        let view = glam::Mat4::look_at_rh(eye, target, up);
+        let aspect = width / height;
+        let projection = match self.projection {
+            CameraProjection3D::Perspective {
+                vertical_fov_radians,
+                near,
+                far,
+            } => glam::Mat4::perspective_rh(vertical_fov_radians, aspect, near, far),
+            CameraProjection3D::Orthographic {
+                vertical_size,
+                near,
+                far,
+            } => {
+                let half_height = vertical_size * 0.5;
+                let half_width = half_height * aspect;
+                glam::Mat4::orthographic_rh(
+                    -half_width,
+                    half_width,
+                    -half_height,
+                    half_height,
+                    near,
+                    far,
+                )
+            }
+        };
+        let inverse_view_projection = (projection * view).inverse();
+        if !inverse_view_projection.is_finite() {
+            return None;
+        }
+
+        let ndc_x = x.mul_add(2.0 / width, -1.0);
+        let ndc_y = 1.0 - y * (2.0 / height);
+        let unproject = |depth| {
+            let homogeneous = inverse_view_projection * glam::Vec4::new(ndc_x, ndc_y, depth, 1.0);
+            (homogeneous.w.abs() > INTERSECTION_EPSILON)
+                .then(|| homogeneous.truncate() / homogeneous.w)
+                .filter(|point| point.is_finite())
+        };
+        let near = unproject(0.0)?;
+        let far = unproject(1.0)?;
+        let origin = match self.projection {
+            CameraProjection3D::Perspective { .. } => eye,
+            CameraProjection3D::Orthographic { .. } => near,
+        };
+
+        Ray3D::new(vec3_to_point(origin), vec3_to_point(far - origin))
     }
 }
 
@@ -259,6 +325,81 @@ mod tests {
 
     fn ray(origin: Point3D, direction: Point3D) -> Ray3D {
         Ray3D::new(origin, direction).expect("valid test ray")
+    }
+
+    #[test]
+    fn perspective_viewport_center_points_at_camera_target() {
+        let camera = Camera3D::perspective(
+            Point3D::new(0.0, 0.0, 5.0),
+            Point3D::new(0.0, 0.0, 0.0),
+            60.0_f32.to_radians(),
+            0.1,
+            100.0,
+        );
+
+        let ray = camera
+            .viewport_ray(400.0, 300.0, 800.0, 600.0)
+            .expect("valid center ray");
+
+        assert_eq!(ray.origin, camera.eye);
+        assert!(ray.direction.x.abs() < 1.0e-5);
+        assert!(ray.direction.y.abs() < 1.0e-5);
+        assert!((ray.direction.z + 1.0).abs() < 1.0e-5);
+    }
+
+    #[test]
+    fn orthographic_viewport_rays_are_parallel_with_distinct_origins() {
+        let camera = Camera3D::orthographic(
+            Point3D::new(0.0, 0.0, 5.0),
+            Point3D::new(0.0, 0.0, 0.0),
+            6.0,
+            0.1,
+            100.0,
+        );
+
+        let left = camera
+            .viewport_ray(0.0, 300.0, 800.0, 600.0)
+            .expect("valid left ray");
+        let right = camera
+            .viewport_ray(800.0, 300.0, 800.0, 600.0)
+            .expect("valid right ray");
+
+        assert!((left.direction.x - right.direction.x).abs() < 1.0e-5);
+        assert!((left.direction.y - right.direction.y).abs() < 1.0e-5);
+        assert!((left.direction.z - right.direction.z).abs() < 1.0e-5);
+        assert!(left.origin.x < right.origin.x);
+    }
+
+    #[test]
+    fn viewport_hit_test_reaches_retained_nodes() {
+        let id = Node3DId::explicit("center-cube");
+        let scene = Scene3D::new()
+            .camera(Camera3D::perspective(
+                Point3D::new(0.0, 0.0, 5.0),
+                Point3D::new(0.0, 0.0, 0.0),
+                60.0_f32.to_radians(),
+                0.1,
+                100.0,
+            ))
+            .add_node(Node3D::new(id).primitive(Primitive3D::Cube {
+                center: Point3D::new(0.0, 0.0, 0.0),
+                size: 2.0,
+                color: Color::BLUE,
+            }));
+
+        let hit = scene
+            .hit_test_viewport(400.0, 300.0, 800.0, 600.0)
+            .expect("center cube should be hit");
+
+        assert_eq!(hit.node, id);
+        assert!(scene.hit_test_viewport(0.0, 0.0, 800.0, 600.0).is_none());
+    }
+
+    #[test]
+    fn viewport_ray_rejects_invalid_extents() {
+        assert!(Camera3D::default()
+            .viewport_ray(0.0, 0.0, 0.0, 600.0)
+            .is_none());
     }
 
     #[test]
