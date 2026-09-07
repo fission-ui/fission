@@ -22,6 +22,8 @@ app_id = "rs.fission.examples.pokemon_card_store"
 
 [server]
 entry = "pokemon_card_store::pokemon_card_store_server"
+# Required when this fission.toml sits beside a virtual workspace Cargo.toml.
+package = "pokemon-card-store"
 default_route_mode = "server_private"
 render_pass_limit = 4
 ```

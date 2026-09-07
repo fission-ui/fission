@@ -477,6 +477,7 @@ Client-side search is optional. When enabled, the build writes a local search in
 | Field | Type | Required | Default | Meaning |
 | --- | --- | --- | --- | --- |
 | `entry` | string | Yes for server commands | none | Rust path to the function that returns the `FissionServerApp`, such as `pokemon_card_store::pokemon_card_store_server`. The top-level CLI reads this field and generates/runs the server binary entrypoint. |
+| `package` | string | Required for virtual Cargo workspaces | root package | Cargo workspace package that owns the server entrypoint. Server commands pass this name to Cargo explicitly and use its feature declarations when building browser artifacts. |
 | `default_locale` | string | No | `en` | Locale written to the rendered HTML `lang` attribute unless a route or future locale layer overrides it. |
 | `default_route_mode` | string | No | app default | Route mode applied to routes declared through the default server route helper. Accepted values are `static`, `server`, `dynamic`, `server_private`, `private`, `revalidated`, `client_app`, and `client`. `dynamic` is an alias for `server`; `private` is an alias for `server_private`. |
 | `render_pass_limit` | integer | No | `4` | Maximum render passes allowed while jobs/resources settle before the server returns HTML. `fission server check`, `fission server serve`, and the server binary read this value. |

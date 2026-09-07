@@ -1,0 +1,22 @@
+[package]
+name = "fission-command-process"
+version = "0.14.1"
+edition = "2021"
+license = "Apache-2.0"
+repository = "https://github.com/fission-ui/fission"
+description = "Owned child-process supervision for Fission CLI commands"
+categories = ["command-line-utilities", "development-tools"]
+keywords = ["fission", "cli", "process", "supervision"]
+
+[package.metadata.fission]
+platforms = ["linux", "macos", "windows"]
+
+[dependencies]
+anyhow = "1.0"
+command-group = "5.0"
+
+[target.'cfg(unix)'.dependencies]
+signal-hook = "0.3"
+
+[target.'cfg(windows)'.dependencies]
+ctrlc = { version = "3.5", features = ["termination"] }

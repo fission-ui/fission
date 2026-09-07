@@ -380,12 +380,15 @@ impl ServerRenderer {
                 return self.handle_cache_invalidation(endpoint, &request);
             }
         }
-        if let Some(handler) = self.app.find_http_handler(&request.method, &request.path) {
+        if let Some((handler, route_params)) =
+            self.app.find_http_handler(&request.method, &request.path)
+        {
             let session = self.session_for_request(&request)?;
             let ctx = ServerHttpContext {
                 project_dir: &self.app.project_dir,
                 request: &request,
                 session: &session,
+                route_params,
             };
             let response = if tokio::runtime::Handle::try_current().is_ok() {
                 std::thread::scope(|scope| {
@@ -427,6 +430,11 @@ impl ServerRenderer {
         let session = self.session_for_request(&request)?;
 
         if let WebRouteMode::Revalidated(policy) = &route.route.mode {
+            if route.has_request_scoped_browser_props() {
+                return Err(anyhow!(
+                    "request-scoped browser properties require an uncached server route; use static properties on revalidated routes"
+                ));
+            }
             let route_path = matched_route(route, &request).path;
             let env = self.env_for_route(route, None, &request, &session)?;
             let cache_key = self.cache_key_for_route(&route.route, &request, &env);
@@ -673,7 +681,8 @@ impl ServerRenderer {
             SitePageElementPlacement::BodyEnd,
         );
         if !route.route.workers.is_empty() || !route.route.islands.is_empty() {
-            body_end_html.push(route_manifest_script(&route.route)?);
+            let (workers, islands) = route.browser_artifacts(&ctx)?;
+            body_end_html.push(route_manifest_script(&route.route, &workers, &islands)?);
             body_end_html.push(server_browser_runtime_script());
         }
         let action_tokens = collect_server_action_tokens(
@@ -929,8 +938,8 @@ impl ServerRenderer {
                 "server action origin rejected",
             ));
         }
-        let token: SignedServerAction = match self.decode_action_request(&request) {
-            Ok(token) => token,
+        let decoded = match self.decode_action_request(&request) {
+            Ok(decoded) => decoded,
             Err(_) => {
                 return Ok(ServerResponse::text(
                     400,
@@ -939,7 +948,7 @@ impl ServerRenderer {
                 ))
             }
         };
-        let action = match self.action_signer.verify_once(&token) {
+        let verified = match self.action_signer.verify(&decoded.token) {
             Ok(action) => action,
             Err(_) => {
                 return Ok(ServerResponse::text(
@@ -949,6 +958,58 @@ impl ServerRenderer {
                 ))
             }
         };
+        let bound_action = match (&verified.form_id, decoded.fields.as_deref()) {
+            (Some(form_id), Some(fields)) => {
+                let Some(binding) = self.app.find_form_action(form_id, verified.action.id) else {
+                    return Ok(ServerResponse::text(
+                        400,
+                        "text/plain; charset=utf-8",
+                        "server action form schema not registered",
+                    ));
+                };
+                match binding.decode(fields) {
+                    Ok(action) => Some(action),
+                    Err(_) => {
+                        return Ok(ServerResponse::text(
+                            422,
+                            "text/plain; charset=utf-8",
+                            "invalid server action form",
+                        ))
+                    }
+                }
+            }
+            (Some(_), None) => {
+                return Ok(ServerResponse::text(
+                    400,
+                    "text/plain; charset=utf-8",
+                    "typed server action requires a form submission",
+                ))
+            }
+            (None, Some(fields)) if !fields.is_empty() => {
+                return Ok(ServerResponse::text(
+                    400,
+                    "text/plain; charset=utf-8",
+                    "fixed server action does not accept form fields",
+                ))
+            }
+            (None, _) => None,
+        };
+        let mut action = match self.action_signer.verify_once(&decoded.token) {
+            Ok(action) => action,
+            Err(_) => {
+                return Ok(ServerResponse::text(
+                    403,
+                    "text/plain; charset=utf-8",
+                    "server action token rejected",
+                ))
+            }
+        };
+        if let Some(bound_action) = bound_action {
+            if bound_action.id != action.action.id {
+                anyhow::bail!("typed server form changed the signed action identity");
+            }
+            action.action = bound_action;
+        }
         let route_path = normalize_server_path(&action.route_path);
         let Some(route) = self.app.find_route(&route_path) else {
             return Ok(ServerResponse::text(
@@ -983,17 +1044,32 @@ impl ServerRenderer {
         Ok(response)
     }
 
-    fn decode_action_request(&self, request: &ServerRequest) -> Result<SignedServerAction> {
+    fn decode_action_request(&self, request: &ServerRequest) -> Result<DecodedActionRequest> {
         let content_type = header_value(&request.headers, "content-type")
             .map(|value| value.split(';').next().unwrap_or(value).trim())
             .unwrap_or("application/json");
         if content_type.eq_ignore_ascii_case("application/x-www-form-urlencoded") {
-            let body = String::from_utf8_lossy(&request.body);
-            let token = form_value(&body, "token")
-                .ok_or_else(|| anyhow!("server action form is missing token"))?;
-            return self.action_signer.decode(&token);
+            let mut token = None;
+            let mut fields = Vec::new();
+            for (name, value) in parse_form_pairs(&request.body)? {
+                if name == "token" {
+                    if token.replace(value).is_some() {
+                        anyhow::bail!("server action form contains duplicate tokens");
+                    }
+                } else {
+                    fields.push((name, value));
+                }
+            }
+            let token = token.ok_or_else(|| anyhow!("server action form is missing token"))?;
+            return Ok(DecodedActionRequest {
+                token: self.action_signer.decode(&token)?,
+                fields: Some(fields),
+            });
         }
-        serde_json::from_slice(&request.body).map_err(Into::into)
+        Ok(DecodedActionRequest {
+            token: serde_json::from_slice(&request.body)?,
+            fields: None,
+        })
     }
 
     fn action_origin_allowed(&self, request: &ServerRequest) -> bool {
@@ -1347,33 +1423,47 @@ fn asset_request_path(path: &str) -> String {
     out
 }
 
-fn form_value(body: &str, key: &str) -> Option<String> {
-    body.split('&').find_map(|field| {
-        let (candidate, value) = field.split_once('=')?;
-        (candidate == key).then(|| form_decode(value))
-    })
+struct DecodedActionRequest {
+    token: SignedServerAction,
+    fields: Option<Vec<(String, String)>>,
 }
 
-fn form_decode(value: &str) -> String {
-    let bytes = value.as_bytes();
-    let mut out = Vec::with_capacity(bytes.len());
+fn parse_form_pairs(body: &[u8]) -> Result<Vec<(String, String)>> {
+    if body.is_empty() {
+        return Ok(Vec::new());
+    }
+    body.split(|byte| *byte == b'&')
+        .map(|field| {
+            let Some(separator) = field.iter().position(|byte| *byte == b'=') else {
+                anyhow::bail!("malformed form field");
+            };
+            Ok((
+                form_decode(&field[..separator])?,
+                form_decode(&field[separator + 1..])?,
+            ))
+        })
+        .collect()
+}
+
+fn form_decode(value: &[u8]) -> Result<String> {
+    let mut out = Vec::with_capacity(value.len());
     let mut index = 0;
-    while index < bytes.len() {
-        match bytes[index] {
+    while index < value.len() {
+        match value[index] {
             b'+' => {
                 out.push(b' ');
                 index += 1;
             }
-            b'%' if index + 2 < bytes.len() => {
-                let hi = hex_value(bytes[index + 1]);
-                let lo = hex_value(bytes[index + 2]);
-                if let (Some(hi), Some(lo)) = (hi, lo) {
-                    out.push((hi << 4) | lo);
-                    index += 3;
-                } else {
-                    out.push(bytes[index]);
-                    index += 1;
+            b'%' => {
+                if index + 2 >= value.len() {
+                    anyhow::bail!("incomplete percent escape in form value");
                 }
+                let hi = hex_value(value[index + 1])
+                    .ok_or_else(|| anyhow!("invalid percent escape in form value"))?;
+                let lo = hex_value(value[index + 2])
+                    .ok_or_else(|| anyhow!("invalid percent escape in form value"))?;
+                out.push((hi << 4) | lo);
+                index += 3;
             }
             byte => {
                 out.push(byte);
@@ -1381,7 +1471,7 @@ fn form_decode(value: &str) -> String {
             }
         }
     }
-    String::from_utf8_lossy(&out).into_owned()
+    String::from_utf8(out).context("form value is not valid UTF-8")
 }
 
 fn cookie_value(cookie: &str, key: &str) -> Option<String> {
@@ -1602,6 +1692,7 @@ fn collect_server_action_tokens(
     ttl: Duration,
 ) -> Result<BTreeMap<(fission_ir::WidgetId, u128), String>> {
     let mut tokens = BTreeMap::new();
+    let mut form_ids = BTreeSet::new();
     for node in ir.nodes.values() {
         let Op::Semantics(semantics) = &node.op else {
             continue;
@@ -1622,8 +1713,25 @@ fn collect_server_action_tokens(
                 id: ActionId::from_u128(entry.action_id),
                 payload,
             };
-            let token =
-                signer.sign_envelope(route_path.to_string(), node.id.as_u128(), envelope, ttl);
+            let token = if let Some(form_id) = semantics.text_form_id.as_deref() {
+                if form_id.is_empty() {
+                    anyhow::bail!("server action form ids cannot be empty");
+                }
+                if !form_ids.insert(form_id) {
+                    anyhow::bail!(
+                        "server action form id `{form_id}` belongs to more than one submit action"
+                    );
+                }
+                signer.sign_form_envelope(
+                    route_path.to_string(),
+                    node.id.as_u128(),
+                    envelope,
+                    form_id,
+                    ttl,
+                )
+            } else {
+                signer.sign_envelope(route_path.to_string(), node.id.as_u128(), envelope, ttl)
+            };
             tokens.insert((node.id, entry.action_id), signer.encode(&token)?);
         }
     }
@@ -1638,7 +1746,11 @@ struct RouteManifest<'a> {
     islands: &'a [crate::WasmIsland],
 }
 
-fn route_manifest_script(route: &WebRoute) -> Result<String> {
+fn route_manifest_script(
+    route: &WebRoute,
+    workers: &[crate::ProgressiveWorker],
+    islands: &[crate::WasmIsland],
+) -> Result<String> {
     let mode = match &route.mode {
         WebRouteMode::Static => "static",
         WebRouteMode::Revalidated(_) => "revalidated",
@@ -1649,13 +1761,37 @@ fn route_manifest_script(route: &WebRoute) -> Result<String> {
     let manifest = RouteManifest {
         route: &route.path,
         mode,
-        workers: &route.workers,
-        islands: &route.islands,
+        workers,
+        islands,
     };
-    let json = serde_json::to_string(&manifest)?;
+    let json = escape_script_data(&serde_json::to_string(&manifest)?);
     Ok(format!(
         "<script type=\"application/json\" id=\"fission-route-manifest\">{json}</script>"
     ))
+}
+
+fn escape_script_data(value: &str) -> String {
+    let bytes = value.as_bytes();
+    let mut escaped = String::with_capacity(value.len() + 1);
+    let mut index = 0;
+    while index < bytes.len() {
+        let is_script_end = index + 8 <= bytes.len()
+            && bytes[index] == b'<'
+            && bytes[index + 1] == b'/'
+            && bytes[index + 2..index + 8].eq_ignore_ascii_case(b"script");
+        if is_script_end {
+            escaped.push_str("<\\/script");
+            index += 8;
+            continue;
+        }
+        let ch = value[index..]
+            .chars()
+            .next()
+            .expect("non-empty string slice has a first character");
+        escaped.push(ch);
+        index += ch.len_utf8();
+    }
+    escaped
 }
 
 fn browser_artifact_preload_links(route: &WebRoute) -> Vec<String> {
@@ -1718,9 +1854,9 @@ mod tests {
     use super::*;
     use crate::{
         CacheError, CacheTag, InvalidationReport, MokaCache, ProgressiveWorker, RevalidationPolicy,
-        WasmIsland, WebRouteMode,
+        ServerFormField, ServerFormSchema, WasmIsland, WebRouteMode,
     };
-    use fission_core::ui::{Button, SemanticsRegion, Text, TextContent};
+    use fission_core::ui::{Button, Checkbox, SemanticsRegion, Text, TextContent, TextInput};
     use fission_core::{
         Action, ActionId, GlobalState, Handler, JobRef, JobResource, JobSpec, ReducerContext,
         ResourceKey, Role, Widget, WidgetId,
@@ -1952,6 +2088,90 @@ mod tests {
     impl Action for TestAction {
         fn static_id() -> ActionId {
             ActionId::from_name("server-renderer.test-action")
+        }
+    }
+
+    #[derive(Debug, Default)]
+    struct FormActionState;
+
+    impl GlobalState for FormActionState {}
+
+    #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+    struct SubmittedSearch {
+        query: String,
+        archived: bool,
+        #[serde(default)]
+        tag: Vec<String>,
+    }
+
+    impl Action for SubmittedSearch {
+        fn static_id() -> ActionId {
+            ActionId::from_name("server-renderer.submitted-search")
+        }
+    }
+
+    static SUBMITTED_SEARCHES: OnceLock<Mutex<Vec<SubmittedSearch>>> = OnceLock::new();
+
+    fn on_submitted_search(
+        _state: &mut FormActionState,
+        action: SubmittedSearch,
+        _ctx: &mut ReducerContext<FormActionState>,
+    ) {
+        SUBMITTED_SEARCHES
+            .get_or_init(|| Mutex::new(Vec::new()))
+            .lock()
+            .unwrap()
+            .push(action);
+    }
+
+    #[derive(Clone)]
+    struct FormActionPage;
+
+    impl From<FormActionPage> for Widget {
+        fn from(_: FormActionPage) -> Self {
+            let (ctx, _) = fission_core::build::current::<FormActionState>();
+            let submit = ctx.bind(
+                SubmittedSearch::default(),
+                on_submitted_search as Handler<FormActionState, SubmittedSearch>,
+            );
+            Column {
+                children: vec![
+                    TextInput {
+                        label: Some("Query".into()),
+                        name: Some("query".into()),
+                        form_id: Some("search".into()),
+                        ..Default::default()
+                    }
+                    .into(),
+                    Checkbox::default()
+                        .name("archived")
+                        .form_id("search")
+                        .into(),
+                    TextInput {
+                        label: Some("Tag one".into()),
+                        name: Some("tag".into()),
+                        form_id: Some("search".into()),
+                        ..Default::default()
+                    }
+                    .into(),
+                    TextInput {
+                        label: Some("Tag two".into()),
+                        name: Some("tag".into()),
+                        form_id: Some("search".into()),
+                        ..Default::default()
+                    }
+                    .into(),
+                    Button {
+                        child: Some(Text::new("Search").into()),
+                        on_press: Some(submit),
+                        ..Default::default()
+                    }
+                    .form_id("search")
+                    .into(),
+                ],
+                ..Default::default()
+            }
+            .into()
         }
     }
 
@@ -2514,6 +2734,61 @@ mod tests {
     }
 
     #[test]
+    fn http_handlers_match_dynamic_paths_and_capture_parameters() {
+        let app = FissionServerApp::new("Test")
+            .http_handler("GET", "/api/items/:id", |ctx| {
+                Ok(ServerResponse::text(
+                    200,
+                    "text/plain; charset=utf-8",
+                    ctx.route_params.get("id").cloned().unwrap_or_default(),
+                ))
+            })
+            .http_handler("GET", "/api/items/new", |_ctx| {
+                Ok(ServerResponse::text(
+                    200,
+                    "text/plain; charset=utf-8",
+                    "exact",
+                ))
+            });
+        let renderer = ServerRenderer::new(app);
+
+        let dynamic = renderer
+            .handle(ServerRequest::get("/api/items/item-42"))
+            .unwrap();
+        let exact = renderer
+            .handle(ServerRequest::get("/api/items/new"))
+            .unwrap();
+
+        assert_eq!(dynamic.status, 200);
+        assert_eq!(dynamic.body_string(), "item-42");
+        assert_eq!(exact.status, 200);
+        assert_eq!(exact.body_string(), "exact");
+    }
+
+    #[test]
+    fn http_handlers_do_not_match_different_methods_or_shapes() {
+        let app = FissionServerApp::new("Test").http_handler("POST", "/api/items/:id", |_ctx| {
+            Ok(ServerResponse::text(204, "text/plain", ""))
+        });
+        let renderer = ServerRenderer::new(app);
+
+        assert_eq!(
+            renderer
+                .handle(ServerRequest::get("/api/items/item-42"))
+                .unwrap()
+                .status,
+            404
+        );
+        assert_eq!(
+            renderer
+                .handle(ServerRequest::post("/api/items", ""))
+                .unwrap()
+                .status,
+            405
+        );
+    }
+
+    #[test]
     fn route_state_loaders_can_use_blocking_clients_inside_tokio_runtime() {
         let app = FissionServerApp::new("Test").route_widget_with_state::<TestState, _, _>(
             "/blocking",
@@ -2992,6 +3267,115 @@ same_site = "none"
     }
 
     #[test]
+    fn route_manifest_resolves_isolated_request_props_and_escapes_script_data() {
+        #[derive(Serialize)]
+        struct IslandProps {
+            request_name: String,
+            unsafe_text: &'static str,
+        }
+
+        let app = FissionServerApp::new("Test")
+            .route_widget::<TestState, _>(
+                "/",
+                "Home",
+                None,
+                WebRouteMode::Server(Default::default()),
+                TestPage("Interactive page"),
+            )
+            .worker_with_props(
+                "/",
+                ProgressiveWorker::new("filters", "/workers/filters.wasm"),
+                |ctx| {
+                    Ok(serde_json::json!({
+                        "requestName": ctx.request.headers.get("x-request-name").cloned(),
+                    }))
+                },
+            )
+            .island_with_props(
+                "/",
+                WasmIsland::new("cart", "/islands/cart.wasm", "cart-root"),
+                |ctx| {
+                    Ok(IslandProps {
+                        request_name: ctx
+                            .request
+                            .headers
+                            .get("x-request-name")
+                            .cloned()
+                            .unwrap_or_default(),
+                        unsafe_text: "</sCrIpT><script>bad()</SCRIPT>",
+                    })
+                },
+            );
+        let renderer = ServerRenderer::new(app);
+
+        let mut alpha = ServerRequest::get("/");
+        alpha
+            .headers
+            .insert("x-request-name".to_string(), "alpha".to_string());
+        let alpha = renderer.handle(alpha).unwrap().body_string();
+        let mut beta = ServerRequest::get("/");
+        beta.headers
+            .insert("x-request-name".to_string(), "beta".to_string());
+        let beta = renderer.handle(beta).unwrap().body_string();
+
+        assert!(alpha.contains("requestName"));
+        assert!(alpha.contains("alpha"));
+        assert!(!alpha.contains("beta"));
+        assert!(beta.contains("beta"));
+        assert!(!beta.contains("alpha"));
+        assert!(alpha.contains(r#"<\/script><script>bad()<\/script>"#));
+        assert!(!alpha.contains("</sCrIpT><script>bad()</SCRIPT>"));
+    }
+
+    #[test]
+    fn route_manifest_rejects_non_object_initialization_props() {
+        let app = FissionServerApp::new("Test")
+            .route_widget::<TestState, _>(
+                "/",
+                "Home",
+                None,
+                WebRouteMode::Server(Default::default()),
+                TestPage("Interactive page"),
+            )
+            .island_with_props(
+                "/",
+                WasmIsland::new("cart", "/islands/cart.wasm", "cart-root"),
+                |_| Ok(vec!["not", "an", "object"]),
+            );
+        let error = ServerRenderer::new(app)
+            .handle(ServerRequest::get("/"))
+            .unwrap_err();
+
+        assert!(error
+            .to_string()
+            .contains("must serialize as a JSON object"));
+    }
+
+    #[test]
+    fn revalidated_route_rejects_request_scoped_browser_props() {
+        let app = FissionServerApp::new("Test")
+            .route_widget::<TestState, _>(
+                "/",
+                "Home",
+                None,
+                WebRouteMode::Revalidated(RevalidationPolicy::new(Duration::from_secs(60))),
+                TestPage("Interactive page"),
+            )
+            .island_with_props(
+                "/",
+                WasmIsland::new("cart", "/islands/cart.wasm", "cart-root"),
+                |_| Ok(serde_json::json!({"private": "request data"})),
+            );
+        let error = ServerRenderer::new(app)
+            .handle(ServerRequest::get("/"))
+            .unwrap_err();
+
+        assert!(error
+            .to_string()
+            .contains("require an uncached server route"));
+    }
+
+    #[test]
     fn server_renderer_serves_site_css_and_enhancement_script() {
         let renderer = ServerRenderer::new(
             FissionServerApp::new("Test").server_route_widget::<TestState, _>(
@@ -3453,6 +3837,138 @@ same_site = "none"
             response_header(&response, "cache-control"),
             Some("no-store")
         );
+    }
+
+    #[test]
+    fn typed_server_form_binds_current_controls_and_enforces_security_contract() {
+        SUBMITTED_SEARCHES
+            .get_or_init(|| Mutex::new(Vec::new()))
+            .lock()
+            .unwrap()
+            .clear();
+        let schema = ServerFormSchema::new("search")
+            .field(ServerFormField::text("query").required().max_length(64))
+            .field(ServerFormField::boolean("archived"))
+            .field(ServerFormField::repeated("tag"));
+        let renderer = ServerRenderer::new(
+            FissionServerApp::new("Test")
+                .form_action::<SubmittedSearch, SubmittedSearch, _>(schema, |form| form)
+                .server_route_widget::<FormActionState, _>(
+                    "/search",
+                    "Search",
+                    None,
+                    FormActionPage,
+                ),
+        )
+        .with_allowed_action_origin("https://app.example");
+
+        let initial_html = renderer
+            .handle(ServerRequest::get("/search"))
+            .unwrap()
+            .body_string();
+        assert!(initial_html.contains("name=\"query\""));
+        assert!(initial_html.contains("form=\"search\""));
+        assert!(initial_html.contains("id=\"search\""));
+
+        let duplicate_token = rendered_form_token(&renderer);
+        let duplicate = encoded_form(&[
+            ("token", duplicate_token.as_str()),
+            ("query", "one"),
+            ("query", "two"),
+        ]);
+        assert_eq!(form_request(&renderer, duplicate, None).status, 422);
+
+        let oversized = format!(
+            "token={}&query={}",
+            rendered_form_token(&renderer),
+            "x".repeat(MAX_SERVER_ACTION_BODY_BYTES)
+        );
+        assert_eq!(form_request(&renderer, oversized, None).status, 413);
+
+        let malformed_token = rendered_form_token(&renderer);
+        let malformed = format!("token={malformed_token}&query=%FF");
+        assert_eq!(form_request(&renderer, malformed, None).status, 400);
+
+        let valid_token = rendered_form_token(&renderer);
+        let valid = encoded_form(&[
+            ("token", valid_token.as_str()),
+            ("query", "naïve 海"),
+            ("archived", "on"),
+            ("tag", "water"),
+            ("tag", "physics"),
+        ]);
+        assert_eq!(
+            form_request(&renderer, valid.clone(), Some("https://evil.example")).status,
+            403
+        );
+        assert_eq!(
+            form_request(&renderer, valid.clone(), Some("https://app.example")).status,
+            303
+        );
+        assert_eq!(
+            SUBMITTED_SEARCHES.get().unwrap().lock().unwrap().last(),
+            Some(&SubmittedSearch {
+                query: "naïve 海".into(),
+                archived: true,
+                tag: vec!["water".into(), "physics".into()],
+            })
+        );
+        assert_eq!(
+            form_request(&renderer, valid, Some("https://app.example")).status,
+            403
+        );
+
+        let absent_boolean_token = rendered_form_token(&renderer);
+        let absent_boolean =
+            encoded_form(&[("token", absent_boolean_token.as_str()), ("query", "open")]);
+        assert_eq!(
+            form_request(&renderer, absent_boolean, Some("https://app.example")).status,
+            303
+        );
+        assert!(
+            !SUBMITTED_SEARCHES
+                .get()
+                .unwrap()
+                .lock()
+                .unwrap()
+                .last()
+                .unwrap()
+                .archived
+        );
+    }
+
+    fn rendered_form_token(renderer: &ServerRenderer) -> String {
+        let html = renderer
+            .handle(ServerRequest::get("/search"))
+            .unwrap()
+            .body_string();
+        html.split("name=\"token\" value=\"")
+            .nth(1)
+            .and_then(|value| value.split('"').next())
+            .unwrap()
+            .to_string()
+    }
+
+    fn encoded_form(fields: &[(&str, &str)]) -> String {
+        form_urlencoded::Serializer::new(String::new())
+            .extend_pairs(fields.iter().copied())
+            .finish()
+    }
+
+    fn form_request(
+        renderer: &ServerRenderer,
+        body: String,
+        origin: Option<&str>,
+    ) -> ServerResponse {
+        let mut request = ServerRequest::post("/__fission/action", body);
+        request.headers.insert(
+            "content-type".into(),
+            "application/x-www-form-urlencoded".into(),
+        );
+        if let Some(origin) = origin {
+            request.headers.insert("origin".into(), origin.into());
+        }
+        renderer.handle(request).unwrap()
     }
 
     #[derive(Debug)]

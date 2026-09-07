@@ -31,6 +31,12 @@ pub struct Checkbox {
     /// Stable identifier exposed on the checkbox's interactive semantics node.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub semantics_identifier: Option<String>,
+    /// Semantic name submitted by server-rendered HTML forms.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    /// Logical form membership for server-rendered HTML submission.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub form_id: Option<String>,
     /// Current checked state.
     pub checked: bool,
     /// Action dispatched when the checkbox is tapped.
@@ -47,6 +53,18 @@ impl Checkbox {
     /// Sets the stable identifier exposed to accessibility and test tooling.
     pub fn semantics_identifier(mut self, identifier: impl Into<String>) -> Self {
         self.semantics_identifier = Some(identifier.into());
+        self
+    }
+
+    /// Sets the successful-control name used by HTML form submission.
+    pub fn name(mut self, name: impl Into<String>) -> Self {
+        self.name = Some(name.into());
+        self
+    }
+
+    /// Associates this checkbox with one logical form.
+    pub fn form_id(mut self, form_id: impl Into<String>) -> Self {
+        self.form_id = Some(form_id.into());
         self
     }
 
@@ -279,8 +297,8 @@ impl InternalLower for Checkbox {
             max_length: None,
             max_length_enforcement: fission_ir::semantics::MaxLengthEnforcement::Enforced,
             input_formatters: Vec::new(),
-            text_field_name: None,
-            text_form_id: None,
+            text_field_name: self.name.clone(),
+            text_form_id: self.form_id.clone(),
             autofill_group: None,
             required: false,
             min_length: None,

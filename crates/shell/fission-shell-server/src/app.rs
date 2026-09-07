@@ -1,15 +1,15 @@
 use crate::render::{ServerRequest, ServerResponse, ServerSession};
 use crate::{
-    ProgressiveWorker, ServerJobRegistry, ServerRenderPolicy, VerifiedServerAction, WasmIsland,
-    WebRoute, WebRouteMode,
+    ProgressiveWorker, ServerFormSchema, ServerJobRegistry, ServerRenderPolicy,
+    VerifiedServerAction, WasmIsland, WebRoute, WebRouteMode,
 };
 use anyhow::Result;
 use fission_core::internal::BuildCtx;
 use fission_core::registry::{VideoRegistration, WebRegistration};
 use fission_core::{
-    Action, ActionInput, Effect, Env, GlobalState, MotionDeclaration, NavigationCommand,
-    NavigationRequested, RuntimeEffect, RuntimeResourceDeclaration, RuntimeResourceKind,
-    RuntimeState, View, Widget, WidgetId,
+    Action, ActionEnvelope, ActionId, ActionInput, Effect, Env, GlobalState, MotionDeclaration,
+    NavigationCommand, NavigationRequested, RuntimeEffect, RuntimeResourceDeclaration,
+    RuntimeResourceKind, RuntimeState, View, Widget, WidgetId,
 };
 use fission_i18n::{I18nRegistry, Locale, TranslationBundle};
 use fission_layout::LayoutSize;
@@ -17,6 +17,8 @@ use fission_shell_site::{
     CodeHighlightingOptions, DocumentMetadata, DocumentShellConfig, SitePageElement,
 };
 use fission_theme::{DesignMode, DesignSystem, PackagedFont, Theme};
+use serde::{de::DeserializeOwned, Serialize};
+use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU16, Ordering};
@@ -39,6 +41,25 @@ type InitialStateLoader<S> =
     dyn for<'a> Fn(&ServerRenderContext<'a>) -> Result<S> + Send + Sync + 'static;
 type HttpHandler =
     dyn for<'a> Fn(&ServerHttpContext<'a>) -> Result<ServerResponse> + Send + Sync + 'static;
+type BrowserPropsResolver = dyn for<'a> Fn(&ServerRenderContext<'a>) -> Result<BTreeMap<String, Value>>
+    + Send
+    + Sync
+    + 'static;
+type ServerFormDecoder =
+    dyn Fn(&[(String, String)]) -> Result<ActionEnvelope> + Send + Sync + 'static;
+
+#[derive(Clone)]
+pub(crate) struct ServerFormActionBinding {
+    schema: ServerFormSchema,
+    decode: Arc<ServerFormDecoder>,
+}
+
+impl ServerFormActionBinding {
+    pub(crate) fn decode(&self, submitted: &[(String, String)]) -> Result<ActionEnvelope> {
+        let normalized = self.schema.normalize(submitted)?;
+        (self.decode)(&normalized)
+    }
+}
 
 #[derive(Debug)]
 pub(crate) struct ServerRenderedNode {
@@ -135,6 +156,8 @@ pub struct ServerHttpContext<'a> {
     pub request: &'a ServerRequest,
     /// Session resolved for the request.
     pub session: &'a ServerSession,
+    /// Parameters captured from a dynamic handler path such as `/api/items/:id`.
+    pub route_params: ServerRouteParams,
 }
 
 /// Request-specific browser and social metadata for one rendered route.
@@ -145,6 +168,8 @@ pub(crate) struct ServerRouteEntry {
     pub route: WebRoute,
     pub matcher: ServerRouteMatcher,
     pub render: Arc<RouteRenderer>,
+    worker_props: BTreeMap<String, Arc<BrowserPropsResolver>>,
+    island_props: BTreeMap<String, Arc<BrowserPropsResolver>>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -177,6 +202,10 @@ pub(crate) struct ServerRouteMatch {
 }
 
 impl ServerRouteEntry {
+    pub(crate) fn has_request_scoped_browser_props(&self) -> bool {
+        !self.worker_props.is_empty() || !self.island_props.is_empty()
+    }
+
     pub(crate) fn match_request(&self, request_path: &str) -> Option<ServerRouteMatch> {
         self.matcher
             .match_request(&self.route.path, request_path)
@@ -185,12 +214,32 @@ impl ServerRouteEntry {
                 params,
             })
     }
+
+    pub(crate) fn browser_artifacts(
+        &self,
+        ctx: &ServerRenderContext<'_>,
+    ) -> Result<(Vec<ProgressiveWorker>, Vec<WasmIsland>)> {
+        let mut workers = self.route.workers.clone();
+        for worker in &mut workers {
+            if let Some(resolve) = self.worker_props.get(&worker.id) {
+                worker.props = resolve(ctx)?;
+            }
+        }
+        let mut islands = self.route.islands.clone();
+        for island in &mut islands {
+            if let Some(resolve) = self.island_props.get(&island.id) {
+                island.props = resolve(ctx)?;
+            }
+        }
+        Ok((workers, islands))
+    }
 }
 
 #[derive(Clone)]
 pub(crate) struct ServerHttpHandlerEntry {
     pub method: String,
     pub path: String,
+    pub matcher: ServerRouteMatcher,
     pub handler: Arc<HttpHandler>,
 }
 
@@ -227,6 +276,7 @@ pub struct FissionServerApp {
     pub(crate) jobs: ServerJobRegistry,
     pub(crate) routes: Vec<ServerRouteEntry>,
     pub(crate) http_handlers: Vec<ServerHttpHandlerEntry>,
+    pub(crate) form_actions: BTreeMap<(String, ActionId), ServerFormActionBinding>,
     pub(crate) cache_invalidation_endpoints: Vec<CacheInvalidationEndpoint>,
     pub(crate) static_mounts: Vec<StaticMount>,
     #[cfg(feature = "store")]
@@ -271,6 +321,7 @@ impl FissionServerApp {
             jobs: ServerJobRegistry::new(),
             routes: Vec::new(),
             http_handlers: Vec::new(),
+            form_actions: BTreeMap::new(),
             cache_invalidation_endpoints: Vec::new(),
             static_mounts: Vec::new(),
             #[cfg(all(feature = "store", not(feature = "store-sqlite-native")))]
@@ -478,7 +529,10 @@ impl FissionServerApp {
         self
     }
 
-    /// Registers a synchronous custom HTTP handler for a method and exact path.
+    /// Registers a synchronous custom HTTP handler for a method and path.
+    ///
+    /// Segments prefixed with `:` capture dynamic route parameters. Exact
+    /// handlers take precedence over dynamic handlers for the same request.
     pub fn http_handler<F>(
         mut self,
         method: impl Into<String>,
@@ -488,9 +542,11 @@ impl FissionServerApp {
     where
         F: for<'a> Fn(&ServerHttpContext<'a>) -> Result<ServerResponse> + Send + Sync + 'static,
     {
+        let path = normalize_server_path(&path.into());
         self.http_handlers.push(ServerHttpHandlerEntry {
             method: method.into().to_ascii_uppercase(),
-            path: normalize_server_path(&path.into()),
+            matcher: matcher_for_route_path(&path),
+            path,
             handler: Arc::new(handler),
         });
         self
@@ -502,6 +558,39 @@ impl FissionServerApp {
         F: for<'a> Fn(&ServerHttpContext<'a>) -> Result<ServerResponse> + Send + Sync + 'static,
     {
         self.http_handler("POST", path, handler)
+    }
+
+    /// Registers a typed decoder for one signed server action form.
+    ///
+    /// Assign the same logical id to each [`fission_core::ui::TextInput`]'s
+    /// `form_id` and to the submit button with `Button::form_id`. The schema
+    /// rejects controls that were not declared
+    /// and enforces scalar, boolean, and repeated-value cardinality before the
+    /// typed form value is deserialized.
+    pub fn form_action<P, A, F>(mut self, schema: ServerFormSchema, create_action: F) -> Self
+    where
+        P: DeserializeOwned + 'static,
+        A: Action,
+        F: Fn(P) -> A + Send + Sync + 'static,
+    {
+        let key = (schema.id.clone(), A::static_id());
+        let form_id = schema.id.clone();
+        let binding = ServerFormActionBinding {
+            schema,
+            decode: Arc::new(move |submitted| {
+                let encoded = form_urlencoded::Serializer::new(String::new())
+                    .extend_pairs(submitted.iter().map(|(name, value)| (name, value)))
+                    .finish();
+                let form = serde_html_form::from_str::<P>(&encoded)
+                    .map_err(|error| anyhow::anyhow!("invalid typed server form: {error}"))?;
+                Ok(create_action(form).into())
+            }),
+        };
+        assert!(
+            self.form_actions.insert(key, binding).is_none(),
+            "server form action `{form_id}` was registered more than once for this action type"
+        );
+        self
     }
 
     /// Adds a bearer-protected endpoint that invalidates configured cache entries.
@@ -600,6 +689,8 @@ impl FissionServerApp {
                 let state = initial_state(ctx)?;
                 render_widget_node::<S, W>(widget.as_ref(), ctx, state)
             }),
+            worker_props: BTreeMap::new(),
+            island_props: BTreeMap::new(),
         });
         self
     }
@@ -637,6 +728,8 @@ impl FissionServerApp {
                 let state = initial_state(ctx)?;
                 render_widget_node::<S, W>(widget.as_ref(), ctx, state)
             }),
+            worker_props: BTreeMap::new(),
+            island_props: BTreeMap::new(),
         });
         self
     }
@@ -654,6 +747,34 @@ impl FissionServerApp {
         self
     }
 
+    /// Attaches a worker whose public initialization properties are resolved
+    /// independently for every rendered request.
+    pub fn worker_with_props<P, F>(
+        mut self,
+        path: &str,
+        worker: ProgressiveWorker,
+        resolve: F,
+    ) -> Self
+    where
+        P: Serialize,
+        F: for<'a> Fn(&ServerRenderContext<'a>) -> Result<P> + Send + Sync + 'static,
+    {
+        let path = normalize_server_path(path);
+        if let Some(route) = self
+            .routes
+            .iter_mut()
+            .find(|entry| entry.route.path == path)
+        {
+            let id = worker.id.clone();
+            route.route.workers.push(worker);
+            route.worker_props.insert(
+                id,
+                Arc::new(move |ctx| serialize_browser_props(resolve(ctx)?)),
+            );
+        }
+        self
+    }
+
     /// Attaches a WebAssembly island to an existing route.
     pub fn island(mut self, path: &str, island: WasmIsland) -> Self {
         let path = normalize_server_path(path);
@@ -663,6 +784,29 @@ impl FissionServerApp {
             .find(|entry| entry.route.path == path)
         {
             route.route.islands.push(island);
+        }
+        self
+    }
+
+    /// Attaches an island whose public initialization properties are resolved
+    /// independently for every rendered request.
+    pub fn island_with_props<P, F>(mut self, path: &str, island: WasmIsland, resolve: F) -> Self
+    where
+        P: Serialize,
+        F: for<'a> Fn(&ServerRenderContext<'a>) -> Result<P> + Send + Sync + 'static,
+    {
+        let path = normalize_server_path(path);
+        if let Some(route) = self
+            .routes
+            .iter_mut()
+            .find(|entry| entry.route.path == path)
+        {
+            let id = island.id.clone();
+            route.route.islands.push(island);
+            route.island_props.insert(
+                id,
+                Arc::new(move |ctx| serialize_browser_props(resolve(ctx)?)),
+            );
         }
         self
     }
@@ -737,12 +881,29 @@ impl FissionServerApp {
         &self,
         method: &str,
         path: &str,
-    ) -> Option<&ServerHttpHandlerEntry> {
+    ) -> Option<(&ServerHttpHandlerEntry, ServerRouteParams)> {
         let method = method.to_ascii_uppercase();
         let path = normalize_server_path(path);
         self.http_handlers
             .iter()
-            .find(|entry| entry.method == method && entry.path == path)
+            .filter(|entry| entry.method == method)
+            .find_map(|entry| {
+                matches!(entry.matcher, ServerRouteMatcher::Exact)
+                    .then(|| entry.matcher.match_request(&entry.path, &path))
+                    .flatten()
+                    .map(|params| (entry, params))
+            })
+            .or_else(|| {
+                self.http_handlers
+                    .iter()
+                    .filter(|entry| entry.method == method)
+                    .find_map(|entry| {
+                        matches!(entry.matcher, ServerRouteMatcher::Dynamic { .. })
+                            .then(|| entry.matcher.match_request(&entry.path, &path))
+                            .flatten()
+                            .map(|params| (entry, params))
+                    })
+            })
     }
 
     pub(crate) fn find_cache_invalidation_endpoint(
@@ -753,6 +914,14 @@ impl FissionServerApp {
         self.cache_invalidation_endpoints
             .iter()
             .find(|entry| entry.path == path)
+    }
+
+    pub(crate) fn find_form_action(
+        &self,
+        form_id: &str,
+        action_id: ActionId,
+    ) -> Option<&ServerFormActionBinding> {
+        self.form_actions.get(&(form_id.to_string(), action_id))
     }
 
     pub(crate) fn apply_default_route_mode(&mut self, mode: WebRouteMode) {
@@ -793,6 +962,13 @@ fn matcher_for_route_path(path: &str) -> ServerRouteMatcher {
         }
     } else {
         ServerRouteMatcher::Exact
+    }
+}
+
+fn serialize_browser_props<P: Serialize>(props: P) -> Result<BTreeMap<String, Value>> {
+    match serde_json::to_value(props)? {
+        Value::Object(props) => Ok(props.into_iter().collect()),
+        _ => anyhow::bail!("browser initialization properties must serialize as a JSON object"),
     }
 }
 

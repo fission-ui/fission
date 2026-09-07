@@ -15,6 +15,9 @@ pub struct SignedServerAction {
     pub target_node: u128,
     /// Typed action identifier and encoded payload to dispatch.
     pub action: ActionEnvelope,
+    /// Logical typed-form schema bound to this action, when present.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub form_id: Option<String>,
     /// Expiry time as Unix seconds.
     pub expires_unix: u64,
     /// Per-token replay identifier covered by the signature.
@@ -32,6 +35,8 @@ pub struct VerifiedServerAction {
     pub target_node: u128,
     /// Verified action envelope.
     pub action: ActionEnvelope,
+    /// Verified logical typed-form schema, when present.
+    pub form_id: Option<String>,
 }
 
 #[derive(Clone)]
@@ -82,14 +87,50 @@ impl ServerActionSigner {
         action: ActionEnvelope,
         ttl: Duration,
     ) -> SignedServerAction {
+        self.sign_envelope_for_form(route_path, target_node, action, None, ttl)
+    }
+
+    pub(crate) fn sign_form_envelope(
+        &self,
+        route_path: impl Into<String>,
+        target_node: u128,
+        action: ActionEnvelope,
+        form_id: impl Into<String>,
+        ttl: Duration,
+    ) -> SignedServerAction {
+        self.sign_envelope_for_form(route_path, target_node, action, Some(form_id.into()), ttl)
+    }
+
+    fn sign_envelope_for_form(
+        &self,
+        route_path: impl Into<String>,
+        target_node: u128,
+        action: ActionEnvelope,
+        form_id: Option<String>,
+        ttl: Duration,
+    ) -> SignedServerAction {
         let route_path = route_path.into();
         let expires_unix = unix_now().saturating_add(ttl.as_secs());
-        let nonce = nonce_for(&route_path, target_node, &action, expires_unix);
-        let signature = self.signature(&route_path, target_node, &action, expires_unix, &nonce);
+        let nonce = nonce_for(
+            &route_path,
+            target_node,
+            &action,
+            form_id.as_deref(),
+            expires_unix,
+        );
+        let signature = self.signature(
+            &route_path,
+            target_node,
+            &action,
+            form_id.as_deref(),
+            expires_unix,
+            &nonce,
+        );
         SignedServerAction {
             route_path,
             target_node,
             action,
+            form_id,
             expires_unix,
             nonce,
             signature,
@@ -105,6 +146,7 @@ impl ServerActionSigner {
             &token.route_path,
             token.target_node,
             &token.action,
+            token.form_id.as_deref(),
             token.expires_unix,
             &token.nonce,
         );
@@ -115,6 +157,7 @@ impl ServerActionSigner {
             route_path: token.route_path.clone(),
             target_node: token.target_node,
             action: token.action.clone(),
+            form_id: token.form_id.clone(),
         })
     }
 
@@ -157,16 +200,25 @@ impl ServerActionSigner {
         route_path: &str,
         target_node: u128,
         action: &ActionEnvelope,
+        form_id: Option<&str>,
         expires_unix: u64,
         nonce: &str,
     ) -> String {
         let mut hasher = blake3::Hasher::new_keyed(&self.key);
-        hasher.update(b"fission.server.action.v1");
+        hasher.update(if form_id.is_some() {
+            b"fission.server.action.v2"
+        } else {
+            b"fission.server.action.v1"
+        });
         hasher.update(route_path.as_bytes());
         hasher.update(&target_node.to_le_bytes());
         hasher.update(&action.id.as_u128().to_le_bytes());
         hasher.update(&(action.payload.len() as u64).to_le_bytes());
         hasher.update(&action.payload);
+        if let Some(form_id) = form_id {
+            hasher.update(&(form_id.len() as u64).to_le_bytes());
+            hasher.update(form_id.as_bytes());
+        }
         hasher.update(&expires_unix.to_le_bytes());
         hasher.update(nonce.as_bytes());
         to_hex(hasher.finalize().as_bytes())
@@ -191,17 +243,26 @@ fn nonce_for(
     route_path: &str,
     target_node: u128,
     action: &ActionEnvelope,
+    form_id: Option<&str>,
     expires_unix: u64,
 ) -> String {
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default();
     let mut hasher = blake3::Hasher::new();
-    hasher.update(b"fission.server.action.nonce.v1");
+    hasher.update(if form_id.is_some() {
+        b"fission.server.action.nonce.v2"
+    } else {
+        b"fission.server.action.nonce.v1"
+    });
     hasher.update(route_path.as_bytes());
     hasher.update(&target_node.to_le_bytes());
     hasher.update(&action.id.as_u128().to_le_bytes());
     hasher.update(&action.payload);
+    if let Some(form_id) = form_id {
+        hasher.update(&(form_id.len() as u64).to_le_bytes());
+        hasher.update(form_id.as_bytes());
+    }
     hasher.update(&expires_unix.to_le_bytes());
     hasher.update(&now.as_nanos().to_le_bytes());
     hasher.update(&std::process::id().to_le_bytes());
@@ -261,6 +322,25 @@ mod tests {
         let mut tampered = decoded;
         tampered.target_node = 8;
         assert!(signer.verify(&tampered).is_err());
+    }
+
+    #[test]
+    fn signed_form_identity_is_authenticated() {
+        let signer = ServerActionSigner::new("secret");
+        let mut token = signer.sign_form_envelope(
+            "/search",
+            7,
+            AddToCart { sku: "abc".into() }.into(),
+            "search",
+            Duration::from_secs(60),
+        );
+
+        assert_eq!(
+            signer.verify(&token).unwrap().form_id.as_deref(),
+            Some("search")
+        );
+        token.form_id = Some("admin".into());
+        assert!(signer.verify(&token).is_err());
     }
 
     #[test]

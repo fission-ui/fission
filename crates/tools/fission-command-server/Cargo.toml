@@ -16,4 +16,6 @@ readme = "README.md"
 
 [dependencies]
 anyhow = "1.0"
+fission-command-process = { path = "../fission-command-process", version = "0.14.1" }
+serde_json = "1.0"
 toml = "0.8"

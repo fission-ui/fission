@@ -215,6 +215,45 @@ pub fn on_add_to_cart(state: &mut StoreState, slug: String) {
 
 Do not expose arbitrary Rust functions as HTTP actions. Keep actions narrow and typed. A small action describes what happened; a reducer updates state and can request any follow-up work through jobs or services.
 
+When the action needs values entered after rendering, give its controls and
+submit button one logical form id, then register an explicit typed schema on the
+server app:
+
+```rust
+#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
+struct SearchSubmitted {
+    query: String,
+    archived: bool,
+    #[serde(default)]
+    tag: Vec<String>,
+}
+
+impl Action for SearchSubmitted {
+    fn static_id() -> ActionId {
+        ActionId::from_name("store::SearchSubmitted")
+    }
+}
+
+let schema = ServerFormSchema::new("catalog-search")
+    .field(ServerFormField::text("query").required().max_length(200))
+    .field(ServerFormField::boolean("archived"))
+    .field(ServerFormField::repeated("tag"));
+
+FissionServerApp::new("Store")
+    .form_action::<SearchSubmitted, SearchSubmitted, _>(schema, |form| form)
+    // Add routes after registering the form action.
+```
+
+Set `name` and `form_id` on each `TextInput`, and call
+`.name("archived").form_id("catalog-search")` on a `Checkbox`. Associate the
+submit button with `.form_id("catalog-search")`. Fission keeps the route,
+target node, action type, expiry, nonce, and form schema inside the signed
+token; submitted controls can only populate the already-authorized action type.
+Unknown fields, duplicate scalar values, invalid booleans, malformed UTF-8 or
+percent encoding, schema violations, oversized bodies, wrong origins, and
+replayed tokens are rejected. Use `ServerFormField::repeated` only where the
+typed action deliberately accepts a sequence.
+
 ## 6. Keep cached pages and actions separate
 
 Do not cache a full page that contains signed server action forms. The action token is request-specific and short lived; putting it into a public revalidated cache would either replay the same token for different users or leave users with expired controls. Fission rejects that combination.

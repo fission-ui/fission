@@ -32,6 +32,7 @@ members = [
     "crates/tools/cargo-fission",
     "crates/tools/fission-command-package",
     "crates/tools/fission-command-release",
+    "crates/tools/fission-command-process",
     "crates/tools/fission-command-run",
     "crates/tools/fission-command-core",
     "crates/tools/fission-command-site",
@@ -49,7 +50,11 @@ resolver = "2"
 [workspace.lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(cargo_clippy)', 'cfg(feature, values("cargo-clippy"))'] }
 
+[profile.dev]
+debug = "line-tables-only"
+
 [profile.dev.package."*"]
+debug = false
 opt-level = 1
 
 [profile.release]
