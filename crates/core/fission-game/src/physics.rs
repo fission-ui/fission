@@ -78,6 +78,15 @@ impl PhysicsVelocity2D {
     }
 }
 
+/// Closest 2D physics body intersected by a world-space ray.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct PhysicsRayHit2D {
+    pub body: PhysicsBodyId,
+    pub distance: f32,
+    pub point: PhysicsVector2,
+    pub normal: PhysicsVector2,
+}
+
 /// How a physics provider advances a body.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -206,6 +215,13 @@ pub trait PhysicsProvider2D {
         impulse: PhysicsVector2,
         wake_up: bool,
     ) -> Result<(), Self::Error>;
+    fn cast_ray(
+        &self,
+        origin: PhysicsVector2,
+        direction: PhysicsVector2,
+        max_distance: f32,
+        solid: bool,
+    ) -> Result<Option<PhysicsRayHit2D>, Self::Error>;
     fn step(&mut self, duration: crate::StepDuration);
 }
 
@@ -300,6 +316,15 @@ impl PhysicsVelocity3D {
     pub fn is_finite(self) -> bool {
         self.linear.is_finite() && self.angular.is_finite()
     }
+}
+
+/// Closest 3D physics body intersected by a world-space ray.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct PhysicsRayHit3D {
+    pub body: PhysicsBodyId,
+    pub distance: f32,
+    pub point: PhysicsVector3,
+    pub normal: PhysicsVector3,
 }
 
 /// Closed initial set of three-dimensional collider geometry.
@@ -412,6 +437,13 @@ pub trait PhysicsProvider3D {
         impulse: PhysicsVector3,
         wake_up: bool,
     ) -> Result<(), Self::Error>;
+    fn cast_ray(
+        &self,
+        origin: PhysicsVector3,
+        direction: PhysicsVector3,
+        max_distance: f32,
+        solid: bool,
+    ) -> Result<Option<PhysicsRayHit3D>, Self::Error>;
     fn step(&mut self, duration: crate::StepDuration);
 }
 

@@ -4,13 +4,14 @@ use std::collections::BTreeMap;
 use std::fmt;
 
 use rapier3d::prelude::{
-    ColliderBuilder, PhysicsWorld, Pose, RigidBody, RigidBodyBuilder, RigidBodyHandle, Rotation,
-    Vector,
+    ColliderBuilder, PhysicsWorld, Pose, QueryFilter, Ray, RigidBody, RigidBodyBuilder,
+    RigidBodyHandle, Rotation, Vector,
 };
 
 use crate::{
     Collider3D, PhysicsBody3D, PhysicsBodyId, PhysicsBodyKind, PhysicsPose3D, PhysicsProvider3D,
-    PhysicsRotation3D, PhysicsShape3D, PhysicsVector3, PhysicsVelocity3D, StepDuration,
+    PhysicsRayHit3D, PhysicsRotation3D, PhysicsShape3D, PhysicsVector3, PhysicsVelocity3D,
+    StepDuration,
 };
 
 /// Invalid declaration or operation rejected by the Rapier 3D provider.
@@ -185,6 +186,41 @@ impl RapierPhysicsWorld3D {
         Ok(())
     }
 
+    pub fn cast_ray(
+        &self,
+        origin: PhysicsVector3,
+        direction: PhysicsVector3,
+        max_distance: f32,
+        solid: bool,
+    ) -> Result<Option<PhysicsRayHit3D>, Physics3DError> {
+        let (origin, direction) = validated_ray3(origin, direction, max_distance)?;
+        let ray = Ray::new(origin, direction);
+        let Some((collider_handle, intersection)) =
+            self.world
+                .cast_ray_and_get_normal(&ray, max_distance, solid, QueryFilter::default())
+        else {
+            return Ok(None);
+        };
+        let body_handle = self
+            .world
+            .colliders
+            .get(collider_handle)
+            .and_then(|collider| collider.parent())
+            .ok_or_else(|| Physics3DError::new("physics ray hit an unattached collider"))?;
+        let body = self
+            .bodies
+            .iter()
+            .find_map(|(id, handle)| (*handle == body_handle).then(|| id.clone()))
+            .ok_or_else(|| Physics3DError::new("physics ray hit an unknown body"))?;
+        let point = ray.point_at(intersection.time_of_impact);
+        Ok(Some(PhysicsRayHit3D {
+            body,
+            distance: intersection.time_of_impact,
+            point: from_vector(point),
+            normal: from_vector(intersection.normal),
+        }))
+    }
+
     pub fn step(&mut self, duration: StepDuration) {
         self.world.integration_parameters.dt = duration.as_secs_f32();
         self.world.step();
@@ -269,6 +305,16 @@ impl PhysicsProvider3D for RapierPhysicsWorld3D {
         wake_up: bool,
     ) -> Result<(), Self::Error> {
         RapierPhysicsWorld3D::apply_impulse(self, id, impulse, wake_up)
+    }
+
+    fn cast_ray(
+        &self,
+        origin: PhysicsVector3,
+        direction: PhysicsVector3,
+        max_distance: f32,
+        solid: bool,
+    ) -> Result<Option<PhysicsRayHit3D>, Self::Error> {
+        RapierPhysicsWorld3D::cast_ray(self, origin, direction, max_distance, solid)
     }
 
     fn step(&mut self, duration: StepDuration) {
@@ -365,6 +411,26 @@ fn from_vector(value: Vector) -> PhysicsVector3 {
     PhysicsVector3::new(value.x, value.y, value.z)
 }
 
+fn validated_ray3(
+    origin: PhysicsVector3,
+    direction: PhysicsVector3,
+    max_distance: f32,
+) -> Result<(Vector, Vector), Physics3DError> {
+    let origin = vector(origin);
+    let direction = vector(direction);
+    if !origin.is_finite()
+        || !direction.is_finite()
+        || direction.length_squared() <= f32::EPSILON
+        || !max_distance.is_finite()
+        || max_distance < 0.0
+    {
+        return Err(Physics3DError::new(
+            "physics ray must have finite values, a direction, and a nonnegative distance",
+        ));
+    }
+    Ok((origin, direction.normalize()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -445,5 +511,33 @@ mod tests {
         assert!(pose.translation.x > 2.0);
         assert!(velocity.linear.x > 1.0);
         assert!(velocity.angular.z.abs() > 0.0);
+    }
+
+    #[test]
+    fn ray_queries_return_stable_body_identity_and_surface_data() {
+        let mut world = RapierPhysicsWorld3D::new(PhysicsVector3::ZERO).expect("finite gravity");
+        let id = body_id(4);
+        world
+            .insert_body(PhysicsBody3D::fixed(
+                id.clone(),
+                PhysicsShape3D::Sphere { radius: 0.5 },
+            ))
+            .expect("insert body");
+        world.step(StepDuration::from_hz(60));
+
+        let hit = world
+            .cast_ray(
+                PhysicsVector3::new(0.0, 5.0, 0.0),
+                PhysicsVector3::new(0.0, -2.0, 0.0),
+                10.0,
+                true,
+            )
+            .expect("valid ray")
+            .expect("ray should hit body");
+
+        assert_eq!(hit.body, id);
+        assert!((hit.distance - 4.5).abs() < 1.0e-4);
+        assert!((hit.point.y - 0.5).abs() < 1.0e-4);
+        assert!((hit.normal.y - 1.0).abs() < 1.0e-4);
     }
 }

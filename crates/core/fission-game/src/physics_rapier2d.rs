@@ -4,13 +4,13 @@ use std::collections::BTreeMap;
 use std::fmt;
 
 use rapier2d::prelude::{
-    ColliderBuilder, PhysicsWorld, Pose, RigidBody, RigidBodyBuilder, RigidBodyHandle, Rotation,
-    Vector,
+    ColliderBuilder, PhysicsWorld, Pose, QueryFilter, Ray, RigidBody, RigidBodyBuilder,
+    RigidBodyHandle, Rotation, Vector,
 };
 
 use crate::{
     Collider2D, PhysicsBody2D, PhysicsBodyId, PhysicsBodyKind, PhysicsPose2D, PhysicsProvider2D,
-    PhysicsShape2D, PhysicsVector2, PhysicsVelocity2D, StepDuration,
+    PhysicsRayHit2D, PhysicsShape2D, PhysicsVector2, PhysicsVelocity2D, StepDuration,
 };
 
 /// Invalid declaration or operation rejected by the Rapier provider.
@@ -186,6 +186,41 @@ impl RapierPhysicsWorld2D {
         Ok(())
     }
 
+    pub fn cast_ray(
+        &self,
+        origin: PhysicsVector2,
+        direction: PhysicsVector2,
+        max_distance: f32,
+        solid: bool,
+    ) -> Result<Option<PhysicsRayHit2D>, Physics2DError> {
+        let (origin, direction) = validated_ray2(origin, direction, max_distance)?;
+        let ray = Ray::new(origin, direction);
+        let Some((collider_handle, intersection)) =
+            self.world
+                .cast_ray_and_get_normal(&ray, max_distance, solid, QueryFilter::default())
+        else {
+            return Ok(None);
+        };
+        let body_handle = self
+            .world
+            .colliders
+            .get(collider_handle)
+            .and_then(|collider| collider.parent())
+            .ok_or_else(|| Physics2DError::new("physics ray hit an unattached collider"))?;
+        let body = self
+            .bodies
+            .iter()
+            .find_map(|(id, handle)| (*handle == body_handle).then(|| id.clone()))
+            .ok_or_else(|| Physics2DError::new("physics ray hit an unknown body"))?;
+        let point = ray.point_at(intersection.time_of_impact);
+        Ok(Some(PhysicsRayHit2D {
+            body,
+            distance: intersection.time_of_impact,
+            point: from_vector(point),
+            normal: from_vector(intersection.normal),
+        }))
+    }
+
     pub fn step(&mut self, duration: StepDuration) {
         self.world.integration_parameters.dt = duration.as_secs_f32();
         self.world.step();
@@ -270,6 +305,16 @@ impl PhysicsProvider2D for RapierPhysicsWorld2D {
         wake_up: bool,
     ) -> Result<(), Self::Error> {
         RapierPhysicsWorld2D::apply_impulse(self, id, impulse, wake_up)
+    }
+
+    fn cast_ray(
+        &self,
+        origin: PhysicsVector2,
+        direction: PhysicsVector2,
+        max_distance: f32,
+        solid: bool,
+    ) -> Result<Option<PhysicsRayHit2D>, Self::Error> {
+        RapierPhysicsWorld2D::cast_ray(self, origin, direction, max_distance, solid)
     }
 
     fn step(&mut self, duration: StepDuration) {
@@ -360,6 +405,30 @@ fn vector(value: PhysicsVector2) -> Vector {
     Vector::new(value.x, value.y)
 }
 
+fn from_vector(value: Vector) -> PhysicsVector2 {
+    PhysicsVector2::new(value.x, value.y)
+}
+
+fn validated_ray2(
+    origin: PhysicsVector2,
+    direction: PhysicsVector2,
+    max_distance: f32,
+) -> Result<(Vector, Vector), Physics2DError> {
+    let origin = vector(origin);
+    let direction = vector(direction);
+    if !origin.is_finite()
+        || !direction.is_finite()
+        || direction.length_squared() <= f32::EPSILON
+        || !max_distance.is_finite()
+        || max_distance < 0.0
+    {
+        return Err(Physics2DError::new(
+            "physics ray must have finite values, a direction, and a nonnegative distance",
+        ));
+    }
+    Ok((origin, direction.normalize()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -439,5 +508,33 @@ mod tests {
         assert!(pose.translation.x > 2.0);
         assert!(velocity.linear.x > 1.0);
         assert!(velocity.angular.abs() > 0.0);
+    }
+
+    #[test]
+    fn ray_queries_return_stable_body_identity_and_surface_data() {
+        let mut world = RapierPhysicsWorld2D::new(PhysicsVector2::ZERO).expect("finite gravity");
+        let id = body_id(4);
+        world
+            .insert_body(PhysicsBody2D::fixed(
+                id.clone(),
+                PhysicsShape2D::Circle { radius: 0.5 },
+            ))
+            .expect("insert body");
+        world.step(StepDuration::from_hz(60));
+
+        let hit = world
+            .cast_ray(
+                PhysicsVector2::new(0.0, 5.0),
+                PhysicsVector2::new(0.0, -2.0),
+                10.0,
+                true,
+            )
+            .expect("valid ray")
+            .expect("ray should hit body");
+
+        assert_eq!(hit.body, id);
+        assert!((hit.distance - 4.5).abs() < 1.0e-4);
+        assert!((hit.point.y - 0.5).abs() < 1.0e-4);
+        assert!((hit.normal.y - 1.0).abs() < 1.0e-4);
     }
 }

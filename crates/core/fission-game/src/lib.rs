@@ -22,9 +22,9 @@ pub use handles::{AreaHandle, FieldHandle, ObjectGroupHandle, ObjectHandle};
 pub use identity::{StableKey, StableKeyValue, StableSymbol};
 pub use physics::{
     Collider2D, Collider3D, PhysicsBody2D, PhysicsBody3D, PhysicsBodyId, PhysicsBodyKind,
-    PhysicsPose2D, PhysicsPose3D, PhysicsProvider2D, PhysicsProvider3D, PhysicsRotation3D,
-    PhysicsShape2D, PhysicsShape3D, PhysicsVector2, PhysicsVector3, PhysicsVelocity2D,
-    PhysicsVelocity3D,
+    PhysicsPose2D, PhysicsPose3D, PhysicsProvider2D, PhysicsProvider3D, PhysicsRayHit2D,
+    PhysicsRayHit3D, PhysicsRotation3D, PhysicsShape2D, PhysicsShape3D, PhysicsVector2,
+    PhysicsVector3, PhysicsVelocity2D, PhysicsVelocity3D,
 };
 #[cfg(feature = "physics-rapier2d")]
 pub use physics_rapier2d::{Physics2DError, RapierPhysicsWorld2D};
