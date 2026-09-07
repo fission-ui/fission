@@ -31,6 +31,7 @@ The `documentation/` project uses the static site target to exercise the feature
 | Custom Fission route | `documentation/src/components/home.rs` renders `/` | The landing page is a normal widget tree, so product pages can use the same component style as apps |
 | Content routes | `documentation/content/docs`, `documentation/content/reference`, and `documentation/content/blog` | Markdown files become generated routes without hand-writing every page |
 | Documentation template | `fission::site::documentation` in [`documentation/fission.toml`](/reference/config/fission-toml/) | Content pages get a header, left sidebar, article body, right table of contents, footer, and responsive layout |
+| Blog template | `fission::site::blog` on a content route | The configured mount gains ordered indexes, pagination, category and tag pages, and adjacent-post navigation |
 | Sidebar files | `documentation/site/*.toml` | Navigation is explicit, reviewable, and independent from the Markdown body |
 | Content transform | `documentation/src/charts.rs` | The site can expand generated chart catalog sections before rendering Markdown |
 | Light and dark themes | `FissionSite::light_dark_themes(...)` in `documentation/src/main.rs` | The generated CSS contains both theme modes and the page includes a small theme toggle script |

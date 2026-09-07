@@ -1,83 +1,62 @@
 ---
-title: Docs
-description: Follow the Fission software development lifecycle from setup through development, testing, packaging, signing, release, and distribution.
+title: Introduction
+description: Understand what Fission owns, what the platform shell owns, and how a product change moves through an application.
 ---
 
-# Docs
+# Introduction
 
-Fission is a Rust application platform for building and shipping real apps across macOS, Windows, Linux, Web, Android, iOS, Terminal, Static site, and SSR targets.
+Fission is a Rust application platform for building and shipping the same product model through macOS, Windows, Linux, Web, Android, iOS, Terminal, Static site, and SSR hosts.
 
-That word _platform_ is deliberate. Fission is not only a widget catalog. It gives you the application model, platform shells, command-line workflow, testing story, packaging commands, static site generation, capability APIs, and release tooling needed to carry an app from the first screen to a published product.
+> **After this page**
+>
+> You should be able to identify what your application owns, what a platform shell owns, and where to look when behaviour is wrong.
 
-These docs are organized around the same lifecycle you will follow in a real project: set up, learn the app model, develop features, test and debug, build packages, and publish releases. You can still look up individual APIs in the reference, but the main path is written as a guided route rather than a pile of disconnected pages.
+## Why Fission calls itself an application platform
 
-## If you are new, start here
+A widget library can draw controls, but a production application also needs state management, host capabilities, accessibility, testing, packaging, signing, and release workflows. If those parts follow unrelated models, sharing the interface does not prevent the product from splitting into separate platform implementations.
 
-Start with [Quickstart](/docs/learn/quickstart/) even if you already know Rust. It gets a Fission app on screen and explains what each command is doing. Then read [Project structure](/docs/guides/app-structure/) so the files in a generated app make sense.
+Fission gives these parts one structure. Application code defines product state and behaviour. Retained widgets describe the current interface. Effects request work outside rendering. A shell connects that shared model to an operating system, browser, terminal, static build, or server request.
 
-After that, learn the core loop in this order:
+> **The practical boundary:** Your product decides what should happen. The shell decides how the current platform hosts and delivers it.
 
-| Step | Read | What you should understand afterward |
-| --- | --- | --- |
-| 1 | [Runtime model](/docs/learn/runtime-model/) | Where app state lives, what runtime state means, and why widgets should build from inputs. |
-| 2 | [Rendering pipeline](/docs/learn/rendering-pipeline/) | How widgets become layout, semantics, display lists, and host output. |
-| 3 | [Layout and widgets](/docs/guides/layout-and-widgets/) | How to compose screens that adapt to mobile, desktop, and web-sized viewports. |
-| 4 | [Input, events, text, and environment](/docs/guides/input-events-text-and-env/) | How pointer, keyboard, text input, theme, locale, and environment data reach widgets. |
-| 5 | [State, handles, and providers](/docs/guides/state-handles-and-providers/) | Where durable app state, local widget state, build handles, environment, and parent-provided context belong. |
-| 6 | [State, resources, and async](/docs/guides/resources-and-async/) | How to keep product state explicit while still doing host work, background work, and long-lived resources. |
+## The application flow
 
-The docs assume you can run `cargo`, but they do not assume you are an expert Rust developer. When a concept such as `Env`, `BuildCtxHandle`, `ViewHandle`, reducer, selector, resource, job, or capability appears, the relevant guide should introduce what it is, why it exists, when to use it, and what to avoid.
+A Fission application uses one-way data flow. Each part has a specific responsibility, which makes changes and failures easier to trace.
 
-## Follow the lifecycle
+1. **State stores product truth.** Plain Rust data holds the durable facts the interface and behaviour depend on.
+2. **Actions name user intent.** A raw click becomes a meaningful request such as save, select, open, close, submit, or retry.
+3. **Reducers change state.** Business rules update the authoritative state through an explicit, testable path.
+4. **Widgets describe the interface.** Retained widgets read state and environment values without performing hidden outside work.
+5. **Shells connect real platforms.** Hosts deliver input, lifecycle, accessibility, rendering, capabilities, and packaged output.
 
-Fission projects move through a practical development lifecycle.
+## A product change in concrete terms
 
-| Lifecycle stage | Where to go | What the pages teach |
-| --- | --- | --- |
-| Setup | [Quickstart](/docs/learn/quickstart/), [Project structure](/docs/guides/app-structure/), [Add platform targets](/docs/cookbook/add-platform-targets/) | Create or open a project, understand [`fission.toml`](/reference/config/fission-toml/), and add macOS, Windows, Linux, Web, Android, iOS, Terminal, Static site, or SSR targets without losing existing files. |
-| Learn | [Learn overview](/docs/learn/overview/), [Runtime model](/docs/learn/runtime-model/), [Rendering pipeline](/docs/learn/rendering-pipeline/) | Understand the architecture before copying patterns into a larger app. |
-| Build features | [Layout and widgets](/docs/guides/layout-and-widgets/), [State, handles, and providers](/docs/guides/state-handles-and-providers/), [Theming and internationalization](/docs/guides/theming-and-i18n/), [Design system](/docs/guides/design-system/), [Charts](/docs/charts/overview/), [Capabilities](/docs/capabilities/matrix/) | Build product screens, manage state intentionally, theme them, translate them, add charts, and request platform features through typed capabilities. |
-| Develop | [Development workflow](/docs/develop/workflow/), [Platform shells and CLI](/docs/guides/platform-shells-cli-and-testing/), [Terminal user interfaces](/docs/guides/terminal-user-interfaces/), [Static sites](/docs/guides/static-sites/), [Server-rendered sites](/docs/guides/server-sites/) | Run the app on real targets, keep logs attached, use the terminal UI, build content-backed static sites, and run SSR targets when pages need request-time behavior. |
-| Test and debug | [Testing lifecycle](/docs/test-and-debug/overview/), [Testing and diagnostics](/docs/guides/testing-and-diagnostics/), [Write a live UI test](/docs/cookbook/write-a-live-ui-test/) | Test reducers first, then widgets, runtime effects, shell paths, screenshots, logs, and release captures. |
-| Build and package | [Packaging overview](/docs/build-and-package/overview/) | Produce installable or uploadable artifacts with readiness checks and artifact manifests. |
-| Release and distribute | [Release overview](/docs/release-and-distribute/overview/), [Release lifecycle details](/docs/release-and-distribute/post-build-lifecycle/) | Prepare release content, validate metadata, upload through providers, manage tracks/testers, and keep audit receipts. |
-| Look up exact details | [Reference](/reference/overview/overview/) | Confirm field names, widget behavior, CLI flags, platform contracts, chart variants, and capability provider contracts. |
+Imagine adding “archive conversation” to a mail application. The shared state identifies conversations. An `ArchiveConversation` action names the user’s request. A reducer applies the archive rule. Desktop, Web, and mobile widgets bind the same action to the appropriate control, and shared tests prove the state transition.
 
-## The mental model to keep
+The target-specific work is smaller and explicit: desktop may expose a keyboard shortcut, mobile may add a swipe gesture, and Web may ensure browser history remains correct. Those differences do not create three archive implementations.
 
-A Fission app should stay understandable as it grows.
+```rust
+#[derive(Clone, Debug)]
+struct ArchiveConversation {
+    id: ConversationId,
+}
 
-State holds product truth. Actions describe intent. Reducers update state. Selectors derive values from state. Widgets build the interface from the current state and environment. Resources, commands, jobs, services, and capabilities describe work outside pure rendering. Shells host the same app model on macOS, Windows, Linux, Web, Android, iOS, Terminal, Static site, or SSR targets. The `fission` command carries the project through setup, running, testing, packaging, and release.
+fn archive(state: &mut AppState, action: ArchiveConversation) {
+    state.conversations.archive(action.id);
+}
+```
 
-If you are unsure where a piece of code belongs, ask what kind of thing it is:
+## How the structure helps when something is wrong
 
-| If it is... | It usually belongs in... |
+| Symptom | Investigate |
 | --- | --- |
-| Durable product data | [`GlobalState`](/docs/guides/state-handles-and-providers/) |
-| A user intent such as save, select, open, close, submit, or retry | An action and reducer |
-| A value derived from existing state | A selector or local calculation in `component conversion` |
-| Visual structure for the current frame | A widget `component conversion` method |
-| Temporary UI state owned by one widget identity | [local widget state](/docs/guides/state-handles-and-providers/) |
-| Typed context a parent gives only to descendants | [providers](/docs/guides/state-handles-and-providers/) |
-| Theme, locale, title, viewport, or other app-wide presentation context | `Env` synchronized from state or seeded by the shell |
-| File I/O, networking, device access, notifications, camera, clipboard, or other host work | A capability, resource, command, job, service, or explicit effect |
-| Platform packaging, SDK setup, release metadata, or provider upload | [`fission.toml`](/reference/config/fission-toml/), release-content files, and `fission` CLI commands |
+| The underlying data is wrong | State, the dispatched action, and its reducer |
+| The data is right but the screen is wrong | Widget inputs, resolved layout, semantics, and paint output |
+| Only one target fails | Its shell, provider, lifecycle, and packaging boundary |
+| Work happens at a surprising time | Check that I/O is requested by an effect, job, service, resource, or capability—not component conversion |
 
-That separation is the reason the same product can run through multiple hosts without becoming several unrelated apps.
+## Run the model before learning more terminology
 
-## Use the reference when you need precision
+The quickstart creates a small counter application because it exposes the complete loop with very little product code: state, action, reducer, widget, shell, and visible output.
 
-The guide pages teach patterns step by step. The reference pages are for exact contracts: struct fields, enum choices, command flags, platform tables, widget behavior, chart variants, and capability provider details.
-
-When you know the subsystem you need, go to the [Reference overview](/reference/overview/overview/). When you are still learning how a feature should be built, stay in the guides and cookbook first.
-
-## Lifecycle fit and verification
-
-This page belongs to the setup, learn, build, test, and publish lifecycle. Use it to decide the next concrete action, then verify the action before moving to the next stage.
-
-| Stage question | Verification |
-| --- | --- |
-| What file or command changes? | The page should point to the exact `fission` command, `fission.toml` section, Rust component, or generated artifact involved. |
-| What proves it worked? | Prefer a command output, generated file, screenshot, test assertion, package artifact, or deployed URL over a vague statement. |
-| What can fail safely? | Permission prompts, missing tools, unsupported hosts, invalid config, and expired credentials should produce diagnosable errors that can be retried after the cause is fixed. |
-| What should I read next? | Continue to the linked guide for step-by-step work or the reference page for exact fields and contracts. |
+[Continue to Quickstart →](/docs/learn/quickstart/)

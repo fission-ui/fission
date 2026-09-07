@@ -386,7 +386,7 @@ Each `[[site.routes]]` entry maps a content directory to generated routes. If no
 | `kind` | string | No | `content` | Only `content` routes are currently consumed. Other values are ignored by the content-route loader. |
 | `path` | string | Yes | none | URL prefix for generated pages, such as `/docs`, `/reference`, or `/blog`. |
 | `source` | string | Yes | none | Project-relative directory containing `.md` or `.mdx` files. The directory must exist and contain Markdown files. |
-| `template` | string | No | default documentation page | Template identity. `fission::site::documentation` selects the standard documentation layout in the current site app. |
+| `template` | string | No | default documentation page | Template identity. `fission::site::documentation` selects the standard documentation layout. `fission::site::blog` enables post indexes, pagination, adjacent-post navigation, and taxonomy routes at the configured mount path. |
 | `sidebar` | string | No | none | Project-relative TOML file describing left-sidebar entries for this content route. |
 
 Example:

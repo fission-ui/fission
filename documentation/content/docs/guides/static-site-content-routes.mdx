@@ -96,6 +96,8 @@ template = "fission::site::documentation"
 sidebar = "site/docs-sidebar.toml"
 ```
 
+Use `template = "fission::site::blog"` for a post collection. Blog behavior is explicit rather than tied to a `/blog` path, so `/journal`, `/news`, or another configured mount works the same way. See [Static site custom pages](/docs/guides/static-site-custom-pages/) for retained header and footer overrides, project CSS, and route-scoped document enhancements.
+
 With that config, `content/docs/learn/quickstart.mdx` becomes `/docs/learn/quickstart/`. The built-in documentation template renders a header, collapsible left sidebar, article body, right table of contents, and footer.
 
 ## 4. Write the sidebar explicitly
