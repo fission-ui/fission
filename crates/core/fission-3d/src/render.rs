@@ -14,6 +14,7 @@ use crate::{Camera3D, CameraProjection3D, Primitive3D, ResolvedNode3D, Scene3D};
 #[derive(Copy, Clone, Debug, Pod, Zeroable)]
 pub struct Vertex {
     position: [f32; 3],
+    normal: [f32; 3],
     color: [f32; 4],
 }
 
@@ -31,6 +32,11 @@ impl Vertex {
                 wgpu::VertexAttribute {
                     offset: std::mem::size_of::<[f32; 3]>() as wgpu::BufferAddress,
                     shader_location: 1,
+                    format: wgpu::VertexFormat::Float32x3,
+                },
+                wgpu::VertexAttribute {
+                    offset: std::mem::size_of::<[f32; 6]>() as wgpu::BufferAddress,
+                    shader_location: 2,
                     format: wgpu::VertexFormat::Float32x4,
                 },
             ],
@@ -54,6 +60,24 @@ pub struct Scene3DRenderer {
 #[derive(Copy, Clone, Debug, Pod, Zeroable)]
 struct SceneUniforms {
     view_projection: [[f32; 4]; 4],
+    camera_position: [f32; 4],
+    light_direction: [f32; 4],
+    light_color: [f32; 4],
+    lighting: [f32; 4],
+}
+
+impl SceneUniforms {
+    fn new(camera: &Camera3D, aspect: f32) -> Self {
+        let camera = effective_camera(camera);
+        Self {
+            view_projection: camera_view_projection(camera, aspect),
+            camera_position: [camera.eye.x, camera.eye.y, camera.eye.z, 1.0],
+            light_direction: [0.45, 0.8, 0.35, 0.0],
+            light_color: [1.0, 0.98, 0.92, 1.0],
+            // Ambient, diffuse, specular strength, and specular exponent.
+            lighting: [0.24, 0.82, 0.22, 32.0],
+        }
+    }
 }
 
 struct ResidentSceneMesh {
@@ -152,6 +176,10 @@ impl Scene3DRenderer {
             label: Some("fission-3d uniforms"),
             contents: bytemuck::bytes_of(&SceneUniforms {
                 view_projection: glam::Mat4::IDENTITY.to_cols_array_2d(),
+                camera_position: [0.0, 0.0, 1.0, 1.0],
+                light_direction: [0.45, 0.8, 0.35, 0.0],
+                light_color: [1.0, 0.98, 0.92, 1.0],
+                lighting: [0.24, 0.82, 0.22, 32.0],
             }),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
@@ -248,12 +276,8 @@ impl Scene3DRenderer {
             return;
         };
 
-        let uniforms = SceneUniforms {
-            view_projection: camera_view_projection(
-                &scene.camera,
-                (viewport.width / viewport.height).max(0.01),
-            ),
-        };
+        let uniforms =
+            SceneUniforms::new(&scene.camera, (viewport.width / viewport.height).max(0.01));
         queue.write_buffer(&self.uniform_buffer, 0, bytemuck::bytes_of(&uniforms));
         self.ensure_scene_mesh(device, scene);
         let Some(mesh) = self.resident_mesh.as_ref() else {
@@ -409,6 +433,12 @@ fn push_primitive(
 
                     vertices.push(Vertex {
                         position: [x, y, z],
+                        normal: glam::Vec3::new(
+                            phi.sin() * theta.cos(),
+                            phi.cos(),
+                            phi.sin() * theta.sin(),
+                        )
+                        .to_array(),
                         color: c,
                     });
                 }
@@ -434,6 +464,13 @@ fn push_primitive(
             indices: i_in,
             color,
         } => {
+            if v_in.is_empty()
+                || i_in.is_empty()
+                || i_in.len() % 3 != 0
+                || i_in.iter().any(|index| (*index as usize) >= v_in.len())
+            {
+                return;
+            }
             let base_idx = vertices.len() as u32;
             let c = [
                 color.r as f32 / 255.0,
@@ -441,9 +478,20 @@ fn push_primitive(
                 color.b as f32 / 255.0,
                 color.a as f32 / 255.0,
             ];
-            for v in v_in {
+            let mut normals = vec![glam::Vec3::ZERO; v_in.len()];
+            for triangle in i_in.chunks_exact(3) {
+                let a = point3_to_vec3(v_in[triangle[0] as usize]);
+                let b = point3_to_vec3(v_in[triangle[1] as usize]);
+                let c = point3_to_vec3(v_in[triangle[2] as usize]);
+                let normal = (b - a).cross(c - a);
+                for index in triangle {
+                    normals[*index as usize] += normal;
+                }
+            }
+            for (v, normal) in v_in.iter().zip(normals) {
                 vertices.push(Vertex {
                     position: [v.x, v.y, v.z],
+                    normal: normal.normalize_or_zero().to_array(),
                     color: c,
                 });
             }
@@ -453,9 +501,18 @@ fn push_primitive(
         }
     }
     if transform != glam::Mat4::IDENTITY {
+        let determinant = transform.determinant();
+        let normal_matrix = (determinant.is_finite() && determinant.abs() > f32::EPSILON)
+            .then(|| glam::Mat3::from_mat4(transform.inverse().transpose()));
         for vertex in &mut vertices[first_vertex..] {
             let position = transform.transform_point3(glam::Vec3::from_array(vertex.position));
             vertex.position = position.to_array();
+            if let Some(normal_matrix) = normal_matrix {
+                vertex.normal = normal_matrix
+                    .mul_vec3(glam::Vec3::from_array(vertex.normal))
+                    .normalize_or_zero()
+                    .to_array();
+            }
         }
     }
 }
@@ -495,13 +552,7 @@ fn camera_view_projection(camera: &Camera3D, aspect: f32) -> [[f32; 4]; 4] {
     } else {
         1.0
     };
-    let camera = if camera.is_valid() {
-        camera
-    } else {
-        static DEFAULT_CAMERA: std::sync::LazyLock<Camera3D> =
-            std::sync::LazyLock::new(Camera3D::default);
-        &DEFAULT_CAMERA
-    };
+    let camera = effective_camera(camera);
     let eye = glam::Vec3::new(camera.eye.x, camera.eye.y, camera.eye.z);
     let target = glam::Vec3::new(camera.target.x, camera.target.y, camera.target.z);
     let up = glam::Vec3::new(camera.up.x, camera.up.y, camera.up.z).normalize();
@@ -532,18 +583,28 @@ fn camera_view_projection(camera: &Camera3D, aspect: f32) -> [[f32; 4]; 4] {
     (projection * view).to_cols_array_2d()
 }
 
+fn effective_camera(camera: &Camera3D) -> &Camera3D {
+    if camera.is_valid() {
+        camera
+    } else {
+        static DEFAULT_CAMERA: std::sync::LazyLock<Camera3D> =
+            std::sync::LazyLock::new(Camera3D::default);
+        &DEFAULT_CAMERA
+    }
+}
+
 fn push_cube(
     vertices: &mut Vec<Vertex>,
     indices: &mut Vec<u32>,
     p: [[f32; 3]; 8],
     color: &fission_core::op::Color,
 ) {
-    push_face(vertices, indices, [p[0], p[1], p[2], p[3]], color, 0.86);
-    push_face(vertices, indices, [p[5], p[4], p[7], p[6]], color, 0.64);
-    push_face(vertices, indices, [p[4], p[0], p[3], p[7]], color, 0.72);
-    push_face(vertices, indices, [p[1], p[5], p[6], p[2]], color, 1.0);
-    push_face(vertices, indices, [p[3], p[2], p[6], p[7]], color, 1.18);
-    push_face(vertices, indices, [p[4], p[5], p[1], p[0]], color, 0.52);
+    push_face(vertices, indices, [p[0], p[1], p[2], p[3]], color);
+    push_face(vertices, indices, [p[5], p[4], p[7], p[6]], color);
+    push_face(vertices, indices, [p[4], p[0], p[3], p[7]], color);
+    push_face(vertices, indices, [p[1], p[5], p[6], p[2]], color);
+    push_face(vertices, indices, [p[3], p[2], p[6], p[7]], color);
+    push_face(vertices, indices, [p[4], p[5], p[1], p[0]], color);
 }
 
 fn push_face(
@@ -551,12 +612,25 @@ fn push_face(
     indices: &mut Vec<u32>,
     positions: [[f32; 3]; 4],
     color: &fission_core::op::Color,
-    shade: f32,
 ) {
     let base_idx = vertices.len() as u32;
-    let color = shaded_color(color, shade);
+    let color = [
+        color.r as f32 / 255.0,
+        color.g as f32 / 255.0,
+        color.b as f32 / 255.0,
+        color.a as f32 / 255.0,
+    ];
+    let edge_a = glam::Vec3::from_array(positions[1]) - glam::Vec3::from_array(positions[0]);
+    let edge_b = glam::Vec3::from_array(positions[2]) - glam::Vec3::from_array(positions[0]);
+    // Cube faces predate back-face culling and use clockwise vertex order
+    // when viewed from outside, so reverse the winding for outward normals.
+    let normal = edge_b.cross(edge_a).normalize_or_zero().to_array();
     for position in positions {
-        vertices.push(Vertex { position, color });
+        vertices.push(Vertex {
+            position,
+            normal,
+            color,
+        });
     }
     indices.extend_from_slice(&[
         base_idx,
@@ -568,13 +642,8 @@ fn push_face(
     ]);
 }
 
-fn shaded_color(color: &fission_core::op::Color, shade: f32) -> [f32; 4] {
-    [
-        ((color.r as f32 / 255.0) * shade).clamp(0.0, 1.0),
-        ((color.g as f32 / 255.0) * shade).clamp(0.0, 1.0),
-        ((color.b as f32 / 255.0) * shade).clamp(0.0, 1.0),
-        color.a as f32 / 255.0,
-    ]
+fn point3_to_vec3(point: crate::Point3D) -> glam::Vec3 {
+    glam::Vec3::new(point.x, point.y, point.z)
 }
 
 fn clamp_scene3d_viewport(
@@ -678,7 +747,7 @@ mod tests {
     }
 
     #[test]
-    fn cube_mesh_duplicates_faces_with_shading() {
+    fn cube_mesh_duplicates_faces_with_distinct_normals() {
         let mut vertices = Vec::new();
         let mut indices = Vec::new();
         let p = [
@@ -706,10 +775,11 @@ mod tests {
 
         assert_eq!(vertices.len(), 24);
         assert_eq!(indices.len(), 36);
-        let first_face_color = vertices[0].color;
+        let first_face_normal = vertices[0].normal;
+        assert_eq!(first_face_normal, [0.0, 0.0, -1.0]);
         assert!(vertices
             .iter()
-            .any(|vertex| vertex.color != first_face_color));
+            .any(|vertex| vertex.normal != first_face_normal));
     }
 
     #[test]
