@@ -2758,6 +2758,7 @@ dependencies = [
  "bytemuck",
  "fission-core",
  "fission-ir",
+ "glam 0.29.3",
  "serde",
  "wgpu",
 ]

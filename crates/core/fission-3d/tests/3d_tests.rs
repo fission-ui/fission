@@ -1,4 +1,4 @@
-use fission_3d::{Point3D, Primitive3D, Scene3D, Scene3DInternalLowerer};
+use fission_3d::{Camera3D, Point3D, Primitive3D, Scene3D, Scene3DInternalLowerer, Scene3DPayload};
 use fission_core::{
     env::Env,
     internal::{InternalLowerer, InternalLoweringCx},
@@ -30,7 +30,14 @@ fn test_scene3d_builder() {
 
 #[test]
 fn test_scene3d_lowering() {
-    let scene = Scene3D::new().width(100.0).height(200.0);
+    let camera = Camera3D::perspective(
+        Point3D::new(2.0, 3.0, 8.0),
+        Point3D::new(0.0, 0.0, 0.0),
+        1.1,
+        0.1,
+        500.0,
+    );
+    let scene = Scene3D::new().width(100.0).height(200.0).camera(camera);
     let lowerer = Scene3DInternalLowerer { scene };
 
     let env = Env::default();
@@ -55,7 +62,11 @@ fn test_scene3d_lowering() {
         }) => {
             assert_eq!(width.as_ref().copied(), Some(100.0));
             assert_eq!(height.as_ref().copied(), Some(200.0));
-            assert!(!payload.is_empty());
+            let payload: Scene3DPayload =
+                bincode::deserialize(payload).expect("versioned 3D payload");
+            assert_eq!(payload.magic, Scene3DPayload::MAGIC);
+            assert_eq!(payload.version, Scene3DPayload::VERSION);
+            assert_eq!(payload.camera, camera);
         }
         _ => panic!("Expected Embed LayoutOp"),
     }

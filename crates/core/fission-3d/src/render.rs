@@ -7,7 +7,7 @@ use wgpu::{
     TextureUsages, TextureView, TextureViewDescriptor, VertexState,
 };
 
-use crate::{Primitive3D, Scene3D};
+use crate::{Camera3D, CameraProjection3D, Primitive3D, Scene3D};
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Pod, Zeroable)]
@@ -49,8 +49,7 @@ pub struct Scene3DRenderer {
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Pod, Zeroable)]
 struct SceneUniforms {
-    aspect: f32,
-    _pad: [f32; 3],
+    view_projection: [[f32; 4]; 4],
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -216,8 +215,10 @@ impl Scene3DRenderer {
         use wgpu::util::DeviceExt;
 
         let uniforms = SceneUniforms {
-            aspect: (viewport.width / viewport.height).max(0.01),
-            _pad: [0.0; 3],
+            view_projection: camera_view_projection(
+                &scene.camera,
+                (viewport.width / viewport.height).max(0.01),
+            ),
         };
         let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("fission-3d uniforms"),
@@ -397,6 +398,49 @@ impl Scene3DRenderer {
     }
 }
 
+fn camera_view_projection(camera: &Camera3D, aspect: f32) -> [[f32; 4]; 4] {
+    let aspect = if aspect.is_finite() && aspect > 0.0 {
+        aspect
+    } else {
+        1.0
+    };
+    let camera = if camera.is_valid() {
+        camera
+    } else {
+        static DEFAULT_CAMERA: std::sync::LazyLock<Camera3D> =
+            std::sync::LazyLock::new(Camera3D::default);
+        &DEFAULT_CAMERA
+    };
+    let eye = glam::Vec3::new(camera.eye.x, camera.eye.y, camera.eye.z);
+    let target = glam::Vec3::new(camera.target.x, camera.target.y, camera.target.z);
+    let up = glam::Vec3::new(camera.up.x, camera.up.y, camera.up.z).normalize();
+    let view = glam::Mat4::look_at_rh(eye, target, up);
+    let projection = match camera.projection {
+        CameraProjection3D::Perspective {
+            vertical_fov_radians,
+            near,
+            far,
+        } => glam::Mat4::perspective_rh(vertical_fov_radians, aspect, near, far),
+        CameraProjection3D::Orthographic {
+            vertical_size,
+            near,
+            far,
+        } => {
+            let half_height = vertical_size * 0.5;
+            let half_width = half_height * aspect;
+            glam::Mat4::orthographic_rh(
+                -half_width,
+                half_width,
+                -half_height,
+                half_height,
+                near,
+                far,
+            )
+        }
+    };
+    (projection * view).to_cols_array_2d()
+}
+
 fn push_cube(
     vertices: &mut Vec<Vertex>,
     indices: &mut Vec<u32>,
@@ -494,7 +538,8 @@ fn clamp_scene3d_viewport(
 
 #[cfg(test)]
 mod tests {
-    use super::{clamp_scene3d_viewport, push_cube, Scene3DViewport};
+    use super::{camera_view_projection, clamp_scene3d_viewport, push_cube, Scene3DViewport};
+    use crate::{Camera3D, Point3D};
     use fission_core::op::Color;
 
     #[test]
@@ -571,5 +616,23 @@ mod tests {
         assert!(vertices
             .iter()
             .any(|vertex| vertex.color != first_face_color));
+    }
+
+    #[test]
+    fn perspective_and_orthographic_camera_matrices_are_finite() {
+        let perspective = camera_view_projection(&Camera3D::default(), 16.0 / 9.0);
+        let orthographic = camera_view_projection(
+            &Camera3D::orthographic(
+                Point3D::new(0.0, 4.0, 8.0),
+                Point3D::new(0.0, 0.0, 0.0),
+                12.0,
+                0.1,
+                100.0,
+            ),
+            16.0 / 9.0,
+        );
+
+        assert!(perspective.into_iter().flatten().all(f32::is_finite));
+        assert!(orthographic.into_iter().flatten().all(f32::is_finite));
     }
 }

@@ -9192,16 +9192,36 @@ where
                                         #[cfg(feature = "three-d")]
                                         {
                                             for surface in &pipeline.native_surfaces {
-                                                if let Ok(primitives) = bincode::deserialize::<
-                                                    Vec<fission_3d::Primitive3D>,
+                                                let scene3d = bincode::deserialize::<
+                                                    fission_3d::Scene3DPayload,
                                                 >(
                                                     &surface.payload
-                                                ) {
-                                                    let scene3d = fission_3d::Scene3D {
-                                                        width: Some(surface.rect.size.width),
-                                                        height: Some(surface.rect.size.height),
-                                                        primitives,
-                                                    };
+                                                )
+                                                .ok()
+                                                .and_then(|payload| {
+                                                    payload.into_scene(
+                                                        surface.rect.size.width,
+                                                        surface.rect.size.height,
+                                                    )
+                                                })
+                                                .or_else(|| {
+                                                    // Compatibility for payloads produced by
+                                                    // Fission 0.14's primitive-only Scene3D.
+                                                    bincode::deserialize::<
+                                                        Vec<fission_3d::Primitive3D>,
+                                                    >(
+                                                        &surface.payload
+                                                    )
+                                                    .ok()
+                                                    .map(|primitives| {
+                                                        let mut scene = fission_3d::Scene3D::new()
+                                                            .width(surface.rect.size.width)
+                                                            .height(surface.rect.size.height);
+                                                        scene.primitives = primitives;
+                                                        scene
+                                                    })
+                                                });
+                                                if let Some(scene3d) = scene3d {
                                                     let scale = scale_factor as f32;
                                                     render_state.scene3d_renderer.render_in_rect(
                                                         &device_handle.device,
