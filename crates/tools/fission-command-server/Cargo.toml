@@ -16,4 +16,5 @@ readme = "README.md"
 
 [dependencies]
 anyhow = "1.0"
+serde_json = "1.0"
 toml = "0.8"

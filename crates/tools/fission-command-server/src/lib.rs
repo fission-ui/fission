@@ -1,4 +1,6 @@
 use anyhow::{bail, Context, Result};
+use serde_json::Value;
+use std::collections::BTreeSet;
 use std::net::TcpListener;
 use std::path::Path;
 use std::process::{Child, Command, Stdio};
@@ -59,10 +61,9 @@ fn ensure_server_address_available(host: &str, port: u16) -> Result<()> {
 
 pub fn artifacts(project_dir: &Path, release: bool, compile: bool) -> Result<()> {
     ensure_server_entry_configured(project_dir)?;
-    let package_name = package_name(project_dir)?;
-    let features = package_features(project_dir)?;
-    let mut args = vec!["--package-name", package_name.as_str()];
-    if features.iter().any(|feature| feature == "browser") {
+    let package = server_package(project_dir)?;
+    let mut args = vec!["--package-name", package.name.as_str()];
+    if package.features.contains("browser") {
         args.push("--package-no-default-features");
         args.push("--package-feature");
         args.push("browser");
@@ -91,31 +92,112 @@ fn ensure_server_entry_configured(project_dir: &Path) -> Result<()> {
     }
 }
 
-fn package_name(project_dir: &Path) -> Result<String> {
-    let path = project_dir.join("Cargo.toml");
-    let data = std::fs::read_to_string(&path)
-        .with_context(|| format!("failed to read {}", path.display()))?;
-    let value: toml::Value =
-        toml::from_str(&data).with_context(|| format!("failed to parse {}", path.display()))?;
-    value
-        .get("package")
-        .and_then(|package| package.get("name"))
-        .and_then(|name| name.as_str())
-        .map(ToString::to_string)
-        .ok_or_else(|| anyhow::anyhow!("{} is missing [package].name", path.display()))
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct ServerPackage {
+    name: String,
+    features: BTreeSet<String>,
 }
 
-fn package_features(project_dir: &Path) -> Result<Vec<String>> {
-    let path = project_dir.join("Cargo.toml");
+fn configured_server_package(project_dir: &Path) -> Result<Option<String>> {
+    let path = project_dir.join("fission.toml");
     let data = std::fs::read_to_string(&path)
         .with_context(|| format!("failed to read {}", path.display()))?;
     let value: toml::Value =
         toml::from_str(&data).with_context(|| format!("failed to parse {}", path.display()))?;
     Ok(value
+        .get("server")
+        .and_then(|server| server.get("package"))
+        .and_then(|package| package.as_str())
+        .map(ToString::to_string))
+}
+
+fn server_package(project_dir: &Path) -> Result<ServerPackage> {
+    let manifest_path = project_dir.join("Cargo.toml");
+    if !manifest_path.exists() {
+        bail!("{} is missing", manifest_path.display());
+    }
+    let manifest_path = manifest_path
+        .canonicalize()
+        .with_context(|| format!("failed to resolve {}", manifest_path.display()))?;
+    let output = Command::new("cargo")
+        .arg("metadata")
+        .arg("--no-deps")
+        .arg("--format-version")
+        .arg("1")
+        .arg("--manifest-path")
+        .arg(&manifest_path)
+        .current_dir(project_dir)
+        .output()
+        .context("failed to run cargo metadata for the server package")?;
+    if !output.status.success() {
+        bail!(
+            "cargo metadata failed for {}: {}",
+            manifest_path.display(),
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+    }
+    let metadata: Value = serde_json::from_slice(&output.stdout)
+        .context("failed to parse cargo metadata for the server package")?;
+    select_server_package(
+        &metadata,
+        &manifest_path,
+        configured_server_package(project_dir)?.as_deref(),
+    )
+}
+
+fn select_server_package(
+    metadata: &Value,
+    root_manifest_path: &Path,
+    configured_name: Option<&str>,
+) -> Result<ServerPackage> {
+    let workspace_members = metadata
+        .get("workspace_members")
+        .and_then(Value::as_array)
+        .context("cargo metadata omitted workspace_members")?;
+    let packages = metadata
+        .get("packages")
+        .and_then(Value::as_array)
+        .context("cargo metadata omitted packages")?;
+    let selected = packages.iter().find(|package| {
+        let is_workspace_member = package.get("id").is_some_and(|id| {
+            workspace_members
+                .iter()
+                .any(|workspace_id| workspace_id == id)
+        });
+        if !is_workspace_member {
+            return false;
+        }
+        if let Some(name) = configured_name {
+            package.get("name").and_then(Value::as_str) == Some(name)
+        } else {
+            package
+                .get("manifest_path")
+                .and_then(Value::as_str)
+                .is_some_and(|path| Path::new(path) == root_manifest_path)
+        }
+    });
+    let selected = match (selected, configured_name) {
+        (Some(package), _) => package,
+        (None, Some(name)) => bail!(
+            "[server].package `{name}` is not a package in the Cargo workspace rooted at {}",
+            root_manifest_path.display()
+        ),
+        (None, None) => bail!(
+            "{} is a virtual Cargo workspace; set [server].package to the server package name",
+            root_manifest_path.display()
+        ),
+    };
+    let name = selected
+        .get("name")
+        .and_then(Value::as_str)
+        .context("selected Cargo package is missing its name")?
+        .to_string();
+    let features = selected
         .get("features")
-        .and_then(|features| features.as_table())
+        .and_then(Value::as_object)
         .map(|features| features.keys().cloned().collect())
-        .unwrap_or_default())
+        .unwrap_or_default();
+    Ok(ServerPackage { name, features })
 }
 
 fn spawn_server_builder(
@@ -135,11 +217,14 @@ fn spawn_server_builder(
         .canonicalize()
         .with_context(|| format!("failed to resolve {}", manifest_path.display()))?;
     let mut command = Command::new("cargo");
+    let package = server_package(project_dir)?;
     command.current_dir(project_dir);
     command
         .arg("run")
         .arg("--manifest-path")
-        .arg(&manifest_path);
+        .arg(&manifest_path)
+        .arg("--package")
+        .arg(&package.name);
     if release {
         command.arg("--release");
     }
@@ -168,11 +253,14 @@ fn run_server_builder(
         .canonicalize()
         .with_context(|| format!("failed to resolve {}", manifest_path.display()))?;
     let mut command = Command::new("cargo");
+    let package = server_package(project_dir)?;
     command.current_dir(project_dir);
     command
         .arg("run")
         .arg("--manifest-path")
-        .arg(&manifest_path);
+        .arg(&manifest_path)
+        .arg("--package")
+        .arg(&package.name);
     if release {
         command.arg("--release");
     }
@@ -199,11 +287,14 @@ fn build_server_binary(project_dir: &Path, release: bool) -> Result<()> {
         .canonicalize()
         .with_context(|| format!("failed to resolve {}", manifest_path.display()))?;
     let mut command = Command::new("cargo");
+    let package = server_package(project_dir)?;
     command.current_dir(project_dir);
     command
         .arg("build")
         .arg("--manifest-path")
-        .arg(&manifest_path);
+        .arg(&manifest_path)
+        .arg("--package")
+        .arg(&package.name);
     if release {
         command.arg("--release");
     }
@@ -238,30 +329,52 @@ mod tests {
     }
 
     #[test]
-    fn reads_package_name_and_browser_feature_for_artifact_shims() {
-        let dir = temp_project("fission-server-config-package");
-        fs::write(
-            dir.join("Cargo.toml"),
-            r#"[package]
-name = "server-app"
-version = "0.1.0"
-edition = "2021"
+    fn selects_configured_virtual_workspace_package_and_its_features() {
+        let metadata = serde_json::json!({
+            "workspace_members": ["path+file:///workspace/apps/server#server-app@0.1.0"],
+            "packages": [
+                {
+                    "id": "path+file:///workspace/apps/server#server-app@0.1.0",
+                    "name": "server-app",
+                    "manifest_path": "/workspace/apps/server/Cargo.toml",
+                    "features": {"browser": [], "server": []}
+                },
+                {
+                    "id": "registry+https://example.invalid/dependency#1.0.0",
+                    "name": "dependency",
+                    "manifest_path": "/registry/dependency/Cargo.toml",
+                    "features": {}
+                }
+            ]
+        });
 
-[features]
-default = ["server"]
-server = []
-browser = []
-"#,
+        let package = select_server_package(
+            &metadata,
+            Path::new("/workspace/Cargo.toml"),
+            Some("server-app"),
         )
         .unwrap();
 
-        assert_eq!(package_name(&dir).unwrap(), "server-app");
-        assert!(package_features(&dir)
-            .unwrap()
-            .iter()
-            .any(|feature| feature == "browser"));
+        assert_eq!(package.name, "server-app");
+        assert!(package.features.contains("browser"));
+    }
 
-        let _ = fs::remove_dir_all(&dir);
+    #[test]
+    fn virtual_workspace_requires_explicit_server_package() {
+        let metadata = serde_json::json!({
+            "workspace_members": ["server-id"],
+            "packages": [{
+                "id": "server-id",
+                "name": "server-app",
+                "manifest_path": "/workspace/apps/server/Cargo.toml",
+                "features": {}
+            }]
+        });
+
+        let error =
+            select_server_package(&metadata, Path::new("/workspace/Cargo.toml"), None).unwrap_err();
+
+        assert!(error.to_string().contains("set [server].package"));
     }
 
     #[test]

@@ -2864,6 +2864,7 @@ name = "fission-command-server"
 version = "0.14.1"
 dependencies = [
  "anyhow",
+ "serde_json",
  "toml 0.8.2",
 ]
 
