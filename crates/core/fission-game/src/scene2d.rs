@@ -242,6 +242,7 @@ impl Scene2DCommand {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case", tag = "kind")]
 pub enum GameDiagnostic {
+    InvalidCameraBounds { bounds: Bounds2D },
     DuplicateNodeId { id: SceneNodeId },
     InvalidTransform { id: SceneNodeId, reason: String },
     InvalidSize { id: SceneNodeId, size: Size },
@@ -254,6 +255,9 @@ pub enum GameDiagnostic {
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Scene2DIR {
     pub tick: Tick,
+    /// Visible world-space region. Graphical adapters translate its minimum to
+    /// the top-left of the retained viewport after scene culling.
+    pub camera_bounds: Option<Bounds2D>,
     pub commands: Vec<Scene2DCommand>,
     pub diagnostics: Vec<GameDiagnostic>,
 }
@@ -393,6 +397,13 @@ impl Scene2D {
 
     pub fn finish(self, tick: Tick) -> Scene2DIR {
         let mut diagnostics = Vec::new();
+        let camera_bounds = self.camera_bounds.filter(|bounds| {
+            let valid = bounds.is_valid();
+            if !valid {
+                diagnostics.push(GameDiagnostic::InvalidCameraBounds { bounds: *bounds });
+            }
+            valid
+        });
         let mut seen = std::collections::BTreeSet::new();
         let mut declarations = Vec::new();
 
@@ -400,7 +411,7 @@ impl Scene2D {
             let Some(validated) = validate(declaration, &mut seen, &mut diagnostics) else {
                 continue;
             };
-            if self.camera_bounds.is_some_and(|camera| {
+            if camera_bounds.is_some_and(|camera| {
                 validated
                     .command
                     .bounds()
@@ -424,6 +435,7 @@ impl Scene2D {
 
         Scene2DIR {
             tick,
+            camera_bounds,
             commands: batch_adjacent_images(declarations),
             diagnostics,
         }
@@ -764,11 +776,45 @@ mod tests {
 
         let ir = scene.finish(Tick(4));
         assert!(ir.diagnostics.is_empty());
+        assert_eq!(
+            ir.camera_bounds,
+            Some(Bounds2D::from_top_left(
+                Place::new(Px(0.0), Px(0.0)),
+                Size::new(Px(100.0), Px(100.0)),
+            ))
+        );
         assert_eq!(ir.commands.len(), 1);
         assert!(matches!(
             &ir.commands[0],
             Scene2DCommand::ImageBatch { instances, .. } if instances.len() == 2
         ));
+    }
+
+    #[test]
+    fn invalid_camera_bounds_are_reported_without_culling_the_scene() {
+        let invalid = Bounds2D {
+            min: Place::new(Px(20.0), Px(0.0)),
+            max: Place::new(Px(10.0), Px(30.0)),
+        };
+        let mut scene = Scene2D::new();
+        scene.camera_bounds(invalid).rect(
+            node(1),
+            Bounds2D::from_top_left(
+                Place::new(Px(100.0), Px(100.0)),
+                Size::new(Px(10.0), Px(10.0)),
+            ),
+            Color::WHITE,
+            Layer(0),
+        );
+
+        let ir = scene.finish(Tick(0));
+
+        assert_eq!(ir.camera_bounds, None);
+        assert_eq!(ir.commands.len(), 1);
+        assert_eq!(
+            ir.diagnostics,
+            vec![GameDiagnostic::InvalidCameraBounds { bounds: invalid }]
+        );
     }
 
     #[test]

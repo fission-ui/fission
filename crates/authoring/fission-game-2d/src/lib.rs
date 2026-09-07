@@ -245,9 +245,14 @@ impl Scene2DView {
 
 impl From<Scene2DView> for Widget {
     fn from(view: Scene2DView) -> Self {
+        let camera_origin = view
+            .scene
+            .camera_bounds
+            .map(|bounds| bounds.min)
+            .unwrap_or_default();
         let mut children = Vec::new();
         for command in view.scene.commands {
-            append_command(&mut children, command, &view.interactions);
+            append_command(&mut children, command, camera_origin, &view.interactions);
         }
 
         Container::new(ZStack {
@@ -262,6 +267,7 @@ impl From<Scene2DView> for Widget {
 fn append_command(
     children: &mut Vec<Widget>,
     command: Scene2DCommand,
+    camera_origin: fission_game::Place,
     interactions: &BTreeMap<SceneNodeId, SceneObjectActions>,
 ) {
     match command {
@@ -283,6 +289,7 @@ fn append_command(
             opacity,
             ..
         } => {
+            let bounds = viewport_bounds(bounds, camera_origin);
             let visual: Widget = Container::default()
                 .bg(fill)
                 .size(bounds.width().0, bounds.height().0)
@@ -296,27 +303,31 @@ fn append_command(
         Scene2DCommand::DrawImage {
             id,
             image,
-            transform,
+            mut transform,
             size,
             opacity,
             ..
-        } => children.push(image_widget(
-            id,
-            image.request,
-            transform,
-            size,
-            opacity,
-            interactions,
-        )),
+        } => {
+            transform.translation = viewport_place(transform.translation, camera_origin);
+            children.push(image_widget(
+                id,
+                image.request,
+                transform,
+                size,
+                opacity,
+                interactions,
+            ));
+        }
         Scene2DCommand::DrawText {
             id,
             text,
-            transform,
+            mut transform,
             size,
             color,
             opacity,
             ..
         } => {
+            transform.translation = viewport_place(transform.translation, camera_origin);
             let visual: Widget = Text::new(text).size(size.0).color(color).into();
             let visual = transformed(with_opacity(visual, opacity), transform, Size::default());
             let bounds = Bounds2D::from_top_left(transform.translation, Size::default());
@@ -335,6 +346,7 @@ fn append_command(
             opacity,
             ..
         } => {
+            let bounds = viewport_bounds(bounds, camera_origin);
             let visual: Widget = ScenePathLayer::new(
                 &id,
                 path,
@@ -356,11 +368,12 @@ fn append_command(
         } => {
             for ImageInstance2D {
                 id,
-                transform,
+                mut transform,
                 size,
                 opacity,
             } in instances
             {
+                transform.translation = viewport_place(transform.translation, camera_origin);
                 children.push(image_widget(
                     id,
                     image.request.clone(),
@@ -371,6 +384,20 @@ fn append_command(
                 ));
             }
         }
+    }
+}
+
+fn viewport_place(
+    place: fission_game::Place,
+    camera_origin: fission_game::Place,
+) -> fission_game::Place {
+    fission_game::Place::new(place.x - camera_origin.x, place.y - camera_origin.y)
+}
+
+fn viewport_bounds(bounds: Bounds2D, camera_origin: fission_game::Place) -> Bounds2D {
+    Bounds2D {
+        min: viewport_place(bounds.min, camera_origin),
+        max: viewport_place(bounds.max, camera_origin),
     }
 }
 
@@ -599,6 +626,56 @@ mod tests {
         assert!((painted.y() - 17.0).abs() < 0.01, "{painted:?}");
         assert!((painted.width() - 31.0).abs() < 0.01, "{painted:?}");
         assert!((painted.height() - 23.0).abs() < 0.01, "{painted:?}");
+    }
+
+    #[test]
+    fn camera_origin_translates_world_coordinates_into_the_viewport() {
+        let expected_color = RenderColor {
+            r: 11,
+            g: 99,
+            b: 188,
+            a: 255,
+        };
+        let mut scene = fission_game::Scene2D::new();
+        scene.camera_bounds(Bounds2D::from_top_left(
+            Place::new(Px(100.0), Px(50.0)),
+            Size::new(Px(80.0), Px(60.0)),
+        ));
+        scene.rect(
+            SceneNodeId::from_key(&41_u32),
+            Bounds2D::from_top_left(
+                Place::new(Px(112.0), Px(57.0)),
+                Size::new(Px(20.0), Px(10.0)),
+            ),
+            Color {
+                r: expected_color.r,
+                g: expected_color.g,
+                b: expected_color.b,
+                a: expected_color.a,
+            },
+            Layer(1),
+        );
+        let view = Scene2DView::new(scene.finish(fission_game::Tick(0)), 80.0, 60.0);
+        let mut harness = TestHarness::new_with_mock_measurer(()).with_root_widget(view);
+
+        harness.pump().expect("camera-offset scene should render");
+
+        let painted = harness
+            .get_last_display_list()
+            .expect("rendered display list")
+            .ops
+            .into_iter()
+            .find_map(|op| match op {
+                DisplayOp::DrawRect {
+                    rect,
+                    fill: Some(Fill::Solid(color)),
+                    ..
+                } if color == expected_color => Some(rect),
+                _ => None,
+            })
+            .expect("camera-visible rectangle should reach the display list");
+        assert!((painted.x() - 12.0).abs() < 0.01, "{painted:?}");
+        assert!((painted.y() - 7.0).abs() < 0.01, "{painted:?}");
     }
 
     #[test]
