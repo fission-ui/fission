@@ -8,7 +8,7 @@
   "site.hero.body": "Build, test, package, and release production apps in Rust—from native windows and mobile devices to the web, terminal, and server.",
   "site.hero.start": "Start building →",
   "site.hero.crates": "Explore crates",
-  "crates.eyebrow": "Community registry",
-  "crates.title": "Crates for every surface.",
-  "crates.body": "Discover libraries built directly on Fission. The directory refreshes from crates.io every six hours."
+  "crates.eyebrow": "Crate atlas",
+  "crates.title": "Find what your Fission app needs next.",
+  "crates.body": "Discover widgets, platform capabilities, data services, jobs, and developer tools from the Fission team and community. Search the ecosystem here instead of reconstructing it from crates.io results."
 }
