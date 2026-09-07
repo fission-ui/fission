@@ -99,12 +99,49 @@ impl<M> InputBinding<'_, M> {
 }
 
 /// Deterministic fixed-step configuration for one game.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GameConfig {
     pub step: StepDuration,
     pub max_steps_per_frame: u32,
     pub max_messages_per_step: u32,
 }
+
+/// Versioned renderer-independent checkpoint for one game runtime.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct GameSnapshot<S, M> {
+    pub format_version: u16,
+    pub game: S,
+    pub pending_messages: Vec<M>,
+    pub clock: crate::FixedStepClockSnapshot,
+    pub config: GameConfig,
+    pub completed_tick: Option<Tick>,
+}
+
+impl<S, M> GameSnapshot<S, M> {
+    pub const FORMAT_VERSION: u16 = 1;
+}
+
+/// Invalid or incompatible game checkpoint.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GameSnapshotError {
+    message: String,
+}
+
+impl GameSnapshotError {
+    fn new(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+        }
+    }
+}
+
+impl std::fmt::Display for GameSnapshotError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&self.message)
+    }
+}
+
+impl std::error::Error for GameSnapshotError {}
 
 impl Default for GameConfig {
     fn default() -> Self {
@@ -288,6 +325,64 @@ impl<G: Game> GameRuntime<G> {
         self.pending.push_back(message);
     }
 
+    /// Captures authoritative game, input queue, and sub-step clock state.
+    pub fn snapshot(&self) -> GameSnapshot<G, G::Message> {
+        GameSnapshot {
+            format_version: GameSnapshot::<G, G::Message>::FORMAT_VERSION,
+            game: self.game.clone(),
+            pending_messages: self.pending.iter().cloned().collect(),
+            clock: self.clock.snapshot(),
+            config: self.config,
+            completed_tick: self.completed_tick,
+        }
+    }
+
+    /// Restores a runtime without depending on a renderer or wall clock.
+    pub fn from_snapshot(snapshot: GameSnapshot<G, G::Message>) -> Result<Self, GameSnapshotError> {
+        if snapshot.format_version != GameSnapshot::<G, G::Message>::FORMAT_VERSION {
+            return Err(GameSnapshotError::new(
+                "game snapshot format version is unsupported",
+            ));
+        }
+        if snapshot.config.step != snapshot.clock.step
+            || snapshot.config.max_steps_per_frame != snapshot.clock.max_steps_per_frame
+        {
+            return Err(GameSnapshotError::new(
+                "game snapshot clock does not match its runtime configuration",
+            ));
+        }
+        if snapshot.config.step.as_nanos() == 0
+            || snapshot.config.max_steps_per_frame == 0
+            || snapshot.config.max_messages_per_step == 0
+        {
+            return Err(GameSnapshotError::new(
+                "game snapshot runtime configuration is invalid",
+            ));
+        }
+        let completed_tick_matches_clock = match snapshot.completed_tick {
+            None => snapshot.clock.next_tick == Tick(0),
+            Some(completed) => completed.0.saturating_add(1) == snapshot.clock.next_tick.0,
+        };
+        if !completed_tick_matches_clock {
+            return Err(GameSnapshotError::new(
+                "game snapshot completed tick does not match its clock",
+            ));
+        }
+        let config = snapshot.config;
+        let clock = FixedStepClock::from_snapshot(snapshot.clock)
+            .ok_or_else(|| GameSnapshotError::new("game snapshot clock is invalid"))?;
+        let mut input = InputMap::new();
+        G::input(&mut input);
+        Ok(Self {
+            game: snapshot.game,
+            input,
+            pending: snapshot.pending_messages.into_iter().collect(),
+            clock,
+            config,
+            completed_tick: snapshot.completed_tick,
+        })
+    }
+
     pub fn advance(&mut self, elapsed: Duration) -> GameFrame {
         let steps = self.clock.advance(elapsed);
         let mut diagnostics = Vec::new();
@@ -392,7 +487,7 @@ mod tests {
     use super::*;
     use crate::{Bounds2D, Layer, Place, Px, Size};
 
-    #[derive(Clone, Debug, Default, PartialEq, Eq)]
+    #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
     struct CounterGame {
         value: i32,
         steps: Vec<Tick>,
@@ -400,7 +495,7 @@ mod tests {
 
     impl GameState for CounterGame {}
 
-    #[derive(Clone, Debug, PartialEq, Eq)]
+    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
     enum Message {
         Add(i32),
         AddAgain,
@@ -483,5 +578,51 @@ mod tests {
         assert_eq!(game.state().value, 5);
         game.step();
         assert_eq!(game.state().value, 7);
+    }
+
+    #[test]
+    fn serialized_snapshot_restores_pending_input_and_sub_step_time() {
+        let config = GameConfig {
+            step: StepDuration::from_hz(20),
+            max_steps_per_frame: 4,
+            max_messages_per_step: 8,
+        };
+        let mut original = GameRuntime::with_config(CounterGame::default(), config);
+        original.handle_input(HostInputEvent::Trigger(InputTrigger::KeyPressed(
+            GameKey::Space,
+        )));
+        original.advance(Duration::from_millis(60));
+        original.handle_input(HostInputEvent::Trigger(InputTrigger::Tap(
+            SceneNodeId::from_key(&7_u32),
+        )));
+
+        let encoded = serde_json::to_string(&original.snapshot()).unwrap();
+        let decoded = serde_json::from_str(&encoded).unwrap();
+        let mut restored = GameRuntime::<CounterGame>::from_snapshot(decoded).unwrap();
+
+        let original_frame = original.advance(Duration::from_millis(40));
+        let restored_frame = restored.advance(Duration::from_millis(40));
+        assert_eq!(restored.state(), original.state());
+        assert_eq!(restored_frame, original_frame);
+        assert_eq!(restored.state().value, 11);
+        assert_eq!(restored.state().steps, vec![Tick(0), Tick(1)]);
+    }
+
+    #[test]
+    fn snapshot_restore_rejects_incompatible_or_incoherent_state() {
+        let runtime = GameRuntime::new(CounterGame::default());
+
+        let mut unsupported = runtime.snapshot();
+        unsupported.format_version += 1;
+        assert!(GameRuntime::<CounterGame>::from_snapshot(unsupported).is_err());
+
+        let mut incoherent = runtime.snapshot();
+        incoherent.completed_tick = Some(Tick(7));
+        assert!(GameRuntime::<CounterGame>::from_snapshot(incoherent).is_err());
+
+        let mut invalid_accumulator = runtime.snapshot();
+        invalid_accumulator.clock.accumulator_nanos =
+            u128::from(invalid_accumulator.clock.step.as_nanos());
+        assert!(GameRuntime::<CounterGame>::from_snapshot(invalid_accumulator).is_err());
     }
 }
