@@ -1,4 +1,5 @@
 use anyhow::{bail, Context, Result};
+use fission_command_process::run_status;
 use std::ffi::OsStr;
 use std::fs;
 use std::io::{self, BufRead, Write};
@@ -210,16 +211,6 @@ fn run_site_builder(
         }
     }
     run_status(&mut command, "site builder")
-}
-
-fn run_status(command: &mut Command, label: &str) -> Result<()> {
-    let status = command
-        .status()
-        .with_context(|| format!("failed to run {label}"))?;
-    if !status.success() {
-        bail!("{label} failed with {status}");
-    }
-    Ok(())
 }
 
 fn handle_http_request(mut stream: TcpStream, root: &Path, spa_fallback: bool) -> Result<()> {

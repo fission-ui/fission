@@ -32,6 +32,7 @@ members = [
     "crates/tools/cargo-fission",
     "crates/tools/fission-command-package",
     "crates/tools/fission-command-release",
+    "crates/tools/fission-command-process",
     "crates/tools/fission-command-run",
     "crates/tools/fission-command-core",
     "crates/tools/fission-command-site",

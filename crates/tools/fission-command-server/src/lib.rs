@@ -1,9 +1,10 @@
 use anyhow::{bail, Context, Result};
+use fission_command_process::{run_status, SupervisedChild};
 use serde_json::Value;
 use std::collections::BTreeSet;
 use std::net::TcpListener;
 use std::path::Path;
-use std::process::{Child, Command, Stdio};
+use std::process::{Command, Stdio};
 
 pub fn check(project_dir: &Path, release: bool) -> Result<()> {
     ensure_server_entry_configured(project_dir)?;
@@ -22,7 +23,12 @@ pub fn routes(project_dir: &Path) -> Result<()> {
     run_server_builder(project_dir, false, "routes", &[])
 }
 
-pub fn spawn_serve(project_dir: &Path, release: bool, host: String, port: u16) -> Result<Child> {
+pub fn spawn_serve(
+    project_dir: &Path,
+    release: bool,
+    host: String,
+    port: u16,
+) -> Result<SupervisedChild> {
     ensure_server_entry_configured(project_dir)?;
     ensure_server_address_available(&host, port)?;
     artifacts(project_dir, release, true).context("failed to build server browser artifacts")?;
@@ -205,7 +211,7 @@ fn spawn_server_builder(
     release: bool,
     command_name: &str,
     extra_args: &[&str],
-) -> Result<Child> {
+) -> Result<SupervisedChild> {
     let manifest_path = project_dir.join("Cargo.toml");
     if !manifest_path.exists() {
         bail!(
@@ -233,7 +239,7 @@ fn spawn_server_builder(
         command.arg(arg);
     }
     command.stdout(Stdio::null()).stderr(Stdio::null());
-    command.spawn().context("failed to spawn server app")
+    SupervisedChild::spawn(&mut command).context("failed to spawn server app")
 }
 
 fn run_server_builder(
@@ -268,11 +274,7 @@ fn run_server_builder(
     for arg in extra_args {
         command.arg(arg);
     }
-    let status = command.status().context("failed to run server app")?;
-    if !status.success() {
-        bail!("server app failed with {status}");
-    }
-    Ok(())
+    run_status(&mut command, "server app")
 }
 
 fn build_server_binary(project_dir: &Path, release: bool) -> Result<()> {
@@ -298,11 +300,7 @@ fn build_server_binary(project_dir: &Path, release: bool) -> Result<()> {
     if release {
         command.arg("--release");
     }
-    let status = command.status().context("failed to build server app")?;
-    if !status.success() {
-        bail!("server app build failed with {status}");
-    }
-    Ok(())
+    run_status(&mut command, "server app build")
 }
 
 #[cfg(test)]

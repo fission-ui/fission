@@ -11,6 +11,7 @@ use fission_command_core::{
     test_macos_native_modules, test_windows_native_modules, variant_output_path, FissionProject,
     MacosNativeBundleMode, MacosPackageConfig, NativeVariant, PlatformCapability, Target,
 };
+use fission_command_process::run_status;
 use serde::{Deserialize, Serialize};
 use std::collections::hash_map::DefaultHasher;
 use std::env;
@@ -19,7 +20,7 @@ use std::hash::{Hash, Hasher};
 use std::io::{self, IsTerminal, Read, Seek, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
 #[derive(Clone, Debug, Serialize)]
@@ -431,12 +432,8 @@ fn browser_test_site(project_dir: &Path) -> Result<()> {
 
 fn browser_test_server(project_dir: &Path) -> Result<()> {
     let port = free_local_port()?;
-    let mut child = ServerChild::new(fission_command_server::spawn_serve(
-        project_dir,
-        false,
-        "127.0.0.1".to_string(),
-        port,
-    )?);
+    let mut child =
+        fission_command_server::spawn_serve(project_dir, false, "127.0.0.1".to_string(), port)?;
     let url = format!("http://127.0.0.1:{port}/");
     wait_for_http(&url, Duration::from_secs(60))?;
     let report = fission_test_driver::run_browser_smoke(
@@ -446,31 +443,8 @@ fn browser_test_server(project_dir: &Path) -> Result<()> {
         "SSR browser smoke passed: title=\"{}\" body_text_len={}",
         report.title, report.body_text_len
     );
-    child.kill();
+    child.terminate()?;
     Ok(())
-}
-
-struct ServerChild {
-    child: Option<Child>,
-}
-
-impl ServerChild {
-    fn new(child: Child) -> Self {
-        Self { child: Some(child) }
-    }
-
-    fn kill(&mut self) {
-        if let Some(mut child) = self.child.take() {
-            let _ = child.kill();
-            let _ = child.wait();
-        }
-    }
-}
-
-impl Drop for ServerChild {
-    fn drop(&mut self) {
-        self.kill();
-    }
 }
 
 struct StaticTestServer {
@@ -1891,16 +1865,6 @@ where
     command.current_dir(project_dir);
     configure(&mut command);
     run_status(&mut command, relative_script)
-}
-
-fn run_status(command: &mut Command, label: &str) -> Result<()> {
-    let status = command
-        .status()
-        .with_context(|| format!("failed to run {label}"))?;
-    if !status.success() {
-        bail!("{label} failed with {status}");
-    }
-    Ok(())
 }
 
 fn command_for_script(script: &Path) -> Result<Command> {

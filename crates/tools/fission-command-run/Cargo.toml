@@ -17,6 +17,7 @@ readme = "README.md"
 [dependencies]
 anyhow = "1.0"
 fission-command-core = { path = "../fission-command-core", version = "0.14.1" }
+fission-command-process = { path = "../fission-command-process", version = "0.14.1" }
 fission-command-server = { path = "../fission-command-server", version = "0.14.1" }
 fission-command-site = { path = "../fission-command-site", version = "0.14.1" }
 fission-test-driver = { path = "../fission-test-driver", version = "0.14.1" }
