@@ -195,7 +195,7 @@ pub mod internal {
 
     pub use crate::ui::custom_render::{
         downcast_render_object, CustomEventResult, CustomHitResult, CustomRender,
-        CustomRenderObject,
+        CustomRenderObject, RenderObjectHolder,
     };
     pub use crate::ui::node::{CustomWidget, InternalRenderNode};
     pub use crate::ui::traits::{InternalLower, InternalLowerer};
