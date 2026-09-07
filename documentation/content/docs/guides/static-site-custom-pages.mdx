@@ -70,15 +70,98 @@ fn main() -> Result<()> {
 
 The title and description are route metadata. They become part of the generated document metadata and search index.
 
-## 3. Share header, footer, and themes
+## 3. Override content-page chrome
 
-A serious site normally has a shared header and footer. Put those in reusable widgets or configure them through the site app. Use the design system and theme rather than hard-coded colors when possible, then use `css_files` only for site-specific overrides.
+The static-site shell owns a deliberately plain documentation layout. Keep product branding, navigation, and editorial choices in your site app, just as you would for any other Fission application.
+
+Use `content_header_widget` to replace the default header on every content-backed route. The factory receives a `SiteRenderContext`, so it can select a different retained component for a route family without placing product-specific conditions in the shell.
+
+```rust
+#[derive(Clone)]
+struct DocsHeader;
+
+#[derive(Clone)]
+struct JournalHeader;
+
+fn site_app() -> FissionSite {
+    FissionSite::new()
+        .content_header_widget::<SiteState, _, _>(|ctx| {
+            let header: Widget = if ctx.route_path.starts_with("/journal/") {
+                JournalHeader.into()
+            } else {
+                DocsHeader.into()
+            };
+            header
+        })
+        .footer_widget::<SiteState, _>(SiteFooter)
+}
+```
+
+Programmatic routes registered with `route_widget` own their complete page layout, including their header. The content header override only applies to Markdown or MDX content routes. A footer registered with `footer_widget` is shared by both kinds of route.
+
+Keep each substantial region in its own widget file. This gives custom sites normal retained-widget identity and composition instead of turning page chrome into a string template.
+
+## 4. Override layout and CSS
+
+Add project CSS through `css_files`. Files are resolved relative to the project directory and emitted after the shell's base and generated widget CSS, so ordinary cascade rules can replace the generic presentation.
 
 ```toml
 [site]
-css_files = ["site/overrides.css"]
 asset_dirs = ["static"]
+css_files = ["site/tokens.css", "site/overrides.css"]
 ```
+
+Use semantic identifiers on the retained regions your stylesheet owns:
+
+```rust
+Column {
+    children: vec![page_content],
+    semantics: Some(Semantics {
+        identifier: Some("product-doc-layout".into()),
+        ..Semantics::default()
+    }),
+    ..Default::default()
+}
+.into()
+```
+
+```css
+[data-fission-semantics="product-doc-layout"] {
+  width: min(100% - 3rem, 82rem);
+  margin-inline: auto;
+}
+```
+
+Prefer these stable identifiers over selectors that depend on generated nesting. Use a custom design system for colours, typography, spacing, and component defaults; reserve project CSS for editorial layout, responsive composition, and visuals specific to the site.
+
+For a completely designed landing page, register the full retained page with `route_widget`. For articles that should keep the shell's main/sidebar/table-of-contents behavior, use content routes and replace only the header, footer, theme, and CSS.
+
+## 5. Add route-scoped document enhancements
+
+Static pages should remain useful without JavaScript. When progressive enhancement is appropriate, declare an element in `fission.toml` and constrain it to the routes that need it:
+
+```toml
+[[site.elements]]
+placement = "body-end"
+file = "site/docs-enhancement.html"
+route_prefixes = ["/docs/", "/reference/"]
+```
+
+The referenced file may contain a small script or document fragment. Keep brand-specific analytics, navigation behavior, or article tools here rather than adding them to the generic shell. Use `head-start`, `head-end`, `body-start`, or `body-end` for `placement`.
+
+## 6. Select content templates explicitly
+
+The documentation template is the default article layout. The blog template adds post ordering, featured and paginated indexes, adjacent-post navigation, and category/tag routes. It is opt-in and works at the mount path you configure:
+
+```toml
+[[site.routes]]
+kind = "content"
+path = "/journal"
+source = "content/journal"
+template = "fission::site::blog"
+```
+
+Use `fission::site::documentation` when you want to record the default content-page intent explicitly.
 
 ## What you should have working
 
@@ -94,9 +177,7 @@ After this guide, you should be able to explain where `Static site custom pages`
 | The page works on one target but not another | Run `fission doctor`, then inspect target-specific configuration and feature flags. |
 | Tests are hard to write | Split the product rule into a reducer test first, then add a UI or shell smoke test for the integration. |
 
-Generated CSS is written before user CSS. That means your override file can fine-tune spacing, responsive behavior, or product-specific visuals without replacing the static renderer.
-
-## 4. Keep the page static by default
+## 7. Keep the page static by default
 
 A custom static page should be useful before JavaScript loads. Theme switching, sidebar expansion, search, code highlighting, and small document-level scripts are fine. Continuous runtime state, device APIs, and app-like flows belong in a Fission web app, a server route, or a focused island.
 
@@ -110,7 +191,7 @@ Use this rule while designing pages:
 | Cart drawer with local state | Maybe | WASM island inside a server page |
 | Live editor or canvas-heavy UI | No | Web target |
 
-## 5. Verify the output
+## 8. Verify the output
 
 Run the full site check before publishing.
 

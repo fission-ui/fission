@@ -13,6 +13,7 @@ mod value_home;
 pub(crate) use crates::{CrateDetailPage, CrateDirectoryPage};
 pub(crate) use footer::DocsFooter;
 pub(crate) use home::RoutedHomePage;
+pub(crate) use home_nav::ContentPageNav;
 pub(crate) use localized::LocalizedLandingPage;
 pub(crate) use marketing::{MarketingPageKind, ProductMarketingPage};
 pub(crate) use state::DocsState;

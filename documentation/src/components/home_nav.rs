@@ -1,5 +1,5 @@
 use super::brand_logo::BrandLogo;
-use super::home_widgets::{nav_inset, Cta, ThemeToggle};
+use super::home_widgets::{nav_inset, Cta, SearchPill, ThemeToggle};
 use super::state::DocsState;
 use fission::op::{AlignItems, Fill, FlexWrap, JustifyContent};
 use fission::prelude::*;
@@ -82,6 +82,111 @@ const MOBILE_NAV_ITEMS: &[NavItem] = &[NavItem {
     href: "/",
     children: MOBILE_MENU_CHILDREN,
 }];
+
+const DOCS_NAV_ITEMS: &[NavItem] = &[
+    NavItem {
+        label: "Docs",
+        href: "/docs/",
+        children: &[],
+    },
+    NavItem {
+        label: "Reference",
+        href: "/reference/overview/overview/",
+        children: &[],
+    },
+    NavItem {
+        label: "Crates",
+        href: "/crates/",
+        children: &[],
+    },
+    NavItem {
+        label: "Blog",
+        href: "/blog/",
+        children: &[],
+    },
+];
+
+#[derive(Clone, Debug)]
+pub(crate) struct ContentPageNav {
+    blog: bool,
+}
+
+impl ContentPageNav {
+    pub(crate) fn for_route(route: &str) -> Self {
+        Self {
+            blog: route.starts_with("/blog/"),
+        }
+    }
+}
+
+impl From<ContentPageNav> for Widget {
+    fn from(nav: ContentPageNav) -> Self {
+        if nav.blog {
+            return HomePageNav.into();
+        }
+
+        let (_ctx, view) = fission::build::current::<DocsState>();
+        let tokens = &view.env().theme.tokens;
+        let nav_items = DOCS_NAV_ITEMS
+            .iter()
+            .enumerate()
+            .map(|(index, item)| {
+                HomeNavItem {
+                    item: *item,
+                    depth: 0,
+                    index,
+                }
+                .into()
+            })
+            .collect();
+        Container::new(Row {
+            children: vec![
+                BrandLogo::new(tokens.spacing.l).into(),
+                Row {
+                    children: nav_items,
+                    gap: Some(tokens.spacing.l),
+                    align_items: AlignItems::Center,
+                    justify_content: JustifyContent::Center,
+                    semantics: Some(super::home_widgets::site_semantics("site-doc-nav")),
+                    ..Default::default()
+                }
+                .into(),
+                Row {
+                    children: vec![SearchPill.into(), ThemeToggle.into()],
+                    gap: Some(tokens.spacing.m),
+                    align_items: AlignItems::Center,
+                    justify_content: JustifyContent::End,
+                    semantics: Some(super::home_widgets::site_semantics("site-doc-actions")),
+                    ..Default::default()
+                }
+                .into(),
+                Column {
+                    children: vec![Icon::svg(material::navigation::menu::regular())
+                        .size(tokens.spacing.l)
+                        .color(tokens.colors.text_primary)
+                        .into()],
+                    semantics: Some(super::home_widgets::site_semantics("site-sidebar-toggle")),
+                    ..Default::default()
+                }
+                .into(),
+            ],
+            align_items: AlignItems::Center,
+            justify_content: JustifyContent::SpaceBetween,
+            wrap: FlexWrap::NoWrap,
+            semantics: Some(super::home_widgets::site_semantics("site-doc-header")),
+            ..Default::default()
+        })
+        .padding([
+            nav_inset(tokens),
+            nav_inset(tokens),
+            tokens.spacing.m,
+            tokens.spacing.m,
+        ])
+        .bg_fill(Fill::Solid(tokens.colors.surface.with_alpha(232)))
+        .border(tokens.colors.border, 1.0)
+        .into()
+    }
+}
 
 #[derive(Clone, Debug)]
 pub(super) struct HomePageNav;

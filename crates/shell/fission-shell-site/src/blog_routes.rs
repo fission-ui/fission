@@ -9,16 +9,16 @@ pub(crate) fn add_generated_blog_routes(
     routes: &mut Vec<ContentRoute>,
 ) -> Result<()> {
     for config in &options.content_routes {
-        let prefix = normalize_site_path(&config.path);
-        if prefix != "/blog/" {
+        if config.template.as_deref() != Some("fission::site::blog") {
             continue;
         }
+        let prefix = normalize_site_path(&config.path);
         let posts = routes
             .iter()
             .filter(|route| {
                 route.path.starts_with(&prefix)
                     && route.path != prefix
-                    && !is_blog_taxonomy_path(&route.path)
+                    && !is_blog_taxonomy_path(&route.path, &prefix)
             })
             .cloned()
             .collect::<Vec<_>>();
@@ -26,9 +26,9 @@ pub(crate) fn add_generated_blog_routes(
             continue;
         }
         let sidebar = load_sidebar(config.sidebar.as_deref())?;
-        add_blog_index(routes, &posts, &sidebar, &prefix);
-        add_blog_pages(routes, &posts, &sidebar, &prefix);
-        add_blog_taxonomy_routes(routes, &posts, &sidebar);
+        add_blog_index(routes, &posts, &sidebar, &prefix, &options.site_title);
+        add_blog_pages(routes, &posts, &sidebar, &prefix, &options.site_title);
+        add_blog_taxonomy_routes(routes, &posts, &sidebar, &prefix);
     }
     Ok(())
 }
@@ -38,6 +38,7 @@ fn add_blog_index(
     posts: &[ContentRoute],
     sidebar: &[SidebarLink],
     prefix: &str,
+    site_title: &str,
 ) {
     if routes.iter().any(|route| route.path == prefix) {
         return;
@@ -45,10 +46,10 @@ fn add_blog_index(
     let body = blog_landing_markdown(posts);
     routes.push(ContentRoute {
         path: prefix.to_string(),
+        mount_path: prefix.to_string(),
+        template: Some("fission::site::blog".to_string()),
         title: "Blog".to_string(),
-        description: Some(
-            "Technical posts, release notes, and product updates from Fission.".to_string(),
-        ),
+        description: Some(format!("Posts and updates from {site_title}.")),
         locale: None,
         headings: extract_page_links(&body),
         sidebar: sidebar.to_vec(),
@@ -66,6 +67,7 @@ fn add_blog_pages(
     posts: &[ContentRoute],
     sidebar: &[SidebarLink],
     prefix: &str,
+    site_title: &str,
 ) {
     for page in 2..=posts.len().div_ceil(BLOG_PAGE_SIZE) {
         let path = format!("{prefix}page/{page}/");
@@ -75,10 +77,10 @@ fn add_blog_pages(
         let body = blog_landing_markdown(posts);
         routes.push(ContentRoute {
             path,
+            mount_path: prefix.to_string(),
+            template: Some("fission::site::blog".to_string()),
             title: format!("Blog — page {page}"),
-            description: Some(format!(
-                "Technical posts, release notes, and product updates from Fission, page {page}."
-            )),
+            description: Some(format!("Posts and updates from {site_title}, page {page}.")),
             locale: None,
             headings: extract_page_links(&body),
             sidebar: sidebar.to_vec(),
@@ -96,15 +98,18 @@ fn add_blog_taxonomy_routes(
     routes: &mut Vec<ContentRoute>,
     posts: &[ContentRoute],
     sidebar: &[SidebarLink],
+    prefix: &str,
 ) {
     for category in unique_taxonomy_values(posts, BlogTaxonomyKind::Category) {
-        let path = blog_taxonomy_route(BlogTaxonomyKind::Category, &category);
+        let path = blog_taxonomy_route(prefix, BlogTaxonomyKind::Category, &category);
         if routes.iter().any(|route| route.path == path) {
             continue;
         }
         let body = format!("# {category}\n\nPosts filed under the {category} category.\n");
         routes.push(ContentRoute {
             path,
+            mount_path: prefix.to_string(),
+            template: Some("fission::site::blog".to_string()),
             title: format!("{category} posts"),
             description: Some(format!("Posts filed under the {category} category.")),
             locale: None,
@@ -123,13 +128,15 @@ fn add_blog_taxonomy_routes(
     }
 
     for tag in unique_taxonomy_values(posts, BlogTaxonomyKind::Tag) {
-        let path = blog_taxonomy_route(BlogTaxonomyKind::Tag, &tag);
+        let path = blog_taxonomy_route(prefix, BlogTaxonomyKind::Tag, &tag);
         if routes.iter().any(|route| route.path == path) {
             continue;
         }
         let body = format!("# #{tag}\n\nPosts tagged #{tag}.\n");
         routes.push(ContentRoute {
             path,
+            mount_path: prefix.to_string(),
+            template: Some("fission::site::blog".to_string()),
             title: format!("#{tag} posts"),
             description: Some(format!("Posts tagged #{tag}.")),
             locale: None,
@@ -165,12 +172,12 @@ fn unique_taxonomy_values(posts: &[ContentRoute], kind: BlogTaxonomyKind) -> Vec
     values
 }
 
-fn blog_taxonomy_route(kind: BlogTaxonomyKind, value: &str) -> String {
+fn blog_taxonomy_route(prefix: &str, kind: BlogTaxonomyKind, value: &str) -> String {
     let segment = match kind {
         BlogTaxonomyKind::Category => "categories",
         BlogTaxonomyKind::Tag => "tags",
     };
-    normalize_site_path(&format!("/blog/{segment}/{}", taxonomy_slug(value)))
+    normalize_site_path(&format!("{prefix}{segment}/{}", taxonomy_slug(value)))
 }
 
 fn taxonomy_slug(value: &str) -> String {
@@ -193,8 +200,8 @@ fn taxonomy_slug(value: &str) -> String {
     }
 }
 
-fn is_blog_taxonomy_path(path: &str) -> bool {
-    path.starts_with("/blog/categories/") || path.starts_with("/blog/tags/")
+fn is_blog_taxonomy_path(path: &str, prefix: &str) -> bool {
+    path.starts_with(&format!("{prefix}categories/")) || path.starts_with(&format!("{prefix}tags/"))
 }
 
 fn blog_landing_markdown(posts: &[ContentRoute]) -> String {
@@ -225,9 +232,7 @@ fn blog_landing_markdown(posts: &[ContentRoute]) -> String {
     categories.sort();
     categories.dedup();
 
-    let mut body = String::from(
-        "# Blog\n\nTechnical posts, release notes, and product updates from the Fission team.\n\n",
-    );
+    let mut body = String::from("# Latest posts\n\n");
     if !categories.is_empty() {
         body.push_str("## Categories\n\n");
         body.push_str(&categories.join(", "));
@@ -257,5 +262,13 @@ mod tests {
     fn taxonomy_slugs_are_stable() {
         assert_eq!(taxonomy_slug("Release notes"), "release-notes");
         assert_eq!(taxonomy_slug("  "), "untitled");
+    }
+
+    #[test]
+    fn taxonomy_routes_follow_the_configured_blog_mount() {
+        assert_eq!(
+            blog_taxonomy_route("/journal/", BlogTaxonomyKind::Tag, "Release notes"),
+            "/journal/tags/release-notes/"
+        );
     }
 }

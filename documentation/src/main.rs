@@ -4,8 +4,8 @@ mod registry;
 
 use anyhow::Result;
 use components::{
-    CrateDetailPage, CrateDirectoryPage, DocsFooter, DocsState, LocalizedLandingPage,
-    MarketingPageKind, ProductMarketingPage, RoutedHomePage,
+    ContentPageNav, CrateDetailPage, CrateDirectoryPage, DocsFooter, DocsState,
+    LocalizedLandingPage, MarketingPageKind, ProductMarketingPage, RoutedHomePage,
 };
 use fission::prelude::*;
 use fission::site::{build_from_cli, FissionSite};
@@ -115,6 +115,9 @@ fn site_app() -> FissionSite {
             CrateDirectoryPage::new(registry.clone()),
         )
         .footer_widget::<DocsState, _>(DocsFooter)
+        .content_header_widget::<DocsState, _, _>(|ctx| {
+            ContentPageNav::for_route(ctx.route_path)
+        })
         .content_transform(charts::expand_documentation_mdx);
     for item in registry {
         let path = format!("/crates/{}/", item.name);
