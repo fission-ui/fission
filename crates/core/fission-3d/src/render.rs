@@ -8,7 +8,12 @@ use wgpu::{
     TextureViewDescriptor, VertexState,
 };
 
-use crate::{Camera3D, CameraProjection3D, Primitive3D, ResolvedNode3D, Scene3D, SceneLighting3D};
+use std::collections::BTreeMap;
+
+use crate::{
+    Camera3D, CameraProjection3D, Material3D, Node3DId, Primitive3D, ResolvedNode3D, Scene3D,
+    SceneLighting3D,
+};
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Pod, Zeroable)]
@@ -16,6 +21,7 @@ pub struct Vertex {
     position: [f32; 3],
     normal: [f32; 3],
     color: [f32; 4],
+    material: [f32; 4],
 }
 
 impl Vertex {
@@ -37,6 +43,11 @@ impl Vertex {
                 wgpu::VertexAttribute {
                     offset: std::mem::size_of::<[f32; 6]>() as wgpu::BufferAddress,
                     shader_location: 2,
+                    format: wgpu::VertexFormat::Float32x4,
+                },
+                wgpu::VertexAttribute {
+                    offset: std::mem::size_of::<[f32; 10]>() as wgpu::BufferAddress,
+                    shader_location: 3,
                     format: wgpu::VertexFormat::Float32x4,
                 },
             ],
@@ -102,6 +113,7 @@ struct ResidentSceneMesh {
 struct ResidentSceneSource {
     primitives: Vec<Primitive3D>,
     nodes: Vec<ResolvedNode3D>,
+    materials: BTreeMap<Node3DId, Material3D>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -348,14 +360,20 @@ impl Scene3DRenderer {
 
     fn ensure_scene_mesh(&mut self, device: &Device, scene: &Scene3D) {
         let nodes = scene.render_nodes();
-        if resident_mesh_matches(self.resident_source.as_ref(), &scene.primitives, &nodes) {
+        if resident_mesh_matches(
+            self.resident_source.as_ref(),
+            &scene.primitives,
+            &nodes,
+            &scene.materials,
+        ) {
             return;
         }
 
-        self.resident_mesh = build_scene_mesh(device, &scene.primitives, &nodes);
+        self.resident_mesh = build_scene_mesh(device, &scene.primitives, &nodes, &scene.materials);
         self.resident_source = Some(ResidentSceneSource {
             primitives: scene.primitives.clone(),
             nodes: nodes.into_owned(),
+            materials: scene.materials.clone(),
         });
     }
 }
@@ -364,19 +382,29 @@ fn resident_mesh_matches(
     cached: Option<&ResidentSceneSource>,
     primitives: &[Primitive3D],
     nodes: &[ResolvedNode3D],
+    materials: &BTreeMap<Node3DId, Material3D>,
 ) -> bool {
-    cached.is_some_and(|cached| cached.primitives == primitives && cached.nodes == nodes)
+    cached.is_some_and(|cached| {
+        cached.primitives == primitives && cached.nodes == nodes && cached.materials == *materials
+    })
 }
 
 fn build_scene_geometry(
     primitives: &[Primitive3D],
     nodes: &[ResolvedNode3D],
+    materials: &BTreeMap<Node3DId, Material3D>,
 ) -> (Vec<Vertex>, Vec<u32>) {
     let mut vertices: Vec<Vertex> = Vec::new();
     let mut indices: Vec<u32> = Vec::new();
 
     for prim in primitives {
-        push_primitive(&mut vertices, &mut indices, prim, glam::Mat4::IDENTITY);
+        push_primitive(
+            &mut vertices,
+            &mut indices,
+            prim,
+            glam::Mat4::IDENTITY,
+            Material3D::default(),
+        );
     }
     for node in nodes.iter().filter(|node| node.visible) {
         if let Some(primitive) = &node.primitive {
@@ -385,6 +413,7 @@ fn build_scene_geometry(
                 &mut indices,
                 primitive,
                 glam::Mat4::from_cols_array(&node.world_transform),
+                materials.get(&node.id).copied().unwrap_or_default(),
             );
         }
     }
@@ -397,6 +426,7 @@ fn push_primitive(
     indices: &mut Vec<u32>,
     primitive: &Primitive3D,
     transform: glam::Mat4,
+    material: Material3D,
 ) {
     let first_vertex = vertices.len();
     match primitive {
@@ -417,7 +447,7 @@ fn push_primitive(
                 [x + hs, y + hs, z + hs],
                 [x - hs, y + hs, z + hs],
             ];
-            push_cube(&mut vertices, &mut indices, p, color);
+            push_cube(&mut vertices, &mut indices, p, color, material);
         }
         Primitive3D::Sphere {
             center,
@@ -426,11 +456,12 @@ fn push_primitive(
         } => {
             let base_idx = vertices.len() as u32;
             let c = [
-                color.r as f32 / 255.0,
-                color.g as f32 / 255.0,
-                color.b as f32 / 255.0,
-                color.a as f32 / 255.0,
+                channel_product(color.r, material.tint.r),
+                channel_product(color.g, material.tint.g),
+                channel_product(color.b, material.tint.b),
+                channel_product(color.a, material.tint.a),
             ];
+            let surface = material_attributes(material);
             let segments = 16;
             let rings = 16;
 
@@ -455,6 +486,7 @@ fn push_primitive(
                         )
                         .to_array(),
                         color: c,
+                        material: surface,
                     });
                 }
             }
@@ -488,11 +520,12 @@ fn push_primitive(
             }
             let base_idx = vertices.len() as u32;
             let c = [
-                color.r as f32 / 255.0,
-                color.g as f32 / 255.0,
-                color.b as f32 / 255.0,
-                color.a as f32 / 255.0,
+                channel_product(color.r, material.tint.r),
+                channel_product(color.g, material.tint.g),
+                channel_product(color.b, material.tint.b),
+                channel_product(color.a, material.tint.a),
             ];
+            let surface = material_attributes(material);
             let mut normals = vec![glam::Vec3::ZERO; v_in.len()];
             for triangle in i_in.chunks_exact(3) {
                 let a = point3_to_vec3(v_in[triangle[0] as usize]);
@@ -508,6 +541,7 @@ fn push_primitive(
                     position: [v.x, v.y, v.z],
                     normal: normal.normalize_or_zero().to_array(),
                     color: c,
+                    material: surface,
                 });
             }
             for idx in i_in {
@@ -536,9 +570,10 @@ fn build_scene_mesh(
     device: &Device,
     primitives: &[Primitive3D],
     nodes: &[ResolvedNode3D],
+    materials: &BTreeMap<Node3DId, Material3D>,
 ) -> Option<ResidentSceneMesh> {
     use wgpu::util::DeviceExt;
-    let (vertices, indices) = build_scene_geometry(primitives, nodes);
+    let (vertices, indices) = build_scene_geometry(primitives, nodes, materials);
     if vertices.is_empty() || indices.is_empty() {
         return None;
     }
@@ -623,13 +658,14 @@ fn push_cube(
     indices: &mut Vec<u32>,
     p: [[f32; 3]; 8],
     color: &fission_core::op::Color,
+    material: Material3D,
 ) {
-    push_face(vertices, indices, [p[0], p[1], p[2], p[3]], color);
-    push_face(vertices, indices, [p[5], p[4], p[7], p[6]], color);
-    push_face(vertices, indices, [p[4], p[0], p[3], p[7]], color);
-    push_face(vertices, indices, [p[1], p[5], p[6], p[2]], color);
-    push_face(vertices, indices, [p[3], p[2], p[6], p[7]], color);
-    push_face(vertices, indices, [p[4], p[5], p[1], p[0]], color);
+    push_face(vertices, indices, [p[0], p[1], p[2], p[3]], color, material);
+    push_face(vertices, indices, [p[5], p[4], p[7], p[6]], color, material);
+    push_face(vertices, indices, [p[4], p[0], p[3], p[7]], color, material);
+    push_face(vertices, indices, [p[1], p[5], p[6], p[2]], color, material);
+    push_face(vertices, indices, [p[3], p[2], p[6], p[7]], color, material);
+    push_face(vertices, indices, [p[4], p[5], p[1], p[0]], color, material);
 }
 
 fn push_face(
@@ -637,14 +673,16 @@ fn push_face(
     indices: &mut Vec<u32>,
     positions: [[f32; 3]; 4],
     color: &fission_core::op::Color,
+    material: Material3D,
 ) {
     let base_idx = vertices.len() as u32;
     let color = [
-        color.r as f32 / 255.0,
-        color.g as f32 / 255.0,
-        color.b as f32 / 255.0,
-        color.a as f32 / 255.0,
+        channel_product(color.r, material.tint.r),
+        channel_product(color.g, material.tint.g),
+        channel_product(color.b, material.tint.b),
+        channel_product(color.a, material.tint.a),
     ];
+    let surface = material_attributes(material);
     let edge_a = glam::Vec3::from_array(positions[1]) - glam::Vec3::from_array(positions[0]);
     let edge_b = glam::Vec3::from_array(positions[2]) - glam::Vec3::from_array(positions[0]);
     // Cube faces predate back-face culling and use clockwise vertex order
@@ -655,6 +693,7 @@ fn push_face(
             position,
             normal,
             color,
+            material: surface,
         });
     }
     indices.extend_from_slice(&[
@@ -665,6 +704,19 @@ fn push_face(
         base_idx + 2,
         base_idx + 3,
     ]);
+}
+
+fn channel_product(left: u8, right: u8) -> f32 {
+    (left as f32 / 255.0) * (right as f32 / 255.0)
+}
+
+fn material_attributes(material: Material3D) -> [f32; 4] {
+    [
+        material.roughness,
+        material.metallic,
+        material.emissive_intensity,
+        0.0,
+    ]
 }
 
 fn point3_to_vec3(point: crate::Point3D) -> glam::Vec3 {
@@ -723,11 +775,13 @@ fn clamp_scene3d_viewport(
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+
     use super::{
         build_scene_geometry, camera_view_projection, clamp_scene3d_viewport, push_cube,
         resident_mesh_matches, ResidentSceneSource, Scene3DViewport,
     };
-    use crate::{Camera3D, Node3DId, Point3D, Primitive3D, ResolvedNode3D};
+    use crate::{Camera3D, Material3D, Node3DId, Point3D, Primitive3D, ResolvedNode3D};
     use fission_core::op::Color;
 
     #[test]
@@ -796,6 +850,7 @@ mod tests {
                 b: 166,
                 a: 255,
             },
+            Material3D::default(),
         );
 
         assert_eq!(vertices.len(), 24);
@@ -818,29 +873,58 @@ mod tests {
         let cached = ResidentSceneSource {
             primitives: cached_primitives.clone(),
             nodes: Vec::new(),
+            materials: BTreeMap::new(),
         };
 
-        assert!(!resident_mesh_matches(None, &cached_primitives, &[]));
+        assert!(!resident_mesh_matches(
+            None,
+            &cached_primitives,
+            &[],
+            &BTreeMap::new()
+        ));
         assert!(resident_mesh_matches(
             Some(&cached),
             &cached_primitives,
-            &[]
+            &[],
+            &BTreeMap::new()
         ));
 
         let changed = vec![Primitive3D::Cube { size: 3.0, ..cube }];
-        assert!(!resident_mesh_matches(Some(&cached), &changed, &[]));
+        assert!(!resident_mesh_matches(
+            Some(&cached),
+            &changed,
+            &[],
+            &BTreeMap::new()
+        ));
+
+        let changed_materials = BTreeMap::from([(
+            Node3DId::explicit("material-change"),
+            Material3D::new(Color::BLUE, 0.2, 0.7),
+        )]);
+        assert!(!resident_mesh_matches(
+            Some(&cached),
+            &cached_primitives,
+            &[],
+            &changed_materials,
+        ));
     }
 
     #[test]
     fn empty_scene_geometry_is_cacheable_without_gpu_buffers() {
-        let (vertices, indices) = build_scene_geometry(&[], &[]);
+        let (vertices, indices) = build_scene_geometry(&[], &[], &BTreeMap::new());
         assert!(vertices.is_empty());
         assert!(indices.is_empty());
         let cached = ResidentSceneSource {
             primitives: Vec::new(),
             nodes: Vec::new(),
+            materials: BTreeMap::new(),
         };
-        assert!(resident_mesh_matches(Some(&cached), &[], &[]));
+        assert!(resident_mesh_matches(
+            Some(&cached),
+            &[],
+            &[],
+            &BTreeMap::new()
+        ));
     }
 
     #[test]
@@ -857,13 +941,37 @@ mod tests {
             visible: true,
         };
 
-        let (vertices, indices) = build_scene_geometry(&[], &[node]);
+        let (vertices, indices) = build_scene_geometry(&[], &[node], &BTreeMap::new());
 
         assert_eq!(vertices.len(), 24);
         assert_eq!(indices.len(), 36);
         assert!(vertices
             .iter()
             .all(|vertex| (4.0..=6.0).contains(&vertex.position[0])));
+    }
+
+    #[test]
+    fn retained_material_tints_geometry_and_changes_surface_attributes() {
+        let id = Node3DId::explicit("water-material");
+        let node = ResolvedNode3D {
+            id,
+            world_transform: glam::Mat4::IDENTITY.to_cols_array(),
+            primitive: Some(Primitive3D::Sphere {
+                center: Point3D::new(0.0, 0.0, 0.0),
+                radius: 1.0,
+                color: Color::WHITE,
+            }),
+            visible: true,
+        };
+        let material = Material3D::new(Color::BLUE, 0.08, 0.18).emissive(0.03);
+        let materials = BTreeMap::from([(id, material)]);
+
+        let (vertices, indices) = build_scene_geometry(&[], &[node], &materials);
+
+        assert!(!indices.is_empty());
+        assert!(!vertices.is_empty());
+        assert_eq!(vertices[0].color, [0.0, 0.0, 1.0, 1.0]);
+        assert_eq!(vertices[0].material, [0.08, 0.18, 0.03, 0.0]);
     }
 
     #[test]

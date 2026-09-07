@@ -1,4 +1,5 @@
 mod lighting;
+mod material;
 mod picking;
 pub mod render;
 mod scene_graph;
@@ -6,6 +7,7 @@ use fission_core::internal::{InternalLowerer, InternalLoweringCx, InternalRender
 use fission_core::op::Color;
 use fission_core::ui::{Container, Widget};
 pub use lighting::{DirectionalLight3D, SceneLighting3D};
+pub use material::Material3D;
 pub use picking::{Ray3D, Scene3DHit};
 pub use scene_graph::{
     Node3D, Node3DId, ResolvedNode3D, Rotation3D, Scene3DDiagnostic, Scene3DIR, Transform3D,
@@ -13,6 +15,7 @@ pub use scene_graph::{
 
 use fission_ir::op::{EmbedKind, LayoutOp};
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct Point3D {
@@ -197,6 +200,7 @@ pub struct Scene3D {
     pub height: Option<f32>,
     pub camera: Camera3D,
     pub lighting: SceneLighting3D,
+    pub materials: BTreeMap<Node3DId, Material3D>,
     pub primitives: Vec<Primitive3D>,
     pub nodes: Vec<Node3D>,
     resolved_nodes: Vec<ResolvedNode3D>,
@@ -209,6 +213,7 @@ impl Scene3D {
             height: None,
             camera: Camera3D::default(),
             lighting: SceneLighting3D::default(),
+            materials: BTreeMap::new(),
             primitives: Vec::new(),
             nodes: Vec::new(),
             resolved_nodes: Vec::new(),
@@ -237,6 +242,12 @@ impl Scene3D {
 
     pub fn lighting(mut self, lighting: SceneLighting3D) -> Self {
         self.lighting = lighting;
+        self
+    }
+
+    /// Assigns a material to a retained node identity.
+    pub fn material(mut self, node: Node3DId, material: Material3D) -> Self {
+        self.materials.insert(node, material);
         self
     }
 
@@ -293,6 +304,7 @@ impl Scene3DPayload {
                 height: Some(height),
                 camera: self.camera,
                 lighting: SceneLighting3D::default(),
+                materials: BTreeMap::new(),
                 primitives: self.primitives,
                 nodes: Vec::new(),
                 resolved_nodes: Vec::new(),
@@ -331,6 +343,7 @@ impl Scene3DPayloadV2 {
                 height: Some(height),
                 camera: self.camera,
                 lighting: SceneLighting3D::default(),
+                materials: BTreeMap::new(),
                 primitives: self.primitives,
                 nodes: Vec::new(),
                 resolved_nodes: self.scene_ir.nodes,
@@ -338,7 +351,7 @@ impl Scene3DPayloadV2 {
     }
 }
 
-/// Current renderer payload carrying closed scene IR and scene lighting.
+/// Legacy V3 payload carrying closed scene IR and scene lighting.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Scene3DPayloadV3 {
     pub magic: [u8; 4],
@@ -374,6 +387,54 @@ impl Scene3DPayloadV3 {
             height: Some(height),
             camera: self.camera,
             lighting: self.lighting,
+            materials: BTreeMap::new(),
+            primitives: self.primitives,
+            nodes: Vec::new(),
+            resolved_nodes: self.scene_ir.nodes,
+        })
+    }
+}
+
+/// Current renderer payload carrying closed scene IR, lighting, and materials.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Scene3DPayloadV4 {
+    pub magic: [u8; 4],
+    pub version: u16,
+    pub camera: Camera3D,
+    pub lighting: SceneLighting3D,
+    pub materials: BTreeMap<Node3DId, Material3D>,
+    pub primitives: Vec<Primitive3D>,
+    pub scene_ir: Scene3DIR,
+}
+
+impl Scene3DPayloadV4 {
+    pub const MAGIC: [u8; 4] = *b"F3D\0";
+    pub const VERSION: u16 = 4;
+
+    pub fn from_scene(scene: &Scene3D) -> Self {
+        Self {
+            magic: Self::MAGIC,
+            version: Self::VERSION,
+            camera: scene.camera,
+            lighting: scene.lighting,
+            materials: scene.materials.clone(),
+            primitives: scene.primitives.clone(),
+            scene_ir: scene.finish(),
+        }
+    }
+
+    pub fn into_scene(self, width: f32, height: f32) -> Option<Scene3D> {
+        (self.magic == Self::MAGIC
+            && self.version == Self::VERSION
+            && self.camera.is_valid()
+            && self.lighting.is_valid()
+            && self.materials.values().all(|material| material.is_valid()))
+        .then_some(Scene3D {
+            width: Some(width),
+            height: Some(height),
+            camera: self.camera,
+            lighting: self.lighting,
+            materials: self.materials,
             primitives: self.primitives,
             nodes: Vec::new(),
             resolved_nodes: self.scene_ir.nodes,
@@ -384,8 +445,8 @@ impl Scene3DPayloadV3 {
 #[cfg(test)]
 mod tests {
     use super::{
-        Camera3D, CameraProjection3D, Point3D, Scene3D, Scene3DPayload, Scene3DPayloadV3,
-        SceneLighting3D,
+        Camera3D, CameraProjection3D, Material3D, Node3DId, Point3D, Scene3D, Scene3DPayload,
+        Scene3DPayloadV4, SceneLighting3D,
     };
 
     #[test]
@@ -431,7 +492,7 @@ mod tests {
             specular_exponent: 96.0,
             ..SceneLighting3D::default()
         };
-        let payload = Scene3DPayloadV3::from_scene(&Scene3D::new().lighting(lighting));
+        let payload = Scene3DPayloadV4::from_scene(&Scene3D::new().lighting(lighting));
         let scene = payload
             .into_scene(1280.0, 720.0)
             .expect("valid current payload");
@@ -441,13 +502,39 @@ mod tests {
 
     #[test]
     fn current_payload_rejects_invalid_lighting() {
-        let payload = Scene3DPayloadV3 {
+        let payload = Scene3DPayloadV4 {
             lighting: SceneLighting3D {
                 ambient_intensity: -1.0,
                 ..SceneLighting3D::default()
             },
-            ..Scene3DPayloadV3::from_scene(&Scene3D::new())
+            ..Scene3DPayloadV4::from_scene(&Scene3D::new())
         };
+
+        assert!(payload.into_scene(640.0, 480.0).is_none());
+    }
+
+    #[test]
+    fn current_payload_round_trips_node_materials() {
+        let node = Node3DId::explicit("water");
+        let material = Material3D::new(fission_core::op::Color::BLUE, 0.08, 0.12);
+        let payload = Scene3DPayloadV4::from_scene(&Scene3D::new().material(node, material));
+        let scene = payload
+            .into_scene(1280.0, 720.0)
+            .expect("valid material payload");
+
+        assert_eq!(scene.materials.get(&node), Some(&material));
+    }
+
+    #[test]
+    fn current_payload_rejects_invalid_materials() {
+        let node = Node3DId::explicit("invalid-material");
+        let payload = Scene3DPayloadV4::from_scene(&Scene3D::new().material(
+            node,
+            Material3D {
+                metallic: 2.0,
+                ..Material3D::default()
+            },
+        ));
 
         assert!(payload.into_scene(640.0, 480.0).is_none());
     }
@@ -519,7 +606,7 @@ impl InternalLowerer for Scene3DInternalLowerer {
             .height
             .unwrap_or_else(|| (cx.env.viewport_size.height - 200.0).max(300.0));
 
-        let payload = bincode::serialize(&Scene3DPayloadV3::from_scene(&self.scene))
+        let payload = bincode::serialize(&Scene3DPayloadV4::from_scene(&self.scene))
             .expect("Scene3D payload serialization is infallible for owned scene data");
         let op = fission_ir::Op::Layout(LayoutOp::Embed {
             kind: EmbedKind::Custom(payload),

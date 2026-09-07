@@ -1,6 +1,6 @@
 use fission_3d::{
     Camera3D, Node3D, Node3DId, Point3D, Primitive3D, Scene3D, Scene3DInternalLowerer,
-    Scene3DPayloadV3, Transform3D,
+    Scene3DPayloadV4, Transform3D,
 };
 use fission_core::{
     env::Env,
@@ -77,10 +77,10 @@ fn test_scene3d_lowering() {
         }) => {
             assert_eq!(width.as_ref().copied(), Some(100.0));
             assert_eq!(height.as_ref().copied(), Some(200.0));
-            let payload: Scene3DPayloadV3 =
+            let payload: Scene3DPayloadV4 =
                 bincode::deserialize(payload).expect("versioned 3D payload");
-            assert_eq!(payload.magic, Scene3DPayloadV3::MAGIC);
-            assert_eq!(payload.version, Scene3DPayloadV3::VERSION);
+            assert_eq!(payload.magic, Scene3DPayloadV4::MAGIC);
+            assert_eq!(payload.version, Scene3DPayloadV4::VERSION);
             assert_eq!(payload.camera, camera);
             assert!(payload.scene_ir.diagnostics.is_empty());
             assert_eq!(payload.scene_ir.nodes.len(), 1);

@@ -9211,7 +9211,7 @@ where
                                         {
                                             for surface in &pipeline.native_surfaces {
                                                 let scene3d = bincode::deserialize::<
-                                                    fission_3d::Scene3DPayloadV3,
+                                                    fission_3d::Scene3DPayloadV4,
                                                 >(
                                                     &surface.payload
                                                 )
@@ -9221,6 +9221,20 @@ where
                                                         surface.rect.size.width,
                                                         surface.rect.size.height,
                                                     )
+                                                })
+                                                .or_else(|| {
+                                                    bincode::deserialize::<
+                                                        fission_3d::Scene3DPayloadV3,
+                                                    >(
+                                                        &surface.payload
+                                                    )
+                                                    .ok()
+                                                    .and_then(|payload| {
+                                                        payload.into_scene(
+                                                            surface.rect.size.width,
+                                                            surface.rect.size.height,
+                                                        )
+                                                    })
                                                 })
                                                 .or_else(|| {
                                                     bincode::deserialize::<

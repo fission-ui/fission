@@ -13,6 +13,7 @@ struct VertexInput {
     @location(0) position: vec3<f32>,
     @location(1) normal: vec3<f32>,
     @location(2) color: vec4<f32>,
+    @location(3) material: vec4<f32>,
 };
 
 struct VertexOutput {
@@ -20,6 +21,7 @@ struct VertexOutput {
     @location(0) color: vec4<f32>,
     @location(1) world_position: vec3<f32>,
     @location(2) normal: vec3<f32>,
+    @location(3) material: vec4<f32>,
 };
 
 @vertex
@@ -29,6 +31,7 @@ fn vs_main(model: VertexInput) -> VertexOutput {
     out.color = model.color;
     out.world_position = model.position;
     out.normal = model.normal;
+    out.material = model.material;
 
     return out;
 }
@@ -50,11 +53,19 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         vec3<f32>(0.0, 0.0, 1.0),
     );
     let halfway = normalized_or(light + view, normal);
+    let roughness = clamp(in.material.x, 0.0, 1.0);
+    let metallic = clamp(in.material.y, 0.0, 1.0);
+    let emissive = max(in.material.z, 0.0);
     let diffuse = max(dot(normal, light), 0.0) * scene.lighting.y;
-    let specular = pow(max(dot(normal, halfway), 0.0), scene.lighting.w)
+    let specular_exponent = mix(scene.lighting.w * 4.0, 2.0, roughness);
+    let specular = pow(max(dot(normal, halfway), 0.0), specular_exponent)
         * scene.lighting.z
         * select(0.0, 1.0, diffuse > 0.0);
     let illumination = vec3<f32>(scene.lighting.x) + scene.light_color.rgb * diffuse;
-    let rgb = in.color.rgb * illumination + scene.light_color.rgb * specular;
+    let diffuse_color = in.color.rgb * (1.0 - metallic);
+    let specular_color = mix(vec3<f32>(0.04), in.color.rgb, metallic);
+    let rgb = diffuse_color * illumination
+        + specular_color * scene.light_color.rgb * specular
+        + in.color.rgb * emissive;
     return vec4<f32>(rgb, in.color.a);
 }
