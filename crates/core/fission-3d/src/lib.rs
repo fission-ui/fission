@@ -1,9 +1,11 @@
+mod lighting;
 mod picking;
 pub mod render;
 mod scene_graph;
 use fission_core::internal::{InternalLowerer, InternalLoweringCx, InternalRenderNode};
 use fission_core::op::Color;
 use fission_core::ui::{Container, Widget};
+pub use lighting::{DirectionalLight3D, SceneLighting3D};
 pub use picking::{Ray3D, Scene3DHit};
 pub use scene_graph::{
     Node3D, Node3DId, ResolvedNode3D, Rotation3D, Scene3DDiagnostic, Scene3DIR, Transform3D,
@@ -194,6 +196,7 @@ pub struct Scene3D {
     pub width: Option<f32>,
     pub height: Option<f32>,
     pub camera: Camera3D,
+    pub lighting: SceneLighting3D,
     pub primitives: Vec<Primitive3D>,
     pub nodes: Vec<Node3D>,
     resolved_nodes: Vec<ResolvedNode3D>,
@@ -205,6 +208,7 @@ impl Scene3D {
             width: None,
             height: None,
             camera: Camera3D::default(),
+            lighting: SceneLighting3D::default(),
             primitives: Vec::new(),
             nodes: Vec::new(),
             resolved_nodes: Vec::new(),
@@ -228,6 +232,11 @@ impl Scene3D {
 
     pub fn camera(mut self, camera: Camera3D) -> Self {
         self.camera = camera;
+        self
+    }
+
+    pub fn lighting(mut self, lighting: SceneLighting3D) -> Self {
+        self.lighting = lighting;
         self
     }
 
@@ -283,6 +292,7 @@ impl Scene3DPayload {
                 width: Some(width),
                 height: Some(height),
                 camera: self.camera,
+                lighting: SceneLighting3D::default(),
                 primitives: self.primitives,
                 nodes: Vec::new(),
                 resolved_nodes: Vec::new(),
@@ -290,7 +300,7 @@ impl Scene3DPayload {
     }
 }
 
-/// Current payload carrying the closed retained-node IR.
+/// Legacy V2 payload carrying the closed retained-node IR.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Scene3DPayloadV2 {
     pub magic: [u8; 4],
@@ -320,6 +330,7 @@ impl Scene3DPayloadV2 {
                 width: Some(width),
                 height: Some(height),
                 camera: self.camera,
+                lighting: SceneLighting3D::default(),
                 primitives: self.primitives,
                 nodes: Vec::new(),
                 resolved_nodes: self.scene_ir.nodes,
@@ -327,9 +338,55 @@ impl Scene3DPayloadV2 {
     }
 }
 
+/// Current renderer payload carrying closed scene IR and scene lighting.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Scene3DPayloadV3 {
+    pub magic: [u8; 4],
+    pub version: u16,
+    pub camera: Camera3D,
+    pub lighting: SceneLighting3D,
+    pub primitives: Vec<Primitive3D>,
+    pub scene_ir: Scene3DIR,
+}
+
+impl Scene3DPayloadV3 {
+    pub const MAGIC: [u8; 4] = *b"F3D\0";
+    pub const VERSION: u16 = 3;
+
+    pub fn from_scene(scene: &Scene3D) -> Self {
+        Self {
+            magic: Self::MAGIC,
+            version: Self::VERSION,
+            camera: scene.camera,
+            lighting: scene.lighting,
+            primitives: scene.primitives.clone(),
+            scene_ir: scene.finish(),
+        }
+    }
+
+    pub fn into_scene(self, width: f32, height: f32) -> Option<Scene3D> {
+        (self.magic == Self::MAGIC
+            && self.version == Self::VERSION
+            && self.camera.is_valid()
+            && self.lighting.is_valid())
+        .then_some(Scene3D {
+            width: Some(width),
+            height: Some(height),
+            camera: self.camera,
+            lighting: self.lighting,
+            primitives: self.primitives,
+            nodes: Vec::new(),
+            resolved_nodes: self.scene_ir.nodes,
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{Camera3D, CameraProjection3D, Point3D, Scene3D, Scene3DPayload};
+    use super::{
+        Camera3D, CameraProjection3D, Point3D, Scene3D, Scene3DPayload, Scene3DPayloadV3,
+        SceneLighting3D,
+    };
 
     #[test]
     fn scene_payload_round_trips_camera_and_bounds() {
@@ -361,6 +418,35 @@ mod tests {
             version: Scene3DPayload::VERSION + 1,
             camera: Camera3D::default(),
             primitives: Vec::new(),
+        };
+
+        assert!(payload.into_scene(640.0, 480.0).is_none());
+    }
+
+    #[test]
+    fn current_payload_round_trips_lighting() {
+        let lighting = SceneLighting3D {
+            ambient_intensity: 0.08,
+            specular_intensity: 0.65,
+            specular_exponent: 96.0,
+            ..SceneLighting3D::default()
+        };
+        let payload = Scene3DPayloadV3::from_scene(&Scene3D::new().lighting(lighting));
+        let scene = payload
+            .into_scene(1280.0, 720.0)
+            .expect("valid current payload");
+
+        assert_eq!(scene.lighting, lighting);
+    }
+
+    #[test]
+    fn current_payload_rejects_invalid_lighting() {
+        let payload = Scene3DPayloadV3 {
+            lighting: SceneLighting3D {
+                ambient_intensity: -1.0,
+                ..SceneLighting3D::default()
+            },
+            ..Scene3DPayloadV3::from_scene(&Scene3D::new())
         };
 
         assert!(payload.into_scene(640.0, 480.0).is_none());
@@ -433,7 +519,7 @@ impl InternalLowerer for Scene3DInternalLowerer {
             .height
             .unwrap_or_else(|| (cx.env.viewport_size.height - 200.0).max(300.0));
 
-        let payload = bincode::serialize(&Scene3DPayloadV2::from_scene(&self.scene))
+        let payload = bincode::serialize(&Scene3DPayloadV3::from_scene(&self.scene))
             .expect("Scene3D payload serialization is infallible for owned scene data");
         let op = fission_ir::Op::Layout(LayoutOp::Embed {
             kind: EmbedKind::Custom(payload),

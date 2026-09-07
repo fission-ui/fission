@@ -8,7 +8,7 @@ use wgpu::{
     TextureViewDescriptor, VertexState,
 };
 
-use crate::{Camera3D, CameraProjection3D, Primitive3D, ResolvedNode3D, Scene3D};
+use crate::{Camera3D, CameraProjection3D, Primitive3D, ResolvedNode3D, Scene3D, SceneLighting3D};
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Pod, Zeroable)]
@@ -67,15 +67,27 @@ struct SceneUniforms {
 }
 
 impl SceneUniforms {
-    fn new(camera: &Camera3D, aspect: f32) -> Self {
+    fn new(camera: &Camera3D, lighting: &SceneLighting3D, aspect: f32) -> Self {
         let camera = effective_camera(camera);
+        let lighting = effective_lighting(lighting);
+        let light = lighting.directional;
         Self {
             view_projection: camera_view_projection(camera, aspect),
             camera_position: [camera.eye.x, camera.eye.y, camera.eye.z, 1.0],
-            light_direction: [0.45, 0.8, 0.35, 0.0],
-            light_color: [1.0, 0.98, 0.92, 1.0],
+            light_direction: [light.direction.x, light.direction.y, light.direction.z, 0.0],
+            light_color: [
+                light.color.r as f32 / 255.0,
+                light.color.g as f32 / 255.0,
+                light.color.b as f32 / 255.0,
+                1.0,
+            ],
             // Ambient, diffuse, specular strength, and specular exponent.
-            lighting: [0.24, 0.82, 0.22, 32.0],
+            lighting: [
+                lighting.ambient_intensity,
+                light.intensity,
+                lighting.specular_intensity,
+                lighting.specular_exponent,
+            ],
         }
     }
 }
@@ -276,8 +288,11 @@ impl Scene3DRenderer {
             return;
         };
 
-        let uniforms =
-            SceneUniforms::new(&scene.camera, (viewport.width / viewport.height).max(0.01));
+        let uniforms = SceneUniforms::new(
+            &scene.camera,
+            &scene.lighting,
+            (viewport.width / viewport.height).max(0.01),
+        );
         queue.write_buffer(&self.uniform_buffer, 0, bytemuck::bytes_of(&uniforms));
         self.ensure_scene_mesh(device, scene);
         let Some(mesh) = self.resident_mesh.as_ref() else {
@@ -590,6 +605,16 @@ fn effective_camera(camera: &Camera3D) -> &Camera3D {
         static DEFAULT_CAMERA: std::sync::LazyLock<Camera3D> =
             std::sync::LazyLock::new(Camera3D::default);
         &DEFAULT_CAMERA
+    }
+}
+
+fn effective_lighting(lighting: &SceneLighting3D) -> &SceneLighting3D {
+    if lighting.is_valid() {
+        lighting
+    } else {
+        static DEFAULT_LIGHTING: std::sync::LazyLock<SceneLighting3D> =
+            std::sync::LazyLock::new(SceneLighting3D::default);
+        &DEFAULT_LIGHTING
     }
 }
 
