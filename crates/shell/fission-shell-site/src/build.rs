@@ -1,3 +1,8 @@
+use crate::build_support::{
+    escape_attr, escape_text, first_h1, normalize_site_asset_href, normalize_site_link_href,
+    page_asset_href_for_route, resolve_project_path, search_script_href_for_route,
+    stylesheet_href_for_route, title_from_path, validate_generated_internal_links,
+};
 use crate::document::{
     extract_page_links, ContentRoute, DocumentationPage, SidebarLink, SiteNavLink, SitePageState,
 };
@@ -676,217 +681,11 @@ fn load_content_routes(
             });
         }
     }
-    add_generated_blog_routes(options, &mut routes)?;
+    crate::blog_routes::add_generated_blog_routes(options, &mut routes)?;
     if routes.is_empty() && site_has_content_routes(options) {
         bail!("configured site content routes contain no .md or .mdx files");
     }
     Ok(routes)
-}
-
-fn add_generated_blog_routes(
-    options: &SiteBuildOptions,
-    routes: &mut Vec<ContentRoute>,
-) -> Result<()> {
-    for config in &options.content_routes {
-        let prefix = normalize_site_path(&config.path);
-        if prefix != "/blog/" {
-            continue;
-        }
-        let posts = routes
-            .iter()
-            .filter(|route| {
-                route.path.starts_with(&prefix)
-                    && route.path != prefix
-                    && !is_blog_taxonomy_path(&route.path)
-            })
-            .cloned()
-            .collect::<Vec<_>>();
-        if posts.is_empty() {
-            continue;
-        }
-        let sidebar = load_sidebar(config.sidebar.as_deref())?;
-        if !routes.iter().any(|route| route.path == prefix) {
-            let body = blog_landing_markdown(&posts);
-            routes.push(ContentRoute {
-                path: prefix.clone(),
-                title: "Blog".to_string(),
-                description: Some(
-                    "Technical posts, release notes, and product updates from Fission.".to_string(),
-                ),
-                locale: None,
-                headings: extract_page_links(&body),
-                sidebar: sidebar.clone(),
-                tags: Vec::new(),
-                categories: Vec::new(),
-                show_adjacent_posts: false,
-                body,
-                source_path: PathBuf::from("<generated-blog-index>"),
-                rendered: None,
-            });
-        }
-        add_generated_blog_taxonomy_routes(routes, &posts, &sidebar);
-    }
-    Ok(())
-}
-
-fn add_generated_blog_taxonomy_routes(
-    routes: &mut Vec<ContentRoute>,
-    posts: &[ContentRoute],
-    sidebar: &[SidebarLink],
-) {
-    let categories = unique_taxonomy_values(posts, BlogTaxonomyKind::Category);
-    for category in categories {
-        let path = blog_taxonomy_route(BlogTaxonomyKind::Category, &category);
-        if routes.iter().any(|route| route.path == path) {
-            continue;
-        }
-        let body = format!("# {category}\n\nPosts filed under the {category} category.\n");
-        routes.push(ContentRoute {
-            path,
-            title: format!("{category} posts"),
-            description: Some(format!("Posts filed under the {category} category.")),
-            locale: None,
-            headings: extract_page_links(&body),
-            sidebar: sidebar.to_vec(),
-            tags: Vec::new(),
-            categories: vec![category.clone()],
-            show_adjacent_posts: false,
-            body,
-            source_path: PathBuf::from(format!(
-                "<generated-blog-category-{}>",
-                taxonomy_slug(&category)
-            )),
-            rendered: None,
-        });
-    }
-
-    let tags = unique_taxonomy_values(posts, BlogTaxonomyKind::Tag);
-    for tag in tags {
-        let path = blog_taxonomy_route(BlogTaxonomyKind::Tag, &tag);
-        if routes.iter().any(|route| route.path == path) {
-            continue;
-        }
-        let body = format!("# #{tag}\n\nPosts tagged #{tag}.\n");
-        routes.push(ContentRoute {
-            path,
-            title: format!("#{tag} posts"),
-            description: Some(format!("Posts tagged #{tag}.")),
-            locale: None,
-            headings: extract_page_links(&body),
-            sidebar: sidebar.to_vec(),
-            tags: vec![tag.clone()],
-            categories: Vec::new(),
-            show_adjacent_posts: false,
-            body,
-            source_path: PathBuf::from(format!("<generated-blog-tag-{}>", taxonomy_slug(&tag))),
-            rendered: None,
-        });
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum BlogTaxonomyKind {
-    Category,
-    Tag,
-}
-
-fn unique_taxonomy_values(posts: &[ContentRoute], kind: BlogTaxonomyKind) -> Vec<String> {
-    let mut values = posts
-        .iter()
-        .flat_map(|route| match kind {
-            BlogTaxonomyKind::Category => route.categories.iter(),
-            BlogTaxonomyKind::Tag => route.tags.iter(),
-        })
-        .cloned()
-        .collect::<Vec<_>>();
-    values.sort_by_key(|value| value.to_ascii_lowercase());
-    values.dedup_by(|a, b| a.eq_ignore_ascii_case(b));
-    values
-}
-
-fn blog_taxonomy_route(kind: BlogTaxonomyKind, value: &str) -> String {
-    let segment = match kind {
-        BlogTaxonomyKind::Category => "categories",
-        BlogTaxonomyKind::Tag => "tags",
-    };
-    normalize_site_path(&format!("/blog/{segment}/{}", taxonomy_slug(value)))
-}
-
-fn taxonomy_slug(value: &str) -> String {
-    let mut out = String::new();
-    let mut previous_dash = false;
-    for ch in value.chars().flat_map(char::to_lowercase) {
-        if ch.is_ascii_alphanumeric() {
-            out.push(ch);
-            previous_dash = false;
-        } else if !previous_dash && !out.is_empty() {
-            out.push('-');
-            previous_dash = true;
-        }
-    }
-    let slug = out.trim_matches('-');
-    if slug.is_empty() {
-        "untitled".to_string()
-    } else {
-        slug.to_string()
-    }
-}
-
-fn is_blog_taxonomy_path(path: &str) -> bool {
-    path.starts_with("/blog/categories/") || path.starts_with("/blog/tags/")
-}
-
-fn blog_landing_markdown(posts: &[ContentRoute]) -> String {
-    let mut posts = posts.to_vec();
-    posts.sort_by(|a, b| {
-        b.source_path
-            .file_stem()
-            .and_then(|value| value.to_str())
-            .unwrap_or(&b.path)
-            .cmp(
-                a.source_path
-                    .file_stem()
-                    .and_then(|value| value.to_str())
-                    .unwrap_or(&a.path),
-            )
-    });
-
-    let mut tags = posts
-        .iter()
-        .flat_map(|route| route.tags.iter().cloned())
-        .collect::<Vec<_>>();
-    tags.sort();
-    tags.dedup();
-
-    let mut categories = posts
-        .iter()
-        .flat_map(|route| route.categories.iter().cloned())
-        .collect::<Vec<_>>();
-    categories.sort();
-    categories.dedup();
-
-    let mut body = String::from(
-        "# Blog\n\nTechnical posts, release notes, and product updates from the Fission team.\n\n",
-    );
-    if !categories.is_empty() {
-        body.push_str("## Categories\n\n");
-        body.push_str(&categories.join(", "));
-        body.push_str("\n\n");
-    }
-    if !tags.is_empty() {
-        body.push_str("## Tags\n\n");
-        body.push_str(&tags.join(", "));
-        body.push_str("\n\n");
-    }
-    body.push_str("## Latest posts\n\n");
-    for route in posts {
-        body.push_str(&format!("- [{}]({})", route.title, route.path));
-        if let Some(description) = &route.description {
-            body.push_str(&format!(" — {description}"));
-        }
-        body.push('\n');
-    }
-    body
 }
 
 fn strip_mdx_control_markers(markdown: &str) -> String {
@@ -900,7 +699,7 @@ fn strip_mdx_control_markers(markdown: &str) -> String {
         .join("\n")
 }
 
-fn load_sidebar(path: Option<&Path>) -> Result<Vec<SidebarLink>> {
+pub(crate) fn load_sidebar(path: Option<&Path>) -> Result<Vec<SidebarLink>> {
     let Some(path) = path else {
         return Ok(Vec::new());
     };
@@ -1437,59 +1236,6 @@ fn resolve_markdown_target_file(path: &Path) -> Option<PathBuf> {
     None
 }
 
-fn stylesheet_href_for_route(route_path: &str) -> String {
-    let depth = route_path
-        .trim_matches('/')
-        .split('/')
-        .filter(|segment| !segment.is_empty())
-        .count();
-    if depth == 0 {
-        "site.css".to_string()
-    } else {
-        format!("{}site.css", "../".repeat(depth))
-    }
-}
-
-fn search_script_href_for_route(route_path: &str, search_path: &str) -> String {
-    let target = format!(
-        "/{}/search.js",
-        search_path.trim_matches('/').trim_end_matches('/')
-    );
-    relative_href_for_route(route_path, &target)
-}
-
-fn page_asset_href_for_route(route_path: &str, href: &str) -> String {
-    if href.starts_with('/') {
-        relative_href_for_route(route_path, href)
-    } else {
-        href.to_string()
-    }
-}
-
-fn relative_href_for_route(current_route_path: &str, target: &str) -> String {
-    let suffix_start = target
-        .find('#')
-        .or_else(|| target.find('?'))
-        .unwrap_or(target.len());
-    let (path, suffix) = target.split_at(suffix_start);
-    let depth = current_route_path
-        .trim_matches('/')
-        .split('/')
-        .filter(|segment| !segment.is_empty())
-        .count();
-    let prefix = "../".repeat(depth);
-    let trimmed = path.trim_start_matches('/');
-    if trimmed.is_empty() {
-        if prefix.is_empty() {
-            format!("./{suffix}")
-        } else {
-            format!("{prefix}{suffix}")
-        }
-    } else {
-        format!("{prefix}{trimmed}{suffix}")
-    }
-}
-
 fn canonical_url_for_route(options: &SiteBuildOptions, route_path: &str) -> Option<String> {
     let base = options.base_url.as_ref()?;
     let path = normalize_site_path(route_path);
@@ -1554,155 +1300,6 @@ fn page_elements_for_route(
         .collect()
 }
 
-fn validate_generated_internal_links(output_dir: &Path) -> Result<()> {
-    let mut html_files = Vec::new();
-    collect_generated_html_files(output_dir, &mut html_files)?;
-    let mut missing = Vec::new();
-    for html_file in html_files {
-        let html = fs::read_to_string(&html_file)
-            .with_context(|| format!("failed to read generated HTML {}", html_file.display()))?;
-        for target in extract_html_attr_values(&html, "href")
-            .into_iter()
-            .chain(extract_html_attr_values(&html, "src"))
-        {
-            if generated_link_target_exists(output_dir, &html_file, &target) {
-                continue;
-            }
-            missing.push(format!("{} -> {}", html_file.display(), target));
-            if missing.len() >= 10 {
-                break;
-            }
-        }
-        if missing.len() >= 10 {
-            break;
-        }
-    }
-    if missing.is_empty() {
-        Ok(())
-    } else {
-        bail!(
-            "static site generated links that do not resolve:\n{}",
-            missing.join("\n")
-        )
-    }
-}
-
-fn collect_generated_html_files(root: &Path, out: &mut Vec<PathBuf>) -> Result<()> {
-    if !root.exists() {
-        return Ok(());
-    }
-    for entry in fs::read_dir(root).with_context(|| format!("failed to read {}", root.display()))? {
-        let entry = entry?;
-        let path = entry.path();
-        if entry.file_type()?.is_dir() {
-            collect_generated_html_files(&path, out)?;
-        } else if path.extension().and_then(|value| value.to_str()) == Some("html") {
-            out.push(path);
-        }
-    }
-    Ok(())
-}
-
-fn extract_html_attr_values(html: &str, attr: &str) -> Vec<String> {
-    let needle = format!("{attr}=\"");
-    let mut values = Vec::new();
-    let mut rest = html;
-    while let Some(start) = rest.find(&needle) {
-        let after_start = &rest[start + needle.len()..];
-        let Some(end) = after_start.find('"') else {
-            break;
-        };
-        values.push(unescape_basic_attr(&after_start[..end]));
-        rest = &after_start[end + 1..];
-    }
-    values
-}
-
-fn generated_link_target_exists(output_dir: &Path, source: &Path, target: &str) -> bool {
-    if target.is_empty()
-        || target.starts_with('#')
-        || target.starts_with("http://")
-        || target.starts_with("https://")
-        || target.starts_with("mailto:")
-        || target.starts_with("tel:")
-        || target.starts_with("data:")
-    {
-        return true;
-    }
-    let target = target.split(['#', '?']).next().unwrap_or(target).trim();
-    if target.is_empty() {
-        return true;
-    }
-    let path = if target.starts_with('/') {
-        output_dir.join(target.trim_start_matches('/'))
-    } else {
-        source.parent().unwrap_or(output_dir).join(target)
-    };
-    generated_target_path_exists(path)
-}
-
-fn generated_target_path_exists(path: PathBuf) -> bool {
-    if path.is_file() {
-        return true;
-    }
-    if path.is_dir() && path.join("index.html").is_file() {
-        return true;
-    }
-    if path.extension().is_none() && path.join("index.html").is_file() {
-        return true;
-    }
-    false
-}
-
-fn unescape_basic_attr(value: &str) -> String {
-    value
-        .replace("&quot;", "\"")
-        .replace("&#39;", "'")
-        .replace("&amp;", "&")
-}
-
-fn first_h1(markdown: &str) -> Option<String> {
-    markdown
-        .lines()
-        .find_map(|line| line.strip_prefix("# ").map(str::trim))
-        .filter(|line| !line.is_empty())
-        .map(ToString::to_string)
-}
-
-fn title_from_path(path: &Path) -> String {
-    path.file_stem()
-        .and_then(|value| value.to_str())
-        .unwrap_or("Untitled")
-        .split(['-', '_'])
-        .filter(|part| !part.is_empty())
-        .map(|part| {
-            let mut chars = part.chars();
-            match chars.next() {
-                Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
-                None => String::new(),
-            }
-        })
-        .collect::<Vec<_>>()
-        .join(" ")
-}
-
-fn resolve_project_path(project_dir: &Path, path: PathBuf) -> PathBuf {
-    if path.is_absolute() {
-        path
-    } else {
-        project_dir.join(path)
-    }
-}
-
-fn normalize_site_link_href(value: &str) -> String {
-    let value = value.trim();
-    if is_absolute_href(value) || value.starts_with('#') {
-        value.to_string()
-    } else {
-        normalize_site_path(value)
-    }
-}
-
 fn normalize_project_site_nav_link(link: ProjectSiteNavLink) -> SiteNavLink {
     SiteNavLink {
         title: link.title,
@@ -1713,42 +1310,6 @@ fn normalize_project_site_nav_link(link: ProjectSiteNavLink) -> SiteNavLink {
             .map(normalize_project_site_nav_link)
             .collect(),
     }
-}
-
-fn normalize_site_asset_href(value: &str) -> String {
-    let value = value.trim();
-    if is_absolute_href(value) || value.starts_with("data:") {
-        return value.to_string();
-    }
-    let mut out = if value.starts_with('/') {
-        value.to_string()
-    } else {
-        format!("/{value}")
-    };
-    while out.contains("//") {
-        out = out.replace("//", "/");
-    }
-    out
-}
-
-fn is_absolute_href(value: &str) -> bool {
-    value.starts_with("http://")
-        || value.starts_with("https://")
-        || value.starts_with("mailto:")
-        || value.starts_with("tel:")
-}
-
-fn escape_text(value: &str) -> String {
-    value
-        .replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-}
-
-fn escape_attr(value: &str) -> String {
-    escape_text(value)
-        .replace('"', "&quot;")
-        .replace('\'', "&#39;")
 }
 
 #[derive(Debug, Deserialize, Default)]
