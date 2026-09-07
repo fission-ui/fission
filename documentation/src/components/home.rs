@@ -1,7 +1,10 @@
 use super::home_nav::HomePageNav;
-use super::home_sections::{ChartsSection, FinalCta, HomePageHero, ModelSection, ProofStrip};
 use super::home_widgets::page_fill;
 use super::state::DocsState;
+use super::value_home::{
+    AudienceSection, ComparisonSection, HomePageHero, HowItWorksSection, OutcomesSection,
+    StartSection, WhySection,
+};
 use fission::op::{AlignItems, JustifyContent};
 use fission::prelude::*;
 use std::sync::Arc;
@@ -46,10 +49,12 @@ impl From<HomePage> for Widget {
                     children: vec![Container::new(Column {
                         children: vec![
                             HomePageHero.into(),
-                            ProofStrip.into(),
-                            ChartsSection.into(),
-                            ModelSection.into(),
-                            FinalCta.into(),
+                            WhySection.into(),
+                            OutcomesSection.into(),
+                            AudienceSection.into(),
+                            HowItWorksSection.into(),
+                            ComparisonSection.into(),
+                            StartSection.into(),
                         ],
                         gap: Some(0.0),
                         align_items: AlignItems::Center,

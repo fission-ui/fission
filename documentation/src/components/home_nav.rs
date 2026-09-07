@@ -1,5 +1,5 @@
 use super::brand_logo::BrandLogo;
-use super::home_widgets::{nav_inset, ExternalNavLink, SearchPill, ThemeToggle};
+use super::home_widgets::{nav_inset, Cta, ThemeToggle};
 use super::state::DocsState;
 use fission::op::{AlignItems, Fill, FlexWrap, JustifyContent};
 use fission::prelude::*;
@@ -11,92 +11,26 @@ struct NavItem {
     children: &'static [NavItem],
 }
 
-const PRODUCT_CHILDREN: &[NavItem] = &[
-    NavItem {
-        label: "Platform overview",
-        href: "/product/overview/",
-        children: &[],
-    },
-    NavItem {
-        label: "Cross-platform apps",
-        href: "/product/cross-platform-apps/",
-        children: &[],
-    },
-    NavItem {
-        label: "Static sites",
-        href: "/product/static-sites/",
-        children: &[],
-    },
-    NavItem {
-        label: "Server-rendered sites",
-        href: "/product/server-rendered-sites/",
-        children: &[],
-    },
-    NavItem {
-        label: "Terminal apps",
-        href: "/product/terminal-apps/",
-        children: &[],
-    },
-    NavItem {
-        label: "Charts",
-        href: "/product/charts/",
-        children: &[],
-    },
-    NavItem {
-        label: "Production lifecycle",
-        href: "/product/production-lifecycle/",
-        children: &[],
-    },
-    NavItem {
-        label: "Developer tools",
-        href: "/product/developer-tools/",
-        children: &[],
-    },
-    NavItem {
-        label: "Design systems",
-        href: "/product/design-systems/",
-        children: &[],
-    },
-];
-
-const DOCS_CHILDREN: &[NavItem] = &[
-    NavItem {
-        label: "Quickstart",
-        href: "/docs/learn/quickstart/",
-        children: &[],
-    },
-    NavItem {
-        label: "Learn Fission",
-        href: "/docs/learn/overview/",
-        children: &[],
-    },
-    NavItem {
-        label: "Guides",
-        href: "/docs/guides/layout-and-widgets/",
-        children: &[],
-    },
-    NavItem {
-        label: "Cookbook",
-        href: "/docs/cookbook/add-platform-targets/",
-        children: &[],
-    },
-    NavItem {
-        label: "API reference",
-        href: "/reference/overview/overview/",
-        children: &[],
-    },
-];
-
 const NAV_ITEMS: &[NavItem] = &[
     NavItem {
-        label: "Platform",
-        href: "/product/overview/",
-        children: PRODUCT_CHILDREN,
+        label: "Why Fission",
+        href: "/#why",
+        children: &[],
+    },
+    NavItem {
+        label: "Who it helps",
+        href: "/#value",
+        children: &[],
+    },
+    NavItem {
+        label: "How it works",
+        href: "/#approach",
+        children: &[],
     },
     NavItem {
         label: "Docs",
-        href: "/docs/learn/overview/",
-        children: DOCS_CHILDREN,
+        href: "/docs/",
+        children: &[],
     },
     NavItem {
         label: "Crates",
@@ -112,23 +46,23 @@ const NAV_ITEMS: &[NavItem] = &[
 
 const MOBILE_MENU_CHILDREN: &[NavItem] = &[
     NavItem {
-        label: "Platform",
-        href: "/product/overview/",
+        label: "Why Fission",
+        href: "/#why",
+        children: &[],
+    },
+    NavItem {
+        label: "Who it helps",
+        href: "/#value",
+        children: &[],
+    },
+    NavItem {
+        label: "How it works",
+        href: "/#approach",
         children: &[],
     },
     NavItem {
         label: "Documentation",
-        href: "/docs/learn/overview/",
-        children: &[],
-    },
-    NavItem {
-        label: "Quickstart",
-        href: "/docs/learn/quickstart/",
-        children: &[],
-    },
-    NavItem {
-        label: "API reference",
-        href: "/reference/overview/overview/",
+        href: "/docs/",
         children: &[],
     },
     NavItem {
@@ -145,7 +79,7 @@ const MOBILE_MENU_CHILDREN: &[NavItem] = &[
 
 const MOBILE_NAV_ITEMS: &[NavItem] = &[NavItem {
     label: "Menu",
-    href: "/product/overview/",
+    href: "/",
     children: MOBILE_MENU_CHILDREN,
 }];
 
@@ -205,13 +139,8 @@ impl From<HomePageNav> for Widget {
                 .into(),
                 Row {
                     children: vec![
-                        ExternalNavLink::new("GitHub", "https://github.com/fission-ui/fission")
-                            .into(),
                         ThemeToggle.into(),
-                        // Re-enable once Spanish covers enough routes for switching here
-                        // to retain the visitor's current destination.
-                        // super::home_widgets::LocaleSwitcher.into(),
-                        SearchPill.into(),
+                        Cta::new("Start building", "/docs/learn/quickstart/", false).into(),
                     ],
                     gap: Some(tokens.spacing.m),
                     justify_content: JustifyContent::End,

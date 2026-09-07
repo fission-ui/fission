@@ -18,7 +18,7 @@
     appearance: none;
     min-height: 2.35rem;
     border: 1px solid var(--atlas-line, currentColor);
-    border-radius: 0.65rem;
+    border-radius: 0;
     background: var(--atlas-surface, transparent);
     color: var(--atlas-muted, inherit);
     cursor: pointer;
@@ -152,6 +152,43 @@
       return selected;
     };
 
+    const upgradeCategoryFilters = (root, onChange) => {
+      root.querySelectorAll(`[${SEMANTICS}^="crate-category-filter:"]`).forEach((host) => {
+        const category = semanticSuffix(host, "crate-category-filter:");
+        if (!category) return;
+        const existingShell = host.closest(".fission-site-box");
+        const replaceTarget = existingShell && existingShell !== root ? existingShell : host;
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "fission-crate-filter-button fission-crate-category-button";
+        button.dataset.category = category;
+        button.dataset.active = String(category === "all");
+        button.setAttribute("aria-pressed", String(category === "all"));
+        button.textContent = host.textContent.trim();
+        button.addEventListener("click", () => {
+          root.querySelectorAll(".fission-crate-category-button").forEach((peer) => {
+            const active = peer === button;
+            peer.dataset.active = String(active);
+            peer.setAttribute("aria-pressed", String(active));
+          });
+          onChange(category);
+        });
+        replaceTarget.replaceWith(button);
+      });
+    };
+
+    const categoryTerms = {
+      widgets: ["widget", "interface", "ui", "chart", "icon", "theme"],
+      capabilities: ["capability", "platform", "map", "camera", "media", "device"],
+      services: ["service", "storage", "store", "sqlite", "data", "network", "http"],
+      jobs: ["job", "automation", "worker", "build", "site", "server", "shell"],
+      tooling: ["tool", "test", "diagnostic", "debug", "cli", "command", "development"],
+    };
+
+    const matchesCategory = (searchableText, category) =>
+      category === "all"
+      || (categoryTerms[category] || []).some((term) => searchableText.includes(term));
+
     const upgradeSortControl = (root, onChange) => {
       const host = root.querySelector(`[${SEMANTICS}="crate-sort"]`);
       if (!host) return null;
@@ -187,6 +224,7 @@
       searchInputs.forEach((input) => {
         input.classList.add("fission-crate-search-input");
         input.setAttribute("aria-label", messages.searchLabel);
+        input.setAttribute("placeholder", messages.searchLabel);
         input.setAttribute("autocomplete", "off");
         input.setAttribute("spellcheck", "false");
       });
@@ -249,6 +287,7 @@
       const state = {
         query: "",
         platforms: new Set(),
+        category: "all",
         sort: "updated",
       };
 
@@ -258,7 +297,7 @@
           const matchesPlatforms = Array.from(state.platforms).every((platform) =>
             platforms.has(platform),
           );
-          return matchesQuery && matchesPlatforms;
+          return matchesQuery && matchesPlatforms && matchesCategory(searchableText, state.category);
         });
 
         cards.sort((left, right) => {
@@ -280,6 +319,10 @@
 
       state.platforms = upgradePlatformFilters(root, (platforms) => {
         state.platforms = new Set(platforms);
+        apply();
+      });
+      upgradeCategoryFilters(root, (category) => {
+        state.category = category;
         apply();
       });
       upgradeSortControl(results, (sort) => {

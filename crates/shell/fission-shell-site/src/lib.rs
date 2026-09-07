@@ -5,8 +5,10 @@
 //! the HTML renderer. This crate does not provide an HTML-first page model or a
 //! replacement router.
 
+mod blog_routes;
 mod browser_island;
 mod build;
+mod build_support;
 mod document;
 mod document_config;
 mod front_matter;

@@ -24,6 +24,8 @@ pub(crate) struct ContentRoute {
     pub rendered: Option<String>,
 }
 
+pub(crate) const BLOG_PAGE_SIZE: usize = 6;
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 /// One navigation link, optionally containing a nested dropdown/tree.
 pub struct SiteNavLink {
@@ -119,14 +121,28 @@ impl DocumentationPage<'_> {
                 .into(),
             );
         }
+        let mut actions = Vec::new();
         if self.theme_switching {
-            children.push(theme_toggle(tokens));
+            actions.push(theme_toggle(tokens));
             // Re-enable when the translated documentation corpus is substantial enough
             // for switching locale here to preserve the reader's current destination.
             // children.push(locale_switcher(tokens));
         }
         if self.search_enabled {
-            children.push(search_trigger(tokens));
+            actions.push(search_trigger(tokens));
+        }
+        if !actions.is_empty() {
+            children.push(
+                Row {
+                    children: actions,
+                    gap: Some(tokens.spacing.m),
+                    align_items: AlignItems::Center,
+                    justify_content: JustifyContent::End,
+                    semantics: Some(site_semantics("site-doc-actions")),
+                    ..Default::default()
+                }
+                .into(),
+            );
         }
         Container::new(Row {
             children,
@@ -386,16 +402,27 @@ impl DocumentationPage<'_> {
 
     fn blog_index_article(&self, tokens: &Tokens) -> Widget {
         let posts = ordered_blog_routes(self.all_routes);
-        let featured = posts.first().copied();
+        let page = blog_page_number(&self.route.path).unwrap_or(1);
+        let page_count = posts.len().div_ceil(BLOG_PAGE_SIZE).max(1);
+        let page_start = (page.saturating_sub(1) * BLOG_PAGE_SIZE).min(posts.len());
+        let page_end = (page_start + BLOG_PAGE_SIZE).min(posts.len());
+        let page_posts = &posts[page_start..page_end];
+        let featured = (page == 1).then(|| page_posts.first().copied()).flatten();
         let mut post_cards = Vec::new();
-        for route in posts.iter().skip(usize::from(featured.is_some())) {
+        for route in page_posts.iter().skip(usize::from(featured.is_some())) {
             post_cards.push(blog_post_card(route, false, tokens));
         }
 
         let mut children = vec![
             Container::new(Column {
                 children: vec![
-                    Text::new("Notes from every surface.")
+                    Text::new("Fission journal")
+                        .size(tokens.typography.font_size_xs)
+                        .family(tokens.typography.font_family_mono.clone())
+                        .weight(tokens.typography.font_weight_bold)
+                        .color(tokens.colors.primary)
+                        .into(),
+                    Text::new("How Fission is built, tested, and released.")
                         .size(tokens.typography.heading1_size)
                         .family(tokens.typography.font_family_serif.clone())
                         .weight(tokens.typography.font_weight_bold)
@@ -406,7 +433,7 @@ impl DocumentationPage<'_> {
                         .color(tokens.colors.heading)
                         .semantics_identifier("site-blog-index-title")
                         .into(),
-                    Text::new("Engineering stories, release notes, and practical guides for building production Rust applications.")
+                    Text::new("Release notes explain what changed and who it helps. Engineering articles document the decisions behind Fission's application model, platform boundaries, rendering, testing, and production tooling.")
                         .size(tokens.typography.body_large_size)
                         .line_height(
                             tokens.typography.body_large_size
@@ -463,6 +490,10 @@ impl DocumentationPage<'_> {
                 })
                 .into(),
             );
+        }
+
+        if page_count > 1 {
+            children.push(blog_index_pagination(page, page_count, tokens));
         }
 
         Column {
@@ -783,6 +814,9 @@ impl DocumentationPage<'_> {
     fn content_adjacent_pages(&self, tokens: &Tokens) -> Option<Widget> {
         let prefix = section_prefix(&self.route.path);
         let mut routes = Vec::<&ContentRoute>::new();
+        if let Some(route) = self.all_routes.iter().find(|route| route.path == prefix) {
+            routes.push(route);
+        }
         for item in &self.route.sidebar {
             if item.group || item.level < 2 || routes.iter().any(|route| route.path == item.href) {
                 continue;
@@ -1360,11 +1394,82 @@ fn is_blog_route(path: &str) -> bool {
 }
 
 fn is_blog_post_route(path: &str) -> bool {
-    is_blog_route(path) && path != "/blog/" && !is_blog_taxonomy_route(path)
+    is_blog_route(path) && !is_blog_index_route(path) && !is_blog_taxonomy_route(path)
 }
 
 fn is_blog_index_route(path: &str) -> bool {
-    path == "/blog/"
+    path == "/blog/" || blog_page_number(path).is_some()
+}
+
+fn blog_page_number(path: &str) -> Option<usize> {
+    let page = path
+        .strip_prefix("/blog/page/")?
+        .trim_end_matches('/')
+        .parse::<usize>()
+        .ok()?;
+    (page >= 2).then_some(page)
+}
+
+fn blog_page_path(page: usize) -> String {
+    if page <= 1 {
+        "/blog/".to_string()
+    } else {
+        format!("/blog/page/{page}/")
+    }
+}
+
+fn blog_index_pagination(page: usize, page_count: usize, tokens: &Tokens) -> Widget {
+    SemanticBlogPagination {
+        previous: page.checked_sub(1).filter(|value| *value >= 1),
+        next: (page < page_count).then_some(page + 1),
+        page,
+        page_count,
+    }
+    .into_widget(tokens)
+}
+
+struct SemanticBlogPagination {
+    previous: Option<usize>,
+    next: Option<usize>,
+    page: usize,
+    page_count: usize,
+}
+
+impl SemanticBlogPagination {
+    fn into_widget(self, tokens: &Tokens) -> Widget {
+        Row {
+            children: vec![
+                blog_page_link("← Previous page", self.previous, tokens),
+                Text::new(format!("Page {} of {}", self.page, self.page_count))
+                    .size(tokens.typography.font_size_xs)
+                    .family(tokens.typography.font_family_mono.clone())
+                    .color(tokens.colors.text_muted)
+                    .into(),
+                blog_page_link("Next page →", self.next, tokens),
+            ],
+            gap: Some(tokens.spacing.l),
+            align_items: AlignItems::Center,
+            justify_content: JustifyContent::SpaceBetween,
+            semantics: Some(site_semantics("site-blog-pagination")),
+            ..Default::default()
+        }
+        .into()
+    }
+}
+
+fn blog_page_link(label: &str, page: Option<usize>, tokens: &Tokens) -> Widget {
+    let mut text = Text::new(label.to_string())
+        .size(tokens.typography.label_large_size)
+        .weight(tokens.typography.font_weight_bold)
+        .color(if page.is_some() {
+            tokens.colors.text_link
+        } else {
+            tokens.colors.text_muted.with_alpha(110)
+        });
+    if let Some(page) = page {
+        text = text.semantics_identifier(format!("site-route:{}", blog_page_path(page)));
+    }
+    text.into()
 }
 
 fn is_blog_taxonomy_route(path: &str) -> bool {
@@ -1643,5 +1748,17 @@ mod tests {
         assert_eq!(links[0].title, "Install Rust");
         assert_eq!(links[0].anchor, "install-rust");
         assert_eq!(links[1].title, "Add target");
+    }
+
+    #[test]
+    fn blog_page_routes_are_indexes_not_posts() {
+        assert!(is_blog_index_route("/blog/"));
+        assert!(is_blog_index_route("/blog/page/2/"));
+        assert!(!is_blog_post_route("/blog/page/2/"));
+        assert!(is_blog_post_route("/blog/2026/09/07/example/"));
+        assert_eq!(blog_page_number("/blog/page/4/"), Some(4));
+        assert_eq!(blog_page_number("/blog/page/1/"), None);
+        assert_eq!(blog_page_path(1), "/blog/");
+        assert_eq!(blog_page_path(3), "/blog/page/3/");
     }
 }

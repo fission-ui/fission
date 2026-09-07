@@ -31,41 +31,204 @@ impl From<CrateDirectoryPage> for Widget {
         } else {
             HomePageNav.into()
         };
+        let featured = page
+            .crates
+            .iter()
+            .find(|item| item.name == "fission-maps")
+            .cloned();
+        let mut children = vec![navigation, CrateDirectoryHero { crate_count }.into()];
+        if let Some(item) = featured {
+            children.push(FeaturedCrate { item }.into());
+        }
+        children.extend([
+            CategoryLegend.into(),
+            PlatformLegend.into(),
+            Container::new(Column {
+                children: vec![
+                    CrateDirectoryToolbar { crate_count }.into(),
+                    CrateResults {
+                        crates: page.crates,
+                    }
+                    .into(),
+                ],
+                gap: Some(tokens.spacing.l),
+                semantics: Some(site_semantics("crate-results")),
+                ..Default::default()
+            })
+            .width_length(Length::clamp(
+                Length::points(280.0),
+                Length::percent(100.0),
+                Length::points(1304.0),
+            ))
+            .padding_lengths([
+                Length::points(tokens.spacing.xxl),
+                Length::points(tokens.spacing.xl),
+                Length::points(tokens.spacing.xxxxl),
+                Length::points(tokens.spacing.xl),
+            ])
+            .into(),
+        ]);
         Container::new(Column {
-            children: vec![
-                navigation,
-                CrateDirectoryHero { crate_count }.into(),
-                PlatformLegend.into(),
-                Container::new(Column {
-                    children: vec![
-                        CrateDirectoryToolbar { crate_count }.into(),
-                        CrateResults {
-                            crates: page.crates,
-                        }
-                        .into(),
-                    ],
-                    gap: Some(tokens.spacing.l),
-                    semantics: Some(site_semantics("crate-results")),
-                    ..Default::default()
-                })
-                .width_length(Length::clamp(
-                    Length::points(280.0),
-                    Length::percent(100.0),
-                    Length::points(1304.0),
-                ))
-                .padding_lengths([
-                    Length::points(tokens.spacing.xxl),
-                    Length::points(tokens.spacing.xl),
-                    Length::points(tokens.spacing.xxxxl),
-                    Length::points(tokens.spacing.xl),
-                ])
-                .into(),
-            ],
+            children,
             gap: Some(0.0),
             semantics: Some(site_semantics("crate-directory-page")),
             ..Default::default()
         })
         .bg_fill(page_fill(tokens))
+        .into()
+    }
+}
+
+#[derive(Clone, Debug)]
+struct FeaturedCrate {
+    item: RegistryCrate,
+}
+
+impl From<FeaturedCrate> for Widget {
+    fn from(featured: FeaturedCrate) -> Widget {
+        let (_ctx, view) = fission::build::current::<DocsState>();
+        let tokens = &view.env().theme.tokens;
+        let item = featured.item;
+        let href = format!("/crates/{}/", item.name);
+        Container::new(SemanticRow::new(
+            "crate-featured",
+            vec![
+                Column {
+                    children: vec![
+                        Text::new("Featured community capability")
+                            .size(tokens.typography.font_size_xs)
+                            .family(tokens.typography.font_family_mono.clone())
+                            .weight(tokens.typography.font_weight_bold)
+                            .color(tokens.colors.primary)
+                            .into(),
+                        Text::new(item.name.clone())
+                            .size(tokens.typography.font_size_lg)
+                            .family(tokens.typography.font_family_mono.clone())
+                            .weight(tokens.typography.font_weight_bold)
+                            .color(tokens.colors.text_secondary)
+                            .into(),
+                        Text::new("Put native Apple maps inside a Fission application.")
+                            .size(tokens.typography.heading1_size)
+                            .weight(tokens.typography.font_weight_bold)
+                            .line_height(
+                                tokens.typography.heading1_size
+                                    * tokens.typography.line_height_heading,
+                            )
+                            .color(tokens.colors.heading)
+                            .into(),
+                        Text::new(item.description)
+                            .size(tokens.typography.body_large_size)
+                            .line_height(
+                                tokens.typography.body_large_size
+                                    * tokens.typography.line_height_relaxed,
+                            )
+                            .color(tokens.colors.text_secondary)
+                            .max_width(680.0)
+                            .into(),
+                        SemanticRow::new(
+                            "crate-featured-actions",
+                            vec![
+                                Text::new("View package  ↗")
+                                    .size(tokens.typography.label_large_size)
+                                    .weight(tokens.typography.font_weight_bold)
+                                    .color(tokens.colors.on_primary)
+                                    .semantics_identifier(format!("site-route:{href}"))
+                                    .into(),
+                                Text::new(format!("cargo add {}", item.name))
+                                    .size(tokens.typography.font_size_sm)
+                                    .family(tokens.typography.font_family_mono.clone())
+                                    .color(tokens.colors.text_link)
+                                    .into(),
+                            ],
+                            Some(tokens.spacing.l),
+                            FlexWrap::Wrap,
+                            AlignItems::Center,
+                            JustifyContent::Start,
+                        )
+                        .into(),
+                    ],
+                    gap: Some(tokens.spacing.l),
+                    ..Default::default()
+                }
+                .into(),
+                Column {
+                    children: vec![Container::new(
+                        Text::new("Native maps\nwhere they belong.")
+                            .size(tokens.typography.heading_size)
+                            .weight(tokens.typography.font_weight_bold)
+                            .color(tokens.colors.heading)
+                            .text_align(TextAlign::Center),
+                    )
+                    .into()],
+                    semantics: Some(site_semantics("crate-featured-visual")),
+                    ..Default::default()
+                }
+                .into(),
+            ],
+            Some(tokens.spacing.xxxl),
+            FlexWrap::NoWrap,
+            AlignItems::Stretch,
+            JustifyContent::SpaceBetween,
+        ))
+        .width_length(Length::clamp(
+            Length::points(280.0),
+            Length::percent(100.0),
+            Length::points(1400.0),
+        ))
+        .padding_lengths([
+            Length::points(tokens.spacing.xxxl),
+            Length::points(tokens.spacing.xl),
+            Length::points(tokens.spacing.xxxl),
+            Length::points(tokens.spacing.xl),
+        ])
+        .border(tokens.colors.border_strong, 1.0)
+        .into()
+    }
+}
+
+#[derive(Clone, Debug)]
+struct CategoryLegend;
+
+impl From<CategoryLegend> for Widget {
+    fn from(_legend: CategoryLegend) -> Widget {
+        let (_ctx, view) = fission::build::current::<DocsState>();
+        let tokens = &view.env().theme.tokens;
+        let categories = [
+            ("All", "all"),
+            ("Widgets", "widgets"),
+            ("Capabilities", "capabilities"),
+            ("Services & data", "services"),
+            ("Jobs & automation", "jobs"),
+            ("Tooling", "tooling"),
+        ];
+        Container::new(Row {
+            children: categories
+                .into_iter()
+                .map(|(label, id)| {
+                    Container::new(
+                        Text::new(label)
+                            .size(tokens.typography.font_size_sm)
+                            .weight(tokens.typography.font_weight_medium)
+                            .color(tokens.colors.text_secondary)
+                            .semantics_identifier(format!("crate-category-filter:{id}")),
+                    )
+                    .padding([10.0, 14.0, 10.0, 14.0])
+                    .border(tokens.colors.border, 1.0)
+                    .into()
+                })
+                .collect(),
+            gap: Some(tokens.spacing.s),
+            wrap: FlexWrap::Wrap,
+            justify_content: JustifyContent::Center,
+            semantics: Some(site_semantics("crate-category-legend")),
+            ..Default::default()
+        })
+        .width_length(Length::clamp(
+            Length::points(280.0),
+            Length::percent(100.0),
+            Length::points(1304.0),
+        ))
+        .padding_lengths(Length::all(Length::points(tokens.spacing.m)))
         .into()
     }
 }
@@ -181,38 +344,46 @@ impl From<CrateHeroContent> for Widget {
         } else {
             format!("{} indexed crates", hero.crate_count)
         };
-        Container::new(Column {
-            children: vec![
+        SemanticRow::new(
+            "crate-directory-copy",
+            vec![
                 Text::new(TextContent::Key("crates.eyebrow".into()))
                     .size(tokens.typography.font_size_sm)
                     .weight(tokens.typography.font_weight_bold)
                     .color(tokens.colors.primary)
                     .into(),
-                Text::new(TextContent::Key("crates.title".into()))
-                    .size(if hero.compact { 46.0 } else { 68.0 })
-                    .line_height(if hero.compact { 48.0 } else { 70.0 })
-                    .weight(tokens.typography.font_weight_bold)
-                    .color(tokens.colors.heading)
-                    .max_width(760.0)
-                    .into(),
-                Text::new(TextContent::Key("crates.body".into()))
-                    .size(if hero.compact { 17.0 } else { 20.0 })
-                    .line_height(if hero.compact { 27.0 } else { 32.0 })
-                    .color(tokens.colors.text_secondary)
-                    .max_width(700.0)
-                    .into(),
-                CrateSearchBox.into(),
-                Text::new(indexed_count)
-                    .size(tokens.typography.font_size_sm)
-                    .weight(tokens.typography.font_weight_bold)
-                    .color(tokens.colors.secondary)
-                    .into(),
+                Column {
+                    children: vec![
+                        Text::new(TextContent::Key("crates.title".into()))
+                            .size(if hero.compact { 46.0 } else { 68.0 })
+                            .line_height(if hero.compact { 48.0 } else { 70.0 })
+                            .weight(tokens.typography.font_weight_bold)
+                            .color(tokens.colors.heading)
+                            .max_width(900.0)
+                            .into(),
+                        Text::new(TextContent::Key("crates.body".into()))
+                            .size(if hero.compact { 17.0 } else { 20.0 })
+                            .line_height(if hero.compact { 27.0 } else { 32.0 })
+                            .color(tokens.colors.text_secondary)
+                            .max_width(740.0)
+                            .into(),
+                        CrateSearchBox.into(),
+                        Text::new(indexed_count)
+                            .size(tokens.typography.font_size_sm)
+                            .weight(tokens.typography.font_weight_bold)
+                            .color(tokens.colors.secondary)
+                            .into(),
+                    ],
+                    gap: Some(tokens.spacing.l),
+                    ..Default::default()
+                }
+                .into(),
             ],
-            gap: Some(tokens.spacing.m),
-            semantics: Some(site_semantics("crate-directory-copy")),
-            ..Default::default()
-        })
-        .width_length(Length::percent(100.0))
+            Some(tokens.spacing.xxxl),
+            FlexWrap::Wrap,
+            AlignItems::Start,
+            JustifyContent::SpaceBetween,
+        )
         .into()
     }
 }
