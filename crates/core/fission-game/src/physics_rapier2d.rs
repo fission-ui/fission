@@ -4,7 +4,8 @@ use std::collections::BTreeMap;
 use std::fmt;
 
 use rapier2d::prelude::{
-    ColliderBuilder, PhysicsWorld, Pose, RigidBodyBuilder, RigidBodyHandle, Rotation, Vector,
+    ColliderBuilder, PhysicsWorld, Pose, RigidBody, RigidBodyBuilder, RigidBodyHandle, Rotation,
+    Vector,
 };
 
 use crate::{
@@ -114,9 +115,91 @@ impl RapierPhysicsWorld2D {
         })
     }
 
+    pub fn set_body_pose(
+        &mut self,
+        id: &PhysicsBodyId,
+        pose: PhysicsPose2D,
+        wake_up: bool,
+    ) -> Result<(), Physics2DError> {
+        if !pose.is_finite() {
+            return Err(Physics2DError::new("physics pose must be finite"));
+        }
+        self.body_mut(id)?.set_position(isometry(pose), wake_up);
+        Ok(())
+    }
+
+    pub fn set_body_velocity(
+        &mut self,
+        id: &PhysicsBodyId,
+        velocity: PhysicsVelocity2D,
+        wake_up: bool,
+    ) -> Result<(), Physics2DError> {
+        if !velocity.is_finite() {
+            return Err(Physics2DError::new("physics velocity must be finite"));
+        }
+        let body = self.body_mut(id)?;
+        body.set_linvel(vector(velocity.linear), wake_up);
+        body.set_angvel(velocity.angular, wake_up);
+        Ok(())
+    }
+
+    pub fn add_force(
+        &mut self,
+        id: &PhysicsBodyId,
+        force: PhysicsVector2,
+        wake_up: bool,
+    ) -> Result<(), Physics2DError> {
+        if !force.is_finite() {
+            return Err(Physics2DError::new("physics force must be finite"));
+        }
+        self.body_mut(id)?.add_force(vector(force), wake_up);
+        Ok(())
+    }
+
+    pub fn add_force_at_point(
+        &mut self,
+        id: &PhysicsBodyId,
+        force: PhysicsVector2,
+        point: PhysicsVector2,
+        wake_up: bool,
+    ) -> Result<(), Physics2DError> {
+        if !force.is_finite() || !point.is_finite() {
+            return Err(Physics2DError::new(
+                "physics force and application point must be finite",
+            ));
+        }
+        self.body_mut(id)?
+            .add_force_at_point(vector(force), vector(point), wake_up);
+        Ok(())
+    }
+
+    pub fn apply_impulse(
+        &mut self,
+        id: &PhysicsBodyId,
+        impulse: PhysicsVector2,
+        wake_up: bool,
+    ) -> Result<(), Physics2DError> {
+        if !impulse.is_finite() {
+            return Err(Physics2DError::new("physics impulse must be finite"));
+        }
+        self.body_mut(id)?.apply_impulse(vector(impulse), wake_up);
+        Ok(())
+    }
+
     pub fn step(&mut self, duration: StepDuration) {
         self.world.integration_parameters.dt = duration.as_secs_f32();
         self.world.step();
+    }
+
+    fn body_mut(&mut self, id: &PhysicsBodyId) -> Result<&mut RigidBody, Physics2DError> {
+        let handle = *self
+            .bodies
+            .get(id)
+            .ok_or_else(|| Physics2DError::new("physics body identity is not present"))?;
+        self.world
+            .bodies
+            .get_mut(handle)
+            .ok_or_else(|| Physics2DError::new("physics body handle is stale"))
     }
 }
 
@@ -141,6 +224,52 @@ impl PhysicsProvider2D for RapierPhysicsWorld2D {
 
     fn body_velocity(&self, id: &PhysicsBodyId) -> Option<PhysicsVelocity2D> {
         RapierPhysicsWorld2D::body_velocity(self, id)
+    }
+
+    fn set_body_pose(
+        &mut self,
+        id: &PhysicsBodyId,
+        pose: PhysicsPose2D,
+        wake_up: bool,
+    ) -> Result<(), Self::Error> {
+        RapierPhysicsWorld2D::set_body_pose(self, id, pose, wake_up)
+    }
+
+    fn set_body_velocity(
+        &mut self,
+        id: &PhysicsBodyId,
+        velocity: PhysicsVelocity2D,
+        wake_up: bool,
+    ) -> Result<(), Self::Error> {
+        RapierPhysicsWorld2D::set_body_velocity(self, id, velocity, wake_up)
+    }
+
+    fn add_force(
+        &mut self,
+        id: &PhysicsBodyId,
+        force: PhysicsVector2,
+        wake_up: bool,
+    ) -> Result<(), Self::Error> {
+        RapierPhysicsWorld2D::add_force(self, id, force, wake_up)
+    }
+
+    fn add_force_at_point(
+        &mut self,
+        id: &PhysicsBodyId,
+        force: PhysicsVector2,
+        point: PhysicsVector2,
+        wake_up: bool,
+    ) -> Result<(), Self::Error> {
+        RapierPhysicsWorld2D::add_force_at_point(self, id, force, point, wake_up)
+    }
+
+    fn apply_impulse(
+        &mut self,
+        id: &PhysicsBodyId,
+        impulse: PhysicsVector2,
+        wake_up: bool,
+    ) -> Result<(), Self::Error> {
+        RapierPhysicsWorld2D::apply_impulse(self, id, impulse, wake_up)
     }
 
     fn step(&mut self, duration: StepDuration) {
@@ -227,6 +356,10 @@ fn isometry(pose: PhysicsPose2D) -> Pose {
     )
 }
 
+fn vector(value: PhysicsVector2) -> Vector {
+    Vector::new(value.x, value.y)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -261,5 +394,50 @@ mod tests {
             error.to_string(),
             "physics collider dimensions must be finite and positive"
         );
+    }
+
+    #[test]
+    fn forces_and_authoritative_updates_use_stable_body_ids() {
+        let mut world = RapierPhysicsWorld2D::new(PhysicsVector2::ZERO).expect("finite gravity");
+        let id = body_id(3);
+        world
+            .insert_body(PhysicsBody2D::dynamic(
+                id.clone(),
+                PhysicsShape2D::Circle { radius: 0.5 },
+            ))
+            .expect("insert body");
+        world
+            .set_body_pose(
+                &id,
+                PhysicsPose2D::new(PhysicsVector2::new(2.0, 3.0), 0.25),
+                true,
+            )
+            .expect("set pose");
+        world
+            .set_body_velocity(
+                &id,
+                PhysicsVelocity2D::new(PhysicsVector2::new(1.0, 0.0), 0.0),
+                true,
+            )
+            .expect("set velocity");
+        world
+            .add_force_at_point(
+                &id,
+                PhysicsVector2::new(10.0, 0.0),
+                PhysicsVector2::new(2.0, 4.0),
+                true,
+            )
+            .expect("apply off-center force");
+        world
+            .apply_impulse(&id, PhysicsVector2::new(1.0, 0.0), true)
+            .expect("apply impulse");
+
+        world.step(StepDuration::from_hz(60));
+
+        let pose = world.body_pose(&id).expect("body pose");
+        let velocity = world.body_velocity(&id).expect("body velocity");
+        assert!(pose.translation.x > 2.0);
+        assert!(velocity.linear.x > 1.0);
+        assert!(velocity.angular.abs() > 0.0);
     }
 }

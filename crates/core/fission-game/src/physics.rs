@@ -175,6 +175,37 @@ pub trait PhysicsProvider2D {
     fn contains_body(&self, id: &PhysicsBodyId) -> bool;
     fn body_pose(&self, id: &PhysicsBodyId) -> Option<PhysicsPose2D>;
     fn body_velocity(&self, id: &PhysicsBodyId) -> Option<PhysicsVelocity2D>;
+    fn set_body_pose(
+        &mut self,
+        id: &PhysicsBodyId,
+        pose: PhysicsPose2D,
+        wake_up: bool,
+    ) -> Result<(), Self::Error>;
+    fn set_body_velocity(
+        &mut self,
+        id: &PhysicsBodyId,
+        velocity: PhysicsVelocity2D,
+        wake_up: bool,
+    ) -> Result<(), Self::Error>;
+    fn add_force(
+        &mut self,
+        id: &PhysicsBodyId,
+        force: PhysicsVector2,
+        wake_up: bool,
+    ) -> Result<(), Self::Error>;
+    fn add_force_at_point(
+        &mut self,
+        id: &PhysicsBodyId,
+        force: PhysicsVector2,
+        point: PhysicsVector2,
+        wake_up: bool,
+    ) -> Result<(), Self::Error>;
+    fn apply_impulse(
+        &mut self,
+        id: &PhysicsBodyId,
+        impulse: PhysicsVector2,
+        wake_up: bool,
+    ) -> Result<(), Self::Error>;
     fn step(&mut self, duration: crate::StepDuration);
 }
 
@@ -350,6 +381,37 @@ pub trait PhysicsProvider3D {
     fn contains_body(&self, id: &PhysicsBodyId) -> bool;
     fn body_pose(&self, id: &PhysicsBodyId) -> Option<PhysicsPose3D>;
     fn body_velocity(&self, id: &PhysicsBodyId) -> Option<PhysicsVelocity3D>;
+    fn set_body_pose(
+        &mut self,
+        id: &PhysicsBodyId,
+        pose: PhysicsPose3D,
+        wake_up: bool,
+    ) -> Result<(), Self::Error>;
+    fn set_body_velocity(
+        &mut self,
+        id: &PhysicsBodyId,
+        velocity: PhysicsVelocity3D,
+        wake_up: bool,
+    ) -> Result<(), Self::Error>;
+    fn add_force(
+        &mut self,
+        id: &PhysicsBodyId,
+        force: PhysicsVector3,
+        wake_up: bool,
+    ) -> Result<(), Self::Error>;
+    fn add_force_at_point(
+        &mut self,
+        id: &PhysicsBodyId,
+        force: PhysicsVector3,
+        point: PhysicsVector3,
+        wake_up: bool,
+    ) -> Result<(), Self::Error>;
+    fn apply_impulse(
+        &mut self,
+        id: &PhysicsBodyId,
+        impulse: PhysicsVector3,
+        wake_up: bool,
+    ) -> Result<(), Self::Error>;
     fn step(&mut self, duration: crate::StepDuration);
 }
 
