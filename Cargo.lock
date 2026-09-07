@@ -3184,12 +3184,14 @@ dependencies = [
  "fission-store-sqlite",
  "fission-theme",
  "fission-widgets",
+ "form_urlencoded",
  "futures-lite",
  "getrandom 0.2.17",
  "hyper 0.14.32",
  "moka",
  "redis",
  "serde",
+ "serde_html_form",
  "serde_json",
  "tokio",
  "toml 0.8.2",
@@ -7805,6 +7807,17 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.118",
+]
+
+[[package]]
+name = "serde_html_form"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8f0346d7a342ab90f405cfc08f25d15075f944f42fcabbc5eac923829fa6d228"
+dependencies = [
+ "form_urlencoded",
+ "indexmap",
+ "serde_core",
 ]
 
 [[package]]

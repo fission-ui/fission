@@ -296,6 +296,16 @@ impl Button {
         self
     }
 
+    /// Associates this submit action with named controls in one logical form.
+    ///
+    /// Server-rendered HTML uses this id to bind the signed action to its typed
+    /// form schema. Text inputs submitted by the action use the same `form_id`.
+    pub fn form_id(mut self, form_id: impl Into<String>) -> Self {
+        let semantics = self.semantics.get_or_insert_with(default_button_semantics);
+        semantics.text_form_id = Some(form_id.into());
+        self
+    }
+
     pub fn background_fill(mut self, fill: Fill) -> Self {
         self.background_fill = Some(fill);
         self

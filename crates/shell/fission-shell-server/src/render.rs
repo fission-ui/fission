@@ -938,8 +938,8 @@ impl ServerRenderer {
                 "server action origin rejected",
             ));
         }
-        let token: SignedServerAction = match self.decode_action_request(&request) {
-            Ok(token) => token,
+        let decoded = match self.decode_action_request(&request) {
+            Ok(decoded) => decoded,
             Err(_) => {
                 return Ok(ServerResponse::text(
                     400,
@@ -948,7 +948,7 @@ impl ServerRenderer {
                 ))
             }
         };
-        let action = match self.action_signer.verify_once(&token) {
+        let verified = match self.action_signer.verify(&decoded.token) {
             Ok(action) => action,
             Err(_) => {
                 return Ok(ServerResponse::text(
@@ -958,6 +958,58 @@ impl ServerRenderer {
                 ))
             }
         };
+        let bound_action = match (&verified.form_id, decoded.fields.as_deref()) {
+            (Some(form_id), Some(fields)) => {
+                let Some(binding) = self.app.find_form_action(form_id, verified.action.id) else {
+                    return Ok(ServerResponse::text(
+                        400,
+                        "text/plain; charset=utf-8",
+                        "server action form schema not registered",
+                    ));
+                };
+                match binding.decode(fields) {
+                    Ok(action) => Some(action),
+                    Err(_) => {
+                        return Ok(ServerResponse::text(
+                            422,
+                            "text/plain; charset=utf-8",
+                            "invalid server action form",
+                        ))
+                    }
+                }
+            }
+            (Some(_), None) => {
+                return Ok(ServerResponse::text(
+                    400,
+                    "text/plain; charset=utf-8",
+                    "typed server action requires a form submission",
+                ))
+            }
+            (None, Some(fields)) if !fields.is_empty() => {
+                return Ok(ServerResponse::text(
+                    400,
+                    "text/plain; charset=utf-8",
+                    "fixed server action does not accept form fields",
+                ))
+            }
+            (None, _) => None,
+        };
+        let mut action = match self.action_signer.verify_once(&decoded.token) {
+            Ok(action) => action,
+            Err(_) => {
+                return Ok(ServerResponse::text(
+                    403,
+                    "text/plain; charset=utf-8",
+                    "server action token rejected",
+                ))
+            }
+        };
+        if let Some(bound_action) = bound_action {
+            if bound_action.id != action.action.id {
+                anyhow::bail!("typed server form changed the signed action identity");
+            }
+            action.action = bound_action;
+        }
         let route_path = normalize_server_path(&action.route_path);
         let Some(route) = self.app.find_route(&route_path) else {
             return Ok(ServerResponse::text(
@@ -992,17 +1044,32 @@ impl ServerRenderer {
         Ok(response)
     }
 
-    fn decode_action_request(&self, request: &ServerRequest) -> Result<SignedServerAction> {
+    fn decode_action_request(&self, request: &ServerRequest) -> Result<DecodedActionRequest> {
         let content_type = header_value(&request.headers, "content-type")
             .map(|value| value.split(';').next().unwrap_or(value).trim())
             .unwrap_or("application/json");
         if content_type.eq_ignore_ascii_case("application/x-www-form-urlencoded") {
-            let body = String::from_utf8_lossy(&request.body);
-            let token = form_value(&body, "token")
-                .ok_or_else(|| anyhow!("server action form is missing token"))?;
-            return self.action_signer.decode(&token);
+            let mut token = None;
+            let mut fields = Vec::new();
+            for (name, value) in parse_form_pairs(&request.body)? {
+                if name == "token" {
+                    if token.replace(value).is_some() {
+                        anyhow::bail!("server action form contains duplicate tokens");
+                    }
+                } else {
+                    fields.push((name, value));
+                }
+            }
+            let token = token.ok_or_else(|| anyhow!("server action form is missing token"))?;
+            return Ok(DecodedActionRequest {
+                token: self.action_signer.decode(&token)?,
+                fields: Some(fields),
+            });
         }
-        serde_json::from_slice(&request.body).map_err(Into::into)
+        Ok(DecodedActionRequest {
+            token: serde_json::from_slice(&request.body)?,
+            fields: None,
+        })
     }
 
     fn action_origin_allowed(&self, request: &ServerRequest) -> bool {
@@ -1356,33 +1423,47 @@ fn asset_request_path(path: &str) -> String {
     out
 }
 
-fn form_value(body: &str, key: &str) -> Option<String> {
-    body.split('&').find_map(|field| {
-        let (candidate, value) = field.split_once('=')?;
-        (candidate == key).then(|| form_decode(value))
-    })
+struct DecodedActionRequest {
+    token: SignedServerAction,
+    fields: Option<Vec<(String, String)>>,
 }
 
-fn form_decode(value: &str) -> String {
-    let bytes = value.as_bytes();
-    let mut out = Vec::with_capacity(bytes.len());
+fn parse_form_pairs(body: &[u8]) -> Result<Vec<(String, String)>> {
+    if body.is_empty() {
+        return Ok(Vec::new());
+    }
+    body.split(|byte| *byte == b'&')
+        .map(|field| {
+            let Some(separator) = field.iter().position(|byte| *byte == b'=') else {
+                anyhow::bail!("malformed form field");
+            };
+            Ok((
+                form_decode(&field[..separator])?,
+                form_decode(&field[separator + 1..])?,
+            ))
+        })
+        .collect()
+}
+
+fn form_decode(value: &[u8]) -> Result<String> {
+    let mut out = Vec::with_capacity(value.len());
     let mut index = 0;
-    while index < bytes.len() {
-        match bytes[index] {
+    while index < value.len() {
+        match value[index] {
             b'+' => {
                 out.push(b' ');
                 index += 1;
             }
-            b'%' if index + 2 < bytes.len() => {
-                let hi = hex_value(bytes[index + 1]);
-                let lo = hex_value(bytes[index + 2]);
-                if let (Some(hi), Some(lo)) = (hi, lo) {
-                    out.push((hi << 4) | lo);
-                    index += 3;
-                } else {
-                    out.push(bytes[index]);
-                    index += 1;
+            b'%' => {
+                if index + 2 >= value.len() {
+                    anyhow::bail!("incomplete percent escape in form value");
                 }
+                let hi = hex_value(value[index + 1])
+                    .ok_or_else(|| anyhow!("invalid percent escape in form value"))?;
+                let lo = hex_value(value[index + 2])
+                    .ok_or_else(|| anyhow!("invalid percent escape in form value"))?;
+                out.push((hi << 4) | lo);
+                index += 3;
             }
             byte => {
                 out.push(byte);
@@ -1390,7 +1471,7 @@ fn form_decode(value: &str) -> String {
             }
         }
     }
-    String::from_utf8_lossy(&out).into_owned()
+    String::from_utf8(out).context("form value is not valid UTF-8")
 }
 
 fn cookie_value(cookie: &str, key: &str) -> Option<String> {
@@ -1611,6 +1692,7 @@ fn collect_server_action_tokens(
     ttl: Duration,
 ) -> Result<BTreeMap<(fission_ir::WidgetId, u128), String>> {
     let mut tokens = BTreeMap::new();
+    let mut form_ids = BTreeSet::new();
     for node in ir.nodes.values() {
         let Op::Semantics(semantics) = &node.op else {
             continue;
@@ -1631,8 +1713,25 @@ fn collect_server_action_tokens(
                 id: ActionId::from_u128(entry.action_id),
                 payload,
             };
-            let token =
-                signer.sign_envelope(route_path.to_string(), node.id.as_u128(), envelope, ttl);
+            let token = if let Some(form_id) = semantics.text_form_id.as_deref() {
+                if form_id.is_empty() {
+                    anyhow::bail!("server action form ids cannot be empty");
+                }
+                if !form_ids.insert(form_id) {
+                    anyhow::bail!(
+                        "server action form id `{form_id}` belongs to more than one submit action"
+                    );
+                }
+                signer.sign_form_envelope(
+                    route_path.to_string(),
+                    node.id.as_u128(),
+                    envelope,
+                    form_id,
+                    ttl,
+                )
+            } else {
+                signer.sign_envelope(route_path.to_string(), node.id.as_u128(), envelope, ttl)
+            };
             tokens.insert((node.id, entry.action_id), signer.encode(&token)?);
         }
     }
@@ -1755,9 +1854,9 @@ mod tests {
     use super::*;
     use crate::{
         CacheError, CacheTag, InvalidationReport, MokaCache, ProgressiveWorker, RevalidationPolicy,
-        WasmIsland, WebRouteMode,
+        ServerFormField, ServerFormSchema, WasmIsland, WebRouteMode,
     };
-    use fission_core::ui::{Button, SemanticsRegion, Text, TextContent};
+    use fission_core::ui::{Button, Checkbox, SemanticsRegion, Text, TextContent, TextInput};
     use fission_core::{
         Action, ActionId, GlobalState, Handler, JobRef, JobResource, JobSpec, ReducerContext,
         ResourceKey, Role, Widget, WidgetId,
@@ -1989,6 +2088,86 @@ mod tests {
     impl Action for TestAction {
         fn static_id() -> ActionId {
             ActionId::from_name("server-renderer.test-action")
+        }
+    }
+
+    #[derive(Debug, Default)]
+    struct FormActionState;
+
+    impl GlobalState for FormActionState {}
+
+    #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+    struct SubmittedSearch {
+        query: String,
+        archived: bool,
+        #[serde(default)]
+        tag: Vec<String>,
+    }
+
+    impl Action for SubmittedSearch {
+        fn static_id() -> ActionId {
+            ActionId::from_name("server-renderer.submitted-search")
+        }
+    }
+
+    static SUBMITTED_SEARCHES: OnceLock<Mutex<Vec<SubmittedSearch>>> = OnceLock::new();
+
+    fn on_submitted_search(_state: &mut FormActionState, action: SubmittedSearch) {
+        SUBMITTED_SEARCHES
+            .get_or_init(|| Mutex::new(Vec::new()))
+            .lock()
+            .unwrap()
+            .push(action);
+    }
+
+    #[derive(Clone)]
+    struct FormActionPage;
+
+    impl From<FormActionPage> for Widget {
+        fn from(_: FormActionPage) -> Self {
+            let (ctx, _) = fission_core::build::current::<FormActionState>();
+            let submit = ctx.bind(
+                SubmittedSearch::default(),
+                on_submitted_search as Handler<FormActionState, SubmittedSearch>,
+            );
+            Column {
+                children: vec![
+                    TextInput {
+                        label: Some("Query".into()),
+                        name: Some("query".into()),
+                        form_id: Some("search".into()),
+                        ..Default::default()
+                    }
+                    .into(),
+                    Checkbox::default()
+                        .name("archived")
+                        .form_id("search")
+                        .into(),
+                    TextInput {
+                        label: Some("Tag one".into()),
+                        name: Some("tag".into()),
+                        form_id: Some("search".into()),
+                        ..Default::default()
+                    }
+                    .into(),
+                    TextInput {
+                        label: Some("Tag two".into()),
+                        name: Some("tag".into()),
+                        form_id: Some("search".into()),
+                        ..Default::default()
+                    }
+                    .into(),
+                    Button {
+                        child: Some(Text::new("Search").into()),
+                        on_press: Some(submit),
+                        ..Default::default()
+                    }
+                    .form_id("search")
+                    .into(),
+                ],
+                ..Default::default()
+            }
+            .into()
         }
     }
 
@@ -3654,6 +3833,138 @@ same_site = "none"
             response_header(&response, "cache-control"),
             Some("no-store")
         );
+    }
+
+    #[test]
+    fn typed_server_form_binds_current_controls_and_enforces_security_contract() {
+        SUBMITTED_SEARCHES
+            .get_or_init(|| Mutex::new(Vec::new()))
+            .lock()
+            .unwrap()
+            .clear();
+        let schema = ServerFormSchema::new("search")
+            .field(ServerFormField::text("query").required().max_length(64))
+            .field(ServerFormField::boolean("archived"))
+            .field(ServerFormField::repeated("tag"));
+        let renderer = ServerRenderer::new(
+            FissionServerApp::new("Test")
+                .form_action::<SubmittedSearch, SubmittedSearch, _>(schema, |form| form)
+                .server_route_widget::<FormActionState, _>(
+                    "/search",
+                    "Search",
+                    None,
+                    FormActionPage,
+                ),
+        )
+        .with_allowed_action_origin("https://app.example");
+
+        let initial_html = renderer
+            .handle(ServerRequest::get("/search"))
+            .unwrap()
+            .body_string();
+        assert!(initial_html.contains("name=\"query\""));
+        assert!(initial_html.contains("form=\"search\""));
+        assert!(initial_html.contains("id=\"search\""));
+
+        let duplicate_token = rendered_form_token(&renderer);
+        let duplicate = encoded_form(&[
+            ("token", duplicate_token.as_str()),
+            ("query", "one"),
+            ("query", "two"),
+        ]);
+        assert_eq!(form_request(&renderer, duplicate, None).status, 422);
+
+        let oversized = format!(
+            "token={}&query={}",
+            rendered_form_token(&renderer),
+            "x".repeat(MAX_SERVER_ACTION_BODY_BYTES)
+        );
+        assert_eq!(form_request(&renderer, oversized, None).status, 413);
+
+        let malformed_token = rendered_form_token(&renderer);
+        let malformed = format!("token={malformed_token}&query=%FF");
+        assert_eq!(form_request(&renderer, malformed, None).status, 400);
+
+        let valid_token = rendered_form_token(&renderer);
+        let valid = encoded_form(&[
+            ("token", valid_token.as_str()),
+            ("query", "naïve 海"),
+            ("archived", "on"),
+            ("tag", "water"),
+            ("tag", "physics"),
+        ]);
+        assert_eq!(
+            form_request(&renderer, valid.clone(), Some("https://evil.example")).status,
+            403
+        );
+        assert_eq!(
+            form_request(&renderer, valid.clone(), Some("https://app.example")).status,
+            303
+        );
+        assert_eq!(
+            SUBMITTED_SEARCHES.get().unwrap().lock().unwrap().last(),
+            Some(&SubmittedSearch {
+                query: "naïve 海".into(),
+                archived: true,
+                tag: vec!["water".into(), "physics".into()],
+            })
+        );
+        assert_eq!(
+            form_request(&renderer, valid, Some("https://app.example")).status,
+            403
+        );
+
+        let absent_boolean_token = rendered_form_token(&renderer);
+        let absent_boolean =
+            encoded_form(&[("token", absent_boolean_token.as_str()), ("query", "open")]);
+        assert_eq!(
+            form_request(&renderer, absent_boolean, Some("https://app.example")).status,
+            303
+        );
+        assert!(
+            !SUBMITTED_SEARCHES
+                .get()
+                .unwrap()
+                .lock()
+                .unwrap()
+                .last()
+                .unwrap()
+                .archived
+        );
+    }
+
+    fn rendered_form_token(renderer: &ServerRenderer) -> String {
+        let html = renderer
+            .handle(ServerRequest::get("/search"))
+            .unwrap()
+            .body_string();
+        html.split("name=\"token\" value=\"")
+            .nth(1)
+            .and_then(|value| value.split('"').next())
+            .unwrap()
+            .to_string()
+    }
+
+    fn encoded_form(fields: &[(&str, &str)]) -> String {
+        form_urlencoded::Serializer::new(String::new())
+            .extend_pairs(fields.iter().copied())
+            .finish()
+    }
+
+    fn form_request(
+        renderer: &ServerRenderer,
+        body: String,
+        origin: Option<&str>,
+    ) -> ServerResponse {
+        let mut request = ServerRequest::post("/__fission/action", body);
+        request.headers.insert(
+            "content-type".into(),
+            "application/x-www-form-urlencoded".into(),
+        );
+        if let Some(origin) = origin {
+            request.headers.insert("origin".into(), origin.into());
+        }
+        renderer.handle(request).unwrap()
     }
 
     #[derive(Debug)]

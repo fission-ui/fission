@@ -2315,6 +2315,9 @@ impl HtmlRenderer<'_> {
         if semantics.autofocus {
             attrs.push_str(" autofocus");
         }
+        if let Some(form_id) = semantics.text_form_id.as_deref() {
+            attrs.push_str(&format!(" form=\"{}\"", escape_attr(form_id)));
+        }
         if let Some(max_length) = semantics.max_length {
             attrs.push_str(&format!(" maxlength=\"{max_length}\""));
         }
@@ -2363,9 +2366,6 @@ impl HtmlRenderer<'_> {
                     escape_attr(group)
                 ));
             }
-            if let Some(form_id) = semantics.text_form_id.as_deref() {
-                attrs.push_str(&format!(" form=\"{}\"", escape_attr(form_id)));
-            }
             if semantics.multiline {
                 let wrap = match semantics.text_wrap_mode {
                     fission_ir::semantics::TextWrapMode::Soft => "soft",
@@ -2412,8 +2412,13 @@ impl HtmlRenderer<'_> {
                 escape_attr(identifier)
             ));
         }
+        let form_id = semantics
+            .text_form_id
+            .as_deref()
+            .map(|form_id| format!(" id=\"{}\"", escape_attr(form_id)))
+            .unwrap_or_default();
         Ok(Some(format!(
-            "<form class=\"fission-site-node fission-server-action-form\" method=\"post\" action=\"{}\" data-fission-node=\"{}\"><input type=\"hidden\" name=\"token\" value=\"{}\"><button class=\"fission-site-node fission-site-semantics fission-server-action\" type=\"submit\"{attrs}>{children}</button></form>",
+            "<form class=\"fission-site-node fission-server-action-form\" method=\"post\" action=\"{}\"{form_id} data-fission-node=\"{}\"><input type=\"hidden\" name=\"token\" value=\"{}\"><button class=\"fission-site-node fission-site-semantics fission-server-action\" type=\"submit\"{attrs}>{children}</button></form>",
             escape_attr(action_path),
             node.id,
             escape_attr(token),

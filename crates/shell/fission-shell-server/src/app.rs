@@ -1,15 +1,15 @@
 use crate::render::{ServerRequest, ServerResponse, ServerSession};
 use crate::{
-    ProgressiveWorker, ServerJobRegistry, ServerRenderPolicy, VerifiedServerAction, WasmIsland,
-    WebRoute, WebRouteMode,
+    ProgressiveWorker, ServerFormSchema, ServerJobRegistry, ServerRenderPolicy,
+    VerifiedServerAction, WasmIsland, WebRoute, WebRouteMode,
 };
 use anyhow::Result;
 use fission_core::internal::BuildCtx;
 use fission_core::registry::{VideoRegistration, WebRegistration};
 use fission_core::{
-    Action, ActionInput, Effect, Env, GlobalState, MotionDeclaration, NavigationCommand,
-    NavigationRequested, RuntimeEffect, RuntimeResourceDeclaration, RuntimeResourceKind,
-    RuntimeState, View, Widget, WidgetId,
+    Action, ActionEnvelope, ActionId, ActionInput, Effect, Env, GlobalState, MotionDeclaration,
+    NavigationCommand, NavigationRequested, RuntimeEffect, RuntimeResourceDeclaration,
+    RuntimeResourceKind, RuntimeState, View, Widget, WidgetId,
 };
 use fission_i18n::{I18nRegistry, Locale, TranslationBundle};
 use fission_layout::LayoutSize;
@@ -17,7 +17,7 @@ use fission_shell_site::{
     CodeHighlightingOptions, DocumentMetadata, DocumentShellConfig, SitePageElement,
 };
 use fission_theme::{DesignMode, DesignSystem, PackagedFont, Theme};
-use serde::Serialize;
+use serde::{de::DeserializeOwned, Serialize};
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -45,6 +45,21 @@ type BrowserPropsResolver = dyn for<'a> Fn(&ServerRenderContext<'a>) -> Result<B
     + Send
     + Sync
     + 'static;
+type ServerFormDecoder =
+    dyn Fn(&[(String, String)]) -> Result<ActionEnvelope> + Send + Sync + 'static;
+
+#[derive(Clone)]
+pub(crate) struct ServerFormActionBinding {
+    schema: ServerFormSchema,
+    decode: Arc<ServerFormDecoder>,
+}
+
+impl ServerFormActionBinding {
+    pub(crate) fn decode(&self, submitted: &[(String, String)]) -> Result<ActionEnvelope> {
+        let normalized = self.schema.normalize(submitted)?;
+        (self.decode)(&normalized)
+    }
+}
 
 #[derive(Debug)]
 pub(crate) struct ServerRenderedNode {
@@ -261,6 +276,7 @@ pub struct FissionServerApp {
     pub(crate) jobs: ServerJobRegistry,
     pub(crate) routes: Vec<ServerRouteEntry>,
     pub(crate) http_handlers: Vec<ServerHttpHandlerEntry>,
+    pub(crate) form_actions: BTreeMap<(String, ActionId), ServerFormActionBinding>,
     pub(crate) cache_invalidation_endpoints: Vec<CacheInvalidationEndpoint>,
     pub(crate) static_mounts: Vec<StaticMount>,
     #[cfg(feature = "store")]
@@ -305,6 +321,7 @@ impl FissionServerApp {
             jobs: ServerJobRegistry::new(),
             routes: Vec::new(),
             http_handlers: Vec::new(),
+            form_actions: BTreeMap::new(),
             cache_invalidation_endpoints: Vec::new(),
             static_mounts: Vec::new(),
             #[cfg(all(feature = "store", not(feature = "store-sqlite-native")))]
@@ -541,6 +558,39 @@ impl FissionServerApp {
         F: for<'a> Fn(&ServerHttpContext<'a>) -> Result<ServerResponse> + Send + Sync + 'static,
     {
         self.http_handler("POST", path, handler)
+    }
+
+    /// Registers a typed decoder for one signed server action form.
+    ///
+    /// Assign the same logical id to each [`fission_core::ui::TextInput`]'s
+    /// `form_id` and to the submit button with `Button::form_id`. The schema
+    /// rejects controls that were not declared
+    /// and enforces scalar, boolean, and repeated-value cardinality before the
+    /// typed form value is deserialized.
+    pub fn form_action<P, A, F>(mut self, schema: ServerFormSchema, create_action: F) -> Self
+    where
+        P: DeserializeOwned + 'static,
+        A: Action,
+        F: Fn(P) -> A + Send + Sync + 'static,
+    {
+        let key = (schema.id.clone(), A::static_id());
+        let form_id = schema.id.clone();
+        let binding = ServerFormActionBinding {
+            schema,
+            decode: Arc::new(move |submitted| {
+                let encoded = form_urlencoded::Serializer::new(String::new())
+                    .extend_pairs(submitted.iter().map(|(name, value)| (name, value)))
+                    .finish();
+                let form = serde_html_form::from_str::<P>(&encoded)
+                    .map_err(|error| anyhow::anyhow!("invalid typed server form: {error}"))?;
+                Ok(create_action(form).into())
+            }),
+        };
+        assert!(
+            self.form_actions.insert(key, binding).is_none(),
+            "server form action `{form_id}` was registered more than once for this action type"
+        );
+        self
     }
 
     /// Adds a bearer-protected endpoint that invalidates configured cache entries.
@@ -864,6 +914,14 @@ impl FissionServerApp {
         self.cache_invalidation_endpoints
             .iter()
             .find(|entry| entry.path == path)
+    }
+
+    pub(crate) fn find_form_action(
+        &self,
+        form_id: &str,
+        action_id: ActionId,
+    ) -> Option<&ServerFormActionBinding> {
+        self.form_actions.get(&(form_id.to_string(), action_id))
     }
 
     pub(crate) fn apply_default_route_mode(&mut self, mode: WebRouteMode) {

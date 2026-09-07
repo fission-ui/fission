@@ -11,6 +11,7 @@ mod app;
 mod artifacts;
 mod cache;
 mod config;
+mod form;
 mod jobs;
 mod protocol;
 mod render;
@@ -46,6 +47,7 @@ pub use fission_shell_site::{
     CodeHighlightingOptions, DocumentMetadata, DocumentShellConfig, SitePageElement,
     SitePageElementFilter, SitePageElementPlacement,
 };
+pub use form::{ServerFormField, ServerFormFieldKind, ServerFormSchema};
 pub use jobs::{ServerJobCtx, ServerJobError, ServerJobRegistry};
 pub use protocol::{
     AriaPoliteness, BrowserBridgeOutput, BrowserEventBinding, BrowserEventKind, DomBatch, DomOp,
