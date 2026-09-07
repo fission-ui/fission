@@ -18,6 +18,46 @@ impl PhysicsBodyId {
     }
 }
 
+/// Stable pair of bodies currently touching or intersecting as sensors.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub struct PhysicsContact {
+    pub first: PhysicsBodyId,
+    pub second: PhysicsBodyId,
+    pub sensor: bool,
+}
+
+impl PhysicsContact {
+    pub fn new(first: PhysicsBodyId, second: PhysicsBodyId, sensor: bool) -> Self {
+        if first <= second {
+            Self {
+                first,
+                second,
+                sensor,
+            }
+        } else {
+            Self {
+                first: second,
+                second: first,
+                sensor,
+            }
+        }
+    }
+}
+
+/// Transition observed between two consecutive fixed physics steps.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum PhysicsContactEventKind {
+    Started,
+    Stopped,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PhysicsContactEvent {
+    pub kind: PhysicsContactEventKind,
+    pub contact: PhysicsContact,
+}
+
 /// A vector in physics-world units. Distances are conventionally metres.
 ///
 /// The physics coordinate system is x-right and y-up. Presentation adapters
@@ -222,6 +262,8 @@ pub trait PhysicsProvider2D {
         max_distance: f32,
         solid: bool,
     ) -> Result<Option<PhysicsRayHit2D>, Self::Error>;
+    fn contacts(&self) -> &[PhysicsContact];
+    fn drain_contact_events(&mut self) -> Vec<PhysicsContactEvent>;
     fn step(&mut self, duration: crate::StepDuration);
 }
 
@@ -444,6 +486,8 @@ pub trait PhysicsProvider3D {
         max_distance: f32,
         solid: bool,
     ) -> Result<Option<PhysicsRayHit3D>, Self::Error>;
+    fn contacts(&self) -> &[PhysicsContact];
+    fn drain_contact_events(&mut self) -> Vec<PhysicsContactEvent>;
     fn step(&mut self, duration: crate::StepDuration);
 }
 

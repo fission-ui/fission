@@ -1,6 +1,6 @@
 //! Rapier implementation of Fission's backend-neutral 2D physics declarations.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
 use rapier2d::prelude::{
@@ -9,8 +9,9 @@ use rapier2d::prelude::{
 };
 
 use crate::{
-    Collider2D, PhysicsBody2D, PhysicsBodyId, PhysicsBodyKind, PhysicsPose2D, PhysicsProvider2D,
-    PhysicsRayHit2D, PhysicsShape2D, PhysicsVector2, PhysicsVelocity2D, StepDuration,
+    Collider2D, PhysicsBody2D, PhysicsBodyId, PhysicsBodyKind, PhysicsContact, PhysicsContactEvent,
+    PhysicsContactEventKind, PhysicsPose2D, PhysicsProvider2D, PhysicsRayHit2D, PhysicsShape2D,
+    PhysicsVector2, PhysicsVelocity2D, StepDuration,
 };
 
 /// Invalid declaration or operation rejected by the Rapier provider.
@@ -41,6 +42,8 @@ impl std::error::Error for Physics2DError {}
 pub struct RapierPhysicsWorld2D {
     world: PhysicsWorld,
     bodies: BTreeMap<PhysicsBodyId, RigidBodyHandle>,
+    contacts: Vec<PhysicsContact>,
+    contact_events: Vec<PhysicsContactEvent>,
 }
 
 impl RapierPhysicsWorld2D {
@@ -53,6 +56,8 @@ impl RapierPhysicsWorld2D {
         Ok(Self {
             world,
             bodies: BTreeMap::new(),
+            contacts: Vec::new(),
+            contact_events: Vec::new(),
         })
     }
 
@@ -221,9 +226,18 @@ impl RapierPhysicsWorld2D {
         }))
     }
 
+    pub fn contacts(&self) -> &[PhysicsContact] {
+        &self.contacts
+    }
+
+    pub fn drain_contact_events(&mut self) -> Vec<PhysicsContactEvent> {
+        std::mem::take(&mut self.contact_events)
+    }
+
     pub fn step(&mut self, duration: StepDuration) {
         self.world.integration_parameters.dt = duration.as_secs_f32();
         self.world.step();
+        self.update_contacts();
     }
 
     fn body_mut(&mut self, id: &PhysicsBodyId) -> Result<&mut RigidBody, Physics2DError> {
@@ -235,6 +249,70 @@ impl RapierPhysicsWorld2D {
             .bodies
             .get_mut(handle)
             .ok_or_else(|| Physics2DError::new("physics body handle is stale"))
+    }
+
+    fn update_contacts(&mut self) {
+        let previous = self.contacts.iter().cloned().collect::<BTreeSet<_>>();
+        let mut current = BTreeSet::new();
+        for pair in self
+            .world
+            .contact_pairs()
+            .filter(|pair| pair.has_any_active_contact())
+        {
+            if let Some(contact) = self.contact_for_colliders(pair.collider1, pair.collider2, false)
+            {
+                current.insert(contact);
+            }
+        }
+        for (first, _, second, _, intersecting) in self.world.intersection_pairs() {
+            if intersecting {
+                if let Some(contact) = self.contact_for_colliders(first, second, true) {
+                    current.insert(contact);
+                }
+            }
+        }
+        self.contact_events
+            .extend(
+                current
+                    .difference(&previous)
+                    .cloned()
+                    .map(|contact| PhysicsContactEvent {
+                        kind: PhysicsContactEventKind::Started,
+                        contact,
+                    }),
+            );
+        self.contact_events
+            .extend(
+                previous
+                    .difference(&current)
+                    .cloned()
+                    .map(|contact| PhysicsContactEvent {
+                        kind: PhysicsContactEventKind::Stopped,
+                        contact,
+                    }),
+            );
+        self.contacts = current.into_iter().collect();
+    }
+
+    fn contact_for_colliders(
+        &self,
+        first: rapier2d::prelude::ColliderHandle,
+        second: rapier2d::prelude::ColliderHandle,
+        sensor: bool,
+    ) -> Option<PhysicsContact> {
+        let first = self.body_id_for_collider(first)?;
+        let second = self.body_id_for_collider(second)?;
+        (first != second).then(|| PhysicsContact::new(first, second, sensor))
+    }
+
+    fn body_id_for_collider(
+        &self,
+        collider: rapier2d::prelude::ColliderHandle,
+    ) -> Option<PhysicsBodyId> {
+        let body = self.world.colliders.get(collider)?.parent()?;
+        self.bodies
+            .iter()
+            .find_map(|(id, handle)| (*handle == body).then(|| id.clone()))
     }
 }
 
@@ -315,6 +393,14 @@ impl PhysicsProvider2D for RapierPhysicsWorld2D {
         solid: bool,
     ) -> Result<Option<PhysicsRayHit2D>, Self::Error> {
         RapierPhysicsWorld2D::cast_ray(self, origin, direction, max_distance, solid)
+    }
+
+    fn contacts(&self) -> &[PhysicsContact] {
+        RapierPhysicsWorld2D::contacts(self)
+    }
+
+    fn drain_contact_events(&mut self) -> Vec<PhysicsContactEvent> {
+        RapierPhysicsWorld2D::drain_contact_events(self)
     }
 
     fn step(&mut self, duration: StepDuration) {
@@ -536,5 +622,71 @@ mod tests {
         assert!((hit.distance - 4.5).abs() < 1.0e-4);
         assert!((hit.point.y - 0.5).abs() < 1.0e-4);
         assert!((hit.normal.y - 1.0).abs() < 1.0e-4);
+    }
+
+    #[test]
+    fn contact_transitions_are_deterministic_and_use_stable_ids() {
+        let mut world = RapierPhysicsWorld2D::new(PhysicsVector2::ZERO).expect("finite gravity");
+        let first = body_id(5);
+        let second = body_id(6);
+        world
+            .insert_body(PhysicsBody2D::fixed(
+                first.clone(),
+                PhysicsShape2D::Circle { radius: 1.0 },
+            ))
+            .expect("insert first body");
+        let mut overlapping =
+            PhysicsBody2D::dynamic(second.clone(), PhysicsShape2D::Circle { radius: 1.0 });
+        overlapping.pose.translation.x = 1.5;
+        world.insert_body(overlapping).expect("insert second body");
+
+        world.step(StepDuration::from_hz(60));
+        let contact = PhysicsContact::new(first, second.clone(), false);
+        assert_eq!(world.contacts(), std::slice::from_ref(&contact));
+        assert_eq!(
+            world.drain_contact_events(),
+            vec![PhysicsContactEvent {
+                kind: PhysicsContactEventKind::Started,
+                contact: contact.clone(),
+            }]
+        );
+        assert!(world.drain_contact_events().is_empty());
+
+        world
+            .set_body_pose(
+                &second,
+                PhysicsPose2D::new(PhysicsVector2::new(10.0, 0.0), 0.0),
+                true,
+            )
+            .expect("move second body away");
+        world.step(StepDuration::from_hz(60));
+        assert!(world.contacts().is_empty());
+        assert_eq!(
+            world.drain_contact_events(),
+            vec![PhysicsContactEvent {
+                kind: PhysicsContactEventKind::Stopped,
+                contact,
+            }]
+        );
+    }
+
+    #[test]
+    fn sensor_intersections_are_distinguished_from_solid_contacts() {
+        let mut world = RapierPhysicsWorld2D::new(PhysicsVector2::ZERO).expect("finite gravity");
+        let zone = body_id(7);
+        let actor = body_id(8);
+        let mut sensor = PhysicsBody2D::fixed(zone.clone(), PhysicsShape2D::Circle { radius: 2.0 });
+        sensor.colliders[0].sensor = true;
+        world.insert_body(sensor).expect("insert sensor");
+        world
+            .insert_body(PhysicsBody2D::dynamic(
+                actor.clone(),
+                PhysicsShape2D::Circle { radius: 0.5 },
+            ))
+            .expect("insert actor");
+
+        world.step(StepDuration::from_hz(60));
+
+        assert_eq!(world.contacts(), &[PhysicsContact::new(zone, actor, true)]);
     }
 }
