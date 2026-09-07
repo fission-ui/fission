@@ -53,7 +53,7 @@ moka = { version = "0.12", features = ["sync"] }
 redis = { version = "0.32", optional = true }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-serde_html_form = { version = "0.4", default-features = false, features = ["de"] }
+serde_html_form = { version = "0.4", default-features = false, features = ["de", "std"] }
 tokio = { version = "1.48", features = ["rt-multi-thread", "time"] }
 toml = "0.8"
 
