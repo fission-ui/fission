@@ -204,6 +204,14 @@ impl InternalLower for GestureDetector {
             });
         }
 
+        if let Some(a) = &self.on_long_press {
+            semantics.actions.entries.push(ActionEntry {
+                trigger: ActionTrigger::LongPress,
+                action_id: a.id.as_u128(),
+                payload_data: Some(a.payload.clone()),
+            });
+        }
+
         if let Some(a) = &self.on_secondary_click {
             semantics.actions.entries.push(ActionEntry {
                 trigger: ActionTrigger::SecondaryClick,
@@ -333,5 +341,34 @@ mod tests {
             assert_eq!(entry.action_id, expected.id.as_u128());
             assert_eq!(entry.payload_data.as_ref(), Some(&expected.payload));
         }
+    }
+
+    #[test]
+    fn lowering_preserves_long_press_action_and_payload() {
+        let long_press = ActionEnvelope {
+            id: ActionId::from_name("gesture-detector-long-press"),
+            payload: vec![7, 8, 9],
+        };
+        let widget: Widget = GestureDetector {
+            on_long_press: Some(long_press.clone()),
+            ..Default::default()
+        }
+        .into();
+        let env = Env::default();
+        let runtime = RuntimeState::default();
+        let mut cx = InternalLoweringCx::new(&env, &runtime, None, None);
+        let root = widget.lower(&mut cx);
+        let Op::Semantics(semantics) = &cx.ir.nodes.get(&root).unwrap().op else {
+            panic!("gesture detector must lower to semantics");
+        };
+
+        let entry = semantics
+            .actions
+            .entries
+            .iter()
+            .find(|entry| entry.trigger == ActionTrigger::LongPress)
+            .expect("long-press action");
+        assert_eq!(entry.action_id, long_press.id.as_u128());
+        assert_eq!(entry.payload_data.as_ref(), Some(&long_press.payload));
     }
 }

@@ -265,6 +265,9 @@ pub enum ActionTrigger {
     /// `DragCancel` action retain the legacy behavior of receiving their
     /// `DragEnd` action with a cancel-phase canvas interaction when available.
     DragCancel,
+    /// The primary pointer was held without becoming a drag for at least the
+    /// platform-neutral long-press threshold.
+    LongPress,
 }
 
 #[cfg(test)]
@@ -288,6 +291,14 @@ mod tests {
     }
 
     #[test]
+    fn long_press_round_trips_through_ir_serialization() {
+        let encoded = serde_json::to_string(&ActionTrigger::LongPress).unwrap();
+        assert_eq!(encoded, "\"LongPress\"");
+        let decoded: ActionTrigger = serde_json::from_str(&encoded).unwrap();
+        assert_eq!(decoded, ActionTrigger::LongPress);
+    }
+
+    #[test]
     #[allow(deprecated)]
     fn existing_action_trigger_discriminants_remain_stable() {
         assert_eq!(ActionTrigger::Change as u8, 10);
@@ -300,6 +311,7 @@ mod tests {
         assert_eq!(ActionTrigger::ViewportInteractionEnd as u8, 22);
         assert_eq!(ActionTrigger::Validation as u8, 23);
         assert_eq!(ActionTrigger::DragCancel as u8, 24);
+        assert_eq!(ActionTrigger::LongPress as u8, 25);
     }
 }
 

@@ -1,5 +1,5 @@
 use super::{ControllerContext, InputController};
-use crate::event::{ExternalDragEvent, InputEvent, PointerEvent};
+use crate::event::{ExternalDragEvent, GestureEvent, InputEvent, PointerEvent};
 use crate::scrollbar::{
     scrollbar_drag_offset, scrollbar_drag_offset_with_grab, scrollbar_geometry_for_node,
     scrollbar_hit_test, scrollbar_point_for_node, ScrollbarDragState, ScrollbarHitKind,
@@ -8,6 +8,9 @@ use crate::{Action, ActionEnvelope, ActionId, ActionInput, DragSessionPayload, D
 use fission_ir::op::RichTextAnnotation;
 use fission_ir::{semantics::ActionTrigger, Op, WidgetId};
 use fission_layout::{LayoutPoint, LayoutSnapshot};
+
+const DRAG_THRESHOLD_SQUARED: f32 = 5.0 * 5.0;
+const LONG_PRESS_INTERVAL_MS: crate::time::CurrentTime = 500;
 
 fn drag_cancel_route(
     ir: &fission_ir::CoreIR,
@@ -117,6 +120,10 @@ impl InputController for GestureController {
 
                         ctx.gesture.start_point = Some(*point);
                         ctx.gesture.last_point = Some(*point);
+                        ctx.gesture.pointer_down_at =
+                            matches!(button, crate::event::PointerButton::Primary)
+                                .then_some(ctx.current_time);
+                        ctx.gesture.long_press_dispatched = false;
                         ctx.gesture.is_panning = false;
                         ctx.gesture.pressed_button = Some(button.clone());
                         ctx.gesture.pointer_kind = *kind;
@@ -207,9 +214,7 @@ impl InputController for GestureController {
                             let dx = point.x - start.x;
                             let dy = point.y - start.y;
                             let dist_sq = dx * dx + dy * dy;
-                            let threshold = 5.0 * 5.0;
-
-                            if !ctx.gesture.is_panning && dist_sq > threshold {
+                            if !ctx.gesture.is_panning && dist_sq > DRAG_THRESHOLD_SQUARED {
                                 ctx.gesture.is_panning = true;
                                 if let Some(payload) = ctx.gesture.dragging_payload.clone() {
                                     let target = ctx.gesture.target_node;
@@ -291,6 +296,16 @@ impl InputController for GestureController {
                             matches!(pressed_button, Some(crate::event::PointerButton::Primary));
                         let was_secondary =
                             matches!(pressed_button, Some(crate::event::PointerButton::Secondary));
+                        let stayed_within_drag_threshold =
+                            ctx.gesture.start_point.is_some_and(|start| {
+                                let dx = point.x - start.x;
+                                let dy = point.y - start.y;
+                                dx * dx + dy * dy <= DRAG_THRESHOLD_SQUARED
+                            });
+                        let held_for_long_press =
+                            ctx.gesture.pointer_down_at.is_some_and(|down_at| {
+                                ctx.current_time.saturating_sub(down_at) >= LONG_PRESS_INTERVAL_MS
+                            });
 
                         if pressed_button.is_some() && !buttons_match {
                             self.reset_pointer_sequence(ctx, *point);
@@ -378,7 +393,13 @@ impl InputController for GestureController {
                                 }
                             }
                         } else if buttons_match && was_primary {
-                            // Tap (primary click)
+                            // A platform-supplied long press already dispatched
+                            // during this sequence, so its release is consumed.
+                            if ctx.gesture.long_press_dispatched {
+                                handled = true;
+                            }
+                            let should_try_long_press =
+                                held_for_long_press && stayed_within_drag_threshold;
                             if let Some(target) = ctx.gesture.target_node {
                                 if let Some(up_hit) = crate::hit_test::hit_test_with_viewports(
                                     ctx.ir,
@@ -391,21 +412,32 @@ impl InputController for GestureController {
                                         || self.is_descendant(ctx, up_hit, target)
                                         || self.is_descendant(ctx, target, up_hit)
                                     {
-                                        let rich_text_path = self.path_for_node(ctx, up_hit);
-                                        if let Some((annotation_node_id, annotation)) =
-                                            crate::input::hover::resolve_rich_text_annotation_at_point(
+                                        if should_try_long_press && !handled {
+                                            handled = self.dispatch_trigger(
                                                 ctx,
-                                                &rich_text_path,
+                                                target,
+                                                ActionTrigger::LongPress,
                                                 *point,
-                                            )
-                                        {
-                                            handled = self.dispatch_annotation_trigger(
-                                                ctx,
-                                                annotation_node_id,
-                                                &annotation,
-                                                ActionTrigger::Default,
-                                                *point,
+                                                None,
                                             );
+                                        }
+                                        if !handled {
+                                            let rich_text_path = self.path_for_node(ctx, up_hit);
+                                            if let Some((annotation_node_id, annotation)) =
+                                                crate::input::hover::resolve_rich_text_annotation_at_point(
+                                                    ctx,
+                                                    &rich_text_path,
+                                                    *point,
+                                                )
+                                            {
+                                                handled = self.dispatch_annotation_trigger(
+                                                    ctx,
+                                                    annotation_node_id,
+                                                    &annotation,
+                                                    ActionTrigger::Default,
+                                                    *point,
+                                                );
+                                            }
                                         }
 
                                         if !handled
@@ -466,6 +498,30 @@ impl InputController for GestureController {
                     }
                     _ => {}
                 }
+            }
+            InputEvent::Gesture(GestureEvent::LongPress { point }) => {
+                let active_primary = matches!(
+                    ctx.gesture.pressed_button,
+                    Some(crate::event::PointerButton::Primary)
+                );
+                if active_primary && ctx.gesture.long_press_dispatched {
+                    return true;
+                }
+                let Some(hit) = crate::hit_test::hit_test_with_viewports(
+                    ctx.ir,
+                    ctx.layout,
+                    ctx.scroll,
+                    ctx.viewport,
+                    *point,
+                ) else {
+                    return false;
+                };
+                let handled =
+                    self.dispatch_trigger(ctx, hit, ActionTrigger::LongPress, *point, None);
+                if handled && active_primary {
+                    ctx.gesture.long_press_dispatched = true;
+                }
+                return handled;
             }
             InputEvent::ExternalDrag(event) => match event {
                 ExternalDragEvent::Hover { point, paths, .. } => {
@@ -587,6 +643,9 @@ impl GestureController {
 
     fn reset_pointer_sequence(&self, ctx: &mut ControllerContext, point: LayoutPoint) {
         ctx.gesture.start_point = None;
+        ctx.gesture.last_point = None;
+        ctx.gesture.pointer_down_at = None;
+        ctx.gesture.long_press_dispatched = false;
         ctx.gesture.is_panning = false;
         ctx.gesture.dragging_payload = None;
         self.clear_drag_target(ctx, point);
@@ -893,6 +952,10 @@ impl GestureController {
         while let Some(node_id) = current_id {
             if let Some(node) = ctx.ir.nodes.get(&node_id) {
                 if let Op::Semantics(sem) = &node.op {
+                    if sem.disabled {
+                        current_id = node.parent;
+                        continue;
+                    }
                     let mut handled = false;
                     for entry in &sem.actions.entries {
                         if entry.trigger == trigger {

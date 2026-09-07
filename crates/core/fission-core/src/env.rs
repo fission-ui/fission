@@ -273,6 +273,11 @@ pub struct HeroState {
 pub struct GestureState {
     pub start_point: Option<LayoutPoint>,
     pub last_point: Option<LayoutPoint>,
+    /// Monotonic time when the active primary-pointer sequence began.
+    pub pointer_down_at: Option<crate::time::CurrentTime>,
+    /// Whether a platform-supplied long-press event already dispatched for
+    /// the active primary-pointer sequence.
+    pub long_press_dispatched: bool,
     pub is_panning: bool,
     pub target_node: Option<WidgetId>,
     pub dragging_payload: Option<Vec<u8>>,

@@ -876,6 +876,8 @@ fn dispatch_viewport_action(
 fn clear_generic_gesture(ctx: &mut ViewportControllerContext<'_>) {
     ctx.gesture.start_point = None;
     ctx.gesture.last_point = None;
+    ctx.gesture.pointer_down_at = None;
+    ctx.gesture.long_press_dispatched = false;
     ctx.gesture.is_panning = false;
     ctx.gesture.target_node = None;
     ctx.gesture.dragging_payload = None;
