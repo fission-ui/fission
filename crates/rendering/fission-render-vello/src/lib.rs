@@ -278,11 +278,19 @@ impl WorkloadProfileBuilder {
     }
 
     fn visit_layer(&mut self, layer: &RenderLayer) {
-        let clip_added = layer.style.clip.is_some();
-        if clip_added {
+        let clip_bounds = layer.style.clip.as_ref().map(|clip| match clip {
+            LayerClip::Rect(rect) | LayerClip::RoundedRect { rect, .. } => *rect,
+        });
+        if let Some(clip_bounds) = clip_bounds {
             self.scene.clip_ops = self.scene.clip_ops.saturating_add(1);
             self.current_clip_depth = self.current_clip_depth.saturating_add(1);
             self.max_clip_depth = self.max_clip_depth.max(self.current_clip_depth);
+            // A Vello clip is itself an encoded path. Its begin/end commands
+            // also consume per-tile command-list (PTCL) space everywhere the
+            // clip is active, even when the clipped child only paints a thin
+            // portion of the layer. Omitting this coverage can make the WebGPU
+            // one-pass renderer silently exhaust PTCL for overlapping clips.
+            self.add_coverage(clip_bounds, true);
         }
         let blend_added = (layer.style.opacity - 1.0).abs() > 0.001;
         if blend_added {
@@ -297,7 +305,7 @@ impl WorkloadProfileBuilder {
         if blend_added {
             self.current_blend_depth = self.current_blend_depth.saturating_sub(1);
         }
-        if clip_added {
+        if clip_bounds.is_some() {
             self.current_clip_depth = self.current_clip_depth.saturating_sub(1);
         }
     }
@@ -309,14 +317,22 @@ impl WorkloadProfileBuilder {
                 | DisplayOp::Restore
                 | DisplayOp::Translate(_)
                 | DisplayOp::Transform(_) => {}
-                DisplayOp::ClipRect(_) | DisplayOp::ClipRoundedRect { .. } => {
+                DisplayOp::ClipRect(rect) => {
                     self.scene.clip_ops = self.scene.clip_ops.saturating_add(1);
                     self.max_clip_depth = self.max_clip_depth.max(self.current_clip_depth + 1);
+                    self.add_coverage(*rect, true);
+                }
+                DisplayOp::ClipRoundedRect { rect, .. } => {
+                    self.scene.clip_ops = self.scene.clip_ops.saturating_add(1);
+                    self.max_clip_depth = self.max_clip_depth.max(self.current_clip_depth + 1);
+                    self.add_coverage(*rect, true);
                 }
                 DisplayOp::OpacityLayer { bounds, .. } => {
                     self.scene.blend_ops = self.scene.blend_ops.saturating_add(1);
                     self.max_blend_depth = self.max_blend_depth.max(self.current_blend_depth + 1);
-                    self.add_coverage(*bounds, false);
+                    // Vello represents an opacity layer with the same clipped
+                    // path machinery as an ordinary clip.
+                    self.add_coverage(*bounds, true);
                 }
                 DisplayOp::CachedScene { list, bounds, .. } => {
                     self.add_coverage(*bounds, false);
@@ -366,10 +382,15 @@ impl WorkloadProfileBuilder {
                     self.scene.path_ops = self.scene.path_ops.saturating_add(1);
                     self.add_coverage(*bounds, true);
                 }
-                DisplayOp::DrawImage { bounds, .. } => {
+                DisplayOp::DrawImage { rect, bounds, .. } => {
                     self.scene.draw_ops = self.scene.draw_ops.saturating_add(1);
                     self.scene.images = self.scene.images.saturating_add(1);
                     self.add_coverage(*bounds, false);
+                    // The Vello backend wraps every decoded image in a clip to
+                    // its destination rectangle. Account for that encoded path
+                    // and its PTCL commands as well as the image draw itself.
+                    self.scene.clip_ops = self.scene.clip_ops.saturating_add(1);
+                    self.add_coverage(*rect, true);
                 }
                 DisplayOp::DrawPath { path, bounds, .. } => {
                     self.scene.draw_ops = self.scene.draw_ops.saturating_add(1);
@@ -1341,8 +1362,9 @@ mod tests {
     use fission_ir::{semantics::ActionTrigger, ActionEntry};
     use fission_layout::TextMeasurer;
     use fission_render::{
-        Color as RenderColor, DisplayList, DisplayOp, Fill as RenderFill, LayoutPoint, LayoutRect,
-        RenderScene, Renderer, TextStyle as RenderTextStyle,
+        Color as RenderColor, DisplayList, DisplayOp, Fill as RenderFill, LayerClip, LayerStyle,
+        LayoutPoint, LayoutRect, RenderLayer, RenderNode, RenderScene, Renderer,
+        TextStyle as RenderTextStyle,
     };
     use parley::FontContext;
     use std::sync::{Arc, Mutex};
@@ -1787,6 +1809,67 @@ mod tests {
             profile.scene.glyphs < 256,
             "workload sizing should use the encoder's culled glyphs, not the retained document"
         );
+    }
+
+    #[test]
+    fn retina_path_layers_charge_clip_ptcl_coverage() {
+        let viewport = LayoutRect::new(0.0, 0.0, 1_512.0, 862.0);
+        let water = LayoutRect::new(0.0, 298.25, 1_512.0, 563.75);
+        let mut roots = Vec::new();
+
+        for _ in 0..15 {
+            let mut list = DisplayList::new(water);
+            list.push(DisplayOp::DrawPath {
+                path: "M0 280 L1512 284 L1512 290 L0 286 Z".into(),
+                fill: Some(RenderFill::Solid(RenderColor {
+                    r: 24,
+                    g: 112,
+                    b: 148,
+                    a: 192,
+                })),
+                stroke: None,
+                bounds: water,
+                node_id: None,
+            });
+            roots.push(RenderNode::Layer(RenderLayer {
+                node_id: None,
+                bounds: water,
+                style: LayerStyle {
+                    clip: Some(LayerClip::Rect(water)),
+                    ..Default::default()
+                },
+                children: vec![RenderNode::Paint(list)],
+            }));
+        }
+
+        let scene = RenderScene {
+            bounds: viewport,
+            roots,
+        };
+        let profile = workload_profile_for_scene(&scene, 3_024, 1_724, 2.0);
+        let water_tiles = 189_u32 * 71;
+
+        assert_eq!(profile.scene.clip_ops, 15);
+        assert_eq!(profile.scene.path_ops, 15);
+        assert_eq!(
+            profile.coverage.total_draw_tile_coverage,
+            water_tiles * 30,
+            "each path and its independently encoded hard clip consume tiled draw work"
+        );
+        assert_eq!(profile.coverage.total_path_tile_coverage, water_tiles * 30);
+        assert_eq!(profile.coverage.max_ops_per_tile, 30);
+
+        // Fifteen overlapping Vello clips overflow the 64-word inline PTCL and
+        // require at least one 256-word dynamic chunk per water tile. The
+        // caller estimate plus its configured safety margin must cover that
+        // known lower bound. Without charging the clips, even the margin is not
+        // enough for one dynamic chunk per affected tile.
+        let estimated_ptcl = profile.coverage.total_draw_tile_coverage.saturating_mul(8);
+        let margin = profile.policy.safety_margin_percent;
+        let estimated_ptcl_with_margin = (u64::from(estimated_ptcl)
+            .saturating_mul(u64::from(100_u32.saturating_add(margin))))
+        .div_ceil(100);
+        assert!(estimated_ptcl_with_margin >= u64::from(water_tiles * 256));
     }
 
     #[test]
