@@ -141,6 +141,8 @@ pub struct ServerHttpContext<'a> {
     pub request: &'a ServerRequest,
     /// Session resolved for the request.
     pub session: &'a ServerSession,
+    /// Parameters captured from a dynamic handler path such as `/api/items/:id`.
+    pub route_params: ServerRouteParams,
 }
 
 /// Request-specific browser and social metadata for one rendered route.
@@ -222,6 +224,7 @@ impl ServerRouteEntry {
 pub(crate) struct ServerHttpHandlerEntry {
     pub method: String,
     pub path: String,
+    pub matcher: ServerRouteMatcher,
     pub handler: Arc<HttpHandler>,
 }
 
@@ -509,7 +512,10 @@ impl FissionServerApp {
         self
     }
 
-    /// Registers a synchronous custom HTTP handler for a method and exact path.
+    /// Registers a synchronous custom HTTP handler for a method and path.
+    ///
+    /// Segments prefixed with `:` capture dynamic route parameters. Exact
+    /// handlers take precedence over dynamic handlers for the same request.
     pub fn http_handler<F>(
         mut self,
         method: impl Into<String>,
@@ -519,9 +525,11 @@ impl FissionServerApp {
     where
         F: for<'a> Fn(&ServerHttpContext<'a>) -> Result<ServerResponse> + Send + Sync + 'static,
     {
+        let path = normalize_server_path(&path.into());
         self.http_handlers.push(ServerHttpHandlerEntry {
             method: method.into().to_ascii_uppercase(),
-            path: normalize_server_path(&path.into()),
+            matcher: matcher_for_route_path(&path),
+            path,
             handler: Arc::new(handler),
         });
         self
@@ -823,12 +831,29 @@ impl FissionServerApp {
         &self,
         method: &str,
         path: &str,
-    ) -> Option<&ServerHttpHandlerEntry> {
+    ) -> Option<(&ServerHttpHandlerEntry, ServerRouteParams)> {
         let method = method.to_ascii_uppercase();
         let path = normalize_server_path(path);
         self.http_handlers
             .iter()
-            .find(|entry| entry.method == method && entry.path == path)
+            .filter(|entry| entry.method == method)
+            .find_map(|entry| {
+                matches!(entry.matcher, ServerRouteMatcher::Exact)
+                    .then(|| entry.matcher.match_request(&entry.path, &path))
+                    .flatten()
+                    .map(|params| (entry, params))
+            })
+            .or_else(|| {
+                self.http_handlers
+                    .iter()
+                    .filter(|entry| entry.method == method)
+                    .find_map(|entry| {
+                        matches!(entry.matcher, ServerRouteMatcher::Dynamic { .. })
+                            .then(|| entry.matcher.match_request(&entry.path, &path))
+                            .flatten()
+                            .map(|params| (entry, params))
+                    })
+            })
     }
 
     pub(crate) fn find_cache_invalidation_endpoint(

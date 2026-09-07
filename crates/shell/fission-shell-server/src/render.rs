@@ -380,12 +380,15 @@ impl ServerRenderer {
                 return self.handle_cache_invalidation(endpoint, &request);
             }
         }
-        if let Some(handler) = self.app.find_http_handler(&request.method, &request.path) {
+        if let Some((handler, route_params)) =
+            self.app.find_http_handler(&request.method, &request.path)
+        {
             let session = self.session_for_request(&request)?;
             let ctx = ServerHttpContext {
                 project_dir: &self.app.project_dir,
                 request: &request,
                 session: &session,
+                route_params,
             };
             let response = if tokio::runtime::Handle::try_current().is_ok() {
                 std::thread::scope(|scope| {
@@ -2545,6 +2548,61 @@ mod tests {
 
         assert_eq!(response.status, 200);
         assert_eq!(response.body_string(), "stored");
+    }
+
+    #[test]
+    fn http_handlers_match_dynamic_paths_and_capture_parameters() {
+        let app = FissionServerApp::new("Test")
+            .http_handler("GET", "/api/items/:id", |ctx| {
+                Ok(ServerResponse::text(
+                    200,
+                    "text/plain; charset=utf-8",
+                    ctx.route_params.get("id").cloned().unwrap_or_default(),
+                ))
+            })
+            .http_handler("GET", "/api/items/new", |_ctx| {
+                Ok(ServerResponse::text(
+                    200,
+                    "text/plain; charset=utf-8",
+                    "exact",
+                ))
+            });
+        let renderer = ServerRenderer::new(app);
+
+        let dynamic = renderer
+            .handle(ServerRequest::get("/api/items/item-42"))
+            .unwrap();
+        let exact = renderer
+            .handle(ServerRequest::get("/api/items/new"))
+            .unwrap();
+
+        assert_eq!(dynamic.status, 200);
+        assert_eq!(dynamic.body_string(), "item-42");
+        assert_eq!(exact.status, 200);
+        assert_eq!(exact.body_string(), "exact");
+    }
+
+    #[test]
+    fn http_handlers_do_not_match_different_methods_or_shapes() {
+        let app = FissionServerApp::new("Test").http_handler("POST", "/api/items/:id", |_ctx| {
+            Ok(ServerResponse::text(204, "text/plain", ""))
+        });
+        let renderer = ServerRenderer::new(app);
+
+        assert_eq!(
+            renderer
+                .handle(ServerRequest::get("/api/items/item-42"))
+                .unwrap()
+                .status,
+            404
+        );
+        assert_eq!(
+            renderer
+                .handle(ServerRequest::post("/api/items", ""))
+                .unwrap()
+                .status,
+            405
+        );
     }
 
     #[test]
