@@ -1367,6 +1367,16 @@ mod tests {
         max_lines: Option<usize>,
         overflow: TextOverflow,
     ) -> Vec<u8> {
+        render_narrow_spanish_copy_at_scale(measurer, resolved, max_lines, overflow, 1.0)
+    }
+
+    fn render_narrow_spanish_copy_at_scale(
+        measurer: Arc<dyn TextMeasurer>,
+        resolved: ResolvedParagraphLayout,
+        max_lines: Option<usize>,
+        overflow: TextOverflow,
+        scale: f32,
+    ) -> Vec<u8> {
         let bounds = LayoutRect::new(0.0, 0.0, TEXT_WIDTH, TEXT_HEIGHT);
         let mut display_list = DisplayList::new(bounds);
         display_list.push(DisplayOp::DrawRichText {
@@ -1390,10 +1400,10 @@ mod tests {
         });
         SoftwareRenderer::render_with_text_measurer(
             &RenderScene::from_display_list(display_list),
-            TEXT_WIDTH as u32,
-            SURFACE_HEIGHT,
+            (TEXT_WIDTH * scale) as u32,
+            (SURFACE_HEIGHT as f32 * scale) as u32,
             transparent(),
-            1.0,
+            scale,
             measurer,
         )
         .expect("render the narrow Spanish paragraph")
@@ -1404,7 +1414,20 @@ mod tests {
         visible_lines: usize,
         only_source_range: Option<Range<usize>>,
     ) -> Vec<u8> {
-        let mut pixmap = Pixmap::new(TEXT_WIDTH as u32, SURFACE_HEIGHT).unwrap();
+        reference_resolved_pixels_at_scale(layout, visible_lines, only_source_range, 1.0)
+    }
+
+    fn reference_resolved_pixels_at_scale(
+        layout: &ResolvedParagraphLayout,
+        visible_lines: usize,
+        only_source_range: Option<Range<usize>>,
+        scale: f32,
+    ) -> Vec<u8> {
+        let mut pixmap = Pixmap::new(
+            (TEXT_WIDTH * scale) as u32,
+            (SURFACE_HEIGHT as f32 * scale) as u32,
+        )
+        .unwrap();
         let font = default_font();
         for glyph in &layout.glyphs {
             let cluster = &layout.clusters[glyph.cluster_index];
@@ -1416,7 +1439,7 @@ mod tests {
                 continue;
             }
             let glyph_index = u16::try_from(glyph.id).unwrap();
-            let (metrics, bitmap) = font.rasterize_indexed(glyph_index, FONT_SIZE);
+            let (metrics, bitmap) = font.rasterize_indexed(glyph_index, FONT_SIZE * scale);
             if metrics.width == 0 || metrics.height == 0 || bitmap.is_empty() {
                 continue;
             }
@@ -1434,8 +1457,8 @@ mod tests {
                 tiny_skia::IntSize::from_wh(metrics.width as u32, metrics.height as u32).unwrap();
             let glyph_pixmap = Pixmap::from_vec(rgba, size).unwrap();
             pixmap.draw_pixmap(
-                glyph.position.x.round() as i32 + metrics.xmin,
-                glyph.position.y.round() as i32 - metrics.ymin - metrics.height as i32,
+                (glyph.position.x * scale).round() as i32 + metrics.xmin,
+                (glyph.position.y * scale).round() as i32 - metrics.ymin - metrics.height as i32,
                 glyph_pixmap.as_ref(),
                 &PixmapPaint::default(),
                 Transform::identity(),
@@ -1524,6 +1547,28 @@ mod tests {
         assert_ne!(
             one_line_clip, one_line_ellipsis,
             "the same paragraph must paint an ellipsis when its line cap actually hides content"
+        );
+    }
+
+    #[test]
+    fn narrow_spanish_paragraph_uses_resolved_positions_at_retina_scale() {
+        let measurer = production_text_measurer();
+        let resolved = measurer.resolve_rich_text(
+            &[ir_run(NARROW_SPANISH_COPY, FONT_SIZE, LINE_HEIGHT)],
+            Some(TEXT_WIDTH),
+        );
+        let actual = render_narrow_spanish_copy_at_scale(
+            measurer,
+            resolved.clone(),
+            Some(2),
+            TextOverflow::Ellipsis,
+            2.0,
+        );
+        let expected = reference_resolved_pixels_at_scale(&resolved, 2, None, 2.0);
+
+        assert_eq!(
+            actual, expected,
+            "high-DPI software paint must scale authoritative glyph positions and rasterization together"
         );
     }
 }
