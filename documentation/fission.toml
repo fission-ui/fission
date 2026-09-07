@@ -20,7 +20,7 @@ description = "Build, test, package, and release production Rust apps across mac
 logo = "/img/fission-mark.svg"
 favicon = "/img/fission-mark.svg"
 asset_dirs = ["static"]
-css_files = ["site/overrides.css"]
+css_files = ["site/overrides.css", "site/value-redesign.css"]
 
 [site.code_highlighting]
 enabled = true
@@ -37,6 +37,10 @@ placement = "body-end"
 file = "site/crates-enhancement.html"
 route_prefixes = ["/crates/", "/es/crates/"]
 
+[[site.elements]]
+placement = "body-end"
+file = "site/value-enhancement.html"
+
 [distribution.github_pages.production]
 owner = "fission-ui"
 repo = "fission"
@@ -50,87 +54,11 @@ workflow = "publish-website.yml"
 production_branch = "main"
 
 [[site.nav]]
-title = "Menu"
-href = "/"
-
-[[site.nav.children]]
-title = "Platform"
-href = "/product/overview/"
-
-[[site.nav.children]]
-title = "Documentation"
-href = "/docs/learn/overview/"
-
-[[site.nav.children]]
-title = "Crates"
-href = "/crates/"
-
-[[site.nav.children]]
-title = "Blog"
-href = "/blog/"
-
-[[site.nav]]
-title = "Platform"
-href = "/product/overview/"
-
-[[site.nav.children]]
-title = "Platform overview"
-href = "/product/overview/"
-
-[[site.nav.children]]
-title = "Cross-platform apps"
-href = "/product/cross-platform-apps/"
-
-[[site.nav.children]]
-title = "Static sites"
-href = "/product/static-sites/"
-
-[[site.nav.children]]
-title = "Server-rendered sites"
-href = "/product/server-rendered-sites/"
-
-[[site.nav.children]]
-title = "Terminal apps"
-href = "/product/terminal-apps/"
-
-[[site.nav.children]]
-title = "Charts"
-href = "/product/charts/"
-
-[[site.nav.children]]
-title = "Production lifecycle"
-href = "/product/production-lifecycle/"
-
-[[site.nav.children]]
-title = "Developer tools"
-href = "/product/developer-tools/"
-
-[[site.nav.children]]
-title = "Design systems"
-href = "/product/design-systems/"
-
-[[site.nav]]
 title = "Docs"
-href = "/docs/learn/overview/"
+href = "/docs/"
 
-[[site.nav.children]]
-title = "Quickstart"
-href = "/docs/learn/quickstart/"
-
-[[site.nav.children]]
-title = "Learn Fission"
-href = "/docs/learn/overview/"
-
-[[site.nav.children]]
-title = "Guides"
-href = "/docs/guides/layout-and-widgets/"
-
-[[site.nav.children]]
-title = "Cookbook"
-href = "/docs/cookbook/add-platform-targets/"
-
-[[site.nav.children]]
-title = "API reference"
+[[site.nav]]
+title = "Reference"
 href = "/reference/overview/overview/"
 
 [[site.nav]]

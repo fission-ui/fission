@@ -30,7 +30,7 @@ impl From<DocsFooter> for Widget {
                             "Build",
                             &[
                                 ("Quickstart", "/docs/learn/quickstart/"),
-                                ("Documentation", "/docs/learn/overview/"),
+                                ("Documentation", "/docs/"),
                                 ("Guides", "/docs/guides/layout-and-widgets/"),
                                 ("Cookbook", "/docs/cookbook/add-platform-targets/"),
                             ],
