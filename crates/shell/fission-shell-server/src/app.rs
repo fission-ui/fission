@@ -17,6 +17,8 @@ use fission_shell_site::{
     CodeHighlightingOptions, DocumentMetadata, DocumentShellConfig, SitePageElement,
 };
 use fission_theme::{DesignMode, DesignSystem, PackagedFont, Theme};
+use serde::Serialize;
+use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU16, Ordering};
@@ -39,6 +41,10 @@ type InitialStateLoader<S> =
     dyn for<'a> Fn(&ServerRenderContext<'a>) -> Result<S> + Send + Sync + 'static;
 type HttpHandler =
     dyn for<'a> Fn(&ServerHttpContext<'a>) -> Result<ServerResponse> + Send + Sync + 'static;
+type BrowserPropsResolver = dyn for<'a> Fn(&ServerRenderContext<'a>) -> Result<BTreeMap<String, Value>>
+    + Send
+    + Sync
+    + 'static;
 
 #[derive(Debug)]
 pub(crate) struct ServerRenderedNode {
@@ -145,6 +151,8 @@ pub(crate) struct ServerRouteEntry {
     pub route: WebRoute,
     pub matcher: ServerRouteMatcher,
     pub render: Arc<RouteRenderer>,
+    worker_props: BTreeMap<String, Arc<BrowserPropsResolver>>,
+    island_props: BTreeMap<String, Arc<BrowserPropsResolver>>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -177,6 +185,10 @@ pub(crate) struct ServerRouteMatch {
 }
 
 impl ServerRouteEntry {
+    pub(crate) fn has_request_scoped_browser_props(&self) -> bool {
+        !self.worker_props.is_empty() || !self.island_props.is_empty()
+    }
+
     pub(crate) fn match_request(&self, request_path: &str) -> Option<ServerRouteMatch> {
         self.matcher
             .match_request(&self.route.path, request_path)
@@ -184,6 +196,25 @@ impl ServerRouteEntry {
                 path: request_path.to_string(),
                 params,
             })
+    }
+
+    pub(crate) fn browser_artifacts(
+        &self,
+        ctx: &ServerRenderContext<'_>,
+    ) -> Result<(Vec<ProgressiveWorker>, Vec<WasmIsland>)> {
+        let mut workers = self.route.workers.clone();
+        for worker in &mut workers {
+            if let Some(resolve) = self.worker_props.get(&worker.id) {
+                worker.props = resolve(ctx)?;
+            }
+        }
+        let mut islands = self.route.islands.clone();
+        for island in &mut islands {
+            if let Some(resolve) = self.island_props.get(&island.id) {
+                island.props = resolve(ctx)?;
+            }
+        }
+        Ok((workers, islands))
     }
 }
 
@@ -600,6 +631,8 @@ impl FissionServerApp {
                 let state = initial_state(ctx)?;
                 render_widget_node::<S, W>(widget.as_ref(), ctx, state)
             }),
+            worker_props: BTreeMap::new(),
+            island_props: BTreeMap::new(),
         });
         self
     }
@@ -637,6 +670,8 @@ impl FissionServerApp {
                 let state = initial_state(ctx)?;
                 render_widget_node::<S, W>(widget.as_ref(), ctx, state)
             }),
+            worker_props: BTreeMap::new(),
+            island_props: BTreeMap::new(),
         });
         self
     }
@@ -654,6 +689,34 @@ impl FissionServerApp {
         self
     }
 
+    /// Attaches a worker whose public initialization properties are resolved
+    /// independently for every rendered request.
+    pub fn worker_with_props<P, F>(
+        mut self,
+        path: &str,
+        worker: ProgressiveWorker,
+        resolve: F,
+    ) -> Self
+    where
+        P: Serialize,
+        F: for<'a> Fn(&ServerRenderContext<'a>) -> Result<P> + Send + Sync + 'static,
+    {
+        let path = normalize_server_path(path);
+        if let Some(route) = self
+            .routes
+            .iter_mut()
+            .find(|entry| entry.route.path == path)
+        {
+            let id = worker.id.clone();
+            route.route.workers.push(worker);
+            route.worker_props.insert(
+                id,
+                Arc::new(move |ctx| serialize_browser_props(resolve(ctx)?)),
+            );
+        }
+        self
+    }
+
     /// Attaches a WebAssembly island to an existing route.
     pub fn island(mut self, path: &str, island: WasmIsland) -> Self {
         let path = normalize_server_path(path);
@@ -663,6 +726,29 @@ impl FissionServerApp {
             .find(|entry| entry.route.path == path)
         {
             route.route.islands.push(island);
+        }
+        self
+    }
+
+    /// Attaches an island whose public initialization properties are resolved
+    /// independently for every rendered request.
+    pub fn island_with_props<P, F>(mut self, path: &str, island: WasmIsland, resolve: F) -> Self
+    where
+        P: Serialize,
+        F: for<'a> Fn(&ServerRenderContext<'a>) -> Result<P> + Send + Sync + 'static,
+    {
+        let path = normalize_server_path(path);
+        if let Some(route) = self
+            .routes
+            .iter_mut()
+            .find(|entry| entry.route.path == path)
+        {
+            let id = island.id.clone();
+            route.route.islands.push(island);
+            route.island_props.insert(
+                id,
+                Arc::new(move |ctx| serialize_browser_props(resolve(ctx)?)),
+            );
         }
         self
     }
@@ -793,6 +879,13 @@ fn matcher_for_route_path(path: &str) -> ServerRouteMatcher {
         }
     } else {
         ServerRouteMatcher::Exact
+    }
+}
+
+fn serialize_browser_props<P: Serialize>(props: P) -> Result<BTreeMap<String, Value>> {
+    match serde_json::to_value(props)? {
+        Value::Object(props) => Ok(props.into_iter().collect()),
+        _ => anyhow::bail!("browser initialization properties must serialize as a JSON object"),
     }
 }
 

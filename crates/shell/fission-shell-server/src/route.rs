@@ -1,5 +1,7 @@
 use crate::{CacheScope, CacheTag};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use std::collections::BTreeMap;
 use std::time::Duration;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -145,6 +147,9 @@ pub struct ProgressiveWorker {
     pub root_node_id: Option<String>,
     /// Human-readable purpose shown by tooling.
     pub description: Option<String>,
+    /// Public initialization properties delivered in the worker boot message.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub props: BTreeMap<String, Value>,
 }
 
 impl ProgressiveWorker {
@@ -156,6 +161,7 @@ impl ProgressiveWorker {
             entry: None,
             root_node_id: None,
             description: None,
+            props: BTreeMap::new(),
         }
     }
 
@@ -176,6 +182,12 @@ impl ProgressiveWorker {
         self.description = Some(description.into());
         self
     }
+
+    /// Supplies static public initialization properties.
+    pub fn props(mut self, props: BTreeMap<String, Value>) -> Self {
+        self.props = props;
+        self
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -191,6 +203,9 @@ pub struct WasmIsland {
     pub mount_id: String,
     /// Human-readable purpose shown by tooling.
     pub description: Option<String>,
+    /// Public initialization properties delivered in the island boot message.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub props: BTreeMap<String, Value>,
 }
 
 impl WasmIsland {
@@ -206,6 +221,7 @@ impl WasmIsland {
             entry: None,
             mount_id: mount_id.into(),
             description: None,
+            props: BTreeMap::new(),
         }
     }
 
@@ -218,6 +234,12 @@ impl WasmIsland {
     /// Adds a tooling-facing description.
     pub fn description(mut self, description: impl Into<String>) -> Self {
         self.description = Some(description.into());
+        self
+    }
+
+    /// Supplies static public initialization properties.
+    pub fn props(mut self, props: BTreeMap<String, Value>) -> Self {
+        self.props = props;
         self
     }
 }

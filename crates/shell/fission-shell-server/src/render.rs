@@ -427,6 +427,11 @@ impl ServerRenderer {
         let session = self.session_for_request(&request)?;
 
         if let WebRouteMode::Revalidated(policy) = &route.route.mode {
+            if route.has_request_scoped_browser_props() {
+                return Err(anyhow!(
+                    "request-scoped browser properties require an uncached server route; use static properties on revalidated routes"
+                ));
+            }
             let route_path = matched_route(route, &request).path;
             let env = self.env_for_route(route, None, &request, &session)?;
             let cache_key = self.cache_key_for_route(&route.route, &request, &env);
@@ -673,7 +678,8 @@ impl ServerRenderer {
             SitePageElementPlacement::BodyEnd,
         );
         if !route.route.workers.is_empty() || !route.route.islands.is_empty() {
-            body_end_html.push(route_manifest_script(&route.route)?);
+            let (workers, islands) = route.browser_artifacts(&ctx)?;
+            body_end_html.push(route_manifest_script(&route.route, &workers, &islands)?);
             body_end_html.push(server_browser_runtime_script());
         }
         let action_tokens = collect_server_action_tokens(
@@ -1638,7 +1644,11 @@ struct RouteManifest<'a> {
     islands: &'a [crate::WasmIsland],
 }
 
-fn route_manifest_script(route: &WebRoute) -> Result<String> {
+fn route_manifest_script(
+    route: &WebRoute,
+    workers: &[crate::ProgressiveWorker],
+    islands: &[crate::WasmIsland],
+) -> Result<String> {
     let mode = match &route.mode {
         WebRouteMode::Static => "static",
         WebRouteMode::Revalidated(_) => "revalidated",
@@ -1649,13 +1659,37 @@ fn route_manifest_script(route: &WebRoute) -> Result<String> {
     let manifest = RouteManifest {
         route: &route.path,
         mode,
-        workers: &route.workers,
-        islands: &route.islands,
+        workers,
+        islands,
     };
-    let json = serde_json::to_string(&manifest)?;
+    let json = escape_script_data(&serde_json::to_string(&manifest)?);
     Ok(format!(
         "<script type=\"application/json\" id=\"fission-route-manifest\">{json}</script>"
     ))
+}
+
+fn escape_script_data(value: &str) -> String {
+    let bytes = value.as_bytes();
+    let mut escaped = String::with_capacity(value.len() + 1);
+    let mut index = 0;
+    while index < bytes.len() {
+        let is_script_end = index + 8 <= bytes.len()
+            && bytes[index] == b'<'
+            && bytes[index + 1] == b'/'
+            && bytes[index + 2..index + 8].eq_ignore_ascii_case(b"script");
+        if is_script_end {
+            escaped.push_str("<\\/script");
+            index += 8;
+            continue;
+        }
+        let ch = value[index..]
+            .chars()
+            .next()
+            .expect("non-empty string slice has a first character");
+        escaped.push(ch);
+        index += ch.len_utf8();
+    }
+    escaped
 }
 
 fn browser_artifact_preload_links(route: &WebRoute) -> Vec<String> {
@@ -2989,6 +3023,115 @@ same_site = "none"
         assert!(html.contains("src=\"/server-runtime.js\""));
         assert!(html.contains("filters"));
         assert!(html.contains("cart-root"));
+    }
+
+    #[test]
+    fn route_manifest_resolves_isolated_request_props_and_escapes_script_data() {
+        #[derive(Serialize)]
+        struct IslandProps {
+            request_name: String,
+            unsafe_text: &'static str,
+        }
+
+        let app = FissionServerApp::new("Test")
+            .route_widget::<TestState, _>(
+                "/",
+                "Home",
+                None,
+                WebRouteMode::Server(Default::default()),
+                TestPage("Interactive page"),
+            )
+            .worker_with_props(
+                "/",
+                ProgressiveWorker::new("filters", "/workers/filters.wasm"),
+                |ctx| {
+                    Ok(serde_json::json!({
+                        "requestName": ctx.request.headers.get("x-request-name").cloned(),
+                    }))
+                },
+            )
+            .island_with_props(
+                "/",
+                WasmIsland::new("cart", "/islands/cart.wasm", "cart-root"),
+                |ctx| {
+                    Ok(IslandProps {
+                        request_name: ctx
+                            .request
+                            .headers
+                            .get("x-request-name")
+                            .cloned()
+                            .unwrap_or_default(),
+                        unsafe_text: "</sCrIpT><script>bad()</SCRIPT>",
+                    })
+                },
+            );
+        let renderer = ServerRenderer::new(app);
+
+        let mut alpha = ServerRequest::get("/");
+        alpha
+            .headers
+            .insert("x-request-name".to_string(), "alpha".to_string());
+        let alpha = renderer.handle(alpha).unwrap().body_string();
+        let mut beta = ServerRequest::get("/");
+        beta.headers
+            .insert("x-request-name".to_string(), "beta".to_string());
+        let beta = renderer.handle(beta).unwrap().body_string();
+
+        assert!(alpha.contains("requestName"));
+        assert!(alpha.contains("alpha"));
+        assert!(!alpha.contains("beta"));
+        assert!(beta.contains("beta"));
+        assert!(!beta.contains("alpha"));
+        assert!(alpha.contains(r#"<\/script><script>bad()<\/script>"#));
+        assert!(!alpha.contains("</sCrIpT><script>bad()</SCRIPT>"));
+    }
+
+    #[test]
+    fn route_manifest_rejects_non_object_initialization_props() {
+        let app = FissionServerApp::new("Test")
+            .route_widget::<TestState, _>(
+                "/",
+                "Home",
+                None,
+                WebRouteMode::Server(Default::default()),
+                TestPage("Interactive page"),
+            )
+            .island_with_props(
+                "/",
+                WasmIsland::new("cart", "/islands/cart.wasm", "cart-root"),
+                |_| Ok(vec!["not", "an", "object"]),
+            );
+        let error = ServerRenderer::new(app)
+            .handle(ServerRequest::get("/"))
+            .unwrap_err();
+
+        assert!(error
+            .to_string()
+            .contains("must serialize as a JSON object"));
+    }
+
+    #[test]
+    fn revalidated_route_rejects_request_scoped_browser_props() {
+        let app = FissionServerApp::new("Test")
+            .route_widget::<TestState, _>(
+                "/",
+                "Home",
+                None,
+                WebRouteMode::Revalidated(RevalidationPolicy::new(Duration::from_secs(60))),
+                TestPage("Interactive page"),
+            )
+            .island_with_props(
+                "/",
+                WasmIsland::new("cart", "/islands/cart.wasm", "cart-root"),
+                |_| Ok(serde_json::json!({"private": "request data"})),
+            );
+        let error = ServerRenderer::new(app)
+            .handle(ServerRequest::get("/"))
+            .unwrap_err();
+
+        assert!(error
+            .to_string()
+            .contains("require an uncached server route"));
     }
 
     #[test]
