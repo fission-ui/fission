@@ -4,9 +4,15 @@ use fission::prelude::*;
 use fission::{Role, Semantics};
 
 pub(super) fn site_semantics(identifier: impl Into<String>) -> Semantics {
+    let identifier = identifier.into();
+    let identifier = if identifier.starts_with("value-home-") {
+        format!("site-{identifier}")
+    } else {
+        identifier
+    };
     Semantics {
         role: Role::Generic,
-        identifier: Some(identifier.into()),
+        identifier: Some(identifier),
         ..Semantics::default()
     }
 }

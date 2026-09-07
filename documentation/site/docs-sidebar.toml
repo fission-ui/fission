@@ -1,7 +1,7 @@
 [[items]]
-title = "Docs"
-href = "/docs/intro/"
-level = 0
+title = "Documentation overview"
+href = "/docs/"
+level = 1
 
 [[items]]
 title = "Start"

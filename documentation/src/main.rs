@@ -35,9 +35,9 @@ fn site_app() -> FissionSite {
         )
         .route_widget::<DocsState, _>(
             "/",
-            "Fission",
+            "Fission — One Rust application across every surface",
             Some(
-                "Build, test, package, and release production Rust apps across macOS, Windows, Linux, Web, Android, iOS, Terminal, Static site, and SSR targets."
+                "Fission helps Rust teams turn one product model into native, mobile, web, terminal, and server experiences without rebuilding the organisation around every target."
                     .to_string(),
             ),
             RoutedHomePage::new("/"),
@@ -134,50 +134,50 @@ fn atlas_theme(mode: DesignMode) -> Theme {
     let colors = &mut tokens.colors;
     match mode {
         DesignMode::Light => {
-            colors.primary = rgb(49, 87, 232);
+            colors.primary = rgb(255, 79, 36);
             colors.on_primary = Color::WHITE;
-            colors.primary_hover = rgb(39, 71, 199);
-            colors.primary_subtle = rgb(244, 241, 255);
-            colors.secondary = rgb(121, 84, 238);
+            colors.primary_hover = rgb(198, 45, 10);
+            colors.primary_subtle = rgb(239, 235, 226);
+            colors.secondary = rgb(255, 79, 36);
             colors.on_secondary = Color::WHITE;
-            colors.surface = Color::WHITE;
-            colors.on_surface = rgb(17, 17, 38);
-            colors.surface_raised = Color::WHITE;
-            colors.surface_sunken = rgb(244, 241, 255);
-            colors.background = rgb(251, 251, 254);
-            colors.on_background = rgb(17, 17, 38);
-            colors.border = rgb(222, 219, 237);
-            colors.border_strong = rgb(199, 194, 220);
-            colors.divider = rgb(222, 219, 237);
-            colors.text_primary = rgb(17, 17, 38);
-            colors.text_secondary = rgb(102, 101, 122);
-            colors.text_muted = rgb(112, 110, 131);
-            colors.text_link = rgb(49, 87, 232);
-            colors.heading = rgb(17, 17, 38);
-            colors.focus_ring = rgb(121, 84, 238);
+            colors.surface = rgb(253, 252, 248);
+            colors.on_surface = rgb(16, 16, 24);
+            colors.surface_raised = rgb(253, 252, 248);
+            colors.surface_sunken = rgb(239, 235, 226);
+            colors.background = rgb(247, 246, 241);
+            colors.on_background = rgb(16, 16, 24);
+            colors.border = rgb(215, 213, 205);
+            colors.border_strong = rgb(170, 168, 159);
+            colors.divider = rgb(215, 213, 205);
+            colors.text_primary = rgb(16, 16, 24);
+            colors.text_secondary = rgb(89, 89, 100);
+            colors.text_muted = rgb(112, 110, 119);
+            colors.text_link = rgb(198, 45, 10);
+            colors.heading = rgb(16, 16, 24);
+            colors.focus_ring = rgb(255, 79, 36);
         }
         DesignMode::Dark => {
-            colors.primary = rgb(130, 150, 255);
-            colors.on_primary = rgb(11, 11, 24);
-            colors.primary_hover = rgb(154, 171, 255);
-            colors.primary_subtle = rgb(25, 23, 46);
-            colors.secondary = rgb(171, 145, 255);
-            colors.on_secondary = rgb(11, 11, 24);
-            colors.surface = rgb(19, 19, 36);
-            colors.on_surface = rgb(245, 243, 255);
-            colors.surface_raised = rgb(25, 23, 46);
-            colors.surface_sunken = rgb(25, 23, 46);
-            colors.background = rgb(11, 11, 24);
-            colors.on_background = rgb(245, 243, 255);
-            colors.border = rgb(48, 45, 73);
-            colors.border_strong = rgb(73, 68, 100);
-            colors.divider = rgb(48, 45, 73);
-            colors.text_primary = rgb(245, 243, 255);
-            colors.text_secondary = rgb(176, 174, 194);
-            colors.text_muted = rgb(141, 138, 159);
-            colors.text_link = rgb(130, 150, 255);
-            colors.heading = rgb(245, 243, 255);
-            colors.focus_ring = rgb(171, 145, 255);
+            colors.primary = rgb(255, 104, 66);
+            colors.on_primary = rgb(16, 16, 23);
+            colors.primary_hover = rgb(255, 136, 107);
+            colors.primary_subtle = rgb(38, 30, 31);
+            colors.secondary = rgb(255, 104, 66);
+            colors.on_secondary = rgb(16, 16, 23);
+            colors.surface = rgb(22, 22, 31);
+            colors.on_surface = rgb(245, 242, 233);
+            colors.surface_raised = rgb(22, 22, 31);
+            colors.surface_sunken = rgb(30, 29, 37);
+            colors.background = rgb(16, 16, 23);
+            colors.on_background = rgb(245, 242, 233);
+            colors.border = rgb(52, 51, 60);
+            colors.border_strong = rgb(86, 84, 95);
+            colors.divider = rgb(52, 51, 60);
+            colors.text_primary = rgb(245, 242, 233);
+            colors.text_secondary = rgb(170, 168, 176);
+            colors.text_muted = rgb(125, 123, 132);
+            colors.text_link = rgb(255, 136, 107);
+            colors.heading = rgb(245, 242, 233);
+            colors.focus_ring = rgb(255, 104, 66);
         }
     }
     tokens.typography.font_family_sans =

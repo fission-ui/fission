@@ -1,0 +1,54 @@
+<script>
+  (() => {
+    const tabs = [...document.querySelectorAll('[data-fission-semantics^="site-value-home-audience-tab:"]')];
+    const panels = [...document.querySelectorAll('[data-fission-semantics^="site-value-home-audience-panel:"]')];
+    if (tabs.length && panels.length) {
+      const keyOf = (node) => node.dataset.fissionSemantics.split(':')[1];
+      const select = (key, focus) => {
+        tabs.forEach((tab) => {
+          const selected = keyOf(tab) === key;
+          tab.setAttribute('role', 'tab');
+          tab.setAttribute('aria-selected', String(selected));
+          tab.tabIndex = selected ? 0 : -1;
+          tab.dataset.active = String(selected);
+          if (selected && focus) tab.focus();
+        });
+        panels.forEach((panel) => {
+          const selected = keyOf(panel) === key;
+          panel.setAttribute('role', 'tabpanel');
+          panel.hidden = !selected;
+        });
+      };
+      const initial = tabs.find((tab) => tab.dataset.fissionSemantics.endsWith(':true')) || tabs[0];
+      tabs.forEach((tab, index) => {
+        tab.addEventListener('click', () => select(keyOf(tab), false));
+        tab.addEventListener('keydown', (event) => {
+          if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+          event.preventDefault();
+          let next = index;
+          if (event.key === 'ArrowLeft') next = (index - 1 + tabs.length) % tabs.length;
+          if (event.key === 'ArrowRight') next = (index + 1) % tabs.length;
+          if (event.key === 'Home') next = 0;
+          if (event.key === 'End') next = tabs.length - 1;
+          select(keyOf(tabs[next]), true);
+        });
+      });
+      tabs[0].parentElement?.setAttribute('role', 'tablist');
+      select(keyOf(initial), false);
+    }
+
+    const observer = 'IntersectionObserver' in window
+      ? new IntersectionObserver((entries, current) => {
+          entries.forEach((entry) => {
+            if (!entry.isIntersecting) return;
+            entry.target.classList.add('is-visible');
+            current.unobserve(entry.target);
+          });
+        }, { threshold: 0.08 })
+      : null;
+    document.querySelectorAll('[data-fission-semantics^="site-value-home-"]').forEach((node) => {
+      if (observer) observer.observe(node);
+      else node.classList.add('is-visible');
+    });
+  })();
+</script>
