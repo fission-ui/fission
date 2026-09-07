@@ -641,6 +641,104 @@ mod image_tests {
     }
 
     #[test]
+    fn draw_path_translates_clips_and_paints_gradient_and_dashed_round_stroke() {
+        let scene_bounds = fission_render::LayoutRect::new(0.0, 0.0, 64.0, 32.0);
+        let fill_bounds = fission_render::LayoutRect::new(8.0, 4.0, 16.0, 12.0);
+        let stroke_bounds = fission_render::LayoutRect::new(32.0, 6.0, 20.0, 16.0);
+        let mut display_list = DisplayList::new(scene_bounds);
+
+        display_list.push(DisplayOp::Save);
+        display_list.push(DisplayOp::ClipRect(fill_bounds));
+        display_list.push(DisplayOp::DrawPath {
+            path: "M-4 -4 L20 -4 L20 16 L-4 16 Z".into(),
+            fill: Some(Fill::LinearGradient {
+                start: (0.0, 0.0),
+                end: (1.0, 0.0),
+                stops: vec![
+                    (
+                        0.0,
+                        RenderColor {
+                            r: 255,
+                            g: 0,
+                            b: 0,
+                            a: 48,
+                        },
+                    ),
+                    (
+                        1.0,
+                        RenderColor {
+                            r: 0,
+                            g: 0,
+                            b: 255,
+                            a: 208,
+                        },
+                    ),
+                ],
+            }),
+            stroke: None,
+            bounds: fill_bounds,
+            node_id: None,
+        });
+        display_list.push(DisplayOp::Restore);
+
+        display_list.push(DisplayOp::Save);
+        display_list.push(DisplayOp::ClipRect(stroke_bounds));
+        display_list.push(DisplayOp::DrawPath {
+            path: "M0 8 L20 8".into(),
+            fill: None,
+            stroke: Some(Stroke {
+                fill: Fill::Solid(RenderColor {
+                    r: 255,
+                    g: 255,
+                    b: 255,
+                    a: 255,
+                }),
+                width: 4.0,
+                dash_array: Some(vec![6.0, 6.0]),
+                line_cap: LineCap::Round,
+                line_join: LineJoin::Round,
+            }),
+            bounds: stroke_bounds,
+            node_id: None,
+        });
+        display_list.push(DisplayOp::Restore);
+
+        let pixels = SoftwareRenderer::render(
+            &RenderScene::from_display_list(display_list),
+            64,
+            32,
+            RenderColor {
+                r: 0,
+                g: 0,
+                b: 0,
+                a: 0,
+            },
+            1.0,
+        )
+        .expect("render bounded paths");
+        let pixel_at = |x: usize, y: usize| {
+            let offset = (y * 64 + x) * 4;
+            &pixels[offset..offset + 4]
+        };
+
+        let left_fill = pixel_at(10, 9);
+        let right_fill = pixel_at(21, 9);
+        assert!(left_fill[0] > left_fill[2]);
+        assert!(right_fill[2] > right_fill[0]);
+        assert!(left_fill[3] < right_fill[3]);
+        assert_eq!(pixel_at(6, 9), &[0, 0, 0, 0]);
+        assert!(pixel_at(22, 9)[3] > 0, "local path must move to its bounds");
+
+        assert_eq!(pixel_at(31, 14), &[0, 0, 0, 0]);
+        assert!(
+            pixel_at(39, 14)[3] > 200,
+            "the first dash's round cap must extend past its endpoint"
+        );
+        assert_eq!(pixel_at(41, 14), &[0, 0, 0, 0]);
+        assert!(pixel_at(45, 14)[3] > 200);
+    }
+
+    #[test]
     fn scaled_svg_keeps_its_display_list_origin() {
         let bounds = fission_render::LayoutRect::new(10.0, 12.0, 20.0, 20.0);
         let mut display_list =
@@ -1648,24 +1746,20 @@ impl SoftwareRenderer {
                 .transform
                 .pre_translate(bounds.origin.x, bounds.origin.y),
         );
-        let clip = self.current_clip().cloned();
-        let surface = self.current_surface_mut();
+        let (states, surfaces) = (&self.states, &mut self.surfaces);
+        let state = states.last().expect("software renderer state stack empty");
+        let clip = state.clip.as_ref();
+        let surface = &mut surfaces[state.surface];
         let paint_bounds =
             fission_render::LayoutRect::new(0.0, 0.0, bounds.width(), bounds.height());
         if let Some(fill) = fill {
             let paint = fill_paint(fill, paint_bounds);
-            surface.fill_path(
-                &path,
-                &paint,
-                TinyFillRule::Winding,
-                transform,
-                clip.as_ref(),
-            );
+            surface.fill_path(&path, &paint, TinyFillRule::Winding, transform, clip);
         }
         if let Some(stroke) = stroke {
             let paint = fill_paint(&stroke.fill, paint_bounds);
             let style = stroke_style(stroke);
-            surface.stroke_path(&path, &paint, &style, transform, clip.as_ref());
+            surface.stroke_path(&path, &paint, &style, transform, clip);
         }
         Ok(())
     }
