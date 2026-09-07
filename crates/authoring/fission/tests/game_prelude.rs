@@ -67,5 +67,25 @@ fn game_runtime_and_scene_types_are_available_from_the_prelude() {
             SceneObjectActions::new("Player").on_drag_cancel(cancel),
         )
         .into();
+
+    let mut path_scene = Scene2D::new();
+    path_scene.path(
+        SceneNodeId::from_key(&EntityId::Resource(7)),
+        "M0 8 Q16 0 32 8 L32 16 L0 16 Z",
+        Bounds2D::from_top_left(Place::new(Px(4.0), Px(6.0)), Size::new(Px(32.0), Px(16.0))),
+        Some(ir_op::Fill::Solid(Color::BLUE)),
+        Some(ir_op::Stroke {
+            fill: ir_op::Fill::Solid(Color::WHITE),
+            width: 1.0,
+            dash_array: None,
+            line_cap: ir_op::LineCap::Round,
+            line_join: ir_op::LineJoin::Round,
+        }),
+        Layer(2),
+    );
+    assert!(matches!(
+        path_scene.finish(Tick(0)).commands.as_slice(),
+        [Scene2DCommand::DrawPath { .. }]
+    ));
     let _: InputTrigger = InputTrigger::Confirm;
 }

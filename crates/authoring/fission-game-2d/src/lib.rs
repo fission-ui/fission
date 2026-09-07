@@ -4,6 +4,9 @@
 //! turns the same validated scene into ordinary Fission widgets, preserving
 //! layout, accessibility, hit testing, and shell portability.
 
+mod scene_path;
+mod scene_visual;
+
 use std::collections::BTreeMap;
 
 use fission_core::ui::widgets::Transform;
@@ -16,6 +19,9 @@ use fission_game::{
     Anchor, Bounds2D, ImageInstance2D, Scene2DCommand, Scene2DIR, SceneNodeId, Size, Transform2D,
 };
 use fission_ir::op::{ImageAlignment, ImageFit};
+
+use scene_path::ScenePathLayer;
+use scene_visual::{ActionlessSceneVisual, SceneObjectSemantics};
 
 /// Accessible activation attached to one visible scene declaration.
 #[derive(Clone, Debug)]
@@ -55,7 +61,8 @@ impl SceneTapAction {
 ///
 /// The action payloads normally contain the object's durable domain identity;
 /// live pointer coordinates and deltas remain in `ReducerContext::input`.
-/// Disabled declarations keep the object visible but suppress every action.
+/// Disabled declarations keep the object visible and described semantically,
+/// but suppress every action and do not claim coordinate hits.
 #[derive(Clone, Debug)]
 pub struct SceneObjectActions {
     /// Localized accessible name for the scene object.
@@ -155,6 +162,15 @@ impl SceneObjectActions {
         self.semantics_identifier = Some(identifier.into());
         self
     }
+
+    fn has_pointer_gesture(&self) -> bool {
+        self.on_tap.is_some()
+            || self.on_drag_start.is_some()
+            || self.on_drag_update.is_some()
+            || self.on_drag_end.is_some()
+            || self.on_drag_cancel.is_some()
+            || self.on_long_press.is_some()
+    }
 }
 
 impl From<SceneTapAction> for SceneObjectActions {
@@ -177,7 +193,10 @@ impl From<SceneTapAction> for SceneObjectActions {
 ///
 /// Scene declarations become ordinary retained widgets rather than a private
 /// renderer overlay. As a result pointer, keyboard, accessibility, and test
-/// activation use Fission's standard `Pressable` contract.
+/// activation use Fission's standard `Pressable` contract. Actionless scene
+/// declarations are pointer-transparent; attach at least one enabled pointer
+/// gesture through `on_tap` or `object_actions` to make a declaration's bounds
+/// interactive.
 #[derive(Clone, Debug)]
 pub struct Scene2DView {
     pub scene: Scene2DIR,
@@ -307,6 +326,31 @@ fn append_command(
                 with_interaction(id, visual, interactions),
             ));
         }
+        Scene2DCommand::DrawPath {
+            id,
+            path,
+            bounds,
+            fill,
+            stroke,
+            opacity,
+            ..
+        } => {
+            let visual: Widget = ScenePathLayer::new(
+                &id,
+                path,
+                bounds.width().0,
+                bounds.height().0,
+                fill,
+                stroke,
+                opacity,
+            )
+            .into();
+            children.push(positioned(
+                id.clone(),
+                bounds,
+                with_interaction(id, visual, interactions),
+            ));
+        }
         Scene2DCommand::ImageBatch {
             image, instances, ..
         } => {
@@ -363,12 +407,7 @@ fn with_interaction(
 ) -> Widget {
     let retained_id = id.widget_id();
     let Some(actions) = interactions.get(&id) else {
-        return Container {
-            id: Some(retained_id),
-            child: Some(visual),
-            ..Default::default()
-        }
-        .into();
+        return ActionlessSceneVisual::new(retained_id, visual).into();
     };
 
     let identifier = actions
@@ -402,15 +441,17 @@ fn with_interaction(
         }
         .into()
     } else {
-        let mut region = SemanticsRegion::new(visual)
-            .label(actions.label.clone())
-            .role(fission_ir::semantics::Role::Generic);
-        region.id = Some(retained_id);
-        region.identifier = identifier;
-        region.into()
+        SceneObjectSemantics::new(
+            retained_id,
+            actions.label.clone(),
+            identifier,
+            actions.disabled,
+            visual,
+        )
+        .into()
     };
 
-    GestureDetector {
+    let interaction_visual: Widget = GestureDetector {
         child: activation_visual,
         on_drag_start: (!actions.disabled)
             .then(|| actions.on_drag_start.clone())
@@ -429,7 +470,13 @@ fn with_interaction(
             .flatten(),
         ..Default::default()
     }
-    .into()
+    .into();
+
+    if actions.disabled || !actions.has_pointer_gesture() {
+        ActionlessSceneVisual::preserving_child_identity(retained_id, interaction_visual).into()
+    } else {
+        interaction_visual
+    }
 }
 
 fn positioned(_id: SceneNodeId, bounds: Bounds2D, child: Widget) -> Widget {
@@ -498,11 +545,11 @@ fn finite_non_negative(value: f32) -> f32 {
 mod tests {
     use fission_game::{Layer, Place, Px};
     use fission_ir::{
-        op::{Color, Op},
+        op::{Color, Fill as IrFill, Op},
         semantics::ActionTrigger,
     };
     use fission_render::{Color as RenderColor, DisplayOp, Fill};
-    use fission_test::TestHarness;
+    use fission_test::{TestDriver, TestHarness};
 
     use super::*;
 
@@ -552,6 +599,200 @@ mod tests {
         assert!((painted.y() - 17.0).abs() < 0.01, "{painted:?}");
         assert!((painted.width() - 31.0).abs() < 0.01, "{painted:?}");
         assert!((painted.height() - 23.0).abs() < 0.01, "{painted:?}");
+    }
+
+    #[test]
+    fn interactive_path_paints_inside_its_clipped_bounds_with_group_opacity() {
+        let object = SceneNodeId::from_key(&32_u32);
+        let action = ActionEnvelope {
+            id: fission_core::ActionId::from_name("select-path"),
+            payload: vec![3, 2],
+        };
+        let bounds = Bounds2D::from_top_left(
+            Place::new(Px(13.0), Px(17.0)),
+            Size::new(Px(31.0), Px(23.0)),
+        );
+        let path = "M-8 -8 L40 10 L12 31 Z";
+        let expected_color = RenderColor {
+            r: 18,
+            g: 132,
+            b: 211,
+            a: 255,
+        };
+        let mut scene = fission_game::Scene2D::new();
+        scene.command(Scene2DCommand::DrawPath {
+            id: object.clone(),
+            path: path.into(),
+            bounds,
+            fill: Some(IrFill::Solid(Color {
+                r: expected_color.r,
+                g: expected_color.g,
+                b: expected_color.b,
+                a: expected_color.a,
+            })),
+            stroke: None,
+            layer: Layer(4),
+            opacity: 0.4,
+        });
+        let view = Scene2DView::new(scene.finish(fission_game::Tick(0)), 100.0, 80.0).on_tap(
+            object.clone(),
+            "Select path",
+            action.clone(),
+        );
+
+        let widget: Widget = view.clone().into();
+        let ir = fission_core::internal::lower_widget_to_ir(&widget);
+        let semantic = ir
+            .nodes
+            .get(&object.widget_id())
+            .expect("path scene identity should belong to its interaction wrapper");
+        let Op::Semantics(semantics) = &semantic.op else {
+            panic!("path scene identity should lower as interaction semantics");
+        };
+        assert_eq!(semantics.label.as_deref(), Some("Select path"));
+        assert!(semantics.actions.entries.iter().any(|entry| {
+            entry.action_id == action.id.as_u128()
+                && entry.payload_data.as_ref() == Some(&action.payload)
+        }));
+        assert!(ir.nodes.values().any(|node| {
+            matches!(&node.op, Op::Paint(fission_ir::PaintOp::DrawPath { .. }))
+                && node.id != object.widget_id()
+        }));
+
+        let mut harness = TestHarness::new_with_mock_measurer(()).with_root_widget(view);
+        harness.pump().expect("path scene should render");
+        let display = harness
+            .get_last_display_list()
+            .expect("rendered display list");
+        let painted = display
+            .ops
+            .iter()
+            .find_map(|op| match op {
+                DisplayOp::DrawPath {
+                    path: actual_path,
+                    fill: Some(Fill::Solid(color)),
+                    bounds,
+                    ..
+                } if actual_path == path && color == &expected_color => Some(*bounds),
+                _ => None,
+            })
+            .expect("declared path should reach the display list unchanged");
+        assert!((painted.x() - 13.0).abs() < 0.01, "{painted:?}");
+        assert!((painted.y() - 17.0).abs() < 0.01, "{painted:?}");
+        assert!((painted.width() - 31.0).abs() < 0.01, "{painted:?}");
+        assert!((painted.height() - 23.0).abs() < 0.01, "{painted:?}");
+        assert!(display.ops.iter().any(|op| matches!(
+            op,
+            DisplayOp::ClipRect(rect)
+                if (rect.x() - 13.0).abs() < 0.01
+                    && (rect.y() - 17.0).abs() < 0.01
+                    && (rect.width() - 31.0).abs() < 0.01
+                    && (rect.height() - 23.0).abs() < 0.01
+        )));
+        assert!(display.ops.iter().any(|op| matches!(
+            op,
+            DisplayOp::OpacityLayer { alpha, bounds }
+                if (*alpha - 0.4).abs() < 0.001
+                    && (bounds.x() - 13.0).abs() < 0.01
+                    && (bounds.y() - 17.0).abs() < 0.01
+                    && (bounds.width() - 31.0).abs() < 0.01
+                    && (bounds.height() - 23.0).abs() < 0.01
+        )));
+        assert_eq!(
+            semantic_label_at(&harness, fission_core::LayoutPoint::new(28.0, 28.0)).as_deref(),
+            Some("Select path"),
+            "an interactive path must remain hittable through its semantic owner"
+        );
+    }
+
+    #[test]
+    fn decorative_scene_paint_does_not_intercept_a_lower_coordinate_target() {
+        let target = SceneNodeId::from_key(&33_u32);
+        let path_decoration = SceneNodeId::from_key(&34_u32);
+        let rect_decoration = SceneNodeId::from_key(&35_u32);
+        let action = ActionEnvelope {
+            id: fission_core::ActionId::from_name("activate-lower-target"),
+            payload: Vec::new(),
+        };
+        let mut scene = fission_game::Scene2D::new();
+        scene.rect(
+            target.clone(),
+            Bounds2D::from_top_left(
+                Place::new(Px(18.0), Px(16.0)),
+                Size::new(Px(36.0), Px(32.0)),
+            ),
+            Color::BLUE,
+            Layer(1),
+        );
+        scene.command(Scene2DCommand::DrawPath {
+            id: path_decoration,
+            path: "M0 0 L80 0 L80 64 L0 64 Z".into(),
+            bounds: Bounds2D::from_top_left(
+                Place::new(Px(0.0), Px(0.0)),
+                Size::new(Px(80.0), Px(64.0)),
+            ),
+            fill: Some(IrFill::Solid(Color {
+                r: 20,
+                g: 90,
+                b: 140,
+                a: 96,
+            })),
+            stroke: None,
+            layer: Layer(2),
+            opacity: 1.0,
+        });
+        let fog_color = Color {
+            r: 220,
+            g: 230,
+            b: 240,
+            a: 72,
+        };
+        scene.command(Scene2DCommand::DrawRect {
+            id: rect_decoration,
+            bounds: Bounds2D::from_top_left(
+                Place::new(Px(0.0), Px(0.0)),
+                Size::new(Px(80.0), Px(64.0)),
+            ),
+            fill: fog_color,
+            layer: Layer(3),
+            opacity: 1.0,
+        });
+        let view = Scene2DView::new(scene.finish(fission_game::Tick(0)), 80.0, 64.0).on_tap(
+            target,
+            "Lower coordinate target",
+            action,
+        );
+        let root: Widget = SemanticsRegion::new(view).label("Decorated scene").into();
+        let mut harness = TestHarness::new_with_mock_measurer(()).with_root_widget(root);
+        harness.pump().expect("overlaid scene should render");
+
+        let display = harness
+            .get_last_display_list()
+            .expect("rendered display list");
+        assert!(display.ops.iter().any(|op| matches!(
+            op,
+            DisplayOp::DrawPath { path, .. }
+                if path == "M0 0 L80 0 L80 64 L0 64 Z"
+        )));
+        let expected_fog_color = RenderColor {
+            r: fog_color.r,
+            g: fog_color.g,
+            b: fog_color.b,
+            a: fog_color.a,
+        };
+        assert!(display.ops.iter().any(|op| matches!(
+            op,
+            DisplayOp::DrawRect {
+                fill: Some(Fill::Solid(color)),
+                ..
+            } if color == &expected_fog_color
+        )));
+
+        assert_eq!(
+            semantic_label_at(&harness, fission_core::LayoutPoint::new(36.0, 32.0)).as_deref(),
+            Some("Lower coordinate target"),
+            "actionless scene paint must not claim its rectangular bounds"
+        );
     }
 
     #[test]
@@ -800,6 +1041,347 @@ mod tests {
     }
 
     #[test]
+    fn disabled_and_gestureless_scene_metadata_does_not_intercept_a_coordinate_target() {
+        let target = SceneNodeId::from_key(&211_u32);
+        let gestureless_proxy = SceneNodeId::from_key(&212_u32);
+        let disabled_proxy = SceneNodeId::from_key(&213_u32);
+        let long_press_target = SceneNodeId::from_key(&214_u32);
+        let drag_target = SceneNodeId::from_key(&215_u32);
+        let disabled_non_tap_proxy = SceneNodeId::from_key(&216_u32);
+        let target_action = ActionEnvelope {
+            id: fission_core::ActionId::from_name("tap-lower-scene-target"),
+            payload: vec![2, 1, 1],
+        };
+        let disabled_action = ActionEnvelope {
+            id: fission_core::ActionId::from_name("disabled-scene-target"),
+            payload: vec![2, 1, 3],
+        };
+        let long_press_action = ActionEnvelope {
+            id: fission_core::ActionId::from_name("hold-scene-target"),
+            payload: vec![2, 1, 4],
+        };
+        let disabled_non_tap_action = ActionEnvelope {
+            id: fission_core::ActionId::from_name("disabled-hold-scene-target"),
+            payload: vec![2, 1, 6],
+        };
+        let drag_action = ActionEnvelope {
+            id: fission_core::ActionId::from_name("drag-scene-target"),
+            payload: vec![2, 1, 5],
+        };
+        let bounds = Bounds2D::from_top_left(
+            Place::new(Px(12.0), Px(14.0)),
+            Size::new(Px(48.0), Px(44.0)),
+        );
+        let mut scene = fission_game::Scene2D::new();
+        scene.rect(target.clone(), bounds, Color::BLUE, Layer(1));
+        scene.rect(
+            gestureless_proxy.clone(),
+            bounds,
+            Color::TRANSPARENT,
+            Layer(2),
+        );
+        scene.rect(disabled_proxy.clone(), bounds, Color::TRANSPARENT, Layer(3));
+        scene.rect(
+            disabled_non_tap_proxy.clone(),
+            bounds,
+            Color::TRANSPARENT,
+            Layer(4),
+        );
+        scene.rect(
+            long_press_target.clone(),
+            Bounds2D::from_top_left(
+                Place::new(Px(76.0), Px(14.0)),
+                Size::new(Px(44.0), Px(44.0)),
+            ),
+            Color::BLUE,
+            Layer(1),
+        );
+        scene.rect(
+            drag_target.clone(),
+            Bounds2D::from_top_left(
+                Place::new(Px(136.0), Px(14.0)),
+                Size::new(Px(44.0), Px(44.0)),
+            ),
+            Color::BLUE,
+            Layer(1),
+        );
+        let target_action_id = target_action.id;
+        let disabled_action_id = disabled_action.id;
+        let long_press_action_id = long_press_action.id;
+        let disabled_non_tap_action_id = disabled_non_tap_action.id;
+        let drag_action_id = drag_action.id;
+        let view = Scene2DView::new(scene.finish(fission_game::Tick(0)), 192.0, 72.0)
+            .object_actions(
+                target,
+                SceneObjectActions::new("Lower tap target").on_tap(target_action),
+            )
+            .object_actions(
+                gestureless_proxy.clone(),
+                SceneObjectActions::new("Informational proxy")
+                    .semantics_identifier("demo.scene.informational"),
+            )
+            .object_actions(
+                disabled_proxy.clone(),
+                SceneObjectActions::new("Unavailable proxy")
+                    .on_tap(disabled_action)
+                    .disabled(true)
+                    .semantics_identifier("demo.scene.unavailable"),
+            )
+            .object_actions(
+                long_press_target,
+                SceneObjectActions::new("Long-press target").on_long_press(long_press_action),
+            )
+            .object_actions(
+                drag_target,
+                SceneObjectActions::new("Drag target").on_drag_start(drag_action),
+            )
+            .object_actions(
+                disabled_non_tap_proxy.clone(),
+                SceneObjectActions::new("Unavailable hold proxy")
+                    .on_long_press(disabled_non_tap_action)
+                    .disabled(true)
+                    .semantics_identifier("demo.scene.unavailable-hold"),
+            );
+        #[derive(Debug, Default)]
+        struct DispatchCounts {
+            target: usize,
+            disabled: usize,
+            long_press: usize,
+            disabled_non_tap: usize,
+            drag: usize,
+        }
+        impl fission_core::GlobalState for DispatchCounts {}
+
+        let harness =
+            TestHarness::new_with_mock_measurer(DispatchCounts::default()).with_root_widget(view);
+        let mut driver = TestDriver::new(harness);
+
+        driver
+            .pump()
+            .expect("overlapping scene objects should render");
+        driver
+            .harness
+            .runtime
+            .register_reducer::<DispatchCounts>(target_action_id, |state, _, _| {
+                state.target += 1;
+                Ok(())
+            })
+            .expect("target reducer should register");
+        driver
+            .harness
+            .runtime
+            .register_reducer::<DispatchCounts>(disabled_action_id, |state, _, _| {
+                state.disabled += 1;
+                Ok(())
+            })
+            .expect("disabled reducer should register");
+        driver
+            .harness
+            .runtime
+            .register_reducer::<DispatchCounts>(long_press_action_id, |state, _, _| {
+                state.long_press += 1;
+                Ok(())
+            })
+            .expect("long-press reducer should register");
+        driver
+            .harness
+            .runtime
+            .register_reducer::<DispatchCounts>(disabled_non_tap_action_id, |state, _, _| {
+                state.disabled_non_tap += 1;
+                Ok(())
+            })
+            .expect("disabled non-tap reducer should register");
+        driver
+            .harness
+            .runtime
+            .register_reducer::<DispatchCounts>(drag_action_id, |state, _, _| {
+                state.drag += 1;
+                Ok(())
+            })
+            .expect("drag reducer should register");
+
+        assert_eq!(
+            semantic_label_at(&driver.harness, fission_core::LayoutPoint::new(36.0, 36.0))
+                .as_deref(),
+            Some("Lower tap target"),
+            "disabled and gestureless proxies must leave the enabled target reachable"
+        );
+        assert_eq!(
+            semantic_label_at(&driver.harness, fission_core::LayoutPoint::new(98.0, 36.0))
+                .as_deref(),
+            Some("Long-press target"),
+            "an enabled long-press-only object must remain coordinate hittable"
+        );
+        assert_eq!(
+            semantic_label_at(&driver.harness, fission_core::LayoutPoint::new(158.0, 36.0))
+                .as_deref(),
+            Some("Drag target"),
+            "an enabled drag-only object must remain coordinate hittable"
+        );
+
+        let long_press_point = fission_core::LayoutPoint::new(98.0, 36.0);
+        driver
+            .harness
+            .send_event(fission_core::InputEvent::Pointer(
+                fission_core::PointerEvent::Down {
+                    pointer_id: Default::default(),
+                    kind: Default::default(),
+                    point: long_press_point,
+                    button: fission_core::event::PointerButton::Primary,
+                    modifiers: 0,
+                },
+            ))
+            .expect("long press should begin through the runtime input path");
+        driver
+            .harness
+            .tick(500)
+            .expect("the deterministic runtime clock should advance");
+        driver
+            .harness
+            .send_event(fission_core::InputEvent::Pointer(
+                fission_core::PointerEvent::Up {
+                    pointer_id: Default::default(),
+                    kind: Default::default(),
+                    point: long_press_point,
+                    button: fission_core::event::PointerButton::Primary,
+                    modifiers: 0,
+                },
+            ))
+            .expect("long press should end through the runtime input path");
+        {
+            let counts = driver
+                .harness
+                .runtime
+                .get_app_state::<DispatchCounts>()
+                .expect("long-press dispatch state");
+            assert_eq!(
+                counts.long_press, 1,
+                "long press should dispatch exactly once"
+            );
+            assert_eq!(
+                counts.target, 0,
+                "long press must not activate another target"
+            );
+        }
+
+        let drag_start = fission_core::LayoutPoint::new(158.0, 36.0);
+        let drag_update = fission_core::LayoutPoint::new(166.0, 36.0);
+        driver
+            .harness
+            .send_event(fission_core::InputEvent::Pointer(
+                fission_core::PointerEvent::Down {
+                    pointer_id: Default::default(),
+                    kind: Default::default(),
+                    point: drag_start,
+                    button: fission_core::event::PointerButton::Primary,
+                    modifiers: 0,
+                },
+            ))
+            .expect("drag should begin through the runtime input path");
+        driver
+            .harness
+            .send_event(fission_core::InputEvent::Pointer(
+                fission_core::PointerEvent::Move {
+                    pointer_id: Default::default(),
+                    kind: Default::default(),
+                    point: drag_update,
+                    modifiers: 0,
+                },
+            ))
+            .expect("drag should cross the runtime movement threshold");
+        driver
+            .harness
+            .send_event(fission_core::InputEvent::Pointer(
+                fission_core::PointerEvent::Up {
+                    pointer_id: Default::default(),
+                    kind: Default::default(),
+                    point: drag_update,
+                    button: fission_core::event::PointerButton::Primary,
+                    modifiers: 0,
+                },
+            ))
+            .expect("drag should end through the runtime input path");
+        assert_eq!(
+            driver
+                .harness
+                .runtime
+                .get_app_state::<DispatchCounts>()
+                .expect("drag dispatch state")
+                .drag,
+            1,
+            "drag start should dispatch exactly once"
+        );
+
+        driver
+            .tap_point(36.0, 36.0)
+            .expect("coordinate tap should use the runtime input path");
+        let counts = driver
+            .harness
+            .runtime
+            .get_app_state::<DispatchCounts>()
+            .expect("interaction dispatch state");
+        assert_eq!(counts.target, 1, "the lower target should dispatch once");
+        assert_eq!(
+            counts.disabled, 0,
+            "the disabled proxy must never receive the coordinate tap"
+        );
+        assert_eq!(counts.long_press, 1, "tap must not repeat the long press");
+        assert_eq!(counts.drag, 1, "tap must not repeat the drag action");
+        assert_eq!(
+            counts.disabled_non_tap, 0,
+            "the disabled non-tap proxy must never receive pointer input"
+        );
+
+        let ir = driver.harness.last_ir.as_ref().expect("pumped IR");
+        let informational = ir
+            .nodes
+            .get(&gestureless_proxy.widget_id())
+            .expect("gestureless semantic metadata should remain retained");
+        let Op::Semantics(informational) = &informational.op else {
+            panic!("gestureless proxy identity should remain semantic");
+        };
+        assert_eq!(informational.label.as_deref(), Some("Informational proxy"));
+        assert_eq!(
+            informational.identifier.as_deref(),
+            Some("demo.scene.informational")
+        );
+        assert!(informational.actions.entries.is_empty());
+
+        let unavailable = ir
+            .nodes
+            .get(&disabled_proxy.widget_id())
+            .expect("disabled semantic metadata should remain retained");
+        let Op::Semantics(unavailable) = &unavailable.op else {
+            panic!("disabled proxy identity should remain semantic");
+        };
+        assert_eq!(unavailable.label.as_deref(), Some("Unavailable proxy"));
+        assert_eq!(
+            unavailable.identifier.as_deref(),
+            Some("demo.scene.unavailable")
+        );
+        assert!(unavailable.disabled);
+        assert!(unavailable.actions.entries.is_empty());
+
+        let unavailable_hold = ir
+            .nodes
+            .get(&disabled_non_tap_proxy.widget_id())
+            .expect("disabled non-tap semantic metadata should remain retained");
+        let Op::Semantics(unavailable_hold) = &unavailable_hold.op else {
+            panic!("disabled non-tap proxy identity should remain semantic");
+        };
+        assert_eq!(
+            unavailable_hold.label.as_deref(),
+            Some("Unavailable hold proxy")
+        );
+        assert_eq!(
+            unavailable_hold.identifier.as_deref(),
+            Some("demo.scene.unavailable-hold")
+        );
+        assert!(unavailable_hold.disabled);
+        assert!(unavailable_hold.actions.entries.is_empty());
+    }
+
+    #[test]
     fn center_transform_rotates_and_scales_around_the_sprite_center() {
         let matrix = transform_matrix(
             Transform2D {
@@ -812,5 +1394,27 @@ mod tests {
         );
         assert!((matrix[12] - 15.0).abs() < 0.001);
         assert!((matrix[13] + 15.0).abs() < 0.001);
+    }
+
+    fn semantic_label_at<S: fission_core::GlobalState>(
+        harness: &TestHarness<S>,
+        point: fission_core::LayoutPoint,
+    ) -> Option<String> {
+        let ir = harness.last_ir.as_ref().expect("pumped IR");
+        let layout = harness.last_snapshot.as_ref().expect("pumped layout");
+        let mut current = fission_core::hit_test::hit_test(
+            ir,
+            layout,
+            &harness.runtime.runtime_state.scroll,
+            point,
+        );
+        while let Some(id) = current {
+            let node = ir.nodes.get(&id)?;
+            if let Op::Semantics(semantics) = &node.op {
+                return semantics.label.clone();
+            }
+            current = node.parent;
+        }
+        None
     }
 }
