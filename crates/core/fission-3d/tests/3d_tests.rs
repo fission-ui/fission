@@ -1,4 +1,7 @@
-use fission_3d::{Camera3D, Point3D, Primitive3D, Scene3D, Scene3DInternalLowerer, Scene3DPayload};
+use fission_3d::{
+    Camera3D, Node3D, Node3DId, Point3D, Primitive3D, Scene3D, Scene3DInternalLowerer,
+    Scene3DPayloadV2, Transform3D,
+};
 use fission_core::{
     env::Env,
     internal::{InternalLowerer, InternalLoweringCx},
@@ -37,7 +40,19 @@ fn test_scene3d_lowering() {
         0.1,
         500.0,
     );
-    let scene = Scene3D::new().width(100.0).height(200.0).camera(camera);
+    let scene = Scene3D::new()
+        .width(100.0)
+        .height(200.0)
+        .camera(camera)
+        .add_node(
+            Node3D::new(Node3DId::explicit("lowered-cube"))
+                .transform(Transform3D::from_translation(Point3D::new(3.0, 2.0, 1.0)))
+                .primitive(Primitive3D::Cube {
+                    center: Point3D::new(0.0, 0.0, 0.0),
+                    size: 2.0,
+                    color: Color::RED,
+                }),
+        );
     let lowerer = Scene3DInternalLowerer { scene };
 
     let env = Env::default();
@@ -62,11 +77,17 @@ fn test_scene3d_lowering() {
         }) => {
             assert_eq!(width.as_ref().copied(), Some(100.0));
             assert_eq!(height.as_ref().copied(), Some(200.0));
-            let payload: Scene3DPayload =
+            let payload: Scene3DPayloadV2 =
                 bincode::deserialize(payload).expect("versioned 3D payload");
-            assert_eq!(payload.magic, Scene3DPayload::MAGIC);
-            assert_eq!(payload.version, Scene3DPayload::VERSION);
+            assert_eq!(payload.magic, Scene3DPayloadV2::MAGIC);
+            assert_eq!(payload.version, Scene3DPayloadV2::VERSION);
             assert_eq!(payload.camera, camera);
+            assert!(payload.scene_ir.diagnostics.is_empty());
+            assert_eq!(payload.scene_ir.nodes.len(), 1);
+            assert_eq!(
+                payload.scene_ir.nodes[0].id,
+                Node3DId::explicit("lowered-cube")
+            );
         }
         _ => panic!("Expected Embed LayoutOp"),
     }

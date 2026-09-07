@@ -1,7 +1,11 @@
 pub mod render;
+mod scene_graph;
 use fission_core::internal::{InternalLowerer, InternalLoweringCx, InternalRenderNode};
 use fission_core::op::Color;
 use fission_core::ui::{Container, Widget};
+pub use scene_graph::{
+    Node3D, Node3DId, ResolvedNode3D, Rotation3D, Scene3DDiagnostic, Scene3DIR, Transform3D,
+};
 
 use fission_ir::op::{EmbedKind, LayoutOp};
 use serde::{Deserialize, Serialize};
@@ -159,7 +163,7 @@ impl Camera3D {
 }
 
 impl Point3D {
-    pub fn new(x: f32, y: f32, z: f32) -> Self {
+    pub const fn new(x: f32, y: f32, z: f32) -> Self {
         Self { x, y, z }
     }
 }
@@ -189,6 +193,8 @@ pub struct Scene3D {
     pub height: Option<f32>,
     pub camera: Camera3D,
     pub primitives: Vec<Primitive3D>,
+    pub nodes: Vec<Node3D>,
+    resolved_nodes: Vec<ResolvedNode3D>,
 }
 
 impl Scene3D {
@@ -198,6 +204,8 @@ impl Scene3D {
             height: None,
             camera: Camera3D::default(),
             primitives: Vec::new(),
+            nodes: Vec::new(),
+            resolved_nodes: Vec::new(),
         }
     }
 
@@ -219,6 +227,24 @@ impl Scene3D {
     pub fn camera(mut self, camera: Camera3D) -> Self {
         self.camera = camera;
         self
+    }
+
+    pub fn add_node(mut self, node: Node3D) -> Self {
+        self.nodes.push(node);
+        self
+    }
+
+    /// Runs structural validation and resolves retained node transforms.
+    pub fn finish(&self) -> Scene3DIR {
+        scene_graph::resolve_nodes(&self.nodes)
+    }
+
+    pub(crate) fn render_nodes(&self) -> std::borrow::Cow<'_, [ResolvedNode3D]> {
+        if self.resolved_nodes.is_empty() && !self.nodes.is_empty() {
+            std::borrow::Cow::Owned(self.finish().nodes)
+        } else {
+            std::borrow::Cow::Borrowed(&self.resolved_nodes)
+        }
     }
 }
 
@@ -251,6 +277,45 @@ impl Scene3DPayload {
                 height: Some(height),
                 camera: self.camera,
                 primitives: self.primitives,
+                nodes: Vec::new(),
+                resolved_nodes: Vec::new(),
+            })
+    }
+}
+
+/// Current payload carrying the closed retained-node IR.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Scene3DPayloadV2 {
+    pub magic: [u8; 4],
+    pub version: u16,
+    pub camera: Camera3D,
+    pub primitives: Vec<Primitive3D>,
+    pub scene_ir: Scene3DIR,
+}
+
+impl Scene3DPayloadV2 {
+    pub const MAGIC: [u8; 4] = *b"F3D\0";
+    pub const VERSION: u16 = 2;
+
+    pub fn from_scene(scene: &Scene3D) -> Self {
+        Self {
+            magic: Self::MAGIC,
+            version: Self::VERSION,
+            camera: scene.camera,
+            primitives: scene.primitives.clone(),
+            scene_ir: scene.finish(),
+        }
+    }
+
+    pub fn into_scene(self, width: f32, height: f32) -> Option<Scene3D> {
+        (self.magic == Self::MAGIC && self.version == Self::VERSION && self.camera.is_valid())
+            .then_some(Scene3D {
+                width: Some(width),
+                height: Some(height),
+                camera: self.camera,
+                primitives: self.primitives,
+                nodes: Vec::new(),
+                resolved_nodes: self.scene_ir.nodes,
             })
     }
 }
@@ -361,7 +426,7 @@ impl InternalLowerer for Scene3DInternalLowerer {
             .height
             .unwrap_or_else(|| (cx.env.viewport_size.height - 200.0).max(300.0));
 
-        let payload = bincode::serialize(&Scene3DPayload::from_scene(&self.scene))
+        let payload = bincode::serialize(&Scene3DPayloadV2::from_scene(&self.scene))
             .expect("Scene3D payload serialization is infallible for owned scene data");
         let op = fission_ir::Op::Layout(LayoutOp::Embed {
             kind: EmbedKind::Custom(payload),

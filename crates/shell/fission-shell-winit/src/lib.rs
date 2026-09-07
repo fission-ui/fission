@@ -9193,16 +9193,26 @@ where
                                         {
                                             for surface in &pipeline.native_surfaces {
                                                 let scene3d = bincode::deserialize::<
-                                                    fission_3d::Scene3DPayload,
-                                                >(
-                                                    &surface.payload
-                                                )
+                                                    fission_3d::Scene3DPayloadV2,
+                                                >(&surface.payload)
                                                 .ok()
                                                 .and_then(|payload| {
                                                     payload.into_scene(
                                                         surface.rect.size.width,
                                                         surface.rect.size.height,
                                                     )
+                                                })
+                                                .or_else(|| {
+                                                    bincode::deserialize::<
+                                                        fission_3d::Scene3DPayload,
+                                                    >(&surface.payload)
+                                                    .ok()
+                                                    .and_then(|payload| {
+                                                        payload.into_scene(
+                                                            surface.rect.size.width,
+                                                            surface.rect.size.height,
+                                                        )
+                                                    })
                                                 })
                                                 .or_else(|| {
                                                     // Compatibility for payloads produced by
