@@ -618,14 +618,12 @@ impl DocumentationPage<'_> {
         children.push(
             Container::new(Column {
                 children: vec![
-                    Text::new(
-                        blog_date_label(self.route).unwrap_or_else(|| "Fission blog".to_string()),
-                    )
-                    .size(tokens.typography.font_size_sm)
-                    .family(tokens.typography.font_family_mono.clone())
-                    .weight(tokens.typography.font_weight_bold)
-                    .color(tokens.colors.primary)
-                    .into(),
+                    Text::new(blog_date_label(self.route).unwrap_or_else(|| "Blog".to_string()))
+                        .size(tokens.typography.font_size_sm)
+                        .family(tokens.typography.font_family_mono.clone())
+                        .weight(tokens.typography.font_weight_bold)
+                        .color(tokens.colors.primary)
+                        .into(),
                     Text::new(self.route.title.clone())
                         .size(tokens.typography.heading2_size)
                         .family(tokens.typography.font_family_serif.clone())
@@ -1706,7 +1704,7 @@ fn blog_excerpt(route: &ContentRoute) -> String {
                 && *line != "<!-- truncate -->"
         })
         .next()
-        .unwrap_or("Read the latest Fission update.")
+        .unwrap_or("Read the latest update.")
         .chars()
         .take(220)
         .collect()
@@ -1833,6 +1831,13 @@ mod tests {
         assert_eq!(blog_page_number(&invalid_page), None);
         assert_eq!(blog_page_path("/journal/", 1), "/journal/");
         assert_eq!(blog_page_path("/journal/", 3), "/journal/page/3/");
+    }
+
+    #[test]
+    fn blog_excerpt_fallback_is_site_neutral() {
+        let route = test_blog_route("/journal/2026/09/07/example/");
+
+        assert_eq!(blog_excerpt(&route), "Read the latest update.");
     }
 
     fn test_blog_route(path: &str) -> ContentRoute {
