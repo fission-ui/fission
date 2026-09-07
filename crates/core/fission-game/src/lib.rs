@@ -7,6 +7,11 @@ mod collision;
 mod geometry;
 mod handles;
 mod identity;
+mod physics;
+#[cfg(feature = "physics-rapier2d")]
+mod physics_rapier2d;
+#[cfg(feature = "physics-rapier3d")]
+mod physics_rapier3d;
 mod runtime;
 mod scene2d;
 mod world;
@@ -15,6 +20,16 @@ pub use collision::{Area2D, TouchArea, Touchable2D};
 pub use geometry::{Bounds2D, Degrees, Place, Px, PxPerSecond, Size};
 pub use handles::{AreaHandle, FieldHandle, ObjectGroupHandle, ObjectHandle};
 pub use identity::{StableKey, StableKeyValue, StableSymbol};
+pub use physics::{
+    Collider2D, Collider3D, PhysicsBody2D, PhysicsBody3D, PhysicsBodyId, PhysicsBodyKind,
+    PhysicsPose2D, PhysicsPose3D, PhysicsProvider2D, PhysicsProvider3D, PhysicsRotation3D,
+    PhysicsShape2D, PhysicsShape3D, PhysicsVector2, PhysicsVector3, PhysicsVelocity2D,
+    PhysicsVelocity3D,
+};
+#[cfg(feature = "physics-rapier2d")]
+pub use physics_rapier2d::{Physics2DError, RapierPhysicsWorld2D};
+#[cfg(feature = "physics-rapier3d")]
+pub use physics_rapier3d::{Physics3DError, RapierPhysicsWorld3D};
 pub use runtime::{
     Game, GameConfig, GameCtx, GameFrame, GameKey, GameRuntime, GameState, GameTestHarness,
     GameTime, GameView, HostInputEvent, InputBinding, InputMap, InputTrigger, RuntimeDiagnostic,

@@ -50,6 +50,9 @@ Enable only what your app needs:
 | `server` | SSR shell. |
 | `terminal-shell` | Terminal shell. |
 | `charts` | Fission Charts widgets and data-visualization primitives. |
+| `game` | Deterministic game runtime and retained 2D scenes. |
+| `physics-rapier2d` | Opt-in deterministic Rapier 2D rigid-body provider; also enables `game`. |
+| `physics-rapier3d` | Opt-in deterministic Rapier 3D rigid-body provider; also enables `game`. |
 | `three-d` | 3D scene and embed primitives. |
 | `test-driver` | Live app testing client support. |
 
