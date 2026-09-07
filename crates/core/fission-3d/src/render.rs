@@ -1,10 +1,11 @@
 use bytemuck::{Pod, Zeroable};
 use wgpu::{
-    DepthStencilState, Device, Extent3d, FragmentState, LoadOp, MultisampleState, Operations,
-    PipelineCompilationOptions, PipelineLayoutDescriptor, PrimitiveState, PrimitiveTopology, Queue,
-    RenderPassColorAttachment, RenderPassDepthStencilAttachment, RenderPipeline,
-    RenderPipelineDescriptor, Texture, TextureDescriptor, TextureDimension, TextureFormat,
-    TextureUsages, TextureView, TextureViewDescriptor, VertexState,
+    BindGroup, Buffer, DepthStencilState, Device, Extent3d, FragmentState, LoadOp,
+    MultisampleState, Operations, PipelineCompilationOptions, PipelineLayoutDescriptor,
+    PrimitiveState, PrimitiveTopology, Queue, RenderPassColorAttachment,
+    RenderPassDepthStencilAttachment, RenderPipeline, RenderPipelineDescriptor, Texture,
+    TextureDescriptor, TextureDimension, TextureFormat, TextureUsages, TextureView,
+    TextureViewDescriptor, VertexState,
 };
 
 use crate::{Camera3D, CameraProjection3D, Primitive3D, Scene3D};
@@ -39,7 +40,10 @@ impl Vertex {
 
 pub struct Scene3DRenderer {
     pipeline: RenderPipeline,
-    uniform_layout: wgpu::BindGroupLayout,
+    uniform_buffer: Buffer,
+    uniform_bind_group: BindGroup,
+    resident_source: Option<Vec<Primitive3D>>,
+    resident_mesh: Option<ResidentSceneMesh>,
     depth_texture: Texture,
     depth_view: TextureView,
     width: u32,
@@ -50,6 +54,12 @@ pub struct Scene3DRenderer {
 #[derive(Copy, Clone, Debug, Pod, Zeroable)]
 struct SceneUniforms {
     view_projection: [[f32; 4]; 4],
+}
+
+struct ResidentSceneMesh {
+    vertex_buffer: Buffer,
+    index_buffer: Buffer,
+    index_count: u32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -131,6 +141,23 @@ impl Scene3DRenderer {
             cache: None,
         });
 
+        use wgpu::util::DeviceExt;
+        let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("fission-3d uniforms"),
+            contents: bytemuck::bytes_of(&SceneUniforms {
+                view_projection: glam::Mat4::IDENTITY.to_cols_array_2d(),
+            }),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+        let uniform_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("fission-3d uniforms bind group"),
+            layout: &uniform_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: uniform_buffer.as_entire_binding(),
+            }],
+        });
+
         let depth_texture = device.create_texture(&TextureDescriptor {
             label: Some("fission-3d depth"),
             size: Extent3d {
@@ -150,9 +177,12 @@ impl Scene3DRenderer {
 
         Self {
             pipeline,
+            uniform_buffer,
+            uniform_bind_group,
+            resident_source: None,
+            resident_mesh: None,
             depth_texture,
             depth_view,
-            uniform_layout,
             width,
             height,
         }
@@ -212,143 +242,17 @@ impl Scene3DRenderer {
             return;
         };
 
-        use wgpu::util::DeviceExt;
-
         let uniforms = SceneUniforms {
             view_projection: camera_view_projection(
                 &scene.camera,
                 (viewport.width / viewport.height).max(0.01),
             ),
         };
-        let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("fission-3d uniforms"),
-            contents: bytemuck::bytes_of(&uniforms),
-            usage: wgpu::BufferUsages::UNIFORM,
-        });
-        let uniform_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("fission-3d uniforms bind group"),
-            layout: &self.uniform_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: uniform_buffer.as_entire_binding(),
-            }],
-        });
-
-        // Construct mesh for primitives
-        let mut vertices: Vec<Vertex> = Vec::new();
-        let mut indices: Vec<u32> = Vec::new();
-
-        // This is a naive tessellator just for demonstration parity.
-        // It maps standard Scene3D primitives into flat TriangleLists.
-        for prim in &scene.primitives {
-            match prim {
-                Primitive3D::Cube {
-                    center,
-                    size,
-                    color,
-                } => {
-                    let hs = size / 2.0;
-                    let (x, y, z) = (center.x, center.y, center.z);
-                    let p = [
-                        [x - hs, y - hs, z - hs],
-                        [x + hs, y - hs, z - hs],
-                        [x + hs, y + hs, z - hs],
-                        [x - hs, y + hs, z - hs],
-                        [x - hs, y - hs, z + hs],
-                        [x + hs, y - hs, z + hs],
-                        [x + hs, y + hs, z + hs],
-                        [x - hs, y + hs, z + hs],
-                    ];
-                    push_cube(&mut vertices, &mut indices, p, color);
-                }
-                Primitive3D::Sphere {
-                    center,
-                    radius,
-                    color,
-                } => {
-                    let base_idx = vertices.len() as u32;
-                    let c = [
-                        color.r as f32 / 255.0,
-                        color.g as f32 / 255.0,
-                        color.b as f32 / 255.0,
-                        color.a as f32 / 255.0,
-                    ];
-                    let segments = 16;
-                    let rings = 16;
-
-                    for i in 0..=rings {
-                        let v = i as f32 / rings as f32;
-                        let phi = v * std::f32::consts::PI;
-
-                        for j in 0..=segments {
-                            let u = j as f32 / segments as f32;
-                            let theta = u * std::f32::consts::PI * 2.0;
-
-                            let x = center.x + radius * phi.sin() * theta.cos();
-                            let y = center.y + radius * phi.cos();
-                            let z = center.z + radius * phi.sin() * theta.sin();
-
-                            vertices.push(Vertex {
-                                position: [x, y, z],
-                                color: c,
-                            });
-                        }
-                    }
-
-                    for i in 0..rings {
-                        for j in 0..segments {
-                            let first = base_idx + (i * (segments + 1)) as u32 + j as u32;
-                            let second = first + segments as u32 + 1;
-
-                            indices.push(first);
-                            indices.push(second);
-                            indices.push(first + 1);
-
-                            indices.push(second);
-                            indices.push(second + 1);
-                            indices.push(first + 1);
-                        }
-                    }
-                }
-                Primitive3D::Mesh {
-                    vertices: v_in,
-                    indices: i_in,
-                    color,
-                } => {
-                    let base_idx = vertices.len() as u32;
-                    let c = [
-                        color.r as f32 / 255.0,
-                        color.g as f32 / 255.0,
-                        color.b as f32 / 255.0,
-                        color.a as f32 / 255.0,
-                    ];
-                    for v in v_in {
-                        vertices.push(Vertex {
-                            position: [v.x, v.y, v.z],
-                            color: c,
-                        });
-                    }
-                    for idx in i_in {
-                        indices.push(base_idx + *idx);
-                    }
-                }
-            }
-        }
-
-        if vertices.is_empty() || indices.is_empty() {
+        queue.write_buffer(&self.uniform_buffer, 0, bytemuck::bytes_of(&uniforms));
+        self.ensure_scene_mesh(device, &scene.primitives);
+        let Some(mesh) = self.resident_mesh.as_ref() else {
             return;
-        }
-
-        let v_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("fission-3d vbuf"),
-            contents: bytemuck::cast_slice(&vertices),
-            usage: wgpu::BufferUsages::VERTEX,
-        });
-        let i_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("fission-3d ibuf"),
-            contents: bytemuck::cast_slice(&indices),
-            usage: wgpu::BufferUsages::INDEX,
-        });
+        };
 
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("fission-3d enc"),
@@ -379,7 +283,7 @@ impl Scene3DRenderer {
             });
 
             rpass.set_pipeline(&self.pipeline);
-            rpass.set_bind_group(0, &uniform_bind_group, &[]);
+            rpass.set_bind_group(0, &self.uniform_bind_group, &[]);
             rpass.set_viewport(
                 viewport.x,
                 viewport.y,
@@ -389,13 +293,153 @@ impl Scene3DRenderer {
                 1.0,
             );
             rpass.set_scissor_rect(scissor.0, scissor.1, scissor.2, scissor.3);
-            rpass.set_vertex_buffer(0, v_buf.slice(..));
-            rpass.set_index_buffer(i_buf.slice(..), wgpu::IndexFormat::Uint32);
-            rpass.draw_indexed(0..indices.len() as u32, 0, 0..1);
+            rpass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
+            rpass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+            rpass.draw_indexed(0..mesh.index_count, 0, 0..1);
         }
 
         queue.submit(std::iter::once(encoder.finish()));
     }
+
+    fn ensure_scene_mesh(&mut self, device: &Device, primitives: &[Primitive3D]) {
+        if resident_mesh_matches(self.resident_source.as_deref(), primitives) {
+            return;
+        }
+
+        self.resident_source = Some(primitives.to_vec());
+        self.resident_mesh = build_scene_mesh(device, primitives);
+    }
+}
+
+fn resident_mesh_matches(cached: Option<&[Primitive3D]>, current: &[Primitive3D]) -> bool {
+    cached == Some(current)
+}
+
+fn build_scene_geometry(primitives: &[Primitive3D]) -> (Vec<Vertex>, Vec<u32>) {
+    let mut vertices: Vec<Vertex> = Vec::new();
+    let mut indices: Vec<u32> = Vec::new();
+
+    for prim in primitives {
+        match prim {
+            Primitive3D::Cube {
+                center,
+                size,
+                color,
+            } => {
+                let hs = size / 2.0;
+                let (x, y, z) = (center.x, center.y, center.z);
+                let p = [
+                    [x - hs, y - hs, z - hs],
+                    [x + hs, y - hs, z - hs],
+                    [x + hs, y + hs, z - hs],
+                    [x - hs, y + hs, z - hs],
+                    [x - hs, y - hs, z + hs],
+                    [x + hs, y - hs, z + hs],
+                    [x + hs, y + hs, z + hs],
+                    [x - hs, y + hs, z + hs],
+                ];
+                push_cube(&mut vertices, &mut indices, p, color);
+            }
+            Primitive3D::Sphere {
+                center,
+                radius,
+                color,
+            } => {
+                let base_idx = vertices.len() as u32;
+                let c = [
+                    color.r as f32 / 255.0,
+                    color.g as f32 / 255.0,
+                    color.b as f32 / 255.0,
+                    color.a as f32 / 255.0,
+                ];
+                let segments = 16;
+                let rings = 16;
+
+                for i in 0..=rings {
+                    let v = i as f32 / rings as f32;
+                    let phi = v * std::f32::consts::PI;
+
+                    for j in 0..=segments {
+                        let u = j as f32 / segments as f32;
+                        let theta = u * std::f32::consts::PI * 2.0;
+
+                        let x = center.x + radius * phi.sin() * theta.cos();
+                        let y = center.y + radius * phi.cos();
+                        let z = center.z + radius * phi.sin() * theta.sin();
+
+                        vertices.push(Vertex {
+                            position: [x, y, z],
+                            color: c,
+                        });
+                    }
+                }
+
+                for i in 0..rings {
+                    for j in 0..segments {
+                        let first = base_idx + (i * (segments + 1)) as u32 + j as u32;
+                        let second = first + segments as u32 + 1;
+
+                        indices.push(first);
+                        indices.push(second);
+                        indices.push(first + 1);
+
+                        indices.push(second);
+                        indices.push(second + 1);
+                        indices.push(first + 1);
+                    }
+                }
+            }
+            Primitive3D::Mesh {
+                vertices: v_in,
+                indices: i_in,
+                color,
+            } => {
+                let base_idx = vertices.len() as u32;
+                let c = [
+                    color.r as f32 / 255.0,
+                    color.g as f32 / 255.0,
+                    color.b as f32 / 255.0,
+                    color.a as f32 / 255.0,
+                ];
+                for v in v_in {
+                    vertices.push(Vertex {
+                        position: [v.x, v.y, v.z],
+                        color: c,
+                    });
+                }
+                for idx in i_in {
+                    indices.push(base_idx + *idx);
+                }
+            }
+        }
+    }
+
+    (vertices, indices)
+}
+
+fn build_scene_mesh(device: &Device, primitives: &[Primitive3D]) -> Option<ResidentSceneMesh> {
+    use wgpu::util::DeviceExt;
+    let (vertices, indices) = build_scene_geometry(primitives);
+    if vertices.is_empty() || indices.is_empty() {
+        return None;
+    }
+
+    let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: Some("fission-3d vbuf"),
+        contents: bytemuck::cast_slice(&vertices),
+        usage: wgpu::BufferUsages::VERTEX,
+    });
+    let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: Some("fission-3d ibuf"),
+        contents: bytemuck::cast_slice(&indices),
+        usage: wgpu::BufferUsages::INDEX,
+    });
+
+    Some(ResidentSceneMesh {
+        vertex_buffer,
+        index_buffer,
+        index_count: indices.len() as u32,
+    })
 }
 
 fn camera_view_projection(camera: &Camera3D, aspect: f32) -> [[f32; 4]; 4] {
@@ -538,8 +582,11 @@ fn clamp_scene3d_viewport(
 
 #[cfg(test)]
 mod tests {
-    use super::{camera_view_projection, clamp_scene3d_viewport, push_cube, Scene3DViewport};
-    use crate::{Camera3D, Point3D};
+    use super::{
+        build_scene_geometry, camera_view_projection, clamp_scene3d_viewport, push_cube,
+        resident_mesh_matches, Scene3DViewport,
+    };
+    use crate::{Camera3D, Point3D, Primitive3D};
     use fission_core::op::Color;
 
     #[test]
@@ -616,6 +663,30 @@ mod tests {
         assert!(vertices
             .iter()
             .any(|vertex| vertex.color != first_face_color));
+    }
+
+    #[test]
+    fn resident_mesh_identity_changes_only_with_scene_geometry() {
+        let cube = Primitive3D::Cube {
+            center: Point3D::new(0.0, 0.0, 0.0),
+            size: 2.0,
+            color: Color::BLUE,
+        };
+        let cached = vec![cube.clone()];
+
+        assert!(!resident_mesh_matches(None, &cached));
+        assert!(resident_mesh_matches(Some(&cached), &cached));
+
+        let changed = vec![Primitive3D::Cube { size: 3.0, ..cube }];
+        assert!(!resident_mesh_matches(Some(&cached), &changed));
+    }
+
+    #[test]
+    fn empty_scene_geometry_is_cacheable_without_gpu_buffers() {
+        let (vertices, indices) = build_scene_geometry(&[]);
+        assert!(vertices.is_empty());
+        assert!(indices.is_empty());
+        assert!(resident_mesh_matches(Some(&[]), &[]));
     }
 
     #[test]

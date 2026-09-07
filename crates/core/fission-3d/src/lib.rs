@@ -164,7 +164,7 @@ impl Point3D {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Primitive3D {
     Cube {
         center: Point3D,
