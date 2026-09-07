@@ -1,8 +1,10 @@
+mod picking;
 pub mod render;
 mod scene_graph;
 use fission_core::internal::{InternalLowerer, InternalLoweringCx, InternalRenderNode};
 use fission_core::op::Color;
 use fission_core::ui::{Container, Widget};
+pub use picking::{Ray3D, Scene3DHit};
 pub use scene_graph::{
     Node3D, Node3DId, ResolvedNode3D, Rotation3D, Scene3DDiagnostic, Scene3DIR, Transform3D,
 };
@@ -237,6 +239,11 @@ impl Scene3D {
     /// Runs structural validation and resolves retained node transforms.
     pub fn finish(&self) -> Scene3DIR {
         scene_graph::resolve_nodes(&self.nodes)
+    }
+
+    /// Returns the closest visible retained node intersected by `ray`.
+    pub fn raycast(&self, ray: Ray3D) -> Option<Scene3DHit> {
+        picking::raycast(self, ray)
     }
 
     pub(crate) fn render_nodes(&self) -> std::borrow::Cow<'_, [ResolvedNode3D]> {
