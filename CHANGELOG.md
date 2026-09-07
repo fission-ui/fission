@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Retained 2D paths** - `Scene2D` can declare clipped, layered SVG path data with fills, gradients, strokes, group opacity, stable identities, and portable retained rendering.
+
+### Fixed
+
+- **Decorative scene hit testing** - Actionless `Scene2D` objects no longer claim their rectangular layout bounds. Scene objects with explicit actions remain interactive, while decorative water, weather, guides, and effects allow lower controls to receive pointer input.
+
 ## [0.14.1] - 2026-08-26
 
 ### Fixed
