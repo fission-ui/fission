@@ -82,16 +82,36 @@ impl From<ProductMap> for Widget {
     fn from(_map: ProductMap) -> Self {
         let (_ctx, view) = fission::build::current::<DocsState>();
         let tokens = &view.env().theme.tokens;
-        let targets = [
-            "macOS", "Web", "iOS", "Linux", "Android", "Windows", "Terminal", "Static", "SSR",
-        ]
-        .into_iter()
-        .map(|label| PlatformTarget { label }.into())
-        .collect();
+        let mut map_children = vec![Container::new(Column {
+            children: vec![
+                Image::asset("/img/fission-mark.svg")
+                    .size(42.0, 50.0)
+                    .into(),
+                Text::new("your product")
+                    .size(tokens.typography.font_size_xs)
+                    .family(tokens.typography.font_family_mono.clone())
+                    .color(tokens.colors.on_primary)
+                    .into(),
+            ],
+            gap: Some(tokens.spacing.s),
+            align_items: AlignItems::Center,
+            semantics: Some(site_semantics("value-home-map-core")),
+            ..Default::default()
+        })
+        .padding_all(tokens.spacing.l)
+        .bg_fill(Fill::Solid(tokens.colors.primary))
+        .into()];
+        map_children.extend(
+            [
+                "macOS", "Web", "iOS", "Linux", "Android", "Windows", "Terminal", "Static", "SSR",
+            ]
+            .into_iter()
+            .map(|label| PlatformTarget { label }.into()),
+        );
         SemanticColumn::new(
             "value-home-product-map",
             vec![
-                SemanticColumn::new(
+                SemanticRow::new(
                     "value-home-map-caption",
                     vec![
                         Text::new("One product model")
@@ -105,48 +125,18 @@ impl From<ProductMap> for Widget {
                             .color(tokens.colors.heading)
                             .into(),
                     ],
-                    Some(tokens.spacing.xs),
-                    AlignItems::Start,
+                    Some(tokens.spacing.m),
+                    FlexWrap::NoWrap,
+                    AlignItems::Center,
+                    JustifyContent::SpaceBetween,
                 )
                 .into(),
-                Container::new(Column {
-                    children: vec![
-                        Container::new(Column {
-                            children: vec![
-                                Image::asset("/img/fission-mark.svg")
-                                    .size(42.0, 50.0)
-                                    .into(),
-                                Text::new("your product")
-                                    .size(tokens.typography.font_size_xs)
-                                    .family(tokens.typography.font_family_mono.clone())
-                                    .color(tokens.colors.on_primary)
-                                    .into(),
-                            ],
-                            gap: Some(tokens.spacing.s),
-                            align_items: AlignItems::Center,
-                            semantics: Some(site_semantics("value-home-map-core")),
-                            ..Default::default()
-                        })
-                        .padding_all(tokens.spacing.l)
-                        .bg_fill(Fill::Solid(tokens.colors.primary))
-                        .into(),
-                        Row {
-                            children: targets,
-                            gap: Some(tokens.spacing.s),
-                            wrap: FlexWrap::Wrap,
-                            justify_content: JustifyContent::Center,
-                            semantics: Some(site_semantics("value-home-map-targets")),
-                            ..Default::default()
-                        }
-                        .into(),
-                    ],
-                    gap: Some(tokens.spacing.l),
-                    align_items: AlignItems::Center,
-                    semantics: Some(site_semantics("value-home-map-stage")),
-                    ..Default::default()
-                })
-                .padding_all(tokens.spacing.l)
-                .border(tokens.colors.border, 1.0)
+                SemanticColumn::new(
+                    "value-home-map-stage",
+                    map_children,
+                    Some(0.0),
+                    AlignItems::Stretch,
+                )
                 .into(),
             ],
             Some(tokens.spacing.m),
@@ -165,19 +155,17 @@ impl From<PlatformTarget> for Widget {
     fn from(target: PlatformTarget) -> Self {
         let (_ctx, view) = fission::build::current::<DocsState>();
         let tokens = &view.env().theme.tokens;
-        Container::new(
-            Text::new(target.label)
+        let slug = target.label.to_ascii_lowercase().replace(' ', "-");
+        SemanticColumn::new(
+            format!("value-home-map-target:{slug}"),
+            vec![Text::new(target.label)
                 .size(tokens.typography.font_size_xs)
                 .family(tokens.typography.font_family_mono.clone())
-                .color(tokens.colors.text_secondary),
+                .color(tokens.colors.text_secondary)
+                .into()],
+            Some(0.0),
+            AlignItems::Center,
         )
-        .padding([
-            tokens.spacing.s,
-            tokens.spacing.s,
-            tokens.spacing.xs,
-            tokens.spacing.xs,
-        ])
-        .border(tokens.colors.border, 1.0)
         .into()
     }
 }
@@ -833,7 +821,7 @@ impl From<StartSection> for Widget {
                 .into(),
                 Column {
                     children: vec![MarkdownViewer {
-                        markdown: "```sh\ncargo install fission\nfission create my-app\ncd my-app\nfission run\n```\n\nReady: one Rust application, ready for its first target."
+                        markdown: "```sh\ncargo install cargo-fission\nfission init my-app\ncd my-app\nfission run\n```\n\nReady: one Rust application, ready for its first target."
                             .to_string(),
                         show_scrollbar: false,
                     }

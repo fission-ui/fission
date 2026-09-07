@@ -7,8 +7,10 @@
   --ink-soft: #595964;
   --line: #d7d5cd;
   --line-strong: #aaa89f;
-  --accent: #ff4f24;
-  --accent-ink: #c62d0a;
+  --accent: #4f5bec;
+  --accent-ink: #4d4ac8;
+  --accent-violet: #7048de;
+  --accent-gradient: linear-gradient(135deg, #4f5bec 0%, #7048de 100%);
   --code: #12121a;
   --code-ink: #f5f2e9;
   --editorial-max: 88rem;
@@ -36,7 +38,7 @@
   --atlas-radius-sm: 0;
   --atlas-radius: 0;
   --atlas-radius-lg: 0;
-  --atlas-gradient: var(--accent);
+  --atlas-gradient: var(--accent-gradient);
   --fs-color-primary: var(--accent);
   --fs-color-primary-hover: var(--accent-ink);
   --fs-color-primary-subtle: var(--atlas-surface-2);
@@ -62,8 +64,10 @@
   --ink-soft: #aaa8b0;
   --line: #34333c;
   --line-strong: #56545f;
-  --accent: #ff6842;
-  --accent-ink: #ff886b;
+  --accent: #8491ff;
+  --accent-ink: #ad9fff;
+  --accent-violet: #b08bff;
+  --accent-gradient: linear-gradient(135deg, #8491ff 0%, #b08bff 100%);
   --code: #08080d;
   --code-ink: #f5f2e9;
 }
@@ -168,27 +172,68 @@ body::before {
   white-space: nowrap;
 }
 
+/* Fragment links all resolve to the home document, so generated current-page
+   state cannot distinguish their section. Only reveal the marker on intent. */
+.fission-site-main-nav .fission-site-nav-label .fission-site-route-link[aria-current="page"]::after {
+  opacity: 0;
+  transform: scaleX(0.5);
+}
+
+.fission-site-main-nav .fission-site-nav-label .fission-site-route-link:hover::after,
+.fission-site-main-nav .fission-site-nav-label .fission-site-route-link:focus-visible::after {
+  opacity: 1;
+  transform: scaleX(1);
+}
+
 .fission-site-main-nav .fission-site-route-link:hover,
 .fission-site-doc-nav .fission-site-route-link:hover,
-.fission-site-main-nav .fission-site-route-link[aria-current="page"],
 .fission-site-doc-nav .fission-site-route-link[aria-current="page"] {
   color: var(--accent) !important;
 }
 
 .fission-site-home-actions,
-.fission-site-doc-header > .fission-site-row > .fission-site-row:last-child {
+.fission-site-doc-actions {
   grid-column: 3;
   justify-self: end;
+}
+
+.fission-site-doc-actions > .fission-site-row {
+  flex-wrap: nowrap !important;
+}
+
+.fission-site-search-trigger {
+  min-width: 11.5rem;
+  justify-content: space-between !important;
+  padding: 0.55rem 0.75rem !important;
+  border: 1px solid var(--line) !important;
+  background: var(--paper-bright) !important;
+}
+
+.fission-site-search-trigger:hover {
+  border-color: var(--line-strong) !important;
+}
+
+/* The configured mark already contains the F. Keep the visible wordmark from
+   repeating it while retaining the full accessible site title. */
+.fission-site-doc-header > .fission-site-row > .fission-site-row:has(.fission-site-img) .fission-site-text-run {
+  font-size: 0 !important;
+}
+
+.fission-site-doc-header > .fission-site-row > .fission-site-row:has(.fission-site-img) .fission-site-text-run::after {
+  color: var(--ink);
+  content: "ission";
+  font-size: 1.1rem;
+  font-weight: 650;
 }
 
 .fission-site-home-actions > .fission-site-row > .fission-site-box:last-child {
   border: 1px solid var(--ink) !important;
   border-radius: 0 !important;
-  background: transparent !important;
+  background: var(--accent-gradient) !important;
 }
 
 .fission-site-home-actions > .fission-site-row > .fission-site-box:last-child:hover {
-  background: var(--ink) !important;
+  filter: saturate(1.08) brightness(0.96);
 }
 
 .fission-site-home-actions > .fission-site-row > .fission-site-box:last-child:hover .fission-site-text-run {
@@ -238,8 +283,8 @@ body::before {
 
 .fission-site-value-home-hero-main > .fission-site-row {
   display: grid !important;
-  grid-template-columns: minmax(0, 1.1fr) minmax(25rem, 0.9fr);
-  gap: clamp(3rem, 8vw, 8rem) !important;
+  grid-template-columns: minmax(0, 1.28fr) minmax(24rem, 0.72fr);
+  gap: clamp(2.5rem, 5vw, 5rem) !important;
   width: 100% !important;
 }
 
@@ -267,9 +312,9 @@ body::before {
 
 [data-fission-semantics="site-heading-1:top"],
 [data-fission-semantics="site-heading-1:top"] .fission-site-text-run {
-  max-width: 13ch !important;
+  max-width: 16ch !important;
   color: var(--ink) !important;
-  font-size: clamp(4.1rem, 8vw, 8rem) !important;
+  font-size: clamp(4.1rem, 7vw, 7.6rem) !important;
   font-weight: 580 !important;
   line-height: 0.98 !important;
   letter-spacing: -0.06em !important;
@@ -281,28 +326,69 @@ body::before {
 
 .fission-site-value-home-map-stage {
   position: relative;
-  min-height: 30rem;
+  aspect-ratio: 1 / 1.05;
+  min-height: 0;
   overflow: hidden;
-  border: 1px solid var(--line) !important;
-  background: var(--paper-bright);
+  border: 0 !important;
+  border-bottom: 1px solid var(--line) !important;
+  background: transparent;
 }
 
 .fission-site-value-home-map-stage::before,
 .fission-site-value-home-map-stage::after {
   position: absolute;
-  inset: 13% 7%;
+  z-index: 0;
+  top: 50%;
+  left: 50%;
+  width: 83%;
+  height: 83%;
   border: 1px solid var(--line);
   border-radius: 50%;
   content: "";
   pointer-events: none;
+  transform: translate(-50%, -50%);
 }
 
 .fission-site-value-home-map-stage::after {
-  inset: 25% 17%;
+  width: 50%;
+  height: 50%;
+}
+
+.fission-site-value-home-map-stage > .fission-site-column {
+  position: absolute;
+  inset: 0;
+}
+
+.fission-site-value-home-map-stage > .fission-site-column::before,
+.fission-site-value-home-map-stage > .fission-site-column::after {
+  position: absolute;
+  z-index: 0;
+  top: 50%;
+  left: 50%;
+  background: var(--line);
+  content: "";
+  transform: translate(-50%, -50%);
+}
+
+.fission-site-value-home-map-stage > .fission-site-column::before {
+  width: 1px;
+  height: 100%;
+}
+
+.fission-site-value-home-map-stage > .fission-site-column::after {
+  width: 100%;
+  height: 1px;
 }
 
 .fission-site-value-home-map-core {
-  z-index: 2;
+  position: absolute;
+  z-index: 3;
+  top: 50%;
+  left: 50%;
+  width: 5.8rem !important;
+  height: 7.4rem;
+  padding: 1rem !important;
+  transform: translate(-50%, -50%);
   border: 0 !important;
   border-radius: 0 !important;
   background: var(--ink) !important;
@@ -312,13 +398,44 @@ body::before {
   filter: brightness(0) invert(1);
 }
 
-.fission-site-value-home-map-targets {
-  z-index: 2;
+.fission-site-value-home-map-core > .fission-site-column {
+  align-items: center !important;
+  justify-content: center !important;
 }
 
-.fission-site-value-home-map-targets > .fission-site-row > .fission-site-box {
-  border-radius: 0 !important;
+[data-fission-semantics^="site-value-home-map-target:"] {
+  position: absolute;
+  z-index: 2;
+  width: auto !important;
+  padding: 0.2rem 0.45rem !important;
   background: var(--paper) !important;
+  color: var(--ink-soft);
+  font-family: "DM Mono", ui-monospace, monospace;
+}
+
+[data-fission-semantics^="site-value-home-map-target:"]::before {
+  display: inline-block;
+  width: 0.38rem;
+  height: 0.38rem;
+  margin-right: 0.45rem;
+  border-radius: 50%;
+  background: var(--accent-gradient);
+  content: "";
+}
+
+[data-fission-semantics="site-value-home-map-target:macos"] { top: 10%; left: 42%; }
+[data-fission-semantics="site-value-home-map-target:web"] { top: 24%; right: 5%; }
+[data-fission-semantics="site-value-home-map-target:ios"] { right: 10%; bottom: 22%; }
+[data-fission-semantics="site-value-home-map-target:linux"] { bottom: 7%; left: 38%; }
+[data-fission-semantics="site-value-home-map-target:android"] { bottom: 23%; left: 4%; }
+[data-fission-semantics="site-value-home-map-target:windows"] { top: 23%; left: 2%; }
+[data-fission-semantics="site-value-home-map-target:terminal"] { top: 43%; right: 0; }
+[data-fission-semantics="site-value-home-map-target:static"] { right: 24%; bottom: 4%; }
+[data-fission-semantics="site-value-home-map-target:ssr"] { bottom: 42%; left: 1%; }
+
+.fission-site-value-home-map-caption > .fission-site-row {
+  padding-bottom: 0.9rem;
+  border-bottom: 1px solid var(--line);
 }
 
 .fission-site-value-home-hero-proof > .fission-site-row {
@@ -382,13 +499,21 @@ body::before {
 }
 
 .fission-site-value-home-section-heading > .fission-site-row,
-.fission-site-value-home-audience-heading > .fission-site-row,
-.fission-site-value-home-approach-intro > .fission-site-row,
 .fission-site-value-home-comparison-heading > .fission-site-row {
   display: grid !important;
-  grid-template-columns: minmax(12rem, 0.44fr) minmax(0, 1fr);
-  gap: clamp(2rem, 8vw, 8rem) !important;
+  grid-template-columns: minmax(10rem, 0.36fr) minmax(0, 1fr);
+  gap: 2rem !important;
   width: 100% !important;
+}
+
+.fission-site-value-home-audience-heading > .fission-site-row,
+.fission-site-value-home-approach-intro > .fission-site-row {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1.1fr) minmax(18rem, 0.6fr);
+  gap: clamp(2rem, 8vw, 8rem) !important;
+  align-items: end !important;
+  width: 78% !important;
+  margin-left: 22%;
 }
 
 .fission-site-value-home-section-heading {
@@ -506,7 +631,7 @@ body::before {
   border: 0 !important;
   background: var(--code) !important;
   color: var(--code-ink) !important;
-  box-shadow: 1.2rem 1.2rem 0 color-mix(in srgb, var(--accent) 75%, transparent);
+  box-shadow: 1.2rem 1.2rem 0 color-mix(in srgb, var(--accent-violet) 75%, transparent);
 }
 
 .fission-site-value-home-quickstart .fission-site-code-block {
@@ -536,14 +661,84 @@ body::before {
 }
 
 [data-fission-semantics="crate-directory-copy"] {
-  max-width: 62rem;
+  max-width: none;
 }
 
-[data-fission-semantics="crate-directory-copy"] > .fission-site-column > .fission-site-box:nth-child(2) .fission-site-text-run {
+[data-fission-semantics="crate-directory-copy"] > .fission-site-row {
+  display: grid !important;
+  grid-template-columns: minmax(10rem, 0.32fr) minmax(0, 1fr);
+  gap: clamp(2rem, 7vw, 8rem) !important;
+  width: 100% !important;
+}
+
+[data-fission-semantics="crate-directory-copy"] > .fission-site-row > .fission-site-box:first-child {
+  padding-top: 1rem;
+  font-family: "DM Mono", ui-monospace, monospace;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+[data-fission-semantics="crate-directory-copy"] > .fission-site-row > .fission-site-box:nth-child(2) > .fission-site-column > .fission-site-box:first-child .fission-site-text-run {
   font-size: clamp(3.8rem, 8vw, 7.5rem) !important;
   font-weight: 560 !important;
   line-height: 0.96 !important;
   letter-spacing: -0.06em !important;
+}
+
+[data-fission-semantics="crate-featured"] {
+  width: min(100%, var(--editorial-max)) !important;
+  padding: clamp(3rem, 6vw, 6rem) var(--editorial-gutter) !important;
+  border: 0 !important;
+  border-top: 1px solid var(--ink) !important;
+  border-bottom: 1px solid var(--ink) !important;
+  background: transparent !important;
+}
+
+[data-fission-semantics="crate-featured"] > .fission-site-row {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) minmax(22rem, 0.72fr);
+  gap: clamp(3rem, 8vw, 9rem) !important;
+  width: 100% !important;
+}
+
+[data-fission-semantics="crate-featured"] > .fission-site-row > .fission-site-box:first-child .fission-site-text-run {
+  max-width: 48rem;
+}
+
+[data-fission-semantics="crate-featured-actions"] > .fission-site-row > .fission-site-box:first-child {
+  padding: 0.85rem 1.25rem !important;
+  background: var(--accent-gradient) !important;
+}
+
+[data-fission-semantics="crate-featured-visual"] {
+  position: relative;
+  display: grid !important;
+  min-height: 28rem;
+  overflow: hidden;
+  place-items: center;
+  background:
+    radial-gradient(circle at 72% 28%, color-mix(in srgb, var(--accent) 55%, transparent) 0 0.45rem, transparent 0.5rem),
+    linear-gradient(132deg, transparent 37%, color-mix(in srgb, var(--paper) 75%, transparent) 38% 42%, transparent 43%),
+    linear-gradient(28deg, transparent 58%, color-mix(in srgb, var(--paper) 78%, transparent) 59% 63%, transparent 64%),
+    color-mix(in srgb, var(--accent) 13%, #cfe6d0);
+}
+
+[data-fission-semantics="crate-featured-visual"]::before {
+  position: absolute;
+  top: 18%;
+  right: 16%;
+  bottom: -12%;
+  left: 48%;
+  border-radius: 48% 52% 0 0;
+  background: color-mix(in srgb, var(--accent) 23%, #9accc8);
+  content: "";
+}
+
+[data-fission-semantics="crate-featured-visual"] > .fission-site-column {
+  z-index: 1;
+  max-width: 17rem;
+  padding: 1.2rem !important;
+  background: color-mix(in srgb, var(--paper) 86%, transparent);
 }
 
 [data-fission-semantics="crate-searchbox"] {
@@ -555,7 +750,35 @@ body::before {
   box-shadow: none !important;
 }
 
+[data-fission-semantics="crate-searchbox"] .fission-site-control {
+  position: relative;
+  display: block;
+  width: 100%;
+}
+
+[data-fission-semantics="crate-searchbox"] .fission-site-control-label,
+[data-fission-semantics="crate-searchbox"] .fission-site-input ~ .fission-site-node {
+  display: none !important;
+}
+
+[data-fission-semantics="crate-searchbox"] .fission-site-input {
+  width: 100%;
+  min-height: 2.5rem;
+  padding: 0 !important;
+  border: 0 !important;
+  outline: 0;
+  background: transparent !important;
+  color: var(--ink) !important;
+  font: inherit;
+}
+
+[data-fission-semantics="crate-searchbox"] .fission-site-input::placeholder {
+  color: var(--ink-soft);
+  opacity: 1;
+}
+
 [data-fission-semantics="crate-platform-legend"],
+[data-fission-semantics="crate-category-legend"],
 [data-fission-semantics="crate-results"] {
   width: min(calc(100% - 2 * var(--editorial-gutter)), var(--editorial-max)) !important;
 }
@@ -567,6 +790,16 @@ body::before {
   border-radius: 0 !important;
   background: transparent !important;
   box-shadow: none !important;
+}
+
+[data-fission-semantics="crate-category-legend"] {
+  padding: 4rem 0 1.2rem !important;
+  border: 0 !important;
+  background: transparent !important;
+}
+
+[data-fission-semantics="crate-category-legend"] > .fission-site-row {
+  justify-content: flex-start !important;
 }
 
 [data-fission-semantics^="crate-platform-filter:"] {
@@ -768,8 +1001,8 @@ body::before {
 
 /* Blog journal */
 .fission-site-blog-layout {
-  width: min(100%, var(--editorial-max)) !important;
-  max-width: var(--editorial-max) !important;
+  width: min(100%, 96rem) !important;
+  max-width: 96rem !important;
   padding: clamp(5rem, 9vw, 9rem) var(--editorial-gutter) var(--editorial-space) !important;
 }
 
@@ -786,6 +1019,15 @@ body::before {
   max-width: none !important;
 }
 
+.fission-site-blog-layout .fission-site-blog-post {
+  width: min(100%, 68rem) !important;
+  max-width: 68rem !important;
+}
+
+.fission-site-blog-post-title .fission-site-text-run {
+  max-width: 18ch !important;
+}
+
 .fission-site-blog-index-title .fission-site-text-run {
   max-width: 12ch;
   font-size: clamp(4rem, 8vw, 7.2rem) !important;
@@ -795,8 +1037,31 @@ body::before {
 }
 
 .fission-site-blog-index-hero {
-  max-width: 70rem;
+  max-width: none;
+  margin-inline: 0 !important;
   padding-bottom: clamp(4rem, 7vw, 7rem) !important;
+  text-align: left !important;
+}
+
+.fission-site-blog-index-hero > .fission-site-column {
+  display: grid !important;
+  grid-template-columns: minmax(10rem, 0.32fr) minmax(0, 1fr);
+  gap: 1.5rem clamp(2rem, 7vw, 8rem) !important;
+  align-items: start !important;
+}
+
+.fission-site-blog-index-hero > .fission-site-column > .fission-site-box:first-child {
+  grid-column: 1;
+  grid-row: 1 / 3;
+  padding-top: 0.8rem;
+  font-family: "DM Mono", ui-monospace, monospace;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.fission-site-blog-index-hero > .fission-site-column > .fission-site-box:nth-child(2),
+.fission-site-blog-index-hero > .fission-site-column > .fission-site-box:nth-child(3) {
+  grid-column: 2;
 }
 
 .fission-site-blog-featured-card,
@@ -812,15 +1077,73 @@ body::before {
 }
 
 .fission-site-blog-featured-card {
+  padding: clamp(3rem, 5vw, 5rem) 0 !important;
   border-top-color: var(--ink) !important;
+  border-bottom: 1px solid var(--ink) !important;
 }
 
-.fission-site-blog-featured-card::after {
-  display: none;
+.fission-site-blog-featured-card > .fission-site-column {
+  display: grid !important;
+  grid-template-columns: minmax(8rem, 0.25fr) minmax(0, 1fr) minmax(15rem, 0.45fr);
+  gap: 1.2rem clamp(2rem, 5vw, 5rem) !important;
+  width: 100% !important;
+}
+
+.fission-site-blog-featured-card > .fission-site-column > .fission-site-box:first-child {
+  grid-column: 1;
+  grid-row: 1 / 6;
+}
+
+.fission-site-blog-featured-card > .fission-site-column > .fission-site-box:not(:first-child) {
+  grid-column: 2;
+}
+
+.fission-site-blog-featured-card > .fission-site-column::after {
+  display: grid;
+  grid-column: 3;
+  grid-row: 1 / 6;
+  min-height: 20rem;
+  place-items: center;
+  border-block: 1px solid var(--line);
+  background:
+    linear-gradient(var(--line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--line) 1px, transparent 1px);
+  background-size: 2.5rem 2.5rem;
+  color: var(--ink-soft);
+  content: "shared source  →  shipped product";
+  font-family: "DM Mono", ui-monospace, monospace;
+  font-size: 0.68rem;
+  letter-spacing: 0.06em;
+  text-align: center;
+  text-transform: uppercase;
 }
 
 .fission-site-blog-post-list > .fission-site-column {
   display: block !important;
+}
+
+.fission-site-blog-card > .fission-site-column {
+  display: grid !important;
+  grid-template-columns: minmax(8rem, 0.25fr) minmax(0, 1fr) auto;
+  gap: 0.8rem clamp(1.5rem, 5vw, 5rem) !important;
+  align-items: start !important;
+  width: 100% !important;
+}
+
+.fission-site-blog-card > .fission-site-column > .fission-site-box:first-child {
+  grid-column: 1;
+  grid-row: 1 / 5;
+}
+
+.fission-site-blog-card > .fission-site-column > .fission-site-box:nth-child(2),
+.fission-site-blog-card > .fission-site-column > .fission-site-box:nth-child(3),
+.fission-site-blog-card > .fission-site-column > .fission-site-box:nth-child(4) {
+  grid-column: 2;
+}
+
+.fission-site-blog-card > .fission-site-column > .fission-site-box:last-child {
+  grid-column: 3;
+  grid-row: 1 / 5;
 }
 
 .fission-site-blog-card h2 .fission-site-text-run,
@@ -837,9 +1160,17 @@ body::before {
   border-bottom: 1px solid var(--ink);
 }
 
-/* Product pages and footer use the same restrained editorial language. */
+/* Product pages carry the homepage's editorial system into the retained
+   routes: one continuous story, not a stack of unrelated dashboard cards. */
 .fission-site-product-page {
+  width: 100% !important;
+  max-width: none !important;
+  padding: 0 0 var(--editorial-space) !important;
   background: var(--paper) !important;
+}
+
+.fission-site-product-page > .fission-site-column {
+  gap: 0 !important;
 }
 
 .fission-site-product-hero,
@@ -852,13 +1183,153 @@ body::before {
   box-shadow: none !important;
 }
 
+.fission-site-product-hero,
+.fission-site-product-nav-strip,
 .fission-site-product-feature-showcase,
 .fission-site-product-detail-showcase,
 .fission-site-product-workflow,
 .fission-site-product-proof {
+  box-sizing: border-box;
+  width: min(100%, var(--editorial-max)) !important;
+  margin: 0 auto !important;
+}
+
+.fission-site-product-hero {
+  min-height: calc(78svh - 5rem);
+  padding: clamp(5rem, 9vw, 9rem) var(--editorial-gutter) !important;
+}
+
+.fission-site-product-hero > .fission-site-row {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1.12fr) minmax(22rem, 0.88fr);
+  gap: clamp(3rem, 7vw, 8rem) !important;
+  width: 100% !important;
+}
+
+.fission-site-product-hero-title .fission-site-text-run {
+  max-width: 15ch !important;
+  font-size: clamp(3.8rem, 7vw, 7rem) !important;
+  font-weight: 560 !important;
+  line-height: 0.96 !important;
+  letter-spacing: -0.06em !important;
+}
+
+.fission-site-product-hero-body .fission-site-text-run {
+  max-width: 43rem;
+  font-size: clamp(1.1rem, 1.55vw, 1.34rem) !important;
+  line-height: 1.62 !important;
+}
+
+.fission-site-product-hero > .fission-site-row > .fission-site-box:last-child {
+  position: relative;
+  overflow: hidden;
+  padding: clamp(1.5rem, 3vw, 2.5rem) !important;
+  border: 1px solid var(--line) !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+}
+
+.fission-site-product-hero > .fission-site-row > .fission-site-box:last-child::before {
+  position: absolute;
+  inset: 1.25rem;
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--line));
+  border-radius: 50%;
+  content: "";
+  pointer-events: none;
+}
+
+.fission-site-product-nav-strip {
+  overflow-x: auto;
+  padding: 1rem var(--editorial-gutter) !important;
+  border: 0 !important;
+  border-top: 1px solid var(--ink) !important;
+  border-bottom: 1px solid var(--line) !important;
+  background: transparent !important;
+}
+
+.fission-site-product-nav-strip > .fission-site-row {
+  justify-content: flex-start !important;
+  flex-wrap: nowrap !important;
+}
+
+.fission-site-product-nav-strip > .fission-site-row > .fission-site-box {
+  flex: 0 0 auto;
+  padding: 0.45rem 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+}
+
+.fission-site-product-feature-showcase,
+.fission-site-product-detail-showcase,
+.fission-site-product-workflow,
+.fission-site-product-proof {
+  padding: var(--editorial-space) var(--editorial-gutter) !important;
   border: 0 !important;
   border-top: 1px solid var(--line) !important;
   background: transparent !important;
+}
+
+.fission-site-product-feature-showcase > .fission-site-row {
+  display: grid !important;
+  grid-template-columns: minmax(15rem, 0.52fr) minmax(0, 1fr);
+  gap: clamp(3rem, 8vw, 9rem) !important;
+  width: 100% !important;
+}
+
+.fission-site-product-feature-showcase > .fission-site-row > .fission-site-row,
+.fission-site-product-detail-showcase > .fission-site-column > .fission-site-row,
+.fission-site-product-workflow > .fission-site-column > .fission-site-row:last-child {
+  display: grid !important;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0 !important;
+  width: 100% !important;
+  border-top: 1px solid var(--ink);
+}
+
+[data-fission-semantics="site-product-feature-card"],
+[data-fission-semantics="site-product-detail-card"],
+[data-fission-semantics="site-product-workflow-step"] {
+  width: 100% !important;
+  min-height: 18rem;
+  padding: 1.8rem clamp(1.25rem, 2.5vw, 2.5rem) 2.5rem !important;
+  border: 0 !important;
+  border-right: 1px solid var(--line) !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+}
+
+[data-fission-semantics="site-product-feature-card"]:last-child,
+[data-fission-semantics="site-product-detail-card"]:last-child,
+[data-fission-semantics="site-product-workflow-step"]:last-child {
+  border-right: 0 !important;
+}
+
+.fission-site-product-detail-showcase > .fission-site-column,
+.fission-site-product-workflow > .fission-site-column {
+  gap: clamp(3rem, 6vw, 6rem) !important;
+}
+
+.fission-site-product-detail-showcase > .fission-site-column > .fission-site-box:first-child {
+  max-width: 66rem;
+}
+
+.fission-site-product-workflow > .fission-site-column > .fission-site-row:first-child {
+  display: grid !important;
+  grid-template-columns: minmax(12rem, 0.36fr) minmax(0, 1fr);
+  gap: clamp(2rem, 7vw, 7rem) !important;
+  width: 100% !important;
+}
+
+.fission-site-product-proof {
+  border-top-color: var(--ink) !important;
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--accent) 7%, transparent), transparent 52%),
+    transparent !important;
+}
+
+.fission-site-product-proof > .fission-site-row {
+  gap: clamp(3rem, 8vw, 9rem) !important;
 }
 
 .fission-site-footer {
@@ -926,6 +1397,15 @@ body::before {
     max-width: 42rem;
   }
 
+  .fission-site-product-hero > .fission-site-row,
+  .fission-site-product-feature-showcase > .fission-site-row {
+    grid-template-columns: 1fr;
+  }
+
+  .fission-site-product-hero > .fission-site-row > .fission-site-box:last-child {
+    max-width: 44rem;
+  }
+
   .fission-site-doc-layout > .fission-site-row {
     grid-template-columns: 14rem minmax(0, 1fr) !important;
     gap: 2.5rem !important;
@@ -958,6 +1438,10 @@ body::before {
 
   .fission-site-doc-header .fission-site-doc-nav {
     margin-left: auto;
+  }
+
+  .fission-site-doc-actions {
+    margin-left: 0;
   }
 
   .fission-site-doc-header .fission-site-doc-nav > .fission-site-row > .fission-site-nav-item:not(:first-child) {
@@ -1016,7 +1500,7 @@ body::before {
   }
 
   .fission-site-value-home-map-stage {
-    min-height: 24rem;
+    aspect-ratio: 1 / 1;
   }
 
   .fission-site-value-home-hero-proof > .fission-site-row {
@@ -1031,6 +1515,12 @@ body::before {
   .fission-site-value-home-audience-switcher > .fission-site-row {
     grid-template-columns: 1fr;
     gap: 2rem !important;
+  }
+
+  .fission-site-value-home-audience-heading > .fission-site-row,
+  .fission-site-value-home-approach-intro > .fission-site-row {
+    width: 100% !important;
+    margin-left: 0;
   }
 
   .fission-site-value-home-outcome > .fission-site-row {
@@ -1093,6 +1583,23 @@ body::before {
     font-size: clamp(3.1rem, 14vw, 4.5rem) !important;
   }
 
+  [data-fission-semantics="crate-directory-copy"] > .fission-site-row > .fission-site-box:nth-child(2) > .fission-site-column > .fission-site-box:first-child .fission-site-text-run {
+    font-size: clamp(3.1rem, 14vw, 4.5rem) !important;
+  }
+
+  [data-fission-semantics="crate-directory-copy"] > .fission-site-row,
+  [data-fission-semantics="crate-featured"] > .fission-site-row {
+    grid-template-columns: 1fr;
+  }
+
+  [data-fission-semantics="crate-featured"] {
+    padding: 4rem 1.25rem !important;
+  }
+
+  [data-fission-semantics="crate-featured-visual"] {
+    min-height: 20rem;
+  }
+
   .fission-site-doc-layout {
     width: 100% !important;
     padding: 2.5rem 1.25rem 5rem !important;
@@ -1111,6 +1618,60 @@ body::before {
 
   .fission-site-blog-index-title .fission-site-text-run {
     font-size: clamp(3.4rem, 15vw, 4.8rem) !important;
+  }
+
+  .fission-site-blog-index-hero > .fission-site-column,
+  .fission-site-blog-featured-card > .fission-site-column,
+  .fission-site-blog-card > .fission-site-column {
+    grid-template-columns: 1fr;
+  }
+
+  .fission-site-blog-index-hero > .fission-site-column > .fission-site-box:first-child,
+  .fission-site-blog-index-hero > .fission-site-column > .fission-site-box:nth-child(2),
+  .fission-site-blog-index-hero > .fission-site-column > .fission-site-box:nth-child(3),
+  .fission-site-blog-featured-card > .fission-site-column > .fission-site-box:first-child,
+  .fission-site-blog-featured-card > .fission-site-column > .fission-site-box:not(:first-child),
+  .fission-site-blog-featured-card > .fission-site-column::after,
+  .fission-site-blog-card > .fission-site-column > .fission-site-box:first-child,
+  .fission-site-blog-card > .fission-site-column > .fission-site-box:nth-child(2),
+  .fission-site-blog-card > .fission-site-column > .fission-site-box:nth-child(3),
+  .fission-site-blog-card > .fission-site-column > .fission-site-box:nth-child(4),
+  .fission-site-blog-card > .fission-site-column > .fission-site-box:last-child {
+    grid-column: 1;
+    grid-row: auto;
+  }
+
+  .fission-site-product-hero,
+  .fission-site-product-nav-strip,
+  .fission-site-product-feature-showcase,
+  .fission-site-product-detail-showcase,
+  .fission-site-product-workflow,
+  .fission-site-product-proof {
+    padding-right: 1.25rem !important;
+    padding-left: 1.25rem !important;
+  }
+
+  .fission-site-product-hero {
+    min-height: 0;
+    padding-top: 4rem !important;
+    padding-bottom: 4rem !important;
+  }
+
+  .fission-site-product-feature-showcase > .fission-site-row > .fission-site-row,
+  .fission-site-product-detail-showcase > .fission-site-column > .fission-site-row,
+  .fission-site-product-workflow > .fission-site-column > .fission-site-row:last-child,
+  .fission-site-product-workflow > .fission-site-column > .fission-site-row:first-child {
+    grid-template-columns: 1fr;
+  }
+
+  [data-fission-semantics="site-product-feature-card"],
+  [data-fission-semantics="site-product-detail-card"],
+  [data-fission-semantics="site-product-workflow-step"] {
+    min-height: 0;
+    padding-right: 0 !important;
+    padding-left: 0 !important;
+    border-right: 0 !important;
+    border-bottom: 1px solid var(--line) !important;
   }
 
   .fission-site-footer {

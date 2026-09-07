@@ -121,14 +121,28 @@ impl DocumentationPage<'_> {
                 .into(),
             );
         }
+        let mut actions = Vec::new();
         if self.theme_switching {
-            children.push(theme_toggle(tokens));
+            actions.push(theme_toggle(tokens));
             // Re-enable when the translated documentation corpus is substantial enough
             // for switching locale here to preserve the reader's current destination.
             // children.push(locale_switcher(tokens));
         }
         if self.search_enabled {
-            children.push(search_trigger(tokens));
+            actions.push(search_trigger(tokens));
+        }
+        if !actions.is_empty() {
+            children.push(
+                Row {
+                    children: actions,
+                    gap: Some(tokens.spacing.m),
+                    align_items: AlignItems::Center,
+                    justify_content: JustifyContent::End,
+                    semantics: Some(site_semantics("site-doc-actions")),
+                    ..Default::default()
+                }
+                .into(),
+            );
         }
         Container::new(Row {
             children,
@@ -402,6 +416,12 @@ impl DocumentationPage<'_> {
         let mut children = vec![
             Container::new(Column {
                 children: vec![
+                    Text::new("Fission journal")
+                        .size(tokens.typography.font_size_xs)
+                        .family(tokens.typography.font_family_mono.clone())
+                        .weight(tokens.typography.font_weight_bold)
+                        .color(tokens.colors.primary)
+                        .into(),
                     Text::new("How Fission is built, tested, and released.")
                         .size(tokens.typography.heading1_size)
                         .family(tokens.typography.font_family_serif.clone())

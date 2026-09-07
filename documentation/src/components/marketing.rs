@@ -301,8 +301,8 @@ impl MarketingPageKind {
         match self {
             MarketingPageKind::Overview => PageCopy {
                 eyebrow: "Fission platform",
-                title: "A Rust application platform for the full product lifecycle.",
-                body: "Build the interface, run it on real targets, test and debug it, package artifacts, prepare release content, publish through stores and hosts, and keep receipts for automation.",
+                title: "Keep the product together from first build to release.",
+                body: "Build the interface once, run that product on real targets, and carry the same project model through testing, packaging, signing, stores, and hosting. Teams spend their time improving one product instead of coordinating several implementations.",
                 primary_label: "Start docs",
                 primary_href: "/docs/intro/",
                 secondary_label: "See release workflow",
@@ -312,12 +312,12 @@ impl MarketingPageKind {
                 proof_cta_label: "Start with the platform model",
                 proof_cta_href: "/docs/intro/",
                 feature_label: "Platform shape",
-                feature_title: "The product architecture stays together.",
-                feature_body: "Fission is organized around one explicit app model and the host/lifecycle tools needed to take that model from first run to release.",
+                feature_title: "One place to make product decisions.",
+                feature_body: "State, interface, platform boundaries, and delivery configuration stay visible in one Rust project, so a change can be reviewed and proven as one coherent piece of work.",
                 features: OVERVIEW_FEATURES,
                 details_label: "How it fits",
-                details_title: "A framework boundary for the whole application lifecycle.",
-                details_body: "The overview page connects the major targets. Use the deeper product pages when you need the details for a specific output or workflow.",
+                details_title: "Share what is product logic. Isolate what is genuinely platform-specific.",
+                details_body: "Fission shares behavior and interface intent while each shell owns its real operating-system boundary. That keeps reuse honest and platform work explicit.",
                 details: OVERVIEW_DETAILS,
                 workflow_label: "Lifecycle path",
                 workflow_title: "From project setup to release receipts.",
@@ -325,8 +325,8 @@ impl MarketingPageKind {
             },
             MarketingPageKind::CrossPlatformApps => PageCopy {
                 eyebrow: "Cross-platform apps",
-                title: "One Rust app model across every Fission target.",
-                body: "Fission keeps state, reducers, widgets, resources, jobs, services, design systems, and charts shared while shells host the product on each platform.",
+                title: "Support more platforms without maintaining more versions of your product.",
+                body: "A workflow implemented in shared Rust reaches macOS, Windows, Linux, Web, Android, and iOS. Platform shells still own lifecycle, input, packaging, and other host concerns, so teams share product behavior without pretending every platform is identical.",
                 primary_label: "Read shell guide",
                 primary_href: "/docs/guides/platform-shells-cli-and-testing/",
                 secondary_label: "Browse targets",
@@ -336,12 +336,12 @@ impl MarketingPageKind {
                 proof_cta_label: "Read target expectations",
                 proof_cta_href: "/reference/platform/targets/",
                 feature_label: "Host coverage",
-                feature_title: "Each app target has a concrete responsibility.",
-                feature_body: "Cross-platform does not mean pretending every host is the same. Fission keeps product behavior shared while validating the parts that belong to each platform.",
+                feature_title: "Add reach, not another product codebase.",
+                feature_body: "Desktop gives a fast development loop; mobile and Web prove their own input, lifecycle, rendering, and delivery boundaries against the same underlying application.",
                 features: CROSS_FEATURES,
                 details_label: "Target model",
-                details_title: "Use the fastest loop until the host itself matters.",
-                details_body: "macOS, Windows, Linux, Web, Android, iOS, Terminal, Static site, and SSR should all be tested as real outputs. The right target depends on the behavior you are proving.",
+                details_title: "Use the fastest loop, then prove the shipped host.",
+                details_body: "Work quickly on the most convenient target, then exercise browser, emulator, simulator, device, or desktop packages whenever that platform boundary affects the user experience.",
                 details: CROSS_DETAILS,
                 workflow_label: "Run loop",
                 workflow_title: "Move between hosts without rewriting product code.",
@@ -349,8 +349,8 @@ impl MarketingPageKind {
             },
             MarketingPageKind::TerminalApps => PageCopy {
                 eyebrow: "Terminal",
-                title: "Build terminal apps without leaving Fission.",
-                body: "Terminal is for production command tools, setup flows, diagnostics, admin panels, and developer workflows that need an interactive shell target.",
+                title: "Give command-line workflows a real application structure.",
+                body: "Build setup flows, diagnostics, administration, and developer tools with screens, state, navigation, progress, and non-blocking work—using the same application model as graphical targets.",
                 primary_label: "Build a terminal app",
                 primary_href: "/docs/guides/terminal-user-interfaces/",
                 secondary_label: "Try fission ui",
@@ -373,8 +373,8 @@ impl MarketingPageKind {
             },
             MarketingPageKind::StaticSites => PageCopy {
                 eyebrow: "Static sites",
-                title: "Generate SEO-friendly static sites from Fission widgets and content.",
-                body: "Use custom widget routes for marketing pages and Markdown content routes for documentation, reference, blogs, and changelogs.",
+                title: "Publish fast, crawlable sites without creating a second frontend stack.",
+                body: "Use Fission widgets for designed pages and Markdown routes for documentation, references, blogs, and changelogs. The result is portable HTML, CSS, metadata, and search that any static host can serve.",
                 primary_label: "Read static site guide",
                 primary_href: "/docs/guides/static-sites/",
                 secondary_label: "View this site structure",
@@ -397,8 +397,8 @@ impl MarketingPageKind {
             },
             MarketingPageKind::ServerSites => PageCopy {
                 eyebrow: "Server-rendered sites",
-                title: "Render dynamic web products with the same Fission app model.",
-                body: "Use the server shell for ecommerce, dashboards, portals, account pages, and other routes that need request-time data, sessions, signed actions, cache policy, workers, or focused islands.",
+                title: "Serve dynamic web journeys without rebuilding the product in another framework.",
+                body: "Use the same Fission components for ecommerce, dashboards, portals, and account pages, then choose request-time data, session privacy, cache policy, workers, or focused islands only where the route needs them.",
                 primary_label: "Build a server site",
                 primary_href: "/docs/guides/server-sites/",
                 secondary_label: "Read server security",
@@ -421,8 +421,8 @@ impl MarketingPageKind {
             },
             MarketingPageKind::ProductionLifecycle => PageCopy {
                 eyebrow: "Production lifecycle",
-                title: "Package, sign, release, distribute, and track the output.",
-                body: "Fission treats post-build work as a platform feature: readiness checks, artifact manifests, release content, credentials, stores, static hosts, tracks, rollouts, and receipts.",
+                title: "Make release day a repeatable engineering workflow.",
+                body: "Catch missing release inputs early, create verifiable packages, sign the right artifacts, publish through stores and hosts, and leave receipts that CI and teammates can inspect.",
                 primary_label: "Open release docs",
                 primary_href: "/docs/release-and-distribute/overview/",
                 secondary_label: "Lifecycle details",
@@ -445,8 +445,8 @@ impl MarketingPageKind {
             },
             MarketingPageKind::DeveloperTools => PageCopy {
                 eyebrow: "Developer tools",
-                title: "Make the Fission runtime observable while you build.",
-                body: "The developer tools direction is inspection, diagnostics, profiling, screenshots, device workflow, and IDE integration around the same explicit app model.",
+                title: "Trace a user action all the way to shipped output.",
+                body: "Inspect state, reducers, layout, semantics, paint, resources, and device logs through the model the application actually runs. Diagnose the product without learning a separate hidden tooling model.",
                 primary_label: "Read testing docs",
                 primary_href: "/docs/test-and-debug/overview/",
                 secondary_label: "Open reference",
@@ -469,8 +469,8 @@ impl MarketingPageKind {
             },
             MarketingPageKind::DesignSystems => PageCopy {
                 eyebrow: "Design systems",
-                title: "Bring a real design system into Rust UI code.",
-                body: "Fission reads design system package JSON at build time and generates typed theme code for widgets, charts, shells, and product targets.",
+                title: "Keep design decisions consistent across every shipped surface.",
+                body: "Turn Design System Package JSON into typed Rust at build time, then let widgets, charts, and shells consume the same colors, spacing, typography, variants, and interaction states.",
                 primary_label: "Read design guide",
                 primary_href: "/docs/guides/design-system/",
                 secondary_label: "Theme docs",
@@ -493,8 +493,8 @@ impl MarketingPageKind {
             },
             MarketingPageKind::Charts => PageCopy {
                 eyebrow: "Charts",
-                title: "Beautiful data visualization as a first-class product feature.",
-                body: "Fission Charts is the native charting layer for dashboards, analytics, finance, maps, networks, dynamic data, and 3D-ready visuals.",
+                title: "Help people understand product data without embedding another UI stack.",
+                body: "Build dashboards, analytics, finance views, maps, and networks from typed Rust data. Charts share the product's theme, interaction model, tests, and target delivery instead of behaving like a foreign embed.",
                 primary_label: "Browse catalog",
                 primary_href: "/docs/charts/catalog/",
                 secondary_label: "Chart reference",
@@ -884,6 +884,7 @@ impl From<DetailCard> for Widget {
                 NavLink::new(card.copy.link_label, card.copy.href).into(),
             ],
             gap: Some(tokens.spacing.m),
+            semantics: Some(site_semantics("site-product-detail-card")),
             ..Default::default()
         })
         .width(tokens.spacing.xxxxl * 3.25)
@@ -929,6 +930,7 @@ impl From<FeatureCard> for Widget {
                     .into(),
             ],
             gap: Some(tokens.spacing.m),
+            semantics: Some(site_semantics("site-product-feature-card")),
             ..Default::default()
         })
         .width(tokens.spacing.xxxxl * 3.1)
@@ -1037,6 +1039,7 @@ impl From<WorkflowStep> for Widget {
                     .into(),
             ],
             gap: Some(tokens.spacing.s),
+            semantics: Some(site_semantics("site-product-workflow-step")),
             ..Default::default()
         })
         .width(tokens.spacing.xxxxl * 3.05)

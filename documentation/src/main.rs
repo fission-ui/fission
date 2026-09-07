@@ -134,11 +134,11 @@ fn atlas_theme(mode: DesignMode) -> Theme {
     let colors = &mut tokens.colors;
     match mode {
         DesignMode::Light => {
-            colors.primary = rgb(255, 79, 36);
+            colors.primary = rgb(79, 91, 236);
             colors.on_primary = Color::WHITE;
-            colors.primary_hover = rgb(198, 45, 10);
-            colors.primary_subtle = rgb(239, 235, 226);
-            colors.secondary = rgb(255, 79, 36);
+            colors.primary_hover = rgb(103, 70, 214);
+            colors.primary_subtle = rgb(236, 237, 252);
+            colors.secondary = rgb(112, 72, 222);
             colors.on_secondary = Color::WHITE;
             colors.surface = rgb(253, 252, 248);
             colors.on_surface = rgb(16, 16, 24);
@@ -152,16 +152,16 @@ fn atlas_theme(mode: DesignMode) -> Theme {
             colors.text_primary = rgb(16, 16, 24);
             colors.text_secondary = rgb(89, 89, 100);
             colors.text_muted = rgb(112, 110, 119);
-            colors.text_link = rgb(198, 45, 10);
+            colors.text_link = rgb(77, 74, 200);
             colors.heading = rgb(16, 16, 24);
-            colors.focus_ring = rgb(255, 79, 36);
+            colors.focus_ring = rgb(79, 91, 236);
         }
         DesignMode::Dark => {
-            colors.primary = rgb(255, 104, 66);
+            colors.primary = rgb(132, 145, 255);
             colors.on_primary = rgb(16, 16, 23);
-            colors.primary_hover = rgb(255, 136, 107);
-            colors.primary_subtle = rgb(38, 30, 31);
-            colors.secondary = rgb(255, 104, 66);
+            colors.primary_hover = rgb(176, 139, 255);
+            colors.primary_subtle = rgb(35, 34, 64);
+            colors.secondary = rgb(176, 139, 255);
             colors.on_secondary = rgb(16, 16, 23);
             colors.surface = rgb(22, 22, 31);
             colors.on_surface = rgb(245, 242, 233);
@@ -175,9 +175,9 @@ fn atlas_theme(mode: DesignMode) -> Theme {
             colors.text_primary = rgb(245, 242, 233);
             colors.text_secondary = rgb(170, 168, 176);
             colors.text_muted = rgb(125, 123, 132);
-            colors.text_link = rgb(255, 136, 107);
+            colors.text_link = rgb(173, 159, 255);
             colors.heading = rgb(245, 242, 233);
-            colors.focus_ring = rgb(255, 104, 66);
+            colors.focus_ring = rgb(132, 145, 255);
         }
     }
     tokens.typography.font_family_sans =
