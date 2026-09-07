@@ -338,11 +338,15 @@ impl BrowserController {
                 self.selector_action(query.clone(), TestCommand::SelectOption { query })
             }
             TestCommand::Screenshot { path } => {
+                self.prepare_live_page_capture()?;
                 let bytes = self.capture_page_screenshot()?;
                 write_screenshot(&PathBuf::from(path), &bytes)?;
                 Ok(TestResponse::Ok {})
             }
-            TestCommand::CaptureScreenshot {} => self.capture_page_response(),
+            TestCommand::CaptureScreenshot {} => {
+                self.prepare_live_page_capture()?;
+                self.capture_page_response()
+            }
             TestCommand::CaptureAt { ms } => {
                 ensure_response_ok(self.send_bridge_command(TestCommand::AdvanceClock { ms })?)?;
                 ensure_response_ok(self.send_bridge_command(TestCommand::Pump {})?)?;
@@ -618,10 +622,19 @@ impl BrowserController {
         })
     }
 
+    fn prepare_live_page_capture(&mut self) -> Result<()> {
+        ensure_response_ok(self.send_bridge_command(TestCommand::Pump {})?)
+    }
+
     fn capture_page_screenshot(&mut self) -> Result<Vec<u8>> {
+        self.await_compositor_frame()?;
         let result = self.client.send(
             "Page.captureScreenshot",
-            json!({ "format": "png", "captureBeyondViewport": true }),
+            json!({
+                "format": "png",
+                "fromSurface": true,
+                "captureBeyondViewport": false,
+            }),
         )?;
         let data = result
             .get("data")
@@ -630,6 +643,18 @@ impl BrowserController {
         base64::engine::general_purpose::STANDARD
             .decode(data)
             .context("Chrome returned invalid screenshot base64")
+    }
+
+    fn await_compositor_frame(&mut self) -> Result<()> {
+        let result = self.client.send(
+            "Runtime.evaluate",
+            json!({
+                "expression": "new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve(true))))",
+                "awaitPromise": true,
+                "returnByValue": true,
+            }),
+        )?;
+        runtime_exception(&result)
     }
 
     fn fail_on_browser_errors(&mut self) -> Result<()> {

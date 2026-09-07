@@ -451,6 +451,12 @@ struct WebCanvasPresenter {
     report: RendererReport,
 }
 
+#[cfg(any(target_arch = "wasm32", test))]
+fn web_canvas_dimension_target(current: u32, requested: u32) -> Option<u32> {
+    let target = requested.max(1);
+    (target != current).then_some(target)
+}
+
 #[cfg(target_arch = "wasm32")]
 impl WebCanvasPresenter {
     fn new(window: &Window) -> anyhow::Result<Self> {
@@ -486,13 +492,25 @@ impl WebCanvasPresenter {
         height: u32,
         scale_factor: f64,
     ) -> anyhow::Result<()> {
-        self.canvas.set_width(width.max(1));
-        self.canvas.set_height(height.max(1));
-        self.report.width = width.max(1);
-        self.report.height = height.max(1);
+        let target_width = width.max(1);
+        let target_height = height.max(1);
+        if let Some(target_width) = web_canvas_dimension_target(self.canvas.width(), target_width) {
+            // Assigning either canvas dimension resets its backing store. Keep
+            // the last complete frame intact when the viewport has not changed
+            // so a compositor capture cannot observe a transient clear between
+            // rasterization and putImageData.
+            self.canvas.set_width(target_width);
+        }
+        if let Some(target_height) =
+            web_canvas_dimension_target(self.canvas.height(), target_height)
+        {
+            self.canvas.set_height(target_height);
+        }
+        self.report.width = target_width;
+        self.report.height = target_height;
         self.report.scale_factor = scale_factor;
         let image =
-            ImageData::new_with_u8_clamped_array_and_sh(Clamped(rgba), width.max(1), height.max(1))
+            ImageData::new_with_u8_clamped_array_and_sh(Clamped(rgba), target_width, target_height)
                 .map_err(|error| anyhow::anyhow!(js_error_to_string(error)))?;
         self.context
             .put_image_data(&image, 0.0, 0.0)
@@ -9194,7 +9212,9 @@ where
                                             for surface in &pipeline.native_surfaces {
                                                 let scene3d = bincode::deserialize::<
                                                     fission_3d::Scene3DPayloadV2,
-                                                >(&surface.payload)
+                                                >(
+                                                    &surface.payload
+                                                )
                                                 .ok()
                                                 .and_then(|payload| {
                                                     payload.into_scene(
@@ -10590,9 +10610,9 @@ mod tests {
         resolve_build_viewport, resolve_selector_record, should_auto_select_native_software,
         should_present_startup_clear_frame, surface_acquire_recovery,
         sync_tracked_target_texture_size_to_surface, texture_plans_fit_device_limits,
-        visual_rect_for_node, web_effective_render_scale, window_insets_from_safe_area_frames,
-        windows_shell_execute_succeeded, windows_wide, BrowserDefaults, LiveResizeController,
-        SurfaceAcquireRecovery, WindowViewportState,
+        visual_rect_for_node, web_canvas_dimension_target, web_effective_render_scale,
+        window_insets_from_safe_area_frames, windows_shell_execute_succeeded, windows_wide,
+        BrowserDefaults, LiveResizeController, SurfaceAcquireRecovery, WindowViewportState,
     };
     use crate::pipeline::CompositorTexturePlan;
     use crate::renderer_diagnostics::RendererRequest;
@@ -11545,6 +11565,18 @@ mod tests {
         let rounded =
             layout_size_to_image_dimensions(fission_layout::LayoutSize::new(999.6, 700.4));
         assert_eq!(rounded, (1000, 700));
+    }
+
+    #[test]
+    fn web_canvas_keeps_unchanged_backing_dimensions() {
+        assert_eq!(web_canvas_dimension_target(960, 960), None);
+        assert_eq!(web_canvas_dimension_target(640, 844), Some(844));
+    }
+
+    #[test]
+    fn web_canvas_normalizes_empty_backing_dimensions_once() {
+        assert_eq!(web_canvas_dimension_target(0, 0), Some(1));
+        assert_eq!(web_canvas_dimension_target(1, 0), None);
     }
 
     #[test]
