@@ -2112,7 +2112,11 @@ mod tests {
 
     static SUBMITTED_SEARCHES: OnceLock<Mutex<Vec<SubmittedSearch>>> = OnceLock::new();
 
-    fn on_submitted_search(_state: &mut FormActionState, action: SubmittedSearch) {
+    fn on_submitted_search(
+        _state: &mut FormActionState,
+        action: SubmittedSearch,
+        _ctx: &mut ReducerContext<FormActionState>,
+    ) {
         SUBMITTED_SEARCHES
             .get_or_init(|| Mutex::new(Vec::new()))
             .lock()
