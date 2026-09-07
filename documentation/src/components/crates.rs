@@ -101,12 +101,19 @@ impl From<FeaturedCrate> for Widget {
                             .weight(tokens.typography.font_weight_bold)
                             .color(tokens.colors.primary)
                             .into(),
-                        Text::new(item.name.clone())
-                            .size(tokens.typography.font_size_lg)
-                            .family(tokens.typography.font_family_mono.clone())
-                            .weight(tokens.typography.font_weight_bold)
-                            .color(tokens.colors.text_secondary)
-                            .into(),
+                        Container::new(Row {
+                            children: vec![Text::new(item.name.clone())
+                                    .size(tokens.typography.font_size_lg)
+                                    .family(tokens.typography.font_family_mono.clone())
+                                    .weight(tokens.typography.font_weight_medium)
+                                    .color(tokens.colors.text_primary)
+                                    .into()],
+                            gap: Some(tokens.spacing.l),
+                            align_items: AlignItems::Center,
+                            semantics: Some(site_semantics("crate-featured-package")),
+                            ..Default::default()
+                        })
+                        .into(),
                         Text::new("Put native Apple maps inside a Fission application.")
                             .size(tokens.typography.heading1_size)
                             .weight(tokens.typography.font_weight_bold)
@@ -116,7 +123,7 @@ impl From<FeaturedCrate> for Widget {
                             )
                             .color(tokens.colors.heading)
                             .into(),
-                        Text::new(item.description)
+                        Text::new("Use MapKit-backed maps on macOS and iOS without replacing the Fission application model or routing users through a web view.")
                             .size(tokens.typography.body_large_size)
                             .line_height(
                                 tokens.typography.body_large_size
@@ -126,14 +133,32 @@ impl From<FeaturedCrate> for Widget {
                             .max_width(680.0)
                             .into(),
                         SemanticRow::new(
+                            "crate-featured-meta",
+                            vec![
+                                Text::new("COMMUNITY").into(),
+                                Text::new("MACOS").into(),
+                                Text::new("IOS").into(),
+                                Text::new(format!("V{}", item.version)).into(),
+                            ],
+                            Some(tokens.spacing.m),
+                            FlexWrap::Wrap,
+                            AlignItems::Center,
+                            JustifyContent::Start,
+                        )
+                        .into(),
+                        SemanticRow::new(
                             "crate-featured-actions",
                             vec![
-                                Text::new("View package  ↗")
-                                    .size(tokens.typography.label_large_size)
-                                    .weight(tokens.typography.font_weight_bold)
-                                    .color(tokens.colors.on_primary)
-                                    .semantics_identifier(format!("site-route:{href}"))
-                                    .into(),
+                                Container::new(
+                                    Text::new("View package  ↗")
+                                        .size(tokens.typography.label_large_size)
+                                        .weight(tokens.typography.font_weight_bold)
+                                        .color(tokens.colors.on_primary)
+                                        .semantics_identifier(format!("site-route:{href}")),
+                                )
+                                .padding([tokens.spacing.l, tokens.spacing.l, tokens.spacing.m, tokens.spacing.m])
+                                .bg_fill(fission::op::Fill::Solid(tokens.colors.primary))
+                                .into(),
                                 Text::new(format!("cargo add {}", item.name))
                                     .size(tokens.typography.font_size_sm)
                                     .family(tokens.typography.font_family_mono.clone())
@@ -181,7 +206,6 @@ impl From<FeaturedCrate> for Widget {
             Length::points(tokens.spacing.xxxl),
             Length::points(tokens.spacing.xl),
         ])
-        .border(tokens.colors.border_strong, 1.0)
         .into()
     }
 }
@@ -360,18 +384,21 @@ impl From<CrateHeroContent> for Widget {
                             .weight(tokens.typography.font_weight_bold)
                             .color(tokens.colors.heading)
                             .max_width(900.0)
+                            .semantics_identifier("crate-directory-title")
                             .into(),
                         Text::new(TextContent::Key("crates.body".into()))
                             .size(if hero.compact { 17.0 } else { 20.0 })
                             .line_height(if hero.compact { 27.0 } else { 32.0 })
                             .color(tokens.colors.text_secondary)
                             .max_width(740.0)
+                            .semantics_identifier("crate-directory-body")
                             .into(),
                         CrateSearchBox.into(),
                         Text::new(indexed_count)
                             .size(tokens.typography.font_size_sm)
                             .weight(tokens.typography.font_weight_bold)
                             .color(tokens.colors.secondary)
+                            .semantics_identifier("crate-directory-count")
                             .into(),
                     ],
                     gap: Some(tokens.spacing.l),
@@ -403,9 +430,9 @@ impl From<CrateSearchBox> for Widget {
 
         Container::new(Row {
             children: vec![
-                Text::new("⌕")
+                Icon::svg(material::action::search::regular())
                     .size(20.0)
-                    .color(tokens.colors.primary)
+                    .color(tokens.colors.text_secondary)
                     .into(),
                 Container::new(TextInput {
                     semantics_identifier: Some("crate-search-input".into()),

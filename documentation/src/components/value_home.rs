@@ -42,14 +42,25 @@ impl From<HeroCopy> for Widget {
             "value-home-hero-copy",
             vec![
                 Eyebrow::new("A Rust application platform").into(),
-                Text::new("Build one Rust product.\nShip it everywhere.")
-                    .size(76.0)
-                    .line_height(75.0)
-                    .weight(tokens.typography.font_weight_bold)
-                    .color(tokens.colors.heading)
-                    .max_width(760.0)
-                    .semantics_identifier("site-heading-1:top")
-                    .into(),
+                RichText {
+                    runs: vec![
+                        RichTextRun::new("Build one Rust product.\n")
+                            .size(76.0)
+                            .line_height(75.0)
+                            .weight(tokens.typography.font_weight_bold)
+                            .color(tokens.colors.heading),
+                        RichTextRun::new("Ship it everywhere.")
+                            .size(76.0)
+                            .line_height(75.0)
+                            .weight(tokens.typography.font_weight_bold)
+                            .color(tokens.colors.primary)
+                            .semantics_identifier("site-value-home-accent"),
+                    ],
+                    max_width: Some(760.0),
+                    semantics: Some(site_semantics("site-heading-1:top")),
+                    ..Default::default()
+                }
+                .into(),
                 Text::new("Fission keeps application state, interface code, platform integrations, tests, and release workflow in one Rust codebase. Add native, mobile, web, terminal, and server targets without maintaining a separate product implementation for each one.")
                     .size(tokens.typography.body_large_size)
                     .line_height(tokens.typography.body_large_size * tokens.typography.line_height_relaxed)
@@ -222,12 +233,20 @@ impl From<WhySection> for Widget {
                             .weight(tokens.typography.font_weight_bold)
                             .color(tokens.colors.heading)
                             .into(),
-                        Text::new("One codebase should mean one place to make product decisions.")
-                            .size(tokens.typography.heading1_size)
-                            .line_height(tokens.typography.heading1_size * tokens.typography.line_height_heading)
-                            .weight(tokens.typography.font_weight_bold)
-                            .color(tokens.colors.heading)
-                            .into(),
+                        RichText::new(vec![
+                            RichTextRun::new("One codebase should mean one place to make ")
+                                .size(tokens.typography.heading1_size)
+                                .line_height(tokens.typography.heading1_size * tokens.typography.line_height_heading)
+                                .weight(tokens.typography.font_weight_bold)
+                                .color(tokens.colors.heading),
+                            RichTextRun::new("product decisions.")
+                                .size(tokens.typography.heading1_size)
+                                .line_height(tokens.typography.heading1_size * tokens.typography.line_height_heading)
+                                .weight(tokens.typography.font_weight_bold)
+                                .color(tokens.colors.primary)
+                                .semantics_identifier("site-value-home-accent"),
+                        ])
+                        .into(),
                         Text::new("State changes, navigation, widgets, services, and design rules are expressed once. Platform shells still own the details that genuinely differ—windows, lifecycle, input, signing, and distribution. A product change stays a product change instead of becoming a coordination job across several application teams.")
                             .size(tokens.typography.body_large_size)
                             .line_height(tokens.typography.body_large_size * tokens.typography.line_height_relaxed)

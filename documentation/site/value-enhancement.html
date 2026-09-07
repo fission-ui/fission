@@ -50,5 +50,24 @@
       if (observer) observer.observe(node);
       else node.classList.add('is-visible');
     });
+
+    document.querySelectorAll('.fission-site-doc-toc > .fission-site-column').forEach((toc) => {
+      if (!toc.querySelector('.fission-doc-toc-label')) {
+        const label = document.createElement('span');
+        label.className = 'fission-doc-toc-label';
+        label.textContent = 'On this page';
+        toc.prepend(label);
+      }
+      const path = location.pathname.replace(/^\/+|\/+$/g, '');
+      if (!path || (!path.startsWith('docs') && !path.startsWith('reference'))) return;
+      const relative = path === 'docs' || path === 'reference'
+        ? `${path}/index.mdx`
+        : `${path}.mdx`;
+      const edit = document.createElement('a');
+      edit.className = 'fission-doc-edit-link';
+      edit.href = `https://github.com/fission-ui/fission/edit/main/documentation/content/${relative}`;
+      edit.textContent = 'Edit this page ↗';
+      toc.append(edit);
+    });
   })();
 </script>
