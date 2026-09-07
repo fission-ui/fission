@@ -904,7 +904,15 @@ impl HtmlRenderer<'_> {
             .get(&node_id)
             .ok_or_else(|| anyhow!("site render failed: missing IR node {node_id}"))?;
         match &node.op {
-            Op::Structural(_) => self.render_element("div", node, "fission-site-node", Vec::new()),
+            Op::Structural(fission_ir::StructuralOp::PointerTransparent) => self.render_element(
+                "div",
+                node,
+                "fission-site-node",
+                vec!["pointer-events:none".to_string()],
+            ),
+            Op::Structural(fission_ir::StructuralOp::Group { .. }) => {
+                self.render_element("div", node, "fission-site-node", Vec::new())
+            }
             Op::Layout(layout) => self.render_layout(node, layout),
             Op::Paint(paint) => self.render_paint(node, paint),
             Op::Semantics(_) => self.render_semantics(node),
@@ -4367,6 +4375,81 @@ mod tests {
                 .html
                 .contains(&format!("data-fission-node=\"{region}\"")));
         }
+    }
+
+    #[test]
+    fn pointer_transparent_structure_disables_pointer_events_without_dropping_semantics() {
+        let root = WidgetId::explicit("pointer-transparent-root");
+        let marker = WidgetId::explicit("pointer-transparent-marker");
+        let semantic = WidgetId::explicit("pointer-transparent-semantic");
+        let text = WidgetId::explicit("pointer-transparent-text");
+        let ordinary = WidgetId::explicit("ordinary-structure");
+        let mut ir = CoreIR::new();
+        ir.add_node(
+            text,
+            Op::Paint(PaintOp::DrawText {
+                text: "Decorative sea fog".into(),
+                size: 16.0,
+                color: Color::BLACK,
+                underline: false,
+                locale: None,
+                wrap: true,
+                caret_index: None,
+                caret_color: None,
+                caret_width: None,
+                caret_height: None,
+                caret_radius: None,
+                paragraph_style: None,
+            }),
+            Vec::new(),
+        );
+        ir.add_node(
+            semantic,
+            Op::Semantics(Semantics {
+                role: Role::Generic,
+                label: Some("Fog decoration".into()),
+                identifier: Some("game.scene.fog".into()),
+                ..Default::default()
+            }),
+            vec![text],
+        );
+        ir.add_node(
+            marker,
+            Op::Structural(fission_ir::StructuralOp::PointerTransparent),
+            vec![semantic],
+        );
+        ir.add_node(
+            ordinary,
+            Op::Structural(fission_ir::StructuralOp::Group { stable_hash: 2 }),
+            Vec::new(),
+        );
+        ir.add_node(
+            root,
+            Op::Structural(fission_ir::StructuralOp::Group { stable_hash: 1 }),
+            vec![marker, ordinary],
+        );
+        ir.set_root(root);
+
+        let rendered = render_ir_to_html(&ir, &HtmlRenderOptions::default()).unwrap();
+        let mut expected_styles = StyleRegistry::default();
+        let pointer_class = expected_styles
+            .class_for(vec!["pointer-events:none".into()])
+            .expect("pointer transparency should generate a CSS class");
+
+        assert!(rendered.body_html.contains(&format!(
+            "class=\"fission-site-node {pointer_class}\" data-fission-node=\"{marker}\""
+        )));
+        assert_eq!(
+            rendered.body_html.matches(&pointer_class).count(),
+            1,
+            "only the pointer-transparent marker should receive the CSS class"
+        );
+        assert_eq!(rendered.css.matches("pointer-events:none").count(), 1);
+        assert!(rendered
+            .body_html
+            .contains("data-fission-semantics=\"game.scene.fog\""));
+        assert!(rendered.body_html.contains("aria-label=\"Fog decoration\""));
+        assert!(rendered.body_html.contains("Decorative sea fog"));
     }
 
     #[test]
