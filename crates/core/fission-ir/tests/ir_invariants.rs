@@ -25,11 +25,15 @@ fn test_node_id_explicit_vs_derived() {
 
 #[test]
 fn test_op_serialization() {
-    let op = Op::Structural(StructuralOp::Group { stable_hash: 0 });
-    let json = serde_json::to_string(&op).expect("Op must be serializable");
-    let deserialized: Op = serde_json::from_str(&json).expect("Op must be deserializable");
+    for op in [
+        Op::Structural(StructuralOp::Group { stable_hash: 0 }),
+        Op::Structural(StructuralOp::PointerTransparent),
+    ] {
+        let json = serde_json::to_string(&op).expect("Op must be serializable");
+        let deserialized: Op = serde_json::from_str(&json).expect("Op must be deserializable");
 
-    assert_eq!(op, deserialized);
+        assert_eq!(op, deserialized);
+    }
 }
 
 #[test]

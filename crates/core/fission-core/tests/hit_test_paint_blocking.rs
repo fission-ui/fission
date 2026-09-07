@@ -1,9 +1,13 @@
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
+
+use fission_core::internal::{CustomEventResult, CustomRenderObject, RenderObjectHolder};
 use fission_core::{
     hit_test::hit_test_with_scroll, ActionEnvelope, ActionId, GlobalState, InputEvent, LayoutPoint,
     PointerButton, PointerEvent, Runtime,
 };
 use fission_ir::op::{Color, Fill, LayoutOp, PaintOp};
-use fission_ir::{ActionEntry, CoreIR, Op, Semantics, WidgetId};
+use fission_ir::{ActionEntry, CoreIR, Op, Semantics, StructuralOp, WidgetId};
 use fission_layout::{LayoutNodeGeometry, LayoutRect, LayoutSize, LayoutSnapshot};
 
 fn geometry(rect: LayoutRect) -> LayoutNodeGeometry {
@@ -117,6 +121,150 @@ fn backdrop_scene() -> (CoreIR, LayoutSnapshot, WidgetId, WidgetId) {
     (ir, layout, backdrop_paint_id, panel_paint_id)
 }
 
+fn pointer_transparent_overlay_scene() -> (CoreIR, LayoutSnapshot, WidgetId) {
+    let root_id = WidgetId::explicit("pointer_transparent_root");
+    let target_id = WidgetId::explicit("pointer_transparent_target");
+    let target_paint_id = WidgetId::explicit("pointer_transparent_target_paint");
+    let marker_id = WidgetId::explicit("pointer_transparent_marker");
+    let decoration_id = WidgetId::explicit("pointer_transparent_decoration");
+
+    let mut target_semantics = Semantics::default();
+    target_semantics.actions.entries.push(ActionEntry {
+        trigger: fission_ir::semantics::ActionTrigger::Default,
+        action_id: DISMISS_ACTION_ID.as_u128(),
+        payload_data: Some(Vec::new()),
+    });
+
+    let mut ir = CoreIR::new();
+    ir.add_node(
+        target_paint_id,
+        Op::Paint(PaintOp::DrawRect {
+            fill: Some(Fill::Solid(Color::WHITE)),
+            stroke: None,
+            corner_radius: 0.0,
+            shadow: None,
+        }),
+        vec![],
+    );
+    ir.add_node(
+        target_id,
+        Op::Semantics(target_semantics),
+        vec![target_paint_id],
+    );
+    ir.add_node(
+        decoration_id,
+        Op::Paint(PaintOp::DrawRect {
+            fill: Some(Fill::Solid(Color::BLACK)),
+            stroke: None,
+            corner_radius: 0.0,
+            shadow: None,
+        }),
+        vec![],
+    );
+    ir.add_node(
+        marker_id,
+        Op::Structural(StructuralOp::PointerTransparent),
+        vec![decoration_id],
+    );
+    ir.add_node(
+        root_id,
+        Op::Layout(LayoutOp::ZStack),
+        vec![target_id, marker_id],
+    );
+    ir.set_root(root_id);
+
+    let mut layout = LayoutSnapshot::new(LayoutSize::new(100.0, 80.0));
+    for id in [
+        root_id,
+        target_id,
+        target_paint_id,
+        marker_id,
+        decoration_id,
+    ] {
+        layout
+            .nodes
+            .insert(id, geometry(LayoutRect::new(0.0, 0.0, 100.0, 80.0)));
+    }
+
+    (ir, layout, target_paint_id)
+}
+
+#[derive(Debug)]
+struct CountingRenderObject {
+    handled_events: Arc<AtomicUsize>,
+}
+
+impl CustomRenderObject for CountingRenderObject {
+    fn handle_event(
+        &self,
+        _node_id: WidgetId,
+        _event: &InputEvent,
+        _node_rect: LayoutRect,
+    ) -> CustomEventResult {
+        self.handled_events.fetch_add(1, Ordering::SeqCst);
+        CustomEventResult::consumed()
+    }
+}
+
+fn custom_render_fallback_scene(
+    pointer_transparent: bool,
+    handled_events: Arc<AtomicUsize>,
+) -> (CoreIR, LayoutSnapshot) {
+    let root_id = WidgetId::explicit(if pointer_transparent {
+        "transparent_custom_root"
+    } else {
+        "ordinary_custom_root"
+    });
+    let target_id = WidgetId::derived(root_id.as_u128(), &[0]);
+    let custom_id = WidgetId::derived(root_id.as_u128(), &[1]);
+    let marker_id = WidgetId::derived(root_id.as_u128(), &[2]);
+
+    let mut ir = CoreIR::new();
+    ir.add_node(
+        target_id,
+        Op::Paint(PaintOp::DrawRect {
+            fill: Some(Fill::Solid(Color::WHITE)),
+            stroke: None,
+            corner_radius: 0.0,
+            shadow: None,
+        }),
+        vec![],
+    );
+    ir.add_node(
+        custom_id,
+        Op::Structural(StructuralOp::Group { stable_hash: 1 }),
+        vec![],
+    );
+    let overlay_id = if pointer_transparent {
+        ir.add_node(
+            marker_id,
+            Op::Structural(StructuralOp::PointerTransparent),
+            vec![custom_id],
+        );
+        marker_id
+    } else {
+        custom_id
+    };
+    ir.add_node(
+        root_id,
+        Op::Layout(LayoutOp::ZStack),
+        vec![target_id, overlay_id],
+    );
+    ir.set_root(root_id);
+    let render_object: Arc<dyn CustomRenderObject> =
+        Arc::new(CountingRenderObject { handled_events });
+    let erased: fission_ir::AnyRenderObject = Arc::new(RenderObjectHolder(render_object));
+    ir.custom_render_objects.insert(custom_id, erased);
+
+    let mut layout = LayoutSnapshot::new(LayoutSize::new(100.0, 80.0));
+    for id in [root_id, target_id, custom_id, marker_id] {
+        layout
+            .nodes
+            .insert(id, geometry(LayoutRect::new(0.0, 0.0, 100.0, 80.0)));
+    }
+    (ir, layout)
+}
+
 #[test]
 fn painted_foreground_blocks_backdrop_hit_testing() {
     let (ir, layout, backdrop_paint_id, panel_paint_id) = backdrop_scene();
@@ -137,6 +285,66 @@ fn painted_foreground_blocks_backdrop_hit_testing() {
         LayoutPoint::new(790.0, 40.0),
     );
     assert_eq!(on_backdrop, Some(backdrop_paint_id));
+}
+
+#[test]
+fn pointer_transparent_subtree_passes_through_in_both_hit_test_apis() {
+    let (ir, layout, target_paint_id) = pointer_transparent_overlay_scene();
+    let runtime = Runtime::default();
+    let point = LayoutPoint::new(40.0, 30.0);
+
+    assert_eq!(
+        hit_test_with_scroll(&ir, &layout, &runtime.runtime_state.scroll, point),
+        Some(target_paint_id)
+    );
+    assert_eq!(runtime.hit_test(point, &ir, &layout), Some(target_paint_id));
+}
+
+#[test]
+fn custom_render_fallback_respects_pointer_transparent_ancestors() -> anyhow::Result<()> {
+    let control_count = Arc::new(AtomicUsize::new(0));
+    let (control_ir, control_layout) =
+        custom_render_fallback_scene(false, Arc::clone(&control_count));
+    let mut runtime = Runtime::default();
+    runtime.handle_input(
+        InputEvent::Pointer(PointerEvent::Down {
+            pointer_id: Default::default(),
+            kind: Default::default(),
+            point: LayoutPoint::new(40.0, 30.0),
+            button: PointerButton::Primary,
+            modifiers: 0,
+        }),
+        &control_ir,
+        &control_layout,
+    )?;
+    assert_eq!(
+        control_count.load(Ordering::SeqCst),
+        1,
+        "control custom render object should receive the pointer event"
+    );
+
+    let transparent_count = Arc::new(AtomicUsize::new(0));
+    let (transparent_ir, transparent_layout) =
+        custom_render_fallback_scene(true, Arc::clone(&transparent_count));
+    let mut runtime = Runtime::default();
+    runtime.handle_input(
+        InputEvent::Pointer(PointerEvent::Down {
+            pointer_id: Default::default(),
+            kind: Default::default(),
+            point: LayoutPoint::new(40.0, 30.0),
+            button: PointerButton::Primary,
+            modifiers: 0,
+        }),
+        &transparent_ir,
+        &transparent_layout,
+    )?;
+    assert_eq!(
+        transparent_count.load(Ordering::SeqCst),
+        0,
+        "global custom-render fallback must not bypass pointer transparency"
+    );
+
+    Ok(())
 }
 
 #[test]

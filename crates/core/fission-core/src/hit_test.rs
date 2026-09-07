@@ -2,7 +2,7 @@ use crate::env::ScrollStateMap;
 use crate::input::viewport::ViewportStateMap;
 use crate::ui::custom_render::downcast_render_object;
 use fission_diagnostics::prelude as diag;
-use fission_ir::{CoreIR, LayoutOp, Op, PaintOp, WidgetId};
+use fission_ir::{CoreIR, LayoutOp, Op, PaintOp, StructuralOp, WidgetId};
 use fission_layout::{LayoutPoint, LayoutSnapshot};
 use glam::{Mat4, Vec4};
 
@@ -40,6 +40,26 @@ pub fn hit_test_with_viewports(
     point: LayoutPoint,
 ) -> Option<WidgetId> {
     hit_test_internal(ir, layout, Some(scroll_map), Some(viewport_map), point)
+}
+
+/// Returns whether `node_id` is inside a subtree explicitly excluded from
+/// coordinate-based pointer hit testing.
+///
+/// Normal recursive hit testing prunes at the marker itself. Runtime fallbacks
+/// that inspect registered objects out of tree order use this ancestor check so
+/// they cannot bypass the same policy.
+pub(crate) fn is_in_pointer_transparent_subtree(ir: &CoreIR, node_id: WidgetId) -> bool {
+    let mut current = Some(node_id);
+    while let Some(id) = current {
+        let Some(node) = ir.nodes.get(&id) else {
+            return false;
+        };
+        if matches!(&node.op, Op::Structural(StructuralOp::PointerTransparent)) {
+            return true;
+        }
+        current = node.parent;
+    }
+    false
 }
 
 /// Maps a screen-space point into the layout coordinate space used by `target`.
@@ -145,6 +165,9 @@ fn hit_test_recursive(
     point: LayoutPoint,
 ) -> Option<WidgetId> {
     let node = ir.nodes.get(&node_id)?;
+    if matches!(&node.op, Op::Structural(StructuralOp::PointerTransparent)) {
+        return None;
+    }
     let geom = layout.get_node_geometry(node_id)?;
 
     let is_clip_container = match &node.op {

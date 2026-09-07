@@ -17,7 +17,7 @@ use crate::{
 };
 use anyhow::{anyhow, Context, Result};
 use fission_diagnostics::prelude as diag;
-use fission_ir::{CoreIR, FlexDirection, FocusPolicy, LayoutOp, Op, WidgetId};
+use fission_ir::{CoreIR, FlexDirection, FocusPolicy, LayoutOp, Op, StructuralOp, WidgetId};
 use fission_layout::{LayoutPoint, LayoutRect, LayoutSize, LayoutSnapshot, TextMeasurer};
 use glam::{Mat4, Vec4};
 use serde_json;
@@ -1412,7 +1412,8 @@ impl Runtime {
         layout: &LayoutSnapshot,
     ) -> Result<()> {
         use crate::hit_test::{
-            find_neighbor_focus_node, find_next_focus_node, hit_test_with_viewports, FocusDirection,
+            find_neighbor_focus_node, find_next_focus_node, hit_test_with_viewports,
+            is_in_pointer_transparent_subtree, FocusDirection,
         };
         use crate::input::gesture::GestureController;
         use crate::input::hover::HoverController;
@@ -1508,6 +1509,9 @@ impl Runtime {
                     }
                     if target_ro.is_none() {
                         for (ro_nid, ro) in &ir.custom_render_objects {
+                            if is_in_pointer_transparent_subtree(ir, *ro_nid) {
+                                continue;
+                            }
                             if let Some(rect) = layout.get_node_rect(*ro_nid) {
                                 if rect.contains(point) {
                                     target_ro = Some((*ro_nid, ro));
@@ -2533,6 +2537,12 @@ impl Runtime {
         ir: &CoreIR,
         snapshot: &LayoutSnapshot,
     ) -> Option<WidgetId> {
+        if matches!(
+            ir.nodes.get(&node_id).map(|node| &node.op),
+            Some(Op::Structural(StructuralOp::PointerTransparent))
+        ) {
+            return None;
+        }
         if let Some(geom) = snapshot.nodes.get(&node_id) {
             if geom.rect.contains(point) {
                 if let Some(node) = ir.nodes.get(&node_id) {

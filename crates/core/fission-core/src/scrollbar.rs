@@ -1,5 +1,5 @@
 use crate::env::ScrollStateMap;
-use fission_ir::{CoreIR, FlexDirection, LayoutOp, Op, WidgetId};
+use fission_ir::{CoreIR, FlexDirection, LayoutOp, Op, StructuralOp, WidgetId};
 use fission_layout::{LayoutPoint, LayoutRect, LayoutSnapshot};
 
 pub const SCROLLBAR_INSET: f32 = 2.0;
@@ -214,6 +214,9 @@ fn scrollbar_hit_test_recursive(
     point: LayoutPoint,
 ) -> Option<ScrollbarHit> {
     let node = ir.nodes.get(&node_id)?;
+    if matches!(&node.op, Op::Structural(StructuralOp::PointerTransparent)) {
+        return None;
+    }
     let geom = layout.get_node_geometry(node_id)?;
     let is_clip_container = matches!(
         node.op,
@@ -310,7 +313,9 @@ mod tests {
         scrollbar_hit_test, scrollbar_point_for_node, ScrollbarAxis, ScrollbarHitKind,
     };
     use crate::env::ScrollStateMap;
-    use fission_ir::{CompositeStyle, CoreIR, CoreNode, FlexDirection, LayoutOp, Op, WidgetId};
+    use fission_ir::{
+        CompositeStyle, CoreIR, CoreNode, FlexDirection, LayoutOp, Op, StructuralOp, WidgetId,
+    };
     use fission_layout::{LayoutNodeGeometry, LayoutPoint, LayoutRect, LayoutSize, LayoutSnapshot};
 
     #[test]
@@ -358,6 +363,42 @@ mod tests {
 
         assert_eq!(hit.kind, ScrollbarHitKind::Thumb);
         assert_eq!(hit.geometry.node_id, scroll);
+    }
+
+    #[test]
+    fn pointer_transparent_subtree_excludes_scrollbar_hit_testing() {
+        let (mut ir, mut layout, scroll) = scroll_tree();
+        let marker = WidgetId::derived(70, &[2]);
+        ir.add_node(
+            marker,
+            Op::Structural(StructuralOp::PointerTransparent),
+            vec![scroll],
+        );
+        ir.set_root(marker);
+        layout.nodes.insert(
+            marker,
+            LayoutNodeGeometry {
+                rect: LayoutRect::new(0.0, 0.0, 100.0, 200.0),
+                content_size: LayoutSize::new(100.0, 200.0),
+            },
+        );
+        layout.nodes.insert(
+            scroll,
+            LayoutNodeGeometry {
+                rect: LayoutRect::new(0.0, 0.0, 100.0, 200.0),
+                content_size: LayoutSize::new(100.0, 600.0),
+            },
+        );
+
+        assert_eq!(
+            scrollbar_hit_test(
+                &ir,
+                &layout,
+                &ScrollStateMap::default(),
+                LayoutPoint::new(97.0, 8.0),
+            ),
+            None
+        );
     }
 
     #[test]

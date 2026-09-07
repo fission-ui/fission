@@ -41,7 +41,15 @@ impl std::hash::Hash for Op {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Hash)]
 pub enum StructuralOp {
-    Group { stable_hash: u64 },
+    Group {
+        stable_hash: u64,
+    },
+    /// Retains, lays out, and paints the child subtree without allowing that
+    /// subtree to participate in coordinate-based pointer hit testing.
+    ///
+    /// Accessibility semantics remain in the IR and can still be reached
+    /// through semantic navigation or activation.
+    PointerTransparent,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
