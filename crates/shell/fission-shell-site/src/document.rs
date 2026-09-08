@@ -1525,12 +1525,13 @@ fn blog_page_link(label: &str, mount_path: &str, page: Option<usize>, tokens: &T
 }
 
 fn is_blog_taxonomy_route(route: &ContentRoute) -> bool {
-    route
-        .path
-        .starts_with(&format!("{}categories/", route.mount_path))
-        || route
+    is_blog_route(route)
+        && (route
             .path
-            .starts_with(&format!("{}tags/", route.mount_path))
+            .starts_with(&format!("{}categories/", route.mount_path))
+            || route
+                .path
+                .starts_with(&format!("{}tags/", route.mount_path)))
 }
 
 fn ordered_blog_routes<'a>(routes: &'a [ContentRoute]) -> Vec<&'a ContentRoute> {
@@ -1840,9 +1841,12 @@ mod tests {
         index.template = Some("fission::site::documentation".to_string());
         let mut page_like_path = index.clone();
         page_like_path.path = "/docs/page/2/".to_string();
+        let mut category_path = index.clone();
+        category_path.path = "/docs/categories/layout/".to_string();
 
         assert!(!is_blog_index_route(&index));
         assert!(!is_blog_index_route(&page_like_path));
+        assert!(!is_blog_taxonomy_route(&category_path));
         assert!(!is_blog_post_route(&index));
     }
 
