@@ -104,6 +104,16 @@ fn resolve_length(
         .map(|value| value.max(0.0))
 }
 
+/// Resolves a signed inset used by positioned layout. Unlike sizes and
+/// spacing, offsets may intentionally place content before the parent's origin.
+fn resolve_position_length(
+    length: &Length,
+    reference: LayoutUnit,
+    viewport: LayoutSize,
+) -> Option<LayoutUnit> {
+    length.resolve(reference, viewport.width, viewport.height)
+}
+
 fn length_requires_measurement(length: &Length) -> bool {
     match length {
         Length::FitContent(_) | Length::MinContent | Length::MaxContent => true,
@@ -776,8 +786,9 @@ impl LayoutGraphState {
 #[cfg(test)]
 mod tests {
     use super::{
-        flyout_root_position, resolve_length, LayoutEngine, LayoutGraphState, LayoutInputNode,
-        LayoutPoint, LayoutRect, LayoutSize, TextMeasurer, DEFAULT_RICH_TEXT_HIT_TEST_FONT_SIZE,
+        flyout_root_position, resolve_length, resolve_position_length, LayoutEngine,
+        LayoutGraphState, LayoutInputNode, LayoutPoint, LayoutRect, LayoutSize, TextMeasurer,
+        DEFAULT_RICH_TEXT_HIT_TEST_FONT_SIZE,
     };
     use fission_ir::op::{
         BoxStyle, Color, FontStyle, GridTrack, Length, ResponsiveCondition, ResponsiveQuery,
@@ -1031,6 +1042,11 @@ mod tests {
             ),
             Some(-14.0),
             "signed expressions remain available to typed positioning"
+        );
+        assert_eq!(
+            resolve_position_length(&Length::points(-128.0), 600.0, viewport),
+            Some(-128.0),
+            "position offsets preserve signed values"
         );
         assert_eq!(
             Length::min(vec![Length::points(10.0), Length::MaxContent]).resolve(
@@ -4781,13 +4797,13 @@ impl LayoutEngine {
                 let target_h = finite_or(constraints.max_h, finite_or(constraints.min_h, 0.0));
                 let size = constraints.constrain(LayoutSize::new(target_w, target_h));
                 let resolve_horizontal = |length: &Option<Length>| {
-                    length
-                        .as_ref()
-                        .and_then(|length| resolve_length(length, size.width, self.active_viewport))
+                    length.as_ref().and_then(|length| {
+                        resolve_position_length(length, size.width, self.active_viewport)
+                    })
                 };
                 let resolve_vertical = |length: &Option<Length>| {
                     length.as_ref().and_then(|length| {
-                        resolve_length(length, size.height, self.active_viewport)
+                        resolve_position_length(length, size.height, self.active_viewport)
                     })
                 };
                 let left = resolve_horizontal(left);
