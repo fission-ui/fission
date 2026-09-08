@@ -81,10 +81,12 @@ pub(crate) fn edit_canvas(
                 state.selected_edges.clear();
             }
         }
-        CanvasInteractionKind::MoveNode { node_id }
+        CanvasInteractionKind::MoveNode { .. }
             if interaction.phase == CanvasInteractionPhase::Update =>
         {
-            update_node_bounds(state, node_id, interaction.bounds_after);
+            for change in &interaction.node_changes {
+                update_node_bounds(state, change.node_id, Some(change.after));
+            }
         }
         CanvasInteractionKind::ResizeNode { node_id, .. }
             if interaction.phase == CanvasInteractionPhase::Update =>
