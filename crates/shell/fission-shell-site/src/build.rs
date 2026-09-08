@@ -1983,6 +1983,56 @@ href = "/docs/reference/"
     }
 
     #[test]
+    fn blog_pagination_does_not_leak_into_documentation_mounts() {
+        let temp = std::env::temp_dir().join(format!(
+            "fission-site-mixed-content-test-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(temp.join("content/docs")).unwrap();
+        fs::create_dir_all(temp.join("content/blog")).unwrap();
+        fs::write(
+            temp.join("content/docs/index.md"),
+            "---\ntitle: Documentation\n---\n# Documentation\n\nStart here.",
+        )
+        .unwrap();
+        for index in 1..=9 {
+            fs::write(
+                temp.join(format!("content/blog/2026-06-{index:02}-post.md")),
+                format!("---\ntitle: Post {index}\n---\n# Post {index}\n\nPost body."),
+            )
+            .unwrap();
+        }
+
+        let mut options = SiteBuildOptions::for_project(&temp, "Test site");
+        options.content_routes = vec![
+            SiteContentRouteConfig {
+                path: "/docs".to_string(),
+                source: temp.join("content/docs"),
+                template: Some("fission::site::documentation".to_string()),
+                sidebar: None,
+            },
+            SiteContentRouteConfig {
+                path: "/journal".to_string(),
+                source: temp.join("content/blog"),
+                template: Some("fission::site::blog".to_string()),
+                sidebar: None,
+            },
+        ];
+
+        let report = build_content_site(&options).unwrap();
+        assert!(report
+            .routes
+            .iter()
+            .any(|route| route.path == "/journal/page/2/"));
+        let docs = fs::read_to_string(temp.join("target/fission/site/docs/index.html")).unwrap();
+        assert!(!docs.contains("docs/page/2/"));
+        let _ = fs::remove_dir_all(temp);
+    }
+
+    #[test]
     fn content_header_widget_replaces_the_default_content_header() {
         let temp = std::env::temp_dir().join(format!(
             "fission-site-content-header-test-{}",
