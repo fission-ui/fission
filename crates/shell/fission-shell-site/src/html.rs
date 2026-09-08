@@ -2050,7 +2050,7 @@ impl HtmlRenderer<'_> {
             if identifier == "site-search-trigger" {
                 let children = self.render_children(&node.children, &HashSet::new())?;
                 return Ok(format!(
-                    "<button class=\"fission-site-node fission-site-search-trigger\" type=\"button\" aria-label=\"Search documentation\" data-fission-search-trigger data-fission-node=\"{}\">{children}</button>",
+                    "<button class=\"fission-site-node fission-site-search-trigger\" type=\"button\" aria-label=\"Search this site\" data-fission-search-trigger data-fission-node=\"{}\">{children}</button>",
                     node.id
                 ));
             }

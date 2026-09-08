@@ -1659,6 +1659,7 @@ mod tests {
         assert!(html.contains("fission-site-nav-menu"));
         assert!(html.contains("Resources"));
         assert!(html.contains("Documentation"));
+        assert!(html.contains("aria-label=\"Search this site\""));
         let css = fs::read_to_string(temp.join("target/fission/site/site.css")).unwrap();
         assert!(css.contains(":root"));
         assert!(css.contains(".fs_"));
@@ -1669,7 +1670,10 @@ mod tests {
         );
         assert!(temp.join("target/fission/site/sitemap.xml").exists());
         assert!(temp.join("target/fission/site/robots.txt").exists());
-        assert!(temp.join("target/fission/site/search/search.js").exists());
+        let search_script =
+            fs::read_to_string(temp.join("target/fission/site/search/search.js")).unwrap();
+        assert!(search_script.contains("placeholder=\"Search this site\""));
+        assert!(!search_script.contains("Fission docs"));
         assert!(temp
             .join("target/fission/site/search/manifest.json")
             .exists());

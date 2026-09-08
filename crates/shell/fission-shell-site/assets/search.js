@@ -100,9 +100,9 @@
     dialog.hidden = true;
     dialog.innerHTML =
       '<div class="fission-site-search-backdrop" data-fission-search-close></div>' +
-      '<section class="fission-site-search-panel" role="dialog" aria-modal="true" aria-label="Search documentation">' +
+      '<section class="fission-site-search-panel" role="dialog" aria-modal="true" aria-label="Search this site">' +
       '<div class="fission-site-search-input-wrap">' +
-      '<input class="fission-site-search-input" data-fission-search-input placeholder="Search Fission docs" autocomplete="off" spellcheck="false">' +
+      '<input class="fission-site-search-input" data-fission-search-input placeholder="Search this site" autocomplete="off" spellcheck="false">' +
       '<kbd>Esc</kbd>' +
       '</div>' +
       '<div class="fission-site-search-results" data-fission-search-results></div>' +
@@ -120,7 +120,7 @@
     state.results = results;
     state.selected = 0;
     if (!query) {
-      target.innerHTML = '<p class="fission-site-search-empty">Start typing to search the generated documentation index.</p>';
+      target.innerHTML = '<p class="fission-site-search-empty">Start typing to search this site.</p>';
       return;
     }
     if (!results.length) {

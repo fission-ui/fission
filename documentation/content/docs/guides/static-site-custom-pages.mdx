@@ -163,20 +163,6 @@ template = "fission::site::blog"
 
 Use `fission::site::documentation` when you want to record the default content-page intent explicitly.
 
-## What you should have working
-
-After this guide, you should be able to explain where `Static site custom pages` fits in the Fission lifecycle, identify the file or component you changed, run the relevant `fission` command, and verify the result in a real target or test.
-
-## Common mistakes to check
-
-| Symptom | What to check first |
-| --- | --- |
-| The app compiles but nothing changes | Confirm the component is actually used by the route or shell target you are running. |
-| An action fires but state does not update | Confirm the reducer is registered with the same action value that the UI dispatches. |
-| A platform feature reports unsupported | Confirm the target has the capability in `fission.toml` and the shell registered the provider. |
-| The page works on one target but not another | Run `fission doctor`, then inspect target-specific configuration and feature flags. |
-| Tests are hard to write | Split the product rule into a reducer test first, then add a UI or shell smoke test for the integration. |
-
 ## 7. Keep the page static by default
 
 A custom static page should be useful before JavaScript loads. Theme switching, sidebar expansion, search, code highlighting, and small document-level scripts are fine. Continuous runtime state, device APIs, and app-like flows belong in a Fission web app, a server route, or a focused island.
@@ -206,3 +192,17 @@ fission site build --project-dir . --release
 ```
 
 Open the generated `index.html` and `site.css` if the page looks wrong. The HTML should contain the real content, not a blank app shell. That is what keeps the site crawlable and shareable.
+
+## What you should have working
+
+After this guide, you should have a custom widget route, site-owned content chrome, project CSS loaded after the generic shell styles, and any progressive enhancement limited to the routes that need it. You should also be able to build the site and inspect the generated HTML without changing `fission-shell-site`.
+
+## Common mistakes to check
+
+| Symptom | What to check first |
+| --- | --- |
+| The app compiles but nothing changes | Confirm the component is registered with `route_widget` or `content_header_widget` in the site passed to `build_from_cli`. |
+| The override loses to a shell style | Confirm the stylesheet is listed in `site.css_files`, then target a stable semantics identifier owned by your component. |
+| A script affects unrelated pages | Add `route_prefixes` or `routes` to its `[[site.elements]]` filter. |
+| Blog indexes are not generated | Set `template = "fission::site::blog"` on that content mount. The mount name alone does not opt in. |
+| The generated page is blank without JavaScript | Keep primary content in retained widgets or Markdown; use document elements only for progressive enhancement. |
