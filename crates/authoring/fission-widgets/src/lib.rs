@@ -302,9 +302,11 @@ pub use spotlight::Spotlight;
 pub mod infinite_canvas;
 #[cfg(feature = "interactive-canvas")]
 pub use infinite_canvas::{
-    CanvasEdgeEndpoint, CanvasEdgeId, CanvasEdgeRoute, CanvasGrid, CanvasNodeAnchor, CanvasNodeId,
-    CanvasSelectionPolicy, CanvasSnap, InfiniteCanvas, InfiniteCanvasActions, InfiniteCanvasEdge,
-    InfiniteCanvasNode,
+    CanvasConnectionPreview, CanvasEdgeEndpoint, CanvasEdgeId, CanvasEdgeLabel, CanvasEdgeMarker,
+    CanvasEdgeRoute, CanvasGrid, CanvasGridPattern, CanvasNodeAnchor, CanvasNodeId,
+    CanvasOverlayHitTest, CanvasOverlayLayer, CanvasPortId, CanvasPortRef, CanvasSelectionPolicy,
+    CanvasSnap, InfiniteCanvas, InfiniteCanvasActions, InfiniteCanvasEdge, InfiniteCanvasNode,
+    InfiniteCanvasPort,
 };
 
 use fission_core::{

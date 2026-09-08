@@ -904,6 +904,13 @@ impl HtmlRenderer<'_> {
             .get(&node_id)
             .ok_or_else(|| anyhow!("site render failed: missing IR node {node_id}"))?;
         match &node.op {
+            Op::Structural(fission_ir::StructuralOp::PointerTransparent { .. }) => self
+                .render_element(
+                    "div",
+                    node,
+                    "fission-site-node fission-site-pointer-transparent",
+                    vec!["pointer-events:none".to_string()],
+                ),
             Op::Structural(_) => self.render_element("div", node, "fission-site-node", Vec::new()),
             Op::Layout(layout) => self.render_layout(node, layout),
             Op::Paint(paint) => self.render_paint(node, paint),
@@ -1660,6 +1667,26 @@ impl HtmlRenderer<'_> {
                     style,
                 )
             }
+            LayoutOp::AnchoredPositioned {
+                x,
+                y,
+                anchor_x,
+                anchor_y,
+            } => self.render_element(
+                "div",
+                node,
+                "fission-site-node fission-site-anchored-positioned",
+                vec![
+                    "position:absolute".to_string(),
+                    format!("left:{}px", px(*x)),
+                    format!("top:{}px", px(*y)),
+                    format!(
+                        "transform:translate({}%,{}%)",
+                        px(-*anchor_x * 100.0),
+                        px(-*anchor_y * 100.0)
+                    ),
+                ],
+            ),
             LayoutOp::ZStack => self.render_element(
                 "div",
                 node,

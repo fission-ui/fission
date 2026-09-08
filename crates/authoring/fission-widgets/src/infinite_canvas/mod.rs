@@ -11,6 +11,7 @@ mod interaction_region;
 mod model;
 mod nodes;
 mod overlay;
+mod ports;
 mod vector_layer;
 
 use std::collections::BTreeSet;
@@ -19,8 +20,8 @@ use std::sync::Arc;
 
 use fission_core::internal::{InternalLowerer, InternalLoweringCx, InternalRenderNode};
 use fission_core::ui::{
-    InteractiveViewer, ViewportBoundary, ViewportClip, ViewportPanAxis, ViewportTransform,
-    ViewportZoomPolicy,
+    IgnorePointer, InteractiveViewer, ViewportBoundary, ViewportClip, ViewportPanAxis,
+    ViewportTransform, ViewportZoomPolicy,
 };
 use fission_core::ui::{Widget, ZStack};
 use fission_core::{ActionEnvelope, WidgetId};
@@ -34,12 +35,14 @@ use grid::InfiniteCanvasGridLayer;
 use interaction_region::CanvasInteractionRegion;
 use nodes::InfiniteCanvasNodeLayer;
 use overlay::InfiniteCanvasOverlay;
+use ports::InfiniteCanvasPortLayer;
 use vector_layer::CanvasVectorLayer;
 
 pub use model::{
-    CanvasEdgeEndpoint, CanvasEdgeId, CanvasEdgeRoute, CanvasGrid, CanvasNodeAnchor, CanvasNodeId,
-    CanvasSelectionPolicy, CanvasSnap, InfiniteCanvasActions, InfiniteCanvasEdge,
-    InfiniteCanvasNode,
+    CanvasConnectionPreview, CanvasEdgeEndpoint, CanvasEdgeId, CanvasEdgeLabel, CanvasEdgeMarker,
+    CanvasEdgeRoute, CanvasGrid, CanvasGridPattern, CanvasNodeAnchor, CanvasNodeId,
+    CanvasOverlayHitTest, CanvasOverlayLayer, CanvasPortId, CanvasPortRef, CanvasSelectionPolicy,
+    CanvasSnap, InfiniteCanvasActions, InfiniteCanvasEdge, InfiniteCanvasNode, InfiniteCanvasPort,
 };
 
 /// A declarative infinite node canvas built on [`InteractiveViewer`].
@@ -48,6 +51,13 @@ pub struct InfiniteCanvas {
     pub id: Option<WidgetId>,
     pub nodes: Vec<InfiniteCanvasNode>,
     pub edges: Vec<InfiniteCanvasEdge>,
+    pub connection_preview: Option<CanvasConnectionPreview>,
+    /// Application content painted in world space below the built-in grid.
+    pub world_background: Option<CanvasOverlayLayer>,
+    /// Application content painted in world space above nodes and ports.
+    pub world_foreground: Option<CanvasOverlayLayer>,
+    /// Application content painted in screen space above built-in canvas controls.
+    pub viewport_overlay: Option<CanvasOverlayLayer>,
     pub initial_transform: ViewportTransform,
     pub transform: Option<ViewportTransform>,
     pub selected_nodes: BTreeSet<CanvasNodeId>,
@@ -83,6 +93,10 @@ impl Default for InfiniteCanvas {
             id: None,
             nodes: Vec::new(),
             edges: Vec::new(),
+            connection_preview: None,
+            world_background: None,
+            world_foreground: None,
+            viewport_overlay: None,
             initial_transform: ViewportTransform::IDENTITY,
             transform: None,
             selected_nodes: BTreeSet::new(),
@@ -156,6 +170,12 @@ impl InfiniteCanvas {
         let selection_color = cx.env.theme.tokens.colors.primary;
 
         let mut world_children = Vec::new();
+        if let Some(layer) = &self.world_background {
+            world_children.push(match layer.hit_test {
+                CanvasOverlayHitTest::PassThrough => IgnorePointer::new(layer.child.clone()).into(),
+                CanvasOverlayHitTest::Interactive => layer.child.clone(),
+            });
+        }
         if let Some(grid) = self.grid {
             world_children.push(
                 InfiniteCanvasGridLayer {
@@ -179,6 +199,30 @@ impl InfiniteCanvas {
             }
             .into(),
         );
+        if let Some(preview) = &self.connection_preview {
+            world_children.push(
+                InfiniteCanvasEdgeLayer {
+                    canvas_id: WidgetId::derived(canvas_id.as_u128(), &[0xC0A7, 0xA11]),
+                    edges: vec![InfiniteCanvasEdge {
+                        id: CanvasEdgeId::from_u128(0),
+                        from: preview.from,
+                        to: preview.to,
+                        route: preview.route.clone(),
+                        stroke: preview.stroke.clone(),
+                        start_marker: None,
+                        end_marker: None,
+                        label: None,
+                    }],
+                    nodes: self.nodes.clone(),
+                    selected_edges: BTreeSet::new(),
+                    visible_world,
+                    selection_policy: CanvasSelectionPolicy::None,
+                    snap: CanvasSnap::default(),
+                    on_edge_selection: None,
+                }
+                .into(),
+            );
+        }
         world_children.push(
             InfiniteCanvasNodeLayer {
                 canvas_id,
@@ -192,6 +236,22 @@ impl InfiniteCanvas {
             }
             .into(),
         );
+        world_children.push(
+            InfiniteCanvasPortLayer {
+                canvas_id,
+                nodes: self.nodes.clone(),
+                selection_policy: self.selection_policy,
+                snap: self.snap,
+                on_connection_drag: self.actions.on_connection_drag.clone(),
+            }
+            .into(),
+        );
+        if let Some(layer) = &self.world_foreground {
+            world_children.push(match layer.hit_test {
+                CanvasOverlayHitTest::PassThrough => IgnorePointer::new(layer.child.clone()).into(),
+                CanvasOverlayHitTest::Interactive => layer.child.clone(),
+            });
+        }
 
         let world: Widget = ZStack {
             id: Some(WidgetId::derived(canvas_id.as_u128(), &[0xC001D])),
@@ -232,9 +292,16 @@ impl InfiniteCanvas {
         }
         .into();
 
+        let mut viewport_children = vec![viewer, overlay];
+        if let Some(layer) = &self.viewport_overlay {
+            viewport_children.push(match layer.hit_test {
+                CanvasOverlayHitTest::PassThrough => IgnorePointer::new(layer.child.clone()).into(),
+                CanvasOverlayHitTest::Interactive => layer.child.clone(),
+            });
+        }
         ZStack {
             id: Some(WidgetId::derived(canvas_id.as_u128(), &[0xCA4A5, 0])),
-            children: vec![viewer, overlay],
+            children: viewport_children,
         }
         .into()
     }

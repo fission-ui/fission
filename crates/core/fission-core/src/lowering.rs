@@ -393,6 +393,23 @@ pub fn build_layout_tree(ir: &CoreIR, _env: &Env) -> Vec<LayoutInputNode> {
                     0.0,
                     0.0,
                 ),
+                LayoutOp::AnchoredPositioned {
+                    x,
+                    y,
+                    anchor_x,
+                    anchor_y,
+                } => (
+                    LayoutOp::AnchoredPositioned {
+                        x: *x,
+                        y: *y,
+                        anchor_x: *anchor_x,
+                        anchor_y: *anchor_y,
+                    },
+                    None,
+                    None,
+                    0.0,
+                    0.0,
+                ),
                 LayoutOp::ZStack => (LayoutOp::ZStack, None, None, 1.0, 1.0),
                 LayoutOp::Embed {
                     kind,

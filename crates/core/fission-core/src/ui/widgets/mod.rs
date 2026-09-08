@@ -1,5 +1,6 @@
 pub mod action_scope;
 pub mod align;
+pub mod anchored_positioned;
 pub mod builder;
 pub mod button;
 pub mod checkbox;
@@ -9,6 +10,7 @@ pub mod container;
 pub mod context_menu;
 pub mod grid;
 pub mod icon;
+pub mod ignore_pointer;
 pub mod image;
 #[cfg(feature = "interactive-canvas")]
 pub mod interactive_viewer;
@@ -35,6 +37,7 @@ pub mod video;
 
 pub use action_scope::ActionScope;
 pub use align::Align;
+pub use anchored_positioned::AnchoredPositioned;
 pub use builder::{Builder, LayoutBuilder};
 pub use button::{Button, ButtonContentAlign, ButtonMotion, ButtonVariant};
 pub use checkbox::Checkbox;
@@ -49,6 +52,7 @@ pub use fission_ir::op::ResponsiveQuery;
 pub use fission_theme::{BadgeTone, ButtonHierarchy, CardPattern, ComponentSize, ComponentState};
 pub use grid::{Grid, GridItem};
 pub use icon::Icon;
+pub use ignore_pointer::IgnorePointer;
 pub use image::{
     HttpHeader, Image, ImageAlignment, ImageCachePolicy, ImageErrorBehavior, ImageLoadingBehavior,
     ImageRequest, ImageSource,

@@ -767,7 +767,9 @@ impl std::error::Error for ActionInputCodecError {
 mod action_input_codec_tests {
     use super::*;
     use crate::event::PointerKind;
-    use crate::input::canvas::{CanvasInteraction, CanvasInteractionKind, CanvasInteractionPhase};
+    use crate::input::canvas::{
+        CanvasInteraction, CanvasInteractionKind, CanvasInteractionPhase, CanvasNodeBoundsChange,
+    };
     use crate::input::viewport::{
         ViewportInputKind, ViewportInteraction, ViewportInteractionPhase,
     };
@@ -827,6 +829,11 @@ mod action_input_codec_tests {
             world_delta: LayoutPoint::new(3.0, -2.0),
             bounds_before: Some(LayoutRect::new(1.0, 2.0, 30.0, 40.0)),
             bounds_after: Some(LayoutRect::new(4.0, 0.0, 30.0, 40.0)),
+            node_changes: vec![CanvasNodeBoundsChange {
+                node_id: 12,
+                before: LayoutRect::new(1.0, 2.0, 30.0, 40.0),
+                after: LayoutRect::new(4.0, 0.0, 30.0, 40.0),
+            }],
             marquee: None,
         });
 

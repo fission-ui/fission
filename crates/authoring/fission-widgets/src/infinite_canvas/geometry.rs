@@ -3,8 +3,8 @@ use std::collections::HashMap;
 use fission_layout::{LayoutPoint, LayoutRect};
 
 use super::{
-    CanvasEdgeEndpoint, CanvasEdgeRoute, CanvasNodeAnchor, CanvasNodeId, InfiniteCanvasEdge,
-    InfiniteCanvasNode,
+    CanvasEdgeEndpoint, CanvasEdgeRoute, CanvasNodeAnchor, CanvasNodeId, CanvasPortRef,
+    InfiniteCanvasEdge, InfiniteCanvasNode,
 };
 
 pub(crate) fn ordered_nodes(nodes: &[InfiniteCanvasNode]) -> Vec<&InfiniteCanvasNode> {
@@ -17,12 +17,33 @@ pub(crate) fn node_bounds(nodes: &[InfiniteCanvasNode]) -> HashMap<CanvasNodeId,
     nodes.iter().map(|node| (node.id, node.bounds)).collect()
 }
 
+pub(crate) fn port_points(nodes: &[InfiniteCanvasNode]) -> HashMap<CanvasPortRef, LayoutPoint> {
+    let mut points = HashMap::new();
+    for node in nodes {
+        for port in &node.ports {
+            let world_bounds = LayoutRect::new(
+                node.bounds.x() + port.bounds.x(),
+                node.bounds.y() + port.bounds.y(),
+                port.bounds.width(),
+                port.bounds.height(),
+            );
+            points.insert(
+                CanvasPortRef::new(node.id, port.id),
+                anchor_point(world_bounds, port.anchor),
+            );
+        }
+    }
+    points
+}
+
 pub(crate) fn resolve_endpoint(
     endpoint: CanvasEdgeEndpoint,
     nodes: &HashMap<CanvasNodeId, LayoutRect>,
+    ports: &HashMap<CanvasPortRef, LayoutPoint>,
 ) -> Option<LayoutPoint> {
     match endpoint {
         CanvasEdgeEndpoint::Point(point) => Some(point),
+        CanvasEdgeEndpoint::Port(port) => ports.get(&port).copied(),
         CanvasEdgeEndpoint::Node { node, anchor } => nodes
             .get(&node)
             .copied()
@@ -33,20 +54,30 @@ pub(crate) fn resolve_endpoint(
 pub(crate) fn edge_path(
     edge: &InfiniteCanvasEdge,
     nodes: &HashMap<CanvasNodeId, LayoutRect>,
+    ports: &HashMap<CanvasPortRef, LayoutPoint>,
     origin: LayoutPoint,
 ) -> Option<String> {
-    let from = offset(resolve_endpoint(edge.from, nodes)?, origin);
-    let to = offset(resolve_endpoint(edge.to, nodes)?, origin);
-    Some(match edge.route {
+    let from = offset(resolve_endpoint(edge.from, nodes, ports)?, origin);
+    let to = offset(resolve_endpoint(edge.to, nodes, ports)?, origin);
+    Some(match &edge.route {
         CanvasEdgeRoute::Straight => {
             format!("M{} {} L{} {}", from.x, from.y, to.x, to.y)
+        }
+        CanvasEdgeRoute::Polyline { points } => {
+            let mut path = format!("M{} {}", from.x, from.y);
+            for point in points {
+                let point = offset(*point, origin);
+                path.push_str(&format!(" L{} {}", point.x, point.y));
+            }
+            path.push_str(&format!(" L{} {}", to.x, to.y));
+            path
         }
         CanvasEdgeRoute::Cubic {
             first_control,
             second_control,
         } => {
-            let first = offset(first_control, origin);
-            let second = offset(second_control, origin);
+            let first = offset(*first_control, origin);
+            let second = offset(*second_control, origin);
             format!(
                 "M{} {} C{} {},{} {},{} {}",
                 from.x, from.y, first.x, first.y, second.x, second.y, to.x, to.y
@@ -108,7 +139,9 @@ mod tests {
     use fission_core::ui::Spacer;
 
     use super::*;
-    use crate::infinite_canvas::{CanvasEdgeId, CanvasNodeId};
+    use crate::infinite_canvas::{
+        CanvasEdgeId, CanvasNodeId, CanvasPortId, CanvasPortRef, InfiniteCanvasPort,
+    };
     use fission_ir::op::{Color, Fill, LineCap, LineJoin, Stroke};
 
     fn node(id: u128, z_index: i32) -> InfiniteCanvasNode {
@@ -117,6 +150,7 @@ mod tests {
             bounds: LayoutRect::new(id as f32, 0.0, 20.0, 10.0),
             z_index,
             child: Spacer::default().into(),
+            ports: Vec::new(),
             movable: true,
             resizable: true,
         }
@@ -171,11 +205,72 @@ mod tests {
                 second_control: LayoutPoint::new(80.0, 40.0),
             },
             stroke: stroke(),
+            start_marker: None,
+            end_marker: None,
             label: None,
         };
         assert_eq!(
-            edge_path(&edge, &node_bounds(&nodes), LayoutPoint::new(-20.0, 10.0)).as_deref(),
+            edge_path(
+                &edge,
+                &node_bounds(&nodes),
+                &port_points(&nodes),
+                LayoutPoint::new(-20.0, 10.0),
+            )
+            .as_deref(),
             Some("M40 10 C60 10,100 30,120 30")
+        );
+    }
+
+    #[test]
+    fn polyline_paths_include_caller_supplied_world_points() {
+        let edge = InfiniteCanvasEdge {
+            id: CanvasEdgeId(3),
+            from: CanvasEdgeEndpoint::Point(LayoutPoint::new(10.0, 20.0)),
+            to: CanvasEdgeEndpoint::Point(LayoutPoint::new(80.0, 90.0)),
+            route: CanvasEdgeRoute::Polyline {
+                points: vec![LayoutPoint::new(30.0, 20.0), LayoutPoint::new(30.0, 90.0)],
+            },
+            stroke: stroke(),
+            start_marker: None,
+            end_marker: None,
+            label: None,
+        };
+
+        assert_eq!(
+            edge_path(
+                &edge,
+                &HashMap::new(),
+                &HashMap::new(),
+                LayoutPoint::new(10.0, 10.0),
+            )
+            .as_deref(),
+            Some("M0 10 L20 10 L20 80 L70 80")
+        );
+    }
+
+    #[test]
+    fn port_endpoints_resolve_from_node_local_geometry() {
+        let mut node = InfiniteCanvasNode::new(
+            CanvasNodeId(1),
+            LayoutRect::new(100.0, 50.0, 80.0, 40.0),
+            Spacer::default(),
+        );
+        node.ports.push(InfiniteCanvasPort::new(
+            CanvasPortId(2),
+            LayoutRect::new(72.0, 15.0, 16.0, 10.0),
+            CanvasNodeAnchor::Right,
+            Spacer::default(),
+        ));
+        let nodes = vec![node];
+        let port = CanvasPortRef::new(CanvasNodeId(1), CanvasPortId(2));
+
+        assert_eq!(
+            resolve_endpoint(
+                CanvasEdgeEndpoint::Port(port),
+                &node_bounds(&nodes),
+                &port_points(&nodes),
+            ),
+            Some(LayoutPoint::new(188.0, 70.0))
         );
     }
 

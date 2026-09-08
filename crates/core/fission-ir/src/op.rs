@@ -41,7 +41,13 @@ impl std::hash::Hash for Op {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Hash)]
 pub enum StructuralOp {
-    Group { stable_hash: u64 },
+    Group {
+        stable_hash: u64,
+    },
+    /// Retains and paints a subtree while excluding it from pointer hit testing.
+    PointerTransparent {
+        stable_hash: u64,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
@@ -1061,6 +1067,15 @@ pub enum LayoutOp {
     Clip {
         path: Option<String>,
     },
+    /// Positions an intrinsically sized child around a point in its parent.
+    AnchoredPositioned {
+        x: LayoutUnit,
+        y: LayoutUnit,
+        /// Horizontal fraction of the child's width placed before `x`.
+        anchor_x: LayoutUnit,
+        /// Vertical fraction of the child's height placed before `y`.
+        anchor_y: LayoutUnit,
+    },
 }
 
 impl std::hash::Hash for LayoutOp {
@@ -1231,6 +1246,18 @@ impl std::hash::Hash for LayoutOp {
                 bottom.hash(state);
                 width.hash(state);
                 height.hash(state);
+            }
+            Self::AnchoredPositioned {
+                x,
+                y,
+                anchor_x,
+                anchor_y,
+            } => {
+                18.hash(state);
+                hash_unit(*x, state);
+                hash_unit(*y, state);
+                hash_unit(*anchor_x, state);
+                hash_unit(*anchor_y, state);
             }
             Self::ZStack => {
                 8.hash(state);

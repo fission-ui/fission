@@ -85,7 +85,9 @@ impl From<CanvasVectorLayer> for Widget {
 mod tests {
     use super::*;
     use fission_core::env::{Env, RuntimeState};
+    use fission_core::ui::{Container, ZStack};
     use fission_ir::op::{Color, LineCap, LineJoin};
+    use fission_layout::{LayoutEngine, LayoutSize};
 
     #[test]
     fn vector_layer_has_distinct_stable_wrapper_layout_and_paint_nodes() {
@@ -120,5 +122,40 @@ mod tests {
             cx.ir.nodes[&layout.children[0]].op,
             Op::Paint(PaintOp::DrawPath { .. })
         ));
+    }
+
+    #[test]
+    fn positioned_vector_path_keeps_its_negative_world_origin() {
+        let id = WidgetId::explicit("positioned-canvas-vector-test");
+        let vector: Widget = CanvasVectorLayer {
+            id,
+            path: "M128 128 L228 128".into(),
+            width: 1056.0,
+            height: 856.0,
+            fill: None,
+            stroke: None,
+        }
+        .into();
+        let widget: Widget = ZStack {
+            id: None,
+            children: vec![Container::new(vector)
+                .positioned(Some(-128.0), Some(-128.0), None, None)
+                .width(1056.0)
+                .height(856.0)
+                .into()],
+        }
+        .into();
+        let env = Env::default();
+        let runtime = RuntimeState::default();
+        let mut cx = InternalLoweringCx::new(&env, &runtime, None, None);
+        let root = fission_core::internal::lower_widget(&widget, &mut cx);
+        let nodes = fission_core::internal::build_layout_tree(&cx.ir, &env);
+        let snapshot = LayoutEngine::new()
+            .compute_layout(&nodes, root, LayoutSize::new(800.0, 600.0), &|_| 0.0)
+            .expect("positioned vector layout");
+
+        let paint_id = WidgetId::derived(id.as_u128(), &[1]);
+        assert_eq!(snapshot.nodes[&paint_id].rect.x(), -128.0);
+        assert_eq!(snapshot.nodes[&paint_id].rect.y(), -128.0);
     }
 }
