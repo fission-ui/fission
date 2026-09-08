@@ -486,6 +486,9 @@ pub enum CanvasTargetKind {
     Node {
         node_id: u128,
         bounds: [f32; 4],
+        /// Deterministically ordered nodes moved with the primary node.
+        #[serde(default)]
+        move_members: Vec<CanvasNodeMoveTarget>,
     },
     ResizeHandle {
         node_id: u128,
@@ -499,15 +502,28 @@ pub enum CanvasTargetKind {
         hit_tolerance: f32,
     },
     Marquee,
+    Port {
+        node_id: u128,
+        port_id: u128,
+    },
 }
 
 impl std::hash::Hash for CanvasTargetKind {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         std::mem::discriminant(self).hash(state);
         match self {
-            Self::Node { node_id, bounds } => {
+            Self::Node {
+                node_id,
+                bounds,
+                move_members,
+            } => {
                 node_id.hash(state);
                 bounds.iter().for_each(|value| value.to_bits().hash(state));
+                move_members.hash(state);
+            }
+            Self::Port { node_id, port_id } => {
+                node_id.hash(state);
+                port_id.hash(state);
             }
             Self::ResizeHandle {
                 node_id,
@@ -534,6 +550,21 @@ impl std::hash::Hash for CanvasTargetKind {
             }
             Self::Marquee => {}
         }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct CanvasNodeMoveTarget {
+    pub node_id: u128,
+    pub bounds: [f32; 4],
+}
+
+impl std::hash::Hash for CanvasNodeMoveTarget {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.node_id.hash(state);
+        self.bounds
+            .iter()
+            .for_each(|value| value.to_bits().hash(state));
     }
 }
 

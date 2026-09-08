@@ -2,8 +2,9 @@
 
 use fission_core::event::{InputEvent, PointerButton, PointerEvent, PointerId, PointerKind};
 use fission_core::{
-    Action, ActionId, ActionRegistry, CanvasInteraction, CanvasInteractionKind,
-    CanvasInteractionPhase, GlobalState, ReducerContext, Runtime,
+    Action, ActionId, ActionRegistry, CanvasConnectionTarget, CanvasInteraction,
+    CanvasInteractionKind, CanvasInteractionPhase, CanvasNodeBoundsChange, GlobalState,
+    ReducerContext, Runtime,
 };
 use fission_ir::semantics::{ActionEntry, ActionSet, ActionTrigger, Role};
 use fission_ir::{
@@ -70,6 +71,16 @@ fn canvas_tree() -> (CoreIR, LayoutSnapshot, WidgetId) {
                 kind: CanvasTargetKind::Node {
                     node_id: 91,
                     bounds: [-20.0, 10.0, 40.0, 30.0],
+                    move_members: vec![
+                        fission_ir::CanvasNodeMoveTarget {
+                            node_id: 91,
+                            bounds: [-20.0, 10.0, 40.0, 30.0],
+                        },
+                        fission_ir::CanvasNodeMoveTarget {
+                            node_id: 92,
+                            bounds: [30.0, 50.0, 20.0, 20.0],
+                        },
+                    ],
                 },
                 selection_policy: fission_ir::CanvasSelectionPolicy::Single,
                 snap_spacing: Some(10.0),
@@ -191,6 +202,21 @@ fn node_drag_preserves_context_and_delivers_world_geometry() {
         update.bounds_after,
         Some(LayoutRect::new(-10.0, 10.0, 40.0, 30.0))
     );
+    assert_eq!(
+        update.node_changes,
+        vec![
+            CanvasNodeBoundsChange {
+                node_id: 91,
+                before: LayoutRect::new(-20.0, 10.0, 40.0, 30.0),
+                after: LayoutRect::new(-10.0, 10.0, 40.0, 30.0),
+            },
+            CanvasNodeBoundsChange {
+                node_id: 92,
+                before: LayoutRect::new(30.0, 50.0, 20.0, 20.0),
+                after: LayoutRect::new(40.0, 50.0, 20.0, 20.0),
+            },
+        ]
+    );
     assert_eq!(update.modifiers, 1);
     assert_eq!(update.input_kind, PointerKind::Mouse);
     assert_eq!(
@@ -288,4 +314,112 @@ fn second_contact_cancels_an_active_node_drag_before_viewport_capture() {
             .map(|interaction| interaction.phase),
         Some(CanvasInteractionPhase::Cancel)
     );
+}
+
+#[test]
+fn connection_drag_reports_the_port_under_the_captured_pointer() {
+    let viewer = WidgetId::explicit("connection.canvas");
+    let source = WidgetId::explicit("connection.source");
+    let target = WidgetId::explicit("connection.target");
+    let action = UpdateCanvas("connect".into());
+    let entries = [
+        ActionTrigger::DragStart,
+        ActionTrigger::DragUpdate,
+        ActionTrigger::DragEnd,
+    ]
+    .into_iter()
+    .map(|trigger| ActionEntry {
+        trigger,
+        action_id: UpdateCanvas::static_id().as_u128(),
+        payload_data: Some(action.encode()),
+    })
+    .collect();
+    let port_semantics = |node_id, port_id, entries, draggable| {
+        Op::Semantics(Semantics {
+            role: Role::Generic,
+            actions: ActionSet { entries },
+            canvas_target: Some(CanvasTarget {
+                canvas_id: viewer.as_u128(),
+                kind: CanvasTargetKind::Port { node_id, port_id },
+                selection_policy: fission_ir::CanvasSelectionPolicy::Single,
+                snap_spacing: None,
+                snap_threshold: 0.0,
+            }),
+            draggable,
+            ..Default::default()
+        })
+    };
+
+    let mut ir = CoreIR::default();
+    ir.add_node(source, port_semantics(1, 11, entries, true), Vec::new());
+    ir.add_node(target, port_semantics(2, 22, Vec::new(), true), Vec::new());
+    ir.add_node(
+        viewer,
+        Op::Layout(LayoutOp::InteractiveViewport {
+            initial_transform: ViewportTransform::IDENTITY,
+            controlled_transform: None,
+            pan_axis: ViewportPanAxis::Both,
+            boundary: ViewportBoundary::Unbounded,
+            clip: ViewportClip::HardEdge,
+            zoom_policy: ViewportZoomPolicy::WheelWithModifier,
+            min_scale: 0.25,
+            max_scale: 4.0,
+            friction: 0.0,
+            on_interaction_start: None,
+            on_interaction_update: None,
+            on_interaction_end: None,
+        }),
+        vec![source, target],
+    );
+    ir.set_root(viewer);
+
+    let mut layout = LayoutSnapshot::new(LayoutSize::new(100.0, 30.0));
+    for (id, rect) in [
+        (viewer, LayoutRect::new(0.0, 0.0, 100.0, 30.0)),
+        (source, LayoutRect::new(0.0, 0.0, 10.0, 10.0)),
+        (target, LayoutRect::new(50.0, 0.0, 10.0, 10.0)),
+    ] {
+        layout.nodes.insert(
+            id,
+            LayoutNodeGeometry {
+                rect,
+                content_size: rect.size,
+            },
+        );
+    }
+
+    let mut runtime = Runtime::default();
+    runtime
+        .add_app_state(Box::new(CanvasState::default()))
+        .unwrap();
+    let mut registry = ActionRegistry::<CanvasState>::new();
+    registry.register(update as fn(&mut CanvasState, UpdateCanvas, &mut ReducerContext<_>));
+    runtime.absorb_registry(registry);
+    runtime.post_layout_hook(&ir, &layout);
+
+    for event in [
+        pointer(LayoutPoint::new(5.0, 5.0), 0),
+        pointer(LayoutPoint::new(55.0, 5.0), 1),
+        pointer(LayoutPoint::new(55.0, 5.0), 2),
+    ] {
+        runtime.handle_input(event, &ir, &layout).unwrap();
+    }
+
+    let state = runtime.get_app_state::<CanvasState>().unwrap();
+    assert_eq!(state.interactions.len(), 3);
+    for interaction in &state.interactions {
+        assert_eq!(
+            interaction.kind,
+            CanvasInteractionKind::Connect {
+                source: CanvasConnectionTarget {
+                    node_id: 1,
+                    port_id: 11,
+                },
+                hovered_target: Some(CanvasConnectionTarget {
+                    node_id: 2,
+                    port_id: 22,
+                }),
+            }
+        );
+    }
 }

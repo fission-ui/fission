@@ -2,7 +2,7 @@ use crate::env::ScrollStateMap;
 use crate::input::viewport::ViewportStateMap;
 use crate::ui::custom_render::downcast_render_object;
 use fission_diagnostics::prelude as diag;
-use fission_ir::{CoreIR, LayoutOp, Op, PaintOp, WidgetId};
+use fission_ir::{CoreIR, LayoutOp, Op, PaintOp, StructuralOp, WidgetId};
 use fission_layout::{LayoutPoint, LayoutSnapshot};
 use glam::{Mat4, Vec4};
 
@@ -147,6 +147,13 @@ fn hit_test_recursive(
     let node = ir.nodes.get(&node_id)?;
     let geom = layout.get_node_geometry(node_id)?;
 
+    if matches!(
+        &node.op,
+        Op::Structural(StructuralOp::PointerTransparent { .. })
+    ) {
+        return None;
+    }
+
     let is_clip_container = match &node.op {
         Op::Layout(LayoutOp::Clip { .. }) | Op::Layout(LayoutOp::Scroll { .. }) => true,
         Op::Layout(LayoutOp::InteractiveViewport { clip, .. }) => {
@@ -288,9 +295,11 @@ fn canvas_target_hit(target: &fission_ir::CanvasTarget, point: LayoutPoint) -> b
         }
         false
     } else {
-        let first = LayoutPoint::new(points[0][0], points[0][1]);
-        let second = LayoutPoint::new(points[1][0], points[1][1]);
-        point_segment_distance_squared(point, first, second) <= tolerance_squared
+        points.windows(2).any(|segment| {
+            let first = LayoutPoint::new(segment[0][0], segment[0][1]);
+            let second = LayoutPoint::new(segment[1][0], segment[1][1]);
+            point_segment_distance_squared(point, first, second) <= tolerance_squared
+        })
     }
 }
 
@@ -629,9 +638,13 @@ pub fn find_neighbor_focus_node(
 
 #[cfg(test)]
 mod canvas_hit_tests {
-    use super::canvas_target_hit;
-    use fission_ir::{CanvasSelectionPolicy, CanvasTarget, CanvasTargetKind};
-    use fission_layout::LayoutPoint;
+    use super::{canvas_target_hit, hit_test};
+    use crate::env::ScrollStateMap;
+    use fission_ir::{
+        CanvasSelectionPolicy, CanvasTarget, CanvasTargetKind, CoreIR, Op, Role, Semantics,
+        StructuralOp, WidgetId,
+    };
+    use fission_layout::{LayoutNodeGeometry, LayoutPoint, LayoutRect, LayoutSize, LayoutSnapshot};
 
     fn edge(points: Vec<[f32; 2]>, cubic: bool) -> CanvasTarget {
         CanvasTarget {
@@ -654,11 +667,76 @@ mod canvas_hit_tests {
         assert!(canvas_target_hit(&straight, LayoutPoint::new(50.0, 52.0)));
         assert!(!canvas_target_hit(&straight, LayoutPoint::new(10.0, 90.0)));
 
+        let polyline = edge(
+            vec![[10.0, 10.0], [40.0, 10.0], [40.0, 80.0], [90.0, 80.0]],
+            false,
+        );
+        assert!(canvas_target_hit(&polyline, LayoutPoint::new(75.0, 82.0)));
+        assert!(!canvas_target_hit(&polyline, LayoutPoint::new(75.0, 20.0)));
+
         let cubic = edge(
             vec![[0.0, 50.0], [25.0, 0.0], [75.0, 100.0], [100.0, 50.0]],
             true,
         );
         assert!(canvas_target_hit(&cubic, LayoutPoint::new(50.0, 50.0)));
         assert!(!canvas_target_hit(&cubic, LayoutPoint::new(50.0, 5.0)));
+    }
+
+    #[test]
+    fn pointer_transparent_groups_pass_hits_to_underlying_siblings() {
+        let root = WidgetId::explicit("root");
+        let background = WidgetId::explicit("background-button");
+        let wrapper = WidgetId::explicit("pointer-transparent");
+        let overlay_child = WidgetId::explicit("interactive-overlay-child");
+        let mut ir = CoreIR::default();
+        ir.add_node(
+            background,
+            Op::Semantics(Semantics {
+                role: Role::Button,
+                focusable: true,
+                ..Semantics::default()
+            }),
+            Vec::new(),
+        );
+        ir.add_node(
+            overlay_child,
+            Op::Semantics(Semantics {
+                role: Role::Button,
+                focusable: true,
+                ..Semantics::default()
+            }),
+            Vec::new(),
+        );
+        ir.add_node(
+            wrapper,
+            Op::Structural(StructuralOp::PointerTransparent { stable_hash: 1 }),
+            vec![overlay_child],
+        );
+        ir.add_node(
+            root,
+            Op::Structural(StructuralOp::Group { stable_hash: 2 }),
+            vec![background, wrapper],
+        );
+        ir.set_root(root);
+        let mut layout = LayoutSnapshot::new(LayoutSize::new(100.0, 100.0));
+        for id in [root, background, wrapper, overlay_child] {
+            layout.nodes.insert(
+                id,
+                LayoutNodeGeometry {
+                    rect: LayoutRect::new(0.0, 0.0, 100.0, 100.0),
+                    content_size: LayoutSize::new(100.0, 100.0),
+                },
+            );
+        }
+
+        assert_eq!(
+            hit_test(
+                &ir,
+                &layout,
+                &ScrollStateMap::default(),
+                LayoutPoint::new(50.0, 50.0),
+            ),
+            Some(background)
+        );
     }
 }

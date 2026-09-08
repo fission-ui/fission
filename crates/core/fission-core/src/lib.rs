@@ -290,7 +290,8 @@ pub mod public {
         PointerEvent, PointerId, PointerKind, PointerPhase, ScrollDeltaMode,
     };
     pub use crate::input::canvas::{
-        CanvasInteraction, CanvasInteractionKind, CanvasInteractionPhase,
+        CanvasConnectionTarget, CanvasInteraction, CanvasInteractionKind, CanvasInteractionPhase,
+        CanvasNodeBoundsChange,
     };
     pub use crate::input::range_slider::{
         RangeSliderChangeSource, RangeSliderChanged, RangeSliderThumb,
@@ -522,7 +523,10 @@ pub use fission_layout::{
     BoxConstraints, FlexDirection, LayoutEngine, LayoutInspection, LayoutNodeGeometry, LayoutOp,
     LayoutPoint, LayoutRect, LayoutSize, LayoutSnapshot, LayoutUnit, TextMeasurer,
 };
-pub use input::canvas::{CanvasInteraction, CanvasInteractionKind, CanvasInteractionPhase};
+pub use input::canvas::{
+    CanvasConnectionTarget, CanvasInteraction, CanvasInteractionKind, CanvasInteractionPhase,
+    CanvasNodeBoundsChange,
+};
 pub use input::range_slider::{RangeSliderChangeSource, RangeSliderChanged, RangeSliderThumb};
 pub use input::viewport::{
     ViewportInputKind, ViewportInteraction, ViewportInteractionPhase, ViewportStateMap,

@@ -1488,6 +1488,53 @@ mod tests {
     }
 
     #[test]
+    fn anchored_position_uses_the_childs_intrinsic_size() {
+        let root = WidgetId::from_u128(510);
+        let positioned = WidgetId::from_u128(511);
+        let child = WidgetId::from_u128(512);
+        let nodes = vec![
+            node(root, None, vec![positioned], LayoutOp::ZStack),
+            node(
+                positioned,
+                Some(root),
+                vec![child],
+                LayoutOp::AnchoredPositioned {
+                    x: 100.0,
+                    y: 50.0,
+                    anchor_x: 0.5,
+                    anchor_y: 0.5,
+                },
+            ),
+            node(
+                child,
+                Some(positioned),
+                vec![],
+                LayoutOp::Box {
+                    width: Some(40.0),
+                    height: Some(20.0),
+                    min_width: None,
+                    max_width: None,
+                    min_height: None,
+                    max_height: None,
+                    padding: [0.0; 4],
+                    flex_grow: 0.0,
+                    flex_shrink: 1.0,
+                    aspect_ratio: None,
+                },
+            ),
+        ];
+        let mut engine = LayoutEngine::new();
+        let snapshot = engine
+            .compute_layout(&nodes, root, LayoutSize::new(200.0, 100.0), &|_| 0.0)
+            .expect("anchored positioned layout");
+
+        assert_eq!(
+            snapshot.nodes[&child].rect,
+            LayoutRect::new(80.0, 40.0, 40.0, 20.0)
+        );
+    }
+
+    #[test]
     fn spotlight_lays_out_inverse_overlay_around_anchor() {
         let root = WidgetId::from_u128(20);
         let positioned = WidgetId::from_u128(21);
@@ -2947,6 +2994,7 @@ impl LayoutEngine {
                 Some(LayoutOp::AbsoluteFill)
                     | Some(LayoutOp::Positioned { .. })
                     | Some(LayoutOp::PositionedLengths { .. })
+                    | Some(LayoutOp::AnchoredPositioned { .. })
             );
             if is_absolute {
                 abs_children.push(*child_id);
@@ -4848,6 +4896,46 @@ impl LayoutEngine {
                         *child_id,
                         child_constraints,
                         LayoutPoint::new(origin.x + x, origin.y + y),
+                        out,
+                        constraints_out,
+                        measure_cache,
+                        scroll_source,
+                        record,
+                        depth + 1,
+                    )?;
+                }
+                content_size = size;
+                size
+            }
+            LayoutOp::AnchoredPositioned {
+                x,
+                y,
+                anchor_x,
+                anchor_y,
+            } => {
+                let target_w = finite_or(constraints.max_w, finite_or(constraints.min_w, 0.0));
+                let target_h = finite_or(constraints.max_h, finite_or(constraints.min_h, 0.0));
+                let size = constraints.constrain(LayoutSize::new(target_w, target_h));
+                if let Some(child_id) = node.children_ids.first() {
+                    let child_constraints = BoxConstraints::loose(size.width, size.height);
+                    let child_size = self.layout_node_constraints(
+                        *child_id,
+                        child_constraints,
+                        LayoutPoint::ZERO,
+                        out,
+                        constraints_out,
+                        measure_cache,
+                        scroll_source,
+                        false,
+                        depth + 1,
+                    )?;
+                    self.layout_node_constraints(
+                        *child_id,
+                        child_constraints,
+                        LayoutPoint::new(
+                            origin.x + *x - child_size.width * *anchor_x,
+                            origin.y + *y - child_size.height * *anchor_y,
+                        ),
                         out,
                         constraints_out,
                         measure_cache,

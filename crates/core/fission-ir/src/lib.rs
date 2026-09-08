@@ -18,10 +18,10 @@ pub use op::{
     ViewportMargin, ViewportPanAxis, ViewportTransform, ViewportZoomPolicy,
 };
 pub use semantics::{
-    ActionEntry, ActionSet, ActionTrigger, CanvasSelectionPolicy, CanvasTarget, CanvasTargetKind,
-    FocusPolicy, Hyperlink, InputFormatter, LinkTarget, MaxLengthEnforcement, PopoverAction,
-    PopoverTarget, Role, SelectionRegionSemantics, Semantics, TextCapitalization,
-    TextFieldValidationState, TextInputAction, TextInputType, TextWrapMode,
+    ActionEntry, ActionSet, ActionTrigger, CanvasNodeMoveTarget, CanvasSelectionPolicy,
+    CanvasTarget, CanvasTargetKind, FocusPolicy, Hyperlink, InputFormatter, LinkTarget,
+    MaxLengthEnforcement, PopoverAction, PopoverTarget, Role, SelectionRegionSemantics, Semantics,
+    TextCapitalization, TextFieldValidationState, TextInputAction, TextInputType, TextWrapMode,
 };
 pub use widget_id::WidgetId;
 

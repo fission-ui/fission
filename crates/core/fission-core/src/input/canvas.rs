@@ -16,11 +16,37 @@ pub enum CanvasInteractionPhase {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CanvasInteractionKind {
-    SelectNode { node_id: u128 },
-    MoveNode { node_id: u128 },
-    ResizeNode { node_id: u128, handle: u8 },
-    SelectEdge { edge_id: u128 },
+    SelectNode {
+        node_id: u128,
+    },
+    MoveNode {
+        node_id: u128,
+    },
+    ResizeNode {
+        node_id: u128,
+        handle: u8,
+    },
+    SelectEdge {
+        edge_id: u128,
+    },
     Marquee,
+    Connect {
+        source: CanvasConnectionTarget,
+        hovered_target: Option<CanvasConnectionTarget>,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CanvasConnectionTarget {
+    pub node_id: u128,
+    pub port_id: u128,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct CanvasNodeBoundsChange {
+    pub node_id: u128,
+    pub before: LayoutRect,
+    pub after: LayoutRect,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -39,12 +65,15 @@ pub struct CanvasInteraction {
     pub world_delta: LayoutPoint,
     pub bounds_before: Option<LayoutRect>,
     pub bounds_after: Option<LayoutRect>,
+    /// All node bounds affected by this interaction, primary node first.
+    pub node_changes: Vec<CanvasNodeBoundsChange>,
     pub marquee: Option<LayoutRect>,
 }
 
 pub(crate) fn canvas_interaction(
     target_id: WidgetId,
     target: &CanvasTarget,
+    hovered_connection_target: Option<CanvasConnectionTarget>,
     phase: CanvasInteractionPhase,
     point: LayoutPoint,
     delta: LayoutPoint,
@@ -63,8 +92,12 @@ pub(crate) fn canvas_interaction(
     let world = transform.screen_to_world(local);
     let world_point = LayoutPoint::new(world[0], world[1]);
     let world_delta = LayoutPoint::new(delta.x / transform.scale, delta.y / transform.scale);
-    let (kind, bounds_before, bounds_after, marquee) = match &target.kind {
-        CanvasTargetKind::Node { node_id, bounds } => {
+    let (kind, bounds_before, bounds_after, node_changes, marquee) = match &target.kind {
+        CanvasTargetKind::Node {
+            node_id,
+            bounds,
+            move_members,
+        } => {
             let before = rect(*bounds);
             let mut after = before;
             if matches!(phase, CanvasInteractionPhase::Update) {
@@ -73,6 +106,32 @@ pub(crate) fn canvas_interaction(
                 after.origin.x = snap(after.origin.x, target);
                 after.origin.y = snap(after.origin.y, target);
             }
+            let effective_delta = LayoutPoint::new(
+                after.origin.x - before.origin.x,
+                after.origin.y - before.origin.y,
+            );
+            let node_changes = if move_members.is_empty() {
+                vec![CanvasNodeBoundsChange {
+                    node_id: *node_id,
+                    before,
+                    after,
+                }]
+            } else {
+                move_members
+                    .iter()
+                    .map(|member| {
+                        let before = rect(member.bounds);
+                        let mut after = before;
+                        after.origin.x += effective_delta.x;
+                        after.origin.y += effective_delta.y;
+                        CanvasNodeBoundsChange {
+                            node_id: member.node_id,
+                            before,
+                            after,
+                        }
+                    })
+                    .collect()
+            };
             (
                 if matches!(phase, CanvasInteractionPhase::Activate) {
                     CanvasInteractionKind::SelectNode { node_id: *node_id }
@@ -81,9 +140,23 @@ pub(crate) fn canvas_interaction(
                 },
                 Some(before),
                 Some(after),
+                node_changes,
                 None,
             )
         }
+        CanvasTargetKind::Port { node_id, port_id } => (
+            CanvasInteractionKind::Connect {
+                source: CanvasConnectionTarget {
+                    node_id: *node_id,
+                    port_id: *port_id,
+                },
+                hovered_target: hovered_connection_target,
+            },
+            None,
+            None,
+            Vec::new(),
+            None,
+        ),
         CanvasTargetKind::ResizeHandle {
             node_id,
             handle,
@@ -98,6 +171,7 @@ pub(crate) fn canvas_interaction(
                 },
                 Some(before),
                 Some(after),
+                Vec::new(),
                 None,
             )
         }
@@ -105,6 +179,7 @@ pub(crate) fn canvas_interaction(
             CanvasInteractionKind::SelectEdge { edge_id: *edge_id },
             None,
             None,
+            Vec::new(),
             None,
         ),
         CanvasTargetKind::Marquee => {
@@ -116,7 +191,13 @@ pub(crate) fn canvas_interaction(
                     world_point,
                 )
             });
-            (CanvasInteractionKind::Marquee, None, None, marquee)
+            (
+                CanvasInteractionKind::Marquee,
+                None,
+                None,
+                Vec::new(),
+                marquee,
+            )
         }
     };
     CanvasInteraction {
@@ -133,6 +214,7 @@ pub(crate) fn canvas_interaction(
         world_delta,
         bounds_before,
         bounds_after,
+        node_changes,
         marquee,
     }
 }

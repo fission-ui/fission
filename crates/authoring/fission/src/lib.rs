@@ -216,20 +216,20 @@ pub mod motion {
 
 // Core widget types (Button, Text, Container, Row, Column, etc.)
 pub use fission_core::ui::{
-    provider, ActionScope, Align, BadgeTone, Builder, Button, ButtonContentAlign, ButtonHierarchy,
-    ButtonMotion, ButtonVariant, CardPattern, Checkbox, Column, ComponentSize, ComponentState,
-    Composite, Container, CustomWidget, FocusScope, FontFeature, FontVariation, GestureDetector,
-    Grid, GridItem, HttpHeader, Icon, Image, ImageAlignment, ImageCachePolicy, ImageErrorBehavior,
-    ImageLoadingBehavior, ImageRequest, ImageSource, IosAudioSessionCategory,
-    IosAudioSessionCategoryOption, IosAudioSessionMode, IosVideoAudioOptions, LayoutBuilder,
-    LazyColumn, Overlay, Positioned, Pressable, PressableRole, PressableStyle, Provider, Radio,
-    Responsive, ResponsiveCase, ResponsiveQuery, RichText, RichTextRun, Row, SafeArea, Scroll,
-    SelectionPlatformStyle, SelectionRegion, SelectionRegionControls, SemanticsRegion, Slider,
-    Spacer, Switch, Text, TextBaseline, TextContent, TextDecoration, TextDecorationLines,
-    TextDecorationStyle, TextFontStyle, TextHyphenation, TextInput, TextLeadingDistribution,
-    TextLineBreakPolicy, TextRunStyle, TextScaler, TextShadow, TextTypography, Video,
-    VideoAudioActivation, VideoAudioOptions, VideoAudioPolicy, VideoSource, Widget, WidgetIdExt,
-    ZStack,
+    provider, ActionScope, Align, AnchoredPositioned, BadgeTone, Builder, Button,
+    ButtonContentAlign, ButtonHierarchy, ButtonMotion, ButtonVariant, CardPattern, Checkbox,
+    Column, ComponentSize, ComponentState, Composite, Container, CustomWidget, FocusScope,
+    FontFeature, FontVariation, GestureDetector, Grid, GridItem, HttpHeader, Icon, IgnorePointer,
+    Image, ImageAlignment, ImageCachePolicy, ImageErrorBehavior, ImageLoadingBehavior,
+    ImageRequest, ImageSource, IosAudioSessionCategory, IosAudioSessionCategoryOption,
+    IosAudioSessionMode, IosVideoAudioOptions, LayoutBuilder, LazyColumn, Overlay, Positioned,
+    Pressable, PressableRole, PressableStyle, Provider, Radio, Responsive, ResponsiveCase,
+    ResponsiveQuery, RichText, RichTextRun, Row, SafeArea, Scroll, SelectionPlatformStyle,
+    SelectionRegion, SelectionRegionControls, SemanticsRegion, Slider, Spacer, Switch, Text,
+    TextBaseline, TextContent, TextDecoration, TextDecorationLines, TextDecorationStyle,
+    TextFontStyle, TextHyphenation, TextInput, TextLeadingDistribution, TextLineBreakPolicy,
+    TextRunStyle, TextScaler, TextShadow, TextTypography, Video, VideoAudioActivation,
+    VideoAudioOptions, VideoAudioPolicy, VideoSource, Widget, WidgetIdExt, ZStack,
 };
 
 // Core action/state types
@@ -373,9 +373,9 @@ pub use fission_core::event::{
 };
 pub use fission_core::{reduce, reduce_with, widgets, with_reducer};
 pub use fission_core::{
-    CanvasInteraction, CanvasInteractionKind, CanvasInteractionPhase, RangeSliderChangeSource,
-    RangeSliderChanged, RangeSliderThumb, ViewportInputKind, ViewportInteraction,
-    ViewportInteractionPhase,
+    CanvasConnectionTarget, CanvasInteraction, CanvasInteractionKind, CanvasInteractionPhase,
+    CanvasNodeBoundsChange, RangeSliderChangeSource, RangeSliderChanged, RangeSliderThumb,
+    ViewportInputKind, ViewportInteraction, ViewportInteractionPhase,
 };
 
 // Core env types
@@ -396,9 +396,11 @@ pub use fission_layout::{
 // Authoring widgets (HStack, VStack, etc.)
 #[cfg(feature = "interactive-canvas")]
 pub use fission_widgets::{
-    CanvasEdgeEndpoint, CanvasEdgeId, CanvasEdgeRoute, CanvasGrid, CanvasNodeAnchor, CanvasNodeId,
-    CanvasSelectionPolicy, CanvasSnap, InfiniteCanvas, InfiniteCanvasActions, InfiniteCanvasEdge,
-    InfiniteCanvasNode, InteractiveViewer, ViewportBoundary, ViewportClip, ViewportMargin,
+    CanvasConnectionPreview, CanvasEdgeEndpoint, CanvasEdgeId, CanvasEdgeLabel, CanvasEdgeMarker,
+    CanvasEdgeRoute, CanvasGrid, CanvasGridPattern, CanvasNodeAnchor, CanvasNodeId,
+    CanvasOverlayHitTest, CanvasOverlayLayer, CanvasPortId, CanvasPortRef, CanvasSelectionPolicy,
+    CanvasSnap, InfiniteCanvas, InfiniteCanvasActions, InfiniteCanvasEdge, InfiniteCanvasNode,
+    InfiniteCanvasPort, InteractiveViewer, ViewportBoundary, ViewportClip, ViewportMargin,
     ViewportPanAxis, ViewportTransform, ViewportZoomPolicy,
 };
 pub use fission_widgets::{HStack, VStack};
@@ -528,11 +530,11 @@ pub mod prelude {
 
     // Widgets
     pub use fission_core::ui::{
-        ActionScope, Align, BadgeTone, Builder, Button, ButtonContentAlign, ButtonHierarchy,
-        ButtonMotion, ButtonVariant, CardPattern, Checkbox, Column, ComponentSize, ComponentState,
-        Composite, Container, CustomWidget, FocusScope, FontFeature, FontVariation,
-        GestureDetector, Grid, GridItem, HttpHeader, Icon, Image, ImageAlignment, ImageCachePolicy,
-        ImageErrorBehavior, ImageLoadingBehavior, ImageRequest, ImageSource,
+        ActionScope, Align, AnchoredPositioned, BadgeTone, Builder, Button, ButtonContentAlign,
+        ButtonHierarchy, ButtonMotion, ButtonVariant, CardPattern, Checkbox, Column, ComponentSize,
+        ComponentState, Composite, Container, CustomWidget, FocusScope, FontFeature, FontVariation,
+        GestureDetector, Grid, GridItem, HttpHeader, Icon, IgnorePointer, Image, ImageAlignment,
+        ImageCachePolicy, ImageErrorBehavior, ImageLoadingBehavior, ImageRequest, ImageSource,
         IosAudioSessionCategory, IosAudioSessionCategoryOption, IosAudioSessionMode,
         IosVideoAudioOptions, LayoutBuilder, LazyColumn, Overlay, Positioned, Pressable,
         PressableRole, PressableStyle, Radio, Responsive, ResponsiveCase, ResponsiveQuery,
@@ -652,9 +654,9 @@ pub mod prelude {
         GET_CAMERA_AVAILABILITY, REQUEST_CAMERA_PERMISSION, SET_CAMERA_FLASHLIGHT,
     };
     pub use fission_core::{
-        CanvasInteraction, CanvasInteractionKind, CanvasInteractionPhase, RangeSliderChangeSource,
-        RangeSliderChanged, RangeSliderThumb, ViewportInputKind, ViewportInteraction,
-        ViewportInteractionPhase,
+        CanvasConnectionTarget, CanvasInteraction, CanvasInteractionKind, CanvasInteractionPhase,
+        CanvasNodeBoundsChange, RangeSliderChangeSource, RangeSliderChanged, RangeSliderThumb,
+        ViewportInputKind, ViewportInteraction, ViewportInteractionPhase,
     };
     pub use fission_core::{
         ClearClipboardCapability, ClipboardContent, ClipboardEffects, ClipboardError,

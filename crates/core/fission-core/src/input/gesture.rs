@@ -36,6 +36,7 @@ pub(crate) fn cancel_active_drag_for_viewport(
                     ActionInput::CanvasInteraction(crate::input::canvas::canvas_interaction(
                         node_id,
                         target,
+                        None,
                         crate::input::canvas::CanvasInteractionPhase::Cancel,
                         point,
                         LayoutPoint::ZERO,
@@ -875,10 +876,13 @@ impl GestureController {
 
                             let delta = delta.unwrap_or(LayoutPoint::ZERO);
                             let input = if let Some(target) = &sem.canvas_target {
+                                let hovered_connection_target =
+                                    self.hovered_canvas_port(ctx, target, point);
                                 ActionInput::CanvasInteraction(
                                     crate::input::canvas::canvas_interaction(
                                         node_id,
                                         target,
+                                        hovered_connection_target,
                                         phase.unwrap_or_else(|| canvas_phase(trigger)),
                                         point,
                                         delta,
@@ -944,6 +948,49 @@ impl GestureController {
             }
         }
         false
+    }
+
+    fn hovered_canvas_port(
+        &self,
+        ctx: &ControllerContext,
+        source: &fission_ir::CanvasTarget,
+        point: LayoutPoint,
+    ) -> Option<crate::input::canvas::CanvasConnectionTarget> {
+        let fission_ir::CanvasTargetKind::Port {
+            node_id: source_node_id,
+            port_id: source_port_id,
+        } = &source.kind
+        else {
+            return None;
+        };
+        let mut current_id = crate::hit_test::hit_test_with_viewports(
+            ctx.ir,
+            ctx.layout,
+            ctx.scroll,
+            ctx.viewport,
+            point,
+        );
+        while let Some(node_id) = current_id {
+            let node = ctx.ir.nodes.get(&node_id)?;
+            if let Op::Semantics(semantics) = &node.op {
+                if let Some(target) = &semantics.canvas_target {
+                    if target.canvas_id == source.canvas_id {
+                        if let fission_ir::CanvasTargetKind::Port { node_id, port_id } =
+                            &target.kind
+                        {
+                            if node_id != source_node_id || port_id != source_port_id {
+                                return Some(crate::input::canvas::CanvasConnectionTarget {
+                                    node_id: *node_id,
+                                    port_id: *port_id,
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+            current_id = node.parent;
+        }
+        None
     }
 
     fn handle_pan_update(&self, ctx: &mut ControllerContext, delta: LayoutPoint) -> bool {
