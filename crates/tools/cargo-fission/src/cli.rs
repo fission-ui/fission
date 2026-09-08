@@ -85,6 +85,12 @@ pub(crate) enum Command {
         /// Build in release mode.
         #[arg(long)]
         release: bool,
+        /// Cargo features to activate for a Web build. Comma-separated or repeatable.
+        #[arg(long, value_delimiter = ',')]
+        features: Vec<String>,
+        /// Do not activate default Cargo features for a Web build.
+        #[arg(long)]
+        no_default_features: bool,
         /// Select native modules belonging to this desktop variant.
         #[arg(long)]
         variant: Option<NativeVariant>,
@@ -112,6 +118,12 @@ pub(crate) enum Command {
         /// Build in release mode.
         #[arg(long)]
         release: bool,
+        /// Cargo features to activate for a Web build. Comma-separated or repeatable.
+        #[arg(long, value_delimiter = ',')]
+        features: Vec<String>,
+        /// Do not activate default Cargo features for a Web build.
+        #[arg(long)]
+        no_default_features: bool,
         /// Select native modules belonging to this desktop variant.
         #[arg(long)]
         variant: Option<NativeVariant>,
@@ -127,6 +139,12 @@ pub(crate) enum Command {
         /// Prefer headless simulator/emulator execution where supported.
         #[arg(long)]
         headless: bool,
+        /// Cargo features to activate for a Web build. Comma-separated or repeatable.
+        #[arg(long, value_delimiter = ',')]
+        features: Vec<String>,
+        /// Do not activate default Cargo features for a Web build.
+        #[arg(long)]
+        no_default_features: bool,
         /// Select native modules belonging to this desktop variant.
         #[arg(long)]
         variant: Option<NativeVariant>,
@@ -555,5 +573,67 @@ mod tests {
             "Scanner Debug",
         ]);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn web_lifecycle_commands_parse_cargo_feature_overrides() {
+        for arguments in [
+            vec![
+                "fission",
+                "run",
+                "--target",
+                "web",
+                "--features",
+                "fixtures,diagnostics",
+                "--features",
+                "testing",
+                "--no-default-features",
+            ],
+            vec![
+                "fission",
+                "build",
+                "--target",
+                "web",
+                "--features",
+                "fixtures,diagnostics",
+                "--features",
+                "testing",
+                "--no-default-features",
+            ],
+            vec![
+                "fission",
+                "test",
+                "--target",
+                "web",
+                "--features",
+                "fixtures,diagnostics",
+                "--features",
+                "testing",
+                "--no-default-features",
+            ],
+        ] {
+            let cli = Cli::try_parse_from(arguments).unwrap();
+            let (features, no_default_features) = match cli.command {
+                Command::Run {
+                    features,
+                    no_default_features,
+                    ..
+                }
+                | Command::Build {
+                    features,
+                    no_default_features,
+                    ..
+                }
+                | Command::Test {
+                    features,
+                    no_default_features,
+                    ..
+                } => (features, no_default_features),
+                command => panic!("unexpected command: {command:?}"),
+            };
+
+            assert_eq!(features, ["fixtures", "diagnostics", "testing"]);
+            assert!(no_default_features);
+        }
     }
 }

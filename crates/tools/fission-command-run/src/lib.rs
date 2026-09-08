@@ -64,6 +64,13 @@ pub struct TestOptions {
     pub variant: Option<NativeVariant>,
 }
 
+/// Command-line Cargo feature overrides for a Web target build.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct WebCargoOptions {
+    pub features: Vec<String>,
+    pub no_default_features: bool,
+}
+
 #[derive(Clone, Debug)]
 pub struct LogOptions {
     pub project_dir: PathBuf,
@@ -139,6 +146,13 @@ pub fn list_devices(project_dir: &Path, json: bool) -> Result<()> {
 }
 
 pub fn run_app(options: RunOptions) -> Result<()> {
+    run_app_with_web_cargo_options(options, WebCargoOptions::default())
+}
+
+pub fn run_app_with_web_cargo_options(
+    options: RunOptions,
+    web_cargo: WebCargoOptions,
+) -> Result<()> {
     let project = read_project_config(&options.project_dir)?;
     let device = select_device(
         &options.project_dir,
@@ -146,6 +160,11 @@ pub fn run_app(options: RunOptions) -> Result<()> {
         options.device.as_deref(),
     )?;
     ensure_native_variant_target(device.target, options.variant.as_ref())?;
+    ensure_web_cargo_feature_target(
+        device.target,
+        &web_cargo.features,
+        web_cargo.no_default_features,
+    )?;
     ensure_target_configured(&project, &options.project_dir, device.target)?;
     sync_target_platform_config(&options.project_dir, &project, device.target)?;
 
@@ -153,7 +172,7 @@ pub fn run_app(options: RunOptions) -> Result<()> {
         Target::Linux | Target::Macos | Target::Terminal | Target::Windows => {
             run_desktop(&project, &options, &device)
         }
-        Target::Web => run_web(&options, &device),
+        Target::Web => run_web(&options, &device, &web_cargo),
         Target::Site => site_serve(
             &options.project_dir,
             options.release,
@@ -173,9 +192,17 @@ pub fn run_app(options: RunOptions) -> Result<()> {
 }
 
 pub fn build_app(options: BuildOptions) -> Result<()> {
+    build_app_with_web_cargo_options(options, WebCargoOptions::default())
+}
+
+pub fn build_app_with_web_cargo_options(
+    options: BuildOptions,
+    web_cargo: WebCargoOptions,
+) -> Result<()> {
     let project = read_project_config(&options.project_dir)?;
     let target = options.target.unwrap_or_else(host_desktop_target);
     ensure_native_variant_target(target, options.variant.as_ref())?;
+    ensure_web_cargo_feature_target(target, &web_cargo.features, web_cargo.no_default_features)?;
     ensure_target_configured(&project, &options.project_dir, target)?;
     sync_target_platform_config(&options.project_dir, &project, target)?;
 
@@ -233,7 +260,12 @@ pub fn build_app(options: BuildOptions) -> Result<()> {
             target,
             options.variant.as_ref(),
         ),
-        Target::Web => build_web(&options.project_dir, options.release),
+        Target::Web => build_web(
+            &options.project_dir,
+            options.release,
+            &web_cargo.features,
+            web_cargo.no_default_features,
+        ),
         Target::Site => site_build(&options.project_dir, options.release),
         Target::Server => fission_command_server::build(&options.project_dir, options.release),
         Target::Ios => {
@@ -255,9 +287,17 @@ pub fn build_app(options: BuildOptions) -> Result<()> {
 }
 
 pub fn test_app(options: TestOptions) -> Result<()> {
+    test_app_with_web_cargo_options(options, WebCargoOptions::default())
+}
+
+pub fn test_app_with_web_cargo_options(
+    options: TestOptions,
+    web_cargo: WebCargoOptions,
+) -> Result<()> {
     let project = read_project_config(&options.project_dir)?;
     let target = options.target.unwrap_or_else(host_desktop_target);
     ensure_native_variant_target(target, options.variant.as_ref())?;
+    ensure_web_cargo_feature_target(target, &web_cargo.features, web_cargo.no_default_features)?;
     ensure_target_configured(&project, &options.project_dir, target)?;
     sync_target_platform_config(&options.project_dir, &project, target)?;
 
@@ -288,7 +328,11 @@ pub fn test_app(options: TestOptions) -> Result<()> {
             command.arg("test").current_dir(&options.project_dir);
             run_status(&mut command, "terminal tests")
         }
-        Target::Web => browser_test_web(&options.project_dir),
+        Target::Web => browser_test_web(
+            &options.project_dir,
+            &web_cargo.features,
+            web_cargo.no_default_features,
+        ),
         Target::Site => browser_test_site(&options.project_dir),
         Target::Server => browser_test_server(&options.project_dir),
         Target::Ios => {
@@ -388,8 +432,12 @@ pub fn site_serve(
     fission_command_site::serve(project_dir, release, host, port, open)
 }
 
-fn browser_test_web(project_dir: &Path) -> Result<()> {
-    build_web_for_test(project_dir)?;
+fn browser_test_web(
+    project_dir: &Path,
+    cargo_features: &[String],
+    cargo_no_default_features: bool,
+) -> Result<()> {
+    build_web_for_test(project_dir, cargo_features, cargo_no_default_features)?;
     let server = StaticTestServer::start(project_dir.to_path_buf())?;
     let url = format!("{}/platforms/web/", server.base_url());
     let client = fission_test_driver::LiveTestClient::launch_browser(
@@ -888,8 +936,13 @@ fn run_desktop(project: &FissionProject, options: &RunOptions, device: &Device) 
     )
 }
 
-fn run_web(options: &RunOptions, _device: &Device) -> Result<()> {
-    build_web(&options.project_dir, options.release)?;
+fn run_web(options: &RunOptions, _device: &Device, web_cargo: &WebCargoOptions) -> Result<()> {
+    build_web(
+        &options.project_dir,
+        options.release,
+        &web_cargo.features,
+        web_cargo.no_default_features,
+    )?;
     let open = !options.no_open;
     let port = available_web_port(&options.host, options.port)?;
     if options.detach {
@@ -1118,18 +1171,41 @@ fn tail_log_file(path: &Path, follow: bool) -> Result<()> {
     }
 }
 
-fn build_web(project_dir: &Path, release: bool) -> Result<()> {
-    build_web_with_test_control(project_dir, release, false)
+fn build_web(
+    project_dir: &Path,
+    release: bool,
+    cargo_features: &[String],
+    cargo_no_default_features: bool,
+) -> Result<()> {
+    build_web_with_test_control(
+        project_dir,
+        release,
+        false,
+        cargo_features,
+        cargo_no_default_features,
+    )
 }
 
-fn build_web_for_test(project_dir: &Path) -> Result<()> {
-    build_web_with_test_control(project_dir, false, true)
+fn build_web_for_test(
+    project_dir: &Path,
+    cargo_features: &[String],
+    cargo_no_default_features: bool,
+) -> Result<()> {
+    build_web_with_test_control(
+        project_dir,
+        false,
+        true,
+        cargo_features,
+        cargo_no_default_features,
+    )
 }
 
 fn build_web_with_test_control(
     project_dir: &Path,
     release: bool,
     test_control: bool,
+    cargo_features: &[String],
+    cargo_no_default_features: bool,
 ) -> Result<()> {
     let project_dir = fs::canonicalize(project_dir).with_context(|| {
         format!(
@@ -1138,19 +1214,56 @@ fn build_web_with_test_control(
         )
     })?;
     let out_dir = project_dir.join("platforms/web/pkg");
+    let mut command = web_build_command(
+        &project_dir,
+        &out_dir,
+        release,
+        cargo_features,
+        cargo_no_default_features,
+    );
+    if test_control {
+        command.env("FISSION_WEB_TEST_CONTROL", "1");
+    }
+    run_status(&mut command, "web build")
+}
+
+fn web_build_command(
+    project_dir: &Path,
+    out_dir: &Path,
+    release: bool,
+    cargo_features: &[String],
+    cargo_no_default_features: bool,
+) -> Command {
     let mut command = Command::new("wasm-pack");
     command
         .arg("build")
-        .arg(&project_dir)
+        .arg(project_dir)
         .arg("--target")
         .arg("web")
         .arg("--out-dir")
         .arg(out_dir);
     command.arg(if release { "--release" } else { "--dev" });
-    if test_control {
-        command.env("FISSION_WEB_TEST_CONTROL", "1");
+    if cargo_no_default_features {
+        command.arg("--no-default-features");
     }
-    run_status(&mut command, "web build")
+    if !cargo_features.is_empty() {
+        command.arg("--features").arg(cargo_features.join(","));
+    }
+    command
+}
+
+fn ensure_web_cargo_feature_target(
+    target: Target,
+    cargo_features: &[String],
+    cargo_no_default_features: bool,
+) -> Result<()> {
+    if target != Target::Web && (!cargo_features.is_empty() || cargo_no_default_features) {
+        bail!(
+            "--features and --no-default-features currently require `--target web`; target `{}` does not support command-line Cargo feature overrides",
+            target.as_str()
+        );
+    }
+    Ok(())
 }
 
 fn package_android(project_dir: &Path, release: bool) -> Result<PathBuf> {
@@ -2396,5 +2509,46 @@ mod tests {
         .expect_err("an unmatched project manifest must fail");
 
         assert!(error.to_string().contains("crates/desktop/Cargo.toml"));
+    }
+
+    #[test]
+    fn web_build_forwards_cargo_feature_overrides_to_wasm_pack() {
+        let command = web_build_command(
+            Path::new("/workspace/app"),
+            Path::new("/workspace/app/platforms/web/pkg"),
+            false,
+            &["fixtures".into(), "diagnostics".into()],
+            true,
+        );
+        let args = command
+            .get_args()
+            .map(|arg| arg.to_string_lossy().into_owned())
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            args,
+            [
+                "build",
+                "/workspace/app",
+                "--target",
+                "web",
+                "--out-dir",
+                "/workspace/app/platforms/web/pkg",
+                "--dev",
+                "--no-default-features",
+                "--features",
+                "fixtures,diagnostics",
+            ]
+        );
+    }
+
+    #[test]
+    fn cargo_feature_overrides_reject_non_web_targets() {
+        let error = ensure_web_cargo_feature_target(Target::Linux, &["fixtures".into()], false)
+            .expect_err("non-Web Cargo feature overrides must be rejected");
+
+        assert!(error.to_string().contains("require `--target web`"));
+        ensure_web_cargo_feature_target(Target::Linux, &[], false)
+            .expect("default lifecycle commands remain supported");
     }
 }

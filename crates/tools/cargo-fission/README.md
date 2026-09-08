@@ -58,6 +58,7 @@ Run and attach to app output/logs:
 ```sh
 fission run --project-dir my-app
 fission run --project-dir my-app --target web
+fission run --project-dir my-app --target web --features fixtures
 fission run --project-dir my-app --target android --device emulator-5554
 fission run --project-dir my-app --target ios --device <simulator-udid>
 ```
@@ -73,6 +74,7 @@ Build or run smoke tests without launching the full attached workflow:
 
 ```sh
 fission build --project-dir my-app --target web --release
+fission build --project-dir my-app --target web --features fixtures
 fission test --project-dir my-app --target web
 fission test --project-dir my-app --target ios --headless
 ```
