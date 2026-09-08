@@ -786,8 +786,9 @@ impl LayoutGraphState {
 #[cfg(test)]
 mod tests {
     use super::{
-        flyout_root_position, resolve_length, LayoutEngine, LayoutGraphState, LayoutInputNode,
-        LayoutPoint, LayoutRect, LayoutSize, TextMeasurer, DEFAULT_RICH_TEXT_HIT_TEST_FONT_SIZE,
+        flyout_root_position, resolve_length, resolve_position_length, LayoutEngine,
+        LayoutGraphState, LayoutInputNode, LayoutPoint, LayoutRect, LayoutSize, TextMeasurer,
+        DEFAULT_RICH_TEXT_HIT_TEST_FONT_SIZE,
     };
     use fission_ir::op::{
         BoxStyle, Color, FontStyle, GridTrack, Length, ResponsiveCondition, ResponsiveQuery,
