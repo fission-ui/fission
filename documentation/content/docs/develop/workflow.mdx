@@ -37,6 +37,18 @@ fission devices
 fission run --target web
 ```
 
+If the Web app uses a Cargo feature for a development-only data source or
+diagnostic surface, select it explicitly in the lifecycle command:
+
+```bash
+fission run --target web --features fixtures
+```
+
+The same `--features` and `--no-default-features` options work with
+`fission build --target web` and `fission test --target web`. Fission forwards
+them to `wasm-pack`; it does not guess a feature from custom environment
+variables.
+
 `fission init .` is intentionally idempotent. On an existing project it should create or update missing Fission metadata without overwriting your app source. That matters when older examples or hand-written projects need a [`fission.toml`](/reference/config/fission-toml/) before they can use newer CLI features.
 
 ## Choose the fastest target for the question

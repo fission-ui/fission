@@ -188,6 +188,21 @@ fission logs --target web --project-dir my-app --follow
 
 Web also accepts `--host`, `--port`, and `--no-open`. Mobile targets accept `--headless` for simulator or emulator runs where the host supports a background launch.
 
+For a Web application whose behavior is selected by Cargo features, pass the
+feature set explicitly. `--features` accepts comma-separated values and can be
+repeated; `--no-default-features` maps directly to the corresponding
+`wasm-pack build` option.
+
+```sh
+fission run --target web --project-dir my-app --features fixtures,diagnostics
+fission run --target web --project-dir my-app --features fixtures --no-default-features
+```
+
+Fission does not infer Cargo features from application-specific environment
+variables. This keeps the selected dependency graph visible in command history
+and continuous integration configuration. These two flags currently require
+`--target web`.
+
 ## Building and testing targets
 
 Use `build` when you want the target artifact but do not want to launch it.
@@ -195,6 +210,14 @@ Use `build` when you want the target artifact but do not want to launch it.
 ```sh
 fission build --target web --project-dir my-app --release
 fission build --target android --project-dir my-app --release
+```
+
+Web builds and smoke tests accept the same `--features` and
+`--no-default-features` overrides as `fission run`.
+
+```sh
+fission build --target web --project-dir my-app --features fixtures
+fission test --target web --project-dir my-app --features fixtures
 ```
 
 Use `test` when you want the generated platform smoke test.
