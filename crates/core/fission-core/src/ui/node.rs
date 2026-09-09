@@ -9,15 +9,28 @@ use super::widgets::{
     SelectionRegion, SemanticsRegion, Slider, Spacer, Switch, Text, TextInput, Transform, Video,
     ZStack,
 };
-use crate::lowering::InternalLoweringCx;
-use fission_ir::{Op, StructuralOp, WidgetId};
+use crate::lowering::{FormFieldContext, InternalLoweringCx};
+use fission_ir::{CoreIR, Op, Role, StructuralOp, TextFieldValidationState, WidgetId};
 use serde::{Deserialize, Serialize};
+use std::hash::{Hash, Hasher};
 use std::ops::ControlFlow;
 use std::sync::Arc;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Widget {
     kind: Box<WidgetKind>,
+    /// Relationship metadata applied to one unambiguous form-control
+    /// semantics node after this retained subtree is lowered.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    form_field_relationships: Option<FormFieldRelationships>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct FormFieldRelationships {
+    labelled_by: Vec<WidgetId>,
+    described_by: Vec<WidgetId>,
+    required: bool,
+    invalid_message: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -66,8 +79,179 @@ pub enum WidgetKind {
     Custom(InternalRenderNode),
 }
 
+fn extend_unique(target: &mut Vec<WidgetId>, values: impl IntoIterator<Item = WidgetId>) {
+    for value in values {
+        if !target.contains(&value) {
+            target.push(value);
+        }
+    }
+}
+
+fn is_form_control_role(role: Role) -> bool {
+    matches!(
+        role,
+        Role::TextInput
+            | Role::Input
+            | Role::ComboBox
+            | Role::Checkbox
+            | Role::Radio
+            | Role::Switch
+            | Role::Slider
+    )
+}
+
+fn retained_form_control_count(widget: &Widget) -> usize {
+    let mut count = 0usize;
+    let _ = widget.visit(&mut |candidate| {
+        let is_control = match candidate.kind() {
+            WidgetKind::TextInput(_)
+            | WidgetKind::Checkbox(_)
+            | WidgetKind::Radio(_)
+            | WidgetKind::Switch(_)
+            | WidgetKind::Slider(_) => true,
+            WidgetKind::Button(button) => button
+                .semantics
+                .as_ref()
+                .is_some_and(|semantics| is_form_control_role(semantics.role)),
+            _ => false,
+        };
+        if is_control {
+            count += 1;
+        }
+        if count > 1 {
+            ControlFlow::Break(())
+        } else {
+            ControlFlow::Continue(())
+        }
+    });
+    count
+}
+
+fn form_control_semantics_in_subtree(ir: &CoreIR, root: WidgetId) -> Vec<WidgetId> {
+    let mut controls = Vec::new();
+    let mut pending = vec![root];
+    while let Some(id) = pending.pop() {
+        let Some(node) = ir.nodes.get(&id) else {
+            continue;
+        };
+        if matches!(&node.op, Op::Semantics(semantics) if is_form_control_role(semantics.role)) {
+            controls.push(id);
+            if controls.len() > 1 {
+                break;
+            }
+        }
+        pending.extend(node.children.iter().rev().copied());
+    }
+    controls
+}
+
+fn refresh_subtree_hashes(ir: &mut CoreIR, root: WidgetId) -> u64 {
+    let children = ir
+        .nodes
+        .get(&root)
+        .map(|node| node.children.clone())
+        .unwrap_or_default();
+    for child in &children {
+        refresh_subtree_hashes(ir, *child);
+    }
+
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    if let Some(node) = ir.nodes.get(&root) {
+        node.op.hash(&mut hasher);
+        node.composite.hash(&mut hasher);
+        for child in &children {
+            if let Some(child_node) = ir.nodes.get(child) {
+                child_node.hash.hash(&mut hasher);
+            }
+            child.hash(&mut hasher);
+        }
+    }
+    let hash = hasher.finish();
+    if let Some(node) = ir.nodes.get_mut(&root) {
+        node.hash = hash;
+    }
+    hash
+}
+
+fn apply_form_field_relationships(
+    ir: &mut CoreIR,
+    root: WidgetId,
+    relationships: &FormFieldRelationships,
+) {
+    let controls = form_control_semantics_in_subtree(ir, root);
+    let [control_id] = controls.as_slice() else {
+        return;
+    };
+    let Some(node) = ir.nodes.get_mut(control_id) else {
+        return;
+    };
+    let Op::Semantics(semantics) = &mut node.op else {
+        return;
+    };
+
+    extend_unique(
+        &mut semantics.labelled_by,
+        relationships.labelled_by.iter().copied(),
+    );
+    extend_unique(
+        &mut semantics.described_by,
+        relationships.described_by.iter().copied(),
+    );
+    semantics.required |= relationships.required;
+    if let Some(message) = &relationships.invalid_message {
+        semantics.validation_state = TextFieldValidationState::Invalid;
+        semantics.validation_message = Some(message.clone());
+    }
+
+    refresh_subtree_hashes(ir, root);
+}
+
 impl Widget {
     const CHILD_ROLE: u32 = 0xF155_2000;
+
+    fn from_kind(kind: WidgetKind) -> Self {
+        Self {
+            kind: Box::new(kind),
+            form_field_relationships: None,
+        }
+    }
+
+    /// Associates external form-field labels and messages with this subtree's
+    /// actual control.
+    ///
+    /// This operation is deliberately narrower than a generic semantics-tree
+    /// mutator. During lowering it augments the sole semantic descendant whose
+    /// role is a built-in form control. If the subtree contains no eligible
+    /// control, or contains more than one, it is left unchanged rather than
+    /// guessing which control owns the relationships.
+    ///
+    /// Existing relationships, identity, actions, value, selection, and text
+    /// editing configuration are preserved. `required` is additive. An invalid
+    /// message, when supplied, becomes the field's authoritative invalid state.
+    #[doc(hidden)]
+    pub fn with_form_field_relationships(
+        mut self,
+        labelled_by: Vec<WidgetId>,
+        described_by: Vec<WidgetId>,
+        required: bool,
+        invalid_message: Option<String>,
+    ) -> Self {
+        let relationships =
+            self.form_field_relationships
+                .get_or_insert_with(|| FormFieldRelationships {
+                    labelled_by: Vec::new(),
+                    described_by: Vec::new(),
+                    required: false,
+                    invalid_message: None,
+                });
+        extend_unique(&mut relationships.labelled_by, labelled_by);
+        extend_unique(&mut relationships.described_by, described_by);
+        relationships.required |= required;
+        if invalid_message.is_some() {
+            relationships.invalid_message = invalid_message;
+        }
+        self
+    }
 
     /// Returns the concrete kind represented by this type-erased widget.
     pub fn kind(&self) -> &WidgetKind {
@@ -168,19 +352,19 @@ impl Widget {
     }
 
     pub(crate) fn with_id(self, id: WidgetId) -> Self {
-        let kind = match *self.kind {
+        let Self {
+            kind,
+            form_field_relationships,
+        } = self;
+        let kind = match *kind {
             WidgetKind::Identified { child, .. } => WidgetKind::Identified { id, child },
             WidgetKind::ActionScope(w) => WidgetKind::Identified {
                 id,
-                child: Widget {
-                    kind: Box::new(WidgetKind::ActionScope(w)),
-                },
+                child: Widget::from_kind(WidgetKind::ActionScope(w)),
             },
             WidgetKind::Custom(w) => WidgetKind::Identified {
                 id,
-                child: Widget {
-                    kind: Box::new(WidgetKind::Custom(w)),
-                },
+                child: Widget::from_kind(WidgetKind::Custom(w)),
             },
             WidgetKind::Row(mut w) => {
                 w.id = Some(id);
@@ -224,7 +408,11 @@ impl Widget {
                 WidgetKind::InteractiveViewer(w)
             }
             WidgetKind::Button(mut w) => {
+                if let Some(previous_id) = w.id {
+                    crate::build::try_remove_motion_declarations(previous_id);
+                }
                 w.id = Some(id);
+                w.register_motion_declarations(id);
                 WidgetKind::Button(w)
             }
             WidgetKind::Pressable(mut w) => {
@@ -326,6 +514,7 @@ impl Widget {
         };
         Self {
             kind: Box::new(kind),
+            form_field_relationships,
         }
     }
 
@@ -337,22 +526,23 @@ impl Widget {
     }
 
     pub(crate) fn custom(node: InternalRenderNode) -> Self {
-        Self {
-            kind: Box::new(WidgetKind::Custom(node)),
-        }
+        Self::from_kind(WidgetKind::Custom(node))
     }
 
     pub(crate) fn from_pressable_raw(pressable: Pressable) -> Self {
-        Self {
-            kind: Box::new(WidgetKind::Pressable(pressable)),
-        }
+        Self::from_kind(WidgetKind::Pressable(pressable))
     }
 
     pub(crate) fn into_text(self) -> Result<Text, Self> {
-        match *self.kind {
-            WidgetKind::Text(text) => Ok(text),
-            kind => Err(Self {
+        let Self {
+            kind,
+            form_field_relationships,
+        } = self;
+        match (*kind, form_field_relationships) {
+            (WidgetKind::Text(text), None) => Ok(text),
+            (kind, form_field_relationships) => Err(Self {
                 kind: Box::new(kind),
+                form_field_relationships,
             }),
         }
     }
@@ -509,6 +699,10 @@ impl Widget {
     }
 
     fn resolve_descendants(self, parent: WidgetId) -> Self {
+        let Self {
+            kind,
+            form_field_relationships,
+        } = self;
         let child = |widget: Widget, slot: u32| {
             let id = WidgetId::derived(
                 parent.as_u128(),
@@ -524,7 +718,7 @@ impl Widget {
                 .collect()
         };
 
-        let kind = match *self.kind {
+        let kind = match *kind {
             WidgetKind::Identified {
                 id,
                 child: identified_child,
@@ -671,6 +865,7 @@ impl Widget {
 
         Self {
             kind: Box::new(kind),
+            form_field_relationships,
         }
     }
 
@@ -787,7 +982,19 @@ impl<T> WidgetIdExt for T where T: Into<Widget> {}
 
 impl Widget {
     pub(crate) fn lower(&self, cx: &mut InternalLoweringCx) -> WidgetId {
-        match &*self.kind {
+        let has_form_field_context =
+            self.form_field_relationships.is_some() && retained_form_control_count(self) == 1;
+        if let Some(relationships) = self
+            .form_field_relationships
+            .as_ref()
+            .filter(|_| has_form_field_context)
+        {
+            cx.push_form_field_context(FormFieldContext {
+                required: relationships.required,
+                invalid_message: relationships.invalid_message.clone(),
+            });
+        }
+        let root = match &*self.kind {
             WidgetKind::Identified { id, child } => {
                 cx.push_scope(*id);
                 let child_id = child.lower(cx);
@@ -869,154 +1076,108 @@ impl Widget {
 
                 node_id
             }
+        };
+        if has_form_field_context {
+            cx.pop_form_field_context();
         }
+        if let Some(relationships) = &self.form_field_relationships {
+            apply_form_field_relationships(&mut cx.ir, root, relationships);
+        }
+        root
     }
 }
 
 impl From<Row> for Widget {
     fn from(w: Row) -> Self {
-        Self {
-            kind: Box::new(WidgetKind::Row(w)),
-        }
+        Self::from_kind(WidgetKind::Row(w))
     }
 }
 impl From<ActionScope> for Widget {
     fn from(w: ActionScope) -> Self {
-        Self {
-            kind: Box::new(WidgetKind::ActionScope(w)),
-        }
+        Self::from_kind(WidgetKind::ActionScope(w))
     }
 }
 impl From<Column> for Widget {
     fn from(w: Column) -> Self {
-        Self {
-            kind: Box::new(WidgetKind::Column(w)),
-        }
+        Self::from_kind(WidgetKind::Column(w))
     }
 }
 impl From<Align> for Widget {
     fn from(w: Align) -> Self {
-        Self {
-            kind: Box::new(WidgetKind::Align(w)),
-        }
+        Self::from_kind(WidgetKind::Align(w))
     }
 }
 impl From<FocusScope> for Widget {
     fn from(w: FocusScope) -> Self {
-        Self {
-            kind: Box::new(WidgetKind::FocusScope(w)),
-        }
+        Self::from_kind(WidgetKind::FocusScope(w))
     }
 }
 impl From<SelectionRegion> for Widget {
     fn from(w: SelectionRegion) -> Self {
-        Self {
-            kind: Box::new(WidgetKind::SelectionRegion(w)),
-        }
+        Self::from_kind(WidgetKind::SelectionRegion(w))
     }
 }
 impl From<Clip> for Widget {
     fn from(w: Clip) -> Self {
-        Self {
-            kind: Box::new(WidgetKind::Clip(w)),
-        }
+        Self::from_kind(WidgetKind::Clip(w))
     }
 }
 impl From<Text> for Widget {
     fn from(w: Text) -> Self {
-        Self {
-            kind: Box::new(WidgetKind::Text(w)),
-        }
+        Self::from_kind(WidgetKind::Text(w))
     }
 }
 impl From<RichText> for Widget {
     fn from(w: RichText) -> Self {
-        Self {
-            kind: Box::new(WidgetKind::RichText(w)),
-        }
+        Self::from_kind(WidgetKind::RichText(w))
     }
 }
 impl From<Transform> for Widget {
     fn from(w: Transform) -> Self {
-        Self {
-            kind: Box::new(WidgetKind::Transform(w)),
-        }
+        Self::from_kind(WidgetKind::Transform(w))
     }
 }
 #[cfg(feature = "interactive-canvas")]
 impl From<InteractiveViewer> for Widget {
     fn from(w: InteractiveViewer) -> Self {
-        Self {
-            kind: Box::new(WidgetKind::InteractiveViewer(w)),
-        }
+        Self::from_kind(WidgetKind::InteractiveViewer(w))
     }
 }
 impl From<Button> for Widget {
     fn from(mut w: Button) -> Self {
-        if let Some(motion) = w.motion.take() {
-            let button_id = crate::build::current_widget_id()
-                .or(w.id)
-                .unwrap_or_else(|| WidgetId::explicit("fission.core.button.motion"));
-            w.id = Some(button_id);
-            let motion_id = WidgetId::derived(button_id.as_u128(), &[0xB0770]);
-            let tracks = motion.interaction_tracks(button_id);
-            let ripple = motion.ripple();
-            let base = Self {
-                kind: Box::new(WidgetKind::Button(w)),
-            };
-            let with_motion: Widget = if tracks.is_empty() {
-                base
-            } else {
-                crate::motion::Motion {
-                    id: motion_id,
-                    tracks,
-                    child: base,
-                    ..Default::default()
-                }
-                .into()
-            };
-            return if let Some(effect) = ripple {
-                crate::motion::RippleLayer {
-                    id: WidgetId::derived(button_id.as_u128(), &[0xA11E]),
-                    effect,
-                    child: with_motion,
-                }
-                .into()
-            } else {
-                with_motion
-            };
-        }
-        Self {
-            kind: Box::new(WidgetKind::Button(w)),
-        }
+        let current_widget_id = crate::build::current_widget_id();
+        let inherited_root_id = crate::build::current_identity()
+            .filter(|identity| Some(*identity) == current_widget_id);
+        let button_id =
+            w.id.or(inherited_root_id)
+                .or_else(|| crate::build::next_implicit_widget_id(Button::MOTION_SALT));
+        let Some(button_id) = button_id else {
+            // Implicit identities and motion declarations are build-scoped.
+            return Self::from_kind(WidgetKind::Button(w));
+        };
+        w.id = Some(button_id);
+        w.register_motion_declarations(button_id);
+        Self::from_kind(WidgetKind::Button(w))
     }
 }
 impl From<TextInput> for Widget {
     fn from(w: TextInput) -> Self {
-        Self {
-            kind: Box::new(WidgetKind::TextInput(w)),
-        }
+        Self::from_kind(WidgetKind::TextInput(w))
     }
 }
 impl From<Scroll> for Widget {
     fn from(w: Scroll) -> Self {
-        Self {
-            kind: Box::new(WidgetKind::Scroll(w)),
-        }
+        Self::from_kind(WidgetKind::Scroll(w))
     }
 }
 impl From<SemanticsRegion> for Widget {
     fn from(w: SemanticsRegion) -> Self {
-        Self {
-            kind: Box::new(WidgetKind::SemanticsRegion(w)),
-        }
+        Self::from_kind(WidgetKind::SemanticsRegion(w))
     }
 }
 impl From<Image> for Widget {
     fn from(w: Image) -> Self {
-        Self {
-            kind: Box::new(WidgetKind::Image(w)),
-        }
+        Self::from_kind(WidgetKind::Image(w))
     }
 }
 impl From<Video> for Widget {
@@ -1031,136 +1192,98 @@ impl From<Video> for Widget {
             loop_playback: w.loop_playback,
             audio: w.audio.clone(),
         });
-        Self {
-            kind: Box::new(WidgetKind::Video(w)),
-        }
+        Self::from_kind(WidgetKind::Video(w))
     }
 }
 impl From<ZStack> for Widget {
     fn from(w: ZStack) -> Self {
-        Self {
-            kind: Box::new(WidgetKind::ZStack(w)),
-        }
+        Self::from_kind(WidgetKind::ZStack(w))
     }
 }
 impl From<Overlay> for Widget {
     fn from(w: Overlay) -> Self {
-        Self {
-            kind: Box::new(WidgetKind::Overlay(w)),
-        }
+        Self::from_kind(WidgetKind::Overlay(w))
     }
 }
 impl From<ContextMenuRegion> for Widget {
     fn from(w: ContextMenuRegion) -> Self {
-        Self {
-            kind: Box::new(WidgetKind::ContextMenuRegion(w)),
-        }
+        Self::from_kind(WidgetKind::ContextMenuRegion(w))
     }
 }
 
 impl From<Container> for Widget {
     fn from(w: Container) -> Self {
-        Self {
-            kind: Box::new(WidgetKind::Container(w)),
-        }
+        Self::from_kind(WidgetKind::Container(w))
     }
 }
 impl From<GestureDetector> for Widget {
     fn from(w: GestureDetector) -> Self {
-        Self {
-            kind: Box::new(WidgetKind::GestureDetector(w)),
-        }
+        Self::from_kind(WidgetKind::GestureDetector(w))
     }
 }
 impl From<Grid> for Widget {
     fn from(w: Grid) -> Self {
-        Self {
-            kind: Box::new(WidgetKind::Grid(w)),
-        }
+        Self::from_kind(WidgetKind::Grid(w))
     }
 }
 impl From<GridItem> for Widget {
     fn from(w: GridItem) -> Self {
-        Self {
-            kind: Box::new(WidgetKind::GridItem(w)),
-        }
+        Self::from_kind(WidgetKind::GridItem(w))
     }
 }
 impl From<Responsive> for Widget {
     fn from(w: Responsive) -> Self {
-        Self {
-            kind: Box::new(WidgetKind::Responsive(w)),
-        }
+        Self::from_kind(WidgetKind::Responsive(w))
     }
 }
 impl From<Checkbox> for Widget {
     fn from(w: Checkbox) -> Self {
-        Self {
-            kind: Box::new(WidgetKind::Checkbox(w)),
-        }
+        Self::from_kind(WidgetKind::Checkbox(w))
     }
 }
 impl From<Switch> for Widget {
     fn from(w: Switch) -> Self {
-        Self {
-            kind: Box::new(WidgetKind::Switch(w)),
-        }
+        Self::from_kind(WidgetKind::Switch(w))
     }
 }
 impl From<Radio> for Widget {
     fn from(w: Radio) -> Self {
-        Self {
-            kind: Box::new(WidgetKind::Radio(w)),
-        }
+        Self::from_kind(WidgetKind::Radio(w))
     }
 }
 impl From<SafeArea> for Widget {
     fn from(w: SafeArea) -> Self {
-        Self {
-            kind: Box::new(WidgetKind::SafeArea(w)),
-        }
+        Self::from_kind(WidgetKind::SafeArea(w))
     }
 }
 impl From<Composite> for Widget {
     fn from(w: Composite) -> Self {
-        Self {
-            kind: Box::new(WidgetKind::Composite(w)),
-        }
+        Self::from_kind(WidgetKind::Composite(w))
     }
 }
 impl From<Positioned> for Widget {
     fn from(w: Positioned) -> Self {
-        Self {
-            kind: Box::new(WidgetKind::Positioned(w)),
-        }
+        Self::from_kind(WidgetKind::Positioned(w))
     }
 }
 impl From<Spacer> for Widget {
     fn from(w: Spacer) -> Self {
-        Self {
-            kind: Box::new(WidgetKind::Spacer(w)),
-        }
+        Self::from_kind(WidgetKind::Spacer(w))
     }
 }
 impl From<Slider> for Widget {
     fn from(w: Slider) -> Self {
-        Self {
-            kind: Box::new(WidgetKind::Slider(w)),
-        }
+        Self::from_kind(WidgetKind::Slider(w))
     }
 }
 impl From<LazyColumn> for Widget {
     fn from(w: LazyColumn) -> Self {
-        Self {
-            kind: Box::new(WidgetKind::LazyColumn(w)),
-        }
+        Self::from_kind(WidgetKind::LazyColumn(w))
     }
 }
 impl From<Icon> for Widget {
     fn from(w: Icon) -> Self {
-        Self {
-            kind: Box::new(WidgetKind::Icon(w)),
-        }
+        Self::from_kind(WidgetKind::Icon(w))
     }
 }
 

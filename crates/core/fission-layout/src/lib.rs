@@ -44,11 +44,22 @@ pub use paragraph::{
     ResolvedParagraphLayout, RichTextInlineBox, RichTextLayoutInfo,
 };
 
+mod flyout;
 mod grid_tracks;
+mod layout_direction;
 
+use flyout::{
+    absolute_overrides as flyout_absolute_overrides, root_position as flyout_root_position,
+};
 use grid_tracks::{distribute_deficit, distribute_flex, expand_tracks, IntrinsicAxis, TrackSizing};
+use layout_direction::{
+    resolve_cross_axis_alignment, resolve_horizontal_flex_policy, reverse_flex_lines,
+};
 
-pub use fission_ir::{FlexDirection, GridPlacement, GridTrack, LayoutOp};
+pub use fission_ir::{
+    FlexDirection, FlyoutAlignment, FlyoutOptions, FlyoutPlacement, FlyoutWidth, GridPlacement,
+    GridTrack, LayoutDirection, LayoutOp,
+};
 
 /// A source of scroll offsets for scroll containers.
 ///
@@ -1634,6 +1645,7 @@ mod tests {
             LayoutSize::new(800.0, 600.0),
             LayoutRect::new(700.0, 550.0, 80.0, 32.0),
             LayoutRect::new(0.0, 8.0, 440.0, 220.0),
+            Default::default(),
         );
 
         assert_eq!(position, LayoutPoint::new(360.0, 322.0));
@@ -1645,6 +1657,7 @@ mod tests {
             LayoutSize::new(800.0, 600.0),
             LayoutRect::new(100.0, 100.0, 200.0, 80.0),
             LayoutRect::new(0.0, 8.0, 320.0, 180.0),
+            Default::default(),
         );
 
         assert_eq!(position, LayoutPoint::new(100.0, 172.0));
@@ -1770,37 +1783,6 @@ fn spotlight_regions(
         LayoutRect::new(left + hole_width, top, bounds.right() - right, hole_height),
         LayoutRect::new(left, top, hole_width, hole_height),
     ]
-}
-
-fn flyout_root_position(
-    viewport: LayoutSize,
-    anchor: LayoutRect,
-    content_extents: LayoutRect,
-) -> LayoutPoint {
-    let min_left = -content_extents.x();
-    let max_left = viewport.width - content_extents.right();
-    let desired_left = anchor.x() - content_extents.x();
-    let left = if max_left >= min_left {
-        desired_left.clamp(min_left, max_left)
-    } else {
-        min_left
-    };
-
-    let below = anchor.bottom() - content_extents.y();
-    let above = anchor.y() - content_extents.bottom();
-    let min_top = -content_extents.y();
-    let max_top = viewport.height - content_extents.bottom();
-    let top = if below + content_extents.bottom() <= viewport.height {
-        below
-    } else if above + content_extents.y() >= 0.0 {
-        above
-    } else if max_top >= min_top {
-        below.clamp(min_top, max_top)
-    } else {
-        min_top
-    };
-
-    LayoutPoint::new(left, top)
 }
 
 /// The computed geometry of a single layout node.
@@ -2164,6 +2146,8 @@ pub trait TextMeasurer: Send + Sync {
 /// ```
 pub struct LayoutEngine {
     measurer: Option<Arc<dyn TextMeasurer>>,
+    layout_direction: LayoutDirection,
+    layout_direction_changed: bool,
     graph_state: LayoutGraphState,
     next_graph_version: u64,
     incremental_reuse: Option<IncrementalLayoutReuseState>,
@@ -2181,6 +2165,8 @@ impl LayoutEngine {
     pub fn new() -> Self {
         Self {
             measurer: None,
+            layout_direction: LayoutDirection::default(),
+            layout_direction_changed: false,
             graph_state: LayoutGraphState::default(),
             next_graph_version: 1,
             incremental_reuse: None,
@@ -2375,6 +2361,7 @@ impl LayoutEngine {
         viewport_size: LayoutSize,
         scroll_source: &impl ScrollDataSource,
     ) -> Result<LayoutSnapshot> {
+        self.prepare_directional_layout();
         self.active_viewport = viewport_size;
         self.resolved_paragraphs.lock().unwrap().clear();
         self.ensure_graph_state(input_nodes);
@@ -2407,6 +2394,13 @@ impl LayoutEngine {
             scroll_source,
             true,
             0,
+        )?;
+
+        self.apply_flyout_width_policies(
+            viewport_size,
+            &mut snapshot,
+            &mut measure_cache,
+            scroll_source,
         )?;
 
         let visual_location = |node_id: WidgetId| -> Option<LayoutPoint> {
@@ -2454,51 +2448,12 @@ impl LayoutEngine {
             spotlight_overrides.push((node.children_ids.clone(), regions));
         }
 
-        let mut flyout_abs_overrides: HashMap<WidgetId, (f32, f32)> = HashMap::new();
-        for node in self.graph_state.ordered_nodes() {
-            if let LayoutOp::Flyout { anchor, content } = node.op {
-                if let (Some(anchor_geom), Some(content_geom)) =
-                    (snapshot.nodes.get(&anchor), snapshot.nodes.get(&content))
-                {
-                    if let (Some(anchor_abs), Some(content_abs)) =
-                        (visual_location(anchor), visual_location(content))
-                    {
-                        let mut min_x: f32 = 0.0;
-                        let mut min_y: f32 = 0.0;
-                        let mut max_x = content_geom.rect.width();
-                        let mut max_y = content_geom.rect.height();
-                        let mut stack = vec![content];
-                        while let Some(current) = stack.pop() {
-                            if let (Some(geometry), Some(origin)) =
-                                (snapshot.nodes.get(&current), visual_location(current))
-                            {
-                                let relative_x = origin.x - content_abs.x;
-                                let relative_y = origin.y - content_abs.y;
-                                min_x = min_x.min(relative_x);
-                                min_y = min_y.min(relative_y);
-                                max_x = max_x.max(relative_x + geometry.rect.width());
-                                max_y = max_y.max(relative_y + geometry.rect.height());
-                            }
-                            stack.extend(self.graph_state.children_of(current).iter().copied());
-                        }
-                        let anchor_rect = LayoutRect::new(
-                            anchor_abs.x,
-                            anchor_abs.y,
-                            anchor_geom.rect.width(),
-                            anchor_geom.rect.height(),
-                        );
-                        let content_extents =
-                            LayoutRect::new(min_x, min_y, max_x - min_x, max_y - min_y);
-                        let position = flyout_root_position(
-                            snapshot.viewport_size,
-                            anchor_rect,
-                            content_extents,
-                        );
-                        flyout_abs_overrides.insert(content, (position.x, position.y));
-                    }
-                }
-            }
-        }
+        let flyout_abs_overrides = flyout_absolute_overrides(
+            &self.graph_state,
+            &snapshot,
+            self.layout_direction,
+            &visual_location,
+        );
 
         for (children, regions) in spotlight_overrides {
             for (child_id, region) in children.into_iter().zip(regions) {
@@ -2516,27 +2471,7 @@ impl LayoutEngine {
             }
         }
 
-        if !flyout_abs_overrides.is_empty() {
-            for (nid, (abs_x, abs_y)) in flyout_abs_overrides {
-                if let Some(current) = snapshot.nodes.get(&nid) {
-                    let dx = abs_x - current.rect.origin.x;
-                    let dy = abs_y - current.rect.origin.y;
-                    let mut stack = vec![(nid, 0usize)];
-                    while let Some((current_id, depth)) = stack.pop() {
-                        if depth > Self::MAX_LAYOUT_RECURSION_DEPTH {
-                            return Err(self.layout_depth_overflow(current_id, depth));
-                        }
-                        if let Some(geometry) = snapshot.nodes.get_mut(&current_id) {
-                            geometry.rect.origin.x += dx;
-                            geometry.rect.origin.y += dy;
-                        }
-                        for child_id in self.graph_state.children_of(current_id).iter().rev() {
-                            stack.push((*child_id, depth + 1));
-                        }
-                    }
-                }
-            }
-        }
+        self.apply_flyout_absolute_overrides(&mut snapshot, flyout_abs_overrides)?;
 
         snapshot.paragraphs = self.resolved_paragraphs.lock().unwrap().clone();
         self.graph_state.mark_layout_complete();
@@ -3426,6 +3361,10 @@ impl LayoutEngine {
                 let local = constraints.tighten(node.width, node.height);
                 let inner = local.deflate(*padding);
                 let is_row = matches!(direction, IrFlexDirection::Row);
+                let (reverse_main_axis, justify_content) =
+                    resolve_horizontal_flex_policy(is_row, self.layout_direction, *justify_content);
+                let align_items =
+                    resolve_cross_axis_alignment(is_row, self.layout_direction, *align_items);
 
                 let max_main = if is_row { inner.max_w } else { inner.max_h };
                 let max_cross = if is_row { inner.max_h } else { inner.max_w };
@@ -3587,17 +3526,25 @@ impl LayoutEngine {
                     };
 
                     let mut ordered_lines = lines;
-                    if matches!(wrap, IrFlexWrap::WrapReverse) {
+                    let reverse_cross_axis = reverse_flex_lines(
+                        is_row,
+                        matches!(wrap, IrFlexWrap::WrapReverse),
+                        self.layout_direction,
+                    );
+                    if reverse_cross_axis {
                         ordered_lines.reverse();
                     }
 
-                    let mut line_cursor = if matches!(wrap, IrFlexWrap::WrapReverse) {
+                    let mut line_cursor = if reverse_cross_axis {
                         (inner_cross - total_lines_cross).max(0.0)
                     } else {
                         0.0
                     };
 
-                    for (line_children, line_main, line_cross) in ordered_lines {
+                    for (mut line_children, line_main, line_cross) in ordered_lines {
+                        if reverse_main_axis {
+                            line_children.reverse();
+                        }
                         let remaining_space = (inner_main - line_main).max(0.0);
                         let mut extra_gap = 0.0;
                         let mut offset_main = 0.0;
@@ -4096,6 +4043,10 @@ impl LayoutEngine {
                                 offset_main = extra_gap;
                             }
                         }
+                    }
+
+                    if reverse_main_axis {
+                        measured.reverse();
                     }
 
                     let mut cursor = offset_main;
@@ -5023,7 +4974,9 @@ impl LayoutEngine {
                 content_size = child_size;
                 constraints.constrain(child_size)
             }
-            LayoutOp::Flyout { anchor, content: _ } => {
+            LayoutOp::Flyout {
+                anchor, options, ..
+            } => {
                 let loose = BoxConstraints::loose(
                     if constraints.is_width_bounded() {
                         constraints.max_w
@@ -5036,11 +4989,15 @@ impl LayoutEngine {
                         f32::INFINITY
                     },
                 );
+                let anchor_rect = out.get(anchor).map(|geometry| geometry.rect);
+                // Anchor-derived width is applied in the complete-geometry
+                // pass, where anchor and portal sibling order cannot affect it.
+                let child_constraints = loose;
                 let mut child_size = LayoutSize::ZERO;
                 for child_id in self.graph_state.children_of(node_id) {
                     child_size = self.layout_node_constraints(
                         *child_id,
-                        loose,
+                        child_constraints,
                         origin,
                         out,
                         constraints_out,
@@ -5051,13 +5008,20 @@ impl LayoutEngine {
                     )?;
                 }
                 if record {
-                    let anchor_rect = out.get(anchor).map(|g| g.rect);
-                    let place_x = anchor_rect.map(|r| r.x()).unwrap_or(origin.x);
-                    let place_y = anchor_rect.map(|r| r.y() + r.height()).unwrap_or(origin.y);
+                    let placement = anchor_rect.map(|rect| {
+                        flyout_root_position(
+                            self.active_viewport,
+                            rect,
+                            LayoutRect::new(0.0, 0.0, child_size.width, child_size.height),
+                            *options,
+                        )
+                    });
+                    let place_x = placement.map(|point| point.x).unwrap_or(origin.x);
+                    let place_y = placement.map(|point| point.y).unwrap_or(origin.y);
                     for child_id in self.graph_state.children_of(node_id) {
-                        self.layout_node_constraints(
+                        child_size = self.layout_node_constraints(
                             *child_id,
-                            loose,
+                            child_constraints,
                             LayoutPoint::new(place_x, place_y),
                             out,
                             constraints_out,

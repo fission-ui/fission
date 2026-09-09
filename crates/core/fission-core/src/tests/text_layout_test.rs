@@ -167,9 +167,14 @@ fn text_parent_max_width_drives_wrapping() {
             Op::Paint(fission_ir::PaintOp::DrawText { text, .. }) if text == "HelloWorld" => {
                 Some(*id)
             }
+            Op::Paint(fission_ir::PaintOp::DrawRichText { runs, .. })
+                if runs.iter().map(|run| run.text.as_str()).collect::<String>() == "HelloWorld" =>
+            {
+                Some(*id)
+            }
             _ => None,
         })
-        .expect("expected DrawText node");
+        .expect("expected text paint node");
 
     let text_geom = snapshot.get_node_geometry(text_paint_id).unwrap();
     assert_eq!(text_geom.rect.width(), 40.0);

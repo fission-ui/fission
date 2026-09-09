@@ -265,7 +265,7 @@ pub mod public {
     };
     pub use crate::env::{
         Clipboard, DragSessionPayload, DragSessionState, Env, ImeHandler, InteractionStateMap,
-        RuntimeState, ScrollStateMap, WindowEnv, WindowTitle,
+        LayoutDirection, MotionPreference, RuntimeState, ScrollStateMap, WindowEnv, WindowTitle,
     };
     pub use crate::runtime::Runtime;
     pub use crate::selection::{
@@ -431,8 +431,9 @@ pub mod public {
     };
     pub use fission_ir::{
         EmbedKind, FocusPolicy, Hyperlink, InputFormatter, LinkTarget, MaxLengthEnforcement, Op,
-        PopoverAction, PopoverTarget, Role, Semantics, TextCapitalization,
-        TextFieldValidationState, TextInputAction, TextInputType, TextWrapMode, WidgetId,
+        PopoverAction, PopoverTarget, PopupKind, Role, SemanticOrientation, Semantics,
+        TextCapitalization, TextFieldValidationState, TextInputAction, TextInputType, TextWrapMode,
+        WidgetId,
     };
     pub use fission_layout::{
         BoxConstraints, FlexDirection, LayoutEngine, LayoutInspection, LayoutNodeGeometry,
@@ -477,7 +478,8 @@ pub use effect::{
 };
 pub use env::{
     Clipboard, DragSessionPayload, DragSessionState, Env, ImeHandler, InteractionStateMap,
-    RouteLocation, RuntimeState, ScrollStateMap, WindowEnv, WindowTitle,
+    LayoutDirection, MotionPreference, RouteLocation, RuntimeState, ScrollStateMap, WindowEnv,
+    WindowTitle,
 };
 #[cfg(feature = "store")]
 pub use fission_store::*;
@@ -516,8 +518,9 @@ pub use fission_ir::op::{
 };
 pub use fission_ir::{
     EmbedKind, FocusPolicy, Hyperlink, InputFormatter, LinkTarget, MaxLengthEnforcement, Op,
-    PopoverAction, PopoverTarget, Role, Semantics, TextCapitalization, TextFieldValidationState,
-    TextInputAction, TextInputType, TextWrapMode, WidgetId,
+    PopoverAction, PopoverTarget, PopupKind, Role, SemanticOrientation, Semantics,
+    TextCapitalization, TextFieldValidationState, TextInputAction, TextInputType, TextWrapMode,
+    WidgetId,
 };
 pub use fission_layout::{
     BoxConstraints, FlexDirection, LayoutEngine, LayoutInspection, LayoutNodeGeometry, LayoutOp,

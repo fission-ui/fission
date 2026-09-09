@@ -440,6 +440,7 @@ fn create_text_node(id: WidgetId, val: &str, multiline: bool) -> CoreIR {
                 action_scope_id: None,
                 focusable: true,
                 focus_policy: fission_ir::FocusPolicy::FocusOnPointer,
+                text_editable: true,
                 multiline,
                 text_wrap_mode: fission_ir::semantics::TextWrapMode::Soft,
                 masked: false,
@@ -489,6 +490,7 @@ fn create_text_node(id: WidgetId, val: &str, multiline: bool) -> CoreIR {
                 scroll_padding: None,
                 capture_tab: false,
                 auto_indent: false,
+                ..Semantics::default()
             }),
             composite: fission_ir::CompositeStyle::default(),
             hash: 0,
@@ -891,6 +893,7 @@ fn create_rich_text_input_tree(
                 action_scope_id: None,
                 focusable: true,
                 focus_policy: fission_ir::FocusPolicy::FocusOnPointer,
+                text_editable: true,
                 multiline,
                 text_wrap_mode: fission_ir::semantics::TextWrapMode::Soft,
                 masked: false,
@@ -940,6 +943,7 @@ fn create_rich_text_input_tree(
                 scroll_padding: None,
                 capture_tab: false,
                 auto_indent: false,
+                ..Semantics::default()
             }),
             composite: fission_ir::CompositeStyle::default(),
             hash: 0,
@@ -1121,6 +1125,49 @@ fn test_text_input_typing() {
 
     let st = ctx.text_edit.get(node_id).unwrap();
     assert_eq!(st.caret, 6);
+}
+
+#[test]
+fn editable_combobox_uses_the_text_input_controller() {
+    let node_id = WidgetId::derived(1, &[9]);
+    let mut ir = create_text_node(node_id, "Lon", false);
+    let Op::Semantics(semantics) = &mut ir.nodes.get_mut(&node_id).unwrap().op else {
+        unreachable!();
+    };
+    semantics.role = Role::ComboBox;
+    assert!(semantics.text_editable);
+    let layout = LayoutSnapshot::new(LayoutSize::new(100.0, 100.0));
+    let mut text_edit = TextEditStateMap::default();
+    let mut interaction = InteractionStateMap::default();
+    let mut scroll = ScrollStateMap::default();
+    let mut gesture = fission_core::env::GestureState::default();
+    let clipboard: Arc<dyn Clipboard> = Arc::new(MockClipboard::new());
+    let measurer: Arc<dyn TextMeasurer> = Arc::new(MockTextMeasurer);
+
+    interaction.set_focused(Some(node_id));
+    text_edit.set_caret(node_id, 3, Some(3));
+
+    let mut controller = TextInputController;
+    let mut ctx = setup_ctx(
+        &ir,
+        &layout,
+        &mut text_edit,
+        &mut interaction,
+        &mut scroll,
+        &mut gesture,
+        &clipboard,
+        Some(&measurer),
+    );
+    let event = InputEvent::Keyboard(KeyEvent::Down {
+        key_code: KeyCode::Char('d'),
+        modifiers: 0,
+    });
+
+    assert!(controller.handle_event(&mut ctx, &event));
+    assert_eq!(
+        ctx.dispatched_actions[0].2.text_change().unwrap().new_text,
+        "Lond"
+    );
 }
 
 #[test]

@@ -1,9 +1,11 @@
 use crate::op::{
     decode_inline_widget_marker, decode_text_paragraph_style, encode_inline_widget_marker,
     encode_text_paragraph_style, HttpHeader, ImageCachePolicy, ImageRequest, ImageSource,
-    InlineWidgetMarker, TextAlign, TextDirection, TextHeightBehavior, TextOverflow,
-    TextParagraphStyle, TextWidthBasis, TEXT_PARAGRAPH_MAX_ENCODED_LINES,
+    InlineWidgetMarker, JustifyContent, LayoutDirection, TextAlign, TextDirection,
+    TextHeightBehavior, TextOverflow, TextParagraphStyle, TextWidthBasis,
+    TEXT_PARAGRAPH_MAX_ENCODED_LINES,
 };
+use crate::{CoreIR, FlyoutAlignment};
 
 #[test]
 fn paragraph_style_round_trips_alignment_overflow_and_line_cap() {
@@ -121,4 +123,43 @@ fn inline_widget_marker_round_trips() {
             height: 12.0,
         })
     );
+}
+
+#[test]
+fn layout_direction_resolves_logical_horizontal_edges() {
+    assert_eq!(
+        LayoutDirection::LeftToRight.resolve_horizontal_justification(JustifyContent::Start),
+        JustifyContent::Start
+    );
+    assert_eq!(
+        LayoutDirection::RightToLeft.resolve_horizontal_justification(JustifyContent::Start),
+        JustifyContent::End
+    );
+    assert_eq!(
+        LayoutDirection::RightToLeft.resolve_flyout_alignment(FlyoutAlignment::Start),
+        FlyoutAlignment::End
+    );
+    assert_eq!(
+        LayoutDirection::RightToLeft.resolve_flyout_alignment(FlyoutAlignment::End),
+        FlyoutAlignment::Start
+    );
+}
+
+#[test]
+fn core_ir_direction_is_backward_compatible_and_omits_ltr_default() {
+    let encoded = serde_json::to_value(CoreIR::default()).expect("serialize default IR");
+    assert!(encoded.get("layout_direction").is_none());
+
+    let decoded: CoreIR = serde_json::from_value(encoded).expect("deserialize legacy-shaped IR");
+    assert_eq!(decoded.layout_direction, LayoutDirection::LeftToRight);
+
+    let mut rtl = CoreIR::default();
+    rtl.layout_direction = LayoutDirection::RightToLeft;
+    let encoded = serde_json::to_value(&rtl).expect("serialize RTL IR");
+    assert_eq!(
+        encoded.get("layout_direction"),
+        Some(&serde_json::json!("RightToLeft"))
+    );
+    let decoded: CoreIR = serde_json::from_value(encoded).expect("deserialize RTL IR");
+    assert_eq!(decoded.layout_direction, LayoutDirection::RightToLeft);
 }

@@ -1,7 +1,7 @@
 //! Programmatic control of retained editable text sessions.
 
 use crate::{RuntimeState, TextEditingValue, TextRange, TextSelection};
-use fission_ir::{op::FlexDirection, CoreIR, LayoutOp, Op, Role, WidgetId};
+use fission_ir::{op::FlexDirection, CoreIR, LayoutOp, Op, WidgetId};
 use fission_layout::LayoutSnapshot;
 use serde::{Deserialize, Serialize};
 use std::{error::Error, fmt};
@@ -179,7 +179,7 @@ impl TextFormController {
             let Op::Semantics(semantics) = &node.op else {
                 continue;
             };
-            if semantics.role != Role::TextInput
+            if !semantics.supports_text_editing()
                 || semantics.text_form_id.as_deref() != Some(self.id.as_str())
             {
                 continue;
@@ -210,7 +210,7 @@ impl TextFormValidation {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use fission_ir::{CompositeStyle, CoreNode, Semantics};
+    use fission_ir::{CompositeStyle, CoreNode, Role, Semantics};
 
     fn text_input(ir: &mut CoreIR, id: WidgetId, value: &str) {
         ir.nodes.insert(
@@ -281,6 +281,10 @@ mod tests {
             };
             semantics.text_form_id = Some(form.to_owned());
             semantics.validation_state = state;
+            if id == invalid {
+                semantics.role = Role::ComboBox;
+                semantics.text_editable = true;
+            }
         }
 
         let result = TextFormController::new("account").validation(&ir);

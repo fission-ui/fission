@@ -131,7 +131,11 @@ fn stretch_box_shrink_wraps_child_on_loose_axis() {
             flyout,
             None,
             vec![content],
-            IrLayoutOp::Flyout { anchor, content },
+            IrLayoutOp::Flyout {
+                anchor,
+                content,
+                options: Default::default(),
+            },
             None,
             None,
         ),

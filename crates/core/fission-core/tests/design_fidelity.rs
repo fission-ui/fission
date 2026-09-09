@@ -88,6 +88,27 @@ fn container_preserves_backdrop_and_ordered_shadow_layers() {
 }
 
 #[test]
+fn container_preserves_a_dashed_border_recipe() {
+    let ir = lower(
+        Container::new(Spacer::default())
+            .border(Color::RED, 1.0)
+            .border_dash(vec![4.0, 4.0]),
+    );
+    let stroke = ir.nodes.values().find_map(|node| match &node.op {
+        Op::Paint(PaintOp::DrawRect {
+            stroke: Some(stroke),
+            ..
+        }) => Some(stroke),
+        _ => None,
+    });
+
+    assert_eq!(
+        stroke.and_then(|stroke| stroke.dash_array.as_deref()),
+        Some([4.0, 4.0].as_slice())
+    );
+}
+
+#[test]
 fn container_common_box_model_keeps_typed_margin_outside_content() {
     let ir = lower(
         Container::new(Spacer::default())

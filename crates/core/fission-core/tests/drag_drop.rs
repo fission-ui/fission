@@ -5,7 +5,7 @@ use fission_core::{
 };
 use fission_ir::op::LayoutOp;
 use fission_ir::semantics::{ActionTrigger, Role};
-use fission_ir::{ActionEntry, ActionSet, CoreIR, Op, Semantics};
+use fission_ir::{ActionEntry, ActionSet, CoreIR, Op, Semantics, StructuralOp};
 use fission_layout::{LayoutNodeGeometry, LayoutPoint, LayoutRect, LayoutSize, LayoutSnapshot};
 use serde::{Deserialize, Serialize};
 
@@ -49,6 +49,7 @@ fn action(event: &str) -> ActionEntry {
             "enter" => ActionTrigger::DragEnter,
             "leave" => ActionTrigger::DragLeave,
             "start" => ActionTrigger::DragStart,
+            "update" => ActionTrigger::DragUpdate,
             "end" => ActionTrigger::DragEnd,
             _ => ActionTrigger::Default,
         },
@@ -231,6 +232,198 @@ fn drag_leave_fires_when_internal_drag_moves_off_target() -> Result<()> {
 
     assert!(state(&runtime).events.contains(&"enter:pointer".into()));
     assert!(state(&runtime).events.contains(&"leave:pointer".into()));
+    Ok(())
+}
+
+#[test]
+fn active_drag_is_cancelled_when_its_retained_subtree_becomes_interaction_inert() -> Result<()> {
+    let (mut ir, layout, root, source, _) = drag_tree();
+    let Op::Semantics(source_semantics) = &mut ir.nodes.get_mut(&source).unwrap().op else {
+        panic!("drag source must be semantic");
+    };
+    source_semantics.actions.entries.push(action("update"));
+
+    let mut runtime = runtime()?;
+    let source_point = LayoutPoint::new(20.0, 20.0);
+    let drag_point = LayoutPoint::new(150.0, 30.0);
+
+    runtime.handle_input(
+        InputEvent::Pointer(PointerEvent::Down {
+            pointer_id: Default::default(),
+            kind: Default::default(),
+            point: source_point,
+            button: PointerButton::Primary,
+            modifiers: 0,
+        }),
+        &ir,
+        &layout,
+    )?;
+    runtime.handle_input(
+        InputEvent::Pointer(PointerEvent::Move {
+            pointer_id: Default::default(),
+            kind: Default::default(),
+            point: drag_point,
+            modifiers: 0,
+        }),
+        &ir,
+        &layout,
+    )?;
+
+    assert_eq!(
+        state(&runtime).events,
+        vec!["enter:pointer", "start:pointer", "update:pointer"]
+    );
+    assert!(runtime.runtime_state.gesture.is_panning);
+    assert!(runtime
+        .runtime_state
+        .gesture
+        .drag_session
+        .as_ref()
+        .is_some_and(|session| session.target_node.is_some()));
+
+    ir.nodes.get_mut(&root).unwrap().op =
+        Op::Structural(StructuralOp::InteractionInert { stable_hash: 1 });
+    runtime.reconcile_ir(&ir);
+
+    assert!(!runtime.runtime_state.gesture.is_panning);
+    assert!(runtime.runtime_state.gesture.start_point.is_none());
+    assert!(runtime.runtime_state.gesture.last_point.is_none());
+    assert!(runtime.runtime_state.gesture.target_node.is_none());
+    assert!(runtime.runtime_state.gesture.dragging_payload.is_none());
+    assert!(runtime.runtime_state.gesture.pressed_button.is_none());
+    assert!(runtime.runtime_state.gesture.drag_session.is_none());
+    assert!(runtime.runtime_state.interaction.pressed.is_empty());
+    assert!(runtime.runtime_state.interaction.last_down_point.is_none());
+
+    runtime.handle_input(
+        InputEvent::Pointer(PointerEvent::Move {
+            pointer_id: Default::default(),
+            kind: Default::default(),
+            point: LayoutPoint::new(45.0, 30.0),
+            modifiers: 0,
+        }),
+        &ir,
+        &layout,
+    )?;
+    runtime.handle_input(
+        InputEvent::Pointer(PointerEvent::Up {
+            pointer_id: Default::default(),
+            kind: Default::default(),
+            point: LayoutPoint::new(45.0, 30.0),
+            button: PointerButton::Primary,
+            modifiers: 0,
+        }),
+        &ir,
+        &layout,
+    )?;
+
+    assert_eq!(
+        state(&runtime).events,
+        vec!["enter:pointer", "start:pointer", "update:pointer"],
+        "the inert exit frame must receive no update, end, leave, or drop action"
+    );
+    Ok(())
+}
+
+#[test]
+fn inert_drop_target_is_cleared_without_cancelling_its_active_drag_source() -> Result<()> {
+    let (mut ir, mut layout, root, source, target) = drag_tree();
+    let Op::Semantics(source_semantics) = &mut ir.nodes.get_mut(&source).unwrap().op else {
+        panic!("drag source must be semantic");
+    };
+    source_semantics.actions.entries.push(action("update"));
+
+    let mut runtime = runtime()?;
+    runtime.handle_input(
+        InputEvent::Pointer(PointerEvent::Down {
+            pointer_id: Default::default(),
+            kind: Default::default(),
+            point: LayoutPoint::new(20.0, 20.0),
+            button: PointerButton::Primary,
+            modifiers: 0,
+        }),
+        &ir,
+        &layout,
+    )?;
+    runtime.handle_input(
+        InputEvent::Pointer(PointerEvent::Move {
+            pointer_id: Default::default(),
+            kind: Default::default(),
+            point: LayoutPoint::new(150.0, 30.0),
+            modifiers: 0,
+        }),
+        &ir,
+        &layout,
+    )?;
+
+    assert_eq!(
+        state(&runtime).events,
+        vec!["enter:pointer", "start:pointer", "update:pointer"]
+    );
+
+    let inert_target = WidgetId::explicit("drag.target.exit");
+    ir.add_node(
+        inert_target,
+        Op::Structural(StructuralOp::InteractionInert { stable_hash: 2 }),
+        vec![target],
+    );
+    ir.nodes.get_mut(&inert_target).unwrap().parent = Some(root);
+    ir.nodes.get_mut(&root).unwrap().children = vec![source, inert_target];
+    layout.nodes.insert(
+        inert_target,
+        LayoutNodeGeometry {
+            rect: LayoutRect::new(130.0, 10.0, 90.0, 70.0),
+            content_size: LayoutSize::new(90.0, 70.0),
+        },
+    );
+
+    runtime.reconcile_ir(&ir);
+
+    let session = runtime
+        .runtime_state
+        .gesture
+        .drag_session
+        .as_ref()
+        .expect("the active source keeps its drag session");
+    assert_eq!(session.source_node, Some(source));
+    assert!(session.target_node.is_none());
+    assert!(session.target_identifier.is_none());
+    assert!(runtime.runtime_state.gesture.is_panning);
+
+    runtime.handle_input(
+        InputEvent::Pointer(PointerEvent::Move {
+            pointer_id: Default::default(),
+            kind: Default::default(),
+            point: LayoutPoint::new(160.0, 35.0),
+            modifiers: 0,
+        }),
+        &ir,
+        &layout,
+    )?;
+    runtime.handle_input(
+        InputEvent::Pointer(PointerEvent::Up {
+            pointer_id: Default::default(),
+            kind: Default::default(),
+            point: LayoutPoint::new(160.0, 35.0),
+            button: PointerButton::Primary,
+            modifiers: 0,
+        }),
+        &ir,
+        &layout,
+    )?;
+
+    assert_eq!(
+        state(&runtime).events,
+        vec![
+            "enter:pointer",
+            "start:pointer",
+            "update:pointer",
+            "update:pointer",
+            "end:pointer",
+        ],
+        "the inert target must receive neither leave nor drop while the active source continues"
+    );
+    assert!(runtime.runtime_state.gesture.drag_session.is_none());
     Ok(())
 }
 

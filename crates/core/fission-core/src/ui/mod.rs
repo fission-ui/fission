@@ -8,21 +8,21 @@ pub mod widgets;
 
 pub use node::{CustomWidget, Widget, WidgetIdExt, WidgetKind};
 pub use widgets::{
-    provider, ActionScope, Align, AnchoredPositioned, BadgeTone, Builder, Button,
-    ButtonContentAlign, ButtonHierarchy, ButtonMotion, ButtonVariant, CardPattern, Checkbox,
-    Column, ComponentSize, ComponentState, Composite, Container, ContextMenu, ContextMenuEntry,
-    ContextMenuItem, ContextMenuRegion, FocusScope, FontFeature, FontVariation, GestureDetector,
-    Grid, GridItem, HttpHeader, Icon, IgnorePointer, Image, ImageAlignment, ImageCachePolicy,
-    ImageErrorBehavior, ImageLoadingBehavior, ImageRequest, ImageSource, IosAudioSessionCategory,
-    IosAudioSessionCategoryOption, IosAudioSessionMode, IosVideoAudioOptions, LayoutBuilder,
-    LazyColumn, Overlay, Positioned, Pressable, PressableRole, PressableStyle, Provider, Radio,
-    Responsive, ResponsiveCase, ResponsiveQuery, RichText, RichTextRun, Row, SafeArea, Scroll,
-    SelectionPlatformStyle, SelectionRegion, SelectionRegionControls, SemanticsRegion, Slider,
-    Spacer, Switch, Text, TextBaseline, TextContent, TextContextMenuAction, TextContextMenuConfig,
-    TextDecoration, TextDecorationLines, TextDecorationStyle, TextFontStyle, TextHyphenation,
-    TextInput, TextLeadingDistribution, TextLineBreakPolicy, TextRunStyle, TextScaler, TextShadow,
-    TextTypography, Video, VideoAudioActivation, VideoAudioOptions, VideoAudioPolicy, VideoSource,
-    ZStack,
+    provider, ActionScope, Align, AnchoredPositioned, BadgeTone, Builder, Button, ButtonContent,
+    ButtonContentAlign, ButtonHierarchy, ButtonMotion, ButtonStyleOverride, ButtonVariant,
+    CardPattern, Checkbox, Column, ComponentSize, ComponentState, Composite, Container,
+    ContextMenu, ContextMenuEntry, ContextMenuItem, ContextMenuRegion, FocusScope, FontFeature,
+    FontVariation, GestureDetector, Grid, GridItem, HttpHeader, Icon, IgnorePointer, Image,
+    ImageAlignment, ImageCachePolicy, ImageErrorBehavior, ImageLoadingBehavior, ImageRequest,
+    ImageSource, IosAudioSessionCategory, IosAudioSessionCategoryOption, IosAudioSessionMode,
+    IosVideoAudioOptions, LayoutBuilder, LazyColumn, Overlay, Positioned, Pressable, PressableRole,
+    PressableStyle, Provider, Radio, Responsive, ResponsiveCase, ResponsiveQuery, RichText,
+    RichTextRun, Row, SafeArea, Scroll, SelectionPlatformStyle, SelectionRegion,
+    SelectionRegionControls, SemanticsRegion, Slider, Spacer, Switch, Text, TextBaseline,
+    TextContent, TextContextMenuAction, TextContextMenuConfig, TextDecoration, TextDecorationLines,
+    TextDecorationStyle, TextFontStyle, TextHyphenation, TextInput, TextLeadingDistribution,
+    TextLineBreakPolicy, TextRunStyle, TextScaler, TextShadow, TextTypography, Video,
+    VideoAudioActivation, VideoAudioOptions, VideoAudioPolicy, VideoSource, ZStack,
 };
 #[cfg(feature = "interactive-canvas")]
 pub use widgets::{

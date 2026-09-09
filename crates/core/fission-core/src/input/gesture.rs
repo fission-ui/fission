@@ -9,6 +9,68 @@ use fission_ir::op::RichTextAnnotation;
 use fission_ir::{semantics::ActionTrigger, Op, WidgetId};
 use fission_layout::{LayoutPoint, LayoutSnapshot};
 
+fn interaction_target_is_unavailable(ir: &fission_ir::CoreIR, node_id: WidgetId) -> bool {
+    !ir.nodes.contains_key(&node_id) || crate::hit_test::is_interaction_inert(ir, node_id)
+}
+
+/// Reconciles pointer capture against the current retained tree.
+///
+/// An exit animation may keep the captured subtree mounted after it stops being
+/// interactive. That transition cancels the complete pointer sequence without
+/// sending `DragUpdate`, `DragEnd`, `DragLeave`, or drop actions into the visual-
+/// only subtree. An unavailable hovered drop target is cleared independently so
+/// a drag whose source is still active can continue over the rebuilt tree.
+pub(crate) fn cancel_unavailable_pointer_sequence(
+    ir: &fission_ir::CoreIR,
+    gesture: &mut crate::env::GestureState,
+    interaction: &mut crate::env::InteractionStateMap,
+) -> bool {
+    let pointer_sequence_active = gesture.pressed_button.is_some()
+        || gesture.is_panning
+        || gesture.scrollbar_drag.is_some()
+        || gesture
+            .drag_session
+            .as_ref()
+            .is_some_and(|session| session.source_node.is_some());
+    let captured_target_unavailable = gesture
+        .target_node
+        .is_some_and(|target| interaction_target_is_unavailable(ir, target));
+    let scrollbar_target_unavailable = gesture
+        .scrollbar_drag
+        .is_some_and(|drag| interaction_target_is_unavailable(ir, drag.node_id));
+    let drag_source_unavailable = gesture
+        .drag_session
+        .as_ref()
+        .and_then(|session| session.source_node)
+        .is_some_and(|source| interaction_target_is_unavailable(ir, source));
+
+    if captured_target_unavailable || scrollbar_target_unavailable || drag_source_unavailable {
+        gesture.start_point = None;
+        gesture.last_point = None;
+        gesture.is_panning = false;
+        gesture.target_node = None;
+        gesture.dragging_payload = None;
+        gesture.pressed_button = None;
+        gesture.scrollbar_drag = None;
+        gesture.drag_session = None;
+        interaction.pressed.clear();
+        interaction.last_down_point = None;
+        return pointer_sequence_active;
+    }
+
+    if let Some(session) = gesture.drag_session.as_mut() {
+        if session
+            .target_node
+            .is_some_and(|target| interaction_target_is_unavailable(ir, target))
+        {
+            session.target_node = None;
+            session.target_identifier = None;
+        }
+    }
+
+    false
+}
+
 pub(crate) fn cancel_active_drag_for_viewport(
     ir: &fission_ir::CoreIR,
     layout: &LayoutSnapshot,
@@ -20,6 +82,9 @@ pub(crate) fn cancel_active_drag_for_viewport(
     let Some(start_node) = gesture.target_node.filter(|_| gesture.is_panning) else {
         return;
     };
+    if interaction_target_is_unavailable(ir, start_node) {
+        return;
+    }
     let mut current_id = Some(start_node);
     while let Some(node_id) = current_id {
         let Some(node) = ir.nodes.get(&node_id) else {
@@ -73,6 +138,12 @@ pub struct GestureController;
 
 impl InputController for GestureController {
     fn handle_event(&mut self, ctx: &mut ControllerContext, event: &InputEvent) -> bool {
+        if cancel_unavailable_pointer_sequence(ctx.ir, ctx.gesture, ctx.interaction)
+            && matches!(event, InputEvent::Pointer(_))
+        {
+            return true;
+        }
+
         match event {
             InputEvent::Pointer(pe) => {
                 match pe {
@@ -764,6 +835,10 @@ impl GestureController {
         point: LayoutPoint,
         modifiers: u8,
     ) -> bool {
+        if interaction_target_is_unavailable(ctx.ir, target_node) {
+            return false;
+        }
+
         let mut current_id = Some(target_node);
         while let Some(node_id) = current_id {
             if let Some(node) = ctx.ir.nodes.get(&node_id) {
@@ -807,6 +882,10 @@ impl GestureController {
         point: LayoutPoint,
         modifiers: u8,
     ) -> bool {
+        if interaction_target_is_unavailable(ctx.ir, target_node) {
+            return false;
+        }
+
         let mut current_id = Some(target_node);
         while let Some(node_id) = current_id {
             if let Some(node) = ctx.ir.nodes.get(&node_id) {
@@ -862,6 +941,10 @@ impl GestureController {
         delta: Option<LayoutPoint>,
         phase: Option<crate::input::canvas::CanvasInteractionPhase>,
     ) -> bool {
+        if interaction_target_is_unavailable(ctx.ir, start_node) {
+            return false;
+        }
+
         let mut current_id = Some(start_node);
         while let Some(node_id) = current_id {
             if let Some(node) = ctx.ir.nodes.get(&node_id) {

@@ -11,11 +11,13 @@ pub struct FrameDiff {
 pub fn diff_ir(prev: &CoreIR, next: &CoreIR) -> FrameDiff {
     let mut diff = FrameDiff::default();
 
-    if prev.root != next.root {
+    if prev.root != next.root || prev.layout_direction != next.layout_direction {
         let all_nodes: HashSet<WidgetId> = next.nodes.keys().copied().collect();
         diff.dirty_layout = all_nodes.clone();
-        diff.dirty_paint = all_nodes.clone();
-        diff.dirty_composite = all_nodes;
+        if prev.root != next.root {
+            diff.dirty_paint = all_nodes.clone();
+            diff.dirty_composite = all_nodes;
+        }
         return diff;
     }
 
@@ -82,7 +84,9 @@ fn paint_change_requires_layout(prev: &PaintOp, next: &PaintOp) -> bool {
 mod tests {
     use super::diff_ir;
     use fission_ir::op::Fill;
-    use fission_ir::{CompositeScalar, CompositeStyle, CoreIR, LayoutOp, Op, PaintOp, WidgetId};
+    use fission_ir::{
+        CompositeScalar, CompositeStyle, CoreIR, LayoutDirection, LayoutOp, Op, PaintOp, WidgetId,
+    };
 
     fn rect_ir(id_seed: u128, color: (u8, u8, u8, u8)) -> CoreIR {
         let root = WidgetId::derived(id_seed, &[0]);
@@ -172,6 +176,19 @@ mod tests {
         }
         let diff = diff_ir(&prev, &next);
         assert!(diff.dirty_layout.contains(&root));
+    }
+
+    #[test]
+    fn layout_direction_changes_force_layout_without_repainting() {
+        let prev = rect_ir(20, (255, 0, 0, 255));
+        let mut next = prev.clone();
+        next.layout_direction = LayoutDirection::RightToLeft;
+
+        let diff = diff_ir(&prev, &next);
+
+        assert_eq!(diff.dirty_layout.len(), next.nodes.len());
+        assert!(diff.dirty_paint.is_empty());
+        assert!(diff.dirty_composite.is_empty());
     }
 
     #[test]

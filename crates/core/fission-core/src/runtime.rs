@@ -19,7 +19,6 @@ use anyhow::{anyhow, Context, Result};
 use fission_diagnostics::prelude as diag;
 use fission_ir::{CoreIR, FlexDirection, FocusPolicy, LayoutOp, Op, WidgetId};
 use fission_layout::{LayoutPoint, LayoutRect, LayoutSize, LayoutSnapshot, TextMeasurer};
-use glam::{Mat4, Vec4};
 use serde_json;
 use std::any::TypeId;
 use std::collections::{HashMap, HashSet};
@@ -133,6 +132,12 @@ pub struct Runtime {
     pub pending_effects: Vec<EffectEnvelope>,
     /// Post-layout scroll requests that need computed geometry before applying.
     pending_scroll_into_view: Vec<PendingScrollIntoView>,
+    /// Active-descendant relationships already revealed for the current mount.
+    ///
+    /// Composite controls expose their keyboard-active or selected option via
+    /// semantics. Revealing a newly mounted relationship once keeps the option
+    /// visible without continuously overriding deliberate user scrolling.
+    revealed_active_descendants: HashMap<WidgetId, WidgetId>,
     /// Shell navigation commands waiting for the host adapter.
     pending_navigation: Vec<crate::NavigationCommand>,
     /// Selection commands waiting for a lowered tree to resolve their members.
@@ -164,6 +169,7 @@ impl Default for Runtime {
             editing_convention: crate::input::TextEditingConvention::default(),
             pending_effects: Vec::new(),
             pending_scroll_into_view: Vec::new(),
+            revealed_active_descendants: HashMap::new(),
             pending_navigation: Vec::new(),
             pending_selection_regions: Vec::new(),
             pending_text_editing: Vec::new(),
@@ -214,6 +220,16 @@ impl Runtime {
             focus_barriers_in_tree_order, get_all_focusable_nodes, is_descendant_or_self,
             is_enabled_focus_node, preferred_focus_node_in_scope,
         };
+
+        let focused = self.runtime_state.interaction.focused;
+        self.runtime_state
+            .interaction
+            .retain_active_descendants(|owner, target| {
+                focused == Some(owner)
+                    && crate::hit_test::is_valid_editable_combobox_active_descendant(
+                        ir, owner, target,
+                    )
+            });
 
         let active_barriers = focus_barriers_in_tree_order(ir);
         let common_prefix = self
@@ -872,6 +888,95 @@ impl Runtime {
         needs_follow_up_frame
     }
 
+    fn reveal_new_active_descendants(&mut self, ir: &CoreIR, layout: &LayoutSnapshot) -> bool {
+        let active_descendants: HashMap<WidgetId, WidgetId> = ir
+            .nodes
+            .iter()
+            .filter_map(|(owner, node)| match &node.op {
+                Op::Semantics(_) => self
+                    .effective_active_descendant(ir, *owner)
+                    .map(|target| (*owner, target)),
+                _ => None,
+            })
+            .collect();
+
+        self.revealed_active_descendants.retain(|owner, target| {
+            active_descendants
+                .get(owner)
+                .is_some_and(|active| active == target)
+        });
+
+        let mut needs_follow_up_frame = false;
+        for (owner, target) in active_descendants {
+            if self.revealed_active_descendants.get(&owner) == Some(&target) {
+                continue;
+            }
+
+            if layout.get_node_geometry(target).is_none() {
+                // This automatic reveal follows retained semantic state; it is
+                // not a queued effect with a bounded retry lifecycle. A stale
+                // relationship or a semantic-only target can therefore never
+                // become revealable merely by requesting another identical
+                // frame. Remember the pair and reconsider it only if the
+                // active descendant changes or is removed and restored.
+                self.revealed_active_descendants.insert(owner, target);
+                continue;
+            }
+
+            let mut request = ScrollIntoViewRequest {
+                container: None,
+                target,
+                axis: ScrollAxis::Both,
+                alignment: ScrollAlignment::Center,
+                padding: [0.0; 4],
+                behavior: ScrollBehavior::Instant,
+                if_needed: true,
+            };
+
+            let Some(container) = self.resolve_scroll_container(&request, ir, layout) else {
+                // An active descendant that is not inside a scroll container is
+                // already fully governed by ordinary layout.
+                self.revealed_active_descendants.insert(owner, target);
+                continue;
+            };
+            request.container = Some(container);
+
+            match self.apply_scroll_into_view(&request, ir, layout) {
+                ScrollIntoViewOutcome::Applied { changed } => {
+                    self.revealed_active_descendants.insert(owner, target);
+                    needs_follow_up_frame |= changed;
+                }
+                ScrollIntoViewOutcome::Ignored => {
+                    self.revealed_active_descendants.insert(owner, target);
+                }
+                ScrollIntoViewOutcome::Retry => needs_follow_up_frame = true,
+            }
+        }
+
+        needs_follow_up_frame
+    }
+
+    /// Resolves the active descendant currently exposed by `owner`.
+    ///
+    /// Editable combobox navigation is runtime-owned because platform focus
+    /// remains on the text controller. Its current option takes precedence
+    /// over the authored/lowered fallback, while other semantic owners retain
+    /// their declared relationship unchanged. This is the single projection
+    /// used by scrolling and platform accessibility bridges between rebuilds.
+    pub fn effective_active_descendant(&self, ir: &CoreIR, owner: WidgetId) -> Option<WidgetId> {
+        let semantic_active = ir.nodes.get(&owner).and_then(|node| match &node.op {
+            Op::Semantics(semantics) => semantics.active_descendant,
+            _ => None,
+        });
+        self.runtime_state
+            .interaction
+            .active_descendant(owner)
+            .filter(|target| {
+                crate::hit_test::is_valid_editable_combobox_active_descendant(ir, owner, *target)
+            })
+            .or(semantic_active)
+    }
+
     fn apply_scroll_into_view(
         &mut self,
         request: &ScrollIntoViewRequest,
@@ -1111,6 +1216,15 @@ impl Runtime {
         self.runtime_state.viewport.reconcile(ir);
         self.runtime_state.range_slider.reconcile(ir);
         crate::selection::reconcile_selection_state(&mut self.runtime_state.selectable_text, ir);
+        // A retained exit frame may keep the captured node in the IR after its
+        // subtree becomes visual-only. Cancel that capture as part of tree
+        // reconciliation so the next pointer event is free to reach the active
+        // tree instead of first being consumed by the stale sequence.
+        crate::input::gesture::cancel_unavailable_pointer_sequence(
+            ir,
+            &mut self.runtime_state.gesture,
+            &mut self.runtime_state.interaction,
+        );
         let active_scroll_nodes: HashSet<WidgetId> = ir
             .nodes
             .iter()
@@ -1142,6 +1256,7 @@ impl Runtime {
         // call `reconcile_ir` before layout, making this pass idempotent.
         self.reconcile_ir(ir);
         let mut needs_follow_up_frame = self.apply_pending_scroll_into_view(ir, layout);
+        needs_follow_up_frame |= self.reveal_new_active_descendants(ir, layout);
         needs_follow_up_frame |= self.apply_pending_selection_regions(ir);
         needs_follow_up_frame |= self.apply_pending_text_editing(ir, layout);
         needs_follow_up_frame |= self.apply_pending_text_scroll(ir, layout);
@@ -1216,7 +1331,7 @@ impl Runtime {
                 .iter()
                 .filter_map(|(id, node)| match &node.op {
                     Op::Semantics(semantics)
-                        if semantics.role == fission_ir::Role::TextInput
+                        if semantics.supports_text_editing()
                             && semantics.text_form_id.as_deref() == Some(form_id.as_str()) =>
                     {
                         Some((*id, semantics.clone()))
@@ -1424,6 +1539,15 @@ impl Runtime {
         use crate::ui::custom_render::downcast_render_object;
 
         self.reconcile_focus(ir)?;
+        let cancelled_pointer_sequence = crate::input::gesture::cancel_unavailable_pointer_sequence(
+            ir,
+            &mut self.runtime_state.gesture,
+            &mut self.runtime_state.interaction,
+        );
+        if cancelled_pointer_sequence && matches!(&event, InputEvent::Pointer(_)) {
+            self.update_focused_ime_state(ir, layout);
+            return Ok(());
+        }
         let input_time = self.clock().current_time();
 
         if self.runtime_state.interaction.focused.is_none() {
@@ -1647,6 +1771,72 @@ impl Runtime {
             }
         }
 
+        // An editable combobox owns platform focus while its runtime-active
+        // option receives virtual focus. Accept that option before the text
+        // controller can reinterpret Enter as an input submission.
+        if matches!(
+            &event,
+            InputEvent::Keyboard(KeyEvent::Down {
+                key_code: KeyCode::Enter,
+                ..
+            })
+        ) {
+            if let Some((controller, target)) = self
+                .runtime_state
+                .interaction
+                .focused
+                .and_then(|controller| {
+                    let runtime_active =
+                        self.runtime_state.interaction.active_descendant(controller);
+                    let semantic_active = ir.nodes.get(&controller).and_then(|node| {
+                        if let Op::Semantics(semantics) = &node.op {
+                            semantics.active_descendant
+                        } else {
+                            None
+                        }
+                    });
+                    runtime_active
+                        .or(semantic_active)
+                        .map(|target| (controller, target))
+                })
+                .filter(|(controller, target)| {
+                    crate::hit_test::is_valid_editable_combobox_active_descendant(
+                        ir,
+                        *controller,
+                        *target,
+                    )
+                })
+            {
+                let action = ir.nodes.get(&target).and_then(|node| match &node.op {
+                    Op::Semantics(semantics) => semantics
+                        .actions
+                        .entries
+                        .iter()
+                        .find(|entry| {
+                            entry.trigger == fission_ir::semantics::ActionTrigger::Default
+                        })
+                        .and_then(|entry| {
+                            entry.payload_data.as_ref().map(|payload| ActionEnvelope {
+                                id: ActionId::from_u128(entry.action_id),
+                                payload: payload.clone(),
+                            })
+                        }),
+                    _ => None,
+                });
+                if let Some(action) = action {
+                    let input = crate::input::scoped_action_input(ir, target, ActionInput::None);
+                    self.dispatch_node_with_input(action, target, &input)?;
+                }
+                self.update_focused_ime_state(ir, layout);
+                debug_assert_eq!(
+                    self.runtime_state.interaction.focused,
+                    Some(controller),
+                    "editable combobox activation must retain controller focus"
+                );
+                return Ok(());
+            }
+        }
+
         let (range_slider_handled, range_slider_actions) = {
             let mut ctx = crate::input::range_slider::RangeSliderControllerContext {
                 ir,
@@ -1723,21 +1913,31 @@ impl Runtime {
             );
             let mut preserve_current = false;
             let mut next = None;
-            while let Some(node_id) = candidate {
-                let Some(node) = ir.nodes.get(&node_id) else {
-                    break;
-                };
-                if let Op::Semantics(semantics) = &node.op {
-                    if semantics.focusable {
-                        if semantics.focus_policy == FocusPolicy::PreserveCurrentOnPointer {
-                            preserve_current = true;
-                        } else {
-                            next = Some(node_id);
-                        }
+            let editable_combobox_option = candidate
+                .and_then(|hit| crate::hit_test::editable_combobox_option_for_descendant(ir, hit));
+            if let Some((controller, option)) = editable_combobox_option {
+                self.runtime_state
+                    .interaction
+                    .set_active_descendant(controller, Some(option));
+                self.set_focused_widget(ir, Some(controller), crate::TextEditSource::Pointer)?;
+                preserve_current = true;
+            } else {
+                while let Some(node_id) = candidate {
+                    let Some(node) = ir.nodes.get(&node_id) else {
                         break;
+                    };
+                    if let Op::Semantics(semantics) = &node.op {
+                        if semantics.focusable {
+                            if semantics.focus_policy == FocusPolicy::PreserveCurrentOnPointer {
+                                preserve_current = true;
+                            } else {
+                                next = Some(node_id);
+                            }
+                            break;
+                        }
                     }
+                    candidate = node.parent;
                 }
-                candidate = node.parent;
             }
             if !preserve_current {
                 let changed = self.set_focused_widget(ir, next, crate::TextEditSource::Pointer)?;
@@ -1942,16 +2142,130 @@ impl Runtime {
                 KeyCode::Tab => {
                     let reverse = (modifiers & 1) != 0;
                     let old_focus = self.runtime_state.interaction.focused;
-                    let next =
-                        find_next_focus_node(ir, self.runtime_state.interaction.focused, reverse);
-                    if next != old_focus {
-                        self.set_focused_widget(ir, next, crate::TextEditSource::Keyboard)?;
+                    if let Some((controller, popup, dismiss)) = old_focus.and_then(|focused| {
+                        crate::hit_test::controlled_popup_dismissal_for_descendant(ir, focused)
+                    }) {
+                        self.runtime_state
+                            .interaction
+                            .clear_active_descendant(controller);
+                        let next = crate::hit_test::next_focus_outside_controlled_popup(
+                            ir, controller, popup, reverse,
+                        );
+                        if let Some(frame) = self
+                            .focus_barriers
+                            .iter_mut()
+                            .rev()
+                            .find(|frame| frame.id == popup)
+                        {
+                            // Tab is an explicit traversal out of a transient
+                            // popup. Preserve that destination when the next
+                            // rebuild removes the popup's focus barrier instead
+                            // of restoring the control that originally opened it.
+                            frame.restore_target = next;
+                        }
+                        let input = crate::input::scoped_action_input(ir, popup, ActionInput::None);
+                        self.dispatch_node_with_input(
+                            ActionEnvelope {
+                                id: ActionId::from_u128(dismiss.action_id),
+                                payload: dismiss.payload_data.unwrap_or_default(),
+                            },
+                            popup,
+                            &input,
+                        )?;
+                        if next != old_focus {
+                            self.set_focused_widget(ir, next, crate::TextEditSource::Keyboard)?;
+                        }
+                    } else {
+                        let next = find_next_focus_node(
+                            ir,
+                            self.runtime_state.interaction.focused,
+                            reverse,
+                        );
+                        if next != old_focus {
+                            self.set_focused_widget(ir, next, crate::TextEditSource::Keyboard)?;
+                        }
+                    }
+                }
+                KeyCode::Escape => {
+                    if let Some((node_id, action)) = crate::hit_test::topmost_semantics_action(
+                        ir,
+                        fission_ir::ActionTrigger::Dismiss,
+                    ) {
+                        if let Some(focused) = self.runtime_state.interaction.focused {
+                            if let Some((controller, popup, _)) =
+                                crate::hit_test::controlled_popup_dismissal_for_descendant(
+                                    ir, focused,
+                                )
+                            {
+                                if node_id == popup {
+                                    self.runtime_state
+                                        .interaction
+                                        .clear_active_descendant(controller);
+                                    self.set_focused_widget(
+                                        ir,
+                                        Some(controller),
+                                        crate::TextEditSource::Keyboard,
+                                    )?;
+                                }
+                            }
+                        }
+                        let envelope = ActionEnvelope {
+                            id: ActionId::from_u128(action.action_id),
+                            payload: action.payload_data.unwrap_or_default(),
+                        };
+                        let input =
+                            crate::input::scoped_action_input(ir, node_id, ActionInput::None);
+                        return self.dispatch_node_with_input(envelope, node_id, &input);
                     }
                 }
                 KeyCode::Up | KeyCode::Down | KeyCode::Left | KeyCode::Right => {
                     let reverse = matches!(key_code, KeyCode::Up | KeyCode::Left);
                     let old_focus = self.runtime_state.interaction.focused;
-                    let next = if let Some(focused) = old_focus {
+                    if matches!(key_code, KeyCode::Up | KeyCode::Down) {
+                        if let Some((controller, action)) = old_focus.and_then(|focused| {
+                            crate::hit_test::collapsed_popup_open_action(ir, focused)
+                        }) {
+                            let input = crate::input::scoped_action_input(
+                                ir,
+                                controller,
+                                ActionInput::None,
+                            );
+                            return self.dispatch_node_with_input(
+                                ActionEnvelope {
+                                    id: ActionId::from_u128(action.action_id),
+                                    payload: action.payload_data.unwrap_or_default(),
+                                },
+                                controller,
+                                &input,
+                            );
+                        }
+                        if let Some(focused) = old_focus {
+                            let runtime_active =
+                                self.runtime_state.interaction.active_descendant(focused);
+                            if let Some((controller, target)) =
+                                crate::hit_test::editable_combobox_popup_navigation_target(
+                                    ir,
+                                    focused,
+                                    runtime_active,
+                                    reverse,
+                                )
+                            {
+                                self.runtime_state
+                                    .interaction
+                                    .set_active_descendant(controller, target);
+                                if old_focus != Some(controller) {
+                                    self.set_focused_widget(
+                                        ir,
+                                        Some(controller),
+                                        crate::TextEditSource::Keyboard,
+                                    )?;
+                                }
+                                self.update_focused_ime_state(ir, layout);
+                                return Ok(());
+                            }
+                        }
+                    }
+                    let semantic_navigation = if let Some(focused) = old_focus {
                         let dir = match key_code {
                             KeyCode::Up => FocusDirection::Up,
                             KeyCode::Down => FocusDirection::Down,
@@ -1959,13 +2273,94 @@ impl Runtime {
                             KeyCode::Right => FocusDirection::Right,
                             _ => unreachable!(),
                         };
-                        find_neighbor_focus_node(ir, layout, focused, dir)
-                            .or_else(|| find_next_focus_node(ir, Some(focused), reverse))
+                        let popup_entry = if matches!(key_code, KeyCode::Up | KeyCode::Down) {
+                            crate::hit_test::controlled_popup_entry_target(ir, focused, reverse)
+                        } else {
+                            crate::hit_test::SemanticFocusNavigation::NotApplicable
+                        };
+                        match popup_entry {
+                            crate::hit_test::SemanticFocusNavigation::NotApplicable => {
+                                crate::hit_test::composite_focus_target(
+                                    ir,
+                                    focused,
+                                    Some(dir),
+                                    None,
+                                )
+                            }
+                            result => result,
+                        }
                     } else {
-                        find_next_focus_node(ir, None, reverse)
+                        crate::hit_test::SemanticFocusNavigation::NotApplicable
+                    };
+                    let next = match semantic_navigation {
+                        crate::hit_test::SemanticFocusNavigation::Handled(Some(target)) => {
+                            Some(target)
+                        }
+                        crate::hit_test::SemanticFocusNavigation::Handled(None) => old_focus,
+                        crate::hit_test::SemanticFocusNavigation::NotApplicable => {
+                            if let Some(focused) = old_focus {
+                                let dir = match key_code {
+                                    KeyCode::Up => FocusDirection::Up,
+                                    KeyCode::Down => FocusDirection::Down,
+                                    KeyCode::Left => FocusDirection::Left,
+                                    KeyCode::Right => FocusDirection::Right,
+                                    _ => unreachable!(),
+                                };
+                                find_neighbor_focus_node(ir, layout, focused, dir)
+                                    .or_else(|| find_next_focus_node(ir, Some(focused), reverse))
+                            } else {
+                                find_next_focus_node(ir, None, reverse)
+                            }
+                        }
                     };
                     if next != old_focus {
                         self.set_focused_widget(ir, next, crate::TextEditSource::Keyboard)?;
+                    }
+                }
+                KeyCode::Home | KeyCode::End => {
+                    if let Some(focused) = self.runtime_state.interaction.focused {
+                        let boundary = if key_code == KeyCode::Home {
+                            crate::hit_test::CompositeMove::First
+                        } else {
+                            crate::hit_test::CompositeMove::Last
+                        };
+                        if let crate::hit_test::SemanticFocusNavigation::Handled(Some(next)) =
+                            crate::hit_test::composite_focus_target(
+                                ir,
+                                focused,
+                                None,
+                                Some(boundary),
+                            )
+                        {
+                            if next != focused {
+                                self.set_focused_widget(
+                                    ir,
+                                    Some(next),
+                                    crate::TextEditSource::Keyboard,
+                                )?;
+                            }
+                        }
+                    }
+                }
+                KeyCode::Char(character)
+                    if modifiers
+                        & (crate::event::MOD_ALT
+                            | crate::event::MOD_CTRL
+                            | crate::event::MOD_SUPER)
+                        == 0 =>
+                {
+                    if let Some(focused) = self.runtime_state.interaction.focused {
+                        if let crate::hit_test::SemanticFocusNavigation::Handled(Some(next)) =
+                            crate::hit_test::composite_typeahead_target(ir, focused, character)
+                        {
+                            if next != focused {
+                                self.set_focused_widget(
+                                    ir,
+                                    Some(next),
+                                    crate::TextEditSource::Keyboard,
+                                )?;
+                            }
+                        }
                     }
                 }
                 KeyCode::Enter | KeyCode::Space => {
@@ -2030,6 +2425,34 @@ impl Runtime {
                 }
                 _ => {}
             },
+            InputEvent::Keyboard(KeyEvent::DownWithText {
+                key_code: _,
+                modifiers,
+                text,
+            }) => {
+                let mut characters = text.chars();
+                let character = characters.next().filter(|_| characters.next().is_none());
+                if modifiers
+                    & (crate::event::MOD_ALT | crate::event::MOD_CTRL | crate::event::MOD_SUPER)
+                    == 0
+                {
+                    if let (Some(focused), Some(character)) =
+                        (self.runtime_state.interaction.focused, character)
+                    {
+                        if let crate::hit_test::SemanticFocusNavigation::Handled(Some(next)) =
+                            crate::hit_test::composite_typeahead_target(ir, focused, character)
+                        {
+                            if next != focused {
+                                self.set_focused_widget(
+                                    ir,
+                                    Some(next),
+                                    crate::TextEditSource::Keyboard,
+                                )?;
+                            }
+                        }
+                    }
+                }
+            }
             InputEvent::Pointer(PointerEvent::Down {
                 point,
                 button: PointerButton::Primary,
@@ -2090,7 +2513,7 @@ impl Runtime {
                     if let Some(focused_id) = self.runtime_state.interaction.focused {
                         if let Some(node) = ir.nodes.get(&focused_id) {
                             if let Op::Semantics(s) = &node.op {
-                                if s.role == fission_ir::semantics::Role::TextInput {
+                                if s.supports_text_editing() {
                                     if let Some(ime_handler) = &self.ime_handler {
                                         ime_handler.set_ime_cursor_area(LayoutRect::new(
                                             point.x, point.y, 2.0, 16.0,
@@ -2128,7 +2551,7 @@ impl Runtime {
                         while let Some(node_id) = current_id {
                             if let Some(node) = ir.nodes.get(&node_id) {
                                 if let Op::Semantics(semantics) = &node.op {
-                                    if semantics.role == fission_ir::semantics::Role::TextInput {
+                                    if semantics.supports_text_editing() {
                                         // No action
                                     } else if let Some(action_entry) =
                                         semantics.actions.entries.iter().find(|entry| {
@@ -2249,9 +2672,7 @@ impl Runtime {
             .nodes
             .get(&focused_id)
             .and_then(|node| match &node.op {
-                Op::Semantics(semantics) => {
-                    Some(semantics.role == fission_ir::semantics::Role::TextInput)
-                }
+                Op::Semantics(semantics) => Some(semantics.supports_text_editing()),
                 _ => None,
             })
             .unwrap_or(false);
@@ -2383,11 +2804,7 @@ impl Runtime {
         phase: crate::TextEditPhase,
     ) -> Result<()> {
         let Some(semantics) = ir.nodes.get(&id).and_then(|node| match &node.op {
-            Op::Semantics(semantics)
-                if semantics.role == fission_ir::semantics::Role::TextInput =>
-            {
-                Some(semantics)
-            }
+            Op::Semantics(semantics) if semantics.supports_text_editing() => Some(semantics),
             _ => None,
         }) else {
             return Ok(());
@@ -2457,7 +2874,7 @@ impl Runtime {
                 matches!(
                     ir.nodes.get(&id).map(|node| &node.op),
                     Some(Op::Semantics(semantics))
-                        if semantics.role == fission_ir::semantics::Role::TextInput
+                        if semantics.supports_text_editing()
                             && !semantics.disabled
                             && !semantics.read_only
                 ) || ir
@@ -2509,105 +2926,13 @@ impl Runtime {
         ir: &CoreIR,
         snapshot: &LayoutSnapshot,
     ) -> Option<WidgetId> {
-        if let Some(root) = ir.root {
-            return self.hit_test_recursive(root, point, ir, snapshot);
-        }
-        None
-    }
-
-    fn hit_test_recursive(
-        &self,
-        node_id: WidgetId,
-        point: LayoutPoint,
-        ir: &CoreIR,
-        snapshot: &LayoutSnapshot,
-    ) -> Option<WidgetId> {
-        if let Some(geom) = snapshot.nodes.get(&node_id) {
-            if geom.rect.contains(point) {
-                if let Some(node) = ir.nodes.get(&node_id) {
-                    for child in node.children.iter().rev() {
-                        let mut child_point = point;
-
-                        if let Op::Layout(LayoutOp::Scroll { direction, .. }) = &node.op {
-                            if !geom.rect.contains(point) {
-                                continue;
-                            }
-                            let offset = self.runtime_state.scroll.get_offset(node_id);
-                            match direction {
-                                FlexDirection::Row => child_point.x += offset,
-                                FlexDirection::Column => child_point.y += offset,
-                            }
-                        }
-
-                        if let Op::Layout(LayoutOp::Transform { transform }) = &node.op {
-                            let mat = Mat4::from_cols_array(transform);
-                            // We need to transform the point relative to the node's origin?
-                            // Layout coordinates are relative to the parent.
-                            // In hit_test_recursive, `point` is relative to current `node_id`?
-                            // No, `point` is relative to the `geom.rect.origin` of `node_id`?
-                            // Let's check recursion.
-
-                            // hit_test starts at root with absolute point.
-                            // recursion: `child_point = point`.
-                            // wait, `hit_test_recursive` doesn't subtract location?
-                            // Ah, I see: `if geom.rect.contains(point)`.
-                            // This implies `point` is ABSOLUTE.
-
-                            // If `point` is absolute, and we want to transform into child local space:
-                            // 1. Move point to node local space: `point - node_pos`.
-                            // 2. Apply inverse transform.
-                            // 3. (Implicitly) Move back or keep local?
-                            // Recursive call expects absolute point?
-                            // No, `hit_test_recursive` calls itself with `child_point`.
-                            // If it expects absolute point, then `Transform` node doesn't work well with absolute recursion.
-
-                            // Actually, my `hit_test_recursive` impl seems to assume absolute points for all nodes?
-                            // `if geom.rect.contains(point)` confirms it.
-
-                            // So if I have a Transform, I MUST return a point that looks "absolute" to the child
-                            // but is logically transformed.
-                            // Absolute child rect is NOT transformed by LayoutEngine.
-
-                            // This means `geom.rect` for children of a Transform is WRONG if they are visually moved.
-                            // BUT LayoutEngine doesn't know about Matrix4.
-                            // So the children think they are at `(0,0)` relative to parent.
-
-                            // To make hit test work:
-                            // 1. Convert absolute `point` to `node_local_point`.
-                            // 2. Apply inverse transform to `node_local_point` -> `transformed_local_point`.
-                            // 3. Convert `transformed_local_point` back to absolute for children -> `transformed_absolute_point`.
-
-                            let local_x = point.x - geom.rect.origin.x;
-                            let local_y = point.y - geom.rect.origin.y;
-
-                            let p = Vec4::new(local_x, local_y, 0.0, 1.0);
-                            let inv = mat.inverse();
-                            let transformed = inv * p;
-
-                            child_point = LayoutPoint::new(
-                                transformed.x + geom.rect.origin.x,
-                                transformed.y + geom.rect.origin.y,
-                            );
-                        }
-
-                        if let Some(hit) =
-                            self.hit_test_recursive(*child, child_point, ir, snapshot)
-                        {
-                            return Some(hit);
-                        }
-                    }
-
-                    match &node.op {
-                        Op::Paint(_)
-                        | Op::Layout(LayoutOp::Scroll { .. })
-                        | Op::Layout(LayoutOp::Embed { .. }) => return Some(node_id),
-                        _ => return None,
-                    }
-                }
-                return None;
-            }
-        }
-        None
+        crate::hit_test::hit_test_with_viewports(
+            ir,
+            snapshot,
+            &self.runtime_state.scroll,
+            &self.runtime_state.viewport,
+            point,
+        )
     }
 
     /// Extract the pointer position from an input event, if applicable.

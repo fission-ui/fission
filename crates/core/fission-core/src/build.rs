@@ -418,6 +418,21 @@ pub fn try_register_video(registration: crate::registry::VideoRegistration) {
 }
 
 pub fn try_register_motion(declaration: crate::motion::MotionDeclaration) {
+    let registration = BUILD_SCOPES.with(|scopes| {
+        scopes.borrow().last().map(|scope| {
+            (scope.motion_declarations, unsafe {
+                (&*scope.env).motion_preference
+            })
+        })
+    });
+    if let Some((motion_declarations, preference)) = registration {
+        unsafe {
+            (*motion_declarations).push(declaration.resolve_for_preference(preference));
+        }
+    }
+}
+
+pub(crate) fn try_remove_motion_declarations(id: crate::WidgetId) {
     let motion_declarations = BUILD_SCOPES.with(|scopes| {
         scopes
             .borrow()
@@ -426,7 +441,7 @@ pub fn try_register_motion(declaration: crate::motion::MotionDeclaration) {
     });
     if let Some(motion_declarations) = motion_declarations {
         unsafe {
-            (*motion_declarations).push(declaration);
+            (*motion_declarations).retain(|declaration| declaration.id != id);
         }
     }
 }
@@ -438,6 +453,10 @@ pub fn try_current_runtime_state() -> Option<&'static crate::RuntimeState> {
             .last()
             .map(|scope| unsafe { &*scope.runtime })
     })
+}
+
+pub(crate) fn try_current_env() -> Option<&'static crate::Env> {
+    BUILD_SCOPES.with(|scopes| scopes.borrow().last().map(|scope| unsafe { &*scope.env }))
 }
 
 fn requested_common_scope<S: GlobalState>() -> bool {
@@ -581,7 +600,7 @@ impl<S: GlobalState> BuildCtxHandle<S> {
     }
 
     pub fn register_motion(&self, declaration: crate::motion::MotionDeclaration) {
-        let motion_declarations = BUILD_SCOPES.with(|scopes| {
+        let (motion_declarations, preference) = BUILD_SCOPES.with(|scopes| {
             let scopes = scopes.borrow();
             let Some(scope) = scopes.last() else {
                 panic!(
@@ -589,10 +608,12 @@ impl<S: GlobalState> BuildCtxHandle<S> {
                     type_name::<S>()
                 );
             };
-            scope.motion_declarations
+            (scope.motion_declarations, unsafe {
+                (&*scope.env).motion_preference
+            })
         });
         unsafe {
-            (*motion_declarations).push(declaration);
+            (*motion_declarations).push(declaration.resolve_for_preference(preference));
         }
     }
 

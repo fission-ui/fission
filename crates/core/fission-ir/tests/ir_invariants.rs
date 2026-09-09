@@ -34,6 +34,7 @@ fn test_op_serialization() {
 
 #[test]
 fn test_ir_versioning() {
-    // The IR must expose a version
-    assert_eq!(fission_ir::IR_VERSION, 1);
+    // Composite semantics, layout direction, interaction-inert structure, and
+    // configurable flyouts expanded the serialized schema after version 1.
+    assert_eq!(fission_ir::IR_VERSION, 2);
 }

@@ -4,6 +4,7 @@ use crate::{
 use fission_i18n::{I18nRegistry, Locale};
 use fission_ir::op::RichTextAnnotation;
 use fission_ir::semantics::MouseCursor;
+pub use fission_ir::LayoutDirection;
 use fission_ir::WidgetId;
 use fission_layout::{LayoutPoint, LayoutSize};
 use fission_text_engine::{EditTransaction, TextBuffer, TextEdit};
@@ -11,6 +12,28 @@ use fission_theme::{DesignMode, Theme};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
+
+/// Effective motion preference used by every declarative animation surface.
+///
+/// Shells seed this from the host accessibility setting when that setting is
+/// available. Applications may also set it through their normal `Env`
+/// configuration or synchronization hook.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MotionPreference {
+    /// Play declared transitions and decorative motion normally.
+    #[default]
+    Standard,
+    /// Resolve state changes immediately and suppress decorative motion.
+    Reduced,
+}
+
+impl MotionPreference {
+    /// Returns whether declarative motion must be reduced for this environment.
+    pub const fn is_reduced(self) -> bool {
+        matches!(self, Self::Reduced)
+    }
+}
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 pub struct WindowInsets {
@@ -164,6 +187,10 @@ impl RouteLocation {
 #[derive(Clone)]
 pub struct Env {
     pub theme: Theme,
+    /// App-wide logical direction for horizontal layout and interaction.
+    pub layout_direction: LayoutDirection,
+    /// App-wide accessibility preference for declarative motion.
+    pub motion_preference: MotionPreference,
     /// Current light/dark appearance reported by the host platform.
     ///
     /// Applications that offer a "System" preference can select their generated
@@ -185,6 +212,8 @@ impl Default for Env {
     fn default() -> Self {
         Self {
             theme: Theme::default(),
+            layout_direction: LayoutDirection::default(),
+            motion_preference: MotionPreference::default(),
             system_theme_mode: DesignMode::Light,
             i18n: I18nRegistry::new(),
             locale: Locale::default(),
@@ -202,6 +231,8 @@ impl std::fmt::Debug for Env {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Env")
             .field("theme", &self.theme)
+            .field("layout_direction", &self.layout_direction)
+            .field("motion_preference", &self.motion_preference)
             .field("system_theme_mode", &self.system_theme_mode)
             .field("locale", &self.locale)
             .field("window", &self.window)
@@ -217,6 +248,8 @@ impl Env {
     pub fn new(measurer: Arc<dyn fission_layout::TextMeasurer>) -> Self {
         Self {
             theme: Theme::default(),
+            layout_direction: LayoutDirection::default(),
+            motion_preference: MotionPreference::default(),
             system_theme_mode: DesignMode::Light,
             i18n: I18nRegistry::new(),
             locale: Locale::default(),
@@ -953,6 +986,7 @@ pub struct InteractionStateMap {
     pub hover_rich_text_annotation: Option<HoveredRichTextAnnotation>,
     pub pressed: HashMap<WidgetId, bool>,
     pub focused: Option<WidgetId>,
+    active_descendants: HashMap<WidgetId, WidgetId>,
     pub cursor: MouseCursor,
     pub last_down_point: Option<LayoutPoint>,
 }
@@ -971,7 +1005,15 @@ impl InteractionStateMap {
         self.pressed.get(&id).copied().unwrap_or(false)
     }
     pub fn is_focused(&self, id: WidgetId) -> bool {
-        self.focused == Some(id)
+        self.focused == Some(id) || self.active_descendants.values().any(|target| *target == id)
+    }
+
+    /// Returns the runtime-owned active descendant for a composite controller.
+    ///
+    /// Editable composites keep platform focus on their text controller while
+    /// projecting the currently keyboard-active option through semantics.
+    pub fn active_descendant(&self, owner: WidgetId) -> Option<WidgetId> {
+        self.active_descendants.get(&owner).copied()
     }
 
     pub fn hovered_path(&self) -> &[WidgetId] {
@@ -1014,7 +1056,31 @@ impl InteractionStateMap {
     }
 
     pub fn set_focused(&mut self, id: Option<WidgetId>) {
+        if self.focused != id {
+            self.active_descendants
+                .retain(|owner, _| Some(*owner) == id);
+        }
         self.focused = id;
+    }
+
+    pub(crate) fn set_active_descendant(&mut self, owner: WidgetId, target: Option<WidgetId>) {
+        if let Some(target) = target {
+            self.active_descendants.insert(owner, target);
+        } else {
+            self.active_descendants.remove(&owner);
+        }
+    }
+
+    pub(crate) fn clear_active_descendant(&mut self, owner: WidgetId) {
+        self.active_descendants.remove(&owner);
+    }
+
+    pub(crate) fn retain_active_descendants(
+        &mut self,
+        mut predicate: impl FnMut(WidgetId, WidgetId) -> bool,
+    ) {
+        self.active_descendants
+            .retain(|owner, target| predicate(*owner, *target));
     }
 
     pub fn set_cursor(&mut self, cursor: MouseCursor) {

@@ -7,9 +7,10 @@ use serde::{Deserialize, Serialize};
 
 /// A horizontal flex container that lays out children in a row.
 ///
-/// Children are arranged left-to-right (in LTR locales). Use `align_items` to
-/// control cross-axis (vertical) alignment and `justify_content` for main-axis
-/// (horizontal) distribution.
+/// Children are authored in logical start-to-end order. [`Env::layout_direction`](crate::Env::layout_direction)
+/// resolves that order to left-to-right or right-to-left placement. Use
+/// `align_items` to control cross-axis (vertical) alignment and
+/// `justify_content` for logical main-axis distribution.
 ///
 /// # Example
 ///
@@ -29,7 +30,7 @@ use serde::{Deserialize, Serialize};
 pub struct Row {
     /// Explicit node identity.
     pub id: Option<WidgetId>,
-    /// The child widgets laid out left-to-right.
+    /// Child widgets in logical start-to-end order.
     pub children: Vec<Widget>,
     /// Custom semantics for accessibility.
     pub semantics: Option<Semantics>,
