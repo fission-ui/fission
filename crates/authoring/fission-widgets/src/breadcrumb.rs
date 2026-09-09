@@ -1,6 +1,6 @@
 use crate::Icon;
 use fission_core::ui::{Button, ButtonContentAlign, ButtonVariant, Container, Row, Text, Widget};
-use fission_core::ActionEnvelope;
+use fission_core::{ActionEnvelope, LayoutDirection};
 use fission_icons::material;
 use serde::{Deserialize, Serialize};
 
@@ -32,8 +32,13 @@ impl From<Breadcrumb> for Widget {
             let is_last = i == this.items.len() - 1;
 
             if i > 0 {
+                let separator = if view.env().layout_direction == LayoutDirection::RightToLeft {
+                    material::navigation::chevron_left::regular()
+                } else {
+                    material::navigation::chevron_right::regular()
+                };
                 children.push(
-                    Icon::svg(material::navigation::chevron_right::regular())
+                    Icon::svg(separator)
                         .size(16.0)
                         .color(tokens.colors.text_secondary)
                         .into(),

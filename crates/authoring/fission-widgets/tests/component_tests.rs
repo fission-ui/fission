@@ -1,6 +1,6 @@
 use fission_core::env::Env;
 use fission_core::internal::{lower_widget, BuildCtx, InternalLoweringCx};
-use fission_core::motion::MotionDeclarationKind;
+use fission_core::motion::{MotionDeclarationKind, MotionPropertyId};
 use fission_core::ui::{Button, ButtonMotion, Text, Widget};
 use fission_core::{build, GlobalState, RuntimeState, View, WidgetId};
 use fission_widgets::{
@@ -97,7 +97,7 @@ fn test_menu_button_registers_portal_when_open() {
 }
 
 #[test]
-fn test_button_motion_is_explicit_opt_in() {
+fn test_button_recipe_motion_and_explicit_feedback_share_one_declaration() {
     let mut runtime = fission_core::Runtime::default();
     runtime.add_app_state(Box::new(State::default())).unwrap();
     let env = Env::default();
@@ -112,10 +112,14 @@ fn test_button_motion_is_explicit_opt_in() {
         }
         .into()
     });
-    assert!(
-        static_ctx.take_motion_declarations().is_empty(),
-        "button motion defaults to None and emits no motion"
-    );
+    let recipe_declarations = static_ctx.take_motion_declarations();
+    assert!(recipe_declarations.iter().any(|declaration| {
+        matches!(
+            &declaration.kind,
+            MotionDeclarationKind::Tracks { tracks }
+                if tracks.iter().any(|track| track.property == MotionPropertyId::BackgroundColor)
+        )
+    }), "the active button recipe supplies ordinary state transitions");
 
     let mut motion_ctx = BuildCtx::<State>::new();
     let view = test_view(&runtime, &env);
@@ -128,13 +132,15 @@ fn test_button_motion_is_explicit_opt_in() {
         }
         .into()
     });
-    assert!(
-        motion_ctx
-            .take_motion_declarations()
-            .iter()
-            .any(|declaration| matches!(declaration.kind, MotionDeclarationKind::Tracks { .. })),
-        "explicit button motion lowers to native motion tracks"
-    );
+    let explicit_declarations = motion_ctx.take_motion_declarations();
+    assert!(explicit_declarations.iter().any(|declaration| {
+        matches!(
+            &declaration.kind,
+            MotionDeclarationKind::Tracks { tracks }
+                if tracks.iter().any(|track| track.property == MotionPropertyId::Scale)
+                    && tracks.iter().any(|track| track.property == MotionPropertyId::BackgroundColor)
+        )
+    }), "explicit transform feedback composes with recipe paint transitions");
 }
 
 #[test]

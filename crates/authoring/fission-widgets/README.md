@@ -28,7 +28,7 @@ Widgets implement `From<Component> for Widget`, so they are state-agnostic at th
 
 | Widget | Description |
 |--------|-------------|
-| `Modal` | Dialog with a dimmed backdrop, title bar, content area, and action buttons. Renders into the portal overlay layer at `PortalLayer::Modal`. |
+| `Modal` / `ModalLayout` | Controlled dialog with retained header, scrolling content, adaptive actions, focus containment, dismissal, and modal semantics. Compact `Modal` uses `ModalAction`; retained `ModalLayout` uses explicit-variant `ModalFooterAction` values. |
 | `Popover` | Anchor-relative popup. Positions content next to a trigger widget using the flyout layout system. |
 | `Tooltip` | Hover-activated text label. Appears when the trigger widget is hovered. |
 | `Drawer` | Slide-out panel from the left or right edge. Renders as a portal with a dismissible backdrop. |
@@ -39,19 +39,19 @@ Widgets implement `From<Component> for Widget`, so they are state-agnostic at th
 
 | Widget | Description |
 |--------|-------------|
-| `Menu` | Vertical list of `MenuItem` entries with optional icons. Rendered inside a scrollable, bordered container. |
-| `MenuButton` | Button that toggles a `Menu` popover. |
+| `Menu` / `MenuContent` | Themed command surface with retained items, groups, labels, separators, supporting text, and trailing metadata. |
+| `MenuButton` / `MenuButtonLayout` | Controlled anchored menu trigger with popup focus and dismissal behavior. |
 | `MenuItem` | Single entry in a `Menu`: label, optional icon, and `on_select` action. |
-| `Select` | Dropdown selector. Displays the selected label (or placeholder) and opens a `Menu` flyout on click. |
+| `Select` / `SelectLayout` | Controlled fixed-choice field with retained trigger and list-box anatomy. |
 | `DropDown` | Simplified dropdown trigger button. |
-| `Combobox` | Searchable dropdown. Combines a `TextInput` with a filterable item list inside a `Popover`. |
+| `Combobox` / `ComboboxLayout` | Editable choice field with retained input and list-box anatomy. |
 | `SegmentedControl` | Horizontal row of toggle buttons. Only one option is active at a time. |
 
 ### Navigation
 
 | Widget | Description |
 |--------|-------------|
-| `Tabs` / `TabItem` | Tab bar with an active indicator and content area that swaps based on `active_index`. |
+| `Tabs` / `TabsLayout` | Controlled semantic tab list, retained triggers, and related panel content. |
 | `Accordion` / `AccordionItem` | Collapsible sections. Each item has a toggle header and expandable content body. |
 
 ### Display
@@ -60,7 +60,7 @@ Widgets implement `From<Component> for Widget`, so they are state-agnostic at th
 |--------|-------------|
 | `Badge` | Small colored label, typically used for counts or status. |
 | `Tag` | Pill-shaped label with an optional close button. |
-| `Card` | Elevated surface container with rounded corners and a box shadow. |
+| `Card` / `CardLayout` | Design-system surface with compact or retained header, content, and footer anatomy. |
 | `Avatar` | Circular user avatar. Displays an image when `src` is provided, or initials derived from `name`. |
 | `EmptyState` | Centered placeholder with icon, title, description, and an optional action button. |
 | `Icon` | Re-exported from `fission-core`. Renders an SVG icon from a string. |
@@ -83,7 +83,8 @@ Widgets implement `From<Component> for Widget`, so they are state-agnostic at th
 
 | Widget | Description |
 |--------|-------------|
-| `FormControl` | Wraps a form field with a label, error message, and helper text. Adds a required-field asterisk when `required` is true. |
+| `FormControl` / `FormControlLayout` | Relates retained label, input, description, required state, and validation message. |
+| `Alert` / `AlertLayout` | Persistent semantic message with retained leading, content, and action regions. |
 | `absolute_fill()` | Free function that wraps a child in an `AbsoluteFill` layout node. |
 
 ## Usage
@@ -108,10 +109,21 @@ let dialog = Modal {
     is_open: true,
     on_dismiss: Some(dismiss_action),
     actions: vec![
-        ModalAction { label: "Cancel".into(), on_press: Some(cancel_action), is_primary: false },
-        ModalAction { label: "OK".into(), on_press: Some(ok_action), is_primary: true },
+        ModalAction {
+            label: "Cancel".into(),
+            on_press: Some(cancel_action),
+            is_primary: false,
+            semantics_identifier: None,
+        },
+        ModalAction {
+            label: "OK".into(),
+            on_press: Some(ok_action),
+            is_primary: true,
+            semantics_identifier: None,
+        },
     ],
     width: None,
+    ..Default::default()
 };
 ```
 

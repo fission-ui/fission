@@ -216,20 +216,21 @@ pub mod motion {
 
 // Core widget types (Button, Text, Container, Row, Column, etc.)
 pub use fission_core::ui::{
-    provider, ActionScope, Align, AnchoredPositioned, BadgeTone, Builder, Button,
-    ButtonContentAlign, ButtonHierarchy, ButtonMotion, ButtonVariant, CardPattern, Checkbox,
-    Column, ComponentSize, ComponentState, Composite, Container, CustomWidget, FocusScope,
-    FontFeature, FontVariation, GestureDetector, Grid, GridItem, HttpHeader, Icon, IgnorePointer,
-    Image, ImageAlignment, ImageCachePolicy, ImageErrorBehavior, ImageLoadingBehavior,
-    ImageRequest, ImageSource, IosAudioSessionCategory, IosAudioSessionCategoryOption,
-    IosAudioSessionMode, IosVideoAudioOptions, LayoutBuilder, LazyColumn, Overlay, Positioned,
-    Pressable, PressableRole, PressableStyle, Provider, Radio, Responsive, ResponsiveCase,
-    ResponsiveQuery, RichText, RichTextRun, Row, SafeArea, Scroll, SelectionPlatformStyle,
-    SelectionRegion, SelectionRegionControls, SemanticsRegion, Slider, Spacer, Switch, Text,
-    TextBaseline, TextContent, TextDecoration, TextDecorationLines, TextDecorationStyle,
-    TextFontStyle, TextHyphenation, TextInput, TextLeadingDistribution, TextLineBreakPolicy,
-    TextRunStyle, TextScaler, TextShadow, TextTypography, Video, VideoAudioActivation,
-    VideoAudioOptions, VideoAudioPolicy, VideoSource, Widget, WidgetIdExt, ZStack,
+    provider, ActionScope, Align, AnchoredPositioned, BadgeTone, Builder, Button, ButtonContent,
+    ButtonContentAlign, ButtonHierarchy, ButtonMotion, ButtonStyleOverride, ButtonVariant,
+    CardPattern, Checkbox, Column, ComponentSize, ComponentState, Composite, Container,
+    CustomWidget, FocusScope, FontFeature, FontVariation, GestureDetector, Grid, GridItem,
+    HttpHeader, Icon, IgnorePointer, Image, ImageAlignment, ImageCachePolicy, ImageErrorBehavior,
+    ImageLoadingBehavior, ImageRequest, ImageSource, IosAudioSessionCategory,
+    IosAudioSessionCategoryOption, IosAudioSessionMode, IosVideoAudioOptions, LayoutBuilder,
+    LazyColumn, Overlay, Positioned, Pressable, PressableRole, PressableStyle, Provider, Radio,
+    Responsive, ResponsiveCase, ResponsiveQuery, RichText, RichTextRun, Row, SafeArea, Scroll,
+    SelectionPlatformStyle, SelectionRegion, SelectionRegionControls, SemanticsRegion, Slider,
+    Spacer, Switch, Text, TextBaseline, TextContent, TextDecoration, TextDecorationLines,
+    TextDecorationStyle, TextFontStyle, TextHyphenation, TextInput, TextLeadingDistribution,
+    TextLineBreakPolicy, TextRunStyle, TextScaler, TextShadow, TextTypography, Video,
+    VideoAudioActivation, VideoAudioOptions, VideoAudioPolicy, VideoSource, Widget, WidgetIdExt,
+    ZStack,
 };
 
 // Core action/state types
@@ -250,20 +251,21 @@ pub use fission_core::{
     NotificationActionButton, NotificationError, NotificationId, NotificationPermission,
     NotificationPermissionRequest, NotificationReceipt, NotificationRequest, NotificationResponse,
     NotificationResponseReceived, NotificationSchedule, NotificationSettings, NotificationSound,
-    Op, PopoverAction, PopoverTarget, PortalLayer, PushPlatform, PushRegistration,
+    Op, PopoverAction, PopoverTarget, PopupKind, PortalLayer, PushPlatform, PushRegistration,
     PushRegistrationRequest, ReducerContext, RegisterPushNotificationsCapability,
     RequestNotificationPermissionCapability, Role, RouteBuildOutcome, RouteDecision, RouteRedirect,
     RouteRedirectHistory, ScanNfcTagCapability, ScheduleNotificationCapability, ScrollAlignment,
     ScrollAxis, ScrollBehavior, ScrollIntoViewRequest, SelectionRegionCommand,
-    SelectionRegionController, SelectionRegionError, Selector, Semantics, SetBadgeCountCapability,
-    SetBadgeCountRequest, SharedTextInputFormatter, ShowNotificationCapability, TextAffinity,
-    TextCapitalization, TextControlError, TextEditBoundary, TextEditCommand, TextEditDirection,
-    TextEditPhase, TextEditResult, TextEditSource, TextEditingCommand, TextEditingController,
-    TextEditingValue, TextFieldValidationState, TextFormController, TextFormValidation,
-    TextInputAction, TextInputType, TextPosition, TextRange, TextRegionPosition,
-    TextRegionSelection, TextScrollCommand, TextScrollController, TextSelection, TextValuePhase,
-    TextWrapMode, UnregisterPushNotificationsCapability, UpdateTextInput, ValueView, ViewHandle,
-    WidgetId, WriteNfcTagCapability, AUTHENTICATE_BIOMETRIC, CANCEL_ALL_NOTIFICATIONS,
+    SelectionRegionController, SelectionRegionError, Selector, SemanticOrientation, Semantics,
+    SetBadgeCountCapability, SetBadgeCountRequest, SharedTextInputFormatter,
+    ShowNotificationCapability, TextAffinity, TextCapitalization, TextControlError,
+    TextEditBoundary, TextEditCommand, TextEditDirection, TextEditPhase, TextEditResult,
+    TextEditSource, TextEditingCommand, TextEditingController, TextEditingValue,
+    TextFieldValidationState, TextFormController, TextFormValidation, TextInputAction,
+    TextInputType, TextPosition, TextRange, TextRegionPosition, TextRegionSelection,
+    TextScrollCommand, TextScrollController, TextSelection, TextValuePhase, TextWrapMode,
+    UnregisterPushNotificationsCapability, UpdateTextInput, ValueView, ViewHandle, WidgetId,
+    WriteNfcTagCapability, AUTHENTICATE_BIOMETRIC, CANCEL_ALL_NOTIFICATIONS,
     CANCEL_BIOMETRIC_AUTHENTICATION, CANCEL_NFC_SESSION, CANCEL_NOTIFICATION, EMULATE_NFC_TAG,
     GET_BIOMETRIC_AVAILABILITY, GET_NFC_AVAILABILITY, GET_NOTIFICATION_SETTINGS,
     REGISTER_PUSH_NOTIFICATIONS, REQUEST_NOTIFICATION_PERMISSION, SCAN_NFC_TAG,
@@ -379,7 +381,7 @@ pub use fission_core::{
 };
 
 // Core env types
-pub use fission_core::env::Env;
+pub use fission_core::env::{Env, LayoutDirection, MotionPreference};
 
 // IR op types (Color, LayoutOp, PaintOp, etc.)
 pub use fission_ir::op;
@@ -530,11 +532,12 @@ pub mod prelude {
 
     // Widgets
     pub use fission_core::ui::{
-        ActionScope, Align, AnchoredPositioned, BadgeTone, Builder, Button, ButtonContentAlign,
-        ButtonHierarchy, ButtonMotion, ButtonVariant, CardPattern, Checkbox, Column, ComponentSize,
-        ComponentState, Composite, Container, CustomWidget, FocusScope, FontFeature, FontVariation,
-        GestureDetector, Grid, GridItem, HttpHeader, Icon, IgnorePointer, Image, ImageAlignment,
-        ImageCachePolicy, ImageErrorBehavior, ImageLoadingBehavior, ImageRequest, ImageSource,
+        ActionScope, Align, AnchoredPositioned, BadgeTone, Builder, Button, ButtonContent,
+        ButtonContentAlign, ButtonHierarchy, ButtonMotion, ButtonStyleOverride, ButtonVariant,
+        CardPattern, Checkbox, Column, ComponentSize, ComponentState, Composite, Container,
+        CustomWidget, FocusScope, FontFeature, FontVariation, GestureDetector, Grid, GridItem,
+        HttpHeader, Icon, IgnorePointer, Image, ImageAlignment, ImageCachePolicy,
+        ImageErrorBehavior, ImageLoadingBehavior, ImageRequest, ImageSource,
         IosAudioSessionCategory, IosAudioSessionCategoryOption, IosAudioSessionMode,
         IosVideoAudioOptions, LayoutBuilder, LazyColumn, Overlay, Positioned, Pressable,
         PressableRole, PressableStyle, Radio, Responsive, ResponsiveCase, ResponsiveQuery,
@@ -548,7 +551,7 @@ pub mod prelude {
     pub use fission_widgets::*;
 
     // Actions
-    pub use fission_core::env::Env;
+    pub use fission_core::env::{Env, LayoutDirection, MotionPreference};
     pub use fission_core::event::{
         InputEvent, KeyCode, KeyEvent, PointerButton, PointerEvent, PointerId, PointerKind,
         PointerPhase, ScrollDeltaMode,

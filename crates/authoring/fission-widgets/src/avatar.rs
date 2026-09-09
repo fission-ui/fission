@@ -67,6 +67,7 @@ impl From<Avatar> for Widget {
             .size(size, size)
             .bg(tokens.colors.primary)
             .border_radius(radius)
+            .clip_overflow(true)
             .into()
     }
 }

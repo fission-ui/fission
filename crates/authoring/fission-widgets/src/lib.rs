@@ -35,14 +35,16 @@
 
 pub use fission_core::ui::widgets::Icon;
 pub use fission_core::ui::{
-    Button, ButtonContentAlign, ButtonMotion, ButtonVariant, Checkbox, Column, Container,
-    CustomWidget, FocusScope, Grid, GridItem, Image, IosAudioSessionCategory,
-    IosAudioSessionCategoryOption, IosAudioSessionMode, IosVideoAudioOptions, LazyColumn, Overlay,
-    Positioned, Radio, Row, SafeArea, Scroll, SelectionPlatformStyle, SelectionRegion,
-    SelectionRegionControls, Slider, Spacer, Switch, Text, TextContent, TextInput, Video,
-    VideoAudioActivation, VideoAudioOptions, VideoAudioPolicy, Widget, ZStack,
+    Button, ButtonContent, ButtonContentAlign, ButtonMotion, ButtonStyleOverride, ButtonVariant,
+    Checkbox, Column, Container, CustomWidget, FocusScope, Grid, GridItem, Image,
+    IosAudioSessionCategory, IosAudioSessionCategoryOption, IosAudioSessionMode,
+    IosVideoAudioOptions, LazyColumn, Overlay, Positioned, Radio, Row, SafeArea, Scroll,
+    SelectionPlatformStyle, SelectionRegion, SelectionRegionControls, Slider, Spacer, Switch, Text,
+    TextContent, TextInput, Video, VideoAudioActivation, VideoAudioOptions, VideoAudioPolicy,
+    Widget, ZStack,
 };
 pub use fission_core::{BuildCtxHandle, Selector, ViewHandle};
+pub use fission_ir::{FlyoutAlignment, FlyoutOptions, FlyoutPlacement, FlyoutWidth};
 
 #[cfg(feature = "interactive-canvas")]
 pub use fission_core::ui::{
@@ -78,7 +80,7 @@ pub use divider::Divider;
 
 /// Design-system card surfaces for grouping related content.
 pub mod card;
-pub use card::Card;
+pub use card::{Card, CardContent, CardDescription, CardFooter, CardHeader, CardLayout, CardTitle};
 
 /// Determinate linear progress presentation.
 pub mod progress;
@@ -90,11 +92,17 @@ pub use spinner::{Spinner, SpinnerMotion};
 
 /// Controlled tab navigation and animated selection presentation.
 pub mod tabs;
-pub use tabs::{TabItem, Tabs, TabsMotion};
+pub use tabs::{
+    TabItem, TabList, TabPanel, TabPresentation, TabTrigger, TabTriggerContent, Tabs, TabsLayout,
+    TabsMotion,
+};
 
 /// Controlled popup selection field and option model.
 pub mod select;
-pub use select::{Select, SelectItem};
+pub use select::{
+    Select, SelectContent, SelectEntry, SelectGroup, SelectItem, SelectLabel, SelectLayout,
+    SelectOption, SelectSeparator, SelectTrigger,
+};
 
 /// Expandable sections with controlled open state.
 pub mod accordion;
@@ -105,7 +113,10 @@ pub mod tooltip;
 pub use tooltip::{Tooltip, TooltipMotion};
 /// Action menus, menu items, and trigger composition.
 pub mod menu;
-pub use menu::{Menu, MenuButton, MenuItem};
+pub use menu::{
+    Menu, MenuActionItem, MenuButton, MenuButtonLayout, MenuContent, MenuEntry, MenuGroup,
+    MenuItem, MenuItemTone, MenuItemTrailing, MenuLabel, MenuSeparator, MenuTrigger,
+};
 
 /// Transient status notifications and their semantic tone.
 pub mod toast;
@@ -113,7 +124,10 @@ pub use toast::{Toast, ToastKind, ToastMotion};
 
 /// Modal dialog surface, actions, and entrance/exit motion.
 pub mod modal;
-pub use modal::{Modal, ModalAction, ModalMotion};
+pub use modal::{
+    Modal, ModalAction, ModalContent, ModalDescription, ModalFooter, ModalFooterAction,
+    ModalHeader, ModalLayout, ModalMotion, ModalTitle,
+};
 
 /// Declarative tabular data columns, rows, and presentation.
 pub mod data_table;
@@ -129,7 +143,7 @@ pub use drawer::{Drawer, DrawerMotion, DrawerSide};
 
 /// Label, help, validation, and field composition for form controls.
 pub mod form_control;
-pub use form_control::FormControl;
+pub use form_control::{FormControl, FormControlLayout, FormDescription, FormError, FormLabel};
 
 /// Controlled numeric stepper with increment and decrement actions.
 pub mod number_input;
@@ -137,7 +151,9 @@ pub use number_input::NumberInput;
 
 /// Persistent inline status and warning messages.
 pub mod alert;
-pub use alert::{Alert, AlertKind};
+pub use alert::{
+    Alert, AlertContent, AlertDescription, AlertKind, AlertLayout, AlertLeading, AlertTitle,
+};
 
 /// Placeholder loading surfaces and shimmer motion.
 pub mod skeleton;
@@ -171,7 +187,10 @@ pub use colour_picker::{
 
 /// Filterable text-and-option selection control.
 pub mod combobox;
-pub use combobox::Combobox;
+pub use combobox::{
+    Combobox, ComboboxContent, ComboboxEntry, ComboboxGroup, ComboboxInput, ComboboxLabel,
+    ComboboxLayout, ComboboxOption, ComboboxSeparator,
+};
 
 /// Mutually exclusive selection presented as adjacent segments.
 pub mod segmented_control;
@@ -179,7 +198,7 @@ pub use segmented_control::SegmentedControl;
 
 /// Ordered event presentation with markers and supporting content.
 pub mod timeline;
-pub use timeline::{Timeline, TimelineItem};
+pub use timeline::{Timeline, TimelineEntry, TimelineItem, TimelineLayout};
 
 /// Shared-element identity annotation for route transitions.
 pub mod hero;
@@ -431,6 +450,7 @@ pub fn absolute_fill(child: impl Into<Widget>) -> Widget {
 struct FlyoutLowerer {
     anchor: WidgetId,
     content: Widget,
+    options: FlyoutOptions,
 }
 
 impl InternalLowerer for FlyoutLowerer {
@@ -441,6 +461,7 @@ impl InternalLowerer for FlyoutLowerer {
             Op::Layout(fission_core::LayoutOp::Flyout {
                 anchor: self.anchor,
                 content: content_id,
+                options: self.options,
             }),
         );
         // The flyout must own its content so layout measures that content with
@@ -462,9 +483,23 @@ impl InternalLowerer for FlyoutLowerer {
 /// * `anchor` - The `WidgetId` of the widget that the flyout should be positioned relative to.
 /// * `content` - The node tree to render in the flyout popup.
 pub fn flyout(anchor: WidgetId, content: Widget) -> Widget {
+    flyout_with_options(anchor, content, FlyoutOptions::default())
+}
+
+/// Positions `content` relative to `anchor` using an explicit retained policy.
+///
+/// Use this lower-level helper when a composite control needs end alignment,
+/// anchor-relative sizing, a side preference, or a visible gap. Ordinary
+/// popovers should use [`Popover`], which preserves the default start/auto/
+/// intrinsic-width behavior.
+pub fn flyout_with_options(anchor: WidgetId, content: Widget, options: FlyoutOptions) -> Widget {
     fission_core::internal::custom_render_widget(fission_core::CustomWidget {
         debug_tag: "Flyout".into(),
-        lowerer: Some(Arc::new(FlyoutLowerer { anchor, content })),
+        lowerer: Some(Arc::new(FlyoutLowerer {
+            anchor,
+            content,
+            options,
+        })),
         render_object: None,
     })
 }
