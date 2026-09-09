@@ -156,6 +156,79 @@
       "css_classes": ["fs-input"]
     },
 
+    "alert": {
+      "$description": "Compact persistent status surface with retained leading, message, and action regions.",
+      "anatomy": ["leading?", "content", "action?"],
+      "surface": {
+        "background": "{color.light.surface}",
+        "border": "1px solid {color.light.border}",
+        "radius": "{radius.small}",
+        "padding": "8px 10px",
+        "gap": "8px",
+        "box_shadow": "none"
+      },
+      "icon": { "icon_size": "16px" },
+      "content": { "gap": "2px" },
+      "title": {
+        "color": "{color.light.text_primary}",
+        "font_size": "{typography.font_size.base}",
+        "font_weight": "{typography.font_weight.medium}",
+        "line_height": "20px"
+      },
+      "description": {
+        "color": "{color.light.text_secondary}",
+        "font_size": "{typography.font_size.base}",
+        "font_weight": "{typography.font_weight.regular}",
+        "line_height": "20px"
+      },
+      "action": {},
+      "tones": {
+        "info": { "background": "{color.light.surface}", "color": "{color.light.info}" },
+        "warning": { "background": "{color.light.surface}", "color": "{color.light.warning}" },
+        "error": { "background": "{color.light.surface}", "color": "{color.light.error}" },
+        "success": { "background": "{color.light.surface}", "color": "{color.light.success}" }
+      }
+    },
+
+    "menu": {
+      "$description": "Compact popup content shared by action menus, selects, and editable option lists.",
+      "anatomy": ["group*", "label?", "item*", "separator*"],
+      "surface": {
+        "background": "{color.light.surface}",
+        "border": "1px solid {color.light.border}",
+        "radius": "{radius.medium}",
+        "width": "208px",
+        "padding": "4px",
+        "gap": "2px",
+        "box_shadow": "{elevation.level2}"
+      },
+      "item": {
+        "anatomy": ["leading_icon?", "label", "description?", "trailing_shortcut_or_metadata?", "selected_indicator?"],
+        "states": {
+          "default": { "background": "transparent", "color": "{color.light.text_primary}", "radius": "{radius.small}", "height": "32px", "padding_x": "8px", "padding_y": "6px", "gap": "8px", "font_size": "{typography.font_size.base}", "font_weight": "{typography.font_weight.regular}", "line_height": "20px", "icon_size": "16px" },
+          "hover": { "background": "{color.light.surface_sunken}" },
+          "active": { "background": "{color.light.surface_sunken}" },
+          "focus": { "background": "{color.light.surface_sunken}" },
+          "disabled": { "background": "transparent", "color": "{color.light.text_muted}" },
+          "selected": { "background": "{color.light.surface_sunken}", "font_weight": "{typography.font_weight.medium}" }
+        },
+        "destructive_states": {
+          "default": { "color": "{color.light.error}" },
+          "hover": { "background": "rgba(225, 29, 72, 0.1)" },
+          "active": { "background": "rgba(225, 29, 72, 0.2)" },
+          "focus": { "background": "rgba(225, 29, 72, 0.1)" },
+          "disabled": { "background": "transparent", "color": "{color.light.text_muted}" },
+          "selected": { "background": "rgba(225, 29, 72, 0.1)" }
+        },
+        "description": { "color": "{color.light.text_muted}", "font_size": "13px", "font_weight": 400, "line_height": "18px", "gap": "2px" },
+        "shortcut": { "color": "{color.light.text_muted}", "font_size": "12px", "font_weight": 400, "line_height": "16px", "letter_spacing": "0.4px" },
+        "metadata": { "color": "{color.light.text_muted}", "font_size": "13px", "font_weight": 400, "line_height": "18px" },
+        "indicator": { "color": "{color.light.text_primary}", "icon_size": "16px" }
+      },
+      "group_label": { "color": "{color.light.text_muted}", "height": "28px", "padding_x": "8px", "padding_y": "6px", "font_size": "12px", "font_weight": 500, "line_height": "16px" },
+      "separator": { "border": "1px solid {color.light.divider}", "height": "9px", "padding_y": "4px" }
+    },
+
     "card": {
       "$description": "Compact grouped-content surface with optional tint or explicit elevation.",
       "anatomy": ["leading_media?", "header", "body", "footer?"],
@@ -163,6 +236,16 @@
       "border": "1px solid {color.light.border}",
       "background": "{color.light.surface}",
       "padding": "{spacing.m}",
+      "sizes": {
+        "sm": { "padding": "12px", "gap": "12px", "font_size": "14px", "line_height": "20px" },
+        "md": { "padding": "16px", "gap": "16px", "font_size": "16px", "line_height": "24px" }
+      },
+      "header": { "gap": "4px" },
+      "content": {},
+      "footer": { "background": "{color.light.surface_sunken}", "gap": "8px" },
+      "title": { "color": "{color.light.text_primary}", "font_size": "16px", "font_weight": 500, "line_height": "24px" },
+      "description": { "color": "{color.light.text_secondary}", "font_size": "14px", "font_weight": 400, "line_height": "20px" },
+      "separator": { "border": "1px solid {color.light.border}" },
       "patterns": {
         "plain":   { "background": "{color.light.surface}",     "border": "1px solid {color.light.border}", "box_shadow": "none" },
         "raised":  { "background": "{color.light.surface}",     "border": "1px solid {color.light.border}", "box_shadow": "none" },
@@ -248,6 +331,37 @@
       "css_classes": ["fs-feature-icon", "fs-feature-icon--{tone}"]
     },
 
+    "pagination": {
+      "$description": "Compact page navigation whose directional controls follow layout direction.",
+      "anatomy": ["previous", "page*", "ellipsis?", "next"],
+      "gap": "{spacing.xs}",
+      "item": {
+        "color": "{color.light.text_primary}",
+        "size": "32px",
+        "padding": "0px",
+        "radius": "{radius.medium}",
+        "font_size": "{typography.font_size.base}",
+        "font_weight": "{typography.font_weight.regular}",
+        "line_height": "20px",
+        "icon_size": "16px",
+        "box_shadow": "none"
+      },
+      "selected": {
+        "background": "{color.light.surface}",
+        "border": "1px solid {color.light.border}",
+        "color": "{color.light.text_primary}",
+        "font_weight": "{typography.font_weight.medium}",
+        "box_shadow": "none"
+      },
+      "ellipsis": {
+        "color": "{color.light.text_muted}",
+        "size": "32px",
+        "font_size": "{typography.font_size.base}",
+        "font_weight": "{typography.font_weight.regular}",
+        "line_height": "20px"
+      }
+    },
+
     "modal": {
       "$source": "Fission ModalTheme (fission-theme/src/lib.rs)",
       "anatomy": ["scrim", "container", "header", "body", "footer?"],
@@ -258,7 +372,25 @@
       "gap": "{spacing.m}",
       "max_width": "384px",
       "box_shadow": "{elevation.level0}",
-      "scrim": { "background": "rgba(0,0,0,0.1)", "backdrop_filter": "blur(4px)" }
+      "viewport_margin": "16px",
+      "action_stack_breakpoint": "640px",
+      "scrim": { "background": "rgba(0,0,0,0.1)", "backdrop_filter": "blur(4px)" },
+      "header": { "gap": "4px" },
+      "title": {
+        "color": "{color.light.text_primary}",
+        "font_size": "18px",
+        "font_weight": 600,
+        "line_height": "24px"
+      },
+      "description": {
+        "color": "{color.light.text_muted}",
+        "font_size": "{typography.font_size.base}",
+        "font_weight": "{typography.font_weight.regular}",
+        "line_height": "20px"
+      },
+      "body": {},
+      "footer": { "gap": "{spacing.s}" },
+      "close": { "size": "28px", "padding": "0px", "icon_size": "16px" }
     },
 
     "tooltip": {

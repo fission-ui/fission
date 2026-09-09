@@ -317,6 +317,24 @@ fn default_component_geometry_matches_the_compact_recipe() {
     assert_eq!(input.font_size, Some(14.0));
     assert_eq!(input.font_weight, Some(400));
     assert_eq!(input.line_height, Some(20.0));
+
+    let menu = &theme.components.menu;
+    assert_eq!(menu.surface_style.width, Some(208.0));
+    assert_eq!(menu.surface_style.padding, Some([4.0; 4]));
+    assert_eq!(menu.surface_style.gap, Some(2.0));
+    assert_eq!(menu.surface_style.radius, Some(10.0));
+    let menu_item = menu.resolve_item(false, ComponentState::Default);
+    assert_eq!(menu_item.height, Some(32.0));
+    assert_eq!(menu_item.padding_x, Some(8.0));
+    assert_eq!(menu_item.padding_y, Some(6.0));
+    assert_eq!(menu_item.gap, Some(8.0));
+    assert_eq!(menu_item.font_size, Some(14.0));
+    assert_eq!(menu_item.line_height, Some(20.0));
+    assert_eq!(menu_item.icon_size, Some(16.0));
+    assert_eq!(
+        menu.resolve_item(true, ComponentState::Default).text_color,
+        Some(theme.tokens.colors.error)
+    );
     assert_eq!(
         input.background,
         Some(Fill::Solid(fission_theme::Color {
@@ -380,6 +398,29 @@ fn default_component_geometry_matches_the_compact_recipe() {
     assert_eq!(theme.components.tabs.track_style.padding, Some([3.0; 4]));
     assert_eq!(theme.components.tabs.track_style.gap, Some(0.0));
 
+    let alert = &theme.components.alert;
+    assert_eq!(alert.surface_style.padding, Some([10.0, 10.0, 8.0, 8.0]));
+    assert_eq!(alert.surface_style.gap, Some(8.0));
+    assert_eq!(alert.surface_style.radius, Some(8.0));
+    assert_eq!(alert.icon_style.icon_size, Some(16.0));
+    assert_eq!(alert.content_style.gap, Some(2.0));
+    assert_eq!(alert.title_style.font_size, Some(14.0));
+    assert_eq!(alert.title_style.font_weight, Some(500));
+    assert_eq!(alert.title_style.line_height, Some(20.0));
+    assert_eq!(alert.description_style.font_size, Some(14.0));
+    assert_eq!(alert.description_style.line_height, Some(20.0));
+    assert!(alert.surface_style.shadows.is_empty());
+
+    let pagination = &theme.components.pagination;
+    assert_eq!(pagination.spacing, 4.0);
+    assert_eq!(pagination.item_style.width, Some(32.0));
+    assert_eq!(pagination.item_style.height, Some(32.0));
+    assert_eq!(pagination.item_style.radius, Some(10.0));
+    assert_eq!(pagination.item_style.font_size, Some(14.0));
+    assert_eq!(pagination.item_style.icon_size, Some(16.0));
+    assert_eq!(pagination.ellipsis_style.width, Some(32.0));
+    assert!(pagination.selected_style.border.is_some());
+
     assert_eq!(theme.components.modal.max_width, 384.0);
     assert_eq!(theme.components.modal.radius, 14.0);
     assert_eq!(theme.components.modal.shadow, None);
@@ -389,6 +430,24 @@ fn default_component_geometry_matches_the_compact_recipe() {
     );
     assert!(theme.components.modal.container_style.shadows.is_empty());
     assert_eq!(theme.components.modal.scrim_blur, 4.0);
+    assert_eq!(theme.components.modal.viewport_margin, 16.0);
+    assert_eq!(theme.components.modal.action_stack_breakpoint, 640.0);
+    assert_eq!(theme.components.modal.header_style.gap, Some(4.0));
+    assert_eq!(theme.components.modal.title_style.font_size, Some(18.0));
+    assert_eq!(theme.components.modal.title_style.font_weight, Some(600));
+    assert_eq!(theme.components.modal.title_style.line_height, Some(24.0));
+    assert_eq!(
+        theme.components.modal.description_style.font_size,
+        Some(14.0)
+    );
+    assert_eq!(theme.components.modal.footer_style.background, None);
+    assert_eq!(theme.components.modal.footer_style.border, None);
+    assert_eq!(theme.components.modal.close_button_style.width, Some(28.0));
+    assert_eq!(theme.components.modal.close_button_style.height, Some(28.0));
+    assert_eq!(
+        theme.components.modal.close_button_style.icon_size,
+        Some(16.0)
+    );
     assert_eq!(
         theme.components.modal.scrim_style.background,
         Some(Fill::Solid(fission_theme::Color {
@@ -483,6 +542,23 @@ fn generated_component_colours_follow_light_and_dark_semantics() {
 
         assert_eq!(
             theme.components.modal.container_style.background,
+            Some(Fill::Solid(theme.tokens.colors.surface))
+        );
+
+        assert_eq!(
+            theme.components.alert.surface_style.background,
+            Some(Fill::Solid(theme.tokens.colors.surface))
+        );
+        assert_eq!(
+            theme.components.alert.success_style.text_color,
+            Some(theme.tokens.colors.success)
+        );
+        assert_eq!(
+            theme.components.pagination.item_style.text_color,
+            Some(theme.tokens.colors.text_primary)
+        );
+        assert_eq!(
+            theme.components.pagination.selected_style.background,
             Some(Fill::Solid(theme.tokens.colors.surface))
         );
     }

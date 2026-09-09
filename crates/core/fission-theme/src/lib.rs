@@ -1598,6 +1598,15 @@ impl CalendarTheme {
 /// Visual parameters for the `Pagination` widget.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct PaginationTheme {
+    /// Shared geometry and typography for previous, page, and next controls.
+    #[serde(default)]
+    pub item_style: ResolvedComponentStyle,
+    /// Static overlay for the current page.
+    #[serde(default)]
+    pub selected_style: ResolvedComponentStyle,
+    /// Presentation of the noninteractive page-range ellipsis.
+    #[serde(default)]
+    pub ellipsis_style: ResolvedComponentStyle,
     pub spacing: f32,
     pub active_bg: Color,
     pub active_text: Color,
@@ -1606,9 +1615,39 @@ pub struct PaginationTheme {
 impl PaginationTheme {
     pub fn from_tokens(tokens: &Tokens) -> Self {
         Self {
-            spacing: tokens.spacing.s,
-            active_bg: tokens.colors.primary,
-            active_text: tokens.colors.on_primary,
+            item_style: ResolvedComponentStyle {
+                text_color: Some(tokens.colors.text_primary),
+                radius: Some(tokens.radii.medium),
+                height: Some(tokens.spacing.xl),
+                width: Some(tokens.spacing.xl),
+                padding: Some([tokens.spacing.none; 4]),
+                font_size: Some(tokens.typography.font_size_base),
+                font_weight: Some(tokens.typography.font_weight_regular),
+                line_height: Some(tokens.spacing.m + tokens.spacing.xs),
+                icon_size: Some(tokens.spacing.m),
+                ..ResolvedComponentStyle::default()
+            },
+            selected_style: ResolvedComponentStyle {
+                background: Some(Fill::Solid(tokens.colors.surface)),
+                border: Some(ComponentBorder {
+                    fill: Fill::Solid(tokens.colors.border),
+                    width: 1.0,
+                }),
+                font_weight: Some(tokens.typography.font_weight_medium),
+                ..ResolvedComponentStyle::default()
+            },
+            ellipsis_style: ResolvedComponentStyle {
+                text_color: Some(tokens.colors.text_muted),
+                height: Some(tokens.spacing.xl),
+                width: Some(tokens.spacing.xl),
+                font_size: Some(tokens.typography.font_size_base),
+                font_weight: Some(tokens.typography.font_weight_regular),
+                line_height: Some(tokens.spacing.m + tokens.spacing.xs),
+                ..ResolvedComponentStyle::default()
+            },
+            spacing: tokens.spacing.xs,
+            active_bg: tokens.colors.surface,
+            active_text: tokens.colors.text_primary,
         }
     }
 }
@@ -1658,36 +1697,120 @@ impl SegmentedControlTheme {
 /// Visual parameters for the `Alert` widget, with per-severity background colors.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct AlertTheme {
+    /// Shared surface geometry and paint before the semantic tone is applied.
+    #[serde(default)]
+    pub surface_style: ResolvedComponentStyle,
+    /// Leading icon geometry.
+    #[serde(default)]
+    pub icon_style: ResolvedComponentStyle,
+    /// Vertical layout for the title and supporting description.
+    #[serde(default)]
+    pub content_style: ResolvedComponentStyle,
+    /// Primary message typography.
+    #[serde(default)]
+    pub title_style: ResolvedComponentStyle,
+    /// Supporting message typography.
+    #[serde(default)]
+    pub description_style: ResolvedComponentStyle,
+    /// Optional trailing action region.
+    #[serde(default)]
+    pub action_style: ResolvedComponentStyle,
+    /// Information-tone surface and foreground overlay.
+    #[serde(default)]
+    pub info_style: ResolvedComponentStyle,
+    /// Warning-tone surface and foreground overlay.
+    #[serde(default)]
+    pub warning_style: ResolvedComponentStyle,
+    /// Error-tone surface and foreground overlay.
+    #[serde(default)]
+    pub error_style: ResolvedComponentStyle,
+    /// Success-tone surface and foreground overlay.
+    #[serde(default)]
+    pub success_style: ResolvedComponentStyle,
+    /// Compatibility color used by older direct theme construction.
     pub info_bg: Color,
+    /// Compatibility color used by older direct theme construction.
     pub warning_bg: Color,
+    /// Compatibility color used by older direct theme construction.
     pub error_bg: Color,
+    /// Compatibility color used by older direct theme construction.
     pub success_bg: Color,
+    /// Compatibility radius used when a partial theme omits `surface_style`.
     pub radius: f32,
 }
 
 impl AlertTheme {
     pub fn from_tokens(tokens: &Tokens) -> Self {
+        let surface_style = ResolvedComponentStyle {
+            background: Some(Fill::Solid(tokens.colors.surface)),
+            border: Some(ComponentBorder {
+                fill: Fill::Solid(tokens.colors.border),
+                width: 1.0,
+            }),
+            radius: Some(tokens.radii.small),
+            padding: Some([
+                tokens.spacing.s + tokens.spacing.xs / 2.0,
+                tokens.spacing.s + tokens.spacing.xs / 2.0,
+                tokens.spacing.s,
+                tokens.spacing.s,
+            ]),
+            gap: Some(tokens.spacing.s),
+            ..ResolvedComponentStyle::default()
+        };
+        let tone_style = |color| ResolvedComponentStyle {
+            background: Some(Fill::Solid(tokens.colors.surface)),
+            text_color: Some(color),
+            ..ResolvedComponentStyle::default()
+        };
         Self {
+            surface_style,
+            icon_style: ResolvedComponentStyle {
+                icon_size: Some(tokens.spacing.m),
+                ..ResolvedComponentStyle::default()
+            },
+            content_style: ResolvedComponentStyle {
+                gap: Some(tokens.spacing.xs / 2.0),
+                ..ResolvedComponentStyle::default()
+            },
+            title_style: ResolvedComponentStyle {
+                text_color: Some(tokens.colors.text_primary),
+                font_size: Some(tokens.typography.font_size_base),
+                font_weight: Some(tokens.typography.font_weight_medium),
+                line_height: Some(tokens.spacing.m + tokens.spacing.xs),
+                ..ResolvedComponentStyle::default()
+            },
+            description_style: ResolvedComponentStyle {
+                text_color: Some(tokens.colors.text_secondary),
+                font_size: Some(tokens.typography.font_size_base),
+                font_weight: Some(tokens.typography.font_weight_regular),
+                line_height: Some(tokens.spacing.m + tokens.spacing.xs),
+                ..ResolvedComponentStyle::default()
+            },
+            action_style: ResolvedComponentStyle::default(),
+            info_style: tone_style(tokens.colors.info),
+            warning_style: tone_style(tokens.colors.warning),
+            error_style: tone_style(tokens.colors.error),
+            success_style: tone_style(tokens.colors.success),
             info_bg: Color {
-                r: 230,
-                g: 242,
-                b: 255,
+                r: tokens.colors.surface.r,
+                g: tokens.colors.surface.g,
+                b: tokens.colors.surface.b,
                 a: 255,
             },
             warning_bg: Color {
-                r: 255,
-                g: 244,
-                b: 229,
+                r: tokens.colors.surface.r,
+                g: tokens.colors.surface.g,
+                b: tokens.colors.surface.b,
                 a: 255,
             },
-            error_bg: tokens.colors.error.with_alpha(30),
+            error_bg: tokens.colors.surface,
             success_bg: Color {
-                r: 237,
-                g: 247,
-                b: 237,
+                r: tokens.colors.surface.r,
+                g: tokens.colors.surface.g,
+                b: tokens.colors.surface.b,
                 a: 255,
             },
-            radius: tokens.radii.medium,
+            radius: tokens.radii.small,
         }
     }
 }
@@ -1815,6 +1938,190 @@ impl BadgeTheme {
     }
 }
 
+/// Visual recipes shared by menu and list-box popup anatomy.
+///
+/// The popup surface, actionable rows, labels, descriptions, trailing metadata,
+/// selection indicator, group labels, and separators all resolve through this
+/// one theme so convenience widgets and composed menu content stay visually
+/// consistent.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct MenuTheme {
+    /// Popup surface paint and layout recipe.
+    pub surface_style: ResolvedComponentStyle,
+    /// Interaction states for normal actionable rows.
+    pub item_states: ComponentStateStyles,
+    /// Tone overlay and interaction states for destructive rows.
+    pub destructive_item_states: ComponentStateStyles,
+    /// Secondary line shown beneath an item label.
+    pub description_style: ResolvedComponentStyle,
+    /// Keyboard shortcut presentation at the trailing edge.
+    pub shortcut_style: ResolvedComponentStyle,
+    /// Non-shortcut trailing metadata presentation.
+    pub metadata_style: ResolvedComponentStyle,
+    /// Heading shown above a related group of items.
+    pub group_label_style: ResolvedComponentStyle,
+    /// Boundary between related menu regions.
+    pub separator_style: ResolvedComponentStyle,
+    /// Selected-item indicator icon recipe.
+    pub indicator_style: ResolvedComponentStyle,
+}
+
+impl MenuTheme {
+    pub fn from_tokens(tokens: &Tokens) -> Self {
+        let transparent = Fill::Solid(Color {
+            r: 0,
+            g: 0,
+            b: 0,
+            a: 0,
+        });
+        let normal_states = ComponentStateStyles {
+            default: ResolvedComponentStyle {
+                background: Some(transparent.clone()),
+                text_color: Some(tokens.colors.text_primary),
+                radius: Some(tokens.radii.small),
+                height: Some(32.0),
+                padding_x: Some(tokens.spacing.s),
+                padding_y: Some(6.0),
+                gap: Some(tokens.spacing.s),
+                font_size: Some(tokens.typography.font_size_base),
+                font_weight: Some(tokens.typography.font_weight_regular),
+                line_height: Some(20.0),
+                icon_size: Some(16.0),
+                ..ResolvedComponentStyle::default()
+            },
+            hover: Some(ResolvedComponentStyle {
+                background: Some(Fill::Solid(tokens.colors.surface_sunken)),
+                ..ResolvedComponentStyle::default()
+            }),
+            active: Some(ResolvedComponentStyle {
+                background: Some(Fill::Solid(tokens.colors.surface_sunken)),
+                ..ResolvedComponentStyle::default()
+            }),
+            focus: Some(ResolvedComponentStyle {
+                background: Some(Fill::Solid(tokens.colors.surface_sunken)),
+                ..ResolvedComponentStyle::default()
+            }),
+            disabled: Some(ResolvedComponentStyle {
+                background: Some(transparent.clone()),
+                text_color: Some(tokens.colors.text_muted),
+                ..ResolvedComponentStyle::default()
+            }),
+            selected: Some(ResolvedComponentStyle {
+                background: Some(Fill::Solid(tokens.colors.surface_sunken)),
+                font_weight: Some(tokens.typography.font_weight_medium),
+                ..ResolvedComponentStyle::default()
+            }),
+            ..ComponentStateStyles::default()
+        };
+        Self {
+            surface_style: ResolvedComponentStyle {
+                background: Some(Fill::Solid(tokens.colors.surface)),
+                border: Some(ComponentBorder {
+                    fill: Fill::Solid(tokens.colors.border),
+                    width: 1.0,
+                }),
+                radius: Some(tokens.radii.medium),
+                width: Some(208.0),
+                padding: Some([tokens.spacing.xs; 4]),
+                gap: Some(2.0),
+                shadows: tokens
+                    .elevations
+                    .level2
+                    .map(shadow_layer_from_box)
+                    .into_iter()
+                    .collect(),
+                ..ResolvedComponentStyle::default()
+            },
+            item_states: normal_states,
+            destructive_item_states: ComponentStateStyles {
+                default: ResolvedComponentStyle {
+                    text_color: Some(tokens.colors.error),
+                    ..ResolvedComponentStyle::default()
+                },
+                hover: Some(ResolvedComponentStyle {
+                    background: Some(Fill::Solid(tokens.colors.error.with_alpha(26))),
+                    ..ResolvedComponentStyle::default()
+                }),
+                active: Some(ResolvedComponentStyle {
+                    background: Some(Fill::Solid(tokens.colors.error.with_alpha(51))),
+                    ..ResolvedComponentStyle::default()
+                }),
+                focus: Some(ResolvedComponentStyle {
+                    background: Some(Fill::Solid(tokens.colors.error.with_alpha(26))),
+                    ..ResolvedComponentStyle::default()
+                }),
+                disabled: Some(ResolvedComponentStyle {
+                    background: Some(transparent),
+                    text_color: Some(tokens.colors.text_muted),
+                    ..ResolvedComponentStyle::default()
+                }),
+                selected: Some(ResolvedComponentStyle {
+                    background: Some(Fill::Solid(tokens.colors.error.with_alpha(26))),
+                    ..ResolvedComponentStyle::default()
+                }),
+                ..ComponentStateStyles::default()
+            },
+            description_style: ResolvedComponentStyle {
+                text_color: Some(tokens.colors.text_muted),
+                font_size: Some(tokens.typography.font_size_sm),
+                font_weight: Some(tokens.typography.font_weight_regular),
+                line_height: Some(18.0),
+                gap: Some(2.0),
+                ..ResolvedComponentStyle::default()
+            },
+            shortcut_style: ResolvedComponentStyle {
+                text_color: Some(tokens.colors.text_muted),
+                font_size: Some(tokens.typography.font_size_xs),
+                font_weight: Some(tokens.typography.font_weight_regular),
+                line_height: Some(16.0),
+                letter_spacing: Some(0.4),
+                ..ResolvedComponentStyle::default()
+            },
+            metadata_style: ResolvedComponentStyle {
+                text_color: Some(tokens.colors.text_muted),
+                font_size: Some(tokens.typography.font_size_sm),
+                font_weight: Some(tokens.typography.font_weight_regular),
+                line_height: Some(18.0),
+                ..ResolvedComponentStyle::default()
+            },
+            group_label_style: ResolvedComponentStyle {
+                text_color: Some(tokens.colors.text_muted),
+                height: Some(28.0),
+                padding_x: Some(tokens.spacing.s),
+                padding_y: Some(6.0),
+                font_size: Some(tokens.typography.font_size_xs),
+                font_weight: Some(tokens.typography.font_weight_medium),
+                line_height: Some(16.0),
+                ..ResolvedComponentStyle::default()
+            },
+            separator_style: ResolvedComponentStyle {
+                border: Some(ComponentBorder {
+                    fill: Fill::Solid(tokens.colors.divider),
+                    width: 1.0,
+                }),
+                height: Some(9.0),
+                padding_y: Some(tokens.spacing.xs),
+                ..ResolvedComponentStyle::default()
+            },
+            indicator_style: ResolvedComponentStyle {
+                text_color: Some(tokens.colors.text_primary),
+                icon_size: Some(16.0),
+                ..ResolvedComponentStyle::default()
+            },
+        }
+    }
+
+    /// Resolves an actionable row for its tone and current interaction state.
+    pub fn resolve_item(&self, destructive: bool, state: ComponentState) -> ResolvedComponentStyle {
+        let style = self.item_states.resolve(state);
+        if destructive {
+            style.merge(&self.destructive_item_states.resolve(state))
+        } else {
+            style
+        }
+    }
+}
+
 /// Visual parameters for the `Tabs` widget.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct TabsTheme {
@@ -1918,7 +2225,8 @@ impl TabsTheme {
 
 /// Visual parameters for the `Modal` widget.
 ///
-/// Controls the dialog background color, corner radius, shadow, and maximum width.
+/// The container and named anatomy styles are the single visual authority used
+/// by both the compact `Modal` API and retained `ModalLayout` composition.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ModalTheme {
     pub bg_color: Color,
@@ -1928,6 +2236,38 @@ pub struct ModalTheme {
     pub container_style: ResolvedComponentStyle,
     pub scrim_style: ResolvedComponentStyle,
     pub scrim_blur: f32,
+    /// Layout and paint recipe for the title/description/close region.
+    #[serde(default)]
+    pub header_style: ResolvedComponentStyle,
+    /// Typography recipe for the dialog title.
+    #[serde(default)]
+    pub title_style: ResolvedComponentStyle,
+    /// Typography recipe for supporting description text.
+    #[serde(default)]
+    pub description_style: ResolvedComponentStyle,
+    /// Layout and paint recipe for the scrolling body.
+    #[serde(default)]
+    pub content_style: ResolvedComponentStyle,
+    /// Layout and paint recipe for the action region.
+    #[serde(default)]
+    pub footer_style: ResolvedComponentStyle,
+    /// Geometry recipe for the generated icon-only close control.
+    #[serde(default)]
+    pub close_button_style: ResolvedComponentStyle,
+    /// Minimum distance between the dialog surface and viewport edges.
+    #[serde(default = "default_modal_viewport_margin")]
+    pub viewport_margin: f32,
+    /// Width below which footer actions use a vertical layout.
+    #[serde(default = "default_modal_action_stack_breakpoint")]
+    pub action_stack_breakpoint: f32,
+}
+
+const fn default_modal_viewport_margin() -> f32 {
+    16.0
+}
+
+const fn default_modal_action_stack_breakpoint() -> f32 {
+    640.0
 }
 
 impl ModalTheme {
@@ -1965,6 +2305,38 @@ impl ModalTheme {
                 ..ResolvedComponentStyle::default()
             },
             scrim_blur: 4.0,
+            header_style: ResolvedComponentStyle {
+                gap: Some(tokens.spacing.xs),
+                ..ResolvedComponentStyle::default()
+            },
+            title_style: ResolvedComponentStyle {
+                text_color: Some(tokens.colors.text_primary),
+                font_size: Some(18.0),
+                font_weight: Some(tokens.typography.font_weight_semibold),
+                line_height: Some(24.0),
+                ..ResolvedComponentStyle::default()
+            },
+            description_style: ResolvedComponentStyle {
+                text_color: Some(tokens.colors.text_muted),
+                font_size: Some(tokens.typography.font_size_base),
+                font_weight: Some(tokens.typography.font_weight_regular),
+                line_height: Some(20.0),
+                ..ResolvedComponentStyle::default()
+            },
+            content_style: ResolvedComponentStyle::default(),
+            footer_style: ResolvedComponentStyle {
+                gap: Some(tokens.spacing.s),
+                ..ResolvedComponentStyle::default()
+            },
+            close_button_style: ResolvedComponentStyle {
+                width: Some(28.0),
+                height: Some(28.0),
+                padding: Some([0.0; 4]),
+                icon_size: Some(16.0),
+                ..ResolvedComponentStyle::default()
+            },
+            viewport_margin: default_modal_viewport_margin(),
+            action_stack_breakpoint: default_modal_action_stack_breakpoint(),
         }
     }
 }
@@ -2081,6 +2453,20 @@ pub struct CardTheme {
     pub default_pattern: CardPattern,
     pub patterns: Vec<(CardPattern, ResolvedComponentStyle)>,
     pub hover_style: ResolvedComponentStyle,
+    /// Density recipes shared by every named card region.
+    pub sizes: Vec<(ComponentSize, ResolvedComponentStyle)>,
+    /// Layout and paint recipe for the heading region.
+    pub header_style: ResolvedComponentStyle,
+    /// Layout and paint recipe for the primary content region.
+    pub content_style: ResolvedComponentStyle,
+    /// Layout and paint recipe for the action region.
+    pub footer_style: ResolvedComponentStyle,
+    /// Typography recipe for the standard card title.
+    pub title_style: ResolvedComponentStyle,
+    /// Typography recipe for the standard card description.
+    pub description_style: ResolvedComponentStyle,
+    /// Paint recipe for full-width boundaries between card regions.
+    pub separator_style: ResolvedComponentStyle,
 }
 
 impl CardTheme {
@@ -2155,6 +2541,59 @@ impl CardTheme {
                     .collect(),
                 ..ResolvedComponentStyle::default()
             },
+            sizes: vec![
+                (
+                    ComponentSize::Sm,
+                    ResolvedComponentStyle {
+                        padding: Some([12.0; 4]),
+                        gap: Some(12.0),
+                        font_size: Some(tokens.typography.font_size_base),
+                        line_height: Some(20.0),
+                        ..ResolvedComponentStyle::default()
+                    },
+                ),
+                (
+                    ComponentSize::Md,
+                    ResolvedComponentStyle {
+                        padding: Some([tokens.spacing.m; 4]),
+                        gap: Some(tokens.spacing.m),
+                        font_size: Some(16.0),
+                        line_height: Some(24.0),
+                        ..ResolvedComponentStyle::default()
+                    },
+                ),
+            ],
+            header_style: ResolvedComponentStyle {
+                gap: Some(tokens.spacing.xs),
+                ..ResolvedComponentStyle::default()
+            },
+            content_style: ResolvedComponentStyle::default(),
+            footer_style: ResolvedComponentStyle {
+                background: Some(Fill::Solid(tokens.colors.surface_sunken)),
+                gap: Some(tokens.spacing.s),
+                ..ResolvedComponentStyle::default()
+            },
+            title_style: ResolvedComponentStyle {
+                text_color: Some(tokens.colors.text_primary),
+                font_size: Some(16.0),
+                font_weight: Some(tokens.typography.font_weight_medium),
+                line_height: Some(24.0),
+                ..ResolvedComponentStyle::default()
+            },
+            description_style: ResolvedComponentStyle {
+                text_color: Some(tokens.colors.text_secondary),
+                font_size: Some(tokens.typography.font_size_base),
+                font_weight: Some(tokens.typography.font_weight_regular),
+                line_height: Some(20.0),
+                ..ResolvedComponentStyle::default()
+            },
+            separator_style: ResolvedComponentStyle {
+                border: Some(ComponentBorder {
+                    fill: Fill::Solid(tokens.colors.border),
+                    width: 1.0,
+                }),
+                ..ResolvedComponentStyle::default()
+            },
         }
     }
 
@@ -2176,6 +2615,35 @@ impl CardTheme {
         } else {
             base
         }
+    }
+
+    /// Resolves card density, falling back to the medium recipe.
+    pub fn resolve_size(&self, size: ComponentSize) -> ResolvedComponentStyle {
+        self.sizes
+            .iter()
+            .find(|(candidate, _)| *candidate == size)
+            .map(|(_, style)| style.clone())
+            .or_else(|| {
+                self.sizes
+                    .iter()
+                    .find(|(candidate, _)| *candidate == ComponentSize::Md)
+                    .map(|(_, style)| style.clone())
+            })
+            .unwrap_or_else(|| ResolvedComponentStyle {
+                padding: Some([self.padding; 4]),
+                gap: Some(self.padding),
+                ..ResolvedComponentStyle::default()
+            })
+    }
+
+    /// Resolves standard title typography for a card density.
+    pub fn resolve_title(&self, size: ComponentSize) -> ResolvedComponentStyle {
+        self.title_style.merge(&self.resolve_size(size))
+    }
+
+    /// Resolves standard description typography for a card density.
+    pub fn resolve_description(&self, size: ComponentSize) -> ResolvedComponentStyle {
+        self.resolve_size(size).merge(&self.description_style)
     }
 }
 
@@ -2297,6 +2765,7 @@ fn find_size_style(
 pub struct ComponentTheme {
     pub button: ButtonTheme,
     pub text_input: TextInputTheme,
+    pub menu: MenuTheme,
     pub calendar: CalendarTheme,
     pub pagination: PaginationTheme,
     pub timeline: TimelineTheme,
@@ -2317,6 +2786,7 @@ impl ComponentTheme {
         Self {
             button: ButtonTheme::from_tokens(tokens),
             text_input: TextInputTheme::from_tokens(tokens),
+            menu: MenuTheme::from_tokens(tokens),
             calendar: CalendarTheme::from_tokens(tokens),
             pagination: PaginationTheme::from_tokens(tokens),
             timeline: TimelineTheme::from_tokens(tokens),
@@ -2419,7 +2889,7 @@ pub use presets::material3::FissionMaterialDesign3DesignSystem;
 
 /// Bundled font files embedded at compile time.
 ///
-/// Provides Noto Sans Regular (the default) and Inter 24pt Regular.
+/// Provides Noto Sans Regular and Inter 24pt Regular (the default).
 pub mod fonts {
     pub const NOTO_SANS_REGULAR_TTF: &[u8] =
         include_bytes!("../fonts/Noto_Sans/static/NotoSans-Regular.ttf");
@@ -2427,6 +2897,6 @@ pub mod fonts {
         include_bytes!("../fonts/Inter/static/Inter_24pt-Regular.ttf");
     #[inline]
     pub fn default_font_bytes() -> &'static [u8] {
-        NOTO_SANS_REGULAR_TTF
+        INTER_24PT_REGULAR_TTF
     }
 }
