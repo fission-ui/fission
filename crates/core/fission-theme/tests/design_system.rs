@@ -545,7 +545,7 @@ fn default_component_geometry_matches_the_compact_recipe() {
             .resolve(CardPattern::Elevated, false)
             .shadows
             .len(),
-        2
+        3
     );
     assert!(theme.components.card.footer_style.background.is_some());
     assert!(theme.components.card.footer_style.border.is_some());
