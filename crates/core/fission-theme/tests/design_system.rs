@@ -575,7 +575,7 @@ fn default_component_geometry_matches_the_compact_recipe() {
         .tabs
         .resolve_tab(ComponentSize::Md, ComponentState::Focus);
     assert_eq!(tab.merge(&focused_tab).shadows.len(), 1);
-    assert_eq!(tab.merge_composing_shadows(&focused_tab).shadows.len(), 2);
+    assert_eq!(tab.merge_composing_shadows(&focused_tab).shadows.len(), 3);
     assert_eq!(theme.components.tabs.track_style.radius, Some(10.0));
     assert_eq!(theme.components.tabs.track_style.padding, Some([3.0; 4]));
     assert_eq!(theme.components.tabs.track_style.gap, Some(0.0));
