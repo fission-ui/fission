@@ -18,6 +18,7 @@ let item = TabItem {
     title: "Security".into(),
     content: security_panel_node,
     on_press: Some(select_security_tab_action),
+    semantics_identifier: Some("settings.security".into()),
 };
 ```
 
@@ -28,14 +29,20 @@ let item = TabItem {
 | `title` | `String` | Visible label for the tab button. | Required. |
 | `content` | `Widget` | Panel content for this tab. | Required. Only the active tab's content is shown. |
 | `on_press` | `Option<ActionEnvelope>` | Action fired when the tab is chosen. | Defaults to `None`. Usually sets the active index in state. |
+| `semantics_identifier` | `Option<String>` | Stable identifier for the generated tab semantic node. | Use it when titles may be duplicated or localized. |
 
 ## Specific advice
 
 Keep tab titles short and parallel. Tabs work best when users can compare section names at a glance.
 
+`Tabs` turns each item into a semantic `Tab` related to its panel. Only the
+active item is selected and included in page-level Tab order; arrow keys move
+roving focus without dispatching `on_press`. `Enter` or `Space` activates the
+focused item's action, so selection remains controlled by application state.
+
 ## Production checklist
 
-For `TabItem`, review the fields that change behavior before treating the widget as finished: `title`, `content`, `on_press`. The goal is to make the product rule visible in state and actions, not hidden inside ad-hoc construction code.
+For `TabItem`, review the fields that change behavior before treating the widget as finished: `title`, `content`, `on_press`, and `semantics_identifier`. The goal is to make the product rule visible in state and actions, not hidden inside ad-hoc construction code.
 
 - Bind `on_press` to explicit reducer actions and test that the reducer handles unavailable, duplicate, or invalid input safely.
 - When child widgets are generated from data, give reordered or filtered rows an explicit `WidgetId` so retained local state and scroll behavior do not drift between items.

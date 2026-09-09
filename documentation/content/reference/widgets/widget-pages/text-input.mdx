@@ -44,6 +44,8 @@ action or carry stable application context such as a field or row identity.
 | Field | Type | Meaning | Notes / default behavior |
 | --- | --- | --- | --- |
 | `id` | `Option<WidgetId>` | Stable identity for focus, selection, and runtime edit state. | Defaults to `None`. Give important fields stable ids. |
+| `semantics_identifier` | `Option<String>` | Stable name exposed to accessibility and test tooling. | Defaults to `None`. It does not replace the user-facing label. |
+| `semantics` | `Option<Semantics>` | Supplemental role, action, and relationship metadata. | Composite controls and form wrappers can add metadata; `TextInput` remains authoritative for editable value, selection, validation, enabled, and read-only state. |
 | `value` | `String` | Current text value. | Controlled by app state. |
 | `editing_value` | `Option<TextEditingValue>` | Atomically controls text, directional selection, and composing range. | Use this instead of `value` when the application owns selection or composition. |
 | `label` | `Option<TextContent>` | Semantic and visual label text. | Defaults to `None`. Use this for accessibility instead of relying only on placeholders. |
@@ -60,6 +62,7 @@ action or carry stable application context such as a field or row identity.
 | `on_validation` | `Option<ActionEnvelope>` | Action fired when validation runs. | Submit and editing-complete validate before their dedicated actions. |
 | `width` | `Option<f32>` | Fixed width. | Defaults to `None`. |
 | `height` | `Option<f32>` | Fixed height. | Defaults to `None`. |
+| `size` | `ComponentSize` | Design-system density slot. | Defaults to `Md`; the default recipe also defines `Sm`. Unsupported slots fall back to the medium recipe. |
 | `padding` | `Option<[f32; 4]>` | Inner padding `[left, right, top, bottom]`. | Defaults to themed field padding. |
 
 ## Editing behavior table
@@ -114,6 +117,51 @@ action or carry stable application context such as a field or row identity.
 | `scroll_physics` | `TextScrollPhysics` | Platform, clamped, or non-scrollable user interaction. | Programmatic caret/range visibility remains explicit through a controller. |
 | `context_menu` | `TextContextMenuConfig` | Configures built-in editing actions shown from the text selection context menu. | Defaults to Copy, Cut, Paste, and Select All. Menu labels use localizable child widgets with English fallbacks. |
 | `selection_controls` | `TextSelectionControls` | Configures caret and selection-handle overlays. | Selection handles are enabled; the collapsed caret handle is hidden by default and can be enabled with `show_collapsed_handle`. |
+
+## Anatomy and visual states
+
+The complete field can contain a label, a bordered editing surface, leading and
+trailing decorations, supporting or error text, and a counter. The input surface
+owns text, placeholder, selection, caret, and scroll presentation. An error
+replaces helper text; helper text and a counter can share the supporting row.
+
+The active design system resolves `theme.components.text_input` for the selected
+`size` and the current default, hover, focus, error, or disabled state. The
+widget consumes the recipe's background, border, radius, height, padding,
+typography, placeholder style, label style, helper style, and all shadow layers.
+Application fields such as `border_color`, `font_size`, or `background_fill`
+override the matching resolved value when a genuinely local exception is
+needed. Prefer changing the DSP component recipe when the whole product should
+change.
+
+On a narrow viewport, a field without an explicit font size uses a 16-point
+editing font so browser focus does not enlarge the page. Its line height remains
+owned by the selected design-system recipe; the default compact recipe uses a
+20-point line box inside a 32-point medium control. When height is implicit,
+Fission raises it as needed to contain the scaled line box, stable state-border
+inset, and padding instead of clipping text. An explicit `height` remains the
+application's authoritative constraint.
+
+Invalid state takes precedence over focus and hover, and disabled state takes
+precedence over every interactive state. `error_text`, failed declared
+constraints, `validation_state`, and a custom validator can all make the field
+invalid; the painted state and exposed validation semantics use the same result.
+
+## Keyboard and semantics
+
+An enabled field with `can_request_focus` participates in ordinary `Tab`
+traversal. Editing supports caret and selection movement, clipboard commands,
+undo configuration, and input method editor composition. `Enter` submits a
+single-line field according to `text_input_action`; a multiline field accepts a
+newline unless its configuration gives the key another meaning. With
+`capture_tab`, `Tab` inserts whitespace instead of leaving the editor.
+
+The semantic node carries editable capability, value, directional selection,
+validation, read-only and required state, input hints, form membership, and the
+actions supplied by the application. Supplemental `semantics` can change a
+generic field into an editable composite role and add `controls`,
+`labelled_by`, `described_by`, or `active_descendant` relationships without
+discarding the text-editing contract.
 
 ## Programmatic editing, scrolling, and forms
 
@@ -188,7 +236,7 @@ remain interactive in generated HTML.
 
 ## Target behavior
 
-| Behavior | Desktop | Android / iOS | Web Canvas | Static site / SSR | Terminal |
+| Behavior | macOS / Windows / Linux | Android / iOS | Web | Static site / SSR | Terminal |
 | --- | --- | --- | --- | --- | --- |
 | Controlled value and selection | Fission editing session | Fission editing session | Fission session mirrored into a hidden native text control | Native HTML control | Terminal editor state |
 | IME/composition | Host IME events | Software-keyboard IME events | Composition events plus complete `input` reconciliation | Browser-native when hydrated | Not advertised |
@@ -213,6 +261,14 @@ punctuation, completion, and secure purpose; Windows and Linux retain their
 native IME and candidate positioning but diagnose unsupported software-keyboard
 configuration. `FISSION_TEXT_SCALE_FACTOR` is an explicit host override for
 platforms without a standard accessibility text-scale source.
+
+Text input has no widget-owned entrance or state-transition animation, so it
+does not require a widget-specific motion alternative. Any motion composed
+around the field still follows the global `Env::motion_preference`. Responsive
+width comes from the parent unless `width` is set. Prefer parent constraints and
+test long labels, validation messages, increased text scale, and multiline
+content at narrow widths. Prefix and suffix widgets consume room inside the
+field and should stay compact enough to leave the editable value usable.
 
 ## Specific advice
 

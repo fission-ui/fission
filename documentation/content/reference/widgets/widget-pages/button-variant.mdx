@@ -14,33 +14,50 @@ It answers a simple design question: how loudly should this action speak? In a r
 ```rust
 use fission::prelude::*;
 let primary = Button {
-variant: ButtonVariant::Filled,
-child: Some(Text::new("Save").into()),
-on_press: Some(save_action),
-..Default::default()
+    variant: ButtonVariant::Primary,
+    child: Some(Text::new("Save").into()),
+    on_press: Some(save_action),
+    ..Default::default()
 };
 
 let secondary = Button {
-variant: ButtonVariant::Outline,
-child: Some(Text::new("Preview").into()),
-on_press: Some(preview_action),
-..Default::default()
+    variant: ButtonVariant::SecondaryGray,
+    child: Some(Text::new("Preview").into()),
+    on_press: Some(preview_action),
+    ..Default::default()
+};
+
+let destructive = Button {
+    variant: ButtonVariant::Destructive,
+    child: Some(Text::new("Delete").into()),
+    on_press: Some(delete_action),
+    ..Default::default()
 };
 ```
 
-The two buttons do the same kind of work in the runtime: both dispatch actions. The variant only changes how much visual emphasis the user sees.
+All three buttons use the same runtime action path. The variant changes visual
+hierarchy, not how the action is dispatched.
 
 ## Choice table
 
 | Choice | Type | Meaning | Notes / default behavior |
 | --- | --- | --- | --- |
-| `Filled` | `ButtonVariant` | High-emphasis button with a filled surface. | Default. Good for the main action in a section or dialog. |
-| `Outline` | `ButtonVariant` | Medium-emphasis button with a bordered surface. | Good for secondary actions that should still look clearly interactive. |
-| `Ghost` | `ButtonVariant` | Low-emphasis button that relies mostly on content and hover/press feedback. | Good for toolbars, menus, inline controls, and dense chrome. |
+| `Filled` / `Primary` | `ButtonVariant` | Primary action hierarchy. | `Filled` is the default compatibility name; both resolve the design system's primary recipe. |
+| `Outline` / `SecondaryGray` | `ButtonVariant` | Neutral secondary hierarchy. | Use for an alternative that should remain clearly actionable without competing with the primary action. |
+| `Ghost` / `TertiaryGray` | `ButtonVariant` | Neutral tertiary hierarchy. | Use for toolbars and low-emphasis utility actions. |
+| `SecondaryColor` | `ButtonVariant` | Brand-colored secondary hierarchy. | Keeps brand emphasis while remaining subordinate to `Primary`. |
+| `TertiaryColor` | `ButtonVariant` | Brand-colored tertiary hierarchy. | Appropriate for a quiet action that still benefits from brand color. |
+| `LinkColor` | `ButtonVariant` | Brand-colored link hierarchy. | Use only when an action should visually read as a link-like control. |
+| `LinkGray` | `ButtonVariant` | Neutral link hierarchy. | Quietest link-like action treatment. |
+| `Destructive` | `ButtonVariant` | Destructive action hierarchy. | Reserve for actions with harmful or difficult-to-reverse consequences. |
 
 ## How to choose
 
-Use `Filled` for the action you most want the user to notice right now. Use `Outline` when the action is important but not dominant. Use `Ghost` when the action should stay available without pulling visual focus away from the main task.
+Use `Primary` for the action you most want the user to notice right now. Use a
+secondary hierarchy when the action is important but not dominant. Use a
+tertiary hierarchy when the action should stay available without pulling focus
+away from the main task. The `Filled`, `Outline`, and `Ghost` names remain useful
+shorthands for the primary, neutral-secondary, and neutral-tertiary choices.
 
 Do not treat variants as random styling choices. If every action on a screen is filled, nothing feels primary. If every action is ghost, important flows can disappear into the interface.
 
@@ -50,7 +67,7 @@ Keep the meaning of each variant stable across your product. If `Filled` means "
 
 ## Production checklist
 
-For `ButtonVariant`, review the fields that change behavior before treating the widget as finished: `Filled`, `Outline`, `Ghost`. The goal is to make the product rule visible in state and actions, not hidden inside ad-hoc construction code.
+For `ButtonVariant`, review the action hierarchy and consequence before treating the control as finished. The goal is to make importance visible without turning every action into the loudest action on the screen.
 
 - If this widget appears inside an interactive flow, keep the surrounding action binding in the parent component and test that the flow still has one clear reducer path.
 - Check the semantics tree for the user-facing label or role that makes this widget understandable without relying only on pixels.
@@ -61,4 +78,3 @@ If a screen starts repeating the same `ButtonVariant` setup, extract a named com
 ## Related
 
 [`Button`](/reference/widgets/button), [`ButtonContentAlign`](/reference/widgets/button-content-align), [`MenuButton`](/reference/widgets/menu-button), and [`SegmentedControl`](/reference/widgets/segmented-control).
-

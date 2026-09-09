@@ -5,9 +5,14 @@ slug: /widgets/menu-item
 ---
 # MenuItem
 
-`MenuItem` is a data type, not a standalone widget.
+`MenuItem` is the compact compatibility record for a flat command, not a
+standalone widget.
 
 You encounter it when building a [`Menu`](/reference/widgets/menu) or [`MenuButton`](/reference/widgets/menu-button). Each item describes one visible row in the menu, and it may also carry an icon source such as scalable vector graphics (SVG) content plus the action that should fire when the user selects it.
+
+Use `MenuActionItem` inside `MenuContent` when a row needs a description,
+shortcut or metadata, selected state, explicit disabled state, or destructive
+tone. Both APIs lower through the same retained menu recipe.
 
 ## Example
 
@@ -15,16 +20,18 @@ You encounter it when building a [`Menu`](/reference/widgets/menu) or [`MenuButt
 use fission::prelude::*;
 
 let items = vec![
-MenuItem {
-    label: "Rename".into(),
-    icon: None,
-    on_select: Some(rename_action),
-},
-MenuItem {
-    label: "Duplicate".into(),
-    icon: None,
-    on_select: Some(duplicate_action),
-},
+    MenuItem {
+        label: "Rename".into(),
+        icon: None,
+        on_select: Some(rename_action),
+        semantics_identifier: Some("file.rename".into()),
+    },
+    MenuItem {
+        label: "Duplicate".into(),
+        icon: None,
+        on_select: Some(duplicate_action),
+        semantics_identifier: Some("file.duplicate".into()),
+    },
 ];
 ```
 
@@ -37,6 +44,7 @@ These items are only data until a parent widget such as `Menu` turns them into v
 | `label` | `String` | Visible text for the menu row. | Required. Keep labels short and action-oriented. |
 | `icon` | `Option<String>` | Optional icon source shown before the label. | Defaults to `None`. Typically a scalable vector graphics (SVG) string used by the icon helper. |
 | `on_select` | `Option<ActionEnvelope>` | Action dispatched when the row is chosen. | Defaults to `None`. An item with no action is visually present but effectively inert. |
+| `semantics_identifier` | `Option<String>` | Stable identifier exposed on the generated `MenuItem` semantic node. | Use it when labels may be duplicated or localized and tests need stable addressing. |
 
 ## How action flow works here
 
@@ -44,13 +52,23 @@ Unlike [`Combobox`](/reference/widgets/combobox) or [`SegmentedControl`](/refere
 
 If the selected value must vary per item, build a different payload for each item when you construct the vector.
 
+The parent turns the record into a semantic `MenuItem` whose visible label is
+also its accessible name. A direct `Menu` retains only its first enabled row in
+page-level Tab order and uses arrow keys to rove through the rest.
+`MenuButton` keeps every popup row out of page-level Tab order and gives the
+opened popup controlled focus entry; see the parent pages for arrow,
+boundary-key, character matching, and dismissal behavior.
+
 ## Specific advice
 
-There is no built-in disabled item styling in the checked-in `Menu` implementation. If you set `on_select` to `None`, the row still appears but does not behave like a real selectable action. For production UIs, prefer explicit affordances rather than relying on a silent inert row.
+`MenuItem` has no disabled field. If `on_select` is `None`, the row still
+appears and remains focusable but has no default action. For an unavailable row
+that must remain visible, use `MenuActionItem::disabled(true)` so focus,
+activation, semantics, and the design-system state agree.
 
 ## Production checklist
 
-For `MenuItem`, review the fields that change behavior before treating the widget as finished: `label`, `icon`, `on_select`. The goal is to make the product rule visible in state and actions, not hidden inside ad-hoc construction code.
+For `MenuItem`, review the fields that change behavior before treating the widget as finished: `label`, `icon`, `on_select`, and `semantics_identifier`. The goal is to make the product rule visible in state and actions, not hidden inside ad-hoc construction code.
 
 - Bind `on_select` to explicit reducer actions and test that the reducer handles unavailable, duplicate, or invalid input safely.
 - Check the semantics tree for the user-facing label or role that makes this widget understandable without relying only on pixels.
@@ -61,4 +79,3 @@ If a screen starts repeating the same `MenuItem` setup, extract a named componen
 ## Related
 
 [`Menu`](/reference/widgets/menu), [`MenuButton`](/reference/widgets/menu-button), [`SelectItem`](/reference/widgets/select-item), and [`Button`](/reference/widgets/button).
-

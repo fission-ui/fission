@@ -1,80 +1,197 @@
 ---
 title: Select
-description: Choose one value from a fixed list using a button-triggered flyout menu.
+description: Choose one controlled value from a fixed list with listbox semantics, keyboard navigation, and anchored dismissal.
 slug: /widgets/select
 ---
 # Select
 
-`Select` is the fixed-choice dropdown in the authoring widget set.
+`Select` is the fixed-choice form control. Use it when the user must choose one
+known option and arbitrary text is not valid. Use
+[`Combobox`](/reference/widgets/combobox) when typing should filter or provide
+the value.
 
-Use it when the user must choose one option from a known list and should not type arbitrary text. The widget renders a trigger button and, when open, a flyout menu of [`SelectItem`](/reference/widgets/select-item) entries.
+State owns the selected value and `is_open`. `selected_label` is presentation,
+not an authoritative identifier; keep the real enum or id in state and derive
+its label when building the control.
 
 ## Example
 
 ```rust
 use fission::prelude::*;
 
-let widget: Widget = Select {
-id: WidgetId::explicit("theme_select"),
-selected_label: Some(view.state().theme_label.clone()),
-items: vec![
-    SelectItem {
-        label: "System".into(),
-        icon: None,
-        on_select: system_theme_action,
-    },
-    SelectItem {
-        label: "Dark".into(),
-        icon: None,
-        on_select: dark_theme_action,
-    },
-],
-is_open: view.state().theme_select_open,
-on_toggle: Some(toggle_theme_select_action),
-placeholder: "Select theme".into(),
-width: Some(240.0),
+let theme_select: Widget = Select {
+    id: WidgetId::explicit("theme-select"),
+    selected_label: view.state().theme_label(),
+    items: vec![
+        SelectItem {
+            label: "System".into(),
+            icon: None,
+            on_select: system_theme_and_close_action,
+            semantics_identifier: Some("theme-select.system".into()),
+        },
+        SelectItem {
+            label: "Dark".into(),
+            icon: None,
+            on_select: dark_theme_and_close_action,
+            semantics_identifier: Some("theme-select.dark".into()),
+        },
+    ],
+    is_open: view.state().theme_select_open,
+    on_toggle: Some(toggle_theme_select_action),
+    trigger_semantics_identifier: Some("theme-select.trigger".into()),
+    placeholder: "Select theme".into(),
+    width: Some(240.0),
 }
 .into();
 ```
 
-The `Select` widget only reflects state. The reducer still decides which item is selected and whether the popup is open.
+Each item action normally stores the new value and closes the popup in one
+explicit reducer transition.
 
-## Field table
+Use the retained anatomy when the list needs groups, headings, separators,
+descriptions, metadata, disabled choices, or an explicit selected indicator:
 
-| Field | Type | Meaning | Notes / default behavior |
+```rust
+use fission::prelude::*;
+
+let selected = view.state().access_level;
+let access_select: Widget = SelectLayout::new(
+    WidgetId::explicit("access-level"),
+    SelectTrigger::new(selected.label())
+        .size(ComponentSize::Sm)
+        .semantics_identifier("access-level.trigger"),
+    SelectContent::new(vec![
+        SelectGroup::new(vec![
+            SelectOption::option("Viewer", selected == AccessLevel::Viewer)
+                .on_select(select_viewer_and_close_action)
+                .into(),
+            SelectOption::option("Editor", selected == AccessLevel::Editor)
+                .on_select(select_editor_and_close_action)
+                .into(),
+            SelectSeparator::new().into(),
+            SelectOption::option("Owner", selected == AccessLevel::Owner)
+                .description("Can manage members and billing")
+                .on_select(select_owner_and_close_action)
+                .into(),
+        ])
+        .label("Access level")
+        .into(),
+    ]),
+)
+.open(view.state().access_select_open)
+.on_toggle(toggle_access_select_action)
+.width(240.0)
+.into();
+```
+
+## Anatomy and design-system behavior
+
+The trigger is a start-aligned outline button containing the selected label or
+placeholder, flexible space, and a chevron. The open portal contains a bounded
+`MenuContent::list_box` surface. Each `SelectItem` becomes a retained
+`MenuActionItem::option`; options can show a leading SVG icon and the selected
+option shows a trailing check.
+
+The trigger uses the active button recipe. Option geometry, typography, and
+default, hover, active, focus, and selected states use
+`theme.components.menu`, as do popup fill, border, radius, spacing, and
+elevation. The placeholder uses secondary text color while a selected label
+uses primary text color.
+
+`SelectLayout`, `SelectTrigger`, and `SelectContent` are the complete retained
+anatomy. The source-compatible `Select` adapts its flat `SelectItem` values into
+that same implementation, so using the richer API does not introduce a second
+visual or interaction model.
+
+## Field reference
+
+| Field | Type | Meaning | Default / notes |
 | --- | --- | --- | --- |
-| `id` | `WidgetId` | Stable identity for the trigger and flyout anchor. | Required. The `Default` id is only suitable for demos. Use a unique id in real apps. |
-| `selected_label` | `Option<String>` | Label currently shown in the closed trigger. | If `None`, the placeholder is shown. |
-| `items` | `Vec<SelectItem>` | Options available in the menu. | Required. |
-| `is_open` | `bool` | Whether the flyout menu is visible. | Controlled by app state. |
-| `on_toggle` | `Option<ActionEnvelope>` | Action dispatched when the trigger is pressed. | Defaults to `None`. Usually toggles `is_open`. |
-| `placeholder` | `String` | Text shown before the user has picked a value. | Defaults to `"Select..."`. |
-| `width` | `Option<f32>` | Width of the trigger and menu. | Defaults to `Some(200.0)` in `Default`. |
+| `id` | `WidgetId` | Stable identity for trigger, listbox, options, and anchor. | `Default` uses a shared demo id; provide a unique durable id in production. |
+| `selected_label` | `Option<String>` | Controlled display label. | `None` shows `placeholder`. The first item with an equal label is marked selected. |
+| `items` | `Vec<SelectItem>` | Fixed options in display order. | Each item owns its action. |
+| `is_open` | `bool` | Controlled popup visibility. | `false` registers no popup. |
+| `on_toggle` | `Option<ActionEnvelope>` | Trigger and dismissal action. | Supply it for opening, outside click, `Escape`, and state restoration. |
+| `trigger_semantics_identifier` | `Option<String>` | Stable identifier for the trigger semantic node. | Does not replace its exposed value. |
+| `placeholder` | `String` | Text shown with no selection. | `"Select..."` in `Default`. |
+| `width` | `Option<f32>` | Logical width supplied to the trigger. | `Some(200.0)` in `Default`; with `None`, the trigger sizes from layout and the flyout still matches its measured anchor width. |
 
-## How selection flows through the app
+`SelectItem` contains `label`, optional SVG `icon`, required `on_select`, and an
+optional stable `semantics_identifier`.
 
-The trigger button only opens or closes the menu. The actual selection happens inside each `SelectItem`'s `on_select` action. That is why a good item action usually does two things in the reducer: update the selected value in state and close the menu.
+For `SelectLayout`, the `SelectTrigger` owns the visible and accessible value,
+placeholder treatment, density, disabled state, and semantic identifier.
+`SelectContent` owns entries, optional width, and maximum height. Entries may be
+`SelectOption`, `SelectGroup`, `SelectLabel`, or `SelectSeparator`; option
+builders add descriptions, icons, metadata, stable ids, selection, and disabled
+state. `SelectLayout` owns the controlled state, popup relationship, anchoring,
+focus behavior, and one logical width shared by its standard trigger and popup.
 
-`selected_label` is only display data. In most apps you should keep the real selected value as an enum or id in state, then derive the label in `component conversion` or a selector.
+## Keyboard and semantics
 
-## Specific advice
+The non-editable trigger exposes `ComboBox`, value, expanded, has-popup
+`ListBox`, and controls relationships. The popup exposes a vertical `ListBox`;
+its rows are `Option` nodes with explicit selected state. While open, the
+trigger's `active_descendant` points to the same stable selected-option id used
+for focus entry and flyout alignment. These relationships are also available to
+the Static site and SSR HTML lowering path.
 
-Use `Select` for fixed choice sets. If users need search, remote results, or typeahead behavior, move to [`Combobox`](/reference/widgets/combobox). Also be deliberate about ids: because open state is explicit and portals are anchored by id, a unique `WidgetId` matters in real screens.
+Wrap `Select` in [`FormControl`](/reference/widgets/form-control) when it needs
+a visible field label, supporting description, required state, or validation
+message. The selected value or placeholder is not a substitute for the field's
+name.
+
+Opening moves focus to the selected option when its label is present, otherwise
+to the first option when one exists. `ArrowUp` and `ArrowDown` wrap through
+options, `Home` and `End` reach the boundaries, and one unmodified character
+moves to the next label beginning with that character. Matching is
+single-character, not buffered multi-character search. `Enter` and `Space`
+activate the focused option. `Escape` dismisses and restores the trigger. `Tab`
+and reverse `Tab` dismiss the controlled popup, continue to the next eligible
+outside target, and do not add every option to page-level Tab order.
+
+An outside pointer press uses the same dismissal action. While closed there is
+no input backdrop and the control cannot dispatch a dismissal action.
+
+## Responsive, target, and motion behavior
+
+When `width` is set, choose a value that remains usable in the narrowest parent
+constraint and with long translated options. The listbox scrolls once its
+content exceeds the standard 300-point maximum height; it is not a virtualized
+large-data browser.
+
+The popup matches the trigger width, uses Start alignment, and keeps a
+four-point gap for ordinary side placement. When a selected label matches an
+option, the open flyout aligns that retained option's vertical center with the
+trigger and clamps the complete surface within the viewport. Without a selected
+option, automatic placement prefers below and moves above when the lower
+placement would overflow and the upper placement fits. Low-level custom
+flyouts can request the same retained-descendant behavior with
+`FlyoutOptions::with_alignment_target(...)`; `Select` wires it automatically.
+
+Horizontal placement is clamped to the viewport. Logical Start anchors to the
+trigger's left edge in left-to-right layout and its right edge in right-to-left
+layout.
+
+Layout direction controls the trigger row, option anatomy, and flyout edge.
+Paragraph bidi and shaping remain governed independently by the text system's
+`TextDirection`; they are not inferred from layout direction.
+
+`Select` currently uses no popup animation. Any motion composed around the
+trigger or popup still follows the global `Env::motion_preference`, so no
+select-specific preference branch is required. Plain Static site and SSR output
+can emit the semantic control state, but the controlled open/select reducer loop
+requires an interactive runtime or browser island.
 
 ## Production checklist
 
-For `Select`, review the fields that change behavior before treating the widget as finished: `id`, `selected_label`, `items`, `is_open`, `on_toggle`, `placeholder`. The goal is to make the product rule visible in state and actions, not hidden inside ad-hoc construction code.
-
-- Bind `on_toggle` to explicit reducer actions and test that the reducer handles unavailable, duplicate, or invalid input safely.
-- When child widgets are generated from data, give reordered or filtered rows an explicit `WidgetId` so retained local state and scroll behavior do not drift between items.
-- Set `id` only when identity must be stable across filtering, reordering, diagnostics, or tests; otherwise let Fission derive identity from structure.
-- Check the semantics tree for the user-facing label or role that makes this widget understandable without relying only on pixels.
-- Prefer parent layout and design-system sizing first; use explicit size or spacing fields when the product layout requires that constraint on this widget specifically.
-- Add at least one component or harness test that confirms the visible text, semantic role, action dispatch, and layout constraint that matter for this widget in context.
-
-If a screen starts repeating the same `Select` setup, extract a named component around this widget. That keeps the reference API small while making product code easier to read and safer for generated code to copy.
+- Keep a real id or enum as the selected state and derive `selected_label`.
+- Make item reducers update selection and close state atomically when that is
+  the expected outcome.
+- Verify selected state, arrow wrapping, boundary keys, one-character matching,
+  activation, dismissal, focus restoration, scrolling, and outside clicks.
+- Use stable semantic identifiers when labels are duplicated or localized.
 
 ## Related
 
 [`SelectItem`](/reference/widgets/select-item), [`Menu`](/reference/widgets/menu), [`MenuButton`](/reference/widgets/menu-button), and [`Combobox`](/reference/widgets/combobox).
-

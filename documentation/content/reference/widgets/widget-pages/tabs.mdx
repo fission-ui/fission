@@ -1,64 +1,213 @@
 ---
 title: Tabs
-description: Switch between a small number of peer content panels using explicit active-index state.
+description: Switch between peer panels with controlled selection, roving keyboard focus, semantic relationships, and design-system styling.
 slug: /widgets/tabs
 ---
 # Tabs
 
-`Tabs` is the peer-section switcher for one screen region.
+`Tabs` switches one region among a small number of peer sections without
+leaving the current screen. Application state owns `active_index`; each
+`TabItem` supplies the action that requests a new index.
 
-Use it when several sections belong to the same level of navigation and users should move between them without leaving the current screen. Tabs work best when the number of choices is small and each tab represents a clear slice of the same feature area.
+Use tabs when all choices have equal information-architecture weight and users
+benefit from switching quickly. Use routing or another disclosure pattern when
+the choices form a hierarchy or no longer fit comfortably in one row.
 
 ## Example
 
 ```rust
 use fission::prelude::*;
 
-let widget: Widget = Tabs {
+let settings_tabs: Widget = Tabs {
     active_index: view.state().active_settings_tab,
     items: vec![
         TabItem {
             title: "General".into(),
             content: general_settings_node,
             on_press: Some(select_general_tab_action),
+            semantics_identifier: Some("settings.general".into()),
         },
         TabItem {
             title: "Security".into(),
             content: security_settings_node,
             on_press: Some(select_security_tab_action),
+            semantics_identifier: Some("settings.security".into()),
         },
     ],
+    size: ComponentSize::Md,
+    motion: None,
 }
 .into();
 ```
 
-## Field table
+Focus movement and selection are separate. Arrow keys move roving focus; the
+focused tab's `on_press` action updates `active_index` when the user activates
+it.
 
-| Field | Type | Meaning | Notes / default behavior |
+## Anatomy and design-system behavior
+
+The widget contains a horizontal tab list, one trigger per item, and the active
+item's panel beneath it. Only active content is built into the rendered panel.
+The selected trigger may use a surface, border, shadow, or indicator according
+to the active design system.
+
+`theme.components.tabs` is authoritative for the track recipe, size recipe,
+default, hover, focus, and active trigger states, typography, spacing, and
+indicator height. The widget consumes arbitrary recipe fills, borders, radii,
+padding, dimensions, and shadow layers instead of replacing them with fixed
+widget chrome.
+
+Use the named anatomy when triggers need custom retained presentation or the
+active panel needs an explicit retained boundary:
+
+```rust
+use fission::prelude::*;
+
+let general_trigger_id = WidgetId::explicit("settings.general.trigger");
+let general_panel_id = WidgetId::explicit("settings.general.panel");
+let security_trigger_id = WidgetId::explicit("settings.security.trigger");
+let security_panel_id = WidgetId::explicit("settings.security.panel");
+let showing_general = view.state().active_settings_tab == SettingsTab::General;
+
+let active_panel: Widget = if showing_general {
+    TabPanel::new(
+        general_panel_id,
+        general_trigger_id,
+        general_settings_node,
+    )
+    .into()
+} else {
+    TabPanel::new(
+        security_panel_id,
+        security_trigger_id,
+        security_settings_node,
+    )
+    .into()
+};
+
+let settings_tabs: Widget = TabsLayout::new(
+    TabList::new(
+        WidgetId::explicit("settings.tabs.list"),
+        vec![
+            TabTrigger::new(
+                general_trigger_id,
+                general_panel_id,
+                "General",
+            )
+            .selected(showing_general)
+            .on_press(select_general_tab_action)
+            .semantics_identifier("settings.general"),
+            TabTrigger::custom(
+                security_trigger_id,
+                security_panel_id,
+                "Security",
+                security_tab_label,
+            )
+            .selected(!showing_general)
+            .on_press(select_security_tab_action)
+            .semantics_identifier("settings.security"),
+        ],
+    ),
+    active_panel,
+)
+.into();
+```
+
+| Type | Responsibility |
+| --- | --- |
+| `TabsLayout` | Joins one retained `TabList` to the active panel or retained panel transition. |
+| `TabList` | Owns the horizontal `TabList` role and triggers in logical navigation order. |
+| `TabTrigger` | Owns a stable trigger ID, controlled panel ID, accessible label, selected state, action, density, and optional custom child. |
+| `TabPanel` | Owns the active panel's ID, content, `TabPanel` role, and `labelled_by` relationship to its trigger. |
+
+The named API is deliberately controlled. The application must mark the active
+`TabTrigger`, supply the corresponding `TabPanel`, and keep the trigger's
+`panel_id` paired with the panel's `id`. `TabTrigger::custom` keeps its `label`
+as the accessible name while rendering the supplied child. `TabsLayout` accepts
+any retained content widget, so a panel can be wrapped in application-owned
+`Presence` or `Motion` without weakening the tab-list relationships.
+
+## Field reference
+
+| Field | Type | Meaning | Default / notes |
 | --- | --- | --- | --- |
-| `active_index` | `usize` | Which tab is currently selected. | Controlled by app state. |
-| `items` | `Vec<TabItem>` | Tab definitions in display order. | Defaults to an empty list. |
+| `active_index` | `usize` | Controlled selected item index. | An out-of-range index resolves to the first item so trigger, panel, and keyboard entry remain coherent. An empty list still renders no selection or panel. |
+| `items` | `Vec<TabItem>` | Tabs in visual, semantic, and keyboard order. | Empty by default. |
+| `size` | `ComponentSize` | Design-system size slot. | Defaults to `Md`; the default design also defines `Sm`. |
+| `motion` | `Option<TabsMotion>` | Optional indicator and content motion. | Defaults to `None`. Fade, slide, indicator, and composed presets are available. |
 
-## State ownership and rendering behavior
+Each `TabItem` contains a visible `title`, retained `content`, optional
+`on_press`, and optional stable `semantics_identifier`.
 
-`Tabs` does not own selection state. Each tab button emits its own `on_press` action, and the reducer updates `active_index`. The checked-in widget renders only the active tab's content below the tab bar.
+For the named API, `TabList::new(id, tabs)` requires stable trigger values in
+logical order. `TabTrigger::new(id, panel_id, label)` creates a standard
+unselected `Md` trigger; use `.selected(...)`, `.on_press(...)`, `.size(...)`,
+`.disabled(...)`, and `.semantics_identifier(...)` to configure it.
+`TabTrigger::custom(...)` adds arbitrary retained presentation without
+replacing its accessible label. `TabPanel::new(id, labelled_by, child)` relates
+the panel to the trigger that labels it. A disabled trigger remains visible but
+exposes no action, cannot receive focus, and cannot be the rendered selection.
 
-This is an important architectural choice. Even though tabs feel interactive, they still follow the same explicit state loop as the rest of Fission.
+## Keyboard and semantics
 
-## Specific advice
+The list exposes a horizontal `TabList` role. Every trigger exposes `Tab`, its
+selected state, and a `controls` relationship to its panel. The active panel
+exposes `TabPanel` and a `labelled_by` relationship back to its trigger.
 
-Keep tab counts small. If the bar starts wrapping, scrolling, or forcing cryptic labels, the information architecture usually wants a different pattern.
+Exactly one enabled trigger is rendered as selected and participates in
+page-level `Tab` traversal. The resolved trigger is the first enabled selected
+trigger, or the first enabled trigger when no enabled trigger is selected. This
+normalization clears disabled and duplicate rendered selections. It does not
+dispatch an action or mutate application state, so the next application rebuild
+can supply a corrected controlled value. A list containing only disabled
+triggers has no rendered selection or keyboard entry point. The compatibility
+`Tabs` API resolves an out-of-range `active_index` to its first item so the
+selected trigger and active panel remain coherent.
+
+Once a tab has focus, `ArrowLeft` and `ArrowRight` move through enabled tabs and
+wrap; `Home` and `End` move to the first and last enabled tabs. Disabled tabs
+are skipped. Vertical arrows remain owned by the horizontal composite without
+moving focus into unrelated controls. `Enter` or `Space` dispatches the focused
+tab's action. Arrow movement does not select a tab automatically, and tabs do
+not provide character matching.
+
+In right-to-left layout, the tab row paints from right to left and horizontal
+roving follows the physical keys: `ArrowLeft` advances to the next stored item,
+while `ArrowRight` moves to the previous one. Source order and page-level `Tab`
+order remain logical. Paragraph bidi and shaping remain governed independently
+by the text system's `TextDirection`; they are not inferred from layout
+direction.
+
+## Responsive, target, and reduced-motion behavior
+
+The tab list is one non-wrapping horizontal row inside a horizontal overflow
+scroller. When the track is wider than the available space, users can scroll to
+the remaining triggers without a permanently visible scrollbar. This is true
+for both `Tabs` and `TabsLayout`; neither API wraps or changes the logical order
+at narrow widths. Keep labels concise and test translated labels and increased
+text scale. Panel content owns its own responsive layout.
+
+Indicator motion is visible only when the active theme gives the indicator a
+non-zero height. Content fade and slide presets remain independent. With
+`Env::motion_preference = MotionPreference::Reduced`, indicator, fade, slide,
+and any custom registered tracks resolve to their targets immediately. The Web
+canvas shell reads and follows `prefers-reduced-motion` unless an application
+`sync_env` callback overrides it; other interactive shells and tests honor an
+`Env` value supplied through `with_env` or `with_sync_env`. Static site and SSR
+output emit immediate final-state animation and transitions for the same
+browser preference. Plain Static site and SSR output can render the selected
+semantic state but need an interactive runtime or browser island to change tabs
+on the client.
 
 ## Production checklist
 
-For `Tabs`, review the fields that change behavior before treating the widget as finished: `active_index`, `items`. The goal is to make the product rule visible in state and actions, not hidden inside ad-hoc construction code.
-
-- If this widget appears inside an interactive flow, keep the surrounding action binding in the parent component and test that the flow still has one clear reducer path.
-- When child widgets are generated from data, give reordered or filtered rows an explicit `WidgetId` so retained local state and scroll behavior do not drift between items.
-- Check the semantics tree for the user-facing label or role that makes this widget understandable without relying only on pixels.
-- Add at least one component or harness test that confirms the visible text, semantic role, action dispatch, and layout constraint that matter for this widget in context.
-
-If a screen starts repeating the same `Tabs` setup, extract a named component around this widget. That keeps the reference API small while making product code easier to read and safer for generated code to copy.
+- Keep `active_index` and each item's action in one explicit state transition.
+- Verify semantic selected, controls, and labelled-by relationships.
+- Test page `Tab`, arrow wrapping, disabled-item skipping, boundary keys,
+  activation, and focus after reconversion.
+- Test long translations, increased text scale, narrow widths, and
+  right-to-left ordering; switch patterns when one row no longer works.
+- Give localized or duplicate titles stable `semantics_identifier` values.
 
 ## Related
 
