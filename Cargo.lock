@@ -3389,6 +3389,7 @@ dependencies = [
  "fission-design-system-codegen",
  "fission-ir",
  "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -9898,6 +9899,7 @@ name = "widget-gallery"
 version = "0.14.1"
 dependencies = [
  "anyhow",
+ "console_error_panic_hook",
  "fission",
  "fission-test",
  "fission-test-driver",
@@ -9905,6 +9907,7 @@ dependencies = [
  "lazy_static",
  "serde",
  "serde_json",
+ "wasm-bindgen",
 ]
 
 [[package]]

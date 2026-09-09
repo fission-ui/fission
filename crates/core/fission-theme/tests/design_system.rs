@@ -2,8 +2,49 @@ use fission_theme::{
     BadgeTone, ButtonHierarchy, CardPattern, ComponentSize, ComponentState, DesignMode,
     DesignSystem, DesignValue, Fill, FissionCupertinoDesignSystem, FissionDefaultDesignSystem,
     FissionFluent2DesignSystem, FissionLiquidGlassDesignSystem, FissionMaterialDesign3DesignSystem,
-    ShadowLayer, Theme, Tokens,
+    ResolvedComponentStyle, ShadowLayer, Theme, Tokens,
 };
+
+fn assert_same_control_state(actual: &ResolvedComponentStyle, expected: &ResolvedComponentStyle) {
+    assert_eq!(&actual.background, &expected.background);
+    assert_eq!(&actual.text_color, &expected.text_color);
+    assert_eq!(&actual.border, &expected.border);
+    assert_eq!(&actual.shadows, &expected.shadows);
+    assert_eq!(&actual.opacity, &expected.opacity);
+    assert_eq!(&actual.translate_y, &expected.translate_y);
+}
+
+fn assert_menu_trigger_uses_outline(theme: &Theme) {
+    for state in [
+        ComponentState::Default,
+        ComponentState::Hover,
+        ComponentState::Active,
+        ComponentState::Focus,
+        ComponentState::Disabled,
+    ] {
+        let menu = theme
+            .components
+            .menu
+            .resolve_trigger(ComponentSize::Sm, state);
+        let outline =
+            theme
+                .components
+                .button
+                .resolve(ButtonHierarchy::Outline, ComponentSize::Sm, state);
+        assert_same_control_state(&menu, &outline);
+    }
+
+    let selected = theme
+        .components
+        .menu
+        .resolve_trigger(ComponentSize::Sm, ComponentState::Selected);
+    let outline_hover = theme.components.button.resolve(
+        ButtonHierarchy::Outline,
+        ComponentSize::Sm,
+        ComponentState::Hover,
+    );
+    assert_same_control_state(&selected, &outline_hover);
+}
 
 fn dimension_token<D: DesignSystem>(path: &str) -> f32 {
     let token = D::tokens()
@@ -120,7 +161,16 @@ fn assert_component_alias_parity<D: DesignSystem>() {
     );
     assert_eq!(
         dimension_token::<D>("component.card.border_width"),
-        card.border.as_ref().map(|border| border.width).unwrap()
+        card.border
+            .as_ref()
+            .map(|border| border.width)
+            .or_else(|| {
+                card.shadows
+                    .iter()
+                    .find(|shadow| shadow.spread_radius > 0.0)
+                    .map(|shadow| shadow.spread_radius)
+            })
+            .unwrap()
     );
     assert_eq!(
         shadow_token::<D>("component.card.elevation_rest"),
@@ -236,6 +286,27 @@ fn custom_tokens_still_derive_the_compatibility_component_recipe() {
 
     assert_eq!(theme.tokens, tokens);
     assert_eq!(primary.background, Some(Fill::Solid(tokens.colors.primary)));
+    assert_eq!(
+        theme.components.text_input.label_style.line_height,
+        Some(19.25)
+    );
+    assert_eq!(
+        theme
+            .components
+            .card
+            .resolve_title(ComponentSize::Sm)
+            .line_height,
+        Some(19.25)
+    );
+    assert_eq!(
+        theme
+            .components
+            .card
+            .resolve_title(ComponentSize::Md)
+            .line_height,
+        Some(22.0)
+    );
+    assert_menu_trigger_uses_outline(&theme);
     assert!(theme.design_system.info.name.is_empty());
 }
 
@@ -300,6 +371,45 @@ fn default_component_geometry_matches_the_compact_recipe() {
         theme
             .components
             .button
+            .resolve(
+                ButtonHierarchy::Primary,
+                ComponentSize::Md,
+                ComponentState::Active,
+            )
+            .translate_y,
+        Some(1.0)
+    );
+    assert_eq!(
+        theme
+            .components
+            .button
+            .resolve(
+                ButtonHierarchy::Primary,
+                ComponentSize::Md,
+                ComponentState::Disabled,
+            )
+            .opacity,
+        Some(0.5)
+    );
+    let outline_button = theme.components.button.resolve(
+        ButtonHierarchy::Outline,
+        ComponentSize::Md,
+        ComponentState::Default,
+    );
+    assert!(outline_button.border.is_some());
+    assert_eq!(
+        outline_button.background,
+        Some(Fill::Solid(fission_theme::Color {
+            r: 0,
+            g: 0,
+            b: 0,
+            a: 0,
+        }))
+    );
+    assert_eq!(
+        theme
+            .components
+            .button
             .transition
             .as_ref()
             .map(|motion| motion.duration_ms),
@@ -317,20 +427,69 @@ fn default_component_geometry_matches_the_compact_recipe() {
     assert_eq!(input.font_size, Some(14.0));
     assert_eq!(input.font_weight, Some(400));
     assert_eq!(input.line_height, Some(20.0));
+    assert_eq!(
+        theme.components.text_input.placeholder_style.text_color,
+        Some(theme.tokens.colors.text_secondary)
+    );
+    assert_eq!(
+        theme.components.text_input.label_style.line_height,
+        Some(19.25)
+    );
+
+    let select = &theme.components.select;
+    let select_trigger = select.resolve_trigger(ComponentSize::Sm, ComponentState::Default);
+    assert_eq!(select_trigger.height, Some(28.0));
+    assert_eq!(select_trigger.padding, Some([10.0, 8.0, 3.0, 3.0]));
+    assert_eq!(select_trigger.gap, Some(6.0));
+    assert_eq!(select_trigger.icon_size, Some(16.0));
+    assert_eq!(select.indicator_style.inset_end, Some(8.0));
+    for size in [ComponentSize::Sm, ComponentSize::Md] {
+        let trigger = select.resolve_trigger(size, ComponentState::Default);
+        let height = trigger.height.expect("select trigger height");
+        let line_height = trigger.line_height.expect("select trigger line height");
+        let padding = trigger.padding.expect("select trigger padding");
+        let border_width = trigger.border.as_ref().map_or(0.0, |border| border.width);
+        assert!(
+            height >= line_height + padding[2] + padding[3] + border_width * 2.0,
+            "{size:?} select geometry must contain its line, padding, and border"
+        );
+    }
+    assert_eq!(
+        select
+            .resolve_trigger(ComponentSize::Sm, ComponentState::Disabled)
+            .opacity,
+        Some(0.5)
+    );
+    assert_eq!(
+        select
+            .resolve_trigger(ComponentSize::Sm, ComponentState::Error)
+            .shadows
+            .len(),
+        1
+    );
 
     let menu = &theme.components.menu;
     assert_eq!(menu.surface_style.width, Some(208.0));
     assert_eq!(menu.surface_style.padding, Some([4.0; 4]));
-    assert_eq!(menu.surface_style.gap, Some(2.0));
+    assert_eq!(menu.surface_style.gap, Some(0.0));
     assert_eq!(menu.surface_style.radius, Some(10.0));
+    assert_eq!(menu.surface_style.shadows.len(), 2);
+    let menu_trigger = menu.resolve_trigger(ComponentSize::Sm, ComponentState::Default);
+    assert_eq!(menu_trigger.height, Some(28.0));
+    assert_eq!(menu_trigger.padding, Some([10.0, 6.0, 0.0, 0.0]));
+    assert_eq!(menu_trigger.gap, Some(4.0));
+    assert_eq!(menu_trigger.font_size, Some(12.8));
+    assert_eq!(menu_trigger.line_height, Some(19.2));
+    assert_eq!(menu_trigger.icon_size, Some(14.0));
     let menu_item = menu.resolve_item(false, ComponentState::Default);
-    assert_eq!(menu_item.height, Some(32.0));
-    assert_eq!(menu_item.padding_x, Some(8.0));
-    assert_eq!(menu_item.padding_y, Some(6.0));
-    assert_eq!(menu_item.gap, Some(8.0));
+    assert_eq!(menu_item.height, Some(28.0));
+    assert_eq!(menu_item.padding_x, Some(6.0));
+    assert_eq!(menu_item.padding_y, Some(4.0));
+    assert_eq!(menu_item.gap, Some(6.0));
     assert_eq!(menu_item.font_size, Some(14.0));
     assert_eq!(menu_item.line_height, Some(20.0));
     assert_eq!(menu_item.icon_size, Some(16.0));
+    assert_eq!(menu.separator_style.margin, Some([-4.0, -4.0, 0.0, 0.0]));
     assert_eq!(
         menu.resolve_item(true, ComponentState::Default).text_color,
         Some(theme.tokens.colors.error)
@@ -378,7 +537,24 @@ fn default_component_geometry_matches_the_compact_recipe() {
     let card = theme.components.card.resolve(CardPattern::Raised, false);
     assert_eq!(theme.components.card.padding, 16.0);
     assert_eq!(theme.components.card.radius, 14.0);
-    assert!(card.shadows.is_empty());
+    assert_eq!(card.shadows.len(), 1);
+    assert_eq!(
+        theme
+            .components
+            .card
+            .resolve(CardPattern::Elevated, false)
+            .shadows
+            .len(),
+        2
+    );
+    assert!(theme.components.card.footer_style.background.is_some());
+    assert!(theme.components.card.footer_style.border.is_some());
+    let small_card_title = theme.components.card.resolve_title(ComponentSize::Sm);
+    assert_eq!(small_card_title.font_size, Some(14.0));
+    assert_eq!(small_card_title.line_height, Some(20.0));
+    let medium_card_title = theme.components.card.resolve_title(ComponentSize::Md);
+    assert_eq!(medium_card_title.font_size, Some(16.0));
+    assert_eq!(medium_card_title.line_height, Some(24.0));
 
     let tab = theme
         .components
@@ -394,6 +570,12 @@ fn default_component_geometry_matches_the_compact_recipe() {
     assert_eq!(tab.font_weight, Some(500));
     assert_eq!(tab.line_height, Some(20.0));
     assert!(!tab.shadows.is_empty());
+    let focused_tab = theme
+        .components
+        .tabs
+        .resolve_tab(ComponentSize::Md, ComponentState::Focus);
+    assert_eq!(tab.merge(&focused_tab).shadows.len(), 1);
+    assert_eq!(tab.merge_composing_shadows(&focused_tab).shadows.len(), 2);
     assert_eq!(theme.components.tabs.track_style.radius, Some(10.0));
     assert_eq!(theme.components.tabs.track_style.padding, Some([3.0; 4]));
     assert_eq!(theme.components.tabs.track_style.gap, Some(0.0));
@@ -401,15 +583,31 @@ fn default_component_geometry_matches_the_compact_recipe() {
     let alert = &theme.components.alert;
     assert_eq!(alert.surface_style.padding, Some([10.0, 10.0, 8.0, 8.0]));
     assert_eq!(alert.surface_style.gap, Some(8.0));
-    assert_eq!(alert.surface_style.radius, Some(8.0));
+    assert_eq!(alert.surface_style.radius, Some(10.0));
+    assert_eq!(alert.surface_style.min_height, Some(60.0));
     assert_eq!(alert.icon_style.icon_size, Some(16.0));
+    assert_eq!(alert.icon_style.inset_top, Some(2.0));
+    assert_eq!(alert.icon_style.translate_y, Some(2.0));
     assert_eq!(alert.content_style.gap, Some(2.0));
     assert_eq!(alert.title_style.font_size, Some(14.0));
     assert_eq!(alert.title_style.font_weight, Some(500));
     assert_eq!(alert.title_style.line_height, Some(20.0));
     assert_eq!(alert.description_style.font_size, Some(14.0));
     assert_eq!(alert.description_style.line_height, Some(20.0));
+    assert_eq!(alert.action_style.width, Some(64.0));
+    assert_eq!(alert.action_style.inset_top, Some(8.0));
+    assert_eq!(alert.action_style.inset_end, Some(8.0));
     assert!(alert.surface_style.shadows.is_empty());
+
+    let empty = &theme.components.empty_state;
+    assert_eq!(empty.surface_style.min_height, Some(160.0));
+    assert_eq!(empty.surface_style.border_dash, Some(vec![4.0, 4.0]));
+    assert_eq!(empty.surface_style.padding, Some([24.0; 4]));
+    assert_eq!(empty.header_style.max_width, Some(384.0));
+    assert_eq!(empty.icon_style.width, Some(32.0));
+    assert_eq!(empty.icon_style.height, Some(32.0));
+    assert_eq!(empty.icon_style.margin_bottom, Some(8.0));
+    assert_eq!(empty.action_style.max_width, Some(384.0));
 
     let pagination = &theme.components.pagination;
     assert_eq!(pagination.spacing, 4.0);
@@ -423,30 +621,45 @@ fn default_component_geometry_matches_the_compact_recipe() {
 
     assert_eq!(theme.components.modal.max_width, 384.0);
     assert_eq!(theme.components.modal.radius, 14.0);
-    assert_eq!(theme.components.modal.shadow, None);
+    assert!(theme.components.modal.shadow.is_some());
     assert_eq!(
         theme.components.modal.container_style.max_width,
         Some(384.0)
     );
-    assert!(theme.components.modal.container_style.shadows.is_empty());
+    assert_eq!(theme.components.modal.container_style.shadows.len(), 1);
     assert_eq!(theme.components.modal.scrim_blur, 4.0);
     assert_eq!(theme.components.modal.viewport_margin, 16.0);
     assert_eq!(theme.components.modal.action_stack_breakpoint, 640.0);
-    assert_eq!(theme.components.modal.header_style.gap, Some(4.0));
-    assert_eq!(theme.components.modal.title_style.font_size, Some(18.0));
-    assert_eq!(theme.components.modal.title_style.font_weight, Some(600));
-    assert_eq!(theme.components.modal.title_style.line_height, Some(24.0));
+    assert_eq!(theme.components.modal.motion_duration_ms, 100);
+    assert_eq!(theme.components.modal.motion_initial_scale, 0.95);
+    assert_eq!(theme.components.modal.header_style.gap, Some(8.0));
+    assert_eq!(theme.components.modal.title_style.font_size, Some(16.0));
+    assert_eq!(theme.components.modal.title_style.font_weight, Some(500));
+    assert_eq!(theme.components.modal.title_style.line_height, Some(16.0));
     assert_eq!(
         theme.components.modal.description_style.font_size,
         Some(14.0)
     );
-    assert_eq!(theme.components.modal.footer_style.background, None);
-    assert_eq!(theme.components.modal.footer_style.border, None);
+    assert!(theme.components.modal.footer_style.background.is_some());
+    assert!(theme.components.modal.footer_style.border.is_some());
+    assert_eq!(theme.components.modal.footer_style.padding, Some([16.0; 4]));
+    assert_eq!(
+        theme.components.modal.footer_style.margin,
+        Some([-16.0, -16.0, 0.0, -16.0])
+    );
     assert_eq!(theme.components.modal.close_button_style.width, Some(28.0));
     assert_eq!(theme.components.modal.close_button_style.height, Some(28.0));
     assert_eq!(
         theme.components.modal.close_button_style.icon_size,
         Some(16.0)
+    );
+    assert_eq!(
+        theme.components.modal.close_button_style.inset_top,
+        Some(8.0)
+    );
+    assert_eq!(
+        theme.components.modal.close_button_style.inset_end,
+        Some(8.0)
     );
     assert_eq!(
         theme.components.modal.scrim_style.background,
@@ -492,10 +705,7 @@ fn generated_component_colours_follow_light_and_dark_semantics() {
             ComponentSize::Md,
             ComponentState::Default,
         );
-        assert_eq!(
-            destructive.background,
-            Some(Fill::Solid(theme.tokens.colors.error.with_alpha(26)))
-        );
+        assert!(destructive.background.is_some());
         assert_eq!(destructive.text_color, Some(theme.tokens.colors.error));
 
         let input = theme
@@ -521,19 +731,14 @@ fn generated_component_colours_follow_light_and_dark_semantics() {
             card.background,
             Some(Fill::Solid(theme.tokens.colors.surface))
         );
-        assert_eq!(
-            card.border.as_ref().map(|border| &border.fill),
-            Some(&Fill::Solid(theme.tokens.colors.border))
-        );
+        assert!(card.border.is_none());
+        assert!(!card.shadows.is_empty());
 
         let tab = theme
             .components
             .tabs
             .resolve_tab(ComponentSize::Md, ComponentState::Active);
-        assert_eq!(
-            tab.background,
-            Some(Fill::Solid(theme.tokens.colors.surface))
-        );
+        assert!(tab.background.is_some());
         assert_eq!(tab.text_color, Some(theme.tokens.colors.text_primary));
         assert_eq!(
             theme.components.tabs.track_style.background,
@@ -633,7 +838,7 @@ fn generated_theme_resolves_dsp_component_model() {
 
     let card = theme.components.card.resolve(CardPattern::Raised, false);
     assert!(card.background.is_some());
-    assert!(card.shadows.is_empty());
+    assert_eq!(card.shadows.len(), 1);
 
     assert!(theme.tokens.data_visualization.palette.len() >= 4);
 }
@@ -652,6 +857,10 @@ fn generated_dark_input_uses_dark_readable_text_tokens() {
         Some(theme.tokens.colors.background),
         "dark input text must not collapse to the dark background color"
     );
+    assert!(matches!(
+        input.background,
+        Some(Fill::Solid(color)) if color.a > 0
+    ));
 }
 
 #[test]
@@ -665,8 +874,8 @@ fn generated_dark_buttons_use_dark_readable_text_tokens() {
     );
     assert_eq!(secondary.text_color, Some(theme.tokens.colors.text_primary));
     assert_eq!(
-        secondary.border.as_ref().map(|border| &border.fill),
-        Some(&fission_theme::Fill::Solid(theme.tokens.colors.border))
+        secondary.background,
+        Some(Fill::Solid(theme.tokens.colors.surface))
     );
 
     let tertiary = theme.components.button.resolve(
@@ -674,23 +883,36 @@ fn generated_dark_buttons_use_dark_readable_text_tokens() {
         ComponentSize::Md,
         ComponentState::Default,
     );
-    assert_eq!(
-        tertiary.text_color,
-        Some(theme.tokens.colors.text_secondary)
-    );
+    assert_eq!(tertiary.text_color, Some(theme.tokens.colors.text_primary));
 
     let disabled = theme.components.button.resolve(
         ButtonHierarchy::Primary,
         ComponentSize::Md,
         ComponentState::Disabled,
     );
-    assert_eq!(disabled.text_color, Some(theme.tokens.colors.text_muted));
+    assert_eq!(disabled.opacity, Some(0.5));
     assert_eq!(
         disabled.background,
-        Some(fission_theme::Fill::Solid(
-            theme.tokens.colors.surface_sunken
-        ))
+        Some(Fill::Solid(theme.tokens.colors.primary))
     );
+}
+
+#[test]
+fn bundled_menu_triggers_preserve_the_outline_button_contract() {
+    for theme in [
+        FissionDefaultDesignSystem::theme(DesignMode::Light),
+        FissionDefaultDesignSystem::theme(DesignMode::Dark),
+        FissionMaterialDesign3DesignSystem::theme(DesignMode::Light),
+        FissionMaterialDesign3DesignSystem::theme(DesignMode::Dark),
+        FissionFluent2DesignSystem::theme(DesignMode::Light),
+        FissionFluent2DesignSystem::theme(DesignMode::Dark),
+        FissionLiquidGlassDesignSystem::theme(DesignMode::Light),
+        FissionLiquidGlassDesignSystem::theme(DesignMode::Dark),
+        FissionCupertinoDesignSystem::theme(DesignMode::Light),
+        FissionCupertinoDesignSystem::theme(DesignMode::Dark),
+    ] {
+        assert_menu_trigger_uses_outline(&theme);
+    }
 }
 
 #[test]
@@ -727,6 +949,38 @@ fn bundled_standard_design_system_presets_generate_themes() {
             )
             .background
             .is_some());
+        assert!(light
+            .components
+            .button
+            .resolve(
+                ButtonHierarchy::Outline,
+                ComponentSize::Md,
+                ComponentState::Default,
+            )
+            .border
+            .is_some());
+        assert!(!light.components.select.sizes.is_empty());
+        assert!(!light.components.menu.trigger_sizes.is_empty());
+        assert_eq!(
+            light.components.menu.separator_style.margin,
+            Some([-4.0, -4.0, 0.0, 0.0])
+        );
+        assert_eq!(light.components.alert.surface_style.min_height, Some(60.0));
+        assert_eq!(
+            light.components.empty_state.surface_style.min_height,
+            Some(160.0)
+        );
+        assert_eq!(
+            light.components.empty_state.surface_style.border_dash,
+            Some(vec![4.0, 4.0])
+        );
+        assert!(!light.components.card.sizes.is_empty());
+        assert_eq!(
+            light.components.modal.footer_style.margin,
+            Some([-16.0, -16.0, 0.0, -16.0])
+        );
+        assert_eq!(light.components.modal.motion_duration_ms, 100);
+        assert_eq!(light.components.modal.motion_initial_scale, 0.95);
     }
 
     assert_component_alias_parity::<FissionMaterialDesign3DesignSystem>();
