@@ -261,36 +261,44 @@ fn menu_portal_position_near_anchor() -> Result<()> {
         let anchor_rect = snap2.get_node_rect(anchor_node).expect("anchor rect");
 
         // Find Flyout op and check its content's geometry
-        let mut flyout_xs = Vec::new();
-        let mut flyout_ys = Vec::new();
+        let mut flyout_rects = Vec::new();
         for (_id, n) in &ir2.nodes {
             if let fission_ir::Op::Layout(fission_ir::LayoutOp::Flyout {
                 anchor: _a,
                 content,
+                ..
             }) = n.op
             {
                 if let Some(r) = snap2.get_node_rect(content) {
-                    flyout_xs.push(r.x());
-                    flyout_ys.push(r.y());
+                    flyout_rects.push(r);
                 }
             }
         }
-        assert!(!flyout_xs.is_empty(), "no flyout nodes in IR (frame 2)");
+        assert!(!flyout_rects.is_empty(), "no flyout nodes in IR (frame 2)");
 
-        // X should match anchor's left within tolerance
-        let ok_x = flyout_xs
+        // Menu surfaces align their logical end edge with the trigger.
+        let ok_x = flyout_rects
             .iter()
-            .any(|x| (*x - anchor_rect.x()).abs() < 20.0);
+            .any(|rect| (rect.right() - anchor_rect.right()).abs() < 20.0);
         if !ok_x {
-            eprintln!("anchor_x={}, flyout_xs={:?}", anchor_rect.x(), flyout_xs);
+            eprintln!(
+                "anchor_right={}, flyout_rects={:?}",
+                anchor_rect.right(),
+                flyout_rects
+            );
         }
-        assert!(ok_x, "no flyout content near anchor x");
+        assert!(ok_x, "no flyout content aligned to the anchor end");
 
         // Y should match anchor's bottom within tolerance (anchor.y + anchor.h)
         let anchor_bottom = anchor_rect.y() + anchor_rect.height();
-        let ok_y = flyout_ys.iter().any(|y| (*y - anchor_bottom).abs() < 20.0);
+        let ok_y = flyout_rects
+            .iter()
+            .any(|rect| (rect.y() - anchor_bottom).abs() < 20.0);
         if !ok_y {
-            eprintln!("anchor_bottom={}, flyout_ys={:?}", anchor_bottom, flyout_ys);
+            eprintln!(
+                "anchor_bottom={}, flyout_rects={:?}",
+                anchor_bottom, flyout_rects
+            );
         }
         assert!(ok_y, "no flyout content near anchor y");
     }

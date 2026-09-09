@@ -55,25 +55,34 @@ pub(crate) fn packaged_font(
         fission_ir::op::FontStyle::Normal => fission_theme::PackagedFontStyle::Normal,
         fission_ir::op::FontStyle::Italic => fission_theme::PackagedFontStyle::Italic,
     };
-    PACKAGED_FONTS
-        .get()?
-        .lock()
-        .unwrap()
-        .iter()
-        .filter(|face| face.family.eq_ignore_ascii_case(family))
-        .min_by_key(|face| {
-            let style_penalty = u32::from(face.style != desired_style) * 10_000;
-            style_penalty + u32::from(face.weight.abs_diff(weight))
-        })
-        .and_then(|face| {
-            face.font
-                .get_or_init(|| {
-                    Font::from_bytes(face.data, FontSettings::default())
-                        .ok()
-                        .map(Arc::new)
-                })
-                .clone()
-        })
+    let registry = PACKAGED_FONTS.get()?.lock().unwrap();
+    for candidate in family
+        .split(',')
+        .map(str::trim)
+        .map(|candidate| candidate.trim_matches(['"', '\'']))
+        .filter(|candidate| !candidate.is_empty())
+    {
+        let Some(face) = registry
+            .iter()
+            .filter(|face| face.family.eq_ignore_ascii_case(candidate))
+            .min_by_key(|face| {
+                let style_penalty = u32::from(face.style != desired_style) * 10_000;
+                style_penalty + u32::from(face.weight.abs_diff(weight))
+            })
+        else {
+            continue;
+        };
+
+        return face
+            .font
+            .get_or_init(|| {
+                Font::from_bytes(face.data, FontSettings::default())
+                    .ok()
+                    .map(Arc::new)
+            })
+            .clone();
+    }
+    None
 }
 
 #[cfg(test)]
@@ -116,5 +125,29 @@ mod tests {
             .find(|face| face.family == FAMILY)
             .expect("registered software font descriptor");
         assert!(face.font.get().is_some());
+    }
+
+    #[test]
+    fn packaged_font_resolves_the_first_available_family_in_a_css_stack() {
+        const FAMILY: &str = "Software Stack Test Sans";
+        let fonts = Box::leak(
+            vec![fission_theme::PackagedFont {
+                family: FAMILY,
+                weight: 400,
+                style: fission_theme::PackagedFontStyle::Normal,
+                format: "truetype",
+                data: fission_theme::fonts::default_font_bytes(),
+                axes: &[],
+            }]
+            .into_boxed_slice(),
+        );
+        register_packaged_fonts(fonts);
+
+        assert!(packaged_font(
+            Some("\"Unavailable\", \"Software Stack Test Sans\", sans-serif"),
+            400,
+            fission_ir::op::FontStyle::Normal,
+        )
+        .is_some());
     }
 }

@@ -5,7 +5,8 @@ mod imp {
 
     use accesskit::{
         Action, ActionData, ActionHandler, ActionRequest, ActivationHandler, DeactivationHandler,
-        Invalid as AccessInvalid, Live, Node, NodeId, Rect, Role as AccessRole,
+        HasPopup as AccessHasPopup, Invalid as AccessInvalid, Live, Node, NodeId,
+        Orientation as AccessOrientation, Rect, Role as AccessRole,
         TextDirection as AccessTextDirection, TextPosition, TextSelection, Toggled, Tree, TreeId,
         TreeUpdate,
     };
@@ -18,7 +19,9 @@ mod imp {
         ActionEnvelope, ActionId, ActionInput, Runtime, SelectionRegionController, TextAffinity,
         TextPosition as EditingTextPosition,
     };
-    use fission_ir::semantics::{ActionTrigger, Role, TextInputType};
+    use fission_ir::semantics::{
+        ActionTrigger, PopupKind, Role, SemanticOrientation, TextInputType,
+    };
     use fission_ir::{CoreIR, LayoutOp, Op, PaintOp, Semantics, WidgetId};
     use fission_layout::{LayoutPoint, LayoutRect, LayoutSnapshot, ResolvedParagraphLayout};
     use fission_test_driver::TestEvent;
@@ -217,6 +220,9 @@ mod imp {
         let Some(target) = node_map.get(&request.target_node).copied() else {
             return false;
         };
+        if fission_core::hit_test::is_interaction_inert(ir, target) {
+            return false;
+        }
         let Some(semantics) = semantics_for(ir, target) else {
             return false;
         };
@@ -281,7 +287,7 @@ mod imp {
                 Some(ActionData::Value(value)) => {
                     set_text_input_value(runtime, ir, layout, target, semantics, value)
                 }
-                Some(ActionData::NumericValue(value)) if semantics.role == Role::TextInput => {
+                Some(ActionData::NumericValue(value)) if semantics.supports_text_editing() => {
                     set_text_input_value(runtime, ir, layout, target, semantics, &value.to_string())
                 }
                 Some(ActionData::NumericValue(value)) => set_numeric_value(
@@ -307,12 +313,20 @@ mod imp {
             }
             Action::Increment => adjust_numeric_value(runtime, ir, target, semantics, 1.0),
             Action::Decrement => adjust_numeric_value(runtime, ir, target, semantics, -1.0),
+            Action::Expand | Action::Collapse => dispatch_semantics_action(
+                runtime,
+                ir,
+                target,
+                semantics,
+                ActionTrigger::Default,
+                ActionInput::None,
+            ),
             _ => false,
         }
     }
 
     fn editable_text_input(semantics: &Semantics) -> bool {
-        semantics.role == Role::TextInput && !semantics.disabled && !semantics.read_only
+        semantics.supports_text_editing() && !semantics.disabled && !semantics.read_only
     }
 
     fn has_text_input_action(semantics: &Semantics) -> bool {
@@ -411,7 +425,7 @@ mod imp {
         ) -> Self {
             let mut used_node_ids = HashSet::new();
             used_node_ids.insert(ROOT_NODE_ID);
-            Self {
+            let mut builder = Self {
                 ir,
                 layout,
                 runtime,
@@ -420,7 +434,21 @@ mod imp {
                 used_node_ids,
                 widget_to_node: HashMap::new(),
                 node_to_widget: HashMap::new(),
+            };
+            let mut semantic_ids = ir
+                .nodes
+                .iter()
+                .filter_map(|(id, node)| {
+                    (matches!(node.op, Op::Semantics(_))
+                        && !fission_core::hit_test::is_interaction_inert(ir, *id))
+                    .then_some(*id)
+                })
+                .collect::<Vec<_>>();
+            semantic_ids.sort_by_key(|id| id.as_u128());
+            for id in semantic_ids {
+                builder.node_id_for(id);
             }
+            builder
         }
 
         fn collect_subtree(&mut self, node_id: WidgetId, inside_semantics: bool) -> Vec<NodeId> {
@@ -429,6 +457,7 @@ mod imp {
             };
 
             match &core_node.op {
+                Op::Structural(fission_ir::StructuralOp::InteractionInert { .. }) => Vec::new(),
                 Op::Semantics(semantics) if include_semantics(semantics) => {
                     let coordinated_selection = semantics
                         .selection_region
@@ -498,6 +527,7 @@ mod imp {
                 return Vec::new();
             };
             match &core_node.op {
+                Op::Structural(fission_ir::StructuralOp::InteractionInert { .. }) => Vec::new(),
                 Op::Semantics(semantics)
                     if semantics
                         .selection_region
@@ -555,10 +585,27 @@ mod imp {
                 node.set_author_id(identifier);
             }
             let value = semantic_value(self.runtime, node_id, semantics);
-            let label = semantics
-                .label
-                .clone()
-                .or_else(|| collect_descendant_text(self.ir, node_id));
+            let label = semantics.label.clone().or_else(|| {
+                matches!(
+                    semantics.role,
+                    Role::Button
+                        | Role::Link
+                        | Role::MenuItem
+                        | Role::Image
+                        | Role::TextInput
+                        | Role::Checkbox
+                        | Role::Radio
+                        | Role::Switch
+                        | Role::Slider
+                        | Role::Input
+                        | Role::Option
+                        | Role::ComboBox
+                        | Role::Tab
+                        | Role::Text
+                )
+                .then(|| collect_descendant_text(self.ir, node_id))
+                .flatten()
+            });
 
             match semantics.role {
                 Role::Text => {
@@ -599,28 +646,9 @@ mod imp {
                     }
                     node.set_read_only();
                 }
-                Role::TextInput => {
+                _ if semantics.supports_text_editing() => {
                     if let Some(label) = label {
                         node.set_label(label);
-                    }
-                    if semantics.required {
-                        node.set_required();
-                    }
-                    if matches!(
-                        semantics.validation_state,
-                        fission_ir::semantics::TextFieldValidationState::Invalid
-                    ) {
-                        node.set_invalid(AccessInvalid::True);
-                    }
-                    if let Some(message) = semantics.validation_message.as_deref() {
-                        node.set_description(message);
-                        if matches!(
-                            semantics.validation_state,
-                            fission_ir::semantics::TextFieldValidationState::Invalid
-                        ) {
-                            node.set_live(Live::Polite);
-                            node.set_live_atomic();
-                        }
                     }
                     if let Some(value) = value {
                         node.set_value(value.clone());
@@ -665,6 +693,25 @@ mod imp {
                 }
             }
 
+            if semantics.required {
+                node.set_required();
+            }
+            if matches!(
+                semantics.validation_state,
+                fission_ir::semantics::TextFieldValidationState::Invalid
+            ) {
+                node.set_invalid(AccessInvalid::True);
+            }
+            if let Some(message) = semantics.validation_message.as_deref() {
+                node.set_description(message);
+                if matches!(
+                    semantics.validation_state,
+                    fission_ir::semantics::TextFieldValidationState::Invalid
+                ) {
+                    node.set_live(Live::Polite);
+                    node.set_live_atomic();
+                }
+            }
             if semantics.focusable && !semantics.disabled {
                 node.add_action(Action::Focus);
                 node.add_action(Action::Blur);
@@ -674,6 +721,60 @@ mod imp {
             }
             if let Some(checked) = semantics.checked {
                 node.set_toggled(Toggled::from(checked));
+            }
+            if let Some(selected) = semantics.selected {
+                node.set_selected(selected);
+            }
+            if let Some(expanded) = semantics.expanded {
+                node.set_expanded(expanded);
+                if !semantics.disabled && has_default_action(semantics) {
+                    node.add_action(if expanded {
+                        Action::Collapse
+                    } else {
+                        Action::Expand
+                    });
+                }
+            }
+            if let Some(popup) = semantics.has_popup {
+                node.set_has_popup(match popup {
+                    PopupKind::Menu => AccessHasPopup::Menu,
+                    PopupKind::ListBox => AccessHasPopup::Listbox,
+                    PopupKind::Tree => AccessHasPopup::Tree,
+                    PopupKind::Grid => AccessHasPopup::Grid,
+                    PopupKind::Dialog => AccessHasPopup::Dialog,
+                });
+            }
+            if let Some(orientation) = semantics.orientation {
+                node.set_orientation(match orientation {
+                    SemanticOrientation::Horizontal => AccessOrientation::Horizontal,
+                    SemanticOrientation::Vertical => AccessOrientation::Vertical,
+                });
+            }
+            if semantics.modal {
+                node.set_modal();
+            }
+            if semantics.role == Role::Alert {
+                node.set_live(Live::Assertive);
+                node.set_live_atomic();
+            }
+            let controls = self.relationship_nodes(&semantics.controls);
+            if !controls.is_empty() {
+                node.set_controls(controls);
+            }
+            let labelled_by = self.relationship_nodes(&semantics.labelled_by);
+            if !labelled_by.is_empty() {
+                node.set_labelled_by(labelled_by);
+            }
+            let described_by = self.relationship_nodes(&semantics.described_by);
+            if !described_by.is_empty() {
+                node.set_described_by(described_by);
+            }
+            if let Some(active_descendant) = self
+                .runtime
+                .effective_active_descendant(self.ir, node_id)
+                .and_then(|id| self.widget_to_node.get(&id).copied())
+            {
+                node.set_active_descendant(active_descendant);
             }
             if let Some(min) = semantics.min_value {
                 node.set_min_numeric_value(min as f64);
@@ -711,16 +812,16 @@ mod imp {
                     node.set_scroll_x_max(max as f64);
                 }
             }
-            if semantics
-                .actions
-                .entries
-                .iter()
-                .any(|entry| entry.trigger == ActionTrigger::Default)
-                && !semantics.disabled
-            {
+            if has_default_action(semantics) && !semantics.disabled {
                 node.add_action(Action::Click);
             }
             node
+        }
+
+        fn relationship_nodes(&self, ids: &[WidgetId]) -> Vec<NodeId> {
+            ids.iter()
+                .filter_map(|id| self.widget_to_node.get(id).copied())
+                .collect()
         }
 
         fn apply_resolved_text_geometry(&self, node: &mut Node, node_id: WidgetId, text: &str) {
@@ -812,11 +913,29 @@ mod imp {
             || semantics.identifier.is_some()
             || semantics.value.is_some()
             || semantics.focusable
+            || semantics.text_editable
             || semantics.checked.is_some()
+            || semantics.selected.is_some()
+            || semantics.expanded.is_some()
+            || semantics.has_popup.is_some()
+            || semantics.orientation.is_some()
+            || semantics.modal
+            || !semantics.controls.is_empty()
+            || !semantics.labelled_by.is_empty()
+            || !semantics.described_by.is_empty()
+            || semantics.active_descendant.is_some()
             || semantics.current_value.is_some()
             || semantics.scrollable_x
             || semantics.scrollable_y
             || !semantics.actions.entries.is_empty()
+    }
+
+    fn has_default_action(semantics: &Semantics) -> bool {
+        semantics
+            .actions
+            .entries
+            .iter()
+            .any(|entry| entry.trigger == ActionTrigger::Default)
     }
 
     fn access_role_for(semantics: &Semantics) -> AccessRole {
@@ -844,6 +963,17 @@ mod imp {
             Role::Input => AccessRole::TextInput,
             Role::List => AccessRole::List,
             Role::ListItem => AccessRole::ListItem,
+            Role::Menu => AccessRole::Menu,
+            Role::ListBox => AccessRole::ListBox,
+            Role::Option => AccessRole::ListBoxOption,
+            Role::ComboBox if semantics.supports_text_editing() => AccessRole::EditableComboBox,
+            Role::ComboBox => AccessRole::ComboBox,
+            Role::TabList => AccessRole::TabList,
+            Role::Tab => AccessRole::Tab,
+            Role::TabPanel => AccessRole::TabPanel,
+            Role::Alert => AccessRole::Alert,
+            Role::Group => AccessRole::Group,
+            Role::Separator => AccessRole::Splitter,
             Role::Generic => AccessRole::GenericContainer,
         }
     }
@@ -1021,7 +1151,7 @@ mod imp {
         node_id: WidgetId,
         semantics: &Semantics,
     ) -> Option<String> {
-        if semantics.role == Role::TextInput {
+        if semantics.supports_text_editing() {
             if semantics.masked {
                 return None;
             }
@@ -1183,7 +1313,7 @@ mod imp {
             }
             return changed;
         }
-        if semantics.role != Role::TextInput || semantics.disabled {
+        if !semantics.supports_text_editing() || semantics.disabled {
             return false;
         }
         set_focus(runtime, ir, Some(target));

@@ -1694,6 +1694,9 @@ fn collect_server_action_tokens(
     let mut tokens = BTreeMap::new();
     let mut form_ids = BTreeSet::new();
     for node in ir.nodes.values() {
+        if fission_core::hit_test::is_interaction_inert(ir, node.id) {
+            continue;
+        }
         let Op::Semantics(semantics) = &node.op else {
             continue;
         };
@@ -1957,6 +1960,35 @@ mod tests {
         let mut ir = CoreIR::new();
         ir.add_node(id, Op::Semantics(semantics), Vec::new());
         ir.set_root(id);
+
+        let signer = ServerActionSigner::development();
+        assert!(
+            collect_server_action_tokens(&ir, "/", &signer, Duration::from_secs(60))
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn interaction_inert_actions_do_not_receive_server_tokens() {
+        let root = WidgetId::explicit("exiting-root");
+        let action_node = WidgetId::explicit("exiting-action");
+        let request: ActionEnvelope =
+            fission_core::NavigationRequested::new(NavigationCommand::Push("/next".into())).into();
+        let mut semantics = fission_ir::Semantics::default();
+        semantics.actions.entries.push(fission_ir::ActionEntry {
+            trigger: ActionTrigger::Default,
+            action_id: request.id.as_u128(),
+            payload_data: Some(request.payload),
+        });
+        let mut ir = CoreIR::new();
+        ir.add_node(action_node, Op::Semantics(semantics), Vec::new());
+        ir.add_node(
+            root,
+            Op::Structural(fission_ir::StructuralOp::InteractionInert { stable_hash: 1 }),
+            vec![action_node],
+        );
+        ir.set_root(root);
 
         let signer = ServerActionSigner::development();
         assert!(

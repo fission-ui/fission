@@ -642,6 +642,10 @@ pub struct TextItem {
     pub height: f32,
 }
 
+const fn default_sequential_focusable() -> bool {
+    true
+}
+
 /// A node in the semantic accessibility tree, returned by [`TestCommand::GetTree`].
 /// Bounding rectangles are expressed in logical test-space pixels.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -656,9 +660,40 @@ pub struct SemanticNode {
     pub value: Option<String>,
     pub value_present: bool,
     pub focusable: bool,
+    /// Legacy payloads omit this field and therefore default it to `true`,
+    /// matching the historical behavior of focusable controls. It only has
+    /// effect for an enabled, focusable node; use
+    /// [`Self::is_sequentially_focusable`] for that effective state.
+    #[serde(default = "default_sequential_focusable")]
+    pub sequential_focusable: bool,
+    /// Whether this node participates in editable text input independent of role.
+    #[serde(default)]
+    pub text_editable: bool,
     pub disabled: bool,
     pub read_only: bool,
     pub checked: Option<bool>,
+    #[serde(default)]
+    pub selected: Option<bool>,
+    #[serde(default)]
+    pub expanded: Option<bool>,
+    #[serde(default)]
+    pub has_popup: Option<String>,
+    #[serde(default)]
+    pub orientation: Option<String>,
+    #[serde(default)]
+    pub modal: bool,
+    #[serde(default)]
+    pub required: bool,
+    #[serde(default)]
+    pub invalid: bool,
+    #[serde(default)]
+    pub controls: Vec<String>,
+    #[serde(default)]
+    pub labelled_by: Vec<String>,
+    #[serde(default)]
+    pub described_by: Vec<String>,
+    #[serde(default)]
+    pub active_descendant: Option<String>,
     pub actions: Vec<String>,
     pub text_selection: Option<(usize, usize)>,
     pub masked: bool,
@@ -671,6 +706,21 @@ pub struct SemanticNode {
     pub y: f32,
     pub width: f32,
     pub height: f32,
+}
+
+impl SemanticNode {
+    /// Returns whether this node is an enabled sequential-focus target.
+    pub const fn is_sequentially_focusable(&self) -> bool {
+        self.focusable && self.sequential_focusable && !self.disabled
+    }
+
+    /// Returns whether this node participates in editable text input.
+    ///
+    /// Role inference preserves responses from older applications that did not
+    /// yet emit the explicit `text_editable` field.
+    pub fn supports_text_editing(&self) -> bool {
+        self.text_editable || matches!(self.role.as_str(), "TextInput" | "Input")
+    }
 }
 
 /// The response from the application to a [`TestCommand`].
@@ -1621,7 +1671,137 @@ fn rectangles_intersect(left: Bounds, right: Bounds) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{TestCommand, TestPointerKind, TestPointerPhase, TestScrollDeltaMode};
+    use super::{
+        Bounds, SemanticNode, TestCommand, TestPointerKind, TestPointerPhase, TestScrollDeltaMode,
+        VisibilityState,
+    };
+
+    fn populated_semantic_node() -> SemanticNode {
+        SemanticNode {
+            identifier: Some("test.field".into()),
+            widget_id: "widget-1".into(),
+            stable_node_id: "node-1".into(),
+            parent: Some("node-0".into()),
+            children: vec!["node-2".into()],
+            role: "ComboBox".into(),
+            label: Some("Field".into()),
+            value: Some("Choice".into()),
+            value_present: true,
+            focusable: true,
+            sequential_focusable: false,
+            text_editable: true,
+            disabled: false,
+            read_only: false,
+            checked: None,
+            selected: Some(true),
+            expanded: Some(true),
+            has_popup: Some("ListBox".into()),
+            orientation: Some("Vertical".into()),
+            modal: true,
+            required: true,
+            invalid: true,
+            controls: vec!["node-3".into()],
+            labelled_by: vec!["node-4".into()],
+            described_by: vec!["node-5".into()],
+            active_descendant: Some("node-6".into()),
+            actions: vec!["Dismiss".into()],
+            text_selection: None,
+            masked: false,
+            scrollable_x: false,
+            scrollable_y: true,
+            logical_bounds: Bounds {
+                x: 1.0,
+                y: 2.0,
+                width: 100.0,
+                height: 40.0,
+            },
+            visible_bounds: Some(Bounds {
+                x: 1.0,
+                y: 2.0,
+                width: 100.0,
+                height: 40.0,
+            }),
+            visibility: VisibilityState::FullyVisible,
+            x: 1.0,
+            y: 2.0,
+            width: 100.0,
+            height: 40.0,
+        }
+    }
+
+    #[test]
+    fn extended_semantic_node_fields_round_trip() {
+        let encoded = serde_json::to_string(&populated_semantic_node()).unwrap();
+        let decoded: SemanticNode = serde_json::from_str(&encoded).unwrap();
+
+        assert_eq!(decoded.selected, Some(true));
+        assert_eq!(decoded.expanded, Some(true));
+        assert_eq!(decoded.has_popup.as_deref(), Some("ListBox"));
+        assert_eq!(decoded.orientation.as_deref(), Some("Vertical"));
+        assert!(decoded.modal);
+        assert!(decoded.required);
+        assert!(decoded.invalid);
+        assert_eq!(decoded.controls, vec!["node-3".to_string()]);
+        assert_eq!(decoded.labelled_by, vec!["node-4".to_string()]);
+        assert_eq!(decoded.described_by, vec!["node-5".to_string()]);
+        assert_eq!(decoded.active_descendant.as_deref(), Some("node-6"));
+        assert!(!decoded.sequential_focusable);
+        assert!(decoded.text_editable);
+    }
+
+    #[test]
+    fn extended_semantic_node_fields_default_for_older_wire_payloads() {
+        let added_fields = [
+            "sequential_focusable",
+            "text_editable",
+            "selected",
+            "expanded",
+            "has_popup",
+            "orientation",
+            "modal",
+            "required",
+            "invalid",
+            "controls",
+            "labelled_by",
+            "described_by",
+            "active_descendant",
+        ];
+        let mut encoded = serde_json::to_value(populated_semantic_node()).unwrap();
+        let object = encoded.as_object_mut().unwrap();
+        for field in added_fields {
+            assert!(object.remove(field).is_some(), "missing test field {field}");
+        }
+
+        let decoded: SemanticNode = serde_json::from_value(encoded).unwrap();
+        assert!(decoded.sequential_focusable);
+        assert!(decoded.is_sequentially_focusable());
+        assert!(!decoded.text_editable);
+        assert!(!decoded.supports_text_editing());
+        assert_eq!(decoded.selected, None);
+        assert_eq!(decoded.expanded, None);
+        assert_eq!(decoded.has_popup, None);
+        assert_eq!(decoded.orientation, None);
+        assert!(!decoded.modal);
+        assert!(!decoded.required);
+        assert!(!decoded.invalid);
+        assert!(decoded.controls.is_empty());
+        assert!(decoded.labelled_by.is_empty());
+        assert!(decoded.described_by.is_empty());
+        assert_eq!(decoded.active_descendant, None);
+
+        let mut nonfocusable = populated_semantic_node();
+        nonfocusable.focusable = false;
+        nonfocusable.text_editable = false;
+        nonfocusable.role = "TextInput".into();
+        let mut encoded = serde_json::to_value(nonfocusable).unwrap();
+        let object = encoded.as_object_mut().unwrap();
+        object.remove("sequential_focusable");
+        object.remove("text_editable");
+        let decoded: SemanticNode = serde_json::from_value(encoded).unwrap();
+        assert!(decoded.sequential_focusable);
+        assert!(!decoded.is_sequentially_focusable());
+        assert!(decoded.supports_text_editing());
+    }
 
     #[test]
     fn deterministic_motion_commands_have_stable_wire_shapes() {

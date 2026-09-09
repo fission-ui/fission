@@ -193,6 +193,65 @@ fn add_node(ir: &mut CoreIR, id: WidgetId, op: Op, children: Vec<WidgetId>) {
     }
 }
 
+fn mapped_access_id(built: &BuiltTreeUpdate, widget_id: WidgetId) -> NodeId {
+    built
+        .node_map
+        .iter()
+        .find_map(|(access_id, mapped)| (*mapped == widget_id).then_some(*access_id))
+        .expect("mapped accessibility node")
+}
+
+fn mapped_access_node(built: &BuiltTreeUpdate, widget_id: WidgetId) -> &Node {
+    let expected = mapped_access_id(built, widget_id);
+    built
+        .update
+        .nodes
+        .iter()
+        .find_map(|(id, node)| (*id == expected).then_some(node))
+        .expect("accessibility node in update")
+}
+
+#[test]
+fn interaction_inert_subtrees_are_absent_from_the_accessibility_tree() {
+    let root = WidgetId::explicit("root");
+    let inert = WidgetId::explicit("exiting-content");
+    let button = WidgetId::explicit("exiting-button");
+    let mut ir = CoreIR::default();
+    add_node(
+        &mut ir,
+        button,
+        Op::Semantics(Semantics {
+            role: Role::Button,
+            label: Some("Exiting action".into()),
+            focusable: true,
+            ..Semantics::default()
+        }),
+        vec![],
+    );
+    add_node(
+        &mut ir,
+        inert,
+        Op::Structural(fission_ir::StructuralOp::InteractionInert { stable_hash: 1 }),
+        vec![button],
+    );
+    add_node(
+        &mut ir,
+        root,
+        Op::Structural(fission_ir::StructuralOp::Group { stable_hash: 2 }),
+        vec![inert],
+    );
+    ir.root = Some(root);
+
+    let built = build_tree_update(
+        &ir,
+        &LayoutSnapshot::new(LayoutSize::new(320.0, 240.0)),
+        &Runtime::default(),
+        1.0,
+    );
+    assert_eq!(built.update.nodes.len(), 1, "only the host window remains");
+    assert!(built.node_map.is_empty());
+}
+
 #[test]
 fn derives_button_label_from_descendant_text() {
     let root = WidgetId::from_u128(10);
@@ -477,6 +536,218 @@ fn text_input_value_prefers_lowered_semantics_over_retained_runtime_buffer() {
         semantic_value(&runtime, input, &fallback_semantics).as_deref(),
         Some("Stale retained buffer")
     );
+}
+
+#[test]
+fn editable_combobox_uses_editable_platform_role_and_text_editing_actions() {
+    let target = WidgetId::explicit("editable-combobox");
+    let mut semantics = contextual_text_semantics("destination");
+    semantics.role = Role::ComboBox;
+    semantics.text_editable = true;
+    semantics.label = Some("Destination".into());
+    semantics.value = Some("Lon".into());
+    let mut ir = CoreIR::new();
+    add_node(&mut ir, target, Op::Semantics(semantics.clone()), vec![]);
+    ir.root = Some(target);
+    let mut runtime = text_dispatch_runtime();
+    let layout = LayoutSnapshot::new(LayoutSize::new(320.0, 80.0));
+
+    let update = build_tree_update(&ir, &layout, &runtime, 1.0).update;
+    let node = update
+        .nodes
+        .iter()
+        .map(|(_, node)| node)
+        .find(|node| node.role() == AccessRole::EditableComboBox)
+        .expect("editable combobox accessibility node");
+    assert_eq!(node.value().as_deref(), Some("Lon"));
+    assert!(node.supports_action(Action::SetValue));
+    assert!(node.supports_action(Action::ReplaceSelectedText));
+
+    assert!(dispatch_set_value_request(
+        &mut runtime,
+        &ir,
+        target,
+        "London",
+    ));
+    let state = runtime
+        .get_app_state::<TextDispatchState>()
+        .expect("text dispatch state");
+    let edit = state
+        .contextual
+        .get(&(0, "destination".into()))
+        .expect("combobox text change");
+    assert_eq!(edit.change.new_text, "London");
+}
+
+#[test]
+fn noneditable_combobox_never_exposes_text_editing_actions() {
+    let target = WidgetId::explicit("noneditable-combobox");
+    let mut semantics = contextual_text_semantics("destination");
+    semantics.role = Role::ComboBox;
+    semantics.required = true;
+    semantics.validation_state = fission_ir::TextFieldValidationState::Invalid;
+    semantics.validation_message = Some("Choose a destination".into());
+    semantics.expanded = Some(false);
+    semantics.has_popup = Some(PopupKind::ListBox);
+    semantics.orientation = Some(SemanticOrientation::Vertical);
+    let mut ir = CoreIR::new();
+    add_node(&mut ir, target, Op::Semantics(semantics.clone()), vec![]);
+    ir.root = Some(target);
+    let mut runtime = text_dispatch_runtime();
+    let layout = LayoutSnapshot::new(LayoutSize::new(320.0, 80.0));
+
+    let update = build_tree_update(&ir, &layout, &runtime, 1.0).update;
+    let node = update
+        .nodes
+        .iter()
+        .map(|(_, node)| node)
+        .find(|node| node.role() == AccessRole::ComboBox)
+        .expect("noneditable combobox accessibility node");
+    assert!(!node.supports_action(Action::SetValue));
+    assert!(!node.supports_action(Action::ReplaceSelectedText));
+    assert!(node.is_required());
+    assert_eq!(node.invalid(), Some(AccessInvalid::True));
+    assert_eq!(node.description(), Some("Choose a destination"));
+    assert_eq!(node.is_expanded(), Some(false));
+    assert_eq!(node.has_popup(), Some(AccessHasPopup::Listbox));
+    assert_eq!(node.orientation(), Some(AccessOrientation::Vertical));
+    assert!(
+        !node.supports_action(Action::Expand),
+        "expanded state must not manufacture an action the widget cannot dispatch"
+    );
+    assert!(!dispatch_set_value_request(
+        &mut runtime,
+        &ir,
+        target,
+        "must-not-dispatch",
+    ));
+    assert!(runtime
+        .get_app_state::<TextDispatchState>()
+        .expect("text dispatch state")
+        .contextual
+        .is_empty());
+}
+
+#[test]
+fn composite_states_and_relationships_map_to_accesskit_nodes() {
+    let root = WidgetId::explicit("composite-root");
+    let label = WidgetId::explicit("composite-label");
+    let description = WidgetId::explicit("composite-description");
+    let combo = WidgetId::explicit("composite-combobox");
+    let listbox = WidgetId::explicit("composite-listbox");
+    let option = WidgetId::explicit("composite-option");
+    let dialog = WidgetId::explicit("composite-dialog");
+    let mut ir = CoreIR::new();
+    add_node(
+        &mut ir,
+        label,
+        Op::Semantics(Semantics {
+            role: Role::Text,
+            label: Some("Destination".into()),
+            ..Semantics::default()
+        }),
+        vec![],
+    );
+    add_node(
+        &mut ir,
+        description,
+        Op::Semantics(Semantics {
+            role: Role::Text,
+            label: Some("Choose one destination".into()),
+            ..Semantics::default()
+        }),
+        vec![],
+    );
+    add_node(
+        &mut ir,
+        option,
+        Op::Semantics(Semantics {
+            role: Role::Option,
+            label: Some("London".into()),
+            selected: Some(true),
+            ..Semantics::default()
+        }),
+        vec![],
+    );
+    add_node(
+        &mut ir,
+        listbox,
+        Op::Semantics(Semantics {
+            role: Role::ListBox,
+            orientation: Some(SemanticOrientation::Vertical),
+            ..Semantics::default()
+        }),
+        vec![option],
+    );
+    add_node(
+        &mut ir,
+        combo,
+        Op::Semantics(Semantics {
+            role: Role::ComboBox,
+            label: Some("Destination".into()),
+            focusable: true,
+            expanded: Some(false),
+            has_popup: Some(PopupKind::ListBox),
+            controls: vec![listbox],
+            labelled_by: vec![label],
+            described_by: vec![description],
+            active_descendant: Some(option),
+            actions: ActionSet {
+                entries: vec![ActionEntry {
+                    trigger: ActionTrigger::Default,
+                    action_id: 1,
+                    payload_data: None,
+                }],
+            },
+            ..Semantics::default()
+        }),
+        vec![],
+    );
+    add_node(
+        &mut ir,
+        dialog,
+        Op::Semantics(Semantics {
+            role: Role::Dialog,
+            modal: true,
+            ..Semantics::default()
+        }),
+        vec![],
+    );
+    add_node(
+        &mut ir,
+        root,
+        Op::Structural(fission_ir::StructuralOp::Group { stable_hash: 1 }),
+        vec![label, description, combo, listbox, dialog],
+    );
+    ir.root = Some(root);
+
+    let built = build_tree_update(
+        &ir,
+        &LayoutSnapshot::new(LayoutSize::new(320.0, 240.0)),
+        &text_dispatch_runtime(),
+        1.0,
+    );
+    let combo_node = mapped_access_node(&built, combo);
+    assert_eq!(combo_node.role(), AccessRole::ComboBox);
+    assert_eq!(combo_node.is_expanded(), Some(false));
+    assert_eq!(combo_node.has_popup(), Some(AccessHasPopup::Listbox));
+    assert!(combo_node.supports_action(Action::Expand));
+    assert_eq!(combo_node.controls(), &[mapped_access_id(&built, listbox)]);
+    assert_eq!(combo_node.labelled_by(), &[mapped_access_id(&built, label)]);
+    assert_eq!(
+        combo_node.described_by(),
+        &[mapped_access_id(&built, description)]
+    );
+    assert_eq!(
+        combo_node.active_descendant(),
+        Some(mapped_access_id(&built, option))
+    );
+    assert_eq!(
+        mapped_access_node(&built, listbox).orientation(),
+        Some(AccessOrientation::Vertical)
+    );
+    assert_eq!(mapped_access_node(&built, option).is_selected(), Some(true));
+    assert!(mapped_access_node(&built, dialog).is_modal());
 }
 
 #[test]
@@ -947,6 +1218,35 @@ fn text_input_accessibility_exposes_validation_without_masked_value() {
     assert_eq!(node.live(), Some(Live::Polite));
     assert!(node.is_live_atomic());
     assert_eq!(node.value(), None);
+}
+
+#[test]
+fn alert_accessibility_is_atomic_and_assertive() {
+    let target = WidgetId::explicit("status-alert");
+    let mut ir = CoreIR::new();
+    add_node(
+        &mut ir,
+        target,
+        Op::Semantics(Semantics {
+            role: Role::Alert,
+            ..Semantics::default()
+        }),
+        vec![],
+    );
+    ir.root = Some(target);
+    let runtime = text_dispatch_runtime();
+    let layout = LayoutSnapshot::new(LayoutSize::new(320.0, 80.0));
+
+    let update = build_tree_update(&ir, &layout, &runtime, 1.0).update;
+    let node = update
+        .nodes
+        .iter()
+        .map(|(_, node)| node)
+        .find(|node| node.role() == AccessRole::Alert)
+        .expect("alert accessibility node");
+
+    assert_eq!(node.live(), Some(Live::Assertive));
+    assert!(node.is_live_atomic());
 }
 
 #[test]

@@ -412,6 +412,8 @@ where
         self.runtime.reconcile_ir(&ir);
 
         let layout_input_nodes = build_layout_tree(&ir, &self.env);
+        self.layout_engine
+            .set_layout_direction(self.env.layout_direction);
         self.layout_engine.update(&layout_input_nodes);
         self.layout_engine
             .verify_post_update(&layout_input_nodes, root_id)?;

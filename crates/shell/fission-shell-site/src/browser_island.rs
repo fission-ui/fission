@@ -9,7 +9,7 @@ use fission_core::{
     TextEditCommand, TextEditSource, TextEditingValue, TextSelection, TextValuePhase, View, Widget,
     WidgetId,
 };
-use fission_ir::{semantics::ActionTrigger, CoreIR, Op, Role, Semantics};
+use fission_ir::{semantics::ActionTrigger, CoreIR, Op, Semantics};
 use fission_theme::{DesignMode, DesignSystem, Theme};
 use serde_json::{json, Value};
 use std::any::Any;
@@ -337,7 +337,7 @@ where
 }
 
 fn validate_browser_text_target(target: WidgetId, semantics: &Semantics) -> Result<()> {
-    if !matches!(semantics.role, Role::TextInput | Role::Input) {
+    if !semantics.supports_text_editing() {
         anyhow::bail!("browser island text target {target} is not a text input");
     }
     if semantics.disabled {
@@ -528,7 +528,7 @@ mod tests {
         reduce, reduce_with, Action, ActionInput, ActionScope, ActionScopeId, Button,
         ReducerContext, StateField, Text,
     };
-    use fission_ir::semantics::TextInputType;
+    use fission_ir::{semantics::TextInputType, Role};
 
     #[derive(Debug, Default, Clone)]
     struct CounterState {
@@ -991,7 +991,7 @@ mod tests {
     }
 
     #[test]
-    fn browser_island_text_target_validation_requires_text_role_and_change_action() {
+    fn browser_island_text_target_validation_requires_text_capability_and_change_action() {
         let target = WidgetId::from_u128(42);
         let generic = Semantics {
             role: Role::Generic,
@@ -1010,6 +1010,29 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("has no text-change action"));
+
+        let editable_combobox = Semantics {
+            role: Role::ComboBox,
+            text_editable: true,
+            actions: fission_ir::ActionSet {
+                entries: vec![fission_ir::ActionEntry {
+                    trigger: ActionTrigger::TextChanged,
+                    action_id: 1,
+                    payload_data: None,
+                }],
+            },
+            ..Default::default()
+        };
+        assert!(validate_browser_text_target(target, &editable_combobox).is_ok());
+
+        let noneditable_combobox = Semantics {
+            role: Role::ComboBox,
+            ..Default::default()
+        };
+        assert!(validate_browser_text_target(target, &noneditable_combobox)
+            .unwrap_err()
+            .to_string()
+            .contains("not a text input"));
     }
 
     #[test]

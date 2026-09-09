@@ -63,7 +63,9 @@ impl<'a> LayoutLinter<'a> {
             }
             // Check Interactive Visibility
             if let Op::Semantics(s) = &node.op {
-                if s.focusable || !s.actions.entries.is_empty() {
+                if !fission_core::hit_test::is_interaction_inert(self.ir, node_id)
+                    && (s.focusable || !s.actions.entries.is_empty())
+                {
                     if geom.rect.width() < 1.0 || geom.rect.height() < 1.0 {
                         violations.push(LayoutViolation::ZeroSizeInteractive {
                             node: node_id,

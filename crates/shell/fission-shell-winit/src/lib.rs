@@ -111,6 +111,7 @@ use compositor::TextureLayerCompositor;
 mod accessibility;
 use accessibility::AccessibilityBridge;
 mod pipeline;
+mod platform_motion_preference;
 mod platform_text_scale;
 pub use pipeline::{InvalidationSet, Pipeline};
 mod renderer_diagnostics;
@@ -2603,11 +2604,14 @@ fn drain_effect_results(
 fn focused_text_input_id(runtime: &Runtime, ir: Option<&CoreIR>) -> Option<WidgetId> {
     let focused = runtime.runtime_state.interaction.focused?;
     let ir = ir?;
+    if fission_core::hit_test::is_interaction_inert(ir, focused) {
+        return None;
+    }
     let mut current = Some(focused);
     while let Some(id) = current {
         let node = ir.nodes.get(&id)?;
         if let Op::Semantics(sem) = &node.op {
-            if sem.role == fission_ir::Role::TextInput {
+            if sem.supports_text_editing() {
                 return Some(id);
             }
         }
@@ -2635,6 +2639,9 @@ fn focused_custom_text_input(runtime: &Runtime, ir: Option<&CoreIR>) -> bool {
         Some(ir) => ir,
         None => return false,
     };
+    if fission_core::hit_test::is_interaction_inert(ir, focused) {
+        return false;
+    }
     let mut current = Some(focused);
     while let Some(id) = current {
         if let Some(any_ro) = ir.custom_render_objects.get(&id) {
@@ -3718,7 +3725,11 @@ fn collect_semantic_records(
     let mut semantic_ids: Vec<WidgetId> = ir
         .nodes
         .iter()
-        .filter_map(|(id, node)| matches!(node.op, fission_ir::Op::Semantics(_)).then_some(*id))
+        .filter_map(|(id, node)| {
+            (matches!(node.op, fission_ir::Op::Semantics(_))
+                && !fission_core::hit_test::is_interaction_inert(ir, *id))
+            .then_some(*id)
+        })
         .collect();
     semantic_ids.sort_by_key(|id| id.as_u128());
 
@@ -3773,9 +3784,33 @@ fn collect_semantic_records(
                 value,
                 value_present,
                 focusable: semantics.focusable,
+                sequential_focusable: semantics.is_sequentially_focusable(),
+                text_editable: semantics.supports_text_editing(),
                 disabled: semantics.disabled,
                 read_only: semantics.read_only,
                 checked: semantics.checked,
+                selected: semantics.selected,
+                expanded: semantics.expanded,
+                has_popup: semantics.has_popup.map(|value| format!("{value:?}")),
+                orientation: semantics.orientation.map(|value| format!("{value:?}")),
+                modal: semantics.modal,
+                required: semantics.required,
+                invalid: matches!(
+                    semantics.validation_state,
+                    fission_ir::TextFieldValidationState::Invalid
+                ),
+                controls: semantics.controls.iter().map(ToString::to_string).collect(),
+                labelled_by: semantics
+                    .labelled_by
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect(),
+                described_by: semantics
+                    .described_by
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect(),
+                active_descendant: semantics.active_descendant.map(|id| id.to_string()),
                 actions: semantics
                     .actions
                     .entries
@@ -3985,6 +4020,9 @@ fn dispatch_semantics_action(
     trigger: ActionTrigger,
     input: ActionInput,
 ) -> bool {
+    if fission_core::hit_test::is_interaction_inert(ir, target) {
+        return false;
+    }
     let entry = semantics
         .actions
         .entries
@@ -4053,7 +4091,10 @@ fn set_focus_for_test(
     target: WidgetId,
     semantics: &Semantics,
 ) -> bool {
-    if !semantics.focusable || semantics.disabled {
+    if !semantics.focusable
+        || semantics.disabled
+        || fission_core::hit_test::is_interaction_inert(ir, target)
+    {
         return false;
     }
     runtime
@@ -4068,7 +4109,7 @@ fn set_text_value_for_test(
     record: &SemanticRecord,
     value: &str,
 ) -> bool {
-    if record.semantics.role != Role::TextInput
+    if !record.semantics.supports_text_editing()
         || record.semantics.disabled
         || record.semantics.read_only
         || !record
@@ -4310,7 +4351,7 @@ fn handle_fill_text_selector(
             vec![(record, Some("read-only".into()))],
         );
     }
-    if record.semantics.role != Role::TextInput {
+    if !record.semantics.supports_text_editing() {
         return selector_failure(
             query.clone(),
             fission_test_driver::SelectorFailureKind::UnsupportedAction,
@@ -5331,6 +5372,25 @@ where
             }
             listeners
         };
+        #[cfg(target_arch = "wasm32")]
+        let web_motion_preference_changed = Rc::new(Cell::new(false));
+        #[cfg(target_arch = "wasm32")]
+        let web_motion_preference_listener = {
+            if let Some(query) = platform_motion_preference::browser_query() {
+                let changed = web_motion_preference_changed.clone();
+                let proxy = event_proxy.clone();
+                let listener = Closure::wrap(Box::new(move |_event: web_sys::Event| {
+                    changed.set(true);
+                    let _ = proxy.send_event(TestEvent::Wake);
+                }) as Box<dyn FnMut(_)>);
+                query
+                    .add_event_listener_with_callback("change", listener.as_ref().unchecked_ref())
+                    .map_err(|error| anyhow::anyhow!(js_error_to_string(error)))?;
+                Some((query, listener))
+            } else {
+                None
+            }
+        };
         #[cfg(target_os = "macos")]
         let notification_response_queue = Arc::new(Mutex::new(VecDeque::new()));
         #[cfg(target_os = "macos")]
@@ -5592,6 +5652,8 @@ where
         let event_handler = move |event: Event<TestEvent>, elwt: &EventLoopWindowTarget| {
             #[cfg(target_arch = "wasm32")]
             let _keep_navigation_listeners_alive = &web_navigation_listeners;
+            #[cfg(target_arch = "wasm32")]
+            let _keep_motion_preference_listener_alive = &web_motion_preference_listener;
             elwt.set_control_flow(ControlFlow::Wait);
             let debug_android_events = cfg!(target_os = "android")
                 && std::env::var_os("FISSION_DEBUG_ANDROID_EVENTS").is_some();
@@ -6794,6 +6856,9 @@ where
                     TestEvent::Wake => {
                         #[cfg(target_arch = "wasm32")]
                         {
+                            if web_motion_preference_changed.replace(false) {
+                                invalidations.mark_build();
+                            }
                             let activations = web_link_activation_queue
                                 .borrow_mut()
                                 .drain(..)
@@ -8190,6 +8255,10 @@ where
                                 Some(WindowTheme::Dark) => fission_theme::DesignMode::Dark,
                                 Some(WindowTheme::Light) | None => fission_theme::DesignMode::Light,
                             };
+                            #[cfg(target_arch = "wasm32")]
+                            if let Some(preference) = platform_motion_preference::current() {
+                                env.motion_preference = preference;
+                            }
                             env.text_scaler = platform_text_scale::current(elwt);
 
                             if let Some(sync) = &self.sync_env {
@@ -10459,10 +10528,11 @@ mod tests {
     use super::{
         animation_redraw_interval, build_window_attributes, clamp_copy_extent_to_texture,
         classify_web_text_value, collect_semantic_records, collect_startup_deep_links_from,
-        cursor_icon_for, downscale_rgba_box, fission_key_down_event, handle_fill_text_selector,
-        layout_size_to_image_dimensions, logical_viewport_to_physical_size,
-        logical_viewport_to_render_target_size, magnification_scale_factor, map_test_pointer_id,
-        map_test_pointer_kind, map_test_pointer_phase, map_test_scroll_delta_mode, map_touch_phase,
+        cursor_icon_for, downscale_rgba_box, fission_key_down_event, focused_text_input_id,
+        handle_fill_text_selector, layout_size_to_image_dimensions,
+        logical_viewport_to_physical_size, logical_viewport_to_render_target_size,
+        magnification_scale_factor, map_test_pointer_id, map_test_pointer_kind,
+        map_test_pointer_phase, map_test_scroll_delta_mode, map_touch_phase,
         native_window_size_for_logical_viewport, normalize_scale_factor,
         normalize_winit_scroll_delta, physical_position_to_layout_point,
         physical_size_to_layout_size, preferred_native_present_mode, preferred_surface_alpha_mode,
@@ -10995,6 +11065,33 @@ mod tests {
     }
 
     #[test]
+    fn get_tree_reports_effective_sequential_focusability() {
+        let input = WidgetId::from_u128(10);
+        let mut ir = CoreIR::new();
+        ir.add_node(
+            input,
+            Op::Semantics(Semantics {
+                role: Role::TextInput,
+                focusable: false,
+                sequential_focusable: true,
+                ..Semantics::default()
+            }),
+            Vec::new(),
+        );
+        ir.set_root(input);
+
+        let records = collect_semantic_records(
+            &ir,
+            &LayoutSnapshot::new(LayoutSize::new(320.0, 240.0)),
+            &ScrollStateMap::default(),
+        );
+
+        assert_eq!(records.len(), 1);
+        assert!(!records[0].node.focusable);
+        assert!(!records[0].node.sequential_focusable);
+    }
+
+    #[test]
     fn live_test_fill_text_preserves_bound_payload_and_reports_runtime_edit() {
         let (pipeline, target) =
             live_text_pipeline(Some(LiveTextAction("smtp_host".into()).encode()));
@@ -11013,6 +11110,74 @@ mod tests {
         assert_eq!(change.new_text, "greenmail");
         assert_eq!(change.new_caret, "greenmail".len());
         assert_eq!(change.new_anchor, "greenmail".len());
+    }
+
+    #[test]
+    fn live_test_fill_text_uses_text_capability_for_editable_combobox() {
+        let (mut pipeline, target) =
+            live_text_pipeline(Some(LiveTextAction("destination".into()).encode()));
+        let ir = pipeline.prev_ir.as_mut().expect("live text IR");
+        let Op::Semantics(semantics) = &mut ir.nodes.get_mut(&target).unwrap().op else {
+            unreachable!();
+        };
+        semantics.role = Role::ComboBox;
+        semantics.text_editable = true;
+        let mut runtime = live_text_runtime();
+        let query = fission_test_driver::SelectorQuery::semantic_identifier("live.text");
+
+        let response = handle_fill_text_selector(&query, "London", &mut runtime, &pipeline);
+
+        assert!(matches!(response, fission_test_driver::TestResponse::Ok {}));
+        assert_eq!(
+            focused_text_input_id(&runtime, pipeline.prev_ir.as_ref()),
+            Some(target)
+        );
+        let records = collect_semantic_records(
+            pipeline.prev_ir.as_ref().unwrap(),
+            pipeline.last_snapshot.as_ref().unwrap(),
+            &ScrollStateMap::default(),
+        );
+        assert_eq!(records[0].node.role, "ComboBox");
+        assert!(records[0].node.text_editable);
+        let (field, change) = runtime
+            .get_global_state::<LiveTextState>()
+            .and_then(|state| state.edit.as_ref())
+            .expect("live combobox edit");
+        assert_eq!(field, "destination");
+        assert_eq!(change.node_id, target);
+        assert_eq!(change.new_text, "London");
+    }
+
+    #[test]
+    fn live_test_fill_text_rejects_noneditable_combobox() {
+        let (mut pipeline, target) =
+            live_text_pipeline(Some(LiveTextAction("destination".into()).encode()));
+        let ir = pipeline.prev_ir.as_mut().expect("live text IR");
+        let Op::Semantics(semantics) = &mut ir.nodes.get_mut(&target).unwrap().op else {
+            unreachable!();
+        };
+        semantics.role = Role::ComboBox;
+        semantics.text_editable = false;
+        let mut runtime = live_text_runtime();
+        runtime.runtime_state.interaction.set_focused(Some(target));
+        let query = fission_test_driver::SelectorQuery::semantic_identifier("live.text");
+
+        let response =
+            handle_fill_text_selector(&query, "must-not-dispatch", &mut runtime, &pipeline);
+
+        assert!(matches!(
+            response,
+            fission_test_driver::TestResponse::SelectorError { .. }
+        ));
+        assert_eq!(
+            focused_text_input_id(&runtime, pipeline.prev_ir.as_ref()),
+            None
+        );
+        assert!(runtime
+            .get_global_state::<LiveTextState>()
+            .expect("live text state")
+            .edit
+            .is_none());
     }
 
     #[test]

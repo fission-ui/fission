@@ -103,6 +103,9 @@ impl<S: GlobalState> TestDriver<S> {
         };
         let mut results = Vec::new();
         for (id, node) in &ir.nodes {
+            if fission_core::hit_test::is_interaction_inert(ir, *id) {
+                continue;
+            }
             if let Op::Semantics(sem) = &node.op {
                 if sem.role == role {
                     let bounds = snapshot
@@ -129,6 +132,9 @@ impl<S: GlobalState> TestDriver<S> {
         let ir = self.harness.last_ir.as_ref()?;
         let snapshot = self.harness.last_snapshot.as_ref()?;
         ir.nodes.iter().find_map(|(id, node)| {
+            if fission_core::hit_test::is_interaction_inert(ir, *id) {
+                return None;
+            }
             let Op::Semantics(semantics) = &node.op else {
                 return None;
             };
