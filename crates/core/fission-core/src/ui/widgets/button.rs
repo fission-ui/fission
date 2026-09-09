@@ -1514,13 +1514,18 @@ impl InternalLower for Button {
             layout_node_id,
             Op::Layout(LayoutOp::Box {
                 width: self.width.or(resolved_style.width),
-                height: Some(self.height.unwrap_or(resolved_style.height)),
+                height: self.height,
                 min_width: self.min_width,
                 max_width: self.max_width.or(resolved_style.max_width),
                 min_height: if self.height.is_some() {
                     None
                 } else {
-                    resolved_style.min_height
+                    Some(
+                        resolved_style
+                            .min_height
+                            .unwrap_or(0.0)
+                            .max(resolved_style.height),
+                    )
                 },
                 max_height: None,
                 padding: layout_padding,

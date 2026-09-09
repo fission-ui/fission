@@ -124,7 +124,7 @@ fn button_uses_compact_recipe_geometry_and_label_typography() {
 
     assert_eq!(
         box_geometry(&ir, layout_id),
-        (None, Some(32.0), None, [11.0, 11.0, 1.0, 1.0])
+        (None, None, Some(32.0), [12.0, 12.0, 2.0, 2.0])
     );
     let rects = direct_rects(&ir, layout_id);
     assert_eq!(rects.len(), 1);
@@ -135,6 +135,27 @@ fn button_uses_compact_recipe_geometry_and_label_typography() {
     assert_eq!(label.font_size, 14.0);
     assert_eq!(label.font_weight, 500);
     assert_eq!(label.line_height, Some(20.0));
+}
+
+#[test]
+fn explicit_button_height_remains_an_exact_caller_constraint() {
+    let id = WidgetId::explicit("quality.button.explicit-height");
+    let ir = lower(
+        Button {
+            id: Some(id),
+            child: Some(Text::new("Fixed").into()),
+            height: Some(27.0),
+            ..Default::default()
+        }
+        .into(),
+        &Env::default(),
+        &RuntimeState::default(),
+    );
+    let layout_id = button_layout_id(&ir, id);
+
+    let (_, height, min_height, _) = box_geometry(&ir, layout_id);
+    assert_eq!(height, Some(27.0));
+    assert_eq!(min_height, None);
 }
 
 #[test]
@@ -263,7 +284,7 @@ fn custom_button_recipe_overrides_legacy_geometry_and_typography_fallbacks() {
     let layout_id = button_layout_id(&ir, id);
     assert_eq!(
         box_geometry(&ir, layout_id),
-        (Some(101.0), Some(33.0), None, [8.0, 9.0, 4.0, 5.0])
+        (Some(101.0), None, Some(33.0), [9.0, 10.0, 5.0, 6.0])
     );
     assert_eq!(direct_rects(&ir, layout_id)[0].corner_radius, 12.0);
     assert_eq!(box_max_width(&ir, layout_id), Some(141.0));
@@ -321,7 +342,7 @@ fn button_style_override_is_a_real_last_mile_override() {
 
     assert_eq!(
         box_geometry(&ir, layout_id),
-        (Some(121.0), Some(37.0), None, [13.0, 14.0, 5.0, 6.0])
+        (Some(121.0), None, Some(37.0), [13.0, 14.0, 5.0, 6.0])
     );
     assert_eq!(box_max_width(&ir, layout_id), Some(141.0));
     let rects = direct_rects(&ir, layout_id);
@@ -406,7 +427,7 @@ fn replacement_component_recipe_composes_selected_hover_and_focus_without_button
     let layout_id = button_layout_id(&ir, id);
     assert_eq!(
         box_geometry(&ir, layout_id),
-        (Some(37.0), Some(37.0), None, [9.0, 9.0, 6.0, 6.0])
+        (None, None, Some(37.0), [9.0, 9.0, 6.0, 6.0])
     );
     let rects = direct_rects(&ir, layout_id);
     assert_eq!(

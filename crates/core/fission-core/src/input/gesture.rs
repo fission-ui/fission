@@ -13,6 +13,14 @@ fn interaction_target_is_unavailable(ir: &fission_ir::CoreIR, node_id: WidgetId)
     !ir.nodes.contains_key(&node_id) || crate::hit_test::is_interaction_inert(ir, node_id)
 }
 
+fn owns_custom_context_menu(semantics: &fission_ir::Semantics) -> bool {
+    // Editable controls expose the availability of their editing menu through
+    // semantics, but the text controller owns that menu's selection-aware
+    // commands and surface. A surrounding ContextMenuRegion remains eligible
+    // when an application intentionally overrides the editing menu.
+    semantics.context_menu && !semantics.disabled && !semantics.text_editable
+}
+
 /// Reconciles pointer capture against the current retained tree.
 ///
 /// An exit animation may keep the captured subtree mounted after it stops being
@@ -674,7 +682,7 @@ impl GestureController {
                 break;
             };
             if let Op::Semantics(semantics) = &node.op {
-                if semantics.context_menu && !semantics.disabled {
+                if owns_custom_context_menu(semantics) {
                     return Some(node_id);
                 }
             }
@@ -1129,5 +1137,32 @@ fn canvas_phase(trigger: ActionTrigger) -> crate::input::canvas::CanvasInteracti
         ActionTrigger::DragUpdate => CanvasInteractionPhase::Update,
         ActionTrigger::DragEnd => CanvasInteractionPhase::End,
         _ => CanvasInteractionPhase::Activate,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::owns_custom_context_menu;
+    use fission_ir::Semantics;
+
+    #[test]
+    fn editable_controls_leave_context_menu_dispatch_to_the_text_controller() {
+        let semantics = Semantics {
+            context_menu: true,
+            text_editable: true,
+            ..Semantics::default()
+        };
+
+        assert!(!owns_custom_context_menu(&semantics));
+    }
+
+    #[test]
+    fn non_editable_context_menu_regions_remain_gesture_owned() {
+        let semantics = Semantics {
+            context_menu: true,
+            ..Semantics::default()
+        };
+
+        assert!(owns_custom_context_menu(&semantics));
     }
 }
