@@ -1055,8 +1055,9 @@ impl Default for DataVisualizationTokens {
 ///
 /// Combines [`ColorTokens`], [`SpacingTokens`], [`TypographyTokens`],
 /// [`RadiusTokens`], and [`ElevationTokens`]. The [`Default`] implementation
-/// provides light-mode values. Use [`Tokens::dark()`] for dark mode.
-#[derive(Clone, Debug, PartialEq, Default, Serialize, Deserialize)]
+/// uses the light-mode values generated from the bundled default DSP. Use
+/// [`Tokens::dark()`] for its generated dark-mode values.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Tokens {
     pub colors: ColorTokens,
     pub spacing: SpacingTokens,
@@ -1067,17 +1068,19 @@ pub struct Tokens {
     pub data_visualization: DataVisualizationTokens,
 }
 
+impl Default for Tokens {
+    fn default() -> Self {
+        FissionDefaultDesignSystem::theme_ref(DesignMode::Light)
+            .tokens
+            .clone()
+    }
+}
+
 impl Tokens {
     pub fn dark() -> Self {
-        Self {
-            colors: ColorTokens::dark(),
-            spacing: SpacingTokens::default(),
-            typography: TypographyTokens::default(),
-            radii: RadiusTokens::default(),
-            elevations: ElevationTokens::default(),
-            motion: MotionTokens::default(),
-            data_visualization: DataVisualizationTokens::default(),
-        }
+        FissionDefaultDesignSystem::theme_ref(DesignMode::Dark)
+            .tokens
+            .clone()
     }
 }
 
@@ -1113,14 +1116,14 @@ impl ButtonTheme {
             easing: tokens.motion.easing_standard.clone(),
         });
         let size_md = ResolvedComponentStyle {
-            height: Some(40.0),
-            padding_x: Some(14.0),
-            padding_y: Some(tokens.spacing.s),
-            gap: Some(4.0),
-            font_size: Some(tokens.typography.label_large_size),
-            font_weight: Some(tokens.typography.font_weight_semibold),
+            height: Some(32.0),
+            padding_x: Some(10.0),
+            padding_y: Some(0.0),
+            gap: Some(6.0),
+            font_size: Some(tokens.typography.font_size_base),
+            font_weight: Some(tokens.typography.font_weight_medium),
             line_height: Some(20.0),
-            icon_size: Some(20.0),
+            icon_size: Some(16.0),
             ..ResolvedComponentStyle::default()
         };
         let primary = ComponentStateStyles {
@@ -1128,35 +1131,25 @@ impl ButtonTheme {
                 background: Some(Fill::Solid(tokens.colors.primary)),
                 text_color: Some(tokens.colors.on_primary),
                 border: None,
-                shadows: tokens
-                    .elevations
-                    .level1
-                    .map(shadow_layer_from_box)
-                    .into_iter()
-                    .collect(),
+                shadows: Vec::new(),
                 transition: transition.clone(),
                 ..ResolvedComponentStyle::default()
             },
             hover: Some(ResolvedComponentStyle {
                 background: Some(Fill::Solid(tokens.colors.primary_hover)),
-                shadows: tokens
-                    .elevations
-                    .level2
-                    .map(shadow_layer_from_box)
-                    .into_iter()
-                    .collect(),
+                shadows: Vec::new(),
                 ..ResolvedComponentStyle::default()
             }),
             active: Some(ResolvedComponentStyle {
-                shadows: tokens
-                    .elevations
-                    .level0
-                    .map(shadow_layer_from_box)
-                    .into_iter()
-                    .collect(),
+                background: Some(Fill::Solid(tokens.colors.primary_hover)),
+                shadows: Vec::new(),
                 ..ResolvedComponentStyle::default()
             }),
             focus: Some(ResolvedComponentStyle {
+                border: Some(ComponentBorder {
+                    fill: Fill::Solid(tokens.colors.focus_ring),
+                    width: 1.0,
+                }),
                 shadows: tokens
                     .elevations
                     .focus
@@ -1166,9 +1159,31 @@ impl ButtonTheme {
                 ..ResolvedComponentStyle::default()
             }),
             disabled: Some(ResolvedComponentStyle {
-                background: Some(Fill::Solid(tokens.colors.border)),
-                text_color: Some(tokens.colors.text_secondary),
+                background: Some(Fill::Solid(tokens.colors.surface_sunken)),
+                text_color: Some(tokens.colors.text_muted),
                 shadows: Vec::new(),
+                ..ResolvedComponentStyle::default()
+            }),
+            ..ComponentStateStyles::default()
+        };
+        let secondary_color = ComponentStateStyles {
+            default: ResolvedComponentStyle {
+                background: Some(Fill::Solid(tokens.colors.surface)),
+                text_color: Some(tokens.colors.primary),
+                border: Some(ComponentBorder {
+                    fill: Fill::Solid(tokens.colors.primary_subtle),
+                    width: 1.0,
+                }),
+                transition: transition.clone(),
+                ..ResolvedComponentStyle::default()
+            },
+            hover: Some(ResolvedComponentStyle {
+                background: Some(Fill::Solid(tokens.colors.primary_subtle)),
+                text_color: Some(tokens.colors.primary_hover),
+                ..ResolvedComponentStyle::default()
+            }),
+            active: Some(ResolvedComponentStyle {
+                background: Some(Fill::Solid(tokens.colors.primary_subtle)),
                 ..ResolvedComponentStyle::default()
             }),
             ..ComponentStateStyles::default()
@@ -1198,10 +1213,29 @@ impl ButtonTheme {
             }),
             ..ComponentStateStyles::default()
         };
-        let tertiary_gray = ComponentStateStyles {
+        let tertiary_color = ComponentStateStyles {
             default: ResolvedComponentStyle {
                 background: None,
                 text_color: Some(tokens.colors.primary),
+                border: None,
+                transition: transition.clone(),
+                ..ResolvedComponentStyle::default()
+            },
+            hover: Some(ResolvedComponentStyle {
+                background: Some(Fill::Solid(tokens.colors.primary_subtle)),
+                text_color: Some(tokens.colors.primary_hover),
+                ..ResolvedComponentStyle::default()
+            }),
+            disabled: Some(ResolvedComponentStyle {
+                text_color: Some(tokens.colors.text_secondary),
+                ..ResolvedComponentStyle::default()
+            }),
+            ..ComponentStateStyles::default()
+        };
+        let tertiary_gray = ComponentStateStyles {
+            default: ResolvedComponentStyle {
+                background: None,
+                text_color: Some(tokens.colors.text_secondary),
                 border: None,
                 transition,
                 ..ResolvedComponentStyle::default()
@@ -1217,23 +1251,23 @@ impl ButtonTheme {
             ..ComponentStateStyles::default()
         };
         Self {
-            height: 42.0,
-            padding_horizontal: tokens.spacing.m,
-            padding_vertical: tokens.spacing.s,
-            radius: tokens.radii.full,
-            text_size: tokens.typography.label_large_size,
-            elevation_rest: tokens.elevations.level1,
-            elevation_hover: tokens.elevations.level2,
+            height: 32.0,
+            padding_horizontal: 10.0,
+            padding_vertical: 0.0,
+            radius: tokens.radii.medium,
+            text_size: tokens.typography.font_size_base,
+            elevation_rest: tokens.elevations.level0,
+            elevation_hover: tokens.elevations.level0,
             elevation_pressed: tokens.elevations.level0,
             focus_stroke: Some(Stroke {
-                fill: fission_ir::op::Fill::Solid(tokens.colors.on_background),
+                fill: fission_ir::op::Fill::Solid(tokens.colors.focus_ring),
                 width: 1.0,
                 dash_array: None,
-                line_cap: fission_ir::op::LineCap::Butt,
-                line_join: fission_ir::op::LineJoin::Miter,
+                line_cap: fission_ir::op::LineCap::Round,
+                line_join: fission_ir::op::LineJoin::Round,
             }),
-            icon_size: 20.0,
-            font_weight: tokens.typography.font_weight_semibold,
+            icon_size: 16.0,
+            font_weight: tokens.typography.font_weight_medium,
             line_height: 20.0,
             transition: Some(ComponentMotion {
                 duration_ms: tokens.motion.duration_fast_ms,
@@ -1243,13 +1277,13 @@ impl ButtonTheme {
                 (
                     ComponentSize::Sm,
                     ResolvedComponentStyle {
-                        height: Some(36.0),
-                        padding_x: Some(12.0),
-                        padding_y: Some(tokens.spacing.xs),
+                        height: Some(28.0),
+                        padding_x: Some(10.0),
+                        padding_y: Some(0.0),
                         gap: Some(4.0),
                         font_size: Some(tokens.typography.font_size_sm),
                         line_height: Some(20.0),
-                        icon_size: Some(18.0),
+                        icon_size: Some(14.0),
                         ..ResolvedComponentStyle::default()
                     },
                 ),
@@ -1257,48 +1291,52 @@ impl ButtonTheme {
                 (
                     ComponentSize::Lg,
                     ResolvedComponentStyle {
-                        height: Some(44.0),
-                        padding_x: Some(16.0),
-                        padding_y: Some(tokens.spacing.s),
+                        height: Some(36.0),
+                        padding_x: Some(10.0),
+                        padding_y: Some(0.0),
                         gap: Some(6.0),
                         font_size: Some(tokens.typography.font_size_base),
-                        line_height: Some(24.0),
-                        icon_size: Some(20.0),
+                        line_height: Some(20.0),
+                        icon_size: Some(16.0),
                         ..ResolvedComponentStyle::default()
                     },
                 ),
                 (
                     ComponentSize::Xl,
                     ResolvedComponentStyle {
-                        height: Some(48.0),
-                        padding_x: Some(18.0),
-                        padding_y: Some(tokens.spacing.s),
+                        height: Some(40.0),
+                        padding_x: Some(12.0),
+                        padding_y: Some(0.0),
                         gap: Some(6.0),
                         font_size: Some(tokens.typography.font_size_base),
-                        line_height: Some(24.0),
-                        icon_size: Some(20.0),
+                        line_height: Some(20.0),
+                        icon_size: Some(16.0),
                         ..ResolvedComponentStyle::default()
                     },
                 ),
             ],
             hierarchies: vec![
                 (ButtonHierarchy::Primary, primary.clone()),
-                (ButtonHierarchy::SecondaryColor, secondary_gray.clone()),
+                (ButtonHierarchy::SecondaryColor, secondary_color),
                 (ButtonHierarchy::SecondaryGray, secondary_gray),
-                (ButtonHierarchy::TertiaryColor, tertiary_gray.clone()),
+                (ButtonHierarchy::TertiaryColor, tertiary_color.clone()),
                 (ButtonHierarchy::TertiaryGray, tertiary_gray.clone()),
-                (ButtonHierarchy::LinkColor, tertiary_gray.clone()),
+                (ButtonHierarchy::LinkColor, tertiary_color),
                 (ButtonHierarchy::LinkGray, tertiary_gray.clone()),
                 (
                     ButtonHierarchy::Destructive,
                     ComponentStateStyles {
                         default: ResolvedComponentStyle {
-                            background: Some(Fill::Solid(tokens.colors.error)),
-                            text_color: Some(tokens.colors.on_error),
+                            background: Some(Fill::Solid(tokens.colors.error.with_alpha(26))),
+                            text_color: Some(tokens.colors.error),
                             ..primary.default.clone()
                         },
                         hover: Some(ResolvedComponentStyle {
-                            background: Some(Fill::Solid(tokens.colors.error.with_alpha(230))),
+                            background: Some(Fill::Solid(tokens.colors.error.with_alpha(51))),
+                            ..ResolvedComponentStyle::default()
+                        }),
+                        active: Some(ResolvedComponentStyle {
+                            background: Some(Fill::Solid(tokens.colors.error.with_alpha(51))),
                             ..ResolvedComponentStyle::default()
                         }),
                         ..primary
@@ -1396,55 +1434,57 @@ pub struct TextInputTheme {
 impl TextInputTheme {
     pub fn from_tokens(tokens: &Tokens) -> Self {
         Self {
-            height: 40.0,
-            padding_h: tokens.spacing.m,
-            radius: tokens.radii.small,
-            font_size: tokens.typography.body_large_size,
+            height: 32.0,
+            padding_h: 10.0,
+            radius: tokens.radii.medium,
+            font_size: tokens.typography.font_size_base,
             border_color: tokens.colors.border,
             border_width: 1.0,
             focus_color: tokens.colors.primary,
             text_color: tokens.colors.text_primary,
             placeholder_color: tokens.colors.text_secondary,
-            line_height: 24.0,
+            line_height: 20.0,
             font_weight: tokens.typography.font_weight_regular,
             sizes: vec![
                 (
                     ComponentSize::Sm,
                     ResolvedComponentStyle {
-                        height: Some(36.0),
-                        padding_x: Some(12.0),
+                        height: Some(28.0),
+                        padding_x: Some(10.0),
+                        padding_y: Some(4.0),
                         ..ResolvedComponentStyle::default()
                     },
                 ),
                 (
                     ComponentSize::Md,
                     ResolvedComponentStyle {
-                        height: Some(40.0),
-                        padding_x: Some(12.0),
+                        height: Some(32.0),
+                        padding_x: Some(10.0),
+                        padding_y: Some(4.0),
                         ..ResolvedComponentStyle::default()
                     },
                 ),
             ],
             states: ComponentStateStyles {
                 default: ResolvedComponentStyle {
-                    background: Some(Fill::Solid(tokens.colors.surface)),
+                    background: Some(Fill::Solid(Color {
+                        r: 0,
+                        g: 0,
+                        b: 0,
+                        a: 0,
+                    })),
                     text_color: Some(tokens.colors.text_primary),
                     border: Some(ComponentBorder {
                         fill: Fill::Solid(tokens.colors.border),
                         width: 1.0,
                     }),
-                    shadows: tokens
-                        .elevations
-                        .level1
-                        .map(shadow_layer_from_box)
-                        .into_iter()
-                        .collect(),
+                    shadows: Vec::new(),
                     ..ResolvedComponentStyle::default()
                 },
                 focus: Some(ResolvedComponentStyle {
                     border: Some(ComponentBorder {
                         fill: Fill::Solid(tokens.colors.focus_ring),
-                        width: 2.0,
+                        width: 1.0,
                     }),
                     shadows: tokens
                         .elevations
@@ -1452,7 +1492,6 @@ impl TextInputTheme {
                         .map(shadow_layer_from_box)
                         .into_iter()
                         .collect(),
-                    padding_x: Some(11.0),
                     ..ResolvedComponentStyle::default()
                 }),
                 error: Some(ResolvedComponentStyle {
@@ -1460,6 +1499,13 @@ impl TextInputTheme {
                         fill: Fill::Solid(tokens.colors.error),
                         width: 1.0,
                     }),
+                    shadows: vec![ShadowLayer {
+                        color: tokens.colors.error.with_alpha(51),
+                        offset: (0.0, 0.0),
+                        blur_radius: 0.0,
+                        spread_radius: 3.0,
+                        inset: false,
+                    }],
                     ..ResolvedComponentStyle::default()
                 }),
                 disabled: Some(ResolvedComponentStyle {
@@ -1785,68 +1831,77 @@ pub struct TabsTheme {
 impl TabsTheme {
     pub fn from_tokens(tokens: &Tokens) -> Self {
         Self {
-            active_color: tokens.colors.primary,
-            inactive_color: tokens.colors.text_secondary,
-            indicator_height: 3.0,
-            background: tokens.colors.background,
-            divider_color: tokens.colors.border.with_alpha(120),
+            active_color: tokens.colors.text_primary,
+            inactive_color: tokens.colors.text_muted,
+            indicator_height: 0.0,
+            background: tokens.colors.surface_sunken,
+            divider_color: tokens.colors.border,
             sizes: vec![
                 (
                     ComponentSize::Sm,
                     ResolvedComponentStyle {
-                        padding_y: Some(10.0),
-                        font_size: Some(tokens.typography.font_size_base),
+                        height: Some(24.0),
+                        padding_x: Some(6.0),
+                        padding_y: Some(2.0),
+                        gap: Some(4.0),
+                        font_size: Some(tokens.typography.font_size_sm),
                         line_height: Some(20.0),
-                        height: Some(40.0),
                         ..ResolvedComponentStyle::default()
                     },
                 ),
                 (
                     ComponentSize::Md,
                     ResolvedComponentStyle {
-                        padding_y: Some(12.0),
+                        height: Some(25.0),
+                        padding_x: Some(6.0),
+                        padding_y: Some(2.0),
+                        gap: Some(6.0),
                         font_size: Some(tokens.typography.font_size_base),
                         line_height: Some(20.0),
-                        height: Some(44.0),
                         ..ResolvedComponentStyle::default()
                     },
                 ),
             ],
             states: ComponentStateStyles {
                 default: ResolvedComponentStyle {
-                    text_color: Some(tokens.colors.text_secondary),
-                    border: Some(ComponentBorder {
-                        fill: Fill::Solid(Color {
-                            r: 0,
-                            g: 0,
-                            b: 0,
-                            a: 0,
-                        }),
-                        width: 2.0,
-                    }),
+                    background: Some(Fill::Solid(Color {
+                        r: 0,
+                        g: 0,
+                        b: 0,
+                        a: 0,
+                    })),
+                    text_color: Some(tokens.colors.text_muted),
+                    border: None,
+                    radius: Some(tokens.radii.small),
                     ..ResolvedComponentStyle::default()
                 },
                 hover: Some(ResolvedComponentStyle {
+                    background: Some(Fill::Solid(tokens.colors.surface)),
                     text_color: Some(tokens.colors.text_primary),
                     ..ResolvedComponentStyle::default()
                 }),
                 active: Some(ResolvedComponentStyle {
-                    text_color: Some(tokens.colors.primary),
-                    border: Some(ComponentBorder {
-                        fill: Fill::Solid(tokens.colors.primary),
-                        width: 2.0,
-                    }),
-                    font_weight: Some(tokens.typography.font_weight_semibold),
+                    background: Some(Fill::Solid(tokens.colors.surface)),
+                    text_color: Some(tokens.colors.text_primary),
+                    border: None,
+                    radius: Some(tokens.radii.small),
+                    font_weight: Some(tokens.typography.font_weight_medium),
+                    shadows: tokens
+                        .elevations
+                        .level1
+                        .map(shadow_layer_from_box)
+                        .into_iter()
+                        .collect(),
                     ..ResolvedComponentStyle::default()
                 }),
                 ..ComponentStateStyles::default()
             },
             track_style: ResolvedComponentStyle {
-                background: Some(Fill::Solid(tokens.colors.background)),
-                border: Some(ComponentBorder {
-                    fill: Fill::Solid(tokens.colors.border.with_alpha(120)),
-                    width: 1.0,
-                }),
+                background: Some(Fill::Solid(tokens.colors.surface_sunken)),
+                border: None,
+                radius: Some(tokens.radii.medium),
+                padding: Some([3.0; 4]),
+                gap: Some(0.0),
                 ..ResolvedComponentStyle::default()
             },
         }
@@ -1880,15 +1935,21 @@ impl ModalTheme {
         Self {
             bg_color: tokens.colors.surface,
             radius: tokens.radii.large,
-            shadow: tokens.elevations.level3,
-            max_width: 600.0,
+            shadow: tokens.elevations.level0,
+            max_width: 384.0,
             container_style: ResolvedComponentStyle {
                 background: Some(Fill::Solid(tokens.colors.surface)),
+                border: Some(ComponentBorder {
+                    fill: Fill::Solid(tokens.colors.border),
+                    width: 1.0,
+                }),
                 radius: Some(tokens.radii.large),
-                max_width: Some(600.0),
+                padding: Some([tokens.spacing.m; 4]),
+                gap: Some(tokens.spacing.m),
+                max_width: Some(384.0),
                 shadows: tokens
                     .elevations
-                    .level3
+                    .level0
                     .map(shadow_layer_from_box)
                     .into_iter()
                     .collect(),
@@ -1896,10 +1957,10 @@ impl ModalTheme {
             },
             scrim_style: ResolvedComponentStyle {
                 background: Some(Fill::Solid(Color {
-                    r: 15,
-                    g: 23,
-                    b: 42,
-                    a: 153,
+                    r: 0,
+                    g: 0,
+                    b: 0,
+                    a: 26,
                 })),
                 ..ResolvedComponentStyle::default()
             },
@@ -2029,8 +2090,8 @@ impl CardTheme {
             width: 1.0,
         };
         Self {
-            padding: tokens.spacing.l,
-            radius: tokens.radii.xl,
+            padding: tokens.spacing.m,
+            radius: tokens.radii.large,
             default_pattern: CardPattern::Raised,
             patterns: vec![
                 (
@@ -2038,9 +2099,9 @@ impl CardTheme {
                     ResolvedComponentStyle {
                         background: Some(Fill::Solid(tokens.colors.surface)),
                         border: Some(base_border.clone()),
-                        radius: Some(tokens.radii.xl),
-                        padding_x: Some(tokens.spacing.l),
-                        padding_y: Some(tokens.spacing.l),
+                        radius: Some(tokens.radii.large),
+                        padding_x: Some(tokens.spacing.m),
+                        padding_y: Some(tokens.spacing.m),
                         ..ResolvedComponentStyle::default()
                     },
                 ),
@@ -2049,15 +2110,10 @@ impl CardTheme {
                     ResolvedComponentStyle {
                         background: Some(Fill::Solid(tokens.colors.surface)),
                         border: Some(base_border.clone()),
-                        radius: Some(tokens.radii.xl),
-                        padding_x: Some(tokens.spacing.l),
-                        padding_y: Some(tokens.spacing.l),
-                        shadows: tokens
-                            .elevations
-                            .level2
-                            .map(shadow_layer_from_box)
-                            .into_iter()
-                            .collect(),
+                        radius: Some(tokens.radii.large),
+                        padding_x: Some(tokens.spacing.m),
+                        padding_y: Some(tokens.spacing.m),
+                        shadows: Vec::new(),
                         ..ResolvedComponentStyle::default()
                     },
                 ),
@@ -2065,13 +2121,10 @@ impl CardTheme {
                     CardPattern::Tinted,
                     ResolvedComponentStyle {
                         background: Some(Fill::Solid(tokens.colors.primary_subtle)),
-                        border: Some(ComponentBorder {
-                            fill: Fill::Solid(tokens.colors.primary.with_alpha(80)),
-                            width: 1.0,
-                        }),
-                        radius: Some(tokens.radii.xl),
-                        padding_x: Some(tokens.spacing.l),
-                        padding_y: Some(tokens.spacing.l),
+                        border: Some(base_border.clone()),
+                        radius: Some(tokens.radii.large),
+                        padding_x: Some(tokens.spacing.m),
+                        padding_y: Some(tokens.spacing.m),
                         ..ResolvedComponentStyle::default()
                     },
                 ),
@@ -2080,9 +2133,9 @@ impl CardTheme {
                     ResolvedComponentStyle {
                         background: Some(Fill::Solid(tokens.colors.surface)),
                         border: Some(base_border),
-                        radius: Some(tokens.radii.xl),
-                        padding_x: Some(tokens.spacing.l),
-                        padding_y: Some(tokens.spacing.l),
+                        radius: Some(tokens.radii.large),
+                        padding_x: Some(tokens.spacing.m),
+                        padding_y: Some(tokens.spacing.m),
                         shadows: tokens
                             .elevations
                             .level1
@@ -2096,7 +2149,7 @@ impl CardTheme {
             hover_style: ResolvedComponentStyle {
                 shadows: tokens
                     .elevations
-                    .level2
+                    .level1
                     .map(shadow_layer_from_box)
                     .into_iter()
                     .collect(),
@@ -2284,8 +2337,9 @@ impl ComponentTheme {
 /// The top-level theme combining primitive [`Tokens`] and derived [`ComponentTheme`].
 ///
 /// Use [`Theme::default()`] for light mode and [`Theme::dark()`] for dark mode.
-/// For custom themes, construct [`Tokens`] manually and derive components via
-/// [`ComponentTheme::from_tokens()`].
+/// [`Theme::from_tokens()`] preserves the generated component recipes when
+/// passed the bundled default light or dark tokens. Other token sets use the
+/// compatible component recipe provided by [`ComponentTheme::from_tokens()`].
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Theme {
     pub tokens: Tokens,
@@ -2306,6 +2360,11 @@ impl Theme {
     }
 
     pub fn from_tokens(tokens: Tokens, mode: DesignMode) -> Self {
+        let generated = FissionDefaultDesignSystem::theme_ref(mode);
+        if tokens == generated.tokens {
+            return generated.clone();
+        }
+
         let components = ComponentTheme::from_tokens(&tokens);
         Self {
             tokens,

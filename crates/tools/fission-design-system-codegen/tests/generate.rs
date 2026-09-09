@@ -27,4 +27,16 @@ fn generates_rust_for_fission_dsp_package() {
     assert!(generated.contains("impl fission_theme::DesignSystem for GeneratedDesignSystem"));
     assert!(generated.contains("color.teal.700"));
     assert!(generated.contains("marketing_hero"));
+    assert!(
+        generated.contains("padding: Some([16.0, 16.0, 16.0, 16.0])"),
+        "modal container padding must survive DSP code generation"
+    );
+    assert!(
+        generated.contains("gap: Some(16.0)"),
+        "modal container gap must survive DSP code generation"
+    );
+    assert!(
+        generated.contains("width: 1.0"),
+        "component borders must survive DSP code generation"
+    );
 }

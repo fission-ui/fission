@@ -737,7 +737,15 @@ impl {krate}::DesignSystem for {type_name} {{
             krate,
             mode,
             "/components/modal",
-            &["background", "radius", "max_width", "box_shadow"],
+            &[
+                "background",
+                "border",
+                "radius",
+                "padding",
+                "gap",
+                "max_width",
+                "box_shadow",
+            ],
         )?;
         let scrim_style =
             self.style_expr(krate, mode, self.dsp.pointer("/components/modal/scrim"))?;
