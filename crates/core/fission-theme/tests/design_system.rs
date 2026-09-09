@@ -296,7 +296,7 @@ fn custom_tokens_still_derive_the_compatibility_component_recipe() {
             .card
             .resolve_title(ComponentSize::Sm)
             .line_height,
-        Some(19.25)
+        Some(20.0)
     );
     assert_eq!(
         theme
@@ -304,7 +304,7 @@ fn custom_tokens_still_derive_the_compatibility_component_recipe() {
             .card
             .resolve_title(ComponentSize::Md)
             .line_height,
-        Some(22.0)
+        Some(24.0)
     );
     assert_menu_trigger_uses_outline(&theme);
     assert!(theme.design_system.info.name.is_empty());
@@ -473,7 +473,7 @@ fn default_component_geometry_matches_the_compact_recipe() {
     assert_eq!(menu.surface_style.padding, Some([4.0; 4]));
     assert_eq!(menu.surface_style.gap, Some(0.0));
     assert_eq!(menu.surface_style.radius, Some(10.0));
-    assert_eq!(menu.surface_style.shadows.len(), 2);
+    assert_eq!(menu.surface_style.shadows.len(), 3);
     let menu_trigger = menu.resolve_trigger(ComponentSize::Sm, ComponentState::Default);
     assert_eq!(menu_trigger.height, Some(28.0));
     assert_eq!(menu_trigger.padding, Some([10.0, 6.0, 0.0, 0.0]));
