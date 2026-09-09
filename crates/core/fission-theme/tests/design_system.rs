@@ -899,19 +899,17 @@ fn generated_dark_buttons_use_dark_readable_text_tokens() {
 
 #[test]
 fn bundled_menu_triggers_preserve_the_outline_button_contract() {
-    for theme in [
-        FissionDefaultDesignSystem::theme(DesignMode::Light),
-        FissionDefaultDesignSystem::theme(DesignMode::Dark),
-        FissionMaterialDesign3DesignSystem::theme(DesignMode::Light),
-        FissionMaterialDesign3DesignSystem::theme(DesignMode::Dark),
-        FissionFluent2DesignSystem::theme(DesignMode::Light),
-        FissionFluent2DesignSystem::theme(DesignMode::Dark),
-        FissionLiquidGlassDesignSystem::theme(DesignMode::Light),
-        FissionLiquidGlassDesignSystem::theme(DesignMode::Dark),
-        FissionCupertinoDesignSystem::theme(DesignMode::Light),
-        FissionCupertinoDesignSystem::theme(DesignMode::Dark),
-    ] {
-        assert_menu_trigger_uses_outline(&theme);
+    let presets: [fn(DesignMode) -> Theme; 5] = [
+        FissionDefaultDesignSystem::theme,
+        FissionMaterialDesign3DesignSystem::theme,
+        FissionFluent2DesignSystem::theme,
+        FissionLiquidGlassDesignSystem::theme,
+        FissionCupertinoDesignSystem::theme,
+    ];
+    for theme_for_mode in presets {
+        for mode in [DesignMode::Light, DesignMode::Dark] {
+            assert_menu_trigger_uses_outline(&theme_for_mode(mode));
+        }
     }
 }
 
