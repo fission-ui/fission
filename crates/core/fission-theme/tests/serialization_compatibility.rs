@@ -33,7 +33,6 @@ fn menu_theme_fields_default_when_deserializing_an_earlier_recipe() {
         "metadata_style",
         "group_label_style",
         "separator_style",
-        "selected_style",
         "indicator_style",
         "trigger_sizes",
         "trigger_states",
@@ -86,6 +85,7 @@ fn component_theme_defaults_new_recipes_from_an_earlier_serialized_theme() {
         "title_style",
         "description_style",
         "separator_style",
+        "selected_style",
     ] {
         assert!(card.remove(field).is_some(), "missing test field {field}");
     }
