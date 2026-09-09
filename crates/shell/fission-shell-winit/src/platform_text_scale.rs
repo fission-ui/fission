@@ -115,7 +115,7 @@ fn platform_factor(_event_loop: &ActiveEventLoop) -> Option<f32> {
 fn platform_factor(_event_loop: &ActiveEventLoop) -> Option<f32> {
     use windows::UI::ViewManagement::UISettings;
 
-    UISettings::GetForCurrentView()
+    UISettings::new()
         .and_then(|settings| settings.TextScaleFactor())
         .ok()
         .map(|percentage| percentage as f32 / 100.0)
