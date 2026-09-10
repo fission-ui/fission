@@ -2,6 +2,7 @@ use fission_core::action::GlobalState;
 use fission_core::env::{Env, RuntimeState};
 use fission_core::internal::BuildCtx;
 use fission_core::internal::{build_layout_tree, InternalLoweringCx};
+use fission_core::ui::{Row, Spacer};
 use fission_core::{View, Widget};
 use fission_ir::op::Color;
 use fission_ir::{CoreIR, Op, PaintOp, WidgetId};
@@ -57,11 +58,15 @@ fn parent_map(ir: &CoreIR) -> HashMap<WidgetId, WidgetId> {
 }
 
 fn build_widget_ir(widget: impl Into<Widget>, env: &Env) -> (CoreIR, WidgetId) {
+    build_widget_ir_with(env, || widget.into())
+}
+
+fn build_widget_ir_with(env: &Env, build: impl FnOnce() -> Widget) -> (CoreIR, WidgetId) {
     let runtime_state = RuntimeState::default();
     let state = TestState::default();
     let view = View::new(&state, &runtime_state, env, None);
     let mut ctx = BuildCtx::new();
-    let node = fission_core::build::enter(&mut ctx, &view, || widget.into());
+    let node = fission_core::build::enter(&mut ctx, &view, build);
 
     let measurer: Arc<dyn TextMeasurer> = Arc::new(SimpleMeasurer);
     let measurer_ref = measurer.clone();
@@ -77,6 +82,25 @@ fn layout_widget(
 ) -> (CoreIR, WidgetId, fission_layout::LayoutSnapshot) {
     let (ir, root_id) = build_widget_ir(widget, env);
     let input_nodes = build_layout_tree(&ir, &env);
+    let mut engine = LayoutEngine::new().with_measurer(Arc::new(SimpleMeasurer));
+    engine.rebuild(&input_nodes).unwrap();
+    let snapshot = engine
+        .compute_layout(
+            &input_nodes,
+            root_id,
+            LayoutSize::new(400.0, 300.0),
+            &|_| 0.0,
+        )
+        .unwrap();
+    (ir, root_id, snapshot)
+}
+
+fn layout_built_widget(
+    env: &Env,
+    build: impl FnOnce() -> Widget,
+) -> (CoreIR, WidgetId, fission_layout::LayoutSnapshot) {
+    let (ir, root_id) = build_widget_ir_with(env, build);
+    let input_nodes = build_layout_tree(&ir, env);
     let mut engine = LayoutEngine::new().with_measurer(Arc::new(SimpleMeasurer));
     engine.rebuild(&input_nodes).unwrap();
     let snapshot = engine
@@ -180,18 +204,7 @@ fn stepper_circle_text_centered() {
         })
         .expect("stepper active circle paint");
 
-    let text_paint_id = ir
-        .nodes
-        .iter()
-        .find_map(|(id, node)| {
-            if let Op::Paint(PaintOp::DrawText { text, .. }) = &node.op {
-                if text == "1" {
-                    return Some(*id);
-                }
-            }
-            None
-        })
-        .expect("stepper circle text paint");
+    let text_paint_id = find_text_paint(&ir, "1").expect("stepper circle text paint");
 
     let text_layout_id = parents.get(&text_paint_id).copied().expect("text layout");
     let circle_rect = snapshot.get_node_geometry(circle_id).unwrap().rect;
@@ -237,6 +250,62 @@ fn badge_text_centered() {
 }
 
 #[test]
+fn badge_surface_hugs_its_recipe_height_inside_a_taller_row() {
+    let env = Env::default();
+    let expected_fill = env
+        .theme
+        .components
+        .badge
+        .resolve(
+            fission_theme::BadgeTone::Brand,
+            fission_theme::ComponentSize::Sm,
+        )
+        .background
+        .expect("brand badge fill");
+    let (ir, _root_id, snapshot) = layout_built_widget(&env, || {
+        Row {
+            children: vec![
+                Badge {
+                    text: "Automatic".into(),
+                    size: fission_theme::ComponentSize::Sm,
+                    ..Default::default()
+                }
+                .into(),
+                Spacer {
+                    height: Some(80.0),
+                    ..Default::default()
+                }
+                .into(),
+            ],
+            ..Default::default()
+        }
+        .into()
+    });
+    let parents = parent_map(&ir);
+    let background_id = ir
+        .nodes
+        .iter()
+        .find_map(|(id, node)| match &node.op {
+            Op::Paint(PaintOp::DrawRect {
+                fill: Some(fill), ..
+            }) if fill == &expected_fill => Some(*id),
+            _ => None,
+        })
+        .expect("badge background paint");
+    let badge_layout_id = parents[&background_id];
+    let badge_rect = snapshot
+        .get_node_geometry(badge_layout_id)
+        .expect("badge layout")
+        .rect;
+
+    assert!(approx_eq(badge_rect.height(), 20.0));
+    assert!(!ir
+        .nodes
+        .values()
+        .any(|node| { matches!(node.op, Op::Layout(fission_ir::LayoutOp::Align)) }));
+}
+
+#[test]
 fn stepper_active_text_uses_on_primary() {
     let mut tokens = Tokens::default();
     tokens.colors.on_primary = Color {
@@ -257,15 +326,15 @@ fn stepper_active_text_uses_on_primary() {
         &env,
     );
 
-    let mut found = None;
-    for node in ir.nodes.values() {
-        if let Op::Paint(PaintOp::DrawText { text, color, .. }) = &node.op {
-            if text == "1" {
-                found = Some(*color);
-                break;
-            }
+    let found = ir.nodes.values().find_map(|node| match &node.op {
+        Op::Paint(PaintOp::DrawText { text, color, .. }) if text == "1" => Some(*color),
+        Op::Paint(PaintOp::DrawRichText { runs, .. })
+            if runs.iter().map(|run| run.text.as_str()).collect::<String>() == "1" =>
+        {
+            runs.first().map(|run| run.style.color)
         }
-    }
+        _ => None,
+    });
 
     let color = found.expect("stepper active text");
     assert_eq!(
