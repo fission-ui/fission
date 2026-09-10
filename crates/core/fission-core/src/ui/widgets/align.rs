@@ -1,13 +1,14 @@
 use crate::internal::InternalLower;
 use crate::lowering::{InternalIrBuilder, InternalLoweringCx};
 use crate::ui::Widget;
+use fission_ir::op::BoxAlignment;
 use fission_ir::{LayoutOp, Op, WidgetId};
 use serde::{Deserialize, Serialize};
 
-/// Centers its child within the available parent space.
+/// Aligns its child within the available parent space.
 ///
-/// `Align` is a convenience wrapper that applies center alignment on both
-/// axes. It expands to fill the parent and places the child at the centre.
+/// It expands to fill the parent and defaults to centering the child on both
+/// axes. Horizontal and vertical alignment can be configured independently.
 ///
 /// # Example
 ///
@@ -18,8 +19,18 @@ use serde::{Deserialize, Serialize};
 pub struct Align {
     /// Explicit node identity.
     pub id: Option<WidgetId>,
-    /// The child widget to center.
+    /// The child widget to align.
     pub child: Widget,
+    /// Horizontal placement within the available width.
+    #[serde(default = "center_alignment")]
+    pub horizontal: BoxAlignment,
+    /// Vertical placement within the available height.
+    #[serde(default = "center_alignment")]
+    pub vertical: BoxAlignment,
+}
+
+const fn center_alignment() -> BoxAlignment {
+    BoxAlignment::Center
 }
 
 impl Align {
@@ -27,7 +38,21 @@ impl Align {
         Self {
             child: child.into(),
             id: None,
+            horizontal: BoxAlignment::Center,
+            vertical: BoxAlignment::Center,
         }
+    }
+
+    /// Sets horizontal placement within the available width.
+    pub fn horizontal(mut self, alignment: BoxAlignment) -> Self {
+        self.horizontal = alignment;
+        self
+    }
+
+    /// Sets vertical placement within the available height.
+    pub fn vertical(mut self, alignment: BoxAlignment) -> Self {
+        self.vertical = alignment;
+        self
     }
 }
 
@@ -38,7 +63,13 @@ impl InternalLower for Align {
         let child_id = self.child.lower(cx);
         cx.pop_scope();
 
-        let mut builder = InternalIrBuilder::new(id, Op::Layout(LayoutOp::Align));
+        let mut builder = InternalIrBuilder::new(
+            id,
+            Op::Layout(LayoutOp::Aligned {
+                horizontal: self.horizontal,
+                vertical: self.vertical,
+            }),
+        );
         builder.add_child(child_id);
         builder.build(cx)
     }

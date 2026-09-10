@@ -1486,6 +1486,7 @@ impl HtmlRenderer<'_> {
                 flex_shrink,
                 padding,
                 gap,
+                line_gap,
                 align_items,
                 justify_content,
             } => {
@@ -1496,6 +1497,7 @@ impl HtmlRenderer<'_> {
                     *flex_shrink,
                     *padding,
                     *gap,
+                    *line_gap,
                     *align_items,
                     *justify_content,
                 );
@@ -1720,6 +1722,19 @@ impl HtmlRenderer<'_> {
                     "display:flex".to_string(),
                     "align-items:center".to_string(),
                     "justify-content:center".to_string(),
+                ],
+            ),
+            LayoutOp::Aligned {
+                horizontal,
+                vertical,
+            } => self.render_element(
+                "div",
+                node,
+                "fission-site-node fission-site-align",
+                vec![
+                    "display:flex".to_string(),
+                    format!("align-items:{}", box_alignment_css(*vertical)),
+                    format!("justify-content:{}", box_alignment_css(*horizontal)),
                 ],
             ),
             LayoutOp::Flyout {
@@ -4019,6 +4034,7 @@ fn transparent_list_layout_style(layout: &LayoutOp) -> Option<(&'static str, Vec
             flex_shrink,
             padding,
             gap,
+            line_gap,
             align_items,
             justify_content,
         } => Some(flex_layout_style(
@@ -4028,6 +4044,7 @@ fn transparent_list_layout_style(layout: &LayoutOp) -> Option<(&'static str, Vec
             *flex_shrink,
             *padding,
             *gap,
+            *line_gap,
             *align_items,
             *justify_content,
         )),
@@ -4052,6 +4069,7 @@ fn flex_layout_style(
     flex_shrink: f32,
     padding: [f32; 4],
     gap: Option<f32>,
+    line_gap: Option<f32>,
     align_items: AlignItems,
     justify_content: JustifyContent,
 ) -> (&'static str, Vec<String>) {
@@ -4063,7 +4081,18 @@ fn flex_layout_style(
         format!("justify-content:{}", justify_content_css(justify_content)),
     ];
     if let Some(gap) = gap {
-        style.push(format!("gap:{}px", px(gap)));
+        let main_property = match direction {
+            FlexDirection::Row => "column-gap",
+            FlexDirection::Column => "row-gap",
+        };
+        style.push(format!("{main_property}:{}px", px(gap)));
+    }
+    if let Some(line_gap) = line_gap.or(gap) {
+        let line_property = match direction {
+            FlexDirection::Row => "row-gap",
+            FlexDirection::Column => "column-gap",
+        };
+        style.push(format!("{line_property}:{}px", px(line_gap)));
     }
     push_padding(&mut style, padding);
     push_flex_item(&mut style, flex_grow, flex_shrink);
@@ -4120,6 +4149,15 @@ fn align_items_css(align: AlignItems) -> &'static str {
         AlignItems::Center => "center",
         AlignItems::Stretch => "stretch",
         AlignItems::Baseline => "baseline",
+    }
+}
+
+fn box_alignment_css(align: fission_ir::op::BoxAlignment) -> &'static str {
+    match align {
+        fission_ir::op::BoxAlignment::Start => "flex-start",
+        fission_ir::op::BoxAlignment::Center => "center",
+        fission_ir::op::BoxAlignment::End => "flex-end",
+        fission_ir::op::BoxAlignment::Stretch => "stretch",
     }
 }
 

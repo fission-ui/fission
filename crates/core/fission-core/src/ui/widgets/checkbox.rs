@@ -238,6 +238,7 @@ impl InternalLower for Checkbox {
                 flex_shrink: 1.0,
                 padding: [0.0; 4],
                 gap: Some(8.0),
+                line_gap: None,
                 align_items: fission_ir::op::AlignItems::Center,
                 justify_content: fission_ir::op::JustifyContent::Start,
             }),

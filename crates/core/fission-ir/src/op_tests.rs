@@ -1,7 +1,8 @@
 use crate::op::{
     decode_inline_widget_marker, decode_text_paragraph_style, encode_inline_widget_marker,
     encode_text_paragraph_style, HttpHeader, ImageCachePolicy, ImageRequest, ImageSource,
-    InlineWidgetMarker, JustifyContent, LayoutDirection, TextAlign, TextDirection,
+    AlignItems, BoxAlignment, FlexDirection, FlexWrap, InlineWidgetMarker, JustifyContent,
+    LayoutDirection, LayoutOp, TextAlign, TextDirection,
     TextHeightBehavior, TextOverflow, TextParagraphStyle, TextWidthBasis,
     TEXT_PARAGRAPH_MAX_ENCODED_LINES,
 };
@@ -162,4 +163,42 @@ fn core_ir_direction_is_backward_compatible_and_omits_ltr_default() {
     );
     let decoded: CoreIR = serde_json::from_value(encoded).expect("deserialize RTL IR");
     assert_eq!(decoded.layout_direction, LayoutDirection::RightToLeft);
+}
+
+#[test]
+fn flex_line_gap_defaults_when_reading_legacy_ir() {
+    let op = LayoutOp::Flex {
+        direction: FlexDirection::Row,
+        wrap: FlexWrap::Wrap,
+        flex_grow: 0.0,
+        flex_shrink: 1.0,
+        padding: [0.0; 4],
+        gap: Some(8.0),
+        line_gap: Some(16.0),
+        align_items: AlignItems::Start,
+        justify_content: JustifyContent::Start,
+    };
+    let mut encoded = serde_json::to_value(op).expect("serialize flex");
+    encoded
+        .get_mut("Flex")
+        .and_then(serde_json::Value::as_object_mut)
+        .expect("flex object")
+        .remove("line_gap");
+
+    let decoded: LayoutOp = serde_json::from_value(encoded).expect("legacy flex IR");
+    assert!(matches!(decoded, LayoutOp::Flex { line_gap: None, .. }));
+}
+
+#[test]
+fn parameterized_alignment_round_trips_without_changing_legacy_align() {
+    let legacy = serde_json::to_value(LayoutOp::Align).expect("serialize legacy align");
+    assert_eq!(legacy, serde_json::json!("Align"));
+
+    let op = LayoutOp::Aligned {
+        horizontal: BoxAlignment::End,
+        vertical: BoxAlignment::Start,
+    };
+    let encoded = serde_json::to_value(&op).expect("serialize aligned");
+    let decoded: LayoutOp = serde_json::from_value(encoded).expect("deserialize aligned");
+    assert_eq!(decoded, op);
 }

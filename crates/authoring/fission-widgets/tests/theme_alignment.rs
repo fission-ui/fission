@@ -340,7 +340,14 @@ fn badge_surface_hugs_its_recipe_height_inside_a_taller_row() {
     assert!(!ir
         .nodes
         .values()
-        .any(|node| { matches!(node.op, Op::Layout(fission_ir::LayoutOp::Align)) }));
+        .any(|node| {
+            matches!(
+                node.op,
+                Op::Layout(
+                    fission_ir::LayoutOp::Align | fission_ir::LayoutOp::Aligned { .. }
+                )
+            )
+        }));
 }
 
 #[test]

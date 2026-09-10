@@ -286,6 +286,7 @@ impl From<EmailDetail> for Widget {
         // ── 7. Divider between header and body ─────────────────────
         let header_divider = Divider {
             orientation: fission::widgets::divider::Orientation::Horizontal,
+            ..Default::default()
         }
         .into();
 
@@ -421,6 +422,7 @@ impl From<EmailDetail> for Widget {
         // ── 12. Divider before reply ───────────────────────────────
         let reply_divider = Divider {
             orientation: fission::widgets::divider::Orientation::Horizontal,
+            ..Default::default()
         }
         .into();
 

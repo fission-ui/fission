@@ -987,6 +987,9 @@ pub enum LayoutOp {
         flex_shrink: LayoutUnit,
         padding: [LayoutUnit; 4],
         gap: Option<LayoutUnit>,
+        /// Cross-axis spacing between wrapped lines. `gap` is used when absent.
+        #[serde(default)]
+        line_gap: Option<LayoutUnit>,
         align_items: AlignItems,
         justify_content: JustifyContent,
     },
@@ -1046,7 +1049,13 @@ pub enum LayoutOp {
         height: Option<Length>,
     },
     ZStack,
+    /// Legacy two-axis centered alignment retained for serialized IR compatibility.
     Align,
+    /// Aligns one child independently on the horizontal and vertical axes.
+    Aligned {
+        horizontal: BoxAlignment,
+        vertical: BoxAlignment,
+    },
     Flyout {
         anchor: WidgetId,
         content: WidgetId,
@@ -1144,6 +1153,7 @@ impl std::hash::Hash for LayoutOp {
                 flex_shrink,
                 padding,
                 gap,
+                line_gap,
                 align_items,
                 justify_content,
             } => {
@@ -1154,6 +1164,7 @@ impl std::hash::Hash for LayoutOp {
                 hash_unit(*flex_shrink, state);
                 hash_units(*padding, state);
                 hash_opt_unit(*gap, state);
+                hash_opt_unit(*line_gap, state);
                 align_items.hash(state);
                 justify_content.hash(state);
             }
@@ -1278,6 +1289,14 @@ impl std::hash::Hash for LayoutOp {
             }
             Self::Align => {
                 9.hash(state);
+            }
+            Self::Aligned {
+                horizontal,
+                vertical,
+            } => {
+                19.hash(state);
+                horizontal.hash(state);
+                vertical.hash(state);
             }
             Self::Flyout {
                 anchor,

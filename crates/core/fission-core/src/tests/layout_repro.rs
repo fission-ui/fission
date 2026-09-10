@@ -56,6 +56,7 @@ fn test_absolute_fill_inside_grown_container() {
             flex_shrink: 0.0,
             padding: [0.0; 4],
             gap: None,
+            line_gap: None,
             align_items: fission_ir::op::AlignItems::Stretch,
             justify_content: fission_ir::op::JustifyContent::Start,
         }),

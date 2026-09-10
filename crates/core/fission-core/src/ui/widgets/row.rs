@@ -106,6 +106,7 @@ impl InternalLower for Row {
                 flex_shrink: self.flex_shrink,
                 padding: [0.0; 4],
                 gap: self.gap,
+                line_gap: None,
                 align_items: self.align_items,
                 justify_content: self.justify_content,
             }),

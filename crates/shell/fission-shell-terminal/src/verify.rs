@@ -54,7 +54,8 @@ fn verify_layout(node_id: WidgetId, layout: &LayoutOp) -> Result<(), TerminalSup
         | LayoutOp::PositionedLengths { .. }
         | LayoutOp::AnchoredPositioned { .. }
         | LayoutOp::ZStack
-        | LayoutOp::Align => Ok(()),
+        | LayoutOp::Align
+        | LayoutOp::Aligned { .. } => Ok(()),
         LayoutOp::Clip { path: None } => Ok(()),
         LayoutOp::Clip { path: Some(_) } => Err(unsupported(
             node_id,

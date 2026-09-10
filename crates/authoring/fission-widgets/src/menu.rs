@@ -1205,6 +1205,7 @@ impl InternalLowerer for MenuActionItemLowerer {
                 flex_shrink: 1.0,
                 padding: [0.0; 4],
                 gap: Some(self.style.gap.unwrap_or(8.0)),
+                line_gap: None,
                 align_items: AlignItems::Center,
                 justify_content: JustifyContent::Start,
             }),
@@ -1254,6 +1255,7 @@ impl InternalLowerer for MenuActionItemLowerer {
                     .description
                     .as_ref()
                     .map(|_| self.description_style.gap.unwrap_or(2.0)),
+                line_gap: None,
                 align_items: AlignItems::Start,
                 justify_content: JustifyContent::Center,
             }),

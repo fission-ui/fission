@@ -180,6 +180,7 @@ impl From<Sidebar> for Widget {
                         .into(),
                         Divider {
                             orientation: fission::widgets::divider::Orientation::Horizontal,
+                            ..Default::default()
                         }
                         .into(),
                         Button {

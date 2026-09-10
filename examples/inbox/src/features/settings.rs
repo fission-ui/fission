@@ -464,6 +464,7 @@ impl From<SettingsModal> for Widget {
                             .into(),
                             Divider {
                                 orientation: fission::widgets::divider::Orientation::Horizontal,
+                                ..Default::default()
                             }
                             .into(),
                             Text::new(TextContent::Key("settings.appearance".into()))
@@ -620,6 +621,7 @@ impl From<SettingsModal> for Widget {
                             .into(),
                             Divider {
                                 orientation: fission::widgets::divider::Orientation::Horizontal,
+                                ..Default::default()
                             }
                             .into(),
                             Text::new(TextContent::Key("settings.signature.title".into()))
@@ -650,6 +652,7 @@ impl From<SettingsModal> for Widget {
                             .into(),
                             Divider {
                                 orientation: fission::widgets::divider::Orientation::Horizontal,
+                                ..Default::default()
                             }
                             .into(),
                             Text::new(TextContent::Key("settings.labs.title".into()))

@@ -644,6 +644,7 @@ impl From<EmailList> for Widget {
                         if idx + 1 < end_idx - start_idx {
                             Divider {
                                 orientation: fission::widgets::divider::Orientation::Horizontal,
+                                ..Default::default()
                             }
                             .into()
                         } else {
