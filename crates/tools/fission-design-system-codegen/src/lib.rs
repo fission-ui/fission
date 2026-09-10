@@ -439,6 +439,7 @@ impl {krate}::DesignSystem for {type_name} {{
         let select = self.select_theme_expr(krate, mode)?;
         let menu = self.menu_theme_expr(krate, mode)?;
         let alert = self.alert_theme_expr(krate, mode)?;
+        let avatar_group = self.avatar_group_theme_expr(krate, mode)?;
         let pagination = self.pagination_theme_expr(krate, mode)?;
         let badge = self.badge_theme_expr(krate, mode)?;
         let tabs = self.tabs_theme_expr(krate, mode)?;
@@ -463,6 +464,7 @@ impl {krate}::DesignSystem for {type_name} {{
                 timeline: {krate}::TimelineTheme {{ dot_size: 12.0, line_width: 2.0, dot_color: {primary}, line_color: {border} }},
                 segmented_control: {krate}::SegmentedControlTheme {{ bg_color: {surface}, border_color: {border}, radius: {radius_full}, active_bg: {primary}, active_text: {on_primary} }},
                 alert: {alert},
+                avatar_group: {avatar_group},
                 badge: {badge},
                 tabs: {tabs},
                 modal: {modal},
@@ -1041,6 +1043,50 @@ impl {krate}::DesignSystem for {type_name} {{
         ))
     }
 
+    fn avatar_group_theme_expr(&self, krate: &str, mode: Mode) -> Result<String> {
+        let fallback = serde_json::json!({
+            "avatar": {
+                "width": "32px",
+                "height": "32px",
+                "radius": "{radius.full}",
+                "border": "2px solid {color.light.surface}"
+            },
+            "overflow": {
+                "background": "{color.light.surface_sunken}",
+                "color": "{color.light.text_secondary}",
+                "width": "32px",
+                "height": "32px",
+                "radius": "{radius.full}",
+                "border": "2px solid {color.light.surface}",
+                "font_size": "{typography.font_size.xs}",
+                "font_weight": "{typography.font_weight.medium}",
+                "line_height": "16px"
+            },
+            "overlap": "10px",
+            "max_visible": 4
+        });
+        let group = self
+            .dsp
+            .pointer("/components/avatar_group")
+            .unwrap_or(&fallback);
+        let overlap = self.style_dimension_optional(mode, group.get("overlap"), 10.0)?;
+        let max_visible = group
+            .get("max_visible")
+            .and_then(Value::as_u64)
+            .unwrap_or(4) as usize;
+        Ok(format!(
+            r#"{krate}::AvatarGroupTheme {{
+                avatar_style: {avatar_style},
+                overflow_style: {overflow_style},
+                overlap: {overlap},
+                max_visible: {max_visible},
+            }}"#,
+            avatar_style = self.style_expr(krate, mode, group.get("avatar"))?,
+            overflow_style = self.style_expr(krate, mode, group.get("overflow"))?,
+            overlap = f32_lit(overlap),
+        ))
+    }
+
     fn tabs_theme_expr(&self, krate: &str, mode: Mode) -> Result<String> {
         let colors_prefix = match mode {
             Mode::Light => "color.light",
@@ -1429,6 +1475,12 @@ impl {krate}::DesignSystem for {type_name} {{
                 .pointer("/components/card/interaction/selected")
                 .or(Some(&fallback_selected)),
         )?;
+        let selected_indicator = self.style_expr(
+            krate,
+            mode,
+            self.dsp
+                .pointer("/components/card/interaction/selected_indicator"),
+        )?;
         let fallback_header = serde_json::json!({ "gap": "4px" });
         let fallback_content = serde_json::json!({});
         let fallback_footer = serde_json::json!({
@@ -1465,6 +1517,7 @@ impl {krate}::DesignSystem for {type_name} {{
                 patterns: vec![{patterns}],
                 hover_style: {hover},
                 selected_style: {selected},
+                selected_indicator_style: {selected_indicator},
                 sizes: vec![{sizes}],
                 header_style: {header},
                 content_style: {content},
@@ -1477,6 +1530,7 @@ impl {krate}::DesignSystem for {type_name} {{
             radius = f32_lit(radius),
             sizes = sizes,
             selected = selected,
+            selected_indicator = selected_indicator,
             header = self.style_expr(
                 krate,
                 mode,

@@ -551,6 +551,10 @@
         },
         "selected": {
           "border": "2px solid {color.light.primary}"
+        },
+        "selected_indicator": {
+          "background": "{color.light.primary}",
+          "width": "4px"
         }
       }
     },

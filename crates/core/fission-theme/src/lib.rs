@@ -2075,6 +2075,57 @@ impl AlertTheme {
     }
 }
 
+/// Visual parameters for the `AvatarGroup` widget.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct AvatarGroupTheme {
+    /// Shared avatar diameter, separating ring, and radius.
+    pub avatar_style: ResolvedComponentStyle,
+    /// Overflow-count surface and typography.
+    pub overflow_style: ResolvedComponentStyle,
+    /// Logical pixels by which adjacent avatar surfaces overlap.
+    pub overlap: f32,
+    /// Default number of people shown directly before a `+N` indicator.
+    pub max_visible: usize,
+}
+
+impl AvatarGroupTheme {
+    pub fn from_tokens(tokens: &Tokens) -> Self {
+        let ring = ComponentBorder {
+            fill: Fill::Solid(tokens.colors.surface),
+            width: 2.0,
+        };
+        Self {
+            avatar_style: ResolvedComponentStyle {
+                width: Some(32.0),
+                height: Some(32.0),
+                radius: Some(tokens.radii.full),
+                border: Some(ring.clone()),
+                ..ResolvedComponentStyle::default()
+            },
+            overflow_style: ResolvedComponentStyle {
+                background: Some(Fill::Solid(tokens.colors.surface_sunken)),
+                text_color: Some(tokens.colors.text_secondary),
+                border: Some(ring),
+                width: Some(32.0),
+                height: Some(32.0),
+                radius: Some(tokens.radii.full),
+                font_size: Some(tokens.typography.font_size_xs),
+                font_weight: Some(tokens.typography.font_weight_medium),
+                line_height: Some(16.0),
+                ..ResolvedComponentStyle::default()
+            },
+            overlap: 10.0,
+            max_visible: 4,
+        }
+    }
+}
+
+impl Default for AvatarGroupTheme {
+    fn default() -> Self {
+        Self::from_tokens(&Tokens::default())
+    }
+}
+
 /// Visual parameters for the `Badge` widget.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct BadgeTheme {
@@ -2958,6 +3009,14 @@ pub struct CardTheme {
     /// Orthogonal treatment applied while a card is selected.
     #[serde(default)]
     pub selected_style: ResolvedComponentStyle,
+    /// Optional logical-leading accent painted while a card is selected.
+    ///
+    /// `width` controls its thickness, `background` its fill, and vertical
+    /// values from `margin` inset it from the top and bottom edges. A missing
+    /// or non-positive width disables the accent without affecting the
+    /// selected surface, border, tint, or shadow recipe.
+    #[serde(default)]
+    pub selected_indicator_style: ResolvedComponentStyle,
     /// Density recipes shared by every named card region.
     #[serde(default)]
     pub sizes: Vec<(ComponentSize, ResolvedComponentStyle)>,
@@ -3053,6 +3112,11 @@ impl CardTheme {
                     fill: Fill::Solid(tokens.colors.primary),
                     width: 2.0,
                 }),
+                ..ResolvedComponentStyle::default()
+            },
+            selected_indicator_style: ResolvedComponentStyle {
+                background: Some(Fill::Solid(tokens.colors.primary)),
+                width: Some(4.0),
                 ..ResolvedComponentStyle::default()
             },
             sizes: vec![
@@ -3417,6 +3481,8 @@ pub struct ComponentTheme {
     pub timeline: TimelineTheme,
     pub segmented_control: SegmentedControlTheme,
     pub alert: AlertTheme,
+    #[serde(default)]
+    pub avatar_group: AvatarGroupTheme,
     pub badge: BadgeTheme,
     pub tabs: TabsTheme,
     pub modal: ModalTheme,
@@ -3443,6 +3509,7 @@ impl ComponentTheme {
             timeline: TimelineTheme::from_tokens(tokens),
             segmented_control: SegmentedControlTheme::from_tokens(tokens),
             alert: AlertTheme::from_tokens(tokens),
+            avatar_group: AvatarGroupTheme::from_tokens(tokens),
             badge: BadgeTheme::from_tokens(tokens),
             tabs: TabsTheme::from_tokens(tokens),
             modal: ModalTheme::from_tokens(tokens),

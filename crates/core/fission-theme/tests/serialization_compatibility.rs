@@ -1,6 +1,6 @@
 use fission_theme::{
-    ButtonHierarchy, ComponentStateStyles, EmptyStateTheme, MenuTheme, ResolvedComponentStyle,
-    SelectTheme, Theme,
+    AvatarGroupTheme, ButtonHierarchy, ComponentStateStyles, EmptyStateTheme, MenuTheme,
+    ResolvedComponentStyle, SelectTheme, Theme,
 };
 
 #[test]
@@ -72,6 +72,7 @@ fn component_theme_defaults_new_recipes_from_an_earlier_serialized_theme() {
     assert!(components.remove("menu").is_some());
     assert!(components.remove("select").is_some());
     assert!(components.remove("empty_state").is_some());
+    assert!(components.remove("avatar_group").is_some());
 
     let card = components
         .get_mut("card")
@@ -86,6 +87,7 @@ fn component_theme_defaults_new_recipes_from_an_earlier_serialized_theme() {
         "description_style",
         "separator_style",
         "selected_style",
+        "selected_indicator_style",
     ] {
         assert!(card.remove(field).is_some(), "missing test field {field}");
     }
@@ -94,6 +96,7 @@ fn component_theme_defaults_new_recipes_from_an_earlier_serialized_theme() {
     assert_eq!(decoded.components.menu, expected_menu);
     assert_eq!(decoded.components.select, SelectTheme::default());
     assert_eq!(decoded.components.empty_state, EmptyStateTheme::default());
+    assert_eq!(decoded.components.avatar_group, AvatarGroupTheme::default());
     assert!(decoded.components.card.sizes.is_empty());
     assert_eq!(
         decoded.components.card.header_style,
@@ -121,6 +124,10 @@ fn component_theme_defaults_new_recipes_from_an_earlier_serialized_theme() {
     );
     assert_eq!(
         decoded.components.card.selected_style,
+        ResolvedComponentStyle::default()
+    );
+    assert_eq!(
+        decoded.components.card.selected_indicator_style,
         ResolvedComponentStyle::default()
     );
 }

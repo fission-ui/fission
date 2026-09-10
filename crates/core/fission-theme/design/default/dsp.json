@@ -311,7 +311,8 @@
       },
       "interaction": {
         "hover":  { "box_shadow": "0 0 0 1px {color.light.surface_ring}, {elevation.level1}", "$comment": "Only when card is interactive (a link or button surface)." },
-        "selected": { "border": "2px solid {color.light.primary}" }
+        "selected": { "border": "2px solid {color.light.primary}" },
+        "selected_indicator": { "background": "{color.light.primary}", "width": "4px" }
       }
     },
 
@@ -326,6 +327,14 @@
       "title": { "color": "{color.light.text_primary}", "font_size": "14px", "font_weight": 500, "line_height": "19.6px" },
       "description": { "color": "{color.light.text_secondary}", "font_size": "14px", "font_weight": 400, "line_height": "23.52px" },
       "action": { "max_width": "384px", "gap": "10px" }
+    },
+
+    "avatar_group": {
+      "$description": "A compact retained group of overlapping people with an accessible overflow count.",
+      "avatar": { "width": "32px", "height": "32px", "radius": "{radius.full}", "border": "2px solid {color.light.surface}" },
+      "overflow": { "background": "{color.light.surface_sunken}", "color": "{color.light.text_secondary}", "width": "32px", "height": "32px", "radius": "{radius.full}", "border": "2px solid {color.light.surface}", "font_size": "{typography.font_size.xs}", "font_weight": "{typography.font_weight.medium}", "line_height": "16px" },
+      "overlap": "10px",
+      "max_visible": 4
     },
 
     "badge": {

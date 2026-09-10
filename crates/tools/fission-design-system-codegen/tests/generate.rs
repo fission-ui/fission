@@ -60,8 +60,10 @@ fn generates_rust_for_fission_dsp_package() {
         "card density recipes must survive DSP code generation"
     );
     assert!(
-        generated.contains("footer_style: fission_theme::ResolvedComponentStyle"),
-        "card footer anatomy must survive DSP code generation"
+        generated.contains("footer_style: fission_theme::ResolvedComponentStyle")
+            && generated
+                .contains("selected_indicator_style: fission_theme::ResolvedComponentStyle"),
+        "card footer and selected-indicator anatomy must survive DSP code generation"
     );
     assert!(
         generated.contains("menu: fission_theme::MenuTheme")
@@ -105,6 +107,12 @@ fn generates_rust_for_fission_dsp_package() {
         "empty-state geometry must survive DSP code generation"
     );
     assert!(
+        generated.contains("avatar_group: fission_theme::AvatarGroupTheme")
+            && generated.contains("overlap: 10.0")
+            && generated.contains("max_visible: 4"),
+        "avatar-group geometry must survive DSP code generation"
+    );
+    assert!(
         generated.contains("opacity: Some(0.5)") && generated.contains("translate_y: Some(2.0)"),
         "state opacity and visual translation must survive DSP code generation"
     );
@@ -143,6 +151,7 @@ fn bundled_packages_declare_the_complete_component_recipes() {
             "/components/empty_state/narrow_breakpoint",
             "/components/card/sizes",
             "/components/card/footer",
+            "/components/card/interaction/selected_indicator",
             "/components/modal/footer/margin",
             "/components/modal/motion_duration",
             "/components/modal/motion_initial_scale",

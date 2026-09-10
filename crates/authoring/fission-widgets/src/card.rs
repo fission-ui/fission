@@ -1,6 +1,6 @@
 use fission_core::op::Fill;
-use fission_core::ui::{CardPattern, Container, Widget};
-use fission_core::WidgetId;
+use fission_core::ui::{CardPattern, Container, Positioned, Spacer, Widget, ZStack};
+use fission_core::{LayoutDirection, WidgetId};
 use serde::{Deserialize, Serialize};
 
 const IMPLICIT_CARD_ID_SALT: u32 = 0x4341_5244;
@@ -107,7 +107,55 @@ impl From<CardSurface> for Widget {
         let theme = &view.env().theme.components.card;
         let style = theme.resolve_state(this.pattern, is_hovered, this.selected);
 
-        let mut card = Container::new(this.child.clone())
+        let indicator_style = &theme.selected_indicator_style;
+        let indicator = this.selected.then(|| {
+            indicator_style
+                .width
+                .filter(|width| width.is_finite() && *width > 0.0)
+                .zip(indicator_style.background.clone())
+        });
+        let indicator = indicator.flatten();
+        let has_indicator = indicator.is_some();
+
+        let child: Widget = if let Some((indicator_width, indicator_fill)) = indicator {
+            let mut content = Container::new(this.child.clone());
+            match this.content_padding {
+                CardSurfacePadding::Resolved => {
+                    content = content.padding(style.padding_box(theme.padding, theme.padding));
+                }
+                CardSurfacePadding::Explicit(padding) => {
+                    content = content.padding(padding);
+                }
+                CardSurfacePadding::None => {}
+            }
+            let margin = indicator_style.margin.unwrap_or([0.0; 4]);
+            let (left, right) = match view.env().layout_direction {
+                LayoutDirection::LeftToRight => (Some(0.0), None),
+                LayoutDirection::RightToLeft => (None, Some(0.0)),
+            };
+            let indicator = Container::new(Spacer::default()).bg_fill(indicator_fill);
+            ZStack {
+                children: vec![
+                    content.into(),
+                    Positioned {
+                        left,
+                        right,
+                        top: Some(margin[2].max(0.0)),
+                        bottom: Some(margin[3].max(0.0)),
+                        width: Some(indicator_width),
+                        child: Some(indicator.into()),
+                        ..Default::default()
+                    }
+                    .into(),
+                ],
+                ..Default::default()
+            }
+            .into()
+        } else {
+            this.child.clone()
+        };
+
+        let mut card = Container::new(child)
             .bg_fill(
                 style
                     .background
@@ -117,14 +165,16 @@ impl From<CardSurface> for Widget {
             .border_radius(style.radius.unwrap_or(theme.radius))
             .shadows(style.outer_shadows())
             .clip_overflow(true);
-        match this.content_padding {
-            CardSurfacePadding::Resolved => {
-                card = card.padding(style.padding_box(theme.padding, theme.padding));
+        if !has_indicator {
+            match this.content_padding {
+                CardSurfacePadding::Resolved => {
+                    card = card.padding(style.padding_box(theme.padding, theme.padding));
+                }
+                CardSurfacePadding::Explicit(padding) => {
+                    card = card.padding(padding);
+                }
+                CardSurfacePadding::None => {}
             }
-            CardSurfacePadding::Explicit(padding) => {
-                card = card.padding(padding);
-            }
-            CardSurfacePadding::None => {}
         }
         card.id = Some(card_id);
         if let Some(border) = style.border {

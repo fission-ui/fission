@@ -1,7 +1,9 @@
 use fission_core::internal::BuildCtx;
 use fission_core::op::{Fill, JustifyContent, Length};
 use fission_core::ui::{CardPattern, ComponentSize, Container, Text};
-use fission_core::{build, Env, GlobalState, RuntimeState, View, Widget, WidgetId, WidgetIdExt};
+use fission_core::{
+    build, Env, GlobalState, LayoutDirection, RuntimeState, View, Widget, WidgetId, WidgetIdExt,
+};
 use fission_ir::{CoreIR, LayoutOp, Op, PaintOp};
 use fission_widgets::{
     Card, CardContent, CardDescription, CardFooter, CardHeader, CardLayout, CardTitle,
@@ -506,6 +508,84 @@ fn card_layout_supports_controlled_selection_and_inset_separators() {
         }
         _ => false,
     }));
+}
+
+#[test]
+fn selected_card_indicator_uses_the_logical_leading_edge() {
+    let accent = fission_ir::op::Color {
+        r: 19,
+        g: 83,
+        b: 211,
+        a: 255,
+    };
+    for (direction, expected_left, expected_right) in [
+        (LayoutDirection::LeftToRight, Some(0.0), None),
+        (LayoutDirection::RightToLeft, None, Some(0.0)),
+    ] {
+        let mut env = Env::default();
+        env.layout_direction = direction;
+        env.theme.components.card.selected_indicator_style.width = Some(5.0);
+        env.theme
+            .components
+            .card
+            .selected_indicator_style
+            .background = Some(Fill::Solid(accent));
+        env.theme.components.card.selected_indicator_style.margin = Some([0.0, 0.0, 3.0, 7.0]);
+
+        let ir = lower(&env, || {
+            CardLayout::new()
+                .content(CardContent::new(Text::new("Selected")))
+                .selected(true)
+                .into()
+        });
+        assert!(ir.nodes.values().any(|node| {
+            matches!(
+                node.op,
+                Op::Layout(LayoutOp::Positioned {
+                    left,
+                    right,
+                    top: Some(3.0),
+                    bottom: Some(7.0),
+                    width: Some(5.0),
+                    ..
+                }) if left == expected_left && right == expected_right
+            )
+        }));
+        assert!(ir.nodes.values().any(|node| {
+            matches!(
+                &node.op,
+                Op::Paint(PaintOp::DrawRect {
+                    fill: Some(Fill::Solid(color)),
+                    ..
+                }) if *color == accent
+            )
+        }));
+    }
+}
+
+#[test]
+fn card_indicator_is_absent_when_unselected_or_disabled_by_recipe() {
+    for (selected, width) in [(false, Some(4.0)), (true, None)] {
+        let mut env = Env::default();
+        env.theme.components.card.selected_indicator_style.width = width;
+        let ir = lower(&env, || {
+            Card {
+                child: Text::new("Card").into(),
+                selected,
+                ..Default::default()
+            }
+            .into()
+        });
+        assert!(!ir.nodes.values().any(|node| {
+            matches!(
+                node.op,
+                Op::Layout(LayoutOp::Positioned {
+                    width: Some(4.0),
+                    ..
+                })
+            )
+        }));
+    }
 }
 
 #[test]

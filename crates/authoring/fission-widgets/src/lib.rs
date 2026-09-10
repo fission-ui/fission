@@ -15,7 +15,7 @@
 //! - **Overlays**: [`Modal`], [`Popover`], [`Tooltip`], [`Drawer`], [`Toast`], [`Portal`]
 //! - **Menus**: [`Menu`], [`MenuButton`], [`MenuItem`], [`Select`], [`Combobox`], [`SegmentedControl`]
 //! - **Navigation**: [`Tabs`], [`Accordion`]
-//! - **Display**: [`Badge`], [`Tag`], [`Card`], [`Avatar`], [`EmptyState`], [`Icon`]
+//! - **Display**: [`Badge`], [`Tag`], [`Card`], [`Avatar`], [`AvatarGroup`], [`EmptyState`], [`Icon`]
 //! - **Loading**: [`ProgressBar`], [`Spinner`], [`Skeleton`], [`FutureBuilder`], [`RefreshIndicator`]
 //! - **Transitions**: [`Hero`]
 //!
@@ -72,7 +72,7 @@ pub use tag::Tag;
 
 /// Circular image and initials-based identity avatars.
 pub mod avatar;
-pub use avatar::Avatar;
+pub use avatar::{Avatar, AvatarGroup, AvatarGroupItem};
 
 /// Horizontal and vertical visual separators.
 pub mod divider;
@@ -161,7 +161,7 @@ pub use skeleton::{Skeleton, SkeletonMotion};
 
 /// Ordered navigation trail and actionable breadcrumb items.
 pub mod breadcrumb;
-pub use breadcrumb::{Breadcrumb, BreadcrumbItem};
+pub use breadcrumb::{Breadcrumb, BreadcrumbEntry, BreadcrumbItem, BreadcrumbLayout};
 
 /// Controlled month calendar and day selection.
 pub mod calendar;

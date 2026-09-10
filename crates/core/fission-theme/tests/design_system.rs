@@ -609,6 +609,18 @@ fn default_component_geometry_matches_the_compact_recipe() {
     assert_eq!(empty.icon_style.margin_bottom, Some(8.0));
     assert_eq!(empty.action_style.max_width, Some(384.0));
 
+    let avatar_group = &theme.components.avatar_group;
+    assert_eq!(avatar_group.avatar_style.width, Some(32.0));
+    assert_eq!(avatar_group.avatar_style.height, Some(32.0));
+    assert_eq!(
+        avatar_group.avatar_style.border.as_ref().unwrap().width,
+        2.0
+    );
+    assert_eq!(avatar_group.overflow_style.width, Some(32.0));
+    assert_eq!(avatar_group.overflow_style.font_size, Some(12.0));
+    assert_eq!(avatar_group.overlap, 10.0);
+    assert_eq!(avatar_group.max_visible, 4);
+
     let pagination = &theme.components.pagination;
     assert_eq!(pagination.spacing, 4.0);
     assert_eq!(pagination.item_style.width, Some(32.0));
