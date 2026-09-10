@@ -167,6 +167,7 @@ fn stretch_box_shrink_wraps_child_on_loose_axis() {
                 flex_shrink: 1.0,
                 padding: [0.0; 4],
                 gap: Some(2.0),
+                line_gap: None,
                 align_items: AlignItems::Stretch,
                 justify_content: JustifyContent::Start,
             },

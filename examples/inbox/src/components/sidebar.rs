@@ -154,6 +154,7 @@ impl From<Sidebar> for Widget {
                         Wrap {
                             direction: fission::op::FlexDirection::Row,
                             spacing: Some(8.0),
+                            run_spacing: None,
                             children: vec![
                                 Tag {
                                     label: "Work".into(),
@@ -180,6 +181,7 @@ impl From<Sidebar> for Widget {
                         .into(),
                         Divider {
                             orientation: fission::widgets::divider::Orientation::Horizontal,
+                            ..Default::default()
                         }
                         .into(),
                         Button {

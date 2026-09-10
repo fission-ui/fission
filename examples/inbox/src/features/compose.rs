@@ -261,6 +261,7 @@ impl From<ComposeModal> for Widget {
                 Wrap {
                     direction: fission::op::FlexDirection::Row,
                     spacing: Some(12.0),
+                    run_spacing: None,
                     children: vec![
                         DatePicker {
                             id: WidgetId::explicit("schedule_date"),

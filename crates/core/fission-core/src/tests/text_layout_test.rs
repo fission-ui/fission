@@ -83,6 +83,7 @@ fn test_text_wrapping_in_constrained_flex() {
             flex_shrink: 1.0,
             padding: [0.0; 4],
             gap: None,
+            line_gap: None,
             align_items: fission_ir::op::AlignItems::Stretch,
             justify_content: fission_ir::op::JustifyContent::Start,
         }),

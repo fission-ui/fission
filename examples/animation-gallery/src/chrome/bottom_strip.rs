@@ -10,6 +10,7 @@ impl From<BottomStrip> for Widget {
         Container::new(Wrap {
             direction: FlexDirection::Row,
             spacing: Some(tokens.spacing.l),
+            run_spacing: None,
             children: vec![
                 StripItem {
                     title: "Typed & discoverable",

@@ -284,6 +284,7 @@ pub fn build_layout_tree(ir: &CoreIR, _env: &Env) -> Vec<LayoutInputNode> {
                     flex_shrink,
                     padding,
                     gap,
+                    line_gap,
                     align_items,
                     justify_content,
                 } => (
@@ -294,6 +295,7 @@ pub fn build_layout_tree(ir: &CoreIR, _env: &Env) -> Vec<LayoutInputNode> {
                         flex_shrink: *flex_shrink,
                         padding: *padding,
                         gap: *gap,
+                        line_gap: *line_gap,
                         align_items: *align_items,
                         justify_content: *justify_content,
                     },
@@ -458,6 +460,19 @@ pub fn build_layout_tree(ir: &CoreIR, _env: &Env) -> Vec<LayoutInputNode> {
                     1.0,
                 ),
                 LayoutOp::Align => (LayoutOp::Align, None, None, 0.0, 0.0),
+                LayoutOp::Aligned {
+                    horizontal,
+                    vertical,
+                } => (
+                    LayoutOp::Aligned {
+                        horizontal: *horizontal,
+                        vertical: *vertical,
+                    },
+                    None,
+                    None,
+                    0.0,
+                    0.0,
+                ),
                 LayoutOp::Transform { transform } => (
                     LayoutOp::Transform {
                         transform: *transform,

@@ -1,4 +1,5 @@
 use fission_core::ui::{Container, Widget};
+use fission_ir::op::Color;
 use serde::{Deserialize, Serialize};
 
 /// The direction of a [`Divider`] line.
@@ -16,15 +17,21 @@ impl Default for Orientation {
     }
 }
 
-/// A 1px visual separator line.
+/// A visual separator line.
 ///
 /// Renders a thin line in the theme's `border` color. Defaults to horizontal
-/// orientation. The divider uses `flex_grow: 1.0` to fill the available width
-/// (horizontal) or height (vertical).
+/// orientation. It fills its long axis without participating in main-axis flex
+/// growth, so its configured thickness stays fixed inside a stack.
 #[derive(Default, Clone, Debug, Serialize, Deserialize)]
 pub struct Divider {
     /// Axis along which the separator is drawn.
     pub orientation: Orientation,
+    /// Line thickness in logical pixels. Defaults to one pixel.
+    pub thickness: Option<f32>,
+    /// Line colour. Defaults to the active theme's border colour.
+    pub color: Option<Color>,
+    /// Optional alternating painted and unpainted lengths.
+    pub dash_pattern: Option<Vec<f32>>,
 }
 
 impl From<Divider> for Widget {
@@ -34,27 +41,22 @@ impl From<Divider> for Widget {
 
         let tokens = &view.env().theme.tokens;
 
-        let (w, h) = match this.orientation {
-            Orientation::Horizontal => (f32::NAN, 1.0), // Auto width
-            Orientation::Vertical => (1.0, f32::NAN),   // Auto height
+        let thickness = this.thickness.unwrap_or(1.0).max(0.0);
+        let color = this.color.unwrap_or(tokens.colors.border);
+        let mut c = Container::new(fission_core::ui::Row::default()); // Empty
+        if let Some(pattern) = &this.dash_pattern {
+            c = c
+                .border(color, thickness.max(f32::EPSILON))
+                .border_dash(pattern.clone());
+        } else {
+            c = c.bg(color);
+        }
+
+        c = match this.orientation {
+            Orientation::Horizontal => c.height(thickness),
+            Orientation::Vertical => c.width(thickness),
         };
-
-        let mut c = Container::new(fission_core::ui::Row::default()) // Empty
-            .bg(tokens.colors.border);
-
-        if w.is_nan() {
-            // Container width default is Auto (None)
-        } else {
-            c = c.width(w);
-        }
-
-        if h.is_nan() {
-            // Container height default is Auto (None)
-        } else {
-            c = c.height(h);
-        }
-
-        c = c.flex_grow(1.0);
+        c = c.flex_grow(0.0).flex_shrink(0.0);
 
         c.into()
     }

@@ -580,6 +580,7 @@ impl InternalLowerer for TerminalRenderNode {
                         self.padding_x,
                     ],
                     gap: None,
+                    line_gap: None,
                     align_items: AlignItems::Stretch,
                     justify_content: fission_ir::op::JustifyContent::Start,
                 }),

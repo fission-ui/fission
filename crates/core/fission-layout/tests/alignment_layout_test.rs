@@ -1,4 +1,4 @@
-use fission_ir::op::{AlignItems, Color, JustifyContent, TextRun, TextStyle};
+use fission_ir::op::{AlignItems, BoxAlignment, Color, JustifyContent, TextRun, TextStyle};
 use fission_ir::{FlexDirection, FlexWrap, LayoutOp, WidgetId};
 use fission_layout::{LayoutEngine, LayoutInputNode, LayoutSize, TextMeasurer};
 use std::sync::Arc;
@@ -107,6 +107,44 @@ fn align_centers_an_intrinsic_layout_wrapper_and_its_text() {
 }
 
 #[test]
+fn aligned_positions_each_axis_independently() {
+    let root = box_node(30, None, vec![31], Some(100.0), Some(80.0));
+    let align = LayoutInputNode {
+        id: WidgetId::from_u128(31),
+        parent_id: Some(WidgetId::from_u128(30)),
+        op: LayoutOp::Aligned {
+            horizontal: BoxAlignment::End,
+            vertical: BoxAlignment::Start,
+        },
+        children_ids: vec![WidgetId::from_u128(32)],
+        debug_name: "aligned".into(),
+        width: None,
+        height: None,
+        flex_grow: 0.0,
+        flex_shrink: 0.0,
+        rich_text: None,
+    };
+    let child = box_node(32, Some(31), Vec::new(), Some(20.0), Some(10.0));
+    let nodes = vec![root, align, child];
+    let mut engine = LayoutEngine::new();
+    engine.update(&nodes);
+
+    let snapshot = engine
+        .compute_layout(
+            &nodes,
+            WidgetId::from_u128(30),
+            LayoutSize::new(100.0, 80.0),
+            &|_| 0.0,
+        )
+        .expect("layout");
+    let child = snapshot
+        .get_node_geometry(WidgetId::from_u128(32))
+        .expect("child geometry");
+    assert_eq!(child.rect.x(), 80.0);
+    assert_eq!(child.rect.y(), 0.0);
+}
+
+#[test]
 fn flex_stretch_preserves_an_explicit_cross_axis_size() {
     let root_id = WidgetId::from_u128(10);
     let child_id = WidgetId::from_u128(11);
@@ -120,6 +158,7 @@ fn flex_stretch_preserves_an_explicit_cross_axis_size() {
             flex_shrink: 1.0,
             padding: [0.0; 4],
             gap: None,
+            line_gap: None,
             justify_content: JustifyContent::Start,
             align_items: AlignItems::Stretch,
         },
@@ -163,6 +202,7 @@ fn intrinsic_box_does_not_expand_an_align_child_to_a_loose_cross_axis_maximum() 
             flex_shrink: 1.0,
             padding: [0.0; 4],
             gap: None,
+            line_gap: None,
             justify_content: JustifyContent::Start,
             align_items: AlignItems::Center,
         },

@@ -249,7 +249,7 @@ mod tests {
     }
 
     #[test]
-    fn port_endpoints_resolve_from_node_local_geometry() {
+    fn port_endpoints_resolve_using_node_local_geometry() {
         let mut node = InfiniteCanvasNode::new(
             CanvasNodeId(1),
             LayoutRect::new(100.0, 50.0, 80.0, 40.0),

@@ -38,6 +38,9 @@ pub struct Column {
     pub flex_shrink: f32,
     /// Spacing between children in layout points.
     pub gap: Option<f32>,
+    /// Spacing between wrapped lines. Defaults to `gap` when omitted.
+    #[serde(default)]
+    pub line_gap: Option<f32>,
     /// Whether children wrap when they overflow.
     pub wrap: FlexWrap,
     /// Cross-axis (horizontal) alignment (default: `Stretch`).
@@ -52,6 +55,7 @@ impl Default for Column {
             id: None,
             children: Vec::new(),
             gap: None,
+            line_gap: None,
             flex_grow: 0.0,
             flex_shrink: 1.0,
             semantics: None,
@@ -75,6 +79,11 @@ impl Column {
 
     pub fn gap(mut self, gap: Option<f32>) -> Self {
         self.gap = gap;
+        self
+    }
+
+    pub fn line_gap(mut self, line_gap: f32) -> Self {
+        self.line_gap = Some(line_gap);
         self
     }
 
@@ -104,6 +113,7 @@ impl InternalLower for Column {
                 flex_shrink: self.flex_shrink,
                 padding: [0.0; 4],
                 gap: self.gap,
+                line_gap: self.line_gap,
                 align_items: self.align_items,
                 justify_content: self.justify_content,
             }),

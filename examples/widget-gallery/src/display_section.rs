@@ -20,6 +20,7 @@ impl From<DisplaySection> for Widget {
                 Wrap {
                     direction: FlexDirection::Row,
                     spacing: Some(tokens.spacing.s),
+                    run_spacing: None,
                     children: widgets![
                         Text::new("Hello Fission")
                             .size(typography.body_large_size)

@@ -86,6 +86,7 @@ fn wrapped_auto_sized_controls_keep_intrinsic_width() {
             flex_shrink: 1.0,
             padding: [0.0; 4],
             gap: Some(8.0),
+            line_gap: None,
             align_items: AlignItems::Center,
             justify_content: JustifyContent::Start,
         },
@@ -130,4 +131,61 @@ fn wrapped_auto_sized_controls_keep_intrinsic_width() {
         second.x() > first.x() + first.width(),
         "second control should follow first"
     );
+}
+
+#[test]
+fn wrapped_layout_uses_independent_line_gap() {
+    let root_id = WidgetId::from_u128(20);
+    let root = LayoutInputNode {
+        id: root_id,
+        parent_id: None,
+        op: LayoutOp::Flex {
+            direction: FlexDirection::Row,
+            wrap: FlexWrap::Wrap,
+            flex_grow: 0.0,
+            flex_shrink: 1.0,
+            padding: [0.0; 4],
+            gap: Some(4.0),
+            line_gap: Some(20.0),
+            align_items: AlignItems::Start,
+            justify_content: JustifyContent::Start,
+        },
+        children_ids: vec![WidgetId::from_u128(21), WidgetId::from_u128(22)],
+        debug_name: "wrap-independent-gap".into(),
+        width: Some(100.0),
+        height: None,
+        flex_grow: 0.0,
+        flex_shrink: 1.0,
+        rich_text: None,
+    };
+    let mut first = box_node(21, Some(20), Vec::new(), [0.0; 4]);
+    first.width = Some(60.0);
+    first.height = Some(10.0);
+    if let LayoutOp::Box { width, height, .. } = &mut first.op {
+        *width = first.width;
+        *height = first.height;
+    }
+    let mut second = box_node(22, Some(20), Vec::new(), [0.0; 4]);
+    second.width = Some(60.0);
+    second.height = Some(10.0);
+    if let LayoutOp::Box { width, height, .. } = &mut second.op {
+        *width = second.width;
+        *height = second.height;
+    }
+    let nodes = vec![root, first, second];
+    let mut engine = LayoutEngine::new();
+    engine.update(&nodes);
+
+    let snapshot = engine
+        .compute_layout(&nodes, root_id, LayoutSize::new(100.0, 100.0), &|_| 0.0)
+        .expect("wrapped layout");
+    let first = snapshot
+        .get_node_geometry(WidgetId::from_u128(21))
+        .expect("first")
+        .rect;
+    let second = snapshot
+        .get_node_geometry(WidgetId::from_u128(22))
+        .expect("second")
+        .rect;
+    assert_eq!(second.y() - first.y() - first.height(), 20.0);
 }

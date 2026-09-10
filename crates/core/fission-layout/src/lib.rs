@@ -2843,8 +2843,10 @@ impl LayoutEngine {
             });
         }
 
-        if matches!(node.op, LayoutOp::GridItem { .. } | LayoutOp::Align)
-            && node.children_ids.len() == 1
+        if matches!(
+            node.op,
+            LayoutOp::GridItem { .. } | LayoutOp::Align | LayoutOp::Aligned { .. }
+        ) && node.children_ids.len() == 1
         {
             return self.measure_grid_intrinsic_width(
                 node.children_ids[0],
@@ -3053,7 +3055,7 @@ impl LayoutEngine {
                         matches!(
                             self.graph_state.node(parent_id).map(|parent| &parent.op),
                             Some(LayoutOp::Flex { .. })
-                                | Some(LayoutOp::Align)
+                                | Some(LayoutOp::Align | LayoutOp::Aligned { .. })
                                 | Some(LayoutOp::StyledBox { flex_grow: 0.0, .. })
                         )
                     }) =>
@@ -3195,10 +3197,10 @@ impl LayoutEngine {
                             })
                             .unwrap_or((None, None, None, None));
                         let mut child_constraints = base_child_constraints;
-                        let child_is_align = self
-                            .graph_state
-                            .node(*child_id)
-                            .is_some_and(|child| matches!(&child.op, LayoutOp::Align));
+                        let child_is_align =
+                            self.graph_state.node(*child_id).is_some_and(|child| {
+                                matches!(&child.op, LayoutOp::Align | LayoutOp::Aligned { .. })
+                            });
                         // Align intentionally fills a bounded constraint. When it
                         // is the direct child of an auto-sized, non-stretch box,
                         // measure it intrinsically so controls such as Button do
@@ -3352,12 +3354,14 @@ impl LayoutEngine {
                 wrap,
                 padding,
                 gap,
+                line_gap,
                 align_items,
                 justify_content,
                 flex_grow,
                 ..
             } => {
                 let gap = gap.unwrap_or(0.0);
+                let line_gap = line_gap.unwrap_or(gap);
                 let local = constraints.tighten(node.width, node.height);
                 let inner = local.deflate(*padding);
                 let is_row = matches!(direction, IrFlexDirection::Row);
@@ -3500,7 +3504,7 @@ impl LayoutEngine {
                     container_main = container_main.max(min_main);
                     let total_lines_cross: f32 =
                         lines.iter().map(|(_, _, cross)| *cross).sum::<f32>()
-                            + gap * lines.len().saturating_sub(1) as f32;
+                            + line_gap * lines.len().saturating_sub(1) as f32;
                     let container_cross = total_lines_cross.max(min_cross);
                     let size = if is_row {
                         local.constrain(LayoutSize::new(
@@ -3638,7 +3642,7 @@ impl LayoutEngine {
                             cursor += child_main + gap + extra_gap;
                         }
 
-                        line_cursor += line_cross + gap;
+                        line_cursor += line_cross + line_gap;
                     }
 
                     if record && !abs_children.is_empty() {
@@ -4593,7 +4597,7 @@ impl LayoutEngine {
                 content_size = child_size;
                 size
             }
-            LayoutOp::Align => {
+            LayoutOp::Align | LayoutOp::Aligned { .. } => {
                 let child_constraints = BoxConstraints::loose(constraints.max_w, constraints.max_h);
                 let mut child_size = LayoutSize::ZERO;
                 if let Some(child_id) = flow_children.first() {
@@ -4626,8 +4630,26 @@ impl LayoutEngine {
                     child_size
                 };
                 if let Some(child_id) = flow_children.first() {
-                    let dx = ((size.width - child_size.width) / 2.0).max(0.0);
-                    let dy = ((size.height - child_size.height) / 2.0).max(0.0);
+                    let (horizontal, vertical) = match node.op {
+                        LayoutOp::Aligned {
+                            horizontal,
+                            vertical,
+                        } => (horizontal, vertical),
+                        _ => (
+                            fission_ir::op::BoxAlignment::Center,
+                            fission_ir::op::BoxAlignment::Center,
+                        ),
+                    };
+                    let axis_offset = |available: f32, child: f32, alignment| match alignment {
+                        fission_ir::op::BoxAlignment::Start
+                        | fission_ir::op::BoxAlignment::Stretch => 0.0,
+                        fission_ir::op::BoxAlignment::Center => {
+                            ((available - child) / 2.0).max(0.0)
+                        }
+                        fission_ir::op::BoxAlignment::End => (available - child).max(0.0),
+                    };
+                    let dx = axis_offset(size.width, child_size.width, horizontal);
+                    let dy = axis_offset(size.height, child_size.height, vertical);
                     self.layout_node_constraints(
                         *child_id,
                         child_constraints,

@@ -606,6 +606,7 @@ impl From<EmailList> for Widget {
                                     Wrap {
                                         direction: fission::op::FlexDirection::Row,
                                         spacing: Some(6.0),
+                                        run_spacing: None,
                                         children: email
                                             .labels
                                             .iter()
@@ -644,6 +645,7 @@ impl From<EmailList> for Widget {
                         if idx + 1 < end_idx - start_idx {
                             Divider {
                                 orientation: fission::widgets::divider::Orientation::Horizontal,
+                                ..Default::default()
                             }
                             .into()
                         } else {

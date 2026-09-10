@@ -49,6 +49,7 @@ impl From<ComposerControls<'_>> for Widget {
                 Wrap {
                     direction: FlexDirection::Row,
                     spacing: Some(tokens.spacing.s),
+                    run_spacing: None,
                     children: add_buttons,
                 },
                 Row {

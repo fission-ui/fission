@@ -65,6 +65,7 @@ impl From<InputSection> for Widget {
                 Wrap {
                     direction: FlexDirection::Row,
                     spacing: Some(tokens.spacing.s),
+                    run_spacing: None,
                     children: widgets![
                         Button {
                             variant: ButtonVariant::Filled,
@@ -110,6 +111,7 @@ impl From<InputSection> for Widget {
                 Wrap {
                     direction: FlexDirection::Row,
                     spacing: Some(tokens.spacing.m),
+                    run_spacing: None,
                     children: widgets![
                         Checkbox {
                             checked: state.checked,

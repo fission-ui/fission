@@ -20,6 +20,7 @@ impl From<TimelineControl<'_>> for Widget {
         Wrap {
             direction: FlexDirection::Row,
             spacing: Some(tokens.spacing.s),
+            run_spacing: None,
             children: widgets![
                 Text::new(format!("{}ms", control.state.scrub_ms))
                     .size(tokens.typography.font_size_sm)

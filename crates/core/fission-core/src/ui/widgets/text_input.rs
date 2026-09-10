@@ -1505,6 +1505,7 @@ impl InternalLower for TextInput {
                 } else {
                     None
                 },
+                line_gap: None,
                 align_items: if self.multiline {
                     fission_ir::op::AlignItems::Stretch
                 } else {
@@ -1531,6 +1532,7 @@ impl InternalLower for TextInput {
                 flex_shrink: 1.0,
                 padding: [0.0; 4],
                 gap: None,
+                line_gap: None,
                 align_items: fission_ir::op::AlignItems::Stretch,
                 justify_content: self.text_align_vertical.justify_content(self.multiline),
             }),
@@ -1706,6 +1708,7 @@ impl InternalLower for TextInput {
                         flex_shrink: 1.0,
                         padding: [0.0; 4],
                         gap: Some(6.0),
+                        line_gap: None,
                         align_items: fission_ir::op::AlignItems::Stretch,
                         justify_content: fission_ir::op::JustifyContent::Start,
                     }),

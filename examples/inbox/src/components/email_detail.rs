@@ -234,6 +234,7 @@ impl From<EmailDetail> for Widget {
             Wrap {
                 direction: fission::op::FlexDirection::Row,
                 spacing: Some(6.0),
+                run_spacing: None,
                 children: email
                     .labels
                     .iter()
@@ -286,6 +287,7 @@ impl From<EmailDetail> for Widget {
         // ── 7. Divider between header and body ─────────────────────
         let header_divider = Divider {
             orientation: fission::widgets::divider::Orientation::Horizontal,
+            ..Default::default()
         }
         .into();
 
@@ -421,6 +423,7 @@ impl From<EmailDetail> for Widget {
         // ── 12. Divider before reply ───────────────────────────────
         let reply_divider = Divider {
             orientation: fission::widgets::divider::Orientation::Horizontal,
+            ..Default::default()
         }
         .into();
 
