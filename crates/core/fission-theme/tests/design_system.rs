@@ -1,9 +1,62 @@
 use fission_theme::{
-    BadgeTone, ButtonHierarchy, CardPattern, ComponentSize, ComponentState, DesignMode,
-    DesignSystem, DesignValue, Fill, FissionCupertinoDesignSystem, FissionDefaultDesignSystem,
-    FissionFluent2DesignSystem, FissionLiquidGlassDesignSystem, FissionMaterialDesign3DesignSystem,
-    ResolvedComponentStyle, ShadowLayer, Theme, Tokens,
+    BadgeTone, ButtonHierarchy, CardPattern, CardTheme, ComponentSize, ComponentState,
+    ComponentTheme, DesignMode, DesignSystem, DesignValue, Fill, FissionCupertinoDesignSystem,
+    FissionDefaultDesignSystem, FissionFluent2DesignSystem, FissionLiquidGlassDesignSystem,
+    FissionMaterialDesign3DesignSystem, ResolvedComponentStyle, ShadowLayer, Theme, Tokens,
 };
+
+fn assert_card_recipe_is_coherent(theme: &Theme) {
+    let plain = theme.components.card.resolve(CardPattern::Plain, false);
+    let raised = theme.components.card.resolve(CardPattern::Raised, false);
+    let elevated = theme.components.card.resolve(CardPattern::Elevated, false);
+
+    assert!(plain.shadows.is_empty(), "plain cards must remain flat");
+    assert!(
+        !raised.shadows.is_empty(),
+        "raised cards must have visible surface separation"
+    );
+    assert_ne!(raised.shadows, elevated.shadows);
+
+    let selected = theme
+        .components
+        .card
+        .resolve_state(CardPattern::Plain, false, true);
+    assert_eq!(
+        selected.border, plain.border,
+        "the bundled selected state must not add a second perimeter treatment"
+    );
+    assert!(
+        theme
+            .components
+            .card
+            .selected_indicator_style
+            .width
+            .is_some()
+            && theme
+                .components
+                .card
+                .selected_indicator_style
+                .background
+                .is_some(),
+        "the bundled selected state must retain its logical-leading accent"
+    );
+}
+
+#[test]
+fn token_derived_card_patterns_and_selection_are_coherent() {
+    let tokens = Tokens::default();
+    let card = CardTheme::from_tokens(&tokens);
+    let theme = Theme {
+        components: ComponentTheme {
+            card,
+            ..ComponentTheme::from_tokens(&tokens)
+        },
+        tokens,
+        ..Theme::default()
+    };
+
+    assert_card_recipe_is_coherent(&theme);
+}
 
 fn assert_same_control_state(actual: &ResolvedComponentStyle, expected: &ResolvedComponentStyle) {
     assert_eq!(&actual.background, &expected.background);
@@ -931,6 +984,22 @@ fn bundled_menu_triggers_preserve_the_outline_button_contract() {
     for theme_for_mode in presets {
         for mode in [DesignMode::Light, DesignMode::Dark] {
             assert_menu_trigger_uses_outline(&theme_for_mode(mode));
+        }
+    }
+}
+
+#[test]
+fn bundled_card_patterns_and_selection_are_coherent() {
+    let presets: [fn(DesignMode) -> Theme; 5] = [
+        FissionDefaultDesignSystem::theme,
+        FissionMaterialDesign3DesignSystem::theme,
+        FissionFluent2DesignSystem::theme,
+        FissionLiquidGlassDesignSystem::theme,
+        FissionCupertinoDesignSystem::theme,
+    ];
+    for theme_for_mode in presets {
+        for mode in [DesignMode::Light, DesignMode::Dark] {
+            assert_card_recipe_is_coherent(&theme_for_mode(mode));
         }
     }
 }

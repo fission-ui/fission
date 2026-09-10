@@ -5,6 +5,7 @@ use fission_core::{
     build, Env, GlobalState, LayoutDirection, RuntimeState, View, Widget, WidgetId, WidgetIdExt,
 };
 use fission_ir::{CoreIR, LayoutOp, Op, PaintOp};
+use fission_theme::ComponentBorder;
 use fission_widgets::{
     Card, CardContent, CardDescription, CardFooter, CardHeader, CardLayout, CardTitle,
 };
@@ -466,16 +467,10 @@ fn card_layout_supports_controlled_selection_and_inset_separators() {
         a: 255,
     };
     let mut env = Env::default();
-    let selected_border = env
-        .theme
-        .components
-        .card
-        .selected_style
-        .border
-        .as_mut()
-        .expect("selected card border");
-    selected_border.fill = Fill::Solid(selected_tint);
-    selected_border.width = 2.0;
+    env.theme.components.card.selected_style.border = Some(ComponentBorder {
+        fill: Fill::Solid(selected_tint),
+        width: 2.0,
+    });
     let card_id = WidgetId::explicit("card.selected-inset");
     let ir = lower(&env, || {
         CardLayout::new()

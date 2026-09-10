@@ -309,14 +309,14 @@
       "description": { "color": "{color.light.text_secondary}", "font_size": "14px", "font_weight": 400, "line_height": "20px" },
       "separator": { "border": "1px solid {color.light.border}" },
       "patterns": {
-        "plain":   { "background": "{color.light.surface}", "box_shadow": "0 0 0 1px {color.light.surface_ring}" },
+        "plain":   { "background": "{color.light.surface}", "box_shadow": "none" },
         "raised":  { "background": "{color.light.surface}", "box_shadow": "0 0 0 1px {color.light.surface_ring}" },
         "tinted":  { "background": "{color.light.primary_subtle}", "box_shadow": "0 0 0 1px {color.light.surface_ring}" },
         "elevated": { "background": "{color.light.surface}", "box_shadow": "0 0 0 1px {color.light.surface_ring}, {elevation.level1}" }
       },
       "interaction": {
         "hover":  { "box_shadow": "0 0 0 1px {color.light.surface_ring}, {elevation.level1}", "$comment": "Only when card is interactive (a link or button surface)." },
-        "selected": { "border": "2px solid {color.light.primary}" },
+        "selected": {},
         "selected_indicator": { "background": "{color.light.primary}", "width": "4px" }
       }
     },

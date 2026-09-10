@@ -535,7 +535,7 @@
         "raised": {
           "background": "{color.light.surface}",
           "border": "1px solid {color.light.border}",
-          "box_shadow": "{elevation.level2}"
+          "box_shadow": "{elevation.level1}"
         },
         "tinted": {
           "background": "{color.teal.50}",
@@ -545,7 +545,7 @@
         "elevated": {
           "background": "{color.light.surface}",
           "border": "1px solid {color.light.border}",
-          "box_shadow": "{elevation.level1}"
+          "box_shadow": "{elevation.level2}"
         }
       },
       "interaction": {
@@ -553,9 +553,7 @@
           "box_shadow": "{elevation.level2}",
           "$comment": "Only when card is interactive (a link or button surface)."
         },
-        "selected": {
-          "border": "2px solid {color.light.primary}"
-        },
+        "selected": {},
         "selected_indicator": {
           "background": "{color.light.primary}",
           "width": "4px"

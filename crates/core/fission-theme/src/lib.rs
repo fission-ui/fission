@@ -3093,7 +3093,6 @@ impl CardTheme {
                         radius: Some(tokens.radii.large),
                         padding_x: Some(tokens.spacing.m),
                         padding_y: Some(tokens.spacing.m),
-                        shadows: vec![surface_ring.clone()],
                         ..ResolvedComponentStyle::default()
                     },
                 ),
@@ -3139,13 +3138,7 @@ impl CardTheme {
                     .collect(),
                 ..ResolvedComponentStyle::default()
             },
-            selected_style: ResolvedComponentStyle {
-                border: Some(ComponentBorder {
-                    fill: Fill::Solid(tokens.colors.primary),
-                    width: 2.0,
-                }),
-                ..ResolvedComponentStyle::default()
-            },
+            selected_style: ResolvedComponentStyle::default(),
             selected_indicator_style: ResolvedComponentStyle {
                 background: Some(Fill::Solid(tokens.colors.primary)),
                 width: Some(4.0),

@@ -2,6 +2,7 @@ use fission_core::internal::BuildCtx;
 use fission_core::op::{Color, Fill, Overflow};
 use fission_core::ui::{CardPattern, Container, Text};
 use fission_core::{build, Env, GlobalState, RuntimeState, View, Widget, WidgetId, WidgetIdExt};
+use fission_theme::ComponentBorder;
 use fission_widgets::Card;
 
 #[derive(Default, Debug)]
@@ -153,16 +154,10 @@ fn controlled_selection_uses_the_card_selection_recipe() {
         a: 255,
     };
     let mut env = Env::default();
-    let selected_border = env
-        .theme
-        .components
-        .card
-        .selected_style
-        .border
-        .as_mut()
-        .expect("selected card border");
-    selected_border.fill = Fill::Solid(selected_color);
-    selected_border.width = 3.0;
+    env.theme.components.card.selected_style.border = Some(ComponentBorder {
+        fill: Fill::Solid(selected_color),
+        width: 3.0,
+    });
     let runtime_state = RuntimeState::default();
     let id = WidgetId::explicit("card.selected");
 
