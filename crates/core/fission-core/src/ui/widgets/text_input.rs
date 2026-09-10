@@ -1505,6 +1505,7 @@ impl InternalLower for TextInput {
                 } else {
                     None
                 },
+                line_gap: None,
                 align_items: if self.multiline {
                     fission_ir::op::AlignItems::Stretch
                 } else {

@@ -465,8 +465,8 @@ pub fn build_layout_tree(ir: &CoreIR, _env: &Env) -> Vec<LayoutInputNode> {
                     vertical,
                 } => (
                     LayoutOp::Aligned {
-                        horizontal,
-                        vertical,
+                        horizontal: *horizontal,
+                        vertical: *vertical,
                     },
                     None,
                     None,
