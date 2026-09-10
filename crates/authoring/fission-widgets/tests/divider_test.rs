@@ -46,8 +46,14 @@ fn divider_preserves_per_instance_colour_and_thickness() {
     )));
     assert!(ir.nodes.values().any(|node| matches!(
         &node.op,
-        Op::Layout(fission_ir::LayoutOp::StyledBox { style, .. })
-            if style.height == Some(fission_ir::op::Length::points(3.0))
+        Op::Layout(fission_ir::LayoutOp::StyledBox {
+            style,
+            flex_grow,
+            flex_shrink,
+        }) if style.height == Some(fission_ir::op::Length::points(3.0))
+            && style.width == Some(fission_ir::op::Length::percent(100.0))
+            && *flex_grow == 0.0
+            && *flex_shrink == 0.0
     )));
 }
 
