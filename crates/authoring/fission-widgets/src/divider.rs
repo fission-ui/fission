@@ -1,5 +1,5 @@
 use fission_core::ui::{Container, Widget};
-use fission_ir::op::{Color, Length};
+use fission_ir::op::Color;
 use serde::{Deserialize, Serialize};
 
 /// The direction of a [`Divider`] line.
@@ -53,8 +53,8 @@ impl From<Divider> for Widget {
         }
 
         c = match this.orientation {
-            Orientation::Horizontal => c.width_length(Length::percent(100.0)).height(thickness),
-            Orientation::Vertical => c.width(thickness).height_length(Length::percent(100.0)),
+            Orientation::Horizontal => c.height(thickness),
+            Orientation::Vertical => c.width(thickness),
         };
         c = c.flex_grow(0.0).flex_shrink(0.0);
 
