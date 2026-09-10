@@ -316,6 +316,17 @@
       }
     },
 
+    "code": {
+      "$description": "Inline machine-readable text with design-system-owned typography and surface treatment.",
+      "background": "{color.light.surface_sunken}",
+      "color": "{color.light.text_primary}",
+      "radius": "{radius.small}",
+      "padding_x": "{spacing.xs}",
+      "padding_y": "2px",
+      "font_size": "{typography.font_size.xs}",
+      "font_family": "{typography.font_family.mono}"
+    },
+
     "empty_state": {
       "$description": "Centered guidance for an empty content region and its next action.",
       "anatomy": ["icon?", "header", "action?"],

@@ -447,6 +447,7 @@ impl {krate}::DesignSystem for {type_name} {{
         let progress = self.progress_theme_expr(krate, mode)?;
         let tooltip = self.tooltip_theme_expr(krate, mode)?;
         let card = self.card_theme_expr(krate, mode)?;
+        let code = self.code_theme_expr(krate, mode)?;
         let empty_state = self.empty_state_theme_expr(krate, mode)?;
         let feature_icon = self.feature_icon_theme_expr(krate, mode)?;
         let colors_prefix = match mode {
@@ -472,6 +473,7 @@ impl {krate}::DesignSystem for {type_name} {{
                 progress: {progress},
                 tooltip: {tooltip},
                 card: {card},
+                code: {code},
                 empty_state: {empty_state},
                 feature_icon: {feature_icon},
             }}"#,
@@ -1576,6 +1578,24 @@ impl {krate}::DesignSystem for {type_name} {{
         ))
     }
 
+    fn code_theme_expr(&self, krate: &str, mode: Mode) -> Result<String> {
+        let fallback = serde_json::json!({
+            "background": "{color.light.surface_sunken}",
+            "color": "{color.light.text_primary}",
+            "radius": "{radius.small}",
+            "padding_x": "{spacing.xs}",
+            "padding_y": "2px",
+            "font_size": "{typography.font_size.xs}",
+            "font_family": "{typography.font_family.mono}"
+        });
+        let style = self.style_expr(
+            krate,
+            mode,
+            self.dsp.pointer("/components/code").or(Some(&fallback)),
+        )?;
+        Ok(format!("{krate}::CodeTheme {{ style: {style} }}"))
+    }
+
     fn empty_state_theme_expr(&self, krate: &str, mode: Mode) -> Result<String> {
         let fallback = serde_json::json!({
             "surface": {
@@ -1857,6 +1877,10 @@ impl {krate}::DesignSystem for {type_name} {{
         let margin = self.padding_option_expr(mode, field(value, "margin"))?;
         let gap = self.style_dimension_option_expr(mode, field(value, "gap"))?;
         let font_size = self.style_dimension_option_expr(mode, field(value, "font_size"))?;
+        let font_family = self
+            .resolved_value_string(mode, field(value, "font_family"))?
+            .map(|family| format!("Some({}.to_string())", rust_string(&family)))
+            .unwrap_or_else(|| "None".into());
         let font_weight = self.style_u16_option_expr(mode, field(value, "font_weight"))?;
         let line_height = self.style_dimension_option_expr(mode, field(value, "line_height"))?;
         let letter_spacing =
@@ -1886,6 +1910,7 @@ impl {krate}::DesignSystem for {type_name} {{
                 margin: {margin},
                 gap: {gap},
                 font_size: {font_size},
+                font_family: {font_family},
                 font_weight: {font_weight},
                 line_height: {line_height},
                 letter_spacing: {letter_spacing},

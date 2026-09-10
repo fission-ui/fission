@@ -113,6 +113,12 @@ fn generates_rust_for_fission_dsp_package() {
         "avatar-group geometry must survive DSP code generation"
     );
     assert!(
+        generated.contains("code: fission_theme::CodeTheme")
+            && generated.contains("font_family: Some(")
+            && generated.contains("font_size: Some(12.0)"),
+        "code typography must survive DSP code generation"
+    );
+    assert!(
         generated.contains("opacity: Some(0.5)") && generated.contains("translate_y: Some(2.0)"),
         "state opacity and visual translation must survive DSP code generation"
     );

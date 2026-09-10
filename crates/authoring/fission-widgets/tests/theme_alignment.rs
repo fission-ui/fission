@@ -8,7 +8,7 @@ use fission_ir::op::Color;
 use fission_ir::{CoreIR, Op, PaintOp, WidgetId};
 use fission_layout::{LayoutEngine, LayoutSize, TextMeasurer};
 use fission_theme::{Theme, Tokens};
-use fission_widgets::{Badge, Stepper};
+use fission_widgets::{Badge, Code, Stepper};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -131,6 +131,44 @@ fn find_text_paint(ir: &CoreIR, expected: &str) -> Option<WidgetId> {
         }
         _ => None,
     })
+}
+
+#[test]
+fn code_uses_the_active_component_recipe_and_monospace_family() {
+    let mut env = Env::default();
+    let background = Color {
+        r: 17,
+        g: 29,
+        b: 43,
+        a: 255,
+    };
+    env.theme.components.code.style.background = Some(fission_ir::op::Fill::Solid(background));
+    env.theme.components.code.style.font_family = Some("Fixture Mono".into());
+    env.theme.components.code.style.font_size = Some(13.0);
+    env.theme.components.code.style.padding = Some([7.0, 9.0, 3.0, 5.0]);
+
+    let (ir, _) = build_widget_ir(
+        Code {
+            text: "cargo fission".into(),
+        },
+        &env,
+    );
+
+    assert!(ir.nodes.values().any(|node| matches!(
+        &node.op,
+        Op::Paint(PaintOp::DrawRect {
+            fill: Some(fission_ir::op::Fill::Solid(color)),
+            ..
+        }) if *color == background
+    )));
+    assert!(ir.nodes.values().any(|node| match &node.op {
+        Op::Paint(PaintOp::DrawRichText { runs, .. }) => runs.iter().any(|run| {
+            run.text == "cargo fission"
+                && run.style.font_family.as_deref() == Some("Fixture Mono")
+                && run.style.font_size == 13.0
+        }),
+        _ => false,
+    }));
 }
 
 #[test]

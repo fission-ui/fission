@@ -1,5 +1,5 @@
 use fission_theme::{
-    AvatarGroupTheme, ButtonHierarchy, ComponentStateStyles, EmptyStateTheme, MenuTheme,
+    AvatarGroupTheme, ButtonHierarchy, CodeTheme, ComponentStateStyles, EmptyStateTheme, MenuTheme,
     ResolvedComponentStyle, SelectTheme, Theme,
 };
 
@@ -73,6 +73,7 @@ fn component_theme_defaults_new_recipes_from_an_earlier_serialized_theme() {
     assert!(components.remove("select").is_some());
     assert!(components.remove("empty_state").is_some());
     assert!(components.remove("avatar_group").is_some());
+    assert!(components.remove("code").is_some());
 
     let card = components
         .get_mut("card")
@@ -97,6 +98,7 @@ fn component_theme_defaults_new_recipes_from_an_earlier_serialized_theme() {
     assert_eq!(decoded.components.select, SelectTheme::default());
     assert_eq!(decoded.components.empty_state, EmptyStateTheme::default());
     assert_eq!(decoded.components.avatar_group, AvatarGroupTheme::default());
+    assert_eq!(decoded.components.code, CodeTheme::default());
     assert!(decoded.components.card.sizes.is_empty());
     assert_eq!(
         decoded.components.card.header_style,

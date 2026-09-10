@@ -324,6 +324,9 @@ pub struct ResolvedComponentStyle {
     pub padding: Option<[f32; 4]>,
     pub gap: Option<f32>,
     pub font_size: Option<f32>,
+    /// Font-family stack used by component-owned text.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub font_family: Option<String>,
     pub font_weight: Option<u16>,
     pub line_height: Option<f32>,
     pub letter_spacing: Option<f32>,
@@ -368,6 +371,10 @@ impl ResolvedComponentStyle {
             margin: overlay.margin.or(self.margin),
             gap: overlay.gap.or(self.gap),
             font_size: overlay.font_size.or(self.font_size),
+            font_family: overlay
+                .font_family
+                .clone()
+                .or_else(|| self.font_family.clone()),
             font_weight: overlay.font_weight.or(self.font_weight),
             line_height: overlay.line_height.or(self.line_height),
             letter_spacing: overlay.letter_spacing.or(self.letter_spacing),
@@ -3466,6 +3473,36 @@ fn find_size_style(
         .unwrap_or_default()
 }
 
+/// Design-system recipe for inline source-code presentation.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct CodeTheme {
+    /// Surface and typography applied to inline code.
+    pub style: ResolvedComponentStyle,
+}
+
+impl CodeTheme {
+    pub fn from_tokens(tokens: &Tokens) -> Self {
+        Self {
+            style: ResolvedComponentStyle {
+                background: Some(Fill::Solid(tokens.colors.surface_sunken)),
+                text_color: Some(tokens.colors.text_primary),
+                radius: Some(tokens.radii.small),
+                padding_x: Some(tokens.spacing.xs),
+                padding_y: Some(tokens.spacing.xs / 2.0),
+                font_size: Some(tokens.typography.font_size_xs),
+                font_family: Some(tokens.typography.font_family_mono.clone()),
+                ..ResolvedComponentStyle::default()
+            },
+        }
+    }
+}
+
+impl Default for CodeTheme {
+    fn default() -> Self {
+        Self::from_tokens(&Tokens::default())
+    }
+}
+
 /// Aggregates all per-component visual themes.
 ///
 /// Each field holds the theme for a specific widget type. Construct via
@@ -3490,6 +3527,8 @@ pub struct ComponentTheme {
     pub progress: ProgressTheme,
     pub tooltip: TooltipTheme,
     pub card: CardTheme,
+    #[serde(default)]
+    pub code: CodeTheme,
     pub feature_icon: FeatureIconTheme,
     #[serde(default)]
     pub select: SelectTheme,
@@ -3517,6 +3556,7 @@ impl ComponentTheme {
             progress: ProgressTheme::from_tokens(tokens),
             tooltip: TooltipTheme::from_tokens(tokens),
             card: CardTheme::from_tokens(tokens),
+            code: CodeTheme::from_tokens(tokens),
             empty_state: EmptyStateTheme::from_tokens(tokens),
             feature_icon: FeatureIconTheme::from_tokens(tokens),
         }
