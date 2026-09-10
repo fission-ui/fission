@@ -43,11 +43,13 @@ impl From<ComposerAtomControls<'_>> for Widget {
                 Wrap {
                     direction: FlexDirection::Row,
                     spacing: Some(tokens.spacing.s),
+                    run_spacing: None,
                     children: add_buttons,
                 },
                 Wrap {
                     direction: FlexDirection::Row,
                     spacing: Some(tokens.spacing.s),
+                    run_spacing: None,
                     children: widgets![
                         ui::SmallButton {
                             ctx: controls.ctx,

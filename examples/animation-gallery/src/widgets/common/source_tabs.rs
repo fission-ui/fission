@@ -15,6 +15,7 @@ impl From<SourceTabs<'_>> for Widget {
         Wrap {
             direction: FlexDirection::Row,
             spacing: Some(view.env().theme.tokens.spacing.s),
+            run_spacing: None,
             children: widgets![
                 ui::ChoiceButton {
                     ctx: tabs.ctx,

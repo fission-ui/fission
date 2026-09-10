@@ -54,6 +54,7 @@ impl From<CompactNavPanel<'_>> for Widget {
                 Wrap {
                     direction: FlexDirection::Row,
                     spacing: Some(tokens.spacing.s),
+                    run_spacing: None,
                     children: chips,
                 }
                 .into(),

@@ -11,6 +11,7 @@ impl From<TopStoryRow<'_>> for Widget {
         Wrap {
             direction: FlexDirection::Row,
             spacing: Some(view.env().theme.tokens.spacing.m),
+            run_spacing: None,
             children: vec![
                 StoryLabel {
                     step: "1",

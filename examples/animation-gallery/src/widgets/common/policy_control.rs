@@ -17,6 +17,7 @@ impl From<PolicyControl<'_>> for Widget {
         Wrap {
             direction: FlexDirection::Row,
             spacing: Some(tokens.spacing.s),
+            run_spacing: None,
             children: widgets![
                 Text::new("Motion Policy")
                     .size(tokens.typography.font_size_sm)

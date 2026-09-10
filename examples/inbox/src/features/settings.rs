@@ -779,6 +779,7 @@ impl From<SettingsModal> for Widget {
                             Wrap {
                                 direction: fission::op::FlexDirection::Row,
                                 spacing: Some(6.0),
+                                run_spacing: None,
                                 children: draggable_labels,
                             }
                             .into(),
