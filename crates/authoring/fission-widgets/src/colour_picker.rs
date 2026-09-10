@@ -732,6 +732,7 @@ fn inputs(picker: &ColourPicker, expanded: bool) -> Widget {
         direction: FlexDirection::Row,
         spacing: Some(6.0),
         children,
+        ..Default::default()
     }
     .into()
 }
@@ -790,6 +791,7 @@ fn swatch_grid(
         direction: FlexDirection::Row,
         spacing: Some(6.0),
         children,
+        ..Default::default()
     };
     if selected_label {
         Column {
