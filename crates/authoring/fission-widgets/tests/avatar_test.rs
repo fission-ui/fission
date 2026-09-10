@@ -83,7 +83,7 @@ fn avatar_uses_the_active_fallback_colors() {
         Op::Paint(PaintOp::DrawRichText { runs, .. })
             if runs.iter().map(|run| run.text.as_str()).collect::<String>() == "?" =>
         {
-            runs.first().and_then(|run| run.style.color)
+            runs.first().map(|run| run.style.color)
         }
         _ => None,
     });
