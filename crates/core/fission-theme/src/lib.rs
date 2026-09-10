@@ -2082,6 +2082,31 @@ impl AlertTheme {
     }
 }
 
+/// Visual parameters for the `Avatar` widget.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct AvatarTheme {
+    /// Background and foreground used when no image is available.
+    pub fallback_style: ResolvedComponentStyle,
+}
+
+impl AvatarTheme {
+    pub fn from_tokens(tokens: &Tokens) -> Self {
+        Self {
+            fallback_style: ResolvedComponentStyle {
+                background: Some(Fill::Solid(tokens.colors.primary)),
+                text_color: Some(tokens.colors.on_primary),
+                ..ResolvedComponentStyle::default()
+            },
+        }
+    }
+}
+
+impl Default for AvatarTheme {
+    fn default() -> Self {
+        Self::from_tokens(&Tokens::default())
+    }
+}
+
 /// Visual parameters for the `AvatarGroup` widget.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct AvatarGroupTheme {
@@ -3519,6 +3544,8 @@ pub struct ComponentTheme {
     pub segmented_control: SegmentedControlTheme,
     pub alert: AlertTheme,
     #[serde(default)]
+    pub avatar: AvatarTheme,
+    #[serde(default)]
     pub avatar_group: AvatarGroupTheme,
     pub badge: BadgeTheme,
     pub tabs: TabsTheme,
@@ -3548,6 +3575,7 @@ impl ComponentTheme {
             timeline: TimelineTheme::from_tokens(tokens),
             segmented_control: SegmentedControlTheme::from_tokens(tokens),
             alert: AlertTheme::from_tokens(tokens),
+            avatar: AvatarTheme::from_tokens(tokens),
             avatar_group: AvatarGroupTheme::from_tokens(tokens),
             badge: BadgeTheme::from_tokens(tokens),
             tabs: TabsTheme::from_tokens(tokens),

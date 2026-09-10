@@ -1,9 +1,9 @@
 use fission_core::env::LayoutDirection;
 use fission_core::internal::BuildCtx;
 use fission_core::internal::{build_layout_tree, InternalLoweringCx};
-use fission_core::op::Overflow;
+use fission_core::op::{Color, Fill, Overflow};
 use fission_core::{build, Env, GlobalState, RuntimeState, View, Widget, WidgetId};
-use fission_ir::Role;
+use fission_ir::{Op, PaintOp, Role};
 use fission_layout::{LayoutEngine, LayoutSize};
 use fission_widgets::{Avatar, AvatarGroup, AvatarGroupItem};
 
@@ -13,10 +13,13 @@ struct TestState;
 impl GlobalState for TestState {}
 
 fn build_avatar(avatar: Avatar) -> Widget {
+    build_avatar_with_env(avatar, &Env::default())
+}
+
+fn build_avatar_with_env(avatar: Avatar, env: &Env) -> Widget {
     let state = TestState;
     let runtime_state = RuntimeState::default();
-    let env = Env::default();
-    let view = View::new(&state, &runtime_state, &env, None);
+    let view = View::new(&state, &runtime_state, env, None);
     let mut ctx = BuildCtx::<TestState>::new();
 
     build::enter(&mut ctx, &view, || avatar.into())
@@ -38,7 +41,7 @@ fn build_avatar_group_with_env(group: AvatarGroup, env: &Env) -> Widget {
 #[test]
 fn image_avatar_clips_to_its_circular_bounds() {
     let widget = build_avatar(Avatar {
-        name: Some("Ada Lovelace".into()),
+        name: None,
         src: Some("assets/ada.png".into()),
         size: Some(48.0),
     });
@@ -48,6 +51,90 @@ fn image_avatar_clips_to_its_circular_bounds() {
     assert_eq!(container.height, Some(48.0));
     assert_eq!(container.border_radius, 24.0);
     assert_eq!(container.box_style.overflow, Overflow::Clip);
+}
+
+#[test]
+fn avatar_uses_the_active_fallback_colors() {
+    let background = Color {
+        r: 12,
+        g: 34,
+        b: 56,
+        a: 255,
+    };
+    let foreground = Color {
+        r: 240,
+        g: 230,
+        b: 220,
+        a: 255,
+    };
+    let mut env = Env::default();
+    env.theme.components.avatar.fallback_style.background = Some(Fill::Solid(background));
+    env.theme.components.avatar.fallback_style.text_color = Some(foreground);
+    let widget = build_avatar_with_env(Avatar::default(), &env);
+    let container = fission_core::internal::widget_as_container(&widget).expect("avatar container");
+    assert_eq!(container.background_fill, Some(Fill::Solid(background)));
+
+    let runtime = RuntimeState::default();
+    let mut lowering = InternalLoweringCx::new(&env, &runtime, None, None);
+    let root = fission_core::internal::lower_widget(&widget, &mut lowering);
+    lowering.ir.set_root(root);
+    let rendered_foreground = lowering.ir.nodes.values().find_map(|node| match &node.op {
+        Op::Paint(PaintOp::DrawText { text, color, .. }) if text == "?" => Some(*color),
+        Op::Paint(PaintOp::DrawRichText { runs, .. })
+            if runs.iter().map(|run| run.text.as_str()).collect::<String>() == "?" =>
+        {
+            runs.first().and_then(|run| run.style.color)
+        }
+        _ => None,
+    });
+    assert_eq!(rendered_foreground, Some(foreground));
+}
+
+#[test]
+fn named_avatar_is_one_non_focusable_accessible_image() {
+    let widget = build_avatar(Avatar {
+        name: Some("Ada Lovelace".into()),
+        src: Some("assets/ada.png".into()),
+        ..Default::default()
+    });
+    let env = Env::default();
+    let runtime = RuntimeState::default();
+    let mut lowering = InternalLoweringCx::new(&env, &runtime, None, None);
+    let root = fission_core::internal::lower_widget(&widget, &mut lowering);
+    lowering.ir.set_root(root);
+    let images = lowering
+        .ir
+        .nodes
+        .values()
+        .filter_map(|node| match &node.op {
+            Op::Semantics(semantics) if semantics.role == Role::Image => Some(semantics),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(images.len(), 1);
+    assert_eq!(images[0].label.as_deref(), Some("Ada Lovelace"));
+    assert!(!images[0].focusable);
+    assert!(!images[0].sequential_focusable);
+}
+
+#[test]
+fn unnamed_avatar_remains_decorative() {
+    let widget = build_avatar(Avatar {
+        src: Some("assets/decorative.png".into()),
+        ..Default::default()
+    });
+    let env = Env::default();
+    let runtime = RuntimeState::default();
+    let mut lowering = InternalLoweringCx::new(&env, &runtime, None, None);
+    let root = fission_core::internal::lower_widget(&widget, &mut lowering);
+    lowering.ir.set_root(root);
+
+    assert!(!lowering
+        .ir
+        .nodes
+        .values()
+        .any(|node| matches!(&node.op, Op::Semantics(semantics) if semantics.role == Role::Image)));
 }
 
 #[test]

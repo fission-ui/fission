@@ -121,6 +121,10 @@
   },
   "components": {
     "$comment": "Each component declares anatomy (named slots), sizes, hierarchies (visual variants), and states. Property values reference tokens via {namespace.path} or contain literal CSS values. Sourced from the Untitled UI Figma component matrix and bound to Fission's teal palette.",
+    "avatar": {
+      "$description": "An image or accessible initials fallback for a person.",
+      "fallback": { "background": "{color.light.primary}", "color": "{color.light.on_primary}" }
+    },
     "button": {
       "$source": "Figma /Buttons/Buttons-Button (node 3287:427074)",
       "$description": "Button component styled for the Fluent 2 preset.",

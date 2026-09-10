@@ -1,6 +1,8 @@
 use fission_core::env::LayoutDirection;
 use fission_core::op::Fill;
-use fission_core::ui::{Align, Container, Image, Positioned, Row, Text, TextContent, Widget};
+use fission_core::ui::{
+    Align, Container, Image, Positioned, Row, SemanticsRegion, Text, TextContent, Widget,
+};
 use fission_core::WidgetId;
 use fission_ir::{Role, Semantics};
 use serde::{Deserialize, Serialize};
@@ -12,7 +14,9 @@ const OVERFLOW_ID_PATH: &[u32] = &[0x4f56_464c];
 ///
 /// When `src` is provided, the avatar renders the image with `Cover` fit.
 /// Otherwise, it extracts up to two initials from `name` (e.g., "John Doe" -> "JD")
-/// and displays them centered on the primary-colored circle.
+/// and displays them centered using the active avatar fallback recipe. A
+/// non-empty `name` also becomes the accessible image label; omit it for a
+/// decorative avatar.
 ///
 /// # Fields
 ///
@@ -35,6 +39,7 @@ impl From<Avatar> for Widget {
         let this = &component;
 
         let tokens = &view.env().theme.tokens;
+        let fallback = &view.env().theme.components.avatar.fallback_style;
         let size = this.size.unwrap_or(40.0);
         let radius = size / 2.0;
 
@@ -59,23 +64,43 @@ impl From<Avatar> for Widget {
                         .collect::<String>()
                         .to_uppercase()
                 })
+                .filter(|initials| !initials.is_empty())
                 .unwrap_or("?".into());
 
             fission_core::ui::Align::new(Text {
                 content: TextContent::Literal(initials),
                 font_size: Some(size * 0.4),
-                color: Some(tokens.colors.on_primary),
+                color: Some(fallback.text_color.unwrap_or(tokens.colors.on_primary)),
                 ..Default::default()
             })
             .into()
         };
 
-        Container::new(content)
+        let visual: Widget = Container::new(content)
             .size(size, size)
-            .bg(tokens.colors.primary)
+            .bg_fill(
+                fallback
+                    .background
+                    .clone()
+                    .unwrap_or(Fill::Solid(tokens.colors.primary)),
+            )
             .border_radius(radius)
             .clip_overflow(true)
+            .into();
+
+        if let Some(label) = this.name.as_ref().filter(|name| !name.trim().is_empty()) {
+            SemanticsRegion {
+                label: Some(label.clone()),
+                role: Role::Image,
+                focusable: Some(false),
+                sequential_focusable: false,
+                child: Some(visual),
+                ..Default::default()
+            }
             .into()
+        } else {
+            visual
+        }
     }
 }
 

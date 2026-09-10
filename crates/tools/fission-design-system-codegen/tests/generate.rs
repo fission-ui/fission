@@ -107,6 +107,11 @@ fn generates_rust_for_fission_dsp_package() {
         "empty-state geometry must survive DSP code generation"
     );
     assert!(
+        generated.contains("avatar: fission_theme::AvatarTheme")
+            && generated.contains("fallback_style: fission_theme::ResolvedComponentStyle"),
+        "avatar fallback colors must survive DSP code generation"
+    );
+    assert!(
         generated.contains("avatar_group: fission_theme::AvatarGroupTheme")
             && generated.contains("overlap: 10.0")
             && generated.contains("max_visible: 4"),
@@ -147,6 +152,7 @@ fn bundled_packages_declare_the_complete_component_recipes() {
         let dsp: serde_json::Value = serde_json::from_str(&raw).unwrap();
 
         for pointer in [
+            "/components/avatar/fallback",
             "/components/button/hierarchies/outline",
             "/components/select/sizes",
             "/components/menu/trigger/sizes",

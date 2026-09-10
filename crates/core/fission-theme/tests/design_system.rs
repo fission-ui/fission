@@ -609,6 +609,16 @@ fn default_component_geometry_matches_the_compact_recipe() {
     assert_eq!(empty.icon_style.margin_bottom, Some(8.0));
     assert_eq!(empty.action_style.max_width, Some(384.0));
 
+    let avatar = &theme.components.avatar;
+    assert_eq!(
+        avatar.fallback_style.background,
+        Some(Fill::Solid(theme.tokens.colors.primary))
+    );
+    assert_eq!(
+        avatar.fallback_style.text_color,
+        Some(theme.tokens.colors.on_primary)
+    );
+
     let avatar_group = &theme.components.avatar_group;
     assert_eq!(avatar_group.avatar_style.width, Some(32.0));
     assert_eq!(avatar_group.avatar_style.height, Some(32.0));

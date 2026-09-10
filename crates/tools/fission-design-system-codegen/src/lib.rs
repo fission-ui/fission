@@ -439,6 +439,7 @@ impl {krate}::DesignSystem for {type_name} {{
         let select = self.select_theme_expr(krate, mode)?;
         let menu = self.menu_theme_expr(krate, mode)?;
         let alert = self.alert_theme_expr(krate, mode)?;
+        let avatar = self.avatar_theme_expr(krate, mode)?;
         let avatar_group = self.avatar_group_theme_expr(krate, mode)?;
         let pagination = self.pagination_theme_expr(krate, mode)?;
         let badge = self.badge_theme_expr(krate, mode)?;
@@ -465,6 +466,7 @@ impl {krate}::DesignSystem for {type_name} {{
                 timeline: {krate}::TimelineTheme {{ dot_size: 12.0, line_width: 2.0, dot_color: {primary}, line_color: {border} }},
                 segmented_control: {krate}::SegmentedControlTheme {{ bg_color: {surface}, border_color: {border}, radius: {radius_full}, active_bg: {primary}, active_text: {on_primary} }},
                 alert: {alert},
+                avatar: {avatar},
                 avatar_group: {avatar_group},
                 badge: {badge},
                 tabs: {tabs},
@@ -1042,6 +1044,25 @@ impl {krate}::DesignSystem for {type_name} {{
             sizes = self.size_styles_expr(krate, mode, "/components/badge/sizes")?,
             tones =
                 self.enum_styles_expr(krate, mode, "/components/badge/colors", badge_tone_variant)?,
+        ))
+    }
+
+    fn avatar_theme_expr(&self, krate: &str, mode: Mode) -> Result<String> {
+        let fallback = serde_json::json!({
+            "background": "{color.light.primary}",
+            "color": "{color.light.on_primary}"
+        });
+        Ok(format!(
+            r#"{krate}::AvatarTheme {{
+                fallback_style: {fallback_style},
+            }}"#,
+            fallback_style = self.style_expr(
+                krate,
+                mode,
+                self.dsp
+                    .pointer("/components/avatar/fallback")
+                    .or(Some(&fallback)),
+            )?,
         ))
     }
 
