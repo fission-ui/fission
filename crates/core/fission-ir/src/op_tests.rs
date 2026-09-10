@@ -1,10 +1,9 @@
 use crate::op::{
     decode_inline_widget_marker, decode_text_paragraph_style, encode_inline_widget_marker,
-    encode_text_paragraph_style, HttpHeader, ImageCachePolicy, ImageRequest, ImageSource,
-    AlignItems, BoxAlignment, FlexDirection, FlexWrap, InlineWidgetMarker, JustifyContent,
-    LayoutDirection, LayoutOp, TextAlign, TextDirection,
-    TextHeightBehavior, TextOverflow, TextParagraphStyle, TextWidthBasis,
-    TEXT_PARAGRAPH_MAX_ENCODED_LINES,
+    encode_text_paragraph_style, AlignItems, BoxAlignment, FlexDirection, FlexWrap, HttpHeader,
+    ImageCachePolicy, ImageRequest, ImageSource, InlineWidgetMarker, JustifyContent,
+    LayoutDirection, LayoutOp, TextAlign, TextDirection, TextHeightBehavior, TextOverflow,
+    TextParagraphStyle, TextWidthBasis, TEXT_PARAGRAPH_MAX_ENCODED_LINES,
 };
 use crate::{CoreIR, FlyoutAlignment};
 
