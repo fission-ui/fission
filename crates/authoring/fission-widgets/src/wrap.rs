@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 pub struct Wrap {
     /// Main axis along which children are placed before wrapping.
     pub direction: FlexDirection,
-    /// Optional logical-pixel gap between adjacent children and lines.
+    /// Optional logical-pixel gap between adjacent children on each line.
     pub spacing: Option<f32>,
     /// Optional logical-pixel gap between wrapped lines.
     pub run_spacing: Option<f32>,
