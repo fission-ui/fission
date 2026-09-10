@@ -170,15 +170,7 @@ fn validate_web_sqlite_assets(root: &Path) -> Result<()> {
 
 fn resolved_web_sqlite_enabled(root: &Path) -> Result<bool> {
     let manifest_path = root.join("Cargo.toml");
-    let output = Command::new("cargo")
-        .arg("metadata")
-        .arg("--format-version")
-        .arg("1")
-        .arg("--filter-platform")
-        .arg(WEB_TARGET)
-        .arg("--manifest-path")
-        .arg(&manifest_path)
-        .current_dir(root)
+    let output = cargo_metadata_command(&manifest_path)
         .output()
         .context("failed to inspect the Web Cargo dependency graph")?;
     if !output.status.success() {
@@ -188,10 +180,20 @@ fn resolved_web_sqlite_enabled(root: &Path) -> Result<bool> {
 
     let metadata: CargoMetadata = serde_json::from_slice(&output.stdout)
         .context("failed to parse the Web Cargo dependency graph")?;
-    let manifest_path = manifest_path
-        .canonicalize()
-        .with_context(|| format!("failed to resolve {}", manifest_path.display()))?;
-    Ok(metadata.web_sqlite_enabled_for(&manifest_path))
+    Ok(metadata.web_sqlite_enabled_for_root())
+}
+
+fn cargo_metadata_command(manifest_path: &Path) -> Command {
+    let mut command = Command::new("cargo");
+    command
+        .arg("metadata")
+        .arg("--format-version")
+        .arg("1")
+        .arg("--filter-platform")
+        .arg(WEB_TARGET)
+        .arg("--manifest-path")
+        .arg(manifest_path);
+    command
 }
 
 #[derive(Debug, Deserialize)]
@@ -201,14 +203,11 @@ struct CargoMetadata {
 }
 
 impl CargoMetadata {
-    fn web_sqlite_enabled_for(&self, manifest_path: &Path) -> bool {
+    fn web_sqlite_enabled_for_root(&self) -> bool {
         let Some(resolve) = &self.resolve else {
             return false;
         };
-        let Some(root_id) = self.packages.iter().find_map(|package| {
-            paths_refer_to_same_file(&package.manifest_path, manifest_path)
-                .then_some(package.id.as_str())
-        }) else {
+        let Some(root_id) = resolve.root.as_deref() else {
             return false;
         };
 
@@ -249,11 +248,11 @@ impl CargoMetadata {
 struct CargoPackage {
     id: String,
     name: String,
-    manifest_path: PathBuf,
 }
 
 #[derive(Debug, Deserialize)]
 struct CargoResolve {
+    root: Option<String>,
     nodes: Vec<CargoNode>,
 }
 
@@ -264,13 +263,6 @@ struct CargoNode {
     dependencies: Vec<String>,
     #[serde(default)]
     features: Vec<String>,
-}
-
-fn paths_refer_to_same_file(left: &Path, right: &Path) -> bool {
-    match (left.canonicalize(), right.canonicalize()) {
-        (Ok(left), Ok(right)) => left == right,
-        _ => left == right,
-    }
 }
 
 #[cfg(test)]
@@ -416,25 +408,19 @@ mod tests {
 
     #[test]
     fn dependency_detection_ignores_unreachable_workspace_packages() {
-        let root = TestDir::new("unreachable-provider");
-        let app_manifest = root.path().join("Cargo.toml");
-        fs::write(&app_manifest, "[package]\nname='app'\nversion='0.1.0'\n").unwrap();
-        let sqlite_manifest = root.path().join("sqlite.toml");
-        fs::write(&sqlite_manifest, "").unwrap();
         let metadata = CargoMetadata {
             packages: vec![
                 CargoPackage {
                     id: "app".into(),
                     name: "app".into(),
-                    manifest_path: app_manifest.clone(),
                 },
                 CargoPackage {
                     id: "sqlite".into(),
                     name: "fission-store-sqlite".into(),
-                    manifest_path: sqlite_manifest,
                 },
             ],
             resolve: Some(CargoResolve {
+                root: Some("app".into()),
                 nodes: vec![
                     CargoNode {
                         id: "app".into(),
@@ -450,30 +436,24 @@ mod tests {
             }),
         };
 
-        assert!(!metadata.web_sqlite_enabled_for(&app_manifest));
+        assert!(!metadata.web_sqlite_enabled_for_root());
     }
 
     #[test]
     fn dependency_detection_finds_reachable_web_provider() {
-        let root = TestDir::new("reachable-provider");
-        let app_manifest = root.path().join("Cargo.toml");
-        fs::write(&app_manifest, "[package]\nname='app'\nversion='0.1.0'\n").unwrap();
-        let sqlite_manifest = root.path().join("sqlite.toml");
-        fs::write(&sqlite_manifest, "").unwrap();
         let metadata = CargoMetadata {
             packages: vec![
                 CargoPackage {
                     id: "app".into(),
                     name: "app".into(),
-                    manifest_path: app_manifest.clone(),
                 },
                 CargoPackage {
                     id: "sqlite".into(),
                     name: "fission-store-sqlite".into(),
-                    manifest_path: sqlite_manifest,
                 },
             ],
             resolve: Some(CargoResolve {
+                root: Some("app".into()),
                 nodes: vec![
                     CargoNode {
                         id: "app".into(),
@@ -489,7 +469,30 @@ mod tests {
             }),
         };
 
-        assert!(metadata.web_sqlite_enabled_for(&app_manifest));
+        assert!(metadata.web_sqlite_enabled_for_root());
+    }
+
+    #[test]
+    fn cargo_metadata_does_not_rebase_a_relative_manifest_twice() {
+        let command = cargo_metadata_command(Path::new("crates/apollo/Cargo.toml"));
+        let args = command
+            .get_args()
+            .map(|arg| arg.to_string_lossy().into_owned())
+            .collect::<Vec<_>>();
+
+        assert_eq!(command.get_current_dir(), None);
+        assert_eq!(
+            args,
+            [
+                "metadata",
+                "--format-version",
+                "1",
+                "--filter-platform",
+                WEB_TARGET,
+                "--manifest-path",
+                "crates/apollo/Cargo.toml",
+            ]
+        );
     }
 
     #[test]

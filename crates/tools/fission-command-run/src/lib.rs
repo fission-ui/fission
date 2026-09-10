@@ -1207,12 +1207,7 @@ fn build_web_with_test_control(
     cargo_features: &[String],
     cargo_no_default_features: bool,
 ) -> Result<()> {
-    let project_dir = fs::canonicalize(project_dir).with_context(|| {
-        format!(
-            "failed to resolve project directory {}",
-            project_dir.display()
-        )
-    })?;
+    let project_dir = absolute_path(project_dir)?;
     let out_dir = project_dir.join("platforms/web/pkg");
     let mut command = web_build_command(
         &project_dir,
@@ -1225,6 +1220,17 @@ fn build_web_with_test_control(
         command.env("FISSION_WEB_TEST_CONTROL", "1");
     }
     run_status(&mut command, "web build")
+}
+
+/// Makes a path independent of subsequent child-process working directories
+/// without resolving symlinks or mapped drives through the filesystem.
+fn absolute_path(path: &Path) -> Result<PathBuf> {
+    if path.is_absolute() {
+        return Ok(path.to_path_buf());
+    }
+    Ok(env::current_dir()
+        .context("failed to resolve the current directory")?
+        .join(path))
 }
 
 fn web_build_command(
@@ -2540,6 +2546,16 @@ mod tests {
                 "fixtures,diagnostics",
             ]
         );
+    }
+
+    #[test]
+    fn web_build_keeps_an_absolute_project_path_lexical() {
+        let project_dir = env::current_dir()
+            .expect("current directory")
+            .join("path-that-need-not-exist")
+            .join("..");
+
+        assert_eq!(absolute_path(&project_dir).unwrap(), project_dir);
     }
 
     #[test]
