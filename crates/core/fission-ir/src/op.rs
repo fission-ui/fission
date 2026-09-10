@@ -1,4 +1,7 @@
 use super::semantics::{ActionEntry, Semantics};
+pub use crate::layout_policy::{
+    FlyoutAlignment, FlyoutOptions, FlyoutPlacement, FlyoutWidth, LayoutDirection,
+};
 pub use crate::viewport::{
     ViewportBoundary, ViewportClip, ViewportMargin, ViewportPanAxis, ViewportTransform,
     ViewportZoomPolicy,
@@ -46,6 +49,15 @@ pub enum StructuralOp {
     },
     /// Retains and paints a subtree while excluding it from pointer hit testing.
     PointerTransparent {
+        stable_hash: u64,
+    },
+    /// Retains and paints a subtree while excluding it from all interaction
+    /// and assistive semantic traversal.
+    ///
+    /// This is used for visual exit lifecycles: content may remain painted for
+    /// a short animation after it is no longer logically present, but it must
+    /// not receive pointer or keyboard input, constrain focus, or be announced.
+    InteractionInert {
         stable_hash: u64,
     },
 }
@@ -1038,6 +1050,8 @@ pub enum LayoutOp {
     Flyout {
         anchor: WidgetId,
         content: WidgetId,
+        #[serde(default)]
+        options: FlyoutOptions,
     },
     /// Lays out five overlay children around an external anchor.
     ///
@@ -1265,10 +1279,19 @@ impl std::hash::Hash for LayoutOp {
             Self::Align => {
                 9.hash(state);
             }
-            Self::Flyout { anchor, content } => {
+            Self::Flyout {
+                anchor,
+                content,
+                options,
+            } => {
                 10.hash(state);
                 anchor.hash(state);
                 content.hash(state);
+                options.alignment.hash(state);
+                options.placement.hash(state);
+                options.width.hash(state);
+                hash_unit(options.gap, state);
+                options.alignment_target.hash(state);
             }
             Self::Transform { transform } => {
                 11.hash(state);

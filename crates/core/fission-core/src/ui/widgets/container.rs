@@ -79,6 +79,9 @@ pub struct Container {
     pub border_color: Option<Color>,
     /// Border stroke width in layout points.
     pub border_width: f32,
+    /// Optional repeating dash lengths for the border stroke.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub border_dash: Option<Vec<f32>>,
     /// Corner radius for rounded corners.
     pub border_radius: f32,
     /// Optional drop shadow.
@@ -109,6 +112,7 @@ impl Default for Container {
             background_color: None,
             border_color: None,
             border_width: 0.0,
+            border_dash: None,
             border_radius: 0.0,
             shadow: None,
             shadows: Vec::new(),
@@ -336,6 +340,15 @@ impl Container {
         self
     }
 
+    /// Uses a repeating dash pattern for the border stroke.
+    ///
+    /// Values alternate painted and unpainted lengths in layout points. An
+    /// empty pattern is treated as a solid border by renderers.
+    pub fn border_dash(mut self, dash: impl Into<Vec<f32>>) -> Self {
+        self.border_dash = Some(dash.into());
+        self
+    }
+
     pub fn border_radius(mut self, radius: f32) -> Self {
         self.border_radius = radius;
         self
@@ -407,7 +420,7 @@ impl InternalLower for Container {
                     stroke: self.border_color.map(|c| Stroke {
                         fill: Fill::Solid(c),
                         width: self.border_width,
-                        dash_array: None,
+                        dash_array: self.border_dash.clone(),
                         line_cap: fission_ir::op::LineCap::Butt,
                         line_join: fission_ir::op::LineJoin::Miter,
                     }),

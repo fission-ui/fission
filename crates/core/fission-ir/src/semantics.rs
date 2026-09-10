@@ -8,6 +8,7 @@
 //!
 //! Semantics nodes appear in the IR as `Op::Semantics(semantics)`.
 
+use crate::WidgetId;
 use serde::{Deserialize, Serialize};
 
 /// The accessibility role of a node.
@@ -46,6 +47,54 @@ pub enum Role {
     ListItem,
     /// A node with no specific semantic role. The default.
     Generic,
+    /// A container of commands or choices presented as a menu.
+    Menu,
+    /// A container whose children are selectable options.
+    ListBox,
+    /// A selectable item inside a [`ListBox`](Role::ListBox).
+    Option,
+    /// An editable or read-only input that controls a popup list of options.
+    ComboBox,
+    /// A container whose children are tabs.
+    TabList,
+    /// A tab that selects one associated panel.
+    Tab,
+    /// The content panel associated with a tab.
+    TabPanel,
+    /// An important message announced when it appears or changes.
+    Alert,
+    /// A semantically related group of controls or content.
+    Group,
+    /// A visual or structural separator between adjacent groups or items.
+    Separator,
+}
+
+/// The kind of popup controlled by a semantic node.
+///
+/// This is kept separate from [`Role`] because the controlling node and the
+/// popup are distinct semantic nodes. For example, a button can control a
+/// menu, while a combobox can control a list box.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum PopupKind {
+    /// A menu of commands or choices.
+    Menu,
+    /// A list of selectable options.
+    ListBox,
+    /// A hierarchical tree popup.
+    Tree,
+    /// A grid popup.
+    Grid,
+    /// A dialog popup.
+    Dialog,
+}
+
+/// The semantic orientation of a composite widget.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum SemanticOrientation {
+    /// Items are arranged and navigated horizontally.
+    Horizontal,
+    /// Items are arranged and navigated vertically.
+    Vertical,
 }
 
 /// Where a hyperlink should open its destination.
@@ -258,11 +307,14 @@ pub enum ActionTrigger {
     ViewportInteractionEnd,
     /// A text field's validation state was requested or changed.
     Validation,
+    /// A dismissible surface was asked to close, normally via Escape.
+    Dismiss,
 }
 
 #[cfg(test)]
 mod tests {
-    use super::ActionTrigger;
+    use super::{ActionTrigger, PopupKind, Role, SemanticOrientation, Semantics};
+    use crate::WidgetId;
 
     #[test]
     fn text_changed_round_trips_through_ir_serialization() {
@@ -270,6 +322,14 @@ mod tests {
         assert_eq!(encoded, "\"TextChanged\"");
         let decoded: ActionTrigger = serde_json::from_str(&encoded).unwrap();
         assert_eq!(decoded, ActionTrigger::TextChanged);
+    }
+
+    #[test]
+    fn dismiss_round_trips_through_ir_serialization() {
+        let encoded = serde_json::to_string(&ActionTrigger::Dismiss).unwrap();
+        assert_eq!(encoded, "\"Dismiss\"");
+        let decoded: ActionTrigger = serde_json::from_str(&encoded).unwrap();
+        assert_eq!(decoded, ActionTrigger::Dismiss);
     }
 
     #[test]
@@ -283,6 +343,127 @@ mod tests {
         assert_eq!(ActionTrigger::ViewportInteractionStart as u8, 20);
         assert_eq!(ActionTrigger::ViewportInteractionUpdate as u8, 21);
         assert_eq!(ActionTrigger::ViewportInteractionEnd as u8, 22);
+        assert_eq!(ActionTrigger::Validation as u8, 23);
+        assert_eq!(ActionTrigger::Dismiss as u8, 24);
+    }
+
+    #[test]
+    fn new_role_discriminants_are_appended_after_existing_roles() {
+        assert_eq!(Role::Generic as u8, 14);
+        assert_eq!(Role::Menu as u8, 15);
+        assert_eq!(Role::ListBox as u8, 16);
+        assert_eq!(Role::Option as u8, 17);
+        assert_eq!(Role::ComboBox as u8, 18);
+        assert_eq!(Role::TabList as u8, 19);
+        assert_eq!(Role::Tab as u8, 20);
+        assert_eq!(Role::TabPanel as u8, 21);
+        assert_eq!(Role::Alert as u8, 22);
+        assert_eq!(Role::Group as u8, 23);
+        assert_eq!(Role::Separator as u8, 24);
+    }
+
+    #[test]
+    fn added_semantic_fields_round_trip() {
+        let controls = WidgetId::from_u128(11);
+        let label = WidgetId::from_u128(12);
+        let description = WidgetId::from_u128(13);
+        let active_option = WidgetId::from_u128(14);
+        let semantics = Semantics {
+            role: Role::ComboBox,
+            text_editable: true,
+            selected: Some(true),
+            expanded: Some(true),
+            has_popup: Some(PopupKind::ListBox),
+            orientation: Some(SemanticOrientation::Vertical),
+            modal: true,
+            controls: vec![controls],
+            labelled_by: vec![label],
+            described_by: vec![description],
+            active_descendant: Some(active_option),
+            sequential_focusable: false,
+            ..Semantics::default()
+        };
+
+        let encoded = serde_json::to_string(&semantics).unwrap();
+        let decoded: Semantics = serde_json::from_str(&encoded).unwrap();
+        assert_eq!(decoded, semantics);
+    }
+
+    #[test]
+    fn added_semantic_fields_default_when_deserializing_older_ir() {
+        let added_fields = [
+            "selected",
+            "expanded",
+            "has_popup",
+            "orientation",
+            "modal",
+            "controls",
+            "labelled_by",
+            "described_by",
+            "active_descendant",
+            "sequential_focusable",
+            "text_editable",
+        ];
+        let mut encoded = serde_json::to_value(Semantics::default()).unwrap();
+        let object = encoded.as_object_mut().unwrap();
+        for field in added_fields {
+            assert!(object.remove(field).is_some(), "missing test field {field}");
+        }
+
+        let decoded: Semantics = serde_json::from_value(encoded).unwrap();
+        assert_eq!(decoded.selected, None);
+        assert_eq!(decoded.expanded, None);
+        assert_eq!(decoded.has_popup, None);
+        assert_eq!(decoded.orientation, None);
+        assert!(!decoded.modal);
+        assert!(decoded.controls.is_empty());
+        assert!(decoded.labelled_by.is_empty());
+        assert!(decoded.described_by.is_empty());
+        assert_eq!(decoded.active_descendant, None);
+        assert!(decoded.sequential_focusable);
+        assert!(
+            !decoded.is_sequentially_focusable(),
+            "the compatibility default must not make an unfocusable legacy node a Tab target"
+        );
+        assert!(!decoded.text_editable);
+
+        let mut legacy_focusable = serde_json::to_value(Semantics {
+            focusable: true,
+            ..Semantics::default()
+        })
+        .unwrap();
+        legacy_focusable
+            .as_object_mut()
+            .unwrap()
+            .remove("sequential_focusable");
+        let legacy_focusable: Semantics = serde_json::from_value(legacy_focusable).unwrap();
+        assert!(legacy_focusable.is_sequentially_focusable());
+    }
+
+    #[test]
+    fn text_editing_capability_is_independent_of_accessibility_role() {
+        let editable_combobox = Semantics {
+            role: Role::ComboBox,
+            text_editable: true,
+            ..Semantics::default()
+        };
+        let noneditable_combobox = Semantics {
+            role: Role::ComboBox,
+            ..Semantics::default()
+        };
+        let legacy_text_input = Semantics {
+            role: Role::TextInput,
+            ..Semantics::default()
+        };
+        let legacy_generic_input = Semantics {
+            role: Role::Input,
+            ..Semantics::default()
+        };
+
+        assert!(editable_combobox.supports_text_editing());
+        assert!(!noneditable_combobox.supports_text_editing());
+        assert!(legacy_text_input.supports_text_editing());
+        assert!(legacy_generic_input.supports_text_editing());
     }
 }
 
@@ -586,6 +767,10 @@ impl ActionEntry {
     }
 }
 
+const fn default_sequential_focusable() -> bool {
+    true
+}
+
 /// Accessibility and interaction metadata for a node.
 ///
 /// `Semantics` is the IR's way of describing *what a node means* rather than how it
@@ -638,9 +823,26 @@ pub struct Semantics {
     pub action_scope_id: Option<u128>,
     /// Whether this node can receive keyboard focus.
     pub focusable: bool,
+    /// Whether a focusable, enabled node opts into sequential focus traversal.
+    ///
+    /// Set this to `false` for controls that receive focus programmatically or
+    /// through composite-widget navigation without adding another Tab stop.
+    /// This flag is ignored when [`Self::focusable`] is `false` or
+    /// [`Self::disabled`] is `true`; use [`Self::is_sequentially_focusable`] when
+    /// consuming the effective state.
+    #[serde(default = "default_sequential_focusable")]
+    pub sequential_focusable: bool,
     /// How pointer-down should affect focus for this node.
     #[serde(default)]
     pub focus_policy: FocusPolicy,
+    /// Whether this node owns a text-editing session, independent of its role.
+    ///
+    /// Composite editable controls can retain roles such as [`Role::ComboBox`]
+    /// while opting into the same editing, IME, and selection behavior as a
+    /// [`Role::TextInput`]. Current state remains governed by [`Self::disabled`]
+    /// and [`Self::read_only`].
+    #[serde(default)]
+    pub text_editable: bool,
     /// Whether this text input supports multiple lines.
     pub multiline: bool,
     /// Editable multiline wrapping and submission behavior.
@@ -671,6 +873,33 @@ pub struct Semantics {
     /// For checkboxes, radios, and switches: `Some(true)` = checked or selected,
     /// `Some(false)` = unchecked or unselected, and `None` = no checked state.
     pub checked: Option<bool>,
+    /// Selection state for options, tabs, and other selectable descendants.
+    #[serde(default)]
+    pub selected: Option<bool>,
+    /// Expansion state for controls that reveal or control another surface.
+    #[serde(default)]
+    pub expanded: Option<bool>,
+    /// Kind of popup controlled by this node, when present.
+    #[serde(default)]
+    pub has_popup: Option<PopupKind>,
+    /// Semantic orientation of this composite widget, when applicable.
+    #[serde(default)]
+    pub orientation: Option<SemanticOrientation>,
+    /// Whether this node is a modal surface.
+    #[serde(default)]
+    pub modal: bool,
+    /// Semantic nodes whose content or visibility this node controls.
+    #[serde(default)]
+    pub controls: Vec<WidgetId>,
+    /// Semantic nodes that provide this node's accessible label.
+    #[serde(default)]
+    pub labelled_by: Vec<WidgetId>,
+    /// Semantic nodes that provide this node's accessible description.
+    #[serde(default)]
+    pub described_by: Vec<WidgetId>,
+    /// Active descendant within a composite widget that retains DOM/platform focus.
+    #[serde(default)]
+    pub active_descendant: Option<WidgetId>,
     /// Whether the node is disabled (grayed out, non-interactive).
     pub disabled: bool,
     /// Whether the node can be focused and selected but not edited.
@@ -768,7 +997,9 @@ impl std::hash::Hash for Semantics {
         self.canvas_target.hash(state);
         self.action_scope_id.hash(state);
         self.focusable.hash(state);
+        self.sequential_focusable.hash(state);
         self.focus_policy.hash(state);
+        self.text_editable.hash(state);
         self.multiline.hash(state);
         self.text_wrap_mode.hash(state);
         self.masked.hash(state);
@@ -780,6 +1011,15 @@ impl std::hash::Hash for Semantics {
         self.selection_region.hash(state);
         self.context_menu.hash(state);
         self.checked.hash(state);
+        self.selected.hash(state);
+        self.expanded.hash(state);
+        self.has_popup.hash(state);
+        self.orientation.hash(state);
+        self.modal.hash(state);
+        self.controls.hash(state);
+        self.labelled_by.hash(state);
+        self.described_by.hash(state);
+        self.active_descendant.hash(state);
         self.disabled.hash(state);
         self.read_only.hash(state);
         self.autofocus.hash(state);
@@ -835,7 +1075,9 @@ impl Default for Semantics {
             canvas_target: None,
             action_scope_id: None,
             focusable: false,
+            sequential_focusable: true,
             focus_policy: FocusPolicy::FocusOnPointer,
+            text_editable: false,
             multiline: false,
             text_wrap_mode: TextWrapMode::Soft,
             masked: false,
@@ -847,6 +1089,15 @@ impl Default for Semantics {
             selection_region: None,
             context_menu: false,
             checked: None,
+            selected: None,
+            expanded: None,
+            has_popup: None,
+            orientation: None,
+            modal: false,
+            controls: Vec::new(),
+            labelled_by: Vec::new(),
+            described_by: Vec::new(),
+            active_descendant: None,
             disabled: false,
             read_only: false,
             autofocus: false,
@@ -885,6 +1136,27 @@ impl Default for Semantics {
             capture_tab: false,
             auto_indent: false,
         }
+    }
+}
+
+impl Semantics {
+    /// Returns whether this node is an enabled sequential-focus target.
+    ///
+    /// `sequential_focusable` defaults to `true` when reading version-1 IR so
+    /// legacy focusable controls retain their historical Tab behavior. Keeping
+    /// the focusability and participation checks here prevents that compatibility
+    /// default from turning non-focusable or disabled nodes into Tab targets.
+    pub const fn is_sequentially_focusable(&self) -> bool {
+        self.focusable && self.sequential_focusable && !self.disabled
+    }
+
+    /// Returns whether this semantic node participates in text editing.
+    ///
+    /// The role checks preserve serialized IR and manually authored semantics
+    /// from before `text_editable` was introduced. New composite controls should
+    /// set `text_editable` explicitly instead of relying on their role.
+    pub const fn supports_text_editing(&self) -> bool {
+        self.text_editable || matches!(self.role, Role::TextInput | Role::Input)
     }
 }
 

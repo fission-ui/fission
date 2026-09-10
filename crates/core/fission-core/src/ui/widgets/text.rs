@@ -43,6 +43,28 @@ impl From<String> for TextContent {
     }
 }
 
+impl TextContent {
+    /// Resolves literal or localized content against the active environment.
+    ///
+    /// Composite widgets use this when visible text also labels framework
+    /// chrome or another semantic node.
+    pub fn resolve(&self, env: &crate::Env) -> String {
+        match self {
+            Self::Literal(value) => value.clone(),
+            Self::Key(key) => env
+                .i18n
+                .get(&env.locale, key)
+                .map(str::to_owned)
+                .unwrap_or_else(|| format!("MISSING:{key}")),
+            Self::KeyWithFallback { key, fallback } => env
+                .i18n
+                .get(&env.locale, key)
+                .map(str::to_owned)
+                .unwrap_or_else(|| fallback.clone()),
+        }
+    }
+}
+
 impl Default for TextContent {
     fn default() -> Self {
         TextContent::Literal(String::new())
@@ -215,7 +237,10 @@ impl TextRunStyle {
                 .or(fallback_color)
                 .unwrap_or(theme.tokens.colors.text_primary),
             underline: self.underline,
-            font_family: self.font_family.clone(),
+            font_family: self
+                .font_family
+                .clone()
+                .or_else(|| Some(theme.tokens.typography.font_family_sans.clone())),
             locale: self.locale.clone(),
             font_weight: self.font_weight.unwrap_or(400),
             font_style: self.font_style.into(),
@@ -1036,21 +1061,7 @@ impl Text {
     }
 
     fn resolve_text(&self, cx: &InternalLoweringCx<'_>) -> String {
-        match &self.content {
-            TextContent::Literal(s) => s.clone(),
-            TextContent::Key(key) => cx
-                .env
-                .i18n
-                .get(&cx.env.locale, key)
-                .map(|s| s.to_string())
-                .unwrap_or_else(|| format!("MISSING:{}", key)),
-            TextContent::KeyWithFallback { key, fallback } => cx
-                .env
-                .i18n
-                .get(&cx.env.locale, key)
-                .map(|s| s.to_string())
-                .unwrap_or_else(|| fallback.clone()),
-        }
+        self.content.resolve(cx.env)
     }
 
     fn resolved_style(&self, cx: &InternalLoweringCx<'_>) -> fission_ir::op::TextStyle {
@@ -1078,7 +1089,10 @@ impl Text {
                 .color
                 .unwrap_or(cx.env.theme.tokens.colors.text_primary),
             underline: self.underline,
-            font_family: self.font_family.clone(),
+            font_family: self
+                .font_family
+                .clone()
+                .or_else(|| Some(cx.env.theme.tokens.typography.font_family_sans.clone())),
             locale: self.locale.clone(),
             font_weight: self.font_weight.unwrap_or(400),
             font_style: self.font_style.into(),
@@ -1737,50 +1751,55 @@ impl InternalLower for Text {
         };
         let selection_range = runtime_selection.or(self.selection_range);
 
-        let paint_node_id = if self.needs_rich_text() || selection_range.is_some() {
-            let runs = apply_selection_to_runs(
-                vec![IrTextRun {
-                    text: resolved_text.clone(),
-                    style: style.clone(),
-                }],
-                selection_range,
-                self.selection_color,
-                self.selection_text_color,
-            );
-            InternalIrBuilder::new(
-                cx.next_node_id(),
-                Op::Paint(PaintOp::DrawRichText {
-                    runs,
-                    wrap: self.wrap,
-                    caret_index: None,
-                    caret_color: None,
-                    caret_width: None,
-                    caret_height: None,
-                    caret_radius: None,
-                    paragraph_style,
-                }),
-            )
-            .build(cx)
-        } else {
-            InternalIrBuilder::new(
-                cx.next_node_id(),
-                Op::Paint(PaintOp::DrawText {
-                    text: resolved_text.clone(),
-                    size: style.font_size,
-                    color: style.color,
-                    underline: style.underline,
-                    locale: style.locale.clone(),
-                    wrap: self.wrap,
-                    caret_index: None,
-                    caret_color: None,
-                    caret_width: None,
-                    caret_height: None,
-                    caret_radius: None,
-                    paragraph_style,
-                }),
-            )
-            .build(cx)
-        };
+        // A simple `DrawText` operation deliberately relies on the host's
+        // emergency fallback face. Once a design system supplies typography,
+        // retain the resolved family in rich-text IR so every renderer uses
+        // that design authority instead of silently choosing a host default.
+        let paint_node_id =
+            if style.font_family.is_some() || self.needs_rich_text() || selection_range.is_some() {
+                let runs = apply_selection_to_runs(
+                    vec![IrTextRun {
+                        text: resolved_text.clone(),
+                        style: style.clone(),
+                    }],
+                    selection_range,
+                    self.selection_color,
+                    self.selection_text_color,
+                );
+                InternalIrBuilder::new(
+                    cx.next_node_id(),
+                    Op::Paint(PaintOp::DrawRichText {
+                        runs,
+                        wrap: self.wrap,
+                        caret_index: None,
+                        caret_color: None,
+                        caret_width: None,
+                        caret_height: None,
+                        caret_radius: None,
+                        paragraph_style,
+                    }),
+                )
+                .build(cx)
+            } else {
+                InternalIrBuilder::new(
+                    cx.next_node_id(),
+                    Op::Paint(PaintOp::DrawText {
+                        text: resolved_text.clone(),
+                        size: style.font_size,
+                        color: style.color,
+                        underline: style.underline,
+                        locale: style.locale.clone(),
+                        wrap: self.wrap,
+                        caret_index: None,
+                        caret_color: None,
+                        caret_width: None,
+                        caret_height: None,
+                        caret_radius: None,
+                        paragraph_style,
+                    }),
+                )
+                .build(cx)
+            };
 
         let layout_node_id = wrap_paint_in_layout(
             cx,

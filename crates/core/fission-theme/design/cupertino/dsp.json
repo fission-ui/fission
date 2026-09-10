@@ -122,6 +122,10 @@
   },
   "components": {
     "$comment": "Each component declares anatomy (named slots), sizes, hierarchies (visual variants), and states. Property values reference tokens via {namespace.path} or contain literal CSS values. Sourced from the Untitled UI Figma component matrix and bound to Fission's teal palette.",
+    "avatar": {
+      "$description": "An image or accessible initials fallback for a person.",
+      "fallback": { "background": "{color.light.primary}", "color": "{color.light.on_primary}" }
+    },
     "button": {
       "$source": "Figma /Buttons/Buttons-Button (node 3287:427074)",
       "$description": "Button component styled for the Cupertino preset.",
@@ -208,6 +212,29 @@
           "default": {
             "background": "{color.light.surface}",
             "color": "{color.light.text_primary}",
+            "border": "1px solid transparent",
+            "box_shadow": "0 1px 2px 0 rgba(10,13,18,0.05)"
+          },
+          "hover": {
+            "background": "{color.light.surface_sunken}",
+            "color": "{color.light.text_primary}"
+          },
+          "active": {
+            "background": "{color.light.surface_sunken}",
+            "translate_y": "1px"
+          },
+          "focus": {
+            "border": "1px solid {color.light.focus_ring}",
+            "box_shadow": "{elevation.focus}"
+          },
+          "disabled": {
+            "opacity": 0.5
+          }
+        },
+        "outline": {
+          "default": {
+            "background": "{color.light.background}",
+            "color": "{color.light.text_primary}",
             "border": "1px solid {color.light.border}",
             "box_shadow": "0 1px 2px 0 rgba(10,13,18,0.05)"
           },
@@ -216,7 +243,15 @@
             "color": "{color.light.text_primary}"
           },
           "active": {
-            "background": "{color.light.surface_sunken}"
+            "background": "{color.light.surface_sunken}",
+            "translate_y": "1px"
+          },
+          "focus": {
+            "border": "1px solid {color.light.focus_ring}",
+            "box_shadow": "{elevation.focus}"
+          },
+          "disabled": {
+            "opacity": 0.5
           }
         },
         "tertiary_color": {
@@ -354,6 +389,94 @@
         "fs-input"
       ]
     },
+    "select": {
+      "$description": "Single-value selection trigger with a retained disclosure indicator.",
+      "anatomy": ["value", "indicator"],
+      "sizes": {
+        "sm": { "height": "36px", "radius": "10px", "padding": "6px 10px 6px 12px", "gap": "6px", "font_size": "16px", "font_weight": 400, "line_height": "24px", "icon_size": "16px" },
+        "md": { "height": "40px", "radius": "10px", "padding": "8px 10px 8px 12px", "gap": "6px", "font_size": "16px", "font_weight": 400, "line_height": "24px", "icon_size": "16px" }
+      },
+      "trigger_states": {
+        "default": { "background": "{color.light.surface}", "color": "{color.light.text_primary}", "border": "1px solid {color.light.border}" },
+        "hover": { "background": "{color.light.surface_sunken}" },
+        "focus": { "border": "1px solid {color.light.focus_ring}", "box_shadow": "{elevation.focus}" },
+        "disabled": { "opacity": 0.5 },
+        "error": { "border": "1px solid {color.light.error}" }
+      },
+      "placeholder": { "color": "{color.light.text_secondary}" },
+      "indicator": { "color": "{color.light.text_secondary}", "icon_size": "16px", "inset_end": "10px" }
+    },
+    "alert": {
+      "$description": "Persistent status surface with retained leading, message, and action regions.",
+      "anatomy": ["leading?", "content", "action?"],
+      "surface": { "background": "{color.light.surface}", "border": "1px solid {color.light.border}", "radius": "{radius.medium}", "min_height": "60px", "padding": "8px 10px", "gap": "8px" },
+      "icon": { "icon_size": "16px", "inset_top": "2px", "translate_y": "2px" },
+      "content": { "gap": "2px" },
+      "title": { "color": "{color.light.text_primary}", "font_size": "14px", "font_weight": 500, "line_height": "20px" },
+      "description": { "color": "{color.light.text_secondary}", "font_size": "14px", "font_weight": 400, "line_height": "20px" },
+      "action": { "width": "64px", "inset_top": "8px", "inset_end": "8px" },
+      "tones": {
+        "info": { "background": "{color.light.surface}", "color": "{color.light.info}" },
+        "warning": { "background": "{color.light.surface}", "color": "{color.light.warning}" },
+        "error": { "background": "{color.light.surface}", "color": "{color.light.error}" },
+        "success": { "background": "{color.light.surface}", "color": "{color.light.success}" }
+      }
+    },
+    "menu": {
+      "$description": "Popup content and its retained activation control.",
+      "anatomy": ["trigger", "group*", "label?", "item*", "separator*"],
+      "trigger": {
+        "sizes": {
+          "sm": { "height": "32px", "radius": "{radius.medium}", "padding": "0px 8px 0px 12px", "gap": "4px", "font_size": "14px", "font_weight": 600, "line_height": "20px", "icon_size": "16px" },
+          "md": { "height": "40px", "radius": "{radius.medium}", "padding": "0px 10px 0px 16px", "gap": "4px", "font_size": "14px", "font_weight": 600, "line_height": "20px", "icon_size": "20px" }
+        },
+        "states": {
+          "default": { "background": "{color.light.background}", "color": "{color.light.text_primary}", "border": "1px solid {color.light.border}", "box_shadow": "0 1px 2px 0 rgba(10,13,18,0.05)" },
+          "hover": { "background": "{color.light.surface_sunken}", "color": "{color.light.text_primary}" },
+          "active": { "background": "{color.light.surface_sunken}", "translate_y": "1px" },
+          "focus": { "border": "1px solid {color.light.focus_ring}", "box_shadow": "{elevation.focus}" },
+          "disabled": { "opacity": 0.5 },
+          "selected": { "background": "{color.light.surface_sunken}", "color": "{color.light.text_primary}" }
+        }
+      },
+      "surface": { "background": "{color.light.surface}", "border": "1px solid {color.light.border}", "radius": "{radius.medium}", "width": "208px", "padding": "4px", "gap": "0px", "box_shadow": "{elevation.level2}" },
+      "item": {
+        "states": {
+          "default": { "background": "transparent", "color": "{color.light.text_primary}", "radius": "{radius.small}", "height": "32px", "padding_x": "8px", "padding_y": "6px", "gap": "8px", "font_size": "14px", "font_weight": 400, "line_height": "20px", "icon_size": "16px" },
+          "hover": { "background": "{color.light.surface_sunken}" },
+          "active": { "background": "{color.light.surface_sunken}" },
+          "focus": { "background": "{color.light.surface_sunken}" },
+          "disabled": { "opacity": 0.5 },
+          "selected": { "background": "{color.light.surface_sunken}" }
+        },
+        "destructive_states": {
+          "default": { "color": "{color.light.error}" },
+          "hover": { "background": "{color.light.surface_sunken}" },
+          "active": { "background": "{color.light.surface_sunken}" },
+          "focus": { "background": "{color.light.surface_sunken}" },
+          "disabled": { "opacity": 0.5 },
+          "selected": { "background": "{color.light.surface_sunken}" }
+        },
+        "description": { "color": "{color.light.text_secondary}", "font_size": "13px", "font_weight": 400, "line_height": "18px", "gap": "2px" },
+        "shortcut": { "color": "{color.light.text_secondary}", "font_size": "12px", "font_weight": 400, "line_height": "16px", "letter_spacing": "0.4px" },
+        "metadata": { "color": "{color.light.text_secondary}", "font_size": "13px", "font_weight": 400, "line_height": "18px" },
+        "indicator": { "color": "{color.light.text_primary}", "icon_size": "16px", "inset_end": "8px" }
+      },
+      "group_label": { "color": "{color.light.text_secondary}", "height": "24px", "padding_x": "6px", "padding_y": "4px", "font_size": "12px", "font_weight": 500, "line_height": "16px" },
+      "separator": { "border": "1px solid {color.light.divider}", "height": "9px", "padding_y": "4px", "margin": "0px -4px" }
+    },
+    "empty_state": {
+      "$description": "Centered guidance for an empty content region and its next action.",
+      "anatomy": ["icon?", "header", "action?"],
+      "surface": { "border": "1px solid {color.light.border}", "border_dash": "4px 4px", "radius": "{radius.large}", "min_height": "160px", "padding": "24px", "gap": "16px" },
+      "narrow_breakpoint": "640px",
+      "narrow_surface": { "min_height": "128px" },
+      "header": { "max_width": "384px", "gap": "8px" },
+      "icon": { "background": "{color.light.surface_sunken}", "size": "32px", "radius": "{radius.medium}", "icon_size": "16px", "margin_bottom": "8px" },
+      "title": { "color": "{color.light.text_primary}", "font_size": "14px", "font_weight": 500, "line_height": "19.6px" },
+      "description": { "color": "{color.light.text_secondary}", "font_size": "14px", "font_weight": 400, "line_height": "23.52px" },
+      "action": { "max_width": "384px", "gap": "10px" }
+    },
     "card": {
       "$description": "Card surface styled for the Cupertino preset.",
       "anatomy": [
@@ -366,6 +489,44 @@
       "border": "1px solid {color.light.border}",
       "background": "{color.light.surface}",
       "padding": "{spacing.l}",
+      "sizes": {
+        "sm": {
+          "padding": "12px",
+          "gap": "12px",
+          "font_size": "14px",
+          "line_height": "20px"
+        },
+        "md": {
+          "padding": "16px",
+          "gap": "16px",
+          "font_size": "16px",
+          "line_height": "24px"
+        }
+      },
+      "header": {
+        "gap": "4px"
+      },
+      "content": {},
+      "footer": {
+        "background": "{color.light.surface_sunken}",
+        "border": "1px solid {color.light.border}",
+        "gap": "8px"
+      },
+      "title": {
+        "color": "{color.light.text_primary}",
+        "font_size": "16px",
+        "line_height": "24px",
+        "font_weight": 600
+      },
+      "description": {
+        "color": "{color.light.text_secondary}",
+        "font_size": "14px",
+        "line_height": "20px",
+        "font_weight": 400
+      },
+      "separator": {
+        "border": "1px solid {color.light.border}"
+      },
       "patterns": {
         "plain": {
           "background": "{color.light.surface}",
@@ -375,7 +536,7 @@
         "raised": {
           "background": "{color.light.surface}",
           "border": "1px solid {color.light.border}",
-          "box_shadow": "{elevation.level2}"
+          "box_shadow": "{elevation.level1}"
         },
         "tinted": {
           "background": "{color.teal.50}",
@@ -385,13 +546,18 @@
         "elevated": {
           "background": "{color.light.surface}",
           "border": "1px solid {color.light.border}",
-          "box_shadow": "{elevation.level1}"
+          "box_shadow": "{elevation.level2}"
         }
       },
       "interaction": {
         "hover": {
           "box_shadow": "{elevation.level2}",
           "$comment": "Only when card is interactive (a link or button surface)."
+        },
+        "selected": {},
+        "selected_indicator": {
+          "background": "{color.light.primary}",
+          "width": "4px"
         }
       }
     },
@@ -602,9 +768,45 @@
       "background": "{color.light.surface}",
       "max_width": "600px",
       "box_shadow": "{elevation.level3}",
+      "padding": "16px",
+      "gap": "16px",
+      "viewport_margin": "16px",
+      "action_stack_breakpoint": "640px",
+      "motion_duration": "100ms",
+      "motion_initial_scale": 0.95,
       "scrim": {
         "background": "rgba(15,23,42,0.6)",
         "backdrop_filter": "blur(4px)"
+      },
+      "header": {
+        "gap": "8px"
+      },
+      "title": {
+        "color": "{color.light.text_primary}",
+        "font_size": "16px",
+        "line_height": "16px",
+        "font_weight": 500
+      },
+      "description": {
+        "color": "{color.light.text_secondary}",
+        "font_size": "14px",
+        "line_height": "20px",
+        "font_weight": 400
+      },
+      "body": {},
+      "footer": {
+        "background": "{color.light.surface_sunken}",
+        "border": "1px solid {color.light.border}",
+        "padding": "16px",
+        "margin": "0px -16px -16px",
+        "gap": "8px"
+      },
+      "close": {
+        "width": "32px",
+        "height": "32px",
+        "icon_size": "16px",
+        "inset_top": "8px",
+        "inset_end": "8px"
       }
     },
     "tooltip": {

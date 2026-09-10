@@ -27,6 +27,14 @@ fn lower_node(node: Widget) -> CoreIR {
     cx.ir
 }
 
+fn lower_node_with_env(node: Widget, env: Env) -> CoreIR {
+    let runtime = RuntimeState::default();
+    let mut cx = InternalLoweringCx::new(&env, &runtime, None, None);
+    let root = fission_core::internal::lower_widget(&node, &mut cx);
+    cx.ir.root = Some(root);
+    cx.ir
+}
+
 fn lower_node_with_runtime(node: Widget, runtime: RuntimeState) -> CoreIR {
     let env = Env::default();
     let mut cx = InternalLoweringCx::new(&env, &runtime, None, None);
@@ -72,6 +80,36 @@ fn layout_ops(ir: &CoreIR) -> impl Iterator<Item = &LayoutOp> {
         Op::Layout(op) => Some(op),
         _ => None,
     })
+}
+
+#[test]
+fn text_and_editable_text_use_the_active_theme_font_family() {
+    let mut env = Env::default();
+    env.theme.tokens.typography.font_family_sans = "\"Quality Sans\", system-ui, sans-serif".into();
+
+    let text_ir = lower_node_with_env(Text::new("Theme authority").into(), env.clone());
+    let text_family = paint_ops(&text_ir).find_map(|op| match op {
+        PaintOp::DrawRichText { runs, .. } => runs
+            .iter()
+            .find(|run| run.text == "Theme authority")
+            .and_then(|run| run.style.font_family.as_deref()),
+        _ => None,
+    });
+    assert_eq!(text_family, Some("\"Quality Sans\", system-ui, sans-serif"));
+
+    let input_ir =
+        lower_node_with_env(TextInput::default().value("Editable authority").into(), env);
+    let input_family = paint_ops(&input_ir).find_map(|op| match op {
+        PaintOp::DrawRichText { runs, .. } => runs
+            .iter()
+            .find(|run| run.text == "Editable authority")
+            .and_then(|run| run.style.font_family.as_deref()),
+        _ => None,
+    });
+    assert_eq!(
+        input_family,
+        Some("\"Quality Sans\", system-ui, sans-serif")
+    );
 }
 
 #[test]

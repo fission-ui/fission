@@ -458,6 +458,8 @@ impl<S: GlobalState> TestHarness<S> {
             if trace {
                 eprintln!("[test-trace] layout start");
             }
+            self.layout_engine
+                .set_layout_direction(self.env.layout_direction);
             self.layout_engine.update(&layout_input_nodes);
             self.layout_engine
                 .verify_post_update(&layout_input_nodes, root_id)?;

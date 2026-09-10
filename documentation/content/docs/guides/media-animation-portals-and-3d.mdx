@@ -17,21 +17,59 @@ They are not random exceptions. They are places where the framework proves that 
 
 Animation is the controlled change of a visual property over time.
 
-In Fission, animations are not hidden in ad hoc widget-local timers. They are requested through `BuildCtxHandle` against stable widget identities, and the runtime tracks their current values.
+In Fission, animations are not hidden in ad hoc widget-local timers. `Motion`
+applies declarative tracks to a retained child, `Presence` owns enter and exit
+lifecycle, and `RippleLayer` owns pointer-origin feedback. Each declaration uses
+a stable widget identity, and the runtime tracks its current values.
 
 That design exists for practical reasons.
 
 When the runtime owns animation state, motion follows the same deterministic clock model as the rest of the framework. Tests can reason about progress. Widgets can read animation values without managing their own background loops. The same app model stays consistent across shells.
 
-You will usually see animation in one of two forms.
-
-The first is a higher-level widget such as `Transition`, which requests a property animation for you. The second is a direct request through `ctx.anim_for(...)` or `ctx.request_animation_for(...)` when you want explicit control.
+You will usually use motion in one of two forms. Start with a widget preset such
+as `ButtonMotion`, `ModalMotion`, or `TabsMotion` when the widget already owns
+the lifecycle. Use `MotionTrack` with `Motion` or `Presence` when a custom
+retained component needs direct control over compositor, layout, or paint
+properties. The same runtime path drives both forms.
 
 Use animation when motion explains state change, preserves continuity, or reduces abruptness. A sidebar sliding in, a status badge fading, or a tooltip softening into view are all reasonable examples.
 
 Do not use animation as a substitute for clear structure. If the user cannot tell what changed without a flourish, the state model or layout may need work first.
 
 A common mistake is forgetting stable widget identity. The runtime needs a durable widget ID to track an animation across frames. Another mistake is mixing animation intent with business logic. Reducers should decide what state changed. Animation should explain that change visually.
+
+### Respecting reduced-motion preferences
+
+Reduced motion is one environment-level policy, not a collection of unrelated
+widget flags. `Env::motion_preference` accepts `MotionPreference::Standard`, the
+default, or `MotionPreference::Reduced`:
+
+```rust
+use fission::prelude::*;
+
+let mut env = Env::default();
+env.motion_preference = MotionPreference::Reduced;
+
+DesktopApp::<AppState, _>::new(App)
+    .with_env(env)
+    .run()?;
+```
+
+With `Reduced`, the runtime converts every registered `Motion` and `Presence`
+track to `Instant`, including built-in widget presets and loading indicators.
+It applies target values synchronously, suppresses ripple instances, and clears
+any retained ripples. A closing `Presence` child disappears on the closing
+build unless `keep_rendered` is set; a retained hidden child is always
+interaction-inert.
+
+The Web canvas shell reads `(prefers-reduced-motion: reduce)` when it starts and
+tracks changes unless your `sync_env` callback explicitly chooses another
+value. Static site and SSR output use immediate final-state animation and
+transitions under the same browser preference. Other interactive shells and
+tests use the same runtime policy when you supply the `Env` value through
+`with_env` or keep it synchronized through `with_sync_env`. This lets widget
+code keep one declarative motion configuration instead of selecting separate
+presets for each target.
 
 If you want a concrete example, `animation-gallery` is the clearest proving ground in the repo.
 
@@ -91,7 +129,12 @@ The `chart-gallery` example is the current checked-in proof for this path.
 
 Even though animation, overlays, embeds, and 3D feel advanced, they still follow the same broad Fission story.
 
-State lives in `GlobalState`. Widgets describe the current user interface in `component conversion`. `BuildCtxHandle` registers runtime-managed behavior such as animations, portals, and embeds. The runtime lowers, lays out, and renders the result. Shells host the output on macOS, Windows, Linux, Web, Android, iOS, Terminal, Static site, and SSR targets.
+State lives in `GlobalState`. Widgets describe the current user interface in
+`component conversion`. Motion widgets and higher-level presets register
+runtime-owned animation declarations; `BuildCtxHandle` registers portals and
+embeds where lower-level composition needs them. The runtime lowers, lays out,
+and renders the result. Shells host the output on macOS, Windows, Linux, Web,
+Android, iOS, Terminal, Static site, and SSR targets.
 
 That consistency is the real lesson here.
 

@@ -105,6 +105,14 @@ pub struct TextInput {
     /// Stable identifier exposed on the input's interactive semantics node.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub semantics_identifier: Option<String>,
+    /// Supplemental semantics for composite controls and labelled form fields.
+    ///
+    /// Relationship metadata, an explicit non-generic role, and additional
+    /// actions are preserved. Text-editing value, focusability, validation,
+    /// input configuration, and enabled/read-only state remain authoritative on
+    /// `TextInput` and are refreshed during lowering.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub semantics: Option<Semantics>,
     /// The current text value (controlled by the application).
     pub value: String,
     /// Optional complete controlled editing value.
@@ -343,6 +351,16 @@ impl TextInput {
     /// Sets the stable identifier exposed to accessibility and test tooling.
     pub fn semantics_identifier(mut self, identifier: impl Into<String>) -> Self {
         self.semantics_identifier = Some(identifier.into());
+        self
+    }
+
+    /// Adds semantic role/relationship metadata to this editable control.
+    ///
+    /// This is intended for composites such as editable popup controls and for
+    /// form wrappers that associate external labels or descriptions. The
+    /// widget continues to own all text-editing semantics.
+    pub fn semantics(mut self, semantics: Semantics) -> Self {
+        self.semantics = Some(semantics);
         self
     }
 
@@ -712,6 +730,7 @@ impl Default for TextInput {
         Self {
             id: None,
             semantics_identifier: None,
+            semantics: None,
             value: String::new(),
             editing_value: None,
             label: None,
@@ -825,145 +844,10 @@ impl InternalLower for TextInput {
     fn lower(&self, cx: &mut InternalLoweringCx) -> WidgetId {
         let input_id = self.id.map(Into::into).unwrap_or_else(|| cx.next_node_id());
         let is_focused = cx.runtime_state.interaction.is_focused(input_id);
+        let is_hovered = cx.runtime_state.interaction.is_hovered(input_id);
 
-        let theme = &cx.env.theme.components.text_input;
-        let tokens = &cx.env.theme.tokens;
-        let component_state = if !self.enabled {
-            ComponentState::Disabled
-        } else if self.error_text.is_some() {
-            ComponentState::Error
-        } else if is_focused {
-            ComponentState::Focus
-        } else {
-            ComponentState::Default
-        };
-        let component_style = theme.resolve(self.size, component_state);
-
-        let text_scale = self.text_scale.unwrap_or(1.0).max(0.0);
-        let font_size = self
-            .font_size
-            .unwrap_or(component_style.font_size.unwrap_or(theme.font_size))
-            * text_scale;
-        let text_color = self
-            .text_color
-            .unwrap_or(component_style.text_color.unwrap_or(theme.text_color));
-        let selection_color = self
-            .selection_color
-            .unwrap_or(tokens.colors.primary.with_alpha(52));
-        let selection_text_color = self.selection_text_color.unwrap_or(text_color);
-        let placeholder_color = self.placeholder_color.unwrap_or(
-            theme
-                .placeholder_style
-                .text_color
-                .unwrap_or(theme.placeholder_color),
-        );
-        let cursor_color = self.cursor_color.unwrap_or(theme.focus_color);
-        let cursor_width = self.cursor_width.unwrap_or(2.0);
-        let font_weight = self
-            .font_weight
-            .unwrap_or(component_style.font_weight.unwrap_or(theme.font_weight));
-        let line_height = self
-            .line_height
-            .or(component_style.line_height)
-            .map(|value| value * text_scale);
-        let letter_spacing = self.letter_spacing.unwrap_or(0.0) * text_scale;
-        let style_border = component_style.border.clone();
-        let border_color = if is_focused {
-            self.focus_border_color.unwrap_or_else(|| {
-                style_border
-                    .as_ref()
-                    .and_then(|border| match &border.fill {
-                        Fill::Solid(color) => Some(*color),
-                        _ => None,
-                    })
-                    .unwrap_or(theme.focus_color)
-            })
-        } else {
-            self.border_color.unwrap_or_else(|| {
-                style_border
-                    .as_ref()
-                    .and_then(|border| match &border.fill {
-                        Fill::Solid(color) => Some(*color),
-                        _ => None,
-                    })
-                    .unwrap_or(theme.border_color)
-            })
-        };
-        let border_width = if is_focused {
-            self.focus_border_width.unwrap_or(
-                style_border
-                    .as_ref()
-                    .map(|border| border.width)
-                    .unwrap_or(2.0),
-            )
-        } else {
-            self.border_width.unwrap_or(
-                style_border
-                    .as_ref()
-                    .map(|border| border.width)
-                    .unwrap_or(theme.border_width),
-            )
-        };
-        let border_radius = self
-            .border_radius
-            .unwrap_or(component_style.radius.unwrap_or(theme.radius));
-        let content_padding = self.padding.unwrap_or(component_style.padding_box(
-            component_style.padding_x.unwrap_or(theme.padding_h),
-            component_style.padding_y.unwrap_or(4.0),
-        ));
-        let base_text_style = fission_ir::op::TextStyle {
-            font_size,
-            color: text_color,
-            underline: false,
-            font_family: self.font_family.clone(),
-            locale: self.locale.clone(),
-            font_weight,
-            font_style: self.font_style.into(),
-            line_height,
-            letter_spacing,
-            background_color: None,
-            typography: Default::default(),
-        };
-
-        let resolved_label = self
-            .label
-            .as_ref()
-            .map(|label| Self::resolve_text_content(label, cx));
-        let resolved_placeholder = self
-            .placeholder
-            .as_ref()
-            .map(|placeholder| Self::resolve_text_content(placeholder, cx));
-
-        // 1. Background (skipped in borderless mode)
-        let background_id = if self.borderless {
-            None
-        } else {
-            Some(
-                InternalIrBuilder::new(
-                    cx.next_node_id(),
-                    Op::Paint(PaintOp::DrawRect {
-                        fill: Some(
-                            self.background_fill
-                                .clone()
-                                .or_else(|| component_style.background.clone())
-                                .unwrap_or(Fill::Solid(tokens.colors.background)),
-                        ),
-                        stroke: Some(Stroke {
-                            fill: Fill::Solid(border_color),
-                            width: border_width,
-                            dash_array: None,
-                            line_cap: fission_ir::op::LineCap::Butt,
-                            line_join: fission_ir::op::LineJoin::Miter,
-                        }),
-                        corner_radius: border_radius,
-                        shadow: component_style.outer_shadows().first().copied(),
-                    }),
-                )
-                .build(cx),
-            )
-        };
-
-        // 2. Text Preparation
+        // Resolve the live controlled/editing value before visual state so the
+        // painted error state and exposed validation state cannot disagree.
         let model_text = self
             .editing_value
             .as_ref()
@@ -1019,7 +903,287 @@ impl InternalLower for TextInput {
         let semantic_value = retained_session
             .map(|state| state.committed_text())
             .unwrap_or_else(|| model_text.to_string());
+        let live_value = self
+            .editing_value
+            .clone()
+            .unwrap_or_else(|| crate::TextEditingValue::from_text(semantic_value.clone()));
+        let grapheme_len = live_value.text.graphemes(true).count();
+        let pattern_invalid = self.validation_pattern.as_deref().is_some_and(|pattern| {
+            let anchored = format!("^(?:{pattern})$");
+            match regex_lite::Regex::new(&anchored) {
+                Ok(regex) => !regex.is_match(&live_value.text),
+                Err(_) => {
+                    #[cfg(debug_assertions)]
+                    report_invalid_validation_pattern();
+                    false
+                }
+            }
+        });
+        let semantics_required = self
+            .semantics
+            .as_ref()
+            .is_some_and(|semantics| semantics.required);
+        let form_field_context = cx.form_field_context();
+        let effective_required = self.required
+            || semantics_required
+            || form_field_context.is_some_and(|context| context.required);
+        let declared_validation_state =
+            if form_field_context.is_some_and(|context| context.invalid_message.is_some()) {
+                TextFieldValidationState::Invalid
+            } else if self.validation_state == TextFieldValidationState::Unvalidated {
+                self.semantics
+                    .as_ref()
+                    .map(|semantics| semantics.validation_state)
+                    .unwrap_or(TextFieldValidationState::Unvalidated)
+            } else {
+                self.validation_state
+            };
+        let constraint_invalid = (effective_required && live_value.text.is_empty())
+            || self
+                .min_length
+                .is_some_and(|minimum| grapheme_len < minimum)
+            || self
+                .max_length
+                .is_some_and(|maximum| grapheme_len > maximum)
+            || pattern_invalid;
+        let custom_validation = self
+            .validator
+            .as_ref()
+            .map(|validator| validator.validate(&live_value));
+        let resolved_validation_state = custom_validation
+            .as_ref()
+            .map(|result| result.state)
+            .unwrap_or(if constraint_invalid {
+                TextFieldValidationState::Invalid
+            } else {
+                declared_validation_state
+            });
+        let effective_validation_state = if self.error_text.is_some() {
+            TextFieldValidationState::Invalid
+        } else {
+            resolved_validation_state
+        };
+        let effective_validation_message = custom_validation
+            .and_then(|result| result.message)
+            .or_else(|| self.validation_message.clone())
+            .or_else(|| {
+                self.semantics
+                    .as_ref()
+                    .and_then(|semantics| semantics.validation_message.clone())
+            })
+            .or_else(|| form_field_context.and_then(|context| context.invalid_message.clone()));
+        let is_invalid = effective_validation_state == TextFieldValidationState::Invalid;
 
+        let theme = &cx.env.theme.components.text_input;
+        let tokens = &cx.env.theme.tokens;
+        let component_state = if !self.enabled {
+            ComponentState::Disabled
+        } else if is_invalid {
+            ComponentState::Error
+        } else if is_focused {
+            ComponentState::Focus
+        } else if is_hovered {
+            ComponentState::Hover
+        } else {
+            ComponentState::Default
+        };
+        let component_style = theme.resolve(self.size, component_state);
+
+        let text_scale = self.text_scale.unwrap_or(1.0).max(0.0);
+        let uses_narrow_typography = self.font_size.is_none()
+            && cx.env.viewport_size.width.is_finite()
+            && cx.env.viewport_size.width > 0.0
+            && cx.env.viewport_size.width < 768.0;
+        let font_size = self.font_size.unwrap_or(if uses_narrow_typography {
+            16.0
+        } else {
+            component_style.font_size.unwrap_or(theme.font_size)
+        }) * text_scale;
+        let text_color = self
+            .text_color
+            .unwrap_or(component_style.text_color.unwrap_or(theme.text_color));
+        let selection_color = self
+            .selection_color
+            .unwrap_or(tokens.colors.primary.with_alpha(52));
+        let selection_text_color = self.selection_text_color.unwrap_or(text_color);
+        let placeholder_color = self.placeholder_color.unwrap_or(
+            theme
+                .placeholder_style
+                .text_color
+                .unwrap_or(theme.placeholder_color),
+        );
+        let cursor_color = self.cursor_color.unwrap_or(theme.focus_color);
+        let cursor_width = self.cursor_width.unwrap_or(2.0);
+        let font_weight = self
+            .font_weight
+            .unwrap_or(component_style.font_weight.unwrap_or(theme.font_weight));
+        let line_height = self
+            .line_height
+            .or(component_style.line_height)
+            .map(|value| value * text_scale);
+        let letter_spacing = self
+            .letter_spacing
+            .or(component_style.letter_spacing)
+            .unwrap_or(0.0)
+            * text_scale;
+        let recipe_border = component_style.border.as_ref();
+        let border_fill_override = if is_focused {
+            self.focus_border_color
+        } else {
+            self.border_color
+        };
+        let border_fill = border_fill_override
+            .map(Fill::Solid)
+            .or_else(|| recipe_border.map(|border| border.fill.clone()))
+            .unwrap_or_else(|| {
+                Fill::Solid(if is_focused {
+                    theme.focus_color
+                } else {
+                    theme.border_color
+                })
+            });
+        let border_width = if is_focused {
+            self.focus_border_width.unwrap_or(
+                recipe_border
+                    .map(|border| border.width)
+                    .unwrap_or(theme.border_width),
+            )
+        } else {
+            self.border_width.unwrap_or(
+                recipe_border
+                    .map(|border| border.width)
+                    .unwrap_or(theme.border_width),
+            )
+        };
+        let border_radius = self
+            .border_radius
+            .unwrap_or(component_style.radius.unwrap_or(theme.radius));
+        let recipe_padding = self.padding.unwrap_or(component_style.padding_box(
+            component_style.padding_x.unwrap_or(theme.padding_h),
+            component_style.padding_y.unwrap_or(4.0),
+        ));
+        let layout_border_width = if self.borderless {
+            0.0
+        } else {
+            [
+                ComponentState::Default,
+                ComponentState::Hover,
+                ComponentState::Focus,
+                ComponentState::Error,
+                ComponentState::Disabled,
+            ]
+            .into_iter()
+            .filter_map(|state| {
+                theme
+                    .resolve(self.size, state)
+                    .border
+                    .map(|border| border.width)
+            })
+            .chain(self.border_width)
+            .chain(self.focus_border_width)
+            .filter(|width| width.is_finite())
+            .fold(0.0_f32, f32::max)
+            .max(0.0)
+        };
+        let content_padding = [
+            recipe_padding[0] + layout_border_width,
+            recipe_padding[1] + layout_border_width,
+            recipe_padding[2] + layout_border_width,
+            recipe_padding[3] + layout_border_width,
+        ];
+        let base_text_style = fission_ir::op::TextStyle {
+            font_size,
+            color: text_color,
+            underline: false,
+            font_family: self
+                .font_family
+                .clone()
+                .or_else(|| Some(cx.env.theme.tokens.typography.font_family_sans.clone())),
+            locale: self.locale.clone(),
+            font_weight,
+            font_style: self.font_style.into(),
+            line_height,
+            letter_spacing,
+            background_color: None,
+            typography: Default::default(),
+        };
+
+        let resolved_label = self
+            .label
+            .as_ref()
+            .map(|label| Self::resolve_text_content(label, cx));
+        let resolved_placeholder = self
+            .placeholder
+            .as_ref()
+            .map(|placeholder| Self::resolve_text_content(placeholder, cx));
+
+        // 1. Background (skipped in borderless mode). Shadows are separate
+        // paint nodes so every layer is preserved without changing the field's
+        // layout or conflating a focus ring with its border. Outer shadows are
+        // behind the field; inset shadows are above its background.
+        let background_ids = if self.borderless {
+            Vec::new()
+        } else {
+            let mut ids = Vec::new();
+            for shadow in component_style
+                .shadows
+                .iter()
+                .filter(|shadow| !shadow.inset)
+            {
+                ids.push(
+                    InternalIrBuilder::new(
+                        cx.next_node_id(),
+                        Op::Paint(PaintOp::DrawRect {
+                            fill: None,
+                            stroke: None,
+                            corner_radius: border_radius,
+                            shadow: Some(shadow.to_box_shadow()),
+                        }),
+                    )
+                    .build(cx),
+                );
+            }
+            ids.push(
+                InternalIrBuilder::new(
+                    cx.next_node_id(),
+                    Op::Paint(PaintOp::DrawRect {
+                        fill: Some(
+                            self.background_fill
+                                .clone()
+                                .or_else(|| component_style.background.clone())
+                                .unwrap_or(Fill::Solid(tokens.colors.background)),
+                        ),
+                        stroke: Some(Stroke {
+                            fill: border_fill,
+                            width: border_width,
+                            dash_array: component_style.border_dash.clone(),
+                            line_cap: fission_ir::op::LineCap::Butt,
+                            line_join: fission_ir::op::LineJoin::Miter,
+                        }),
+                        corner_radius: border_radius,
+                        shadow: None,
+                    }),
+                )
+                .build(cx),
+            );
+            for shadow in component_style.shadows.iter().filter(|shadow| shadow.inset) {
+                ids.push(
+                    InternalIrBuilder::new(
+                        cx.next_node_id(),
+                        Op::Paint(PaintOp::DrawRect {
+                            fill: None,
+                            stroke: None,
+                            corner_radius: border_radius,
+                            shadow: Some(shadow.to_box_shadow()),
+                        }),
+                    )
+                    .build(cx),
+                );
+            }
+            ids
+        };
+
+        // 2. Text Preparation
         let (display_text, preedit_range, preedit_cursor_range, caret, anchor) =
             if self.obscure_text {
                 let mut combined = model_text.to_string();
@@ -1337,7 +1501,7 @@ impl InternalLower for TextInput {
                 flex_shrink: 1.0,
                 padding: [0.0; 4],
                 gap: if self.prefix.is_some() || self.suffix.is_some() {
-                    Some(theme.padding_h * 0.75)
+                    Some(component_style.gap.unwrap_or(theme.padding_h * 0.75))
                 } else {
                     None
                 },
@@ -1375,20 +1539,20 @@ impl InternalLower for TextInput {
         let content_id = content_alignment.build(cx);
 
         let effective_line_height = line_height.unwrap_or((font_size * 1.35).max(font_size + 4.0));
+        let resolved_height = component_style.height.unwrap_or(theme.height);
+        let implicit_single_line_height = resolved_height
+            .max(component_style.min_height.unwrap_or(0.0))
+            .max(content_padding[2] + content_padding[3] + effective_line_height);
         let min_height = if self.height.is_some() || self.expands {
             None
         } else if self.multiline {
-            Some(
+            Some(component_style.min_height.unwrap_or(0.0).max(
                 content_padding[2]
                     + content_padding[3]
                     + effective_line_height * self.min_lines.unwrap_or(1) as f32,
-            )
+            ))
         } else {
-            Some(
-                theme
-                    .height
-                    .max(content_padding[2] + content_padding[3] + effective_line_height),
-            )
+            Some(implicit_single_line_height)
         };
         let max_height = if self.height.is_some() || !self.multiline || self.expands {
             None
@@ -1403,14 +1567,14 @@ impl InternalLower for TextInput {
         let mut wrapper = InternalIrBuilder::new(
             wrapper_id,
             Op::Layout(LayoutOp::Box {
-                width: self.width,
+                width: self.width.or(component_style.width),
                 height: self.height.or(if self.multiline || self.expands {
                     None
                 } else {
-                    Some(theme.height)
+                    Some(implicit_single_line_height)
                 }),
                 min_width: None,
-                max_width: None,
+                max_width: component_style.max_width,
                 min_height,
                 max_height,
                 padding: content_padding,
@@ -1419,8 +1583,8 @@ impl InternalLower for TextInput {
                 aspect_ratio: None,
             }),
         );
-        if let Some(bg_id) = background_id {
-            wrapper.add_child(bg_id); // Fill
+        for background_id in background_ids {
+            wrapper.add_child(background_id);
         }
         wrapper.add_child(content_id); // Content
 
@@ -1511,15 +1675,13 @@ impl InternalLower for TextInput {
 
         let field_body_id =
             if resolved_label.is_some() || supporting_text.is_some() || counter_text.is_some() {
-                let label_color = self.label_color.unwrap_or(if is_focused {
-                    theme.focus_color
-                } else {
+                let label_color = self.label_color.unwrap_or(
                     theme
                         .label_style
                         .text_color
-                        .unwrap_or(tokens.colors.text_secondary)
-                });
-                let supporting_color = if self.error_text.is_some() {
+                        .unwrap_or(tokens.colors.text_secondary),
+                );
+                let supporting_color = if is_invalid {
                     self.error_color.unwrap_or(tokens.colors.error)
                 } else {
                     self.helper_color.unwrap_or(
@@ -1625,111 +1787,58 @@ impl InternalLower for TextInput {
             .map_or(self.enable_suggestions, |cfg| {
                 self.enable_suggestions && cfg.show_suggestions
             });
-        let live_value = self
-            .editing_value
-            .clone()
-            .unwrap_or_else(|| crate::TextEditingValue::from_text(semantic_value.clone()));
-        let grapheme_len = live_value.text.graphemes(true).count();
-        let pattern_invalid = self.validation_pattern.as_deref().is_some_and(|pattern| {
-            let anchored = format!("^(?:{pattern})$");
-            match regex_lite::Regex::new(&anchored) {
-                Ok(regex) => !regex.is_match(&live_value.text),
-                Err(_) => {
-                    #[cfg(debug_assertions)]
-                    report_invalid_validation_pattern();
-                    false
-                }
-            }
-        });
-        let constraint_invalid = (self.required && live_value.text.is_empty())
-            || self
-                .min_length
-                .is_some_and(|minimum| grapheme_len < minimum)
-            || self
-                .max_length
-                .is_some_and(|maximum| grapheme_len > maximum)
-            || pattern_invalid;
-        let custom_validation = self
-            .validator
-            .as_ref()
-            .map(|validator| validator.validate(&live_value));
-        let effective_validation_state = custom_validation
-            .as_ref()
-            .map(|result| result.state)
-            .unwrap_or(if constraint_invalid {
-                TextFieldValidationState::Invalid
-            } else {
-                self.validation_state
-            });
-        let effective_validation_message = custom_validation
-            .and_then(|result| result.message)
-            .or_else(|| self.validation_message.clone());
-
-        let mut semantics = Semantics {
-            role: Role::TextInput,
-            label: resolved_label.clone().or(resolved_placeholder.clone()),
-            identifier: self.semantics_identifier.clone(),
-            value: Some(semantic_value),
-            hyperlink: None,
-            popover_target: None,
-            actions: Default::default(),
-            canvas_target: None,
-            action_scope_id: None,
-            focusable: self.enabled && self.can_request_focus,
-            focus_policy: fission_ir::FocusPolicy::FocusOnPointer,
-            multiline: self.multiline,
-            text_wrap_mode: self.wrap_mode,
-            masked: self.obscure_text,
-            input_mask: self.mask.clone(),
-            ime_preedit_range: preedit_range,
-            ime_preedit_cursor_range: preedit_cursor_range,
-            text_selection: Some((anchor, caret)),
-            selectable_text: false,
-            selection_region: None,
-            context_menu: false,
-            checked: None,
-            disabled: !self.enabled,
-            read_only: self.read_only,
-            autofocus: self.autofocus,
-            draggable: false,
-            scrollable_x: false,
-            scrollable_y: false,
-            min_value: None,
-            max_value: None,
-            current_value: None,
-            is_focus_scope: false,
-            is_focus_barrier: false,
-            drag_payload: None,
-            hero_tag: None,
-            focus_index: None,
-            text_input_type: if self.multiline {
-                TextInputType::Multiline
-            } else {
-                self.keyboard_type
-            },
-            text_input_action: self.text_input_action,
-            text_capitalization: self.text_capitalization,
-            max_length: self.max_length,
-            max_length_enforcement: self.max_length_enforcement,
-            input_formatters: self.input_formatters.clone(),
-            text_field_name: self.name.clone(),
-            text_form_id: self.form_id.clone(),
-            autofill_group: self.autofill_group.clone(),
-            required: self.required,
-            min_length: self.min_length,
-            validation_pattern: self.validation_pattern.clone(),
-            validation_state: effective_validation_state,
-            validation_message: effective_validation_message,
-            autocorrect: self.autocorrect,
-            enable_suggestions: suggestions_enabled,
-            spell_check: spell_check_enabled,
-            smart_dashes: self.smart_dashes,
-            smart_quotes: self.smart_quotes,
-            autofill_hints: self.autofill_hints.clone(),
-            scroll_padding: self.scroll_padding,
-            capture_tab: self.capture_tab,
-            auto_indent: self.auto_indent,
+        let mut semantics = self.semantics.clone().unwrap_or_default();
+        if semantics.role == Role::Generic {
+            semantics.role = Role::TextInput;
+        }
+        semantics.text_editable = true;
+        if semantics.label.is_none() {
+            semantics.label = resolved_label.clone().or(resolved_placeholder.clone());
+        }
+        if let Some(identifier) = &self.semantics_identifier {
+            semantics.identifier = Some(identifier.clone());
+        }
+        semantics.value = Some(semantic_value);
+        semantics.focusable = self.enabled && self.can_request_focus;
+        semantics.sequential_focusable = self.enabled && self.can_request_focus;
+        semantics.multiline = self.multiline;
+        semantics.text_wrap_mode = self.wrap_mode;
+        semantics.masked = self.obscure_text;
+        semantics.input_mask = self.mask.clone();
+        semantics.ime_preedit_range = preedit_range;
+        semantics.ime_preedit_cursor_range = preedit_cursor_range;
+        semantics.text_selection = Some((anchor, caret));
+        semantics.context_menu = self.context_menu.enabled && self.enabled;
+        semantics.disabled = !self.enabled;
+        semantics.read_only = self.read_only;
+        semantics.autofocus = self.autofocus;
+        semantics.text_input_type = if self.multiline {
+            TextInputType::Multiline
+        } else {
+            self.keyboard_type
         };
+        semantics.text_input_action = self.text_input_action;
+        semantics.text_capitalization = self.text_capitalization;
+        semantics.max_length = self.max_length;
+        semantics.max_length_enforcement = self.max_length_enforcement;
+        semantics.input_formatters = self.input_formatters.clone();
+        semantics.text_field_name = self.name.clone();
+        semantics.text_form_id = self.form_id.clone();
+        semantics.autofill_group = self.autofill_group.clone();
+        semantics.required = effective_required;
+        semantics.min_length = self.min_length;
+        semantics.validation_pattern = self.validation_pattern.clone();
+        semantics.validation_state = effective_validation_state;
+        semantics.validation_message = effective_validation_message;
+        semantics.autocorrect = self.autocorrect;
+        semantics.enable_suggestions = suggestions_enabled;
+        semantics.spell_check = spell_check_enabled;
+        semantics.smart_dashes = self.smart_dashes;
+        semantics.smart_quotes = self.smart_quotes;
+        semantics.autofill_hints = self.autofill_hints.clone();
+        semantics.scroll_padding = self.scroll_padding;
+        semantics.capture_tab = self.capture_tab;
+        semantics.auto_indent = self.auto_indent;
         if let Some(env) = &self.on_input {
             semantics.actions.entries.push(fission_ir::ActionEntry {
                 trigger: fission_ir::semantics::ActionTrigger::TextChanged,

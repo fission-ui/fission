@@ -3,7 +3,7 @@ use fission_core::event::{PointerButton, PointerEvent};
 use fission_core::ui::{Button, TextInput, Widget};
 use fission_core::{with_reducer, GlobalState, WidgetId};
 use fission_test::TestHarness;
-use fission_widgets::Modal;
+use fission_widgets::{Modal, ModalMotion};
 
 #[derive(Debug, Default, Clone)]
 struct State {
@@ -138,7 +138,7 @@ fn modal_captures_focus_on_open_and_restores_it_on_close() -> Result<()> {
                         surface_semantics_identifier: None,
                         actions: vec![],
                         width: Some(420.0),
-                        motion: None,
+                        motion: Some(ModalMotion::Default),
                     }
                     .into(),
                 ],
@@ -190,6 +190,121 @@ fn modal_captures_focus_on_open_and_restores_it_on_close() -> Result<()> {
         harness.runtime.runtime_state.interaction.focused,
         Some(opener_id),
         "closing the modal must restore its opener"
+    );
+    let exiting_ir = harness.last_ir.as_ref().expect("modal exit IR");
+    assert!(
+        fission_core::hit_test::topmost_focus_barrier(exiting_ir).is_none(),
+        "the focus barrier must leave on the first closing build"
+    );
+    assert!(
+        !fission_core::hit_test::get_all_focusable_nodes(exiting_ir).contains(&modal_input_id),
+        "the exiting text input must be absent from keyboard traversal"
+    );
+
+    harness.send_event(fission_core::InputEvent::Keyboard(
+        fission_core::KeyEvent::Down {
+            key_code: fission_core::KeyCode::Tab,
+            modifiers: 0,
+        },
+    ))?;
+    assert_eq!(
+        harness.runtime.runtime_state.interaction.focused,
+        Some(opener_id),
+        "Tab during exit must stay in the underlying application"
+    );
+
+    Ok(())
+}
+
+#[test]
+fn static_content_modal_focuses_surface_without_adding_a_tab_stop() -> Result<()> {
+    let opener_id = WidgetId::explicit("static_modal_opener");
+
+    #[derive(Clone)]
+    struct Root;
+
+    impl From<Root> for Widget {
+        fn from(_component: Root) -> Self {
+            let (ctx, view) = fission_core::build::current::<State>();
+            fission_core::ui::ZStack {
+                children: vec![
+                    Button {
+                        id: Some(WidgetId::explicit("static_modal_opener")),
+                        child: Some(fission_core::ui::Text::new("Open dialog").into()),
+                        on_press: Some(with_reducer!(ctx, Dismiss, dismiss)),
+                        ..Default::default()
+                    }
+                    .into(),
+                    Modal {
+                        id: WidgetId::explicit("static_content_modal"),
+                        title: "Information".into(),
+                        content: fission_core::ui::Text::new("Nothing requires interaction.")
+                            .into(),
+                        is_open: view.state().modal_open,
+                        on_dismiss: None,
+                        backdrop_semantics_identifier: None,
+                        close_semantics_identifier: None,
+                        surface_semantics_identifier: Some("static-modal.surface".into()),
+                        actions: vec![],
+                        width: Some(420.0),
+                        motion: None,
+                    }
+                    .into(),
+                ],
+                ..Default::default()
+            }
+            .into()
+        }
+    }
+
+    let mut harness = TestHarness::new(State { modal_open: false }).with_root_widget(Root);
+    harness.pump()?;
+    harness
+        .runtime
+        .runtime_state
+        .interaction
+        .set_focused(Some(opener_id));
+
+    harness
+        .runtime
+        .get_app_state_mut::<State>()
+        .expect("modal state")
+        .modal_open = true;
+    harness.pump()?;
+
+    let open_ir = harness.last_ir.as_ref().expect("open static modal IR");
+    let surface_id = open_ir
+        .nodes
+        .iter()
+        .find_map(|(id, node)| match &node.op {
+            fission_ir::Op::Semantics(semantics)
+                if semantics.identifier.as_deref() == Some("static-modal.surface") =>
+            {
+                Some(*id)
+            }
+            _ => None,
+        })
+        .expect("static modal surface semantics");
+    assert_eq!(
+        harness.runtime.runtime_state.interaction.focused,
+        Some(surface_id),
+        "a static-content dialog must capture focus on its surface"
+    );
+    assert!(
+        !fission_core::hit_test::get_all_focusable_nodes(open_ir).contains(&surface_id),
+        "the programmatic dialog focus target must not become an ordinary Tab stop"
+    );
+
+    harness
+        .runtime
+        .get_app_state_mut::<State>()
+        .expect("modal state")
+        .modal_open = false;
+    harness.pump()?;
+    assert_eq!(
+        harness.runtime.runtime_state.interaction.focused,
+        Some(opener_id),
+        "closing a static-content dialog must restore its opener"
     );
 
     Ok(())

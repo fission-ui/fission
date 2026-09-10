@@ -321,6 +321,9 @@ impl Pipeline {
         }
 
         let start_layout = Instant::now();
+        if let Some(ir) = &self.prev_ir {
+            layout_engine.set_layout_direction(ir.layout_direction);
+        }
         let dirty_layout_nodes = if needs_full {
             self.layout_input_nodes.len()
         } else {

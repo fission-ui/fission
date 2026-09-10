@@ -1,9 +1,10 @@
 use crate::motion_support::{
     dedupe, exit_for, fade_in, push_enter_with_exit, scale_in, slot_id, SLOT_SURFACE,
 };
+use crate::FlyoutOptions;
 use fission_core::motion::{MotionTrack, Presence};
 use fission_core::op::Color;
-use fission_core::ui::{Container, GestureDetector, Widget};
+use fission_core::ui::{Container, SemanticsRegion, Widget};
 use fission_core::{ActionEnvelope, WidgetId, WidgetIdExt};
 use serde::{Deserialize, Serialize};
 use std::ops::Add;
@@ -163,44 +164,60 @@ pub struct Popover {
 
 impl From<Popover> for Widget {
     fn from(component: Popover) -> Self {
-        let (ctx, _) = fission_core::build::current::<()>();
-        let mut component = component;
-        if let Some(id) = fission_core::build::current_widget_id() {
-            component.id = id;
-        }
-        let this = &component;
+        popover_with_options(component, FlyoutOptions::default())
+    }
+}
 
-        // Derive stable anchor ID
-        let anchor_id = WidgetId::derived(this.id.as_u128(), &[0]);
+pub(crate) fn popover_with_options(
+    mut component: Popover,
+    flyout_options: FlyoutOptions,
+) -> Widget {
+    let (ctx, _) = fission_core::build::current::<()>();
+    if let Some(id) = fission_core::build::current_widget_id() {
+        component.id = id;
+    }
+    let this = &component;
 
-        let trigger_wrapper = Container::new(this.trigger.clone())
-            .flex_shrink(0.0)
-            .id(anchor_id);
+    // Derive stable anchor ID
+    let anchor_id = WidgetId::derived(this.id.as_u128(), &[0]);
 
-        if this.is_open || this.motion.is_some() {
-            let mut content_node = this.content.clone();
-            if let Some(motion) = &this.motion {
-                let plan = motion.plan();
-                content_node = Presence {
-                    id: slot_id(this.id, SLOT_SURFACE),
-                    visible: this.is_open,
-                    enter: plan.enter,
-                    exit: plan.exit,
-                    keep_rendered: plan.keep_rendered,
-                    child: content_node,
-                    ..Default::default()
-                }
-                .into();
+    let trigger_wrapper = Container::new(this.trigger.clone())
+        .flex_shrink(0.0)
+        .id(anchor_id);
+
+    if this.is_open || this.motion.is_some() {
+        let mut content_node = this.content.clone();
+        if let Some(motion) = &this.motion {
+            let plan = motion.plan();
+            content_node = Presence {
+                id: slot_id(this.id, SLOT_SURFACE),
+                visible: this.is_open,
+                enter: plan.enter,
+                exit: plan.exit,
+                keep_rendered: plan.keep_rendered,
+                child: content_node,
+                ..Default::default()
             }
-            let flyout_node = crate::flyout(anchor_id, content_node);
-            // Presence may retain the flyout surface for its exit animation,
-            // but dismissal belongs only to the open interaction state. An
-            // exiting or otherwise hidden popover must not block content
-            // beneath it or dispatch `on_close` again.
-            if this.is_open && this.on_close.is_some() {
-                let backdrop = GestureDetector {
-                    on_tap: this.on_close.clone(),
-                    child: Container::new(fission_core::ui::widgets::Spacer::default())
+            .into();
+        }
+        let flyout_node = crate::flyout_with_options(anchor_id, content_node, flyout_options);
+        // Presence may retain the flyout surface for its exit animation,
+        // but dismissal belongs only to the open interaction state. An
+        // exiting or otherwise hidden popover must not block content
+        // beneath it or dispatch `on_close` again.
+        if let (true, Some(on_close)) = (this.is_open, this.on_close.clone()) {
+            let backdrop: Widget = SemanticsRegion {
+                actions: fission_ir::ActionSet {
+                    entries: vec![fission_ir::ActionEntry {
+                        trigger: fission_ir::ActionTrigger::Default,
+                        action_id: on_close.id.as_u128(),
+                        payload_data: Some(on_close.payload),
+                    }],
+                },
+                focusable: Some(false),
+                sequential_focusable: false,
+                child: Some(
+                    Container::new(fission_core::ui::widgets::Spacer::default())
                         .bg(Color {
                             r: 0,
                             g: 0,
@@ -208,45 +225,45 @@ impl From<Popover> for Widget {
                             a: 0,
                         })
                         .into(),
-                    ..Default::default()
-                }
-                .into();
-
-                // We need to render [Backdrop, Flyout].
-                // Backdrop is ZStack layer 0. Flyout layer 1.
-                use fission_core::ui::ZStack;
-
-                let overlay = ZStack {
-                    children: vec![
-                        fission_core::ui::Positioned {
-                            left: Some(0.0),
-                            top: Some(0.0),
-                            right: Some(0.0),
-                            bottom: Some(0.0),
-                            child: Some(backdrop),
-                            ..Default::default()
-                        }
-                        .into(),
-                        flyout_node,
-                    ],
-                    ..Default::default()
-                }
-                .into();
-
-                ctx.register_portal_with_layer(
-                    fission_core::PortalLayer::Flyout,
-                    Some(this.id),
-                    overlay,
-                );
-            } else {
-                ctx.register_portal_with_layer(
-                    fission_core::PortalLayer::Flyout,
-                    Some(this.id),
-                    flyout_node,
-                );
+                ),
+                ..Default::default()
             }
-        }
+            .into();
 
-        trigger_wrapper
+            // Render the backdrop below the anchored flyout.
+            // Backdrop is ZStack layer 0. Flyout layer 1.
+            use fission_core::ui::ZStack;
+
+            let overlay = ZStack {
+                children: vec![
+                    fission_core::ui::Positioned {
+                        left: Some(0.0),
+                        top: Some(0.0),
+                        right: Some(0.0),
+                        bottom: Some(0.0),
+                        child: Some(backdrop),
+                        ..Default::default()
+                    }
+                    .into(),
+                    flyout_node,
+                ],
+                ..Default::default()
+            }
+            .into();
+
+            ctx.register_portal_with_layer(
+                fission_core::PortalLayer::Flyout,
+                Some(this.id),
+                overlay,
+            );
+        } else {
+            ctx.register_portal_with_layer(
+                fission_core::PortalLayer::Flyout,
+                Some(this.id),
+                flyout_node,
+            );
+        }
     }
+
+    trigger_wrapper
 }

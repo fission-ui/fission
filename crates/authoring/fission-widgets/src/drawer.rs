@@ -4,7 +4,7 @@ use crate::motion_support::{
 };
 use fission_core::motion::{MotionTrack, Presence};
 use fission_core::op::{BoxShadow, Color};
-use fission_core::ui::{Container, GestureDetector, Widget, ZStack};
+use fission_core::ui::{Container, SemanticsRegion, Widget, ZStack};
 use fission_core::{ActionEnvelope, WidgetId};
 use serde::{Deserialize, Serialize};
 use std::ops::Add;
@@ -250,22 +250,30 @@ impl From<Drawer> for Widget {
             .as_ref()
             .map(|motion| motion.plan(this.side, width));
 
-        // Backdrop
-        let mut backdrop: Widget = GestureDetector {
-            semantics_identifier: this.dismiss_semantics_identifier.clone(),
-            on_tap: this.on_dismiss.clone(),
-            child: Container::new(fission_core::ui::widgets::Spacer::default())
-                .bg(Color {
-                    r: 0,
-                    g: 0,
-                    b: 0,
-                    a: 128,
-                })
-                .flex_grow(1.0)
-                .into(),
-            ..Default::default()
-        }
-        .into();
+        // Dismissal belongs only to the logical open state. The visual scrim
+        // may remain mounted for exit motion, but it must stop owning input on
+        // the first closing build.
+        let backdrop_visual: Widget = Container::new(fission_core::ui::widgets::Spacer::default())
+            .bg(Color {
+                r: 0,
+                g: 0,
+                b: 0,
+                a: 128,
+            })
+            .flex_grow(1.0)
+            .into();
+        let mut backdrop: Widget = if this.is_open {
+            let mut semantics = SemanticsRegion::new(backdrop_visual)
+                .focusable(false)
+                .sequential_focusable(false);
+            semantics.identifier = this.dismiss_semantics_identifier.clone();
+            if let Some(on_dismiss) = this.on_dismiss.clone() {
+                semantics = semantics.default_action(on_dismiss);
+            }
+            semantics.into()
+        } else {
+            backdrop_visual
+        };
         if let Some(plan) = &motion_plan {
             backdrop = Presence {
                 id: slot_id(this.id, SLOT_BACKDROP),
@@ -280,7 +288,7 @@ impl From<Drawer> for Widget {
         }
 
         // Drawer Content
-        let mut content_node: Widget = Container::new(this.content.clone())
+        let panel_surface: Widget = Container::new(this.content.clone())
             .bg(tokens.colors.surface)
             .width(width)
             // Height fills parent (Positioned top/bottom 0)
@@ -298,6 +306,19 @@ impl From<Drawer> for Widget {
             }))
             .padding_all(0.0)
             .into();
+        let mut panel_semantics = fission_core::ui::SemanticsRegion::new(panel_surface)
+            .role(fission_ir::Role::Dialog)
+            .modal(true)
+            // The panel itself is the focus fallback for a static drawer, but
+            // does not become an extra Tab stop when it contains controls.
+            .focusable(true)
+            .sequential_focusable(false);
+        if this.is_open {
+            if let Some(on_dismiss) = this.on_dismiss.clone() {
+                panel_semantics = panel_semantics.dismiss_action(on_dismiss);
+            }
+        }
+        let mut content_node: Widget = panel_semantics.into();
         if let Some(plan) = &motion_plan {
             content_node = Presence {
                 id: slot_id(this.id, SLOT_PANEL),
@@ -311,7 +332,7 @@ impl From<Drawer> for Widget {
             .into();
         }
 
-        let positioned_content = match this.side {
+        let positioned_content: Widget = match this.side {
             DrawerSide::Left => fission_core::ui::Positioned {
                 left: Some(0.0),
                 top: Some(0.0),
@@ -333,6 +354,19 @@ impl From<Drawer> for Widget {
         }
         .into();
 
+        // The scrim dismisses pointer input but is not part of the panel's
+        // keyboard traversal order. Scope focus to panel contents only.
+        let panel_layer = if this.is_open {
+            fission_core::ui::widgets::FocusScope {
+                id: Some(slot_id(this.id, SLOT_FOCUS_SCOPE)),
+                is_barrier: true,
+                children: vec![positioned_content],
+            }
+            .into()
+        } else {
+            positioned_content
+        };
+
         let root = ZStack {
             children: vec![
                 fission_core::ui::Positioned {
@@ -344,7 +378,7 @@ impl From<Drawer> for Widget {
                     ..Default::default()
                 }
                 .into(),
-                positioned_content,
+                panel_layer,
             ],
             id: None,
         }
@@ -355,14 +389,7 @@ impl From<Drawer> for Widget {
             right: Some(0.0),
             top: Some(0.0),
             bottom: Some(0.0),
-            child: Some(
-                fission_core::ui::widgets::FocusScope {
-                    id: Some(slot_id(this.id, SLOT_FOCUS_SCOPE)),
-                    is_barrier: true,
-                    children: vec![root],
-                }
-                .into(),
-            ),
+            child: Some(root),
             ..Default::default()
         }
         .into();

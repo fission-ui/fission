@@ -9,6 +9,10 @@ slug: /widgets/timeline
 
 Use it when order matters more than tabular comparison. Timelines work well for activity feeds, deployment history, message milestones, shipping updates, and audit trails.
 
+Use `TimelineLayout` when entries contain retained interactive content or have
+different heights. It keeps the marker rail and connector owned by Fission while
+the application supplies cards, controls, or other semantic entry content.
+
 ## Example
 
 ```rust
@@ -31,11 +35,40 @@ let widget: Widget = Timeline {
 .into();
 ```
 
+For rich entries, give each entry a durable identity:
+
+```rust
+let widget: Widget = TimelineLayout::new(vec![
+    TimelineEntry::new(
+        WidgetId::explicit("deploy.build"),
+        Card {
+            child: Text::new("Build and test").into(),
+            ..Default::default()
+        },
+    ),
+    TimelineEntry::new(
+        WidgetId::explicit("deploy.review"),
+        Button {
+            content: Some(ButtonContent::new("Review")),
+            on_press: Some(review_action),
+            ..Default::default()
+        },
+    ),
+])
+.spacing(12.0, 16.0)
+.into();
+```
+
 ## Field table
 
 | Field | Type | Meaning | Notes / default behavior |
 | --- | --- | --- | --- |
 | `items` | `Vec<TimelineItem>` | Events shown from top to bottom. | Defaults to an empty list. |
+
+`TimelineLayout` accepts `TimelineEntry` values with a stable `id`, retained
+`child`, and optional retained `marker`. Its builders configure marker geometry,
+entry spacing, and connector paint without making callers draw connector
+segments themselves.
 
 ## Layout and usage guidance
 

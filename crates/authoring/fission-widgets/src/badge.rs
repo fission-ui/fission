@@ -1,5 +1,5 @@
-use fission_core::op::{Color, Fill};
-use fission_core::ui::{Align, BadgeTone, ComponentSize, Container, Text, Widget};
+use fission_core::op::{BoxAlignment, Color, Fill};
+use fission_core::ui::{BadgeTone, ComponentSize, Container, Text, Widget};
 use serde::{Deserialize, Serialize};
 
 /// A small colored label for counts, statuses, or categories.
@@ -50,16 +50,20 @@ impl From<Badge> for Widget {
         let padding_y = style.padding_y.unwrap_or(2.0);
         let border = style.border.clone();
 
-        let mut badge = Container::new(Align::new(
+        let mut badge = Container::new(
             Text::new(this.text.clone())
                 .size(style.font_size.unwrap_or(theme.font_size))
                 .weight(style.font_weight.unwrap_or(theme.font_weight))
                 .line_height(style.line_height.unwrap_or(20.0))
                 .color(text_color),
-        ))
+        )
         .bg_fill(bg_fill)
         .border_radius(style.radius.unwrap_or(theme.radius))
-        .padding([padding_x, padding_x, padding_y, padding_y]);
+        .padding([padding_x, padding_x, padding_y, padding_y])
+        .align_child(BoxAlignment::Center);
+        if let Some(height) = style.height {
+            badge = badge.height(height);
+        }
         if let Some(border) = border {
             if let Fill::Solid(color) = border.fill {
                 badge = badge.border(color, border.width);

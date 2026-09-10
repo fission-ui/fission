@@ -30,5 +30,8 @@ readme = "README.md"
 fission-ir = { path = "../fission-ir", version = "0.14.1" }
 serde = { version = "1.0", features = ["derive"] }
 
+[dev-dependencies]
+serde_json = "1.0"
+
 [build-dependencies]
 fission-design-system-codegen = { path = "../../tools/fission-design-system-codegen", version = "0.14.1" }

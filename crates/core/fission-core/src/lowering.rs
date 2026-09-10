@@ -14,7 +14,19 @@ pub struct InternalLoweringCx<'a> {
     pub measurer: Option<&'a Arc<dyn TextMeasurer>>,
     pub layout: Option<&'a LayoutSnapshot>,
     id_stack: Vec<(WidgetId, u32)>,
+    form_field_stack: Vec<FormFieldContext>,
     global_seq: u32,
+}
+
+/// Form-field state made available while the retained control subtree lowers.
+///
+/// Relationship identifiers are still attached to the resolved semantic node
+/// after lowering. This smaller context exists so the control can choose its
+/// required and invalid visual recipe during that same lowering pass.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct FormFieldContext {
+    pub required: bool,
+    pub invalid_message: Option<String>,
 }
 
 impl<'a> InternalLoweringCx<'a> {
@@ -24,13 +36,16 @@ impl<'a> InternalLoweringCx<'a> {
         measurer: Option<&'a Arc<dyn TextMeasurer>>,
         layout: Option<&'a LayoutSnapshot>,
     ) -> Self {
+        let mut ir = CoreIR::new();
+        ir.layout_direction = env.layout_direction;
         Self {
             env,
             runtime_state,
-            ir: CoreIR::new(),
+            ir,
             measurer,
             layout,
             id_stack: Vec::new(),
+            form_field_stack: Vec::new(),
             global_seq: 0,
         }
     }
@@ -63,6 +78,20 @@ impl<'a> InternalLoweringCx<'a> {
         self.id_stack
             .pop()
             .expect("InternalLowering stack underflow");
+    }
+
+    pub(crate) fn push_form_field_context(&mut self, context: FormFieldContext) {
+        self.form_field_stack.push(context);
+    }
+
+    pub(crate) fn pop_form_field_context(&mut self) {
+        self.form_field_stack
+            .pop()
+            .expect("InternalLowering form-field stack underflow");
+    }
+
+    pub(crate) fn form_field_context(&self) -> Option<&FormFieldContext> {
+        self.form_field_stack.last()
     }
 
     pub fn widget_node_id(&self, widget_id: WidgetId) -> WidgetId {
@@ -471,10 +500,15 @@ pub fn build_layout_tree(ir: &CoreIR, _env: &Env) -> Vec<LayoutInputNode> {
                     0.0,
                     0.0,
                 ),
-                LayoutOp::Flyout { anchor, content } => (
+                LayoutOp::Flyout {
+                    anchor,
+                    content,
+                    options,
+                } => (
                     LayoutOp::Flyout {
                         anchor: *anchor,
                         content: *content,
+                        options: *options,
                     },
                     None,
                     None,

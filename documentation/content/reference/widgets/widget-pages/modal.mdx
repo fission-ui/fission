@@ -1,92 +1,300 @@
 ---
 title: Modal
-description: Present a blocking dialog through the portal system while keeping state and outcomes explicit.
+description: Present a focused, blocking decision with controlled state, focus containment, responsive actions, and explicit dismissal.
 slug: /widgets/modal
 ---
 # Modal
 
-`Modal` is Fission's centered dialog overlay.
+`Modal` presents a short task or decision above the current screen. Application
+state owns whether it is open and reducers own every outcome; the dialog never
+silently mutates product state or assumes that an action succeeded.
 
-Use it when the user needs to stop and make a decision, confirm a risky action, or complete a short focused task before returning to the underlying screen. The dialog itself does not own that workflow. Your app state owns whether the modal is open, what content it shows, and what should happen when each action button is pressed.
+Use the compact `Modal` fields for a title, body, and action list. Use
+`ModalLayout` when the dialog needs a semantic description, stable named
+regions, custom title or description presentation, header accessories,
+arbitrary footer controls, or explicit control over the body scrollbar. Both
+APIs lower through the same modal recipe.
 
-That separation matters. If a dialog can appear or disappear from hidden side effects, debugging quickly becomes painful. In Fission, a modal is open because your state says it is open. A backdrop tap or close button dispatches `on_dismiss`, your reducer updates state, and the next `component conversion` pass removes the modal.
-
-If the user interface should stay lightweight and anchored to one control, use a [`Popover`](/reference/widgets/popover) instead. If the user interface is really a temporary side panel, use a [`Drawer`](/reference/widgets/drawer).
+Use a modal when the user must resolve the interruption before continuing. Use
+a [`Popover`](/reference/widgets/popover) for lightweight content anchored to a
+control, or a [`Drawer`](/reference/widgets/drawer) for a larger temporary side
+panel.
 
 ## Example
 
 ```rust
 use fission::prelude::*;
 
-let confirm_modal = Modal {
-    id: WidgetId::explicit("publish_modal"),
+let confirm_modal: Widget = Modal {
+    id: WidgetId::explicit("publish-modal"),
     title: "Publish this release?".into(),
-    content: 
-        Text::new("Everyone on your team will see this version immediately.")
-            .into(),
-    ,
+    content: Text::new(
+        "Everyone on your team will see this version immediately.",
+    )
+    .into(),
     is_open: view.state().show_publish_modal,
-    on_dismiss: Some(ctx.bind(
-        TogglePublishModal(false),
-        reduce_with!((|state: &mut GlobalState, action: TogglePublishModal, _| {
-            state.show_publish_modal = action.0;
-        })),
-    )),
+    on_dismiss: Some(close_publish_modal.clone()),
+    backdrop_semantics_identifier: Some("publish-modal.backdrop".into()),
+    close_semantics_identifier: Some("publish-modal.close".into()),
+    surface_semantics_identifier: Some("publish-modal.surface".into()),
     actions: vec![
         ModalAction {
             label: "Cancel".into(),
             on_press: Some(close_publish_modal),
             is_primary: false,
+            semantics_identifier: Some("publish-modal.cancel".into()),
         },
         ModalAction {
             label: "Publish".into(),
             on_press: Some(confirm_publish),
             is_primary: true,
+            semantics_identifier: Some("publish-modal.publish".into()),
         },
     ],
-    width: Some(520.0),
+    width: None,
+    motion: Some(ModalMotion::Default),
 }
 .into();
 ```
 
-## Field table
+The ordinary dismissal paths share one action, while each footer action remains
+a separate application intent. A reducer decides whether any of those intents
+actually closes the modal.
+
+## Named anatomy
+
+```rust
+use fission::prelude::*;
+
+let cancel_action = ModalFooterAction {
+    label: "Cancel".into(),
+    on_press: Some(close_invite_modal.clone()),
+    variant: ButtonVariant::SecondaryGray,
+    semantics_identifier: Some("invite-modal.cancel".into()),
+};
+let invite_action = ModalFooterAction {
+    label: "Send invitation".into(),
+    on_press: Some(send_invitation),
+    variant: ButtonVariant::Primary,
+    semantics_identifier: Some("invite-modal.send".into()),
+};
+
+let invite_modal: Widget = ModalLayout {
+    id: WidgetId::explicit("invite-modal"),
+    header: ModalHeader::new("Invite a teammate")
+        .description("They will receive an invitation by email."),
+    content: ModalContent::new(invite_form),
+    footer: Some(ModalFooter::new(vec![cancel_action, invite_action])),
+    is_open: view.state().show_invite_modal,
+    on_dismiss: Some(close_invite_modal),
+    close_label: Some(TextContent::KeyWithFallback {
+        key: "dialogs.invite.close".into(),
+        fallback: "Close invitation dialog".into(),
+    }),
+    motion: Some(ModalMotion::Default),
+    ..Default::default()
+}
+.into();
+```
+
+Custom visuals do not have to replace the dialog's accessible text or named
+relationships:
+
+```rust
+use fission::prelude::*;
+
+let header = ModalHeader {
+    leading: Some(context_icon),
+    title: ModalTitle::custom(
+        TextContent::KeyWithFallback {
+            key: "dialogs.review.title".into(),
+            fallback: "Review changes".into(),
+        },
+        illustrated_title,
+    )
+    .semantics_identifier("review-modal.title"),
+    description: Some(
+        ModalDescription::custom(
+            "Check the affected records before continuing.",
+            supporting_copy,
+        )
+        .semantics_identifier("review-modal.description"),
+    ),
+    trailing: Some(review_status_badge),
+};
+
+let footer = ModalFooter {
+    children: vec![remember_review_choice],
+    actions: vec![cancel_action, apply_action],
+};
+
+let review_modal: Widget = ModalLayout {
+    id: WidgetId::explicit("review-modal"),
+    header,
+    content: ModalContent::new(review_form),
+    footer: Some(footer),
+    is_open: view.state().show_review_modal,
+    on_dismiss: Some(close_review_modal),
+    ..Default::default()
+}
+.into();
+```
+
+`ModalTitle::custom(accessible_text, child)` and
+`ModalDescription::custom(accessible_text, child)` render the retained child
+while preserving the supplied text as the dialog's accessible name or
+description. `ModalHeader::leading(...)` places content at the logical start;
+`.trailing(...)` places it after the title group and before the generated close
+button. Use `ModalFooter::custom(children)` for a footer made entirely from
+arbitrary retained controls, or its public `children` and `actions` fields when
+both are needed.
+
+The complete recipe constructs these regions:
+
+1. A viewport-sized dimmed and blurred scrim.
+2. A centered, viewport-bounded dialog surface.
+3. A stable header with optional leading content, title, optional description,
+   optional trailing content, and close control.
+4. The only scrolling region, supplied through `ModalContent`.
+5. An optional stable footer containing arbitrary controls, `ModalFooterAction`
+   buttons, or both.
+
+| Type | Responsibility |
+| --- | --- |
+| `ModalLayout` | Owns the complete controlled lifecycle and the retained header, content, and optional footer. `new(id, title, content)` creates the required regions. |
+| `ModalHeader` | Owns optional leading content, one required `ModalTitle`, optional `ModalDescription`, and optional trailing content before the close control. `new` and `description` accept literal or localized `TextContent`. |
+| `ModalTitle` | Owns localizable accessible title text, optional custom retained presentation, and optional semantic node identity and identifier. |
+| `ModalDescription` | Owns localizable accessible supporting text, optional custom retained presentation, and optional semantic node identity and identifier. |
+| `ModalContent` | Owns the retained body and its overflow scrollbar, which is visible by default. |
+| `ModalFooter` | Owns arbitrary retained children and explicit `ModalFooterAction` values. An absent footer is omitted from the surface. |
+
+The active `theme.components.modal` recipe controls scrim and surface fills,
+border, radius, padding, gap, maximum width, shadows, blur, viewport margin, and
+action-stack breakpoint. It also owns each region's padding, fill, border,
+radius, shadows, and gap; title and description typography; and close-control
+geometry. The default footer uses a subtle surface tint and one full-width top
+boundary. A footer recipe border is that boundary, not a four-sided footer
+stroke, so it never adds unintended side or bottom borders. Footer content
+padding stays independent from the boundary and the surface composition keeps
+the footer full bleed without negative layout margins. Every footer action uses
+the normal button component recipe. Change the DSP when the product's modal
+anatomy should change globally; use `width` only for a dialog-specific
+constraint.
+
+## Field reference
 
 | Field | Type | Meaning | Notes / default behavior |
 | --- | --- | --- | --- |
-| `id` | `WidgetId` | Stable identity for the modal's portal entry. | Required. Give each distinct modal a stable id. |
-| `title` | `String` | Header text shown at the top of the dialog. | Keep it short and task-specific. |
-| `content` | `Widget` | Main body content for the dialog. | Build your form, explanation, or confirmation copy here. |
-| `is_open` | `bool` | Whether the modal should be visible this frame. | When `false`, the widget returns an inert spacer and registers no portal. |
-| `on_dismiss` | `Option<ActionEnvelope>` | Action dispatched when the backdrop or close button is pressed. | Defaults to `None`. Use it for the standard escape path. |
-| `actions` | `Vec<ModalAction>` | Footer buttons rendered at the bottom of the dialog. | Defaults to an empty footer when you pass an empty vector. |
-| `width` | `Option<f32>` | Requested dialog width in logical pixels. | Defaults to the themed modal max width. The runtime clamps it to fit within the viewport margins. |
+| `id` | `WidgetId` | Stable identity for portal, focus, and motion slots. | Required and unique for each retained modal. |
+| `title` | `String` | Visible dialog heading and semantic name. | Adapted to a retained `ModalTitle`; use `ModalLayout` for localized title content or a supporting description. |
+| `content` | `Widget` | Retained body content. | Adapted to `ModalContent`, making it the only scrolling region. |
+| `is_open` | `bool` | Controlled visibility. | With no motion, `false` registers no portal. With motion, an exiting visual may remain mounted but is interaction-inert. |
+| `on_dismiss` | `Option<ActionEnvelope>` | Shared backdrop, close-button, and keyboard dismissal action. | `None` removes those dismissal actions and the generated close button. |
+| `backdrop_semantics_identifier` | `Option<String>` | Stable test/accessibility identifier for the open scrim action. | Does not make the scrim a Tab stop. |
+| `close_semantics_identifier` | `Option<String>` | Stable identifier for the generated close button. | Useful when visible icon content is not a stable test selector. |
+| `surface_semantics_identifier` | `Option<String>` | Stable identifier for the dialog semantic node. | Falls back to the compatibility identifier `fission-modal-surface`. |
+| `actions` | `Vec<ModalAction>` | Footer actions in logical display order. | An empty vector omits the footer. |
+| `width` | `Option<f32>` | Preferred logical width. | Falls back to the modal recipe and is clamped to the design system's viewport margin, 16 points in the default package. |
+| `motion` | `Option<ModalMotion>` | Optional scrim and surface entrance/exit motion. | Defaults to `None`; presets include fade, scale, and directional entrances and can be composed. |
 
-## Layout and layering
+`ModalLayout` replaces `title`, `content`, and `actions` with `header:
+ModalHeader`, `content: ModalContent`, and `footer: Option<ModalFooter>`. It
+retains the same lifecycle, identity, dismissal, semantic-identifier, width,
+and motion fields. It additionally exposes `close_label: Option<TextContent>`
+for a dialog-specific, localizable close-control name; the compact `Modal`
+always uses the localizable `fission.modal.close` key with `Close` as its
+fallback. `ModalContent::show_scrollbar` defaults to `true`.
 
-`Modal` renders into `PortalLayer::Modal`, above normal content and above default portals. The shell then wraps portal content in a viewport-sized container, which lets the modal center itself against the full screen rather than the inline layout location where you declared it.
+`ModalTitle` and `ModalDescription` each expose `text: TextContent`, an optional
+custom `child`, optional semantic `id`, and optional `semantics_identifier`.
+Their `new(text)` constructors use design-system text presentation;
+`custom(text, child)` keeps `text` authoritative for accessibility while the
+child owns presentation. Supply stable identities with struct fields when
+another semantic relationship must address those nodes directly;
+`ModalLayout` otherwise derives stable title and description IDs from the modal
+ID. The convenience `.semantics_identifier(...)` builder supports stable shell
+and semantic-test identifiers.
 
-The widget constructs three parts for you during component conversion: a full-screen dimmed backdrop, a centered card, and a footer row of action buttons. Backdrop taps and the header close button both dispatch the same `on_dismiss` envelope, so you only need one reducer path for the ordinary exit case.
+`ModalHeader` exposes `leading`, `title`, `description`, and `trailing`, with
+builders for the optional regions. `ModalFooter::new(actions)` accepts
+`Vec<ModalFooterAction>` and constructs a standard explicit-variant action
+footer; `ModalFooter::custom(children)` constructs an arbitrary footer. Use its
+`children` and `actions` fields together for mixed content. `ModalAction` is the
+smaller source-compatible action model used only by the compact `Modal` API.
 
-## Specific advice
+## Keyboard, focus, and semantics
 
-Keep modal work short. If people need to browse, compare, or edit large amounts of information, a routed screen or a split layout is usually easier to use and easier to test.
+While open, the surface is a modal `Dialog` semantic region. It exposes a stable
+`labelled_by` relationship to `ModalTitle` and, when supplied, `described_by` to
+`ModalDescription`; the resolved title is also its direct label. The compact
+`Modal` API derives the same title relationship. Its focus barrier keeps
+ordinary `Tab` traversal inside the dialog and restores the previous valid
+target when the modal closes. The first eligible descendant marked for
+autofocus wins; otherwise the first eligible focusable descendant becomes the
+entry target. Put focusable body content in the intended order and use
+autofocus only for a deliberate initial destination.
 
-Also be deliberate about accessibility and focus. The modal structure is provided for you, but the product still needs clear button labels, understandable body copy, and validation messages that explain what went wrong. If the dialog contains text fields, test keyboard focus and dismissal behavior on each target you care about.
+`Escape` dispatches the topmost open modal's dismissal action. The backdrop is
+pointer actionable but deliberately not keyboard focusable. When `on_dismiss`
+creates the icon-only close button, compact `Modal` resolves the localizable
+`fission.modal.close` key with `Close` as its fallback. `ModalLayout` can
+override that accessible name through `close_label`. Closing removes the focus
+barrier and makes every dismissal path interaction-inert immediately, even when
+`Presence` keeps the scrim or surface visible for an exit animation. Pointer
+events during that exit pass through to underlying content; a hidden or exiting
+modal cannot dispatch `on_dismiss`.
+
+## Responsive, overflow, target, and reduced-motion behavior
+
+Width and height never exceed the viewport minus twice the active design
+system's modal margin. At widths below the action-stack breakpoint, 640 points
+in the default package, footer actions become a vertical stack. Compact
+`ModalAction` values marked primary and `ModalFooterAction` values using
+`Filled`, `Primary`, or `Destructive` variants move ahead of less-emphasized
+actions while preserving relative order within each group, followed by custom
+footer children. On wider layouts, custom children remain at the logical start
+and actions retain logical vector order after flexible space.
+
+The header and footer stay in place while `ModalContent` shrinks and scrolls
+inside the height bound. Disable its visible scrollbar with
+`show_scrollbar: false` only when another affordance makes overflow clear.
+Prefer a routed screen for work that is intrinsically long or requires broad
+comparison.
+
+The shared portal, semantics, and paint model is available to interactive
+shells, including Terminal's constrained cell layout. Plain Static site output
+does not provide an interactive modal loop; SSR needs its browser interaction
+path for client-side opening and dismissal.
+
+When `Env::motion_preference` is `Reduced`, every modal `Motion` and `Presence`
+track resolves immediately. Closing content disappears on that build unless its
+Presence declaration uses `keep_rendered`; a retained hidden child remains
+interaction-inert. The Web canvas shell reads and follows
+`prefers-reduced-motion` unless an application `sync_env` callback overrides
+it; other interactive shells and tests honor an `Env` value supplied through
+`with_env` or `with_sync_env`. Static site and SSR output emit immediate
+final-state animation and transitions for the same browser preference. You can
+keep the same `ModalMotion` preset instead of branching the widget tree by
+target.
 
 ## Production checklist
 
-For `Modal`, review the fields that change behavior before treating the widget as finished: `id`, `title`, `content`, `is_open`, `on_dismiss`, `actions`. The goal is to make the product rule visible in state and actions, not hidden inside ad-hoc construction code.
-
-- Bind `on_dismiss`, `actions` to explicit reducer actions and test that the reducer handles unavailable, duplicate, or invalid input safely.
-- When child widgets are generated from data, give reordered or filtered rows an explicit `WidgetId` so retained local state and scroll behavior do not drift between items.
-- Set `id` only when identity must be stable across filtering, reordering, diagnostics, or tests; otherwise let Fission derive identity from structure.
-- Check the semantics tree for the user-facing label or role that makes this widget understandable without relying only on pixels.
-- Prefer parent layout and design-system sizing first; use explicit size or spacing fields when the product layout requires that constraint on this widget specifically.
-- Add at least one component or harness test that confirms the visible text, semantic role, action dispatch, and layout constraint that matter for this widget in context.
-
-If a screen starts repeating the same `Modal` setup, extract a named component around this widget. That keeps the reference API small while making product code easier to read and safer for generated code to copy.
+- Use one reducer path for ordinary dismissal and separate actions for distinct
+  outcomes.
+- Put destructive actions in a `ModalLayout` footer as `ModalFooterAction`
+  values using `ButtonVariant::Destructive`; visual hierarchy does not replace
+  confirmation or reducer-side safety.
+- Verify `Tab`, reverse `Tab`, `Escape`, focus restoration, backdrop dismissal,
+  and the no-dismissal configuration.
+- Exercise long text, validation errors, software keyboard resize, increased
+  text scale, and narrow action stacking.
+- Use `ModalLayout` when supporting text must be related to the dialog or a
+  named region needs stable identity.
+- Keep explicit accessible text on every custom title and description, and
+  verify mixed footer content in both horizontal and stacked layouts.
+- Choose a full screen when the task is too long or broad for a bounded body
+  scroller.
 
 ## Related
 
-[`ModalAction`](/reference/widgets/modal-action), [`Drawer`](/reference/widgets/drawer), [`Popover`](/reference/widgets/popover), and [`Portal`](/reference/widgets/portal).
-
+[`ModalAction`](/reference/widgets/modal-action), `ModalFooterAction`, [`Drawer`](/reference/widgets/drawer), [`Popover`](/reference/widgets/popover), and [`Portal`](/reference/widgets/portal).

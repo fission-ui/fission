@@ -5,9 +5,12 @@ slug: /widgets/select-item
 ---
 # SelectItem
 
-`SelectItem` is the option record used by [`Select`](/reference/widgets/select).
+`SelectItem` is the compact option record used by [`Select`](/reference/widgets/select).
 
 It is not a widget on its own. Instead, it carries the label, optional icon, and already-prepared action for one row in the opened select menu.
+
+`Select` adapts it to the shared `MenuActionItem::option` anatomy, so option
+rows use the same retained menu recipe as other command and list-box surfaces.
 
 ## Example
 
@@ -15,22 +18,24 @@ It is not a widget on its own. Instead, it carries the label, optional icon, and
 use fission::prelude::*;
 
 let items = vec![
-SelectItem {
-    label: "Compact".into(),
-    icon: None,
-    on_select: ActionEnvelope {
-        id: set_density_id,
-        payload: serde_json::to_vec(&SetDensity(Density::Compact)).unwrap(),
+    SelectItem {
+        label: "Compact".into(),
+        icon: None,
+        on_select: ActionEnvelope {
+            id: set_density_id,
+            payload: serde_json::to_vec(&SetDensity(Density::Compact)).unwrap(),
+        },
+        semantics_identifier: Some("density.compact".into()),
     },
-},
-SelectItem {
-    label: "Comfortable".into(),
-    icon: None,
-    on_select: ActionEnvelope {
-        id: set_density_id,
-        payload: serde_json::to_vec(&SetDensity(Density::Comfortable)).unwrap(),
+    SelectItem {
+        label: "Comfortable".into(),
+        icon: None,
+        on_select: ActionEnvelope {
+            id: set_density_id,
+            payload: serde_json::to_vec(&SetDensity(Density::Comfortable)).unwrap(),
+        },
+        semantics_identifier: Some("density.comfortable".into()),
     },
-},
 ];
 ```
 
@@ -43,6 +48,7 @@ Each item contains the final action for that option, so `Select` does not have t
 | `label` | `String` | Visible text for the option row. | Required. |
 | `icon` | `Option<String>` | Optional icon source shown before the label. | Defaults to `None`. |
 | `on_select` | `ActionEnvelope` | Action dispatched when this option is chosen. | Required. Usually updates the selected value and closes the menu. |
+| `semantics_identifier` | `Option<String>` | Stable identifier exposed on the generated option semantic node. | Use it when visible labels may be duplicated or localized. |
 
 ## How to think about it
 
@@ -50,13 +56,26 @@ Because `SelectItem` stores a ready-made `ActionEnvelope`, it works best when ev
 
 A good reducer usually stores the real selected value in state and derives `selected_label` separately. Do not let the label string become your only source of truth unless the label is the product value.
 
+The parent renders each record as a semantic `Option`. The first item whose
+`label` exactly equals `Select::selected_label` is marked selected and receives
+the selected visual treatment. Its stable id also becomes the open trigger's
+active descendant and the flyout's selected-row alignment target. When items
+can be reordered or translated, give each one a stable
+`semantics_identifier`; otherwise its retained popup identity is derived from
+its current index.
+
 ## Specific advice
 
 Make the `on_select` action do both pieces of work the user expects: set the new value and close the select by updating `is_open` in state. The widget itself will not close unless your state says so.
 
+`SelectItem` has no disabled or description fields. When those states are part
+of the product model, use the lower-level `MenuContent::list_box` and
+`MenuActionItem` anatomy in a deliberately owned composite rather than making
+an option look unavailable while leaving it actionable.
+
 ## Production checklist
 
-For `SelectItem`, review the fields that change behavior before treating the widget as finished: `label`, `icon`, `on_select`. The goal is to make the product rule visible in state and actions, not hidden inside ad-hoc construction code.
+For `SelectItem`, review the fields that change behavior before treating the widget as finished: `label`, `icon`, `on_select`, and `semantics_identifier`. The goal is to make the product rule visible in state and actions, not hidden inside ad-hoc construction code.
 
 - Bind `on_select` to explicit reducer actions and test that the reducer handles unavailable, duplicate, or invalid input safely.
 - Check the semantics tree for the user-facing label or role that makes this widget understandable without relying only on pixels.
@@ -67,4 +86,3 @@ If a screen starts repeating the same `SelectItem` setup, extract a named compon
 ## Related
 
 [`Select`](/reference/widgets/select), [`MenuItem`](/reference/widgets/menu-item), [`Menu`](/reference/widgets/menu), and [`Combobox`](/reference/widgets/combobox).
-

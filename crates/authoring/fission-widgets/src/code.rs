@@ -1,4 +1,4 @@
-use fission_core::op::Color;
+use fission_core::op::{Color, Fill};
 use fission_core::ui::{Container, Text, Widget};
 use serde::{Deserialize, Serialize};
 
@@ -16,21 +16,40 @@ impl From<Code> for Widget {
         let (_, view) = fission_core::build::current::<()>();
         let this = &component;
 
+        let style = &view.env().theme.components.code.style;
         let tokens = &view.env().theme.tokens;
-        Container::new(
-            Text::new(this.text.clone())
-                .size(12.0) // Monospace usually smaller?
-                .color(tokens.colors.text_primary),
-        )
-        .bg(Color {
-            r: 240,
-            g: 240,
-            b: 240,
-            a: 255,
-        })
-        .padding_all(2.0)
-        .border_radius(4.0)
-        .into()
+        let mut text = Text::new(this.text.clone())
+            .size(style.font_size.unwrap_or(tokens.typography.font_size_xs))
+            .family(
+                style
+                    .font_family
+                    .clone()
+                    .unwrap_or_else(|| tokens.typography.font_family_mono.clone()),
+            )
+            .color(style.text_color.unwrap_or(tokens.colors.text_primary));
+        if let Some(weight) = style.font_weight {
+            text = text.weight(weight);
+        }
+        if let Some(line_height) = style.line_height {
+            text = text.line_height(line_height);
+        }
+        if let Some(letter_spacing) = style.letter_spacing {
+            text = text.letter_spacing(letter_spacing);
+        }
+
+        let mut surface = Container::new(text)
+            .padding(style.padding_box(tokens.spacing.xs, tokens.spacing.xs / 2.0))
+            .border_radius(style.radius.unwrap_or(tokens.radii.small))
+            .shadows(style.outer_shadows());
+        if let Some(background) = style.background.clone() {
+            surface = surface.bg_fill(background);
+        }
+        if let Some(border) = style.border.as_ref() {
+            if let Fill::Solid(color) = &border.fill {
+                surface = surface.border(*color, border.width);
+            }
+        }
+        surface.into()
     }
 }
 

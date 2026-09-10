@@ -12,6 +12,7 @@ pub mod grid;
 pub mod icon;
 pub mod ignore_pointer;
 pub mod image;
+pub(crate) mod interaction_inert;
 #[cfg(feature = "interactive-canvas")]
 pub mod interactive_viewer;
 pub mod lazy_column;
@@ -39,7 +40,10 @@ pub use action_scope::ActionScope;
 pub use align::Align;
 pub use anchored_positioned::AnchoredPositioned;
 pub use builder::{Builder, LayoutBuilder};
-pub use button::{Button, ButtonContentAlign, ButtonMotion, ButtonVariant};
+pub use button::{
+    Button, ButtonContent, ButtonContentAlign, ButtonIconContent, ButtonMotion,
+    ButtonStyleOverride, ButtonVariant,
+};
 pub use checkbox::Checkbox;
 pub use column::Column;
 pub use composite::Composite;

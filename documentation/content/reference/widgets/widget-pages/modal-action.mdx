@@ -5,7 +5,10 @@ slug: /widgets/modal-action
 ---
 # ModalAction
 
-`ModalAction` is the small configuration struct that describes one button in a [`Modal`](/reference/widgets/modal) footer.
+`ModalAction` is the compact compatibility model for one button in a
+[`Modal`](/reference/widgets/modal) footer. It deliberately keeps the original
+four-field struct-literal shape. Use `ModalFooterAction` with `ModalLayout` when
+the action needs an explicit `ButtonVariant`.
 
 It exists so modal buttons stay explicit and state-driven. Instead of letting the dialog close itself implicitly, each action carries an `ActionEnvelope` that re-enters your normal reducer loop. That means "Cancel," "Delete," and "Save" are all just named application intents. The reducer decides what each one really does, including whether the modal should close.
 
@@ -15,46 +18,91 @@ It exists so modal buttons stay explicit and state-driven. Instead of letting th
 use fission::prelude::*;
 
 let dialog = Modal {
-    id: WidgetId::explicit("delete_confirm"),
-    title: "Delete draft?".into(),
-    content: Text::new("This action cannot be undone.").into(),
-    is_open: view.state().show_delete_dialog,
-    on_dismiss: Some(close_dialog),
+    id: WidgetId::explicit("save_confirm"),
+    title: "Save these changes?".into(),
+    content: Text::new("Everyone on the project will see the updated values.").into(),
+    is_open: view.state().show_save_dialog,
+    on_dismiss: Some(close_dialog.clone()),
     actions: vec![
         ModalAction {
             label: "Cancel".into(),
             on_press: Some(close_dialog),
             is_primary: false,
+            semantics_identifier: Some("save-dialog.cancel".into()),
         },
         ModalAction {
-            label: "Delete".into(),
-            on_press: Some(confirm_delete),
+            label: "Save".into(),
+            on_press: Some(confirm_save),
             is_primary: true,
+            semantics_identifier: Some("save-dialog.save".into()),
         },
     ],
     width: None,
+    motion: None,
+    backdrop_semantics_identifier: None,
+    close_semantics_identifier: None,
+    surface_semantics_identifier: None,
 };
 ```
 
-In that example, the modal does not close itself. Your reducers decide whether `close_dialog` or `confirm_delete` should change the state.
+In that example, the modal does not close itself. Your reducers decide whether `close_dialog` or `confirm_save` should change the state.
 
 ## Field table
 
 | Field | Type | Meaning | Notes / default behavior |
 | --- | --- | --- | --- |
 | `label` | `String` | Visible button text. | Keep it short and action-oriented. |
-| `on_press` | `Option<ActionEnvelope>` | Action dispatched when the footer button is pressed. | Defaults to `None`. A button without an action is visible but inert. |
-| `is_primary` | `bool` | Whether this is the main action in the footer. | `true` uses the filled button style. `false` uses the outline style. |
+| `on_press` | `Option<ActionEnvelope>` | Action dispatched when the footer button is pressed. | A button without an action is visible but inert. |
+| `is_primary` | `bool` | Chooses the compact action's visual hierarchy. | `true` uses the primary hierarchy. `false` uses the neutral secondary hierarchy. |
+| `semantics_identifier` | `Option<String>` | Stable identifier for the generated button semantic node. | Useful for tests and accessibility inspection; it does not replace the visible action label. |
+
+## Hierarchy and responsive behavior
+
+Each `ModalAction` becomes a normal themed [`Button`](/reference/widgets/button),
+so its default, hover, active, focus, typography, and sizing behavior comes from
+the active button recipe. `ModalAction` does not currently expose a disabled
+field; omit unavailable actions or guard them in the reducer. `is_primary`
+maps to `ButtonVariant::Primary` when true and `ButtonVariant::SecondaryGray`
+when false.
+
+For a destructive, outline, tertiary, or otherwise explicit hierarchy, use the
+retained footer model:
+
+```rust
+let footer = ModalFooter::new(vec![ModalFooterAction {
+    label: "Delete".into(),
+    on_press: Some(confirm_delete),
+    variant: ButtonVariant::Destructive,
+    semantics_identifier: Some("delete-dialog.delete".into()),
+}]);
+```
+
+`ModalFooterAction` belongs to `ModalFooter` and therefore to `ModalLayout`; it
+does not add fields to the source-compatible `ModalAction` API.
+
+On wide layouts the modal renders actions in vector order after a flexible
+spacer. Below the modal's action-stack breakpoint it stacks the actions and
+moves primary or destructive actions ahead of less-emphasized actions, while
+preserving relative order within each group. This makes emphasis, rather than a
+fragile assumption about vector position, determine the narrow layout. Verify
+the result with the actual translated labels.
+
+The generated button owns keyboard and accessibility activation. `Enter` and
+`Space` dispatch `on_press` while it is focused. `ModalAction` has no independent
+motion setting; any transition belongs to the containing `Modal`, while button
+state feedback follows the normal button contract.
 
 ## Specific advice
 
 Keep the footer focused. Most modals should have one primary action and, at most, one secondary escape action. If you find yourself adding many buttons, the problem is usually bigger than a footer can explain and the interaction probably wants a full screen or routed page instead.
 
-Also remember that `is_primary` is a visual emphasis choice, not business logic. The reducer should still treat every action explicitly.
+Also remember that `is_primary` is a visual emphasis choice, not business
+logic. The reducer should still treat every action explicitly. The same rule
+applies to an explicit `ModalFooterAction::variant`.
 
 ## Production checklist
 
-For `ModalAction`, review the fields that change behavior before treating the widget as finished: `label`, `on_press`, `is_primary`. The goal is to make the product rule visible in state and actions, not hidden inside ad-hoc construction code.
+For `ModalAction`, review the fields that change behavior before treating the widget as finished: `label`, `on_press`, `is_primary`, and `semantics_identifier`. The goal is to make the product rule visible in state and actions, not hidden inside ad-hoc construction code.
 
 - Bind `on_press` to explicit reducer actions and test that the reducer handles unavailable, duplicate, or invalid input safely.
 - Check the semantics tree for the user-facing label or role that makes this widget understandable without relying only on pixels.
@@ -65,4 +113,3 @@ If a screen starts repeating the same `ModalAction` setup, extract a named compo
 ## Related
 
 [`Modal`](/reference/widgets/modal), [`Button`](/reference/widgets/button), and [`ButtonVariant`](/reference/widgets/button-variant).
-

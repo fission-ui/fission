@@ -1,6 +1,6 @@
 ---
 title: Button
-description: Dispatch an explicit action when the user presses a button.
+description: Express one clear action with design-system hierarchy, complete interaction states, and native button semantics.
 slug: /widgets/button
 ---
 # Button
@@ -109,7 +109,8 @@ Finally, notice the `disabled: !can_save` line. That is good production behavior
 | `id` | `Option<WidgetId>` | Stable identity for this button node. | Defaults to `None`. Set it when tests, diagnostics, or related runtime features need a predictable identity. |
 | `child` | `Option<Widget>` | The visible content inside the button. | Defaults to `None`. In real apps, provide a clear text label, icon, or both. |
 | `on_press` | `Option<ActionEnvelope>` | Action dispatched when the user activates the button. | Defaults to `None`. Without it, the button is usually only a visual surface and does not expose normal button behavior. |
-| `semantics` | `Option<Semantics>` | Accessibility metadata override. | Defaults to `None`. Most text-labeled buttons can use the default semantics. Icon-only buttons often need an explicit label here. |
+| `semantics` | `Option<Semantics>` | Accessibility metadata override. | Defaults to `None`. Most text-labeled buttons can use the default role; icon-only buttons need an explicit label. |
+| `focus_policy` | `FocusPolicy` | Whether pointer activation takes focus. | Defaults to `FocusOnPointer`. Use `PreserveCurrentOnPointer` for editor toolbars that must not steal the current text focus. |
 | `width` | `Option<f32>` | Fixed width in layout points. | Defaults to `None`. Use sparingly; many buttons size better from content or parent layout. |
 | `height` | `Option<f32>` | Fixed height in layout points. | Defaults to `None`. When omitted, the themed button height becomes the minimum height. |
 | `min_width` | `Option<f32>` | Minimum width constraint. | Defaults to `None`. Useful for action rows where buttons should not collapse too narrowly. |
@@ -118,21 +119,70 @@ Finally, notice the `disabled: !can_save` line. That is good production behavior
 | `flex_shrink` | `f32` | How willing the button is to shrink in a tight flex layout. | Defaults to `1.0`. This lets the button participate in tighter layouts unless you override it. |
 | `padding` | `Option<[f32; 4]>` | Inner padding in `[left, right, top, bottom]` order. | Defaults to the theme's button padding. Note that this order is not cascading style sheets (CSS) shorthand order. |
 | `variant` | `ButtonVariant` | Visual emphasis level. | Defaults to `ButtonVariant::Filled`. Choose a variant that matches the importance of the action. |
+| `size` | `ComponentSize` | Design-system density slot. | Defaults to `Md`; the default package defines `Sm`, `Md`, `Lg`, and `Xl`. |
 | `background_fill` | `Option<Fill>` | Manual background fill override. | Defaults to `None`. Best used when a theme-level choice is not enough. |
 | `text_color` | `Option<IrColor>` | Manual text color override. | Defaults to `None`. Applied automatically to direct `Text` children; custom child trees handle their own text styling. |
 | `content_align` | `ButtonContentAlign` | Horizontal alignment for the child content. | Defaults to `ButtonContentAlign::Center`. Use `Start` for button rows that should read more like list items or menu actions. |
 | `disabled` | `bool` | Whether the button is currently unavailable. | Defaults to `false`. Disabled buttons keep their visual role but do not dispatch `on_press`. |
-| `style` | `Option<ButtonStyleOverride>` | Reserved override hook for future style customization. | Present in the public field set today, but the checked-in override type is currently empty. |
+| `motion` | `Option<ButtonMotion>` | Optional hover, press, scale, or ripple motion. | Defaults to `None`, so a button has no button-owned animation unless you opt in. |
+| `style` | `Option<ButtonStyleOverride>` | Targeted visual overrides applied after the active design-system recipe. | Can override fill, text color, border, width, maximum width, height, padding, radius, the complete shadow stack, and typography. Dedicated `Button` fields win where both APIs provide a value. |
+
+## Anatomy and design-system behavior
+
+The active design system is the authority for the button surface. `Button`
+resolves the selected hierarchy, `size`, and live interaction state from
+`theme.components.button`, then consumes the resulting background, text color,
+border, radius, dimensions, padding, typography, and outer or inset
+shadows. A direct `Text` child receives the resolved typography and color. A
+custom child tree keeps responsibility for styling its own content.
+
+`Filled`, `Outline`, and `Ghost` remain concise compatibility names for primary,
+neutral-secondary, and neutral-tertiary treatment. The explicit hierarchy
+variants are `Primary`, `SecondaryColor`, `SecondaryGray`, `TertiaryColor`,
+`TertiaryGray`, `LinkColor`, `LinkGray`, and `Destructive`. Use hierarchy to
+communicate importance and consequence; do not use a destructive treatment as
+an arbitrary accent color.
+
+The default, hover, active, focus, and disabled recipes are resolved from the
+same component definition. Focus is layered over the current pointer state, so
+a focused-and-hovered control keeps both pieces of feedback instead of losing
+one. `ButtonStyleOverride` is a local escape hatch for fill, text, border,
+geometry, shadows, and typography; `shadows: Some(Vec::new())` explicitly asks
+for a flat surface. Dedicated `Button` fields such as `width`, `height`,
+`padding`, `background_fill`, and `text_color` take precedence where supplied.
 
 ## Layout and interaction behavior
-
-`Button` brings several behaviors together for you.
-
-Visually, it resolves its colors, border, padding, corner radius, and elevation from the current theme plus its `variant`. Filled buttons also respond to hover and pressed states with the themed elevation behavior. Outline and ghost buttons keep a lighter visual footprint.
 
 Layout-wise, the button builds a box with themed minimum height, optional explicit sizing, and internal padding. Its child is then aligned inside that box according to `content_align`. In practice, this means you usually choose button width from parent layout and choose alignment from product intent, instead of manually positioning the label yourself.
 
 Interaction-wise, hover, press, and focus are runtime-owned state. You should not copy those transient details into `GlobalState`. What belongs in app state are product facts such as `is_saving`, `has_unsaved_changes`, or `can_retry_upload`. The button reads those facts and turns them into a label, a variant, or a disabled state.
+
+When `on_press` is present, the button exposes a focusable button semantic node
+and a default action. `Tab` reaches it, and `Enter` or `Space` dispatches that
+action. A disabled button is omitted from focus traversal and has no default
+action. A button with neither an action nor custom semantics remains a visual
+surface rather than pretending to be interactive.
+
+## Responsive, target, and motion behavior
+
+`Button` does not impose a fixed width. It takes its minimum height from the
+selected size recipe and otherwise participates in the parent layout. Prefer
+parent constraints for full-width mobile actions, and test long or translated
+labels at the narrowest supported width instead of fixing a width around one
+English label. `ButtonContentAlign::Start` and `End` are logical alignments and
+mirror with the active layout direction; paragraph bidi and shaping remain a
+separate text-direction choice.
+
+The shared semantics and paint model lower across interactive targets. Static
+site and plain SSR output do not run client reducers without an interactive
+island. Button motion is opt-in through `motion`. Regardless of the selected
+preset, `Env::motion_preference = MotionPreference::Reduced` resolves its
+motion tracks immediately and suppresses the ripple layer. The Web canvas shell
+reads and follows `prefers-reduced-motion` unless an application `sync_env`
+callback overrides it; other interactive shells and tests honor an `Env` value
+supplied through `with_env` or `with_sync_env`. Static site and SSR output emit
+immediate final-state animation and transitions for the same browser
+preference.
 
 ## Accessibility and production guidance
 

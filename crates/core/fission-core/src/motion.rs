@@ -4,6 +4,7 @@
 //! an explicit clock. Application code declares targets; shells never call back
 //! into user code per frame.
 
+use crate::ui::widgets::interaction_inert::InteractionInert;
 use crate::ui::{Composite, Spacer, Widget};
 use crate::CurrentTime;
 use fission_ir::op::{BoxShadow, Color, Fill};
@@ -912,6 +913,36 @@ pub struct MotionDeclaration {
     pub kind: MotionDeclarationKind,
 }
 
+impl MotionDeclaration {
+    pub(crate) fn resolve_for_preference(mut self, preference: crate::MotionPreference) -> Self {
+        if !preference.is_reduced() {
+            return self;
+        }
+
+        match &mut self.kind {
+            MotionDeclarationKind::Tracks { tracks } => {
+                make_tracks_instant(tracks);
+            }
+            MotionDeclarationKind::Presence { enter, exit, .. } => {
+                make_tracks_instant(enter);
+                make_tracks_instant(exit);
+            }
+            MotionDeclarationKind::RippleLayer(effect) => {
+                effect.opacity = 0.0;
+                effect.max_instances = 0;
+                effect.transition = MotionTransition::Instant;
+            }
+        }
+        self
+    }
+}
+
+fn make_tracks_instant(tracks: &mut [MotionTrack]) {
+    for track in tracks {
+        track.transition = MotionTransition::Instant;
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 /// Payload for a [`MotionDeclaration`].
 pub enum MotionDeclarationKind {
@@ -1075,6 +1106,8 @@ impl From<Motion> for Widget {
 
 impl From<Presence> for Widget {
     fn from(component: Presence) -> Self {
+        let reduce_motion =
+            crate::build::try_current_env().is_some_and(|env| env.motion_preference.is_reduced());
         crate::build::try_register_motion(MotionDeclaration {
             id: component.id,
             kind: MotionDeclarationKind::Presence {
@@ -1093,12 +1126,16 @@ impl From<Presence> for Widget {
             } else {
                 PresencePhase::Hidden
             });
-        let should_render = component.visible
-            || component.keep_rendered
-            || matches!(
-                phase,
-                PresencePhase::Entering | PresencePhase::Present | PresencePhase::Exiting
-            );
+        let should_render = if reduce_motion {
+            component.visible || component.keep_rendered
+        } else {
+            component.visible
+                || component.keep_rendered
+                || matches!(
+                    phase,
+                    PresencePhase::Entering | PresencePhase::Present | PresencePhase::Exiting
+                )
+        };
         if !should_render {
             return Spacer::default().into();
         }
@@ -1108,10 +1145,25 @@ impl From<Presence> for Widget {
         } else {
             &component.exit
         };
-        composite_style_for_tracks(component.id, component.child, tracks)
+        let rendered: Widget = composite_style_for_tracks(component.id, component.child, tracks)
             .clip_to_bounds(component.clip_to_bounds)
             .repaint_boundary(component.repaint_boundary)
+            .into();
+
+        // Presence is a visual-lifecycle primitive. Once its logical state is
+        // hidden, an exiting or deliberately retained child must not continue
+        // to participate in pointer hit testing. Apply this on the first
+        // closing build rather than waiting for the runtime phase to advance;
+        // declarations are synchronized after component conversion.
+        if !component.visible && (reduce_motion || component.inert_while_exiting) {
+            InteractionInert {
+                id: WidgetId::derived(component.id.as_u128(), &[0x1A_E27]),
+                child: rendered,
+            }
             .into()
+        } else {
+            rendered
+        }
     }
 }
 
@@ -1318,8 +1370,30 @@ pub fn sync_motion_declarations(
                     &mut requested,
                     &mut result,
                 );
+                let has_active_track = tracks.iter().any(|track| {
+                    state
+                        .active
+                        .contains_key(&(declaration.id, track.property.clone()))
+                });
+                if !has_active_track {
+                    match next_phase {
+                        PresencePhase::Entering => {
+                            state
+                                .presence
+                                .insert(declaration.id, PresencePhase::Present);
+                        }
+                        PresencePhase::Exiting => {
+                            state.presence.insert(declaration.id, PresencePhase::Hidden);
+                        }
+                        PresencePhase::Hidden | PresencePhase::Present => {}
+                    }
+                }
             }
-            MotionDeclarationKind::RippleLayer(_) => {}
+            MotionDeclarationKind::RippleLayer(effect) => {
+                if effect.max_instances == 0 || effect.opacity <= 0.0 {
+                    state.ripples.remove(&declaration.id);
+                }
+            }
         }
     }
 
@@ -1411,6 +1485,15 @@ fn sync_tracks(
         let key = (id, track.property.clone());
         requested.insert(key.clone());
         let target_value = track.to.eval(&input);
+        if matches!(&track.transition, MotionTransition::Instant) {
+            let changed = state.values.get(&key) != Some(&target_value);
+            state.values.insert(key.clone(), target_value);
+            state.active.remove(&key);
+            if changed {
+                result.changed.push(key);
+            }
+            continue;
+        }
         if let Some(active) = state.active.get(&key) {
             if active.end_value == target_value
                 && active.duration == track.transition.duration_ms()

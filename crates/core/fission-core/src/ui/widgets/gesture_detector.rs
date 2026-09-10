@@ -2,10 +2,7 @@ use crate::internal::InternalLower;
 use crate::lowering::{InternalIrBuilder, InternalLoweringCx};
 use crate::ui::Widget;
 use crate::ActionEnvelope;
-use fission_ir::{
-    semantics::{ActionTrigger, Role},
-    ActionEntry, Op, Semantics, WidgetId,
-};
+use fission_ir::{semantics::ActionTrigger, ActionEntry, Op, Semantics, WidgetId};
 use serde::{Deserialize, Serialize};
 
 /// Detects pointer gestures on its child and dispatches corresponding actions.
@@ -118,67 +115,13 @@ impl InternalLower for GestureDetector {
 
         // Build Semantics
         let mut semantics = Semantics {
-            role: Role::Generic,
-            label: None,
             identifier: self.semantics_identifier.clone(),
-            value: None,
-            hyperlink: None,
-            popover_target: None,
-            actions: Default::default(),
-            canvas_target: None,
-            action_scope_id: None,
             focusable: self.on_tap.is_some(),
-            focus_policy: fission_ir::FocusPolicy::FocusOnPointer,
-            multiline: false,
-            text_wrap_mode: fission_ir::semantics::TextWrapMode::Soft,
-            masked: false,
-            input_mask: None,
-            ime_preedit_range: None,
-            ime_preedit_cursor_range: None,
-            text_selection: None,
-            selectable_text: false,
-            selection_region: None,
-            context_menu: false,
-            checked: None,
-            disabled: false,
-            read_only: false,
-            autofocus: false,
             draggable: self.on_drag_start.is_some()
                 || self.on_drag_update.is_some()
                 || self.drag_payload.is_some(),
-            scrollable_x: false,
-            scrollable_y: false,
-            min_value: None,
-            max_value: None,
-            current_value: None,
-            is_focus_scope: false,
-            is_focus_barrier: false,
             drag_payload: self.drag_payload.clone(),
-            hero_tag: None,
-            focus_index: None,
-            text_input_type: fission_ir::semantics::TextInputType::Text,
-            text_input_action: fission_ir::semantics::TextInputAction::Done,
-            text_capitalization: fission_ir::semantics::TextCapitalization::None,
-            max_length: None,
-            max_length_enforcement: fission_ir::semantics::MaxLengthEnforcement::Enforced,
-            input_formatters: Vec::new(),
-            text_field_name: None,
-            text_form_id: None,
-            autofill_group: None,
-            required: false,
-            min_length: None,
-            validation_pattern: None,
-            validation_state: Default::default(),
-            validation_message: None,
-            autocorrect: true,
-            enable_suggestions: true,
-            spell_check: true,
-            smart_dashes: true,
-            smart_quotes: true,
-            autofill_hints: Vec::new(),
-            scroll_padding: None,
-            capture_tab: false,
-            auto_indent: false,
+            ..Semantics::default()
         };
 
         if let Some(a) = &self.on_tap {

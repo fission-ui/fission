@@ -108,6 +108,18 @@ jobs:
           FISSION_SQLITE_WEB_TEST_URL='http://127.0.0.1:8127/tests/web/index.html' \
             cargo test --locked -p fission-store-sqlite --test web_multitab_browser -- --nocapture
 
+      - name: Build widget quality gallery Web package
+        env:
+          FISSION_WEB_TEST_CONTROL: '1'
+        run: ./examples/widget-gallery/platforms/web/build-wasm.sh
+
+      # Browser page capture cannot currently read the headless WebGPU swap
+      # chain reliably. Keep the renderer baseline suite available as a manual
+      # diagnostic until #227 supplies renderer-owned Web readback; do not turn
+      # uniformly black captures into approved goldens.
+      - name: Run widget quality structural audit
+        run: cargo test --locked -p widget-gallery --test visual_audit
+
   android:
     name: Android package smoke
     if: >-

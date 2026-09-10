@@ -268,14 +268,9 @@ fn provider_scopes_resolve_nearest_value_without_losing_parent_scope() {
 }
 
 #[test]
+#[should_panic(expected = "Fission build provider")]
 fn provider_read_outside_scope_reports_clear_error() {
-    let error = std::panic::catch_unwind(|| build::read::<ProviderLabel>())
-        .expect_err("provider read outside build scope should panic");
-    let message = panic_message(error);
-    assert!(
-        message.contains("Fission build provider"),
-        "unexpected panic message: {message}"
-    );
+    let _ = build::read::<ProviderLabel>();
 }
 
 #[test]
@@ -607,14 +602,4 @@ fn collect_button_actions(widget: &Widget, out: &mut Vec<ActionEnvelope>) {
 fn lowered_node_count(widget: &Widget) -> usize {
     let lower = fission_core::internal::lower_widget_to_ir(widget);
     lower.nodes.len()
-}
-
-fn panic_message(error: Box<dyn std::any::Any + Send>) -> String {
-    if let Some(message) = error.downcast_ref::<String>() {
-        message.clone()
-    } else if let Some(message) = error.downcast_ref::<&'static str>() {
-        (*message).to_string()
-    } else {
-        "<non-string panic>".to_string()
-    }
 }

@@ -436,12 +436,20 @@ impl {krate}::DesignSystem for {type_name} {{
     fn component_theme_expr(&self, krate: &str, mode: Mode) -> Result<String> {
         let button = self.button_theme_expr(krate, mode)?;
         let text_input = self.text_input_theme_expr(krate, mode)?;
+        let select = self.select_theme_expr(krate, mode)?;
+        let menu = self.menu_theme_expr(krate, mode)?;
+        let alert = self.alert_theme_expr(krate, mode)?;
+        let avatar = self.avatar_theme_expr(krate, mode)?;
+        let avatar_group = self.avatar_group_theme_expr(krate, mode)?;
+        let pagination = self.pagination_theme_expr(krate, mode)?;
         let badge = self.badge_theme_expr(krate, mode)?;
         let tabs = self.tabs_theme_expr(krate, mode)?;
         let modal = self.modal_theme_expr(krate, mode)?;
         let progress = self.progress_theme_expr(krate, mode)?;
         let tooltip = self.tooltip_theme_expr(krate, mode)?;
         let card = self.card_theme_expr(krate, mode)?;
+        let code = self.code_theme_expr(krate, mode)?;
+        let empty_state = self.empty_state_theme_expr(krate, mode)?;
         let feature_icon = self.feature_icon_theme_expr(krate, mode)?;
         let colors_prefix = match mode {
             Mode::Light => "color.light",
@@ -451,11 +459,15 @@ impl {krate}::DesignSystem for {type_name} {{
             r#"{krate}::ComponentTheme {{
                 button: {button},
                 text_input: {text_input},
+                select: {select},
+                menu: {menu},
                 calendar: {krate}::CalendarTheme {{ bg_color: {surface}, border_color: {border}, radius: {radius_medium}, selected_bg: {primary}, selected_text: {on_primary}, today_outline: {secondary} }},
-                pagination: {krate}::PaginationTheme {{ spacing: {spacing_s}, active_bg: {primary}, active_text: {on_primary} }},
+                pagination: {pagination},
                 timeline: {krate}::TimelineTheme {{ dot_size: 12.0, line_width: 2.0, dot_color: {primary}, line_color: {border} }},
                 segmented_control: {krate}::SegmentedControlTheme {{ bg_color: {surface}, border_color: {border}, radius: {radius_full}, active_bg: {primary}, active_text: {on_primary} }},
-                alert: {krate}::AlertTheme {{ info_bg: {info_bg}, warning_bg: {warning_bg}, error_bg: {error_bg}, success_bg: {success_bg}, radius: {radius_medium} }},
+                alert: {alert},
+                avatar: {avatar},
+                avatar_group: {avatar_group},
                 badge: {badge},
                 tabs: {tabs},
                 modal: {modal},
@@ -463,6 +475,8 @@ impl {krate}::DesignSystem for {type_name} {{
                 progress: {progress},
                 tooltip: {tooltip},
                 card: {card},
+                code: {code},
+                empty_state: {empty_state},
                 feature_icon: {feature_icon},
             }}"#,
             surface = self.color_expr(krate, &format!("{colors_prefix}.surface"))?,
@@ -470,16 +484,8 @@ impl {krate}::DesignSystem for {type_name} {{
             primary = self.color_expr(krate, &format!("{colors_prefix}.primary"))?,
             on_primary = self.color_expr(krate, &format!("{colors_prefix}.on_primary"))?,
             secondary = self.color_expr(krate, &format!("{colors_prefix}.secondary"))?,
-            info_bg = self.color_literal_expr(krate, "#E6F2FF")?,
-            warning_bg = self.color_literal_expr(krate, "#FFF4E5")?,
-            error_bg = format!(
-                "{}.with_alpha(30)",
-                self.color_expr(krate, &format!("{colors_prefix}.error"))?
-            ),
-            success_bg = self.color_literal_expr(krate, "#EDF7ED")?,
             radius_medium = f32_lit(self.dimension("radius.medium")?),
             radius_full = f32_lit(self.dimension("radius.full")?),
-            spacing_s = f32_lit(self.dimension("spacing.s")?),
         ))
     }
 
@@ -648,6 +654,368 @@ impl {krate}::DesignSystem for {type_name} {{
         ))
     }
 
+    fn select_theme_expr(&self, krate: &str, mode: Mode) -> Result<String> {
+        let fallback = serde_json::json!({
+            "sizes": {
+                "sm": {
+                    "height": "28px",
+                    "radius": "{radius.small}",
+                    "padding": "3px 8px 3px 10px",
+                    "gap": "6px",
+                    "font_size": "{typography.font_size.base}",
+                    "font_weight": "{typography.font_weight.regular}",
+                    "line_height": "20px",
+                    "icon_size": "16px"
+                },
+                "md": {
+                    "height": "32px",
+                    "radius": "{radius.medium}",
+                    "padding": "5px 8px 5px 10px",
+                    "gap": "6px",
+                    "font_size": "{typography.font_size.base}",
+                    "font_weight": "{typography.font_weight.regular}",
+                    "line_height": "20px",
+                    "icon_size": "16px"
+                }
+            },
+            "trigger_states": {
+                "default": {
+                    "background": "transparent",
+                    "color": "{color.light.text_primary}",
+                    "border": "1px solid {color.light.border}"
+                },
+                "hover": { "background": "{color.light.surface_sunken}" },
+                "focus": {
+                    "border": "1px solid {color.light.focus_ring}",
+                    "box_shadow": "{elevation.focus}"
+                },
+                "disabled": { "opacity": 0.5 },
+                "error": {
+                    "border": "1px solid {color.light.error}",
+                    "box_shadow": "0 0 0 3px rgba(225,29,72,0.2)"
+                }
+            },
+            "placeholder": { "color": "{color.light.text_secondary}" },
+            "indicator": {
+                "color": "{color.light.text_secondary}",
+                "icon_size": "16px",
+                "inset_end": "8px"
+            }
+        });
+        let select = self.dsp.pointer("/components/select").unwrap_or(&fallback);
+        Ok(format!(
+            r#"{krate}::SelectTheme {{
+                sizes: vec![{sizes}],
+                trigger_states: {trigger_states},
+                placeholder_style: {placeholder_style},
+                indicator_style: {indicator_style},
+            }}"#,
+            sizes = self.size_styles_expr_from_value(krate, mode, select.get("sizes"))?,
+            trigger_states = self.state_styles_expr(
+                krate,
+                mode,
+                select
+                    .get("trigger_states")
+                    .or_else(|| select.get("states")),
+            )?,
+            placeholder_style = self.style_expr(krate, mode, select.get("placeholder"))?,
+            indicator_style = self.style_expr(krate, mode, select.get("indicator"))?,
+        ))
+    }
+
+    fn menu_theme_expr(&self, krate: &str, mode: Mode) -> Result<String> {
+        fn merge_recipe(base: &mut Value, overlay: &Value) {
+            match (base, overlay) {
+                (Value::Object(base), Value::Object(overlay)) => {
+                    for (key, value) in overlay {
+                        if let Some(existing) = base.get_mut(key) {
+                            merge_recipe(existing, value);
+                        } else {
+                            base.insert(key.clone(), value.clone());
+                        }
+                    }
+                }
+                (base, overlay) => *base = overlay.clone(),
+            }
+        }
+
+        let mut menu = serde_json::json!({
+            "trigger": {
+                "sizes": {
+                    "sm": { "height": "28px", "radius": "{radius.small}", "padding": "0px 6px 0px 10px", "gap": "4px", "font_size": "12.8px", "font_weight": 500, "line_height": "19.2px", "icon_size": "14px" },
+                    "md": { "height": "32px", "radius": "{radius.medium}", "padding": "0px 8px 0px 10px", "gap": "6px", "font_size": "14px", "font_weight": 500, "line_height": "20px", "icon_size": "16px" }
+                },
+                "states": {
+                    "default": { "background": "transparent", "color": "{color.light.text_primary}", "border": "1px solid {color.light.border}", "box_shadow": "none" },
+                    "hover": { "background": "{color.light.surface_sunken}", "color": "{color.light.text_primary}" },
+                    "active": { "background": "{color.light.surface_sunken}", "translate_y": "1px" },
+                    "focus": { "border": "1px solid {color.light.focus_ring}", "box_shadow": "{elevation.focus}" },
+                    "disabled": { "opacity": 0.5 },
+                    "selected": { "background": "{color.light.surface_sunken}", "color": "{color.light.text_primary}" }
+                }
+            },
+            "surface": {
+                "background": "{color.light.surface}",
+                "border": "1px solid {color.light.border}",
+                "radius": "{radius.medium}",
+                "width": "208px",
+                "padding": "4px",
+                "gap": "2px",
+                "box_shadow": "{elevation.level2}"
+            },
+            "item": {
+                "states": {
+                    "default": {
+                        "background": "transparent",
+                        "color": "{color.light.text_primary}",
+                        "radius": "{radius.small}",
+                        "height": "32px",
+                        "padding_x": "8px",
+                        "padding_y": "6px",
+                        "gap": "8px",
+                        "font_size": "{typography.font_size.base}",
+                        "font_weight": "{typography.font_weight.regular}",
+                        "line_height": "20px",
+                        "icon_size": "16px"
+                    },
+                    "hover": { "background": "{color.light.surface_sunken}" },
+                    "active": { "background": "{color.light.surface_sunken}" },
+                    "focus": { "background": "{color.light.surface_sunken}" },
+                    "disabled": { "background": "transparent", "color": "{color.light.text_muted}" },
+                    "selected": { "background": "{color.light.surface_sunken}", "font_weight": "{typography.font_weight.medium}" }
+                },
+                "destructive_states": {
+                    "default": { "color": "{color.light.error}" },
+                    "hover": { "background": "rgba(225, 29, 72, 0.1)" },
+                    "active": { "background": "rgba(225, 29, 72, 0.2)" },
+                    "focus": { "background": "rgba(225, 29, 72, 0.1)" },
+                    "disabled": { "background": "transparent", "color": "{color.light.text_muted}" },
+                    "selected": { "background": "rgba(225, 29, 72, 0.1)" }
+                },
+                "description": { "color": "{color.light.text_muted}", "font_size": "13px", "font_weight": 400, "line_height": "18px", "gap": "2px" },
+                "shortcut": { "color": "{color.light.text_muted}", "font_size": "12px", "font_weight": 400, "line_height": "16px", "letter_spacing": "0.4px" },
+                "metadata": { "color": "{color.light.text_muted}", "font_size": "13px", "font_weight": 400, "line_height": "18px" },
+                "indicator": { "color": "{color.light.text_primary}", "icon_size": "16px" }
+            },
+            "group_label": { "color": "{color.light.text_muted}", "height": "28px", "padding_x": "8px", "padding_y": "6px", "font_size": "12px", "font_weight": 500, "line_height": "16px" },
+            "separator": { "border": "1px solid {color.light.divider}", "height": "9px", "padding_y": "4px", "margin": "0px -4px" }
+        });
+        if let Some(outline) = self.dsp.pointer("/components/button/hierarchies/outline") {
+            let mut outline = outline.clone();
+            let hover = outline.get("hover").cloned();
+            if let (Some(states), Some(hover)) = (outline.as_object_mut(), hover) {
+                states.insert("selected".into(), hover);
+            }
+            if let Some(states) = menu.pointer_mut("/trigger/states") {
+                *states = outline;
+            }
+        }
+        if let Some(configured) = self.dsp.pointer("/components/menu") {
+            merge_recipe(&mut menu, configured);
+        }
+        let item = menu.get("item");
+        let trigger = menu.get("trigger");
+
+        Ok(format!(
+            r#"{krate}::MenuTheme {{
+                trigger_sizes: vec![{trigger_sizes}],
+                trigger_states: {trigger_states},
+                surface_style: {surface},
+                item_states: {item_states},
+                destructive_item_states: {destructive_states},
+                description_style: {description},
+                shortcut_style: {shortcut},
+                metadata_style: {metadata},
+                group_label_style: {group_label},
+                separator_style: {separator},
+                indicator_style: {indicator},
+            }}"#,
+            trigger_sizes = self.size_styles_expr_from_value(
+                krate,
+                mode,
+                trigger.and_then(|value| value.get("sizes")),
+            )?,
+            trigger_states = self.state_styles_expr(
+                krate,
+                mode,
+                trigger.and_then(|value| value.get("states")),
+            )?,
+            surface = self.style_expr(krate, mode, menu.get("surface"))?,
+            item_states =
+                self.state_styles_expr(krate, mode, item.and_then(|value| value.get("states")),)?,
+            destructive_states = self.state_styles_expr(
+                krate,
+                mode,
+                item.and_then(|value| value.get("destructive_states")),
+            )?,
+            description =
+                self.style_expr(krate, mode, item.and_then(|value| value.get("description")),)?,
+            shortcut =
+                self.style_expr(krate, mode, item.and_then(|value| value.get("shortcut")),)?,
+            metadata =
+                self.style_expr(krate, mode, item.and_then(|value| value.get("metadata")),)?,
+            group_label = self.style_expr(krate, mode, menu.get("group_label"))?,
+            separator = self.style_expr(krate, mode, menu.get("separator"))?,
+            indicator =
+                self.style_expr(krate, mode, item.and_then(|value| value.get("indicator")),)?,
+        ))
+    }
+
+    fn alert_theme_expr(&self, krate: &str, mode: Mode) -> Result<String> {
+        fn merge_recipe(base: &mut Value, overlay: &Value) {
+            match (base, overlay) {
+                (Value::Object(base), Value::Object(overlay)) => {
+                    for (key, value) in overlay {
+                        if let Some(existing) = base.get_mut(key) {
+                            merge_recipe(existing, value);
+                        } else {
+                            base.insert(key.clone(), value.clone());
+                        }
+                    }
+                }
+                (base, overlay) => *base = overlay.clone(),
+            }
+        }
+
+        let mut alert = serde_json::json!({
+            "surface": {
+                "background": "{color.light.surface}",
+                "border": "1px solid {color.light.border}",
+                "radius": "{radius.medium}",
+                "min_height": "60px",
+                "padding": "8px 10px",
+                "gap": "8px"
+            },
+            "icon": { "icon_size": "16px", "inset_top": "2px", "translate_y": "2px" },
+            "content": { "gap": "2px" },
+            "title": {
+                "color": "{color.light.text_primary}",
+                "font_size": "{typography.font_size.base}",
+                "font_weight": "{typography.font_weight.medium}",
+                "line_height": "20px"
+            },
+            "description": {
+                "color": "{color.light.text_secondary}",
+                "font_size": "{typography.font_size.base}",
+                "font_weight": "{typography.font_weight.regular}",
+                "line_height": "20px"
+            },
+            "action": { "width": "64px", "inset_top": "8px", "inset_end": "8px" },
+            "tones": {
+                "info": { "background": "{color.light.surface}", "color": "{color.light.info}" },
+                "warning": { "background": "{color.light.surface}", "color": "{color.light.warning}" },
+                "error": { "background": "{color.light.surface}", "color": "{color.light.error}" },
+                "success": { "background": "{color.light.surface}", "color": "{color.light.success}" }
+            }
+        });
+        if let Some(configured) = self.dsp.pointer("/components/alert") {
+            merge_recipe(&mut alert, configured);
+        }
+
+        let colors_prefix = format!("color.{}", mode.color_name());
+        let surface_color = self.color_expr(krate, &format!("{colors_prefix}.surface"))?;
+        let radius = self.style_dimension_optional(
+            mode,
+            alert.pointer("/surface/radius"),
+            self.dimension("radius.medium")?,
+        )?;
+        let tone = |name: &str| alert.pointer(&format!("/tones/{name}"));
+
+        Ok(format!(
+            r#"{krate}::AlertTheme {{
+                surface_style: {surface},
+                icon_style: {icon},
+                content_style: {content},
+                title_style: {title},
+                description_style: {description},
+                action_style: {action},
+                info_style: {info},
+                warning_style: {warning},
+                error_style: {error},
+                success_style: {success},
+                info_bg: {surface_color},
+                warning_bg: {surface_color},
+                error_bg: {surface_color},
+                success_bg: {surface_color},
+                radius: {radius},
+            }}"#,
+            surface = self.style_expr(krate, mode, alert.get("surface"))?,
+            icon = self.style_expr(krate, mode, alert.get("icon"))?,
+            content = self.style_expr(krate, mode, alert.get("content"))?,
+            title = self.style_expr(krate, mode, alert.get("title"))?,
+            description = self.style_expr(krate, mode, alert.get("description"))?,
+            action = self.style_expr(krate, mode, alert.get("action"))?,
+            info = self.style_expr(krate, mode, tone("info"))?,
+            warning = self.style_expr(krate, mode, tone("warning"))?,
+            error = self.style_expr(krate, mode, tone("error"))?,
+            success = self.style_expr(krate, mode, tone("success"))?,
+            radius = f32_lit(radius),
+        ))
+    }
+
+    fn pagination_theme_expr(&self, krate: &str, mode: Mode) -> Result<String> {
+        let fallback_item = serde_json::json!({
+            "color": "{color.light.text_primary}",
+            "size": "32px",
+            "padding": "0px",
+            "radius": "{radius.medium}",
+            "font_size": "{typography.font_size.base}",
+            "font_weight": "{typography.font_weight.regular}",
+            "line_height": "20px",
+            "icon_size": "16px",
+            "box_shadow": "none"
+        });
+        let fallback_selected = serde_json::json!({
+            "background": "{color.light.surface}",
+            "border": "1px solid {color.light.border}",
+            "color": "{color.light.text_primary}",
+            "font_weight": "{typography.font_weight.medium}",
+            "box_shadow": "none"
+        });
+        let fallback_ellipsis = serde_json::json!({
+            "color": "{color.light.text_muted}",
+            "size": "32px",
+            "font_size": "{typography.font_size.base}",
+            "font_weight": "{typography.font_weight.regular}",
+            "line_height": "20px"
+        });
+        let item = self
+            .dsp
+            .pointer("/components/pagination/item")
+            .or(Some(&fallback_item));
+        let selected = self
+            .dsp
+            .pointer("/components/pagination/selected")
+            .or(Some(&fallback_selected));
+        let ellipsis = self
+            .dsp
+            .pointer("/components/pagination/ellipsis")
+            .or(Some(&fallback_ellipsis));
+        let spacing = self.style_dimension_optional(
+            mode,
+            self.dsp.pointer("/components/pagination/gap"),
+            self.dimension("spacing.xs")?,
+        )?;
+        let colors_prefix = format!("color.{}", mode.color_name());
+        let surface = self.color_expr(krate, &format!("{colors_prefix}.surface"))?;
+        let text = self.color_expr(krate, &format!("{colors_prefix}.text_primary"))?;
+
+        Ok(format!(
+            r#"{krate}::PaginationTheme {{
+                item_style: {item_style},
+                selected_style: {selected_style},
+                ellipsis_style: {ellipsis_style},
+                spacing: {spacing},
+                active_bg: {surface},
+                active_text: {text},
+            }}"#,
+            item_style = self.style_expr(krate, mode, item)?,
+            selected_style = self.style_expr(krate, mode, selected)?,
+            ellipsis_style = self.style_expr(krate, mode, ellipsis)?,
+            spacing = f32_lit(spacing),
+        ))
+    }
+
     fn badge_theme_expr(&self, krate: &str, mode: Mode) -> Result<String> {
         let radius = self.style_dimension_optional(
             mode,
@@ -679,6 +1047,69 @@ impl {krate}::DesignSystem for {type_name} {{
         ))
     }
 
+    fn avatar_theme_expr(&self, krate: &str, mode: Mode) -> Result<String> {
+        let fallback = serde_json::json!({
+            "background": "{color.light.primary}",
+            "color": "{color.light.on_primary}"
+        });
+        Ok(format!(
+            r#"{krate}::AvatarTheme {{
+                fallback_style: {fallback_style},
+            }}"#,
+            fallback_style = self.style_expr(
+                krate,
+                mode,
+                self.dsp
+                    .pointer("/components/avatar/fallback")
+                    .or(Some(&fallback)),
+            )?,
+        ))
+    }
+
+    fn avatar_group_theme_expr(&self, krate: &str, mode: Mode) -> Result<String> {
+        let fallback = serde_json::json!({
+            "avatar": {
+                "width": "32px",
+                "height": "32px",
+                "radius": "{radius.full}",
+                "border": "2px solid {color.light.surface}"
+            },
+            "overflow": {
+                "background": "{color.light.surface_sunken}",
+                "color": "{color.light.text_secondary}",
+                "width": "32px",
+                "height": "32px",
+                "radius": "{radius.full}",
+                "border": "2px solid {color.light.surface}",
+                "font_size": "{typography.font_size.xs}",
+                "font_weight": "{typography.font_weight.medium}",
+                "line_height": "16px"
+            },
+            "overlap": "10px",
+            "max_visible": 4
+        });
+        let group = self
+            .dsp
+            .pointer("/components/avatar_group")
+            .unwrap_or(&fallback);
+        let overlap = self.style_dimension_optional(mode, group.get("overlap"), 10.0)?;
+        let max_visible = group
+            .get("max_visible")
+            .and_then(Value::as_u64)
+            .unwrap_or(4) as usize;
+        Ok(format!(
+            r#"{krate}::AvatarGroupTheme {{
+                avatar_style: {avatar_style},
+                overflow_style: {overflow_style},
+                overlap: {overlap},
+                max_visible: {max_visible},
+            }}"#,
+            avatar_style = self.style_expr(krate, mode, group.get("avatar"))?,
+            overflow_style = self.style_expr(krate, mode, group.get("overflow"))?,
+            overlap = f32_lit(overlap),
+        ))
+    }
+
     fn tabs_theme_expr(&self, krate: &str, mode: Mode) -> Result<String> {
         let colors_prefix = match mode {
             Mode::Light => "color.light",
@@ -692,6 +1123,36 @@ impl {krate}::DesignSystem for {type_name} {{
             &format!("{colors_prefix}.divider"),
             &self.resolve_token_string(&format!("{colors_prefix}.border"))?,
         )?;
+        let presentations = if self
+            .dsp
+            .pointer("/components/tabs/variants/underline")
+            .is_some()
+        {
+            format!(
+                "({krate}::TabPresentation::Underline, {krate}::TabPresentationTheme {{ indicator_height: {}, sizes: vec![{}], states: {}, track_style: {} }})",
+                f32_lit(self.dsp_dimension_optional(
+                    "/components/tabs/variants/underline/sizes/md/indicator_height",
+                    2.0,
+                )?),
+                self.size_styles_expr(
+                    krate,
+                    mode,
+                    "/components/tabs/variants/underline/sizes",
+                )?,
+                self.state_styles_expr(
+                    krate,
+                    mode,
+                    self.dsp.pointer("/components/tabs/variants/underline/states"),
+                )?,
+                self.style_expr(
+                    krate,
+                    mode,
+                    self.dsp.pointer("/components/tabs/variants/underline/track"),
+                )?,
+            )
+        } else {
+            String::new()
+        };
         Ok(format!(
             r#"{krate}::TabsTheme {{
                 active_color: {active},
@@ -702,6 +1163,7 @@ impl {krate}::DesignSystem for {type_name} {{
                 sizes: vec![{sizes}],
                 states: {states},
                 track_style: {track},
+                presentations: vec![{presentations}],
             }}"#,
             indicator_height = f32_lit(self.dsp_dimension_optional(
                 "/components/tabs/sizes/md/indicator_height",
@@ -711,6 +1173,7 @@ impl {krate}::DesignSystem for {type_name} {{
             states =
                 self.state_styles_expr(krate, mode, self.dsp.pointer("/components/tabs/states"))?,
             track = self.style_expr(krate, mode, self.dsp.pointer("/components/tabs/track"))?,
+            presentations = presentations,
         ))
     }
 
@@ -737,7 +1200,15 @@ impl {krate}::DesignSystem for {type_name} {{
             krate,
             mode,
             "/components/modal",
-            &["background", "radius", "max_width", "box_shadow"],
+            &[
+                "background",
+                "border",
+                "radius",
+                "padding",
+                "gap",
+                "max_width",
+                "box_shadow",
+            ],
         )?;
         let scrim_style =
             self.style_expr(krate, mode, self.dsp.pointer("/components/modal/scrim"))?;
@@ -752,6 +1223,55 @@ impl {krate}::DesignSystem for {type_name} {{
             })
             .and_then(|value| parse_dimension(value).ok())
             .unwrap_or(4.0);
+        let fallback_header = serde_json::json!({ "gap": "8px" });
+        let fallback_title = serde_json::json!({
+            "color": "{color.light.text_primary}",
+            "font_size": "16px",
+            "font_weight": 500,
+            "line_height": "16px"
+        });
+        let fallback_description = serde_json::json!({
+            "color": "{color.light.text_secondary}",
+            "font_size": "14px",
+            "font_weight": 400,
+            "line_height": "20px"
+        });
+        let fallback_body = serde_json::json!({});
+        let fallback_footer = serde_json::json!({
+            "background": "{color.light.surface_sunken}",
+            "border": "1px solid {color.light.border}",
+            "padding": "16px",
+            "margin": "0px -16px -16px",
+            "gap": "8px"
+        });
+        let fallback_close = serde_json::json!({
+            "size": "28px",
+            "padding": "0px",
+            "icon_size": "16px",
+            "inset_top": "8px",
+            "inset_end": "8px"
+        });
+        let viewport_margin = self.style_dimension_optional(
+            mode,
+            self.dsp.pointer("/components/modal/viewport_margin"),
+            16.0,
+        )?;
+        let action_stack_breakpoint = self.style_dimension_optional(
+            mode,
+            self.dsp
+                .pointer("/components/modal/action_stack_breakpoint"),
+            640.0,
+        )?;
+        let motion_duration_ms = self.style_duration_optional(
+            mode,
+            self.dsp.pointer("/components/modal/motion_duration"),
+            100,
+        )?;
+        let motion_initial_scale = self.style_number_optional(
+            mode,
+            self.dsp.pointer("/components/modal/motion_initial_scale"),
+            0.95,
+        )?;
         Ok(format!(
             r#"{krate}::ModalTheme {{
                 bg_color: {bg},
@@ -761,10 +1281,65 @@ impl {krate}::DesignSystem for {type_name} {{
                 container_style: {container_style},
                 scrim_style: {scrim_style},
                 scrim_blur: {scrim_blur},
+                header_style: {header_style},
+                title_style: {title_style},
+                description_style: {description_style},
+                content_style: {content_style},
+                footer_style: {footer_style},
+                close_button_style: {close_button_style},
+                viewport_margin: {viewport_margin},
+                action_stack_breakpoint: {action_stack_breakpoint},
+                motion_duration_ms: {motion_duration_ms},
+                motion_initial_scale: {motion_initial_scale},
             }}"#,
             radius = f32_lit(radius),
             max_width = f32_lit(max_width),
             scrim_blur = f32_lit(scrim_blur),
+            header_style = self.style_expr(
+                krate,
+                mode,
+                self.dsp
+                    .pointer("/components/modal/header")
+                    .or(Some(&fallback_header)),
+            )?,
+            title_style = self.style_expr(
+                krate,
+                mode,
+                self.dsp
+                    .pointer("/components/modal/title")
+                    .or(Some(&fallback_title)),
+            )?,
+            description_style = self.style_expr(
+                krate,
+                mode,
+                self.dsp
+                    .pointer("/components/modal/description")
+                    .or(Some(&fallback_description)),
+            )?,
+            content_style = self.style_expr(
+                krate,
+                mode,
+                self.dsp
+                    .pointer("/components/modal/body")
+                    .or(Some(&fallback_body)),
+            )?,
+            footer_style = self.style_expr(
+                krate,
+                mode,
+                self.dsp
+                    .pointer("/components/modal/footer")
+                    .or(Some(&fallback_footer)),
+            )?,
+            close_button_style = self.style_expr(
+                krate,
+                mode,
+                self.dsp
+                    .pointer("/components/modal/close")
+                    .or(Some(&fallback_close)),
+            )?,
+            viewport_margin = f32_lit(viewport_margin),
+            action_stack_breakpoint = f32_lit(action_stack_breakpoint),
+            motion_initial_scale = f32_lit(motion_initial_scale),
         ))
     }
 
@@ -913,6 +1488,50 @@ impl {krate}::DesignSystem for {type_name} {{
             mode,
             self.dsp.pointer("/components/card/interaction/hover"),
         )?;
+        let fallback_selected = serde_json::json!({
+            "border": "2px solid {color.light.primary}"
+        });
+        let selected = self.style_expr(
+            krate,
+            mode,
+            self.dsp
+                .pointer("/components/card/interaction/selected")
+                .or(Some(&fallback_selected)),
+        )?;
+        let selected_indicator = self.style_expr(
+            krate,
+            mode,
+            self.dsp
+                .pointer("/components/card/interaction/selected_indicator"),
+        )?;
+        let fallback_header = serde_json::json!({ "gap": "4px" });
+        let fallback_content = serde_json::json!({});
+        let fallback_footer = serde_json::json!({
+            "background": "{color.light.surface_sunken}",
+            "gap": "8px"
+        });
+        let fallback_title = serde_json::json!({
+            "color": "{color.light.text_primary}",
+            "font_size": "16px",
+            "font_weight": 500,
+            "line_height": "24px"
+        });
+        let fallback_description = serde_json::json!({
+            "color": "{color.light.text_secondary}",
+            "font_size": "14px",
+            "font_weight": 400,
+            "line_height": "20px"
+        });
+        let fallback_separator = serde_json::json!({
+            "border": "1px solid {color.light.border}"
+        });
+        let sizes = if self.dsp.pointer("/components/card/sizes").is_some() {
+            self.size_styles_expr(krate, mode, "/components/card/sizes")?
+        } else {
+            format!(
+                "({krate}::ComponentSize::Sm, {krate}::ResolvedComponentStyle {{ padding: Some([12.0; 4]), gap: Some(12.0), font_size: Some(14.0), line_height: Some(20.0), ..{krate}::ResolvedComponentStyle::default() }}),({krate}::ComponentSize::Md, {krate}::ResolvedComponentStyle {{ padding: Some([16.0; 4]), gap: Some(16.0), font_size: Some(16.0), line_height: Some(24.0), ..{krate}::ResolvedComponentStyle::default() }})"
+            )
+        };
         Ok(format!(
             r#"{krate}::CardTheme {{
                 padding: {padding},
@@ -920,9 +1539,144 @@ impl {krate}::DesignSystem for {type_name} {{
                 default_pattern: {krate}::CardPattern::Raised,
                 patterns: vec![{patterns}],
                 hover_style: {hover},
+                selected_style: {selected},
+                selected_indicator_style: {selected_indicator},
+                sizes: vec![{sizes}],
+                header_style: {header},
+                content_style: {content},
+                footer_style: {footer},
+                title_style: {title},
+                description_style: {description},
+                separator_style: {separator},
             }}"#,
             padding = f32_lit(padding),
             radius = f32_lit(radius),
+            sizes = sizes,
+            selected = selected,
+            selected_indicator = selected_indicator,
+            header = self.style_expr(
+                krate,
+                mode,
+                self.dsp
+                    .pointer("/components/card/header")
+                    .or(Some(&fallback_header))
+            )?,
+            content = self.style_expr(
+                krate,
+                mode,
+                self.dsp
+                    .pointer("/components/card/content")
+                    .or(Some(&fallback_content))
+            )?,
+            footer = self.style_expr(
+                krate,
+                mode,
+                self.dsp
+                    .pointer("/components/card/footer")
+                    .or(Some(&fallback_footer))
+            )?,
+            title = self.style_expr(
+                krate,
+                mode,
+                self.dsp
+                    .pointer("/components/card/title")
+                    .or(Some(&fallback_title))
+            )?,
+            description = self.style_expr(
+                krate,
+                mode,
+                self.dsp
+                    .pointer("/components/card/description")
+                    .or(Some(&fallback_description)),
+            )?,
+            separator = self.style_expr(
+                krate,
+                mode,
+                self.dsp
+                    .pointer("/components/card/separator")
+                    .or(Some(&fallback_separator)),
+            )?,
+        ))
+    }
+
+    fn code_theme_expr(&self, krate: &str, mode: Mode) -> Result<String> {
+        let fallback = serde_json::json!({
+            "background": "{color.light.surface_sunken}",
+            "color": "{color.light.text_primary}",
+            "radius": "{radius.small}",
+            "padding_x": "{spacing.xs}",
+            "padding_y": "2px",
+            "font_size": "{typography.font_size.xs}",
+            "font_family": "{typography.font_family.mono}"
+        });
+        let style = self.style_expr(
+            krate,
+            mode,
+            self.dsp.pointer("/components/code").or(Some(&fallback)),
+        )?;
+        Ok(format!("{krate}::CodeTheme {{ style: {style} }}"))
+    }
+
+    fn empty_state_theme_expr(&self, krate: &str, mode: Mode) -> Result<String> {
+        let fallback = serde_json::json!({
+            "surface": {
+                "border": "1px solid {color.light.border}",
+                "border_dash": "4px 4px",
+                "radius": "{radius.large}",
+                "min_height": "160px",
+                "padding": "{spacing.l}",
+                "gap": "{spacing.m}"
+            },
+            "narrow_breakpoint": "640px",
+            "narrow_surface": { "min_height": "128px" },
+            "header": { "max_width": "384px", "gap": "{spacing.s}" },
+            "icon": {
+                "background": "{color.light.surface_sunken}",
+                "size": "32px",
+                "radius": "{radius.medium}",
+                "icon_size": "16px",
+                "margin_bottom": "{spacing.s}"
+            },
+            "title": {
+                "color": "{color.light.text_primary}",
+                "font_size": "{typography.font_size.base}",
+                "font_weight": "{typography.font_weight.medium}",
+                "line_height": "19.6px"
+            },
+            "description": {
+                "color": "{color.light.text_secondary}",
+                "font_size": "{typography.font_size.base}",
+                "font_weight": "{typography.font_weight.regular}",
+                "line_height": "23.52px"
+            },
+            "action": { "max_width": "384px", "gap": "10px" }
+        });
+        let empty_state = self
+            .dsp
+            .pointer("/components/empty_state")
+            .unwrap_or(&fallback);
+        Ok(format!(
+            r#"{krate}::EmptyStateTheme {{
+                surface_style: {surface_style},
+                narrow_surface_style: {narrow_surface_style},
+                narrow_breakpoint: {narrow_breakpoint},
+                header_style: {header_style},
+                icon_style: {icon_style},
+                title_style: {title_style},
+                description_style: {description_style},
+                action_style: {action_style},
+            }}"#,
+            surface_style = self.style_expr(krate, mode, empty_state.get("surface"))?,
+            narrow_surface_style =
+                self.style_expr(krate, mode, empty_state.get("narrow_surface"))?,
+            narrow_breakpoint = f32_lit(
+                self.dsp_dimension_optional("/components/empty_state/narrow_breakpoint", 640.0,)?
+            ),
+            header_style = self.style_expr(krate, mode, empty_state.get("header"))?,
+            icon_style = self.style_expr(krate, mode, empty_state.get("icon"))?,
+            title_style = self.style_expr(krate, mode, empty_state.get("title"))?,
+            description_style = self.style_expr(krate, mode, empty_state.get("description"))?,
+            action_style = self.style_expr(krate, mode, empty_state.get("action"))?,
         ))
     }
 
@@ -991,7 +1745,16 @@ impl {krate}::DesignSystem for {type_name} {{
     }
 
     fn size_styles_expr(&self, krate: &str, mode: Mode, pointer: &str) -> Result<String> {
-        let Some(obj) = self.dsp.pointer(pointer).and_then(Value::as_object) else {
+        self.size_styles_expr_from_value(krate, mode, self.dsp.pointer(pointer))
+    }
+
+    fn size_styles_expr_from_value(
+        &self,
+        krate: &str,
+        mode: Mode,
+        value: Option<&Value>,
+    ) -> Result<String> {
+        let Some(obj) = value.and_then(Value::as_object) else {
             return Ok(String::new());
         };
         let mut items = Vec::new();
@@ -1124,6 +1887,7 @@ impl {krate}::DesignSystem for {type_name} {{
         )?;
         let radius = self.style_dimension_option_expr(mode, field(value, "radius"))?;
         let height = self.style_dimension_option_expr(mode, field(value, "height"))?;
+        let min_height = self.style_dimension_option_expr(mode, field(value, "min_height"))?;
         let width = self.style_dimension_option_expr(mode, field(value, "width"))?;
         let size = self.style_dimension_option_expr(mode, field(value, "size"))?;
         let width = if width == "None" { size.clone() } else { width };
@@ -1131,14 +1895,26 @@ impl {krate}::DesignSystem for {type_name} {{
         let padding_x = self.style_dimension_option_expr(mode, field(value, "padding_x"))?;
         let padding_y = self.style_dimension_option_expr(mode, field(value, "padding_y"))?;
         let padding = self.padding_option_expr(mode, field(value, "padding"))?;
+        let margin = self.padding_option_expr(mode, field(value, "margin"))?;
         let gap = self.style_dimension_option_expr(mode, field(value, "gap"))?;
         let font_size = self.style_dimension_option_expr(mode, field(value, "font_size"))?;
+        let font_family = self
+            .resolved_value_string(mode, field(value, "font_family"))?
+            .map(|family| format!("Some({}.to_string())", rust_string(&family)))
+            .unwrap_or_else(|| "None".into());
         let font_weight = self.style_u16_option_expr(mode, field(value, "font_weight"))?;
         let line_height = self.style_dimension_option_expr(mode, field(value, "line_height"))?;
         let letter_spacing =
             self.style_dimension_option_expr(mode, field(value, "letter_spacing"))?;
         let icon_size = self.style_dimension_option_expr(mode, field(value, "icon_size"))?;
         let max_width = self.style_dimension_option_expr(mode, field(value, "max_width"))?;
+        let margin_bottom =
+            self.style_dimension_option_expr(mode, field(value, "margin_bottom"))?;
+        let inset_top = self.style_dimension_option_expr(mode, field(value, "inset_top"))?;
+        let inset_end = self.style_dimension_option_expr(mode, field(value, "inset_end"))?;
+        let opacity = self.style_number_option_expr(mode, field(value, "opacity"))?;
+        let translate_y = self.style_dimension_option_expr(mode, field(value, "translate_y"))?;
+        let border_dash = self.dimension_list_option_expr(mode, field(value, "border_dash"))?;
         let transition = self.motion_option_expr(krate, mode, field(value, "transition"))?;
         Ok(format!(
             r#"{krate}::ResolvedComponentStyle {{
@@ -1147,17 +1923,26 @@ impl {krate}::DesignSystem for {type_name} {{
                 border: {border},
                 radius: {radius},
                 height: {height},
+                min_height: {min_height},
                 width: {width},
                 padding_x: {padding_x},
                 padding_y: {padding_y},
                 padding: {padding},
+                margin: {margin},
                 gap: {gap},
                 font_size: {font_size},
+                font_family: {font_family},
                 font_weight: {font_weight},
                 line_height: {line_height},
                 letter_spacing: {letter_spacing},
                 icon_size: {icon_size},
                 max_width: {max_width},
+                margin_bottom: {margin_bottom},
+                inset_top: {inset_top},
+                inset_end: {inset_end},
+                opacity: {opacity},
+                translate_y: {translate_y},
+                border_dash: {border_dash},
                 shadows: {shadows},
                 transition: {transition},
             }}"#
@@ -1312,6 +2097,30 @@ impl {krate}::DesignSystem for {type_name} {{
             .or(Ok(fallback))
     }
 
+    fn style_number_optional(
+        &self,
+        mode: Mode,
+        value: Option<&Value>,
+        fallback: f32,
+    ) -> Result<f32> {
+        let Some(raw) = self.resolved_value_string(mode, value)? else {
+            return Ok(fallback);
+        };
+        Ok(raw.parse::<f32>().unwrap_or(fallback))
+    }
+
+    fn style_duration_optional(
+        &self,
+        mode: Mode,
+        value: Option<&Value>,
+        fallback: u64,
+    ) -> Result<u64> {
+        let Some(raw) = self.resolved_value_string(mode, value)? else {
+            return Ok(fallback);
+        };
+        Ok(parse_duration_ms(&raw).unwrap_or(fallback))
+    }
+
     fn style_dimension_option_expr(&self, mode: Mode, value: Option<&Value>) -> Result<String> {
         let Some(raw) = self.resolved_value_string(mode, value)? else {
             return Ok("None".into());
@@ -1323,6 +2132,47 @@ impl {krate}::DesignSystem for {type_name} {{
             return Ok("None".into());
         };
         Ok(format!("Some({})", f32_lit(dimension)))
+    }
+
+    fn style_number_option_expr(&self, mode: Mode, value: Option<&Value>) -> Result<String> {
+        let Some(raw) = self.resolved_value_string(mode, value)? else {
+            return Ok("None".into());
+        };
+        let Ok(number) = raw.parse::<f32>() else {
+            return Ok("None".into());
+        };
+        Ok(format!("Some({})", f32_lit(number)))
+    }
+
+    fn dimension_list_option_expr(&self, mode: Mode, value: Option<&Value>) -> Result<String> {
+        let Some(value) = value else {
+            return Ok("None".into());
+        };
+        let values = match value {
+            Value::Array(values) => {
+                let mut resolved = Vec::new();
+                for value in values {
+                    if let Some(raw) = self.resolved_value_string(mode, Some(value))? {
+                        resolved.push(raw);
+                    }
+                }
+                resolved
+            }
+            _ => self
+                .resolved_value_string(mode, Some(value))?
+                .map(|raw| raw.split_whitespace().map(str::to_owned).collect())
+                .unwrap_or_default(),
+        };
+        let dimensions = values
+            .iter()
+            .filter_map(|raw| parse_dimension(raw).or_else(|_| raw.parse::<f32>()).ok())
+            .map(f32_lit)
+            .collect::<Vec<_>>();
+        if dimensions.is_empty() {
+            Ok("None".into())
+        } else {
+            Ok(format!("Some(vec![{}])", dimensions.join(",")))
+        }
     }
 
     fn style_u16_optional(&self, mode: Mode, value: Option<&Value>, fallback: u16) -> Result<u16> {
@@ -2146,6 +2996,7 @@ fn button_hierarchy_variant(krate: &str, name: &str) -> Option<String> {
         "primary" => "Primary",
         "secondary_color" => "SecondaryColor",
         "secondary_gray" => "SecondaryGray",
+        "outline" => "Outline",
         "tertiary_color" => "TertiaryColor",
         "tertiary_gray" => "TertiaryGray",
         "link_color" => "LinkColor",

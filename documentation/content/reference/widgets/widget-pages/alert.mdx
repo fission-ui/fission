@@ -1,20 +1,22 @@
 ---
 title: Alert
-description: Present an inline status, warning, error, or success message inside the page flow.
+description: Keep important information, warnings, failures, or confirmations visible in the page flow.
 slug: /widgets/alert
 ---
 # Alert
 
-`Alert` is the inline message surface for important feedback that should stay visible in the page layout.
-
-Use it when the message belongs to the current screen and should remain present until the user moves past the condition or changes state. That is the main difference from a [`Toast`](/reference/widgets/toast): a toast is brief overlay feedback, while an alert is part of the page content.
+`Alert` is a persistent inline message. Use it when information changes the
+user's next decision and should remain visible with the surrounding content.
+Use [`Toast`](/reference/widgets/toast) for brief overlay feedback, and
+[`EmptyState`](/reference/widgets/empty-state) when the main condition is the
+absence of content.
 
 ## Example
 
 ```rust
 use fission::prelude::*;
 
-let widget: Widget = Alert {
+let save_error: Widget = Alert {
     kind: AlertKind::Error,
     title: "Could not save draft".into(),
     description: Some("Check your connection and try again.".into()),
@@ -22,35 +24,96 @@ let widget: Widget = Alert {
 .into();
 ```
 
-This is a good fit because the failure matters to the current workflow and should remain visible until the user responds.
+The title carries the outcome; the description adds useful context or a next
+step instead of repeating it.
 
-## Field table
+## Anatomy and variants
 
-| Field | Type | Meaning | Notes / default behavior |
+The convenience `Alert` lowers through the same retained anatomy exposed by
+`AlertLayout`:
+
+- `AlertLeading` selects the tone icon, hides it, or accepts a custom retained
+  widget.
+- `AlertContent` arranges `AlertTitle`, `AlertDescription`, and custom retained
+  children.
+- `AlertLayout::action(...)` adds a trailing control or retained action group.
+
+Use `Alert` for the common title-and-description case. Use the named anatomy
+when the message needs richer content or an adjacent recovery action; do not
+rebuild the surface from generic layout widgets.
+
+```rust
+let retry_notice: Widget = AlertLayout::new(
+    AlertKind::Warning,
+    AlertContent::new(widgets![
+        AlertTitle::new("Sync paused"),
+        AlertDescription::new("Your edits are safe on this device."),
+    ]),
+)
+.action(Button {
+    child: Some(Text::new("Retry").into()),
+    on_press: Some(retry),
+    ..Default::default()
+})
+.into();
+```
+
+| Kind | Meaning | Built-in icon intent |
+| --- | --- | --- |
+| `AlertKind::Info` | Neutral information worth noticing. | Information. |
+| `AlertKind::Warning` | A potential problem that needs attention. | Warning. |
+| `AlertKind::Error` | A failed or invalid state. | Error. |
+| `AlertKind::Success` | A successful or confirmed state. | Confirmation. |
+
+The active `theme.components.alert` recipe selects the surface, border, radius,
+padding, minimum height, region gaps, icon size and visual offset, title and
+description typography, action region, and semantic tone overlays. The widget
+has no hover, focus, pressed, or disabled state because the surface is
+informational; controls supplied to the action region retain their own states.
+
+## Field reference
+
+| Field | Type | Meaning | Notes |
 | --- | --- | --- | --- |
-| `kind` | `AlertKind` | Severity and visual tone of the message. | Required. Controls icon and background color. |
-| `title` | `String` | Main alert message. | Required. Keep it specific and action-oriented. |
-| `description` | `Option<String>` | Supporting explanation under the title. | Defaults to `None`. Use it when the title alone is not enough. |
+| `kind` | `AlertKind` | Semantic visual tone. | Required. Choose from the meaning of the message, not a preferred color. |
+| `title` | `String` | Concise primary message. | Required and always visible. |
+| `description` | `Option<String>` | Supporting explanation or next step. | Omitted when the title is sufficient. |
 
-## User experience intent
+## Semantics, composition, and targets
 
-A good alert explains both what happened and what the user should do next. The title should carry the main meaning. The description should add context, not repeat the title in different words.
+The complete surface exposes the semantic `Alert` role. Browser output lowers
+that contract to an ARIA alert, while native accessibility output marks it as
+an assertive, atomic live region. A dynamically inserted alert can therefore be
+announced without moving keyboard focus, and its title and description are
+presented as one update. Do not repeatedly rebuild identical alerts as a way to
+force announcements; update them only when the user-facing condition changes.
 
-The checked-in widget is purely presentational. It does not include dismissal controls, retry buttons, or live region settings. If the alert needs actions, compose those around it in the surrounding layout.
+`Alert` itself does not dispatch an action or contain a close button. Put retry,
+repair, or dismissal controls in `AlertLayout::action(...)` so their reducer
+intent and semantics remain explicit. Do not make the whole message surface
+clickable without a clear semantic action.
 
-## Specific advice
+The message column grows within its parent width while the icon remains compact.
+Test long translations and increased text scale; the widget does not choose a
+screen breakpoint or truncate copy for you. `Alert` registers no motion itself.
+If its parent adds `Motion` or `Presence`, the global `Env::motion_preference`
+still resolves those declarations consistently.
 
-Avoid using inline alerts for routine empty states or tiny confirmations. Overuse makes real problems blend into the background. Reach for an alert when the message changes the user's next decision.
+The same visual content can lower to native, Web, Terminal, Static site, and SSR
+output. A plain initial Static site or SSR document is readable and carries the
+alert role, but a live announcement still requires the alert to be inserted or
+changed by an interactive runtime.
 
 ## Production checklist
 
-For `Alert`, review the fields that change behavior before treating the widget as finished: `kind`, `title`, `description`. The goal is to make the product rule visible in state and actions, not hidden inside ad-hoc construction code.
-
-- If this widget appears inside an interactive flow, keep the surrounding action binding in the parent component and test that the flow still has one clear reducer path.
-- Check the semantics tree for the user-facing label or role that makes this widget understandable without relying only on pixels.
-- Add at least one component or harness test that confirms the visible text, semantic role, action dispatch, and layout constraint that matter for this widget in context.
-
-If a screen starts repeating the same `Alert` setup, extract a named component around this widget. That keeps the reference API small while making product code easier to read and safer for generated code to copy.
+- Make the title understandable on its own and use the description for cause,
+  consequence, or a concrete next step.
+- Choose `kind` from meaning and test every tone in light and dark themes.
+- Verify long copy and increased text scale in the real parent width.
+- Verify dynamic insertion with the accessibility bridge on each supported
+  interactive target where immediate announcement matters.
+- Keep recovery actions explicit and adjacent rather than hiding them in the
+  alert surface.
 
 ## Related
 

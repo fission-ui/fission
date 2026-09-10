@@ -43,6 +43,7 @@ pub struct BrowserTestOptions {
     pub cdp_port: Option<u16>,
     pub viewport_width: u32,
     pub viewport_height: u32,
+    pub prefers_reduced_motion: bool,
     pub timeout_ms: u64,
     pub screenshot_path: Option<PathBuf>,
 }
@@ -57,6 +58,7 @@ impl BrowserTestOptions {
             cdp_port: None,
             viewport_width: 1280,
             viewport_height: 900,
+            prefers_reduced_motion: false,
             timeout_ms: 60_000,
             screenshot_path: None,
         }
@@ -69,6 +71,12 @@ impl BrowserTestOptions {
 
     pub fn screenshot(mut self, path: impl Into<PathBuf>) -> Self {
         self.screenshot_path = Some(path.into());
+        self
+    }
+
+    /// Emulates the user's reduced-motion preference in the launched browser.
+    pub fn reduced_motion(mut self) -> Self {
+        self.prefers_reduced_motion = true;
         self
     }
 }
@@ -174,6 +182,17 @@ impl BrowserController {
                 "mobile": false
             }),
         )?;
+        if options.prefers_reduced_motion {
+            client.send(
+                "Emulation.setEmulatedMedia",
+                json!({
+                    "features": [{
+                        "name": "prefers-reduced-motion",
+                        "value": "reduce"
+                    }]
+                }),
+            )?;
+        }
 
         let deadline = Instant::now() + Duration::from_millis(options.timeout_ms);
         let mut last_status = None;
@@ -1008,6 +1027,15 @@ mod tests {
     use super::*;
     use crate::{Bounds, SemanticNode};
 
+    #[test]
+    fn reduced_motion_is_an_explicit_browser_option() {
+        let standard = BrowserTestOptions::new("http://127.0.0.1/");
+        assert!(!standard.prefers_reduced_motion);
+
+        let reduced = standard.reduced_motion();
+        assert!(reduced.prefers_reduced_motion);
+    }
+
     fn resolved_node(
         visibility: VisibilityState,
         disabled: bool,
@@ -1025,9 +1053,22 @@ mod tests {
                 value: value.map(str::to_owned),
                 value_present: value.is_some(),
                 focusable: true,
+                sequential_focusable: true,
+                text_editable: true,
                 disabled,
                 read_only: false,
                 checked: None,
+                selected: None,
+                expanded: None,
+                has_popup: None,
+                orientation: None,
+                modal: false,
+                required: false,
+                invalid: false,
+                controls: Vec::new(),
+                labelled_by: Vec::new(),
+                described_by: Vec::new(),
+                active_descendant: None,
                 actions: vec!["focus".into()],
                 text_selection: None,
                 masked: false,

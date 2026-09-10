@@ -142,6 +142,9 @@ let client = LiveTestClient::launch_browser(
 ```
 
 The initial Web transport uses Chromium. Its screenshots capture the composited page, and its input commands exercise Fission's deterministic event path rather than claiming trusted browser-event coverage.
+Use `reduced_motion()` for visual baselines that must resolve the browser's
+`prefers-reduced-motion` media query to `reduce` before the application is
+captured.
 
 ### Low-level methods
 

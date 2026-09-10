@@ -73,6 +73,30 @@ fn vertical_scroll_tree() -> (CoreIR, LayoutSnapshot, WidgetId, WidgetId) {
     (ir, layout, scroll, target)
 }
 
+fn vertical_scroll_tree_with_active_descendant(
+) -> (CoreIR, LayoutSnapshot, WidgetId, WidgetId, WidgetId) {
+    let (mut ir, layout, scroll, target) = vertical_scroll_tree();
+    let owner = WidgetId::from_u128(4);
+    ir.add_node(
+        owner,
+        Op::Semantics(fission_ir::Semantics {
+            role: fission_ir::Role::ComboBox,
+            active_descendant: Some(target),
+            ..Default::default()
+        }),
+        vec![],
+    );
+    let root = ir.root.expect("test root");
+    ir.nodes
+        .get_mut(&root)
+        .expect("test root node")
+        .children
+        .push(owner);
+    ir.nodes.get_mut(&owner).expect("owner node").parent = Some(root);
+
+    (ir, layout, scroll, target, owner)
+}
+
 fn request(container: Option<WidgetId>, target: WidgetId) -> ScrollIntoViewRequest {
     ScrollIntoViewRequest {
         container,
@@ -159,6 +183,62 @@ fn omitted_container_uses_nearest_matching_scroll_ancestor() {
 
     assert!(runtime.post_layout_hook(&ir, &layout));
     assert_eq!(runtime.runtime_state.scroll.get_offset(scroll), 90.0);
+}
+
+#[test]
+fn newly_mounted_active_descendant_is_centred_once_in_its_scroll_ancestor() {
+    let (ir, layout, scroll, _target, _owner) = vertical_scroll_tree_with_active_descendant();
+    let mut runtime = Runtime::default();
+
+    assert!(runtime.post_layout_hook(&ir, &layout));
+    assert_eq!(runtime.runtime_state.scroll.get_offset(scroll), 230.0);
+
+    runtime.runtime_state.scroll.set_offset(scroll, 0.0);
+    assert!(!runtime.post_layout_hook(&ir, &layout));
+    assert_eq!(runtime.runtime_state.scroll.get_offset(scroll), 0.0);
+}
+
+#[test]
+fn removing_and_restoring_active_descendant_reveals_it_again() {
+    let (mut ir, layout, scroll, _target, owner) = vertical_scroll_tree_with_active_descendant();
+    let mut runtime = Runtime::default();
+
+    assert!(runtime.post_layout_hook(&ir, &layout));
+    runtime.runtime_state.scroll.set_offset(scroll, 0.0);
+
+    let active = match &mut ir.nodes.get_mut(&owner).expect("owner node").op {
+        Op::Semantics(semantics) => &mut semantics.active_descendant,
+        _ => panic!("owner must remain semantic"),
+    };
+    let target = active.take().expect("active descendant");
+    assert!(!runtime.post_layout_hook(&ir, &layout));
+
+    let active = match &mut ir.nodes.get_mut(&owner).expect("owner node").op {
+        Op::Semantics(semantics) => &mut semantics.active_descendant,
+        _ => panic!("owner must remain semantic"),
+    };
+    *active = Some(target);
+    assert!(runtime.post_layout_hook(&ir, &layout));
+    assert_eq!(runtime.runtime_state.scroll.get_offset(scroll), 230.0);
+}
+
+#[test]
+fn missing_active_descendant_does_not_request_frames_forever() {
+    let (mut ir, layout, _scroll, target, owner) = vertical_scroll_tree_with_active_descendant();
+    ir.nodes.remove(&target);
+
+    let mut runtime = Runtime::default();
+    assert!(
+        !runtime.post_layout_hook(&ir, &layout),
+        "a stale semantic relationship cannot be repaired by another identical frame"
+    );
+    assert!(!runtime.post_layout_hook(&ir, &layout));
+
+    let Op::Semantics(semantics) = &mut ir.nodes.get_mut(&owner).unwrap().op else {
+        unreachable!();
+    };
+    semantics.active_descendant = None;
+    assert!(!runtime.post_layout_hook(&ir, &layout));
 }
 
 #[test]

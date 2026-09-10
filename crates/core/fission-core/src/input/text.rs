@@ -54,7 +54,7 @@ impl InputController for TextInputController {
                 if let Some(focused_id) = ctx.interaction.focused {
                     if let Some(node) = ctx.ir.nodes.get(&focused_id) {
                         if let Op::Semantics(sem) = &node.op {
-                            if sem.role == fission_ir::semantics::Role::TextInput {
+                            if sem.supports_text_editing() {
                                 if let Some(hit_node_id) = hit {
                                     if let Some(action) =
                                         Self::toolbar_action_hit(ctx.ir, focused_id, hit_node_id)
@@ -123,7 +123,7 @@ impl InputController for TextInputController {
                     } else {
                         if let Some(node) = ctx.ir.nodes.get(&focused_id) {
                             if let Op::Semantics(sem) = &node.op {
-                                if sem.role == fission_ir::semantics::Role::TextInput {
+                                if sem.supports_text_editing() {
                                     let current_value = sem.value.as_deref().unwrap_or("");
                                     let _ = Self::dispatch_action_for_trigger(
                                         ctx,
@@ -148,9 +148,7 @@ impl InputController for TextInputController {
                         while let Some(nid) = walk {
                             if let Some(node) = ctx.ir.nodes.get(&nid) {
                                 if let Op::Semantics(s) = &node.op {
-                                    if s.focusable
-                                        && s.role == fission_ir::semantics::Role::TextInput
-                                    {
+                                    if s.focusable && s.supports_text_editing() {
                                         let semantic_value =
                                             s.value.as_deref().unwrap_or_default().to_string();
                                         let select_all = Self::runtime_config(ctx, nid)
@@ -202,7 +200,7 @@ impl InputController for TextInputController {
                 if let Some(focused_id) = effective_focused {
                     if let Some(node) = ctx.ir.nodes.get(&focused_id) {
                         if let Op::Semantics(sem) = &node.op {
-                            if sem.role == fission_ir::semantics::Role::TextInput {
+                            if sem.supports_text_editing() {
                                 // Only handle pointer-down as a caret/selection update when the
                                 // pointer is inside the currently focused TextInput.
                                 //
@@ -365,7 +363,7 @@ impl InputController for TextInputController {
                 if let Some(focused_id) = ctx.interaction.focused {
                     if let Some(node) = ctx.ir.nodes.get(&focused_id) {
                         if let Op::Semantics(sem) = &node.op {
-                            if sem.role == fission_ir::semantics::Role::TextInput {
+                            if sem.supports_text_editing() {
                                 let active_handle = ctx
                                     .text_edit
                                     .states
@@ -577,7 +575,7 @@ impl InputController for TextInputController {
                 if let Some(focused_id) = ctx.interaction.focused {
                     if let Some(node) = ctx.ir.nodes.get(&focused_id) {
                         if let Op::Semantics(sem) = &node.op {
-                            if sem.role == fission_ir::semantics::Role::TextInput {
+                            if sem.supports_text_editing() {
                                 let value = sem.value.as_deref().unwrap_or("").to_string();
                                 let toolbar_anchor = Self::input_wrapper_geometry(ctx, focused_id)
                                     .map(|geom| {
@@ -706,6 +704,7 @@ impl TextInputController {
                 anchor = state.anchor;
             }
             crate::TextEditPhase::CompositionStarted | crate::TextEditPhase::CompositionUpdated => {
+                ctx.interaction.clear_active_descendant(focused_id);
                 let state = ctx.text_edit.get_mut_or_default(focused_id);
                 state.sync_composing_value(result.new_value);
             }
@@ -846,7 +845,7 @@ impl TextInputController {
         while let Some(node_id) = current_id {
             let node = ctx.ir.nodes.get(&node_id)?;
             if let Op::Semantics(semantics) = &node.op {
-                if semantics.role == fission_ir::semantics::Role::TextInput {
+                if semantics.supports_text_editing() {
                     return Some(semantics.clone());
                 }
             }
@@ -910,7 +909,7 @@ impl TextInputController {
         while let Some(node_id) = current_id {
             if let Some(node) = ctx.ir.nodes.get(&node_id) {
                 if let Op::Semantics(s) = &node.op {
-                    if s.role == fission_ir::semantics::Role::TextInput {
+                    if s.supports_text_editing() {
                         semantics_node = Some(s);
                         break;
                     }
@@ -1543,6 +1542,7 @@ impl TextInputController {
         node_id: WidgetId,
         result: crate::TextEditResult,
     ) {
+        ctx.interaction.clear_active_descendant(node_id);
         Self::persist_runtime_state(ctx, node_id);
         if let Some((envelope, input)) =
             crate::input::prepare_scoped_text_input_edit(ctx.ir, semantics, node_id, result)
@@ -1558,7 +1558,7 @@ impl TextInputController {
                 if let Some(focused_id) = ctx.interaction.focused {
                     if let Some(node) = ctx.ir.nodes.get(&focused_id) {
                         if let Op::Semantics(semantics) = &node.op {
-                            if semantics.role == fission_ir::semantics::Role::TextInput {
+                            if semantics.supports_text_editing() {
                                 if semantics.disabled || semantics.read_only {
                                     return true;
                                 }
@@ -1635,6 +1635,7 @@ impl TextInputController {
                             );
                         }
                     }
+                    ctx.interaction.clear_active_descendant(focused_id);
                     let st = ctx.text_edit.get_mut_or_default(focused_id);
                     st.set_preedit(text.clone(), *cursor);
                     Self::auto_scroll_textinput(ctx, focused_id);
@@ -1672,6 +1673,7 @@ impl TextInputController {
         node_id: WidgetId,
         new_text: String,
     ) {
+        ctx.interaction.clear_active_descendant(node_id);
         Self::persist_runtime_state(ctx, node_id);
         let (new_caret, new_anchor) = ctx
             .text_edit

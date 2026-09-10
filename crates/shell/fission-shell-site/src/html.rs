@@ -11,7 +11,10 @@ use fission_ir::op::{
     ImageSource, JustifyContent, LayoutOp, Length, LineCap, LineJoin, Op, Overflow, PaintOp,
     RichTextAnnotation, Stroke, TextAlign, TextOverflow, TextRun,
 };
-use fission_ir::{semantics::ActionTrigger, CoreIR, CoreNode, Role, Semantics, WidgetId};
+use fission_ir::{
+    semantics::ActionTrigger, CoreIR, CoreNode, PopupKind, Role, SemanticOrientation, Semantics,
+    WidgetId,
+};
 use fission_theme::{DesignMode, PackagedFont, PackagedFontStyle, Theme};
 use std::collections::{BTreeMap, HashSet};
 
@@ -231,8 +234,12 @@ pub fn render_ir_to_html_with_styles(
     renderer.register_interaction_motion_styles();
     let body = renderer.render_node(root)?;
     let has_code_blocks = renderer.has_code_blocks;
+    let direction_attr = match ir.layout_direction {
+        fission_ir::LayoutDirection::LeftToRight => "",
+        fission_ir::LayoutDirection::RightToLeft => " dir=\"rtl\"",
+    };
     let body_html = format!(
-        "<div class=\"{}\">{body}</div>",
+        "<div class=\"{}\"{direction_attr}>{body}</div>",
         escape_attr(&options.root_class)
     );
     let html = render_document(&body_html, options, has_code_blocks);
@@ -702,6 +709,9 @@ fn hex_encode(bytes: &[u8]) -> String {
 
 fn validate_static_ir(ir: &CoreIR, allow_server_actions: bool) -> Result<()> {
     for node in ir.nodes.values() {
+        if fission_core::hit_test::is_interaction_inert(ir, node.id) {
+            continue;
+        }
         match &node.op {
             Op::Semantics(semantics) => {
                 if semantics.hyperlink.is_none()
@@ -910,6 +920,15 @@ impl HtmlRenderer<'_> {
                     node,
                     "fission-site-node fission-site-pointer-transparent",
                     vec!["pointer-events:none".to_string()],
+                ),
+            Op::Structural(fission_ir::StructuralOp::InteractionInert { .. }) => self
+                .render_element_with_attrs(
+                    "div",
+                    node,
+                    node.id,
+                    "fission-site-node fission-site-interaction-inert",
+                    vec!["pointer-events:none".to_string()],
+                    " aria-hidden=\"true\" inert",
                 ),
             Op::Structural(_) => self.render_element("div", node, "fission-site-node", Vec::new()),
             Op::Layout(layout) => self.render_layout(node, layout),
@@ -1149,7 +1168,7 @@ impl HtmlRenderer<'_> {
             style.push(format!("animation:{}", animations.join(",")));
             self.styles.raw_rule(
                 "fission-site-reduced-motion-animations",
-                "@media (prefers-reduced-motion:reduce){.fission-site-animated{animation:none!important;}}\n",
+                "@media (prefers-reduced-motion:reduce){.fission-site-animated{animation-duration:0ms!important;animation-delay:0ms!important;animation-iteration-count:1!important;}}\n",
             );
         }
 
@@ -1214,7 +1233,7 @@ impl HtmlRenderer<'_> {
             style.push(format!("animation:{}", animations.join(",")));
             self.styles.raw_rule(
                 "fission-site-reduced-motion-animations",
-                "@media (prefers-reduced-motion:reduce){.fission-site-animated{animation:none!important;}}\n",
+                "@media (prefers-reduced-motion:reduce){.fission-site-animated{animation-duration:0ms!important;animation-delay:0ms!important;animation-iteration-count:1!important;}}\n",
             );
         }
 
@@ -1703,7 +1722,11 @@ impl HtmlRenderer<'_> {
                     "justify-content:center".to_string(),
                 ],
             ),
-            LayoutOp::Flyout { anchor, content } => {
+            LayoutOp::Flyout {
+                anchor,
+                content,
+                options,
+            } => {
                 let children = self.render_children(&node.children, &HashSet::new())?;
                 let class_name = self.class_name(
                     "fission-site-node fission-site-flyout",
@@ -1713,11 +1736,20 @@ impl HtmlRenderer<'_> {
                         "inset:auto".to_string(),
                     ],
                 );
+                let alignment_target = options
+                    .alignment_target
+                    .map(|target| target.to_string())
+                    .unwrap_or_default();
                 Ok(format!(
-                    "<div class=\"{}\" data-fission-flyout-anchor=\"{}\" data-fission-flyout-content=\"{}\" data-fission-node=\"{}\">{children}</div>",
+                    "<div class=\"{}\" data-fission-flyout-anchor=\"{}\" data-fission-flyout-content=\"{}\" data-fission-flyout-alignment=\"{:?}\" data-fission-flyout-placement=\"{:?}\" data-fission-flyout-width=\"{:?}\" data-fission-flyout-gap=\"{}\" data-fission-flyout-alignment-target=\"{}\" data-fission-node=\"{}\">{children}</div>",
                     escape_attr(&class_name),
                     anchor,
                     content,
+                    options.alignment,
+                    options.placement,
+                    options.width,
+                    options.gap,
+                    escape_attr(&alignment_target),
                     node.id
                 ))
             }
@@ -2129,7 +2161,7 @@ impl HtmlRenderer<'_> {
                 );
             }
         }
-        if is_native_control_role(semantics.role) {
+        if is_native_control_semantics(semantics) {
             return self.render_native_control_semantics(node, semantics);
         }
         if let Some(html) = self.render_server_action_semantics(node, semantics)? {
@@ -2142,11 +2174,20 @@ impl HtmlRenderer<'_> {
             Role::Button => "button",
             Role::Link => "a",
             Role::MenuItem => "button",
+            Role::Option | Role::Tab => "button",
             Role::Image => "figure",
             Role::List => "ul",
             Role::ListItem => "li",
-            Role::Dialog => "section",
-            Role::Text | Role::Generic => "div",
+            Role::Dialog | Role::TabPanel => "section",
+            Role::Text
+            | Role::Generic
+            | Role::Menu
+            | Role::ListBox
+            | Role::ComboBox
+            | Role::TabList
+            | Role::Alert
+            | Role::Group
+            | Role::Separator => "div",
             Role::TextInput
             | Role::Checkbox
             | Role::Radio
@@ -2161,18 +2202,9 @@ impl HtmlRenderer<'_> {
             .as_deref()
             .and_then(markdown_heading_tag)
             .unwrap_or(tag);
-        let mut attrs = String::new();
-        if let Some(label) = &semantics.label {
-            attrs.push_str(&format!(" aria-label=\"{}\"", escape_attr(label)));
-        }
-        if let Some(identifier) = &semantics.identifier {
-            attrs.push_str(&format!(
-                " data-fission-semantics=\"{}\"",
-                escape_attr(identifier)
-            ));
-            if let Some(anchor) = markdown_heading_anchor(identifier) {
-                attrs.push_str(&format!(" id=\"{}\"", escape_attr(anchor)));
-            }
+        let mut attrs = semantic_html_attrs(self.ir, node.id, semantics);
+        if let Some(role) = semantic_html_role(semantics.role) {
+            attrs.push_str(&format!(" role=\"{role}\""));
         }
         if tag == "button" {
             attrs.push_str(" type=\"button\" disabled");
@@ -2222,7 +2254,7 @@ impl HtmlRenderer<'_> {
     ) -> Result<String> {
         let mut attrs = self.native_control_attrs(node, semantics);
         if self.options.browser_action_bindings
-            && matches!(semantics.role, Role::TextInput | Role::Input)
+            && semantics.supports_text_editing()
             && !semantics.disabled
             && !semantics.read_only
             && semantics
@@ -2249,28 +2281,29 @@ impl HtmlRenderer<'_> {
                 )
             })
             .unwrap_or_default();
-        match semantics.role {
-            Role::TextInput | Role::Input if semantics.multiline => {
+        if semantics.supports_text_editing() {
+            if semantics.multiline {
                 let value = semantics.value.as_deref().unwrap_or_default();
-                Ok(format!(
+                return Ok(format!(
                     "<label class=\"fission-site-node fission-site-control\" data-fission-node=\"{}\"><span class=\"fission-site-control-label\">{}</span><textarea class=\"fission-site-input\"{attrs}>{}</textarea>{validation}{children}</label>",
                     node.id,
                     escape_text(label_text),
                     escape_text(value)
-                ))
-            }
-            Role::TextInput | Role::Input => {
+                ));
+            } else {
                 attrs.push_str(&format!(
                     " type=\"{}\" value=\"{}\"",
                     html_text_input_type(semantics),
                     escape_attr(semantics.value.as_deref().unwrap_or_default())
                 ));
-                Ok(format!(
+                return Ok(format!(
                     "<label class=\"fission-site-node fission-site-control\" data-fission-node=\"{}\"><span class=\"fission-site-control-label\">{}</span><input class=\"fission-site-input\"{attrs}>{validation}{children}</label>",
                     node.id,
                     escape_text(label_text)
-                ))
+                ));
             }
+        }
+        match semantics.role {
             Role::Checkbox | Role::Switch => {
                 if semantics.role == Role::Switch {
                     attrs.push_str(" role=\"switch\"");
@@ -2316,15 +2349,10 @@ impl HtmlRenderer<'_> {
     }
 
     fn native_control_attrs(&self, node: &CoreNode, semantics: &Semantics) -> String {
-        let mut attrs = format!(" data-fission-node=\"{}\"", node.id);
-        if let Some(label) = &semantics.label {
-            attrs.push_str(&format!(" aria-label=\"{}\"", escape_attr(label)));
-        }
-        if let Some(identifier) = &semantics.identifier {
-            attrs.push_str(&format!(
-                " data-fission-semantics=\"{}\"",
-                escape_attr(identifier)
-            ));
+        let mut attrs = semantic_html_attrs(self.ir, node.id, semantics);
+        attrs.push_str(&format!(" data-fission-node=\"{}\"", node.id));
+        if let Some(role) = semantic_html_role(semantics.role) {
+            attrs.push_str(&format!(" role=\"{role}\""));
         }
         if let Some(name) = semantics
             .text_field_name
@@ -2348,9 +2376,9 @@ impl HtmlRenderer<'_> {
         if let Some(max_length) = semantics.max_length {
             attrs.push_str(&format!(" maxlength=\"{max_length}\""));
         }
-        if matches!(semantics.role, Role::TextInput | Role::Input) {
+        if semantics.supports_text_editing() {
             if semantics.required {
-                attrs.push_str(" required aria-required=\"true\"");
+                attrs.push_str(" required");
             }
             if let Some(min_length) = semantics.min_length {
                 attrs.push_str(&format!(" minlength=\"{min_length}\""));
@@ -2363,9 +2391,7 @@ impl HtmlRenderer<'_> {
                 fission_ir::semantics::TextFieldValidationState::Valid => {
                     attrs.push_str(" aria-invalid=\"false\"");
                 }
-                fission_ir::semantics::TextFieldValidationState::Invalid => {
-                    attrs.push_str(" aria-invalid=\"true\"");
-                }
+                fission_ir::semantics::TextFieldValidationState::Invalid => {}
             }
             if semantics.validation_message.is_some() {
                 attrs.push_str(&format!(
@@ -2429,15 +2455,10 @@ impl HtmlRenderer<'_> {
             return Ok(None);
         };
         let children = self.render_children(&node.children, &HashSet::new())?;
-        let mut attrs = String::new();
-        if let Some(label) = &semantics.label {
-            attrs.push_str(&format!(" aria-label=\"{}\"", escape_attr(label)));
-        }
-        if let Some(identifier) = &semantics.identifier {
-            attrs.push_str(&format!(
-                " data-fission-semantics=\"{}\"",
-                escape_attr(identifier)
-            ));
+        let mut attrs = semantic_html_attrs(self.ir, node.id, semantics);
+        attrs.push_str(&format!(" data-fission-node=\"{}\"", node.id));
+        if let Some(role) = semantic_html_role(semantics.role) {
+            attrs.push_str(&format!(" role=\"{role}\""));
         }
         let form_id = semantics
             .text_form_id
@@ -2472,17 +2493,11 @@ impl HtmlRenderer<'_> {
             return Ok(None);
         };
         let children = self.render_children(&node.children, &HashSet::new())?;
-        let mut attrs = String::new();
-        if let Some(label) = &semantics.label {
-            attrs.push_str(&format!(" aria-label=\"{}\"", escape_attr(label)));
+        let mut attrs = semantic_html_attrs(self.ir, node.id, semantics);
+        attrs.push_str(&format!(" data-fission-node=\"{}\"", node.id));
+        if let Some(role) = semantic_html_role(semantics.role) {
+            attrs.push_str(&format!(" role=\"{role}\""));
         }
-        if let Some(identifier) = &semantics.identifier {
-            attrs.push_str(&format!(
-                " data-fission-semantics=\"{}\"",
-                escape_attr(identifier)
-            ));
-        }
-        attrs.push_str(" role=\"button\"");
         attrs.push_str(&format!(
             " data-fission-browser-action=\"true\" data-fission-action-id=\"{}\" data-fission-action-target=\"{}\" data-fission-action-payload=\"{}\"",
             action.action_id,
@@ -2490,8 +2505,7 @@ impl HtmlRenderer<'_> {
             hex_encode(payload)
         ));
         Ok(Some(format!(
-            "<button class=\"fission-site-node fission-site-semantics fission-browser-action\" type=\"button\"{attrs} data-fission-node=\"{}\">{children}</button>",
-            node.id
+            "<button class=\"fission-site-node fission-site-semantics fission-browser-action\" type=\"button\"{attrs}>{children}</button>"
         )))
     }
 
@@ -4120,11 +4134,140 @@ fn justify_content_css(justify: JustifyContent) -> &'static str {
     }
 }
 
-fn is_native_control_role(role: Role) -> bool {
-    matches!(
-        role,
-        Role::TextInput | Role::Checkbox | Role::Radio | Role::Switch | Role::Slider | Role::Input
-    )
+fn is_native_control_semantics(semantics: &Semantics) -> bool {
+    semantics.supports_text_editing()
+        || matches!(
+            semantics.role,
+            Role::Checkbox | Role::Radio | Role::Switch | Role::Slider
+        )
+}
+
+fn semantic_html_role(role: Role) -> Option<&'static str> {
+    match role {
+        Role::MenuItem => Some("menuitem"),
+        Role::Image => Some("img"),
+        Role::Dialog => Some("dialog"),
+        Role::Menu => Some("menu"),
+        Role::ListBox => Some("listbox"),
+        Role::Option => Some("option"),
+        Role::ComboBox => Some("combobox"),
+        Role::TabList => Some("tablist"),
+        Role::Tab => Some("tab"),
+        Role::TabPanel => Some("tabpanel"),
+        Role::Alert => Some("alert"),
+        Role::Group => Some("group"),
+        Role::Separator => Some("separator"),
+        Role::Button
+        | Role::Link
+        | Role::Text
+        | Role::TextInput
+        | Role::Checkbox
+        | Role::Radio
+        | Role::Switch
+        | Role::Slider
+        | Role::Input
+        | Role::List
+        | Role::ListItem
+        | Role::Generic => None,
+    }
+}
+
+fn semantic_dom_id(ir: &CoreIR, node_id: WidgetId) -> String {
+    ir.nodes
+        .get(&node_id)
+        .and_then(|node| match &node.op {
+            Op::Semantics(semantics) => semantics.identifier.as_deref(),
+            _ => None,
+        })
+        .and_then(markdown_heading_anchor)
+        .map(str::to_owned)
+        .unwrap_or_else(|| format!("fission-semantic-{}", node_id.as_u128()))
+}
+
+fn semantic_html_attrs(ir: &CoreIR, node_id: WidgetId, semantics: &Semantics) -> String {
+    let mut attrs = format!(" id=\"{}\"", escape_attr(&semantic_dom_id(ir, node_id)));
+    if let Some(label) = semantics.label.as_deref() {
+        attrs.push_str(&format!(" aria-label=\"{}\"", escape_attr(label)));
+    }
+    if let Some(identifier) = semantics.identifier.as_deref() {
+        attrs.push_str(&format!(
+            " data-fission-semantics=\"{}\"",
+            escape_attr(identifier)
+        ));
+    }
+    if semantics.disabled {
+        attrs.push_str(" aria-disabled=\"true\"");
+    }
+    if semantics.read_only {
+        attrs.push_str(" aria-readonly=\"true\"");
+    }
+    if semantics.focusable && !semantics.disabled {
+        attrs.push_str(if semantics.is_sequentially_focusable() {
+            " tabindex=\"0\""
+        } else {
+            " tabindex=\"-1\""
+        });
+    }
+    if let Some(checked) = semantics.checked {
+        attrs.push_str(&format!(" aria-checked=\"{checked}\""));
+    }
+    if let Some(selected) = semantics.selected {
+        attrs.push_str(&format!(" aria-selected=\"{selected}\""));
+    }
+    if let Some(expanded) = semantics.expanded {
+        attrs.push_str(&format!(" aria-expanded=\"{expanded}\""));
+    }
+    if let Some(popup) = semantics.has_popup {
+        let popup = match popup {
+            PopupKind::Menu => "menu",
+            PopupKind::ListBox => "listbox",
+            PopupKind::Tree => "tree",
+            PopupKind::Grid => "grid",
+            PopupKind::Dialog => "dialog",
+        };
+        attrs.push_str(&format!(" aria-haspopup=\"{popup}\""));
+    }
+    if let Some(orientation) = semantics.orientation {
+        let orientation = match orientation {
+            SemanticOrientation::Horizontal => "horizontal",
+            SemanticOrientation::Vertical => "vertical",
+        };
+        attrs.push_str(&format!(" aria-orientation=\"{orientation}\""));
+    }
+    if semantics.modal {
+        attrs.push_str(" aria-modal=\"true\"");
+    }
+    if semantics.required {
+        attrs.push_str(" aria-required=\"true\"");
+    }
+    if matches!(
+        semantics.validation_state,
+        fission_ir::TextFieldValidationState::Invalid
+    ) {
+        attrs.push_str(" aria-invalid=\"true\"");
+    }
+
+    let mut relation = |name: &str, ids: &[WidgetId]| {
+        if ids.is_empty() {
+            return;
+        }
+        let value = ids
+            .iter()
+            .map(|id| semantic_dom_id(ir, *id))
+            .collect::<Vec<_>>()
+            .join(" ");
+        attrs.push_str(&format!(" {name}=\"{}\"", escape_attr(&value)));
+    };
+    relation("aria-controls", &semantics.controls);
+    relation("aria-labelledby", &semantics.labelled_by);
+    relation("aria-describedby", &semantics.described_by);
+    if let Some(active_descendant) = semantics.active_descendant {
+        attrs.push_str(&format!(
+            " aria-activedescendant=\"{}\"",
+            escape_attr(&semantic_dom_id(ir, active_descendant))
+        ));
+    }
+    attrs
 }
 
 fn html_text_input_type(semantics: &Semantics) -> &'static str {
@@ -4289,8 +4432,8 @@ mod tests {
     };
     use fission_core::{build, Env, RuntimeState, View};
     use fission_ir::{
-        ActionEntry, ActionSet, CompositeScalar, CompositeStyle, CoreIR, CoreNode, Op, Semantics,
-        WidgetId,
+        ActionEntry, ActionSet, CompositeScalar, CompositeStyle, CoreIR, CoreNode, LayoutDirection,
+        Op, Semantics, WidgetId,
     };
     use fission_widgets::MarkdownContent;
 
@@ -4338,6 +4481,77 @@ mod tests {
         let (opening, after_opening) = list.split_once('>').expect("list opening tag");
         let (contents, _) = after_opening.split_once("</ul>").expect("list closing tag");
         (opening, contents)
+    }
+
+    #[test]
+    fn right_to_left_ir_sets_direction_on_the_rendered_root() {
+        let root = WidgetId::explicit("rtl-root");
+        let mut ir = CoreIR::new();
+        ir.layout_direction = LayoutDirection::RightToLeft;
+        ir.add_node(
+            root,
+            Op::Structural(fission_ir::StructuralOp::Group { stable_hash: 1 }),
+            Vec::new(),
+        );
+        ir.set_root(root);
+
+        let rendered = render_ir_to_html(&ir, &HtmlRenderOptions::default()).unwrap();
+        assert!(rendered
+            .body_html
+            .starts_with("<div class=\"fission-site-root\" dir=\"rtl\">"));
+    }
+
+    #[test]
+    fn interaction_inert_subtrees_remain_visual_but_are_hidden_from_interaction_and_at() {
+        let root = WidgetId::explicit("interaction-inert");
+        let action = WidgetId::explicit("exiting-action");
+        let text = WidgetId::explicit("exiting-text");
+        let mut ir = CoreIR::new();
+        ir.add_node(
+            text,
+            Op::Paint(PaintOp::DrawText {
+                text: "Exiting content".into(),
+                size: 14.0,
+                color: Color::BLACK,
+                underline: false,
+                locale: None,
+                wrap: true,
+                caret_index: None,
+                caret_color: None,
+                caret_width: None,
+                caret_height: None,
+                caret_radius: None,
+                paragraph_style: None,
+            }),
+            vec![],
+        );
+        ir.add_node(
+            action,
+            Op::Semantics(Semantics {
+                role: Role::Button,
+                actions: ActionSet {
+                    entries: vec![ActionEntry {
+                        trigger: ActionTrigger::Default,
+                        action_id: 7,
+                        payload_data: Some(vec![1]),
+                    }],
+                },
+                ..Semantics::default()
+            }),
+            vec![text],
+        );
+        ir.add_node(
+            root,
+            Op::Structural(fission_ir::StructuralOp::InteractionInert { stable_hash: 1 }),
+            vec![action],
+        );
+        ir.set_root(root);
+
+        validate_static_ir(&ir, false).expect("inert actions are not interactive static output");
+        let rendered = render_ir_to_html(&ir, &HtmlRenderOptions::default()).unwrap();
+        assert!(rendered.html.contains("Exiting content"));
+        assert!(rendered.html.contains("aria-hidden=\"true\" inert"));
+        assert!(rendered.css.contains("pointer-events:none"));
     }
 
     #[test]
@@ -5077,6 +5291,11 @@ mod tests {
             .css
             .contains("7000ms linear 120ms infinite normal both"));
         assert!(rendered.css.contains("prefers-reduced-motion:reduce"));
+        assert!(rendered.css.contains("animation-duration:0ms!important"));
+        assert!(rendered
+            .css
+            .contains("animation-iteration-count:1!important"));
+        assert!(!rendered.css.contains("animation:none!important"));
     }
 
     #[test]
@@ -5548,7 +5767,7 @@ mod tests {
     }
 
     #[test]
-    fn browser_action_options_require_a_text_input_role() {
+    fn browser_action_options_require_text_editing_capability() {
         let node = WidgetId::explicit("generic-text-change-node");
         let mut semantics = Semantics {
             role: Role::Generic,
@@ -5576,6 +5795,200 @@ mod tests {
         assert!(!rendered.html.contains("data-fission-browser-text-action"));
         assert!(!rendered.html.contains("data-fission-action-id"));
         assert!(!rendered.html.contains("data-fission-action-payload"));
+    }
+
+    #[test]
+    fn editable_combobox_renders_as_a_native_text_control() {
+        let node = WidgetId::explicit("editable-combobox");
+        let mut semantics = Semantics {
+            role: Role::ComboBox,
+            text_editable: true,
+            label: Some("Destination".into()),
+            value: Some("London".into()),
+            expanded: Some(false),
+            ..Default::default()
+        };
+        semantics.actions = ActionSet {
+            entries: vec![ActionEntry {
+                trigger: ActionTrigger::TextChanged,
+                action_id: 22,
+                payload_data: None,
+            }],
+        };
+        let mut ir = CoreIR::new();
+        ir.add_node(node, Op::Semantics(semantics), Vec::new());
+        ir.set_root(node);
+
+        let rendered = render_ir_to_html(
+            &ir,
+            &HtmlRenderOptions {
+                browser_action_bindings: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        assert!(rendered.html.contains("<input"));
+        assert!(rendered.html.contains("role=\"combobox\""));
+        assert!(rendered.html.contains("value=\"London\""));
+        assert!(rendered
+            .html
+            .contains("data-fission-browser-text-action=\"true\""));
+    }
+
+    #[test]
+    fn noneditable_combobox_does_not_render_as_a_text_control() {
+        let node = WidgetId::explicit("noneditable-combobox");
+        let mut ir = CoreIR::new();
+        ir.add_node(
+            node,
+            Op::Semantics(Semantics {
+                role: Role::ComboBox,
+                label: Some("Destination".into()),
+                value: Some("London".into()),
+                ..Default::default()
+            }),
+            Vec::new(),
+        );
+        ir.set_root(node);
+
+        let rendered = render_ir_to_html(&ir, &HtmlRenderOptions::default()).unwrap();
+
+        assert!(!rendered.html.contains("<input"));
+        assert!(rendered.html.contains("role=\"combobox\""));
+    }
+
+    #[test]
+    fn alert_semantics_render_as_an_announcing_region() {
+        let node = WidgetId::explicit("status-alert");
+        let mut ir = CoreIR::new();
+        ir.add_node(
+            node,
+            Op::Semantics(Semantics {
+                role: Role::Alert,
+                ..Default::default()
+            }),
+            Vec::new(),
+        );
+        ir.set_root(node);
+
+        let rendered = render_ir_to_html(&ir, &HtmlRenderOptions::default()).unwrap();
+
+        assert!(rendered.html.contains("role=\"alert\""));
+    }
+
+    #[test]
+    fn composite_semantics_render_complete_aria_state_and_relationships() {
+        let root = WidgetId::from_u128(1);
+        let listbox = WidgetId::from_u128(2);
+        let label = WidgetId::from_u128(3);
+        let description = WidgetId::from_u128(4);
+        let option = WidgetId::from_u128(5);
+        let combo = WidgetId::from_u128(6);
+        let dialog = WidgetId::from_u128(7);
+        let mut ir = CoreIR::new();
+        ir.add_node(
+            label,
+            Op::Semantics(Semantics {
+                role: Role::Text,
+                label: Some("Destination".into()),
+                ..Semantics::default()
+            }),
+            Vec::new(),
+        );
+        ir.add_node(
+            description,
+            Op::Semantics(Semantics {
+                role: Role::Text,
+                label: Some("Choose one destination".into()),
+                ..Semantics::default()
+            }),
+            Vec::new(),
+        );
+        ir.add_node(
+            option,
+            Op::Semantics(Semantics {
+                role: Role::Option,
+                label: Some("London".into()),
+                selected: Some(true),
+                ..Semantics::default()
+            }),
+            Vec::new(),
+        );
+        ir.add_node(
+            listbox,
+            Op::Semantics(Semantics {
+                role: Role::ListBox,
+                orientation: Some(SemanticOrientation::Vertical),
+                ..Semantics::default()
+            }),
+            vec![option],
+        );
+        ir.add_node(
+            combo,
+            Op::Semantics(Semantics {
+                role: Role::ComboBox,
+                label: Some("Destination".into()),
+                focusable: true,
+                sequential_focusable: false,
+                expanded: Some(false),
+                has_popup: Some(PopupKind::ListBox),
+                required: true,
+                validation_state: fission_ir::TextFieldValidationState::Invalid,
+                controls: vec![listbox],
+                labelled_by: vec![label],
+                described_by: vec![description],
+                active_descendant: Some(option),
+                ..Semantics::default()
+            }),
+            Vec::new(),
+        );
+        ir.add_node(
+            dialog,
+            Op::Semantics(Semantics {
+                role: Role::Dialog,
+                modal: true,
+                ..Semantics::default()
+            }),
+            Vec::new(),
+        );
+        ir.add_node(
+            root,
+            Op::Structural(fission_ir::StructuralOp::Group { stable_hash: 1 }),
+            vec![label, description, combo, listbox, dialog],
+        );
+        ir.set_root(root);
+
+        let rendered = render_ir_to_html(&ir, &HtmlRenderOptions::default()).unwrap();
+        let combo_start = rendered
+            .html
+            .find("id=\"fission-semantic-6\"")
+            .expect("combobox semantic element");
+        let combo_end = combo_start
+            + rendered.html[combo_start..]
+                .find('>')
+                .expect("combobox opening tag");
+        let combo_attrs = &rendered.html[combo_start..combo_end];
+        for expected in [
+            "tabindex=\"-1\"",
+            "aria-expanded=\"false\"",
+            "aria-haspopup=\"listbox\"",
+            "aria-required=\"true\"",
+            "aria-invalid=\"true\"",
+            "aria-controls=\"fission-semantic-2\"",
+            "aria-labelledby=\"fission-semantic-3\"",
+            "aria-describedby=\"fission-semantic-4\"",
+            "aria-activedescendant=\"fission-semantic-5\"",
+            "role=\"combobox\"",
+        ] {
+            assert!(
+                combo_attrs.contains(expected),
+                "missing {expected}: {combo_attrs}"
+            );
+        }
+        assert!(rendered.html.contains("aria-orientation=\"vertical\""));
+        assert!(rendered.html.contains("aria-selected=\"true\""));
+        assert!(rendered.html.contains("aria-modal=\"true\""));
     }
 
     #[test]

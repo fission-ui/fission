@@ -1,71 +1,215 @@
 ---
 title: Menu
-description: Render a scrollable vertical list of menu actions.
+description: Present compact commands or compose a retained menu surface with groups, descriptions, metadata, disabled states, and destructive emphasis.
 slug: /widgets/menu
 ---
 # Menu
 
-`Menu` is the popup action list used by higher-level controls such as [`MenuButton`](/reference/widgets/menu-button) and [`Select`](/reference/widgets/select).
+`Menu` is the concise flat command list. `MenuContent` is the retained anatomy
+API for product menus that need groups, labels, separators, descriptions,
+trailing information, explicit disabled states, or destructive emphasis.
 
-It takes a list of [`MenuItem`](/reference/widgets/menu-item) values and renders them as vertically stacked ghost buttons inside a bordered, elevated surface. When the content grows tall enough, the menu becomes scrollable.
+Use either form for commands such as rename, archive, duplicate, or export. Use
+[`Select`](/reference/widgets/select) when rows represent one persistent value
+instead. [`MenuButton`](/reference/widgets/menu-button) adds an anchored trigger,
+controlled open state, dismissal, and popup focus behavior to the flat model.
 
-## Example
+## Flat menu
 
 ```rust
 use fission::prelude::*;
 
-let widget: Widget = Menu {
-items: vec![
-    MenuItem {
-        label: "Archive".into(),
-        icon: None,
-        on_select: Some(archive_action),
-    },
-    MenuItem {
-        label: "Mark unread".into(),
-        icon: None,
-        on_select: Some(mark_unread_action),
-    },
-],
-width: Some(220.0),
-max_height: Some(280.0),
+let menu: Widget = Menu {
+    items: vec![
+        MenuItem {
+            label: "Archive".into(),
+            icon: None,
+            on_select: Some(archive_action),
+            semantics_identifier: Some("message.archive".into()),
+        },
+        MenuItem {
+            label: "Mark unread".into(),
+            icon: None,
+            on_select: Some(mark_unread_action),
+            semantics_identifier: Some("message.mark-unread".into()),
+        },
+    ],
+    width: Some(220.0),
+    max_height: Some(280.0),
 }
 .into();
 ```
 
-`Menu` itself only renders the list. Some surrounding widget still has to decide when and where to show it.
+`Menu` adapts every `MenuItem` into the same themed and semantic row used by
+the richer API, so the convenience form does not create a second visual model.
 
-## Field table
+## Composed menu anatomy
 
-| Field | Type | Meaning | Notes / default behavior |
+```rust
+use fission::prelude::*;
+
+let project_menu: Widget = MenuContent::new(vec![
+    MenuGroup::new(vec![
+        MenuActionItem::new("Open project")
+            .leading_icon(open_icon_svg)
+            .description("Open in the current workspace")
+            .shortcut("Ctrl+O")
+            .on_select(open_project_action)
+            .semantics_identifier("project.open")
+            .into(),
+        MenuActionItem::new("Move project")
+            .metadata("Unavailable offline")
+            .on_select(move_project_action)
+            .disabled(!can_move_project)
+            .semantics_identifier("project.move")
+            .into(),
+    ])
+    .label("Project")
+    .into(),
+    MenuSeparator::new().into(),
+    MenuActionItem::new("Delete project")
+        .tone(MenuItemTone::Destructive)
+        .on_select(delete_project_action)
+        .semantics_identifier("project.delete")
+        .into(),
+])
+.id(WidgetId::explicit("project-actions.content"))
+.width(244.0)
+.max_height(300.0)
+.into();
+```
+
+The public anatomy types have distinct responsibilities:
+
+| Type | Responsibility |
+| --- | --- |
+| `MenuContent` | Owns one vertical `Menu` or `ListBox` surface, width, height bound, scrolling, and composite semantics. |
+| `MenuEntry` | Retains an action item, group, standalone label, or separator in display order. Each anatomy type converts into it. |
+| `MenuActionItem` | Owns an actionable row with label, optional description and leading icon, one trailing value, selection, disabled state, and tone. |
+| `MenuGroup` | Groups related entries and can expose a visible `MenuLabel` as its semantic label. |
+| `MenuLabel` | Renders a visible, non-focusable heading with optional stable identity and semantic identifier. |
+| `MenuSeparator` | Renders a retained, non-focusable visual boundary between regions. |
+
+`MenuActionItem::shortcut(...)` and `.metadata(...)` both set the same trailing
+slot, so the later call wins rather than producing competing content. If any
+row has a leading icon or selected state, the surface reserves that column for
+all action rows, including rows nested in groups. Labels therefore stay aligned
+instead of shifting from item to item.
+
+`MenuContent::list_box(...)` creates the option-role form used by fixed and
+editable choice controls. `MenuActionItem::option(label, selected)` makes the
+state explicit; the list-box constructor also normalizes ordinary action items
+to unselected options. Most applications should use `Select` or `Combobox`
+rather than assembling that lower-level relationship themselves.
+
+## Field and builder reference
+
+`Menu` fields:
+
+| Field | Type | Meaning | Default |
 | --- | --- | --- | --- |
-| `items` | `Vec<MenuItem>` | Entries to render from top to bottom. | Required. |
-| `width` | `Option<f32>` | Target menu width. | If `None`, item rows default to `200.0` wide. |
-| `max_height` | `Option<f32>` | Maximum height before the menu scrolls. | Defaults to `300.0`. |
+| `items` | `Vec<MenuItem>` | Flat commands in visual and keyboard order. | Required. |
+| `width` | `Option<f32>` | Logical surface width. | The active menu surface recipe, 208 points in the default design. |
+| `max_height` | `Option<f32>` | Maximum surface height before scrolling. | 300 points when omitted. |
 
-## Layout and interaction behavior
+`MenuContent` exposes `id`, `entries`, `width`, and `max_height` directly, with
+matching builders. `new(...)` creates a command menu. `list_box(...)` creates
+option semantics and leaves width available for an anchoring flyout to resolve.
+The advanced `.fluid_width(...)`, `.dismiss_action(...)`, and
+`.focus_barrier(...)` builders let a composite owner coordinate retained popup
+width, semantic dismissal, and focus containment; they do not create a trigger
+or outside-click layer by themselves.
 
-Each item row is rendered as a ghost button aligned to the start, with dividers between rows. The menu surface itself is wrapped in a [`Scroll`](/reference/widgets/scroll) when the estimated content height exceeds the configured maximum. This is why `Menu` is a good building block for compact action lists but not for enormous data sets.
+`MenuActionItem` starts as a normal, enabled command with only its label. Its
+builders add:
 
-`Menu` also does not own open state. Whether it appears, disappears, or repositions belongs to the parent widget or portal.
+| Builder / field | Meaning |
+| --- | --- |
+| `id(...)` | Explicit retained identity; otherwise the containing surface derives one. |
+| `description(...)` | Supporting line related to the action through `described_by`. |
+| `leading_icon(...)` | SVG at the logical leading edge. |
+| `shortcut(...)` / `metadata(...)` | Mutually exclusive trailing content. |
+| `on_select(...)` | Action dispatched by the enabled row. |
+| `semantics_identifier(...)` | Stable accessibility and semantic-test identifier. |
+| `selected(...)` | Explicit selected state and shared indicator column. |
+| `disabled(...)` | Visible unavailable state with focus and activation removed. |
+| `tone(...)` | `Normal` or `Destructive` semantic visual treatment. |
 
-## Specific advice
+## Design-system states
 
-Use `Menu` for short action lists. If the content is actually a form field choice, `Select` often gives better product-level meaning. If the content is long, searchable, or remote-backed, a `Combobox` or a dedicated screen is usually easier to use.
+The complete anatomy resolves from `theme.components.menu`. The surface recipe
+owns fill, border, radius, width, padding, gap, and elevation. Separate recipes
+own normal and destructive item states, descriptions, shortcuts, metadata,
+group labels, separators, and the selected indicator.
+
+Action rows resolve default, hover, active, focus, disabled, and selected
+states. A description can make a row taller than the recipe's minimum item
+height. The `Destructive` tone changes presentation but not reducer behavior;
+the application still owns confirmation and safety rules.
+
+## Keyboard and semantics
+
+A command surface exposes a vertical `Menu` role and its action rows expose
+`MenuItem`. A list-box surface exposes `ListBox` and `Option` instead. Groups
+expose `Group` and relate to their visible label through `labelled_by`.
+Descriptions are related to their action item through `described_by`, and
+separators expose `Separator`. Labels and separators never become focus stops.
+
+Only one enabled row participates in page-level `Tab` traversal: the first
+enabled command, or the selected enabled option when a list box has one. Once
+focus is inside, `ArrowUp` and `ArrowDown` move through enabled rows and wrap;
+`Home` and `End` reach the boundaries. Typing one unmodified character moves to
+the next label beginning with that character. This is single-character
+matching, not buffered multi-character search. `Enter` and `Space` activate the
+focused row.
+
+A disabled action item remains visible, exposes its disabled state, receives no
+focus, and dispatches no action. By contrast, a legacy `MenuItem` with
+`on_select: None` has not declared itself disabled: it remains a focusable row
+without a default action. Prefer `MenuActionItem::disabled(true)` when an
+unavailable state must remain visible.
+
+A standalone surface does not own an anchor or outside-click dismissal.
+`.dismiss_action(...)` supplies the semantic action used by `Escape` and
+equivalent input; `.focus_barrier(true)` contains focus while the surface is
+mounted. Use the high-level composite or a deliberately assembled `Popover`
+when those responsibilities belong to an anchored control.
+
+## Responsive, direction, target, and motion behavior
+
+The surface uses its configured width or the design-system width rather than
+choosing a breakpoint. When estimated content exceeds `max_height`, it clamps
+the viewport and enables a scrollbar; it does not virtualize a very large data
+set. Test long translations, descriptions, shortcuts, and metadata within the
+real parent constraint.
+
+Leading and trailing anatomy and row order mirror with the active layout
+direction. Paragraph bidi and shaping remain governed independently by the text
+system's `TextDirection`.
+
+Menu surfaces register no motion themselves. Any motion composed around a menu
+still follows the global `Env::motion_preference`, so they need no
+widget-specific preference branch. Their visual and semantic structure lowers
+through the shared target model. Static site and plain SSR output can render it,
+but reducer actions and popup state need an interactive runtime or browser
+island.
 
 ## Production checklist
 
-For `Menu`, review the fields that change behavior before treating the widget as finished: `items`, `width`, `max_height`. The goal is to make the product rule visible in state and actions, not hidden inside ad-hoc construction code.
-
-- If this widget appears inside an interactive flow, keep the surrounding action binding in the parent component and test that the flow still has one clear reducer path.
-- When child widgets are generated from data, give reordered or filtered rows an explicit `WidgetId` so retained local state and scroll behavior do not drift between items.
-- Check the semantics tree for the user-facing label or role that makes this widget understandable without relying only on pixels.
-- Prefer parent layout and design-system sizing first; use explicit size or spacing fields when the product layout requires that constraint on this widget specifically.
-- Add at least one component or harness test that confirms the visible text, semantic role, action dispatch, and layout constraint that matter for this widget in context.
-
-If a screen starts repeating the same `Menu` setup, extract a named component around this widget. That keeps the reference API small while making product code easier to read and safer for generated code to copy.
+- Use short verb-led labels and reserve descriptions for information that
+  changes the decision.
+- Use the explicit disabled state instead of leaving an apparently available
+  command silently inert.
+- Verify arrow wrapping, boundary keys, one-character matching, activation,
+  disabled-row skipping, and scrolling with the final content.
+- Give dynamic, reordered, or localized entries stable identities or semantic
+  identifiers.
+- Use a searchable or virtualized surface when the command set is genuinely
+  large.
 
 ## Related
 
-[`MenuButton`](/reference/widgets/menu-button), [`MenuItem`](/reference/widgets/menu-item), [`Select`](/reference/widgets/select), and [`Scroll`](/reference/widgets/scroll).
-
+[`MenuButton`](/reference/widgets/menu-button),
+[`MenuItem`](/reference/widgets/menu-item),
+[`Select`](/reference/widgets/select), and
+[`Scroll`](/reference/widgets/scroll).

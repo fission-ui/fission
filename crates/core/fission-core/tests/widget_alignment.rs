@@ -1,7 +1,9 @@
 use fission_core::env::{Env, RuntimeState};
 use fission_core::internal::{build_layout_tree, InternalLoweringCx};
 use fission_core::ui::widgets::text::{InlineWidgetSpan, RichTextChild, RichTextSpan};
-use fission_core::ui::{Checkbox, Container, Radio, RichText, Row, Slider, Spacer, Text, Widget};
+use fission_core::ui::{
+    Button, ButtonVariant, Checkbox, Container, Radio, RichText, Row, Slider, Spacer, Text, Widget,
+};
 use fission_ir::op::Length;
 use fission_ir::{CoreIR, LayoutOp, Op, Role, WidgetId};
 use fission_layout::{
@@ -33,6 +35,26 @@ impl TextMeasurer for SimpleMeasurer {
     ) -> (f32, f32) {
         let text: String = runs.iter().map(|r| r.text.clone()).collect();
         self.measure(&text, 16.0, available_width)
+    }
+}
+
+struct TwentyPointTextMeasurer;
+
+impl TextMeasurer for TwentyPointTextMeasurer {
+    fn measure(&self, text: &str, _font_size: f32, available_width: Option<f32>) -> (f32, f32) {
+        (
+            (text.len() as f32 * 8.0).min(available_width.unwrap_or(f32::MAX)),
+            20.0,
+        )
+    }
+
+    fn measure_rich_text(
+        &self,
+        runs: &[fission_ir::op::TextRun],
+        available_width: Option<f32>,
+    ) -> (f32, f32) {
+        let width = runs.iter().map(|run| run.text.len()).sum::<usize>() as f32 * 8.0;
+        (width.min(available_width.unwrap_or(f32::MAX)), 20.0)
     }
 }
 
@@ -143,6 +165,58 @@ fn rect_center(rect: fission_layout::LayoutRect) -> (f32, f32) {
         rect.x() + rect.width() / 2.0,
         rect.y() + rect.height() / 2.0,
     )
+}
+
+#[test]
+fn recipe_button_height_is_a_minimum_for_taller_custom_content() {
+    let button_id = WidgetId::explicit("alignment.button.intrinsic-height");
+    let button = Button {
+        id: Some(button_id),
+        child: Some(Text::new("Copy").into()),
+        semantics: Some(fission_ir::Semantics {
+            role: Role::Button,
+            ..Default::default()
+        }),
+        variant: ButtonVariant::Ghost,
+        padding: Some([10.0, 10.0, 8.0, 8.0]),
+        ..Default::default()
+    };
+    let (ir, snapshot) =
+        layout_from_widget_with_measurer(button.into(), Arc::new(TwentyPointTextMeasurer));
+
+    let button_rect = snapshot
+        .get_node_geometry(button_id)
+        .expect("button geometry")
+        .rect;
+    assert!(
+        button_rect.height() >= 36.0,
+        "the recipe height must not clip custom padding plus text: {button_rect:?}"
+    );
+
+    let text_paint_id = ir
+        .nodes
+        .values()
+        .find_map(|node| match &node.op {
+            Op::Paint(fission_ir::PaintOp::DrawText { text, .. }) if text == "Copy" => {
+                Some(node.id)
+            }
+            Op::Paint(fission_ir::PaintOp::DrawRichText { runs, .. })
+                if runs.iter().any(|run| run.text == "Copy") =>
+            {
+                Some(node.id)
+            }
+            _ => None,
+        })
+        .expect("button text paint");
+    let text_parent = ir.nodes[&text_paint_id].parent.expect("text layout parent");
+    let text_rect = snapshot
+        .get_node_geometry(text_parent)
+        .expect("text parent geometry")
+        .rect;
+    assert!(
+        text_rect.width() > 0.0 && text_rect.height() >= 20.0,
+        "render queries must observe non-empty text geometry: {text_rect:?}"
+    );
 }
 
 #[test]
