@@ -113,38 +113,12 @@ jobs:
           FISSION_WEB_TEST_CONTROL: '1'
         run: ./examples/widget-gallery/platforms/web/build-wasm.sh
 
-      - name: Compare widget quality browser baselines
-        env:
-          FISSION_QUALITY_GALLERY_URL: http://127.0.0.1:8129/platforms/web/
-          FISSION_VISUAL_ARTIFACT_DIR: ${{ runner.temp }}/widget-quality-visual
-        run: |
-          mkdir -p "$FISSION_VISUAL_ARTIFACT_DIR"
-          python3 -m http.server 8129 \
-            --bind 127.0.0.1 \
-            --directory examples/widget-gallery \
-            > "$FISSION_VISUAL_ARTIFACT_DIR/server.log" 2>&1 &
-          server_pid=$!
-          trap 'kill "$server_pid"' EXIT
-          for attempt in $(seq 1 50); do
-            if curl --fail --silent "$FISSION_QUALITY_GALLERY_URL" >/dev/null; then
-              break
-            fi
-            sleep 0.1
-          done
-          curl --fail --silent "$FISSION_QUALITY_GALLERY_URL" >/dev/null
-          cargo test --locked -p widget-gallery \
-            --test quality_visual_baselines \
-            quality_gallery_matches_approved_browser_baselines \
-            -- --ignored --exact --nocapture
-
-      - name: Upload widget quality mismatch evidence
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: widget-quality-visual-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/widget-quality-visual
-          if-no-files-found: warn
-          retention-days: 14
+      # Browser page capture cannot currently read the headless WebGPU swap
+      # chain reliably. Keep the renderer baseline suite available as a manual
+      # diagnostic until #227 supplies renderer-owned Web readback; do not turn
+      # uniformly black captures into approved goldens.
+      - name: Run widget quality structural audit
+        run: cargo test --locked -p widget-gallery --test visual_audit
 
   android:
     name: Android package smoke
