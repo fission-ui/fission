@@ -9,8 +9,8 @@ pub mod widgets;
 pub use node::{CustomWidget, Widget, WidgetIdExt, WidgetKind};
 pub use widgets::{
     provider, ActionScope, Align, AnchoredPositioned, BadgeTone, Builder, Button, ButtonContent,
-    ButtonContentAlign, ButtonHierarchy, ButtonMotion, ButtonStyleOverride, ButtonVariant,
-    CardPattern, Checkbox, Column, ComponentSize, ComponentState, Composite, Container,
+    ButtonContentAlign, ButtonHierarchy, ButtonIconContent, ButtonMotion, ButtonStyleOverride,
+    ButtonVariant, CardPattern, Checkbox, Column, ComponentSize, ComponentState, Composite, Container,
     ContextMenu, ContextMenuEntry, ContextMenuItem, ContextMenuRegion, FocusScope, FontFeature,
     FontVariation, GestureDetector, Grid, GridItem, HttpHeader, Icon, IgnorePointer, Image,
     ImageAlignment, ImageCachePolicy, ImageErrorBehavior, ImageLoadingBehavior, ImageRequest,

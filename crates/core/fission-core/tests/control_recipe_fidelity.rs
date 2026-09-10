@@ -1,5 +1,5 @@
 use fission_core::internal::InternalLoweringCx;
-use fission_core::ui::widgets::button::ButtonContent;
+use fission_core::ui::widgets::button::{ButtonContent, ButtonIconContent};
 use fission_core::ui::{Button, ButtonStyleOverride, ButtonVariant, Icon, Text, TextInput};
 use fission_core::{Env, LayoutSize, RuntimeState, Widget, WidgetId};
 use fission_ir::op::{BoxShadow, Color, Fill, LayoutOp, Op, PaintOp, Stroke, TextStyle};
@@ -241,6 +241,112 @@ fn retained_button_content_receives_recipe_label_icon_and_gap_styles() {
     assert_eq!(label.font_size, 14.0);
     assert_eq!(label.font_weight, 500);
     assert_eq!(label.line_height, Some(20.0));
+}
+
+#[test]
+fn icon_only_button_receives_recipe_icon_style_and_accessible_semantics() {
+    let id = WidgetId::explicit("quality.button.icon-only");
+    let env = Env::default();
+    let ir = lower(
+        Button {
+            id: Some(id),
+            child: Some(Text::new("ignored compatibility child").into()),
+            content: Some(ButtonContent::new("ignored labelled content")),
+            icon_content: Some(ButtonIconContent::new(
+                Icon::path("M0 0h8v8z"),
+                "Open options",
+            )),
+            ..Default::default()
+        }
+        .into(),
+        &env,
+        &RuntimeState::default(),
+    );
+
+    let Op::Semantics(semantics) = &ir.nodes[&id].op else {
+        panic!("expected button semantics root");
+    };
+    assert_eq!(semantics.role, Role::Button);
+    assert_eq!(semantics.label.as_deref(), Some("Open options"));
+    assert!(semantics.focusable);
+    assert!(semantics.sequential_focusable);
+    assert!(ir.nodes.values().all(|node| !matches!(
+        &node.op,
+        Op::Paint(PaintOp::DrawRichText { runs, .. })
+            if runs.iter().any(|run| {
+                run.text == "Open options"
+                    || run.text == "ignored labelled content"
+                    || run.text == "ignored compatibility child"
+            })
+    )));
+
+    let icon = ir
+        .nodes
+        .values()
+        .find(|node| {
+            matches!(
+                &node.op,
+                Op::Layout(LayoutOp::Box {
+                    width: Some(16.0),
+                    height: Some(16.0),
+                    ..
+                })
+            )
+        })
+        .expect("recipe-sized icon layout");
+    let paint_id = icon.children.first().expect("icon paint child");
+    let Op::Paint(PaintOp::DrawPath { fill, .. }) = &ir.nodes[paint_id].op else {
+        panic!("expected icon path paint");
+    };
+    assert_eq!(fill, &Some(Fill::Solid(env.theme.tokens.colors.on_primary)));
+}
+
+#[test]
+fn icon_only_button_preserves_explicit_icon_style_and_semantics_label() {
+    let id = WidgetId::explicit("quality.button.icon-only-overrides");
+    let ir = lower(
+        Button {
+            id: Some(id),
+            icon_content: Some(ButtonIconContent::new(
+                Icon::path("M0 0h8v8z").size(19.0).color(Color::RED),
+                "Dismiss",
+            )),
+            semantics: Some(Semantics {
+                role: Role::Button,
+                label: Some("Close panel".into()),
+                ..Semantics::default()
+            }),
+            ..Default::default()
+        }
+        .into(),
+        &Env::default(),
+        &RuntimeState::default(),
+    );
+
+    let Op::Semantics(semantics) = &ir.nodes[&id].op else {
+        panic!("expected button semantics root");
+    };
+    assert_eq!(semantics.label.as_deref(), Some("Close panel"));
+
+    let icon = ir
+        .nodes
+        .values()
+        .find(|node| {
+            matches!(
+                &node.op,
+                Op::Layout(LayoutOp::Box {
+                    width: Some(19.0),
+                    height: Some(19.0),
+                    ..
+                })
+            )
+        })
+        .expect("explicitly sized icon layout");
+    let paint_id = icon.children.first().expect("icon paint child");
+    let Op::Paint(PaintOp::DrawPath { fill, .. }) = &ir.nodes[paint_id].op else {
+        panic!("expected icon path paint");
+    };
+    assert_eq!(fill, &Some(Fill::Solid(Color::RED)));
 }
 
 #[test]

@@ -132,6 +132,29 @@ impl ButtonContent {
     }
 }
 
+/// Retained, recipe-aware icon-only content for a [`Button`].
+///
+/// The icon inherits the button recipe's foreground colour and icon size while
+/// `accessible_label` names the control without adding visible text. Explicit
+/// colour and size values on the icon continue to take precedence.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ButtonIconContent {
+    /// Visible icon rendered by the button.
+    pub icon: Icon,
+    /// Accessible name for the icon-only control.
+    pub accessible_label: TextContent,
+}
+
+impl ButtonIconContent {
+    /// Creates recipe-aware icon-only button content with an accessible name.
+    pub fn new(icon: Icon, accessible_label: impl Into<TextContent>) -> Self {
+        Self {
+            icon,
+            accessible_label: accessible_label.into(),
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 /// Optional motion presets owned by [`Button`].
 ///
@@ -267,7 +290,9 @@ impl Add for ButtonMotion {
 ///
 /// Buttons expose compatibility variants and the complete design-system
 /// hierarchy through [`ButtonVariant`]. Use [`ButtonContent`] for the common
-/// labelled/icon anatomy, or [`Button::child`] for genuinely custom content.
+/// labelled/icon anatomy, [`ButtonIconContent`] for an icon-only control with
+/// an independent accessible name, or [`Button::child`] for genuinely custom
+/// content.
 ///
 /// # Example
 ///
@@ -294,6 +319,12 @@ pub struct Button {
     /// When present, this takes precedence over [`Button::child`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub content: Option<ButtonContent>,
+    /// Recipe-aware icon-only anatomy and its independent accessible name.
+    ///
+    /// When present, this takes precedence over [`Button::content`] and
+    /// [`Button::child`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon_content: Option<ButtonIconContent>,
     /// Action dispatched when the button is pressed.
     pub on_press: Option<ActionEnvelope>,
     /// Custom semantics (overrides the default button semantics).
@@ -403,6 +434,7 @@ impl Default for Button {
             id: None,
             child: None,
             content: None,
+            icon_content: None,
             on_press: None,
             semantics: None,
             focus_policy: FocusPolicy::FocusOnPointer,
@@ -554,6 +586,17 @@ impl ButtonContent {
         }
 
         row.build(cx)
+    }
+}
+
+impl ButtonIconContent {
+    fn lower_with_style(
+        &self,
+        cx: &mut InternalLoweringCx<'_>,
+        style: &ButtonStyleResolved,
+        button_id: WidgetId,
+    ) -> WidgetId {
+        lower_content_icon(&self.icon, cx, style, button_id, 0)
     }
 }
 
@@ -1348,7 +1391,7 @@ impl Button {
     }
 
     fn should_attach_semantics(&self) -> bool {
-        self.semantics.is_some() || self.on_press.is_some()
+        self.semantics.is_some() || self.on_press.is_some() || self.icon_content.is_some()
     }
 
     fn build_semantics(&self) -> Option<Semantics> {
@@ -1476,9 +1519,17 @@ impl InternalLower for Button {
                 semantics.validation_message = Some(message.clone());
             }
         }
-        if let (Some(semantics), Some(content)) = (&mut semantics_op, &self.content) {
+        if let Some(semantics) = &mut semantics_op {
             if semantics.label.is_none() {
-                semantics.label = Some(content.label.resolve(cx.env));
+                semantics.label = self
+                    .icon_content
+                    .as_ref()
+                    .map(|content| content.accessible_label.resolve(cx.env))
+                    .or_else(|| {
+                        self.content
+                            .as_ref()
+                            .map(|content| content.label.resolve(cx.env))
+                    });
             }
         }
         let outermost_id = self.id.map(Into::into).unwrap_or_else(|| cx.next_node_id());
@@ -1590,7 +1641,9 @@ impl InternalLower for Button {
             button_builder.add_child(focus_ring_id);
         }
 
-        let content_id = if let Some(content) = &self.content {
+        let content_id = if let Some(content) = &self.icon_content {
+            Some(content.lower_with_style(cx, &resolved_style, final_id))
+        } else if let Some(content) = &self.content {
             Some(content.lower_with_style(cx, &resolved_style, final_id))
         } else if let Some(child_widget) = &self.child {
             Some(

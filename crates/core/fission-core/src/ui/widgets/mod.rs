@@ -41,7 +41,8 @@ pub use align::Align;
 pub use anchored_positioned::AnchoredPositioned;
 pub use builder::{Builder, LayoutBuilder};
 pub use button::{
-    Button, ButtonContent, ButtonContentAlign, ButtonMotion, ButtonStyleOverride, ButtonVariant,
+    Button, ButtonContent, ButtonContentAlign, ButtonIconContent, ButtonMotion,
+    ButtonStyleOverride, ButtonVariant,
 };
 pub use checkbox::Checkbox;
 pub use column::Column;
