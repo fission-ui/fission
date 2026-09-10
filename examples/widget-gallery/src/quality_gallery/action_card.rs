@@ -24,6 +24,7 @@ impl From<ActionHierarchyCard> for Widget {
             .content(CardContent::new(Wrap {
                 direction: FlexDirection::Row,
                 spacing: Some(tokens.spacing.s),
+                run_spacing: None,
                 children: widgets![
                     Button {
                         variant: ButtonVariant::Primary,

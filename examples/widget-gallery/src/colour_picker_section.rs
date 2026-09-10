@@ -111,6 +111,7 @@ impl From<ColourPickerSection> for Widget {
                 Wrap {
                     direction: FlexDirection::Row,
                     spacing: Some(tokens.spacing.xs),
+                    run_spacing: None,
                     children: variants
                         .iter()
                         .enumerate()
