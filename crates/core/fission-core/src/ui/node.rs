@@ -22,7 +22,7 @@ pub struct Widget {
     /// Relationship metadata applied to one unambiguous form-control
     /// semantics node after this retained subtree is lowered.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    form_field_relationships: Option<FormFieldRelationships>,
+    form_field_relationships: Option<Box<FormFieldRelationships>>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -236,14 +236,14 @@ impl Widget {
         required: bool,
         invalid_message: Option<String>,
     ) -> Self {
-        let relationships =
-            self.form_field_relationships
-                .get_or_insert_with(|| FormFieldRelationships {
-                    labelled_by: Vec::new(),
-                    described_by: Vec::new(),
-                    required: false,
-                    invalid_message: None,
-                });
+        let relationships = self.form_field_relationships.get_or_insert_with(|| {
+            Box::new(FormFieldRelationships {
+                labelled_by: Vec::new(),
+                described_by: Vec::new(),
+                required: false,
+                invalid_message: None,
+            })
+        });
         extend_unique(&mut relationships.labelled_by, labelled_by);
         extend_unique(&mut relationships.described_by, described_by);
         relationships.required |= required;
@@ -351,170 +351,82 @@ impl Widget {
         }
     }
 
-    pub(crate) fn with_id(self, id: WidgetId) -> Self {
-        let Self {
-            kind,
-            form_field_relationships,
-        } = self;
-        let kind = match *kind {
-            WidgetKind::Identified { child, .. } => WidgetKind::Identified { id, child },
-            WidgetKind::ActionScope(w) => WidgetKind::Identified {
+    pub(crate) fn with_id(mut self, id: WidgetId) -> Self {
+        self.set_id_in_place(id);
+        self
+    }
+
+    /// Applies an identity without moving the concrete widget value through a
+    /// large `WidgetKind` match frame. This matters on Wasm, where deeply
+    /// composed production trees have a materially smaller native stack.
+    fn set_id_in_place(&mut self, id: WidgetId) {
+        if matches!(
+            self.kind.as_ref(),
+            WidgetKind::ActionScope(_) | WidgetKind::Custom(_)
+        ) {
+            let kind = std::mem::replace(
+                &mut self.kind,
+                Box::new(WidgetKind::Spacer(Spacer::default())),
+            );
+            self.kind = Box::new(WidgetKind::Identified {
                 id,
-                child: Widget::from_kind(WidgetKind::ActionScope(w)),
-            },
-            WidgetKind::Custom(w) => WidgetKind::Identified {
-                id,
-                child: Widget::from_kind(WidgetKind::Custom(w)),
-            },
-            WidgetKind::Row(mut w) => {
-                w.id = Some(id);
-                WidgetKind::Row(w)
-            }
-            WidgetKind::Column(mut w) => {
-                w.id = Some(id);
-                WidgetKind::Column(w)
-            }
-            WidgetKind::Align(mut w) => {
-                w.id = Some(id);
-                WidgetKind::Align(w)
-            }
-            WidgetKind::FocusScope(mut w) => {
-                w.id = Some(id);
-                WidgetKind::FocusScope(w)
-            }
-            WidgetKind::SelectionRegion(mut w) => {
-                w.id = Some(id);
-                WidgetKind::SelectionRegion(w)
-            }
-            WidgetKind::Clip(mut w) => {
-                w.id = Some(id);
-                WidgetKind::Clip(w)
-            }
-            WidgetKind::Text(mut w) => {
-                w.id = Some(id);
-                WidgetKind::Text(w)
-            }
-            WidgetKind::RichText(mut w) => {
-                w.id = Some(id);
-                WidgetKind::RichText(w)
-            }
-            WidgetKind::Transform(mut w) => {
-                w.id = Some(id);
-                WidgetKind::Transform(w)
-            }
+                child: Self {
+                    kind,
+                    form_field_relationships: None,
+                },
+            });
+            return;
+        }
+
+        match self.kind.as_mut() {
+            WidgetKind::Identified {
+                id: existing_id, ..
+            } => *existing_id = id,
+            WidgetKind::Row(widget) => widget.id = Some(id),
+            WidgetKind::Column(widget) => widget.id = Some(id),
+            WidgetKind::Align(widget) => widget.id = Some(id),
+            WidgetKind::FocusScope(widget) => widget.id = Some(id),
+            WidgetKind::SelectionRegion(widget) => widget.id = Some(id),
+            WidgetKind::Clip(widget) => widget.id = Some(id),
+            WidgetKind::Text(widget) => widget.id = Some(id),
+            WidgetKind::RichText(widget) => widget.id = Some(id),
+            WidgetKind::Transform(widget) => widget.id = Some(id),
             #[cfg(feature = "interactive-canvas")]
-            WidgetKind::InteractiveViewer(mut w) => {
-                w.id = Some(id);
-                WidgetKind::InteractiveViewer(w)
-            }
-            WidgetKind::Button(mut w) => {
-                if let Some(previous_id) = w.id {
+            WidgetKind::InteractiveViewer(widget) => widget.id = Some(id),
+            WidgetKind::Button(widget) => {
+                if let Some(previous_id) = widget.id {
                     crate::build::try_remove_motion_declarations(previous_id);
                 }
-                w.id = Some(id);
-                w.register_motion_declarations(id);
-                WidgetKind::Button(w)
+                widget.id = Some(id);
+                widget.register_motion_declarations(id);
             }
-            WidgetKind::Pressable(mut w) => {
-                w.id = Some(id);
-                WidgetKind::Pressable(w)
+            WidgetKind::Pressable(widget) => widget.id = Some(id),
+            WidgetKind::TextInput(widget) => widget.id = Some(id),
+            WidgetKind::Scroll(widget) => widget.id = Some(id),
+            WidgetKind::SemanticsRegion(widget) => widget.id = Some(id),
+            WidgetKind::Image(widget) => widget.id = Some(id),
+            WidgetKind::Video(widget) => widget.id = Some(id),
+            WidgetKind::ZStack(widget) => widget.id = Some(id),
+            WidgetKind::Overlay(widget) => widget.id = Some(id),
+            WidgetKind::Container(widget) => widget.id = Some(id),
+            WidgetKind::ContextMenuRegion(widget) => widget.id = Some(id),
+            WidgetKind::GestureDetector(widget) => widget.id = Some(id),
+            WidgetKind::Grid(widget) => widget.id = Some(id),
+            WidgetKind::GridItem(widget) => widget.id = Some(id),
+            WidgetKind::Responsive(widget) => widget.id = Some(id),
+            WidgetKind::Checkbox(widget) => widget.id = Some(id),
+            WidgetKind::Switch(widget) => widget.id = Some(id),
+            WidgetKind::Radio(widget) => widget.id = Some(id),
+            WidgetKind::SafeArea(widget) => widget.id = Some(id),
+            WidgetKind::Positioned(widget) => widget.id = Some(id),
+            WidgetKind::Spacer(widget) => widget.id = Some(id),
+            WidgetKind::Slider(widget) => widget.id = Some(id),
+            WidgetKind::LazyColumn(widget) => widget.id = Some(id),
+            WidgetKind::Icon(widget) => widget.id = Some(id),
+            WidgetKind::Composite(widget) => widget.id = Some(id),
+            WidgetKind::ActionScope(_) | WidgetKind::Custom(_) => {
+                unreachable!("scope-only kinds are wrapped before assigning identity")
             }
-            WidgetKind::TextInput(mut w) => {
-                w.id = Some(id);
-                WidgetKind::TextInput(w)
-            }
-            WidgetKind::Scroll(mut w) => {
-                w.id = Some(id);
-                WidgetKind::Scroll(w)
-            }
-            WidgetKind::SemanticsRegion(mut w) => {
-                w.id = Some(id);
-                WidgetKind::SemanticsRegion(w)
-            }
-            WidgetKind::Image(mut w) => {
-                w.id = Some(id);
-                WidgetKind::Image(w)
-            }
-            WidgetKind::Video(mut w) => {
-                w.id = Some(id);
-                WidgetKind::Video(w)
-            }
-            WidgetKind::ZStack(mut w) => {
-                w.id = Some(id);
-                WidgetKind::ZStack(w)
-            }
-            WidgetKind::Overlay(mut w) => {
-                w.id = Some(id);
-                WidgetKind::Overlay(w)
-            }
-            WidgetKind::Container(mut w) => {
-                w.id = Some(id);
-                WidgetKind::Container(w)
-            }
-            WidgetKind::ContextMenuRegion(mut w) => {
-                w.id = Some(id);
-                WidgetKind::ContextMenuRegion(w)
-            }
-            WidgetKind::GestureDetector(mut w) => {
-                w.id = Some(id);
-                WidgetKind::GestureDetector(w)
-            }
-            WidgetKind::Grid(mut w) => {
-                w.id = Some(id);
-                WidgetKind::Grid(w)
-            }
-            WidgetKind::GridItem(mut w) => {
-                w.id = Some(id);
-                WidgetKind::GridItem(w)
-            }
-            WidgetKind::Responsive(mut w) => {
-                w.id = Some(id);
-                WidgetKind::Responsive(w)
-            }
-            WidgetKind::Checkbox(mut w) => {
-                w.id = Some(id);
-                WidgetKind::Checkbox(w)
-            }
-            WidgetKind::Switch(mut w) => {
-                w.id = Some(id);
-                WidgetKind::Switch(w)
-            }
-            WidgetKind::Radio(mut w) => {
-                w.id = Some(id);
-                WidgetKind::Radio(w)
-            }
-            WidgetKind::SafeArea(mut w) => {
-                w.id = Some(id);
-                WidgetKind::SafeArea(w)
-            }
-            WidgetKind::Positioned(mut w) => {
-                w.id = Some(id);
-                WidgetKind::Positioned(w)
-            }
-            WidgetKind::Spacer(mut w) => {
-                w.id = Some(id);
-                WidgetKind::Spacer(w)
-            }
-            WidgetKind::Slider(mut w) => {
-                w.id = Some(id);
-                WidgetKind::Slider(w)
-            }
-            WidgetKind::LazyColumn(mut w) => {
-                w.id = Some(id);
-                WidgetKind::LazyColumn(w)
-            }
-            WidgetKind::Icon(mut w) => {
-                w.id = Some(id);
-                WidgetKind::Icon(w)
-            }
-            WidgetKind::Composite(mut w) => {
-                w.id = Some(id);
-                WidgetKind::Composite(w)
-            }
-        };
-        Self {
-            kind: Box::new(kind),
-            form_field_relationships,
         }
     }
 
@@ -685,187 +597,159 @@ impl Widget {
     }
 
     pub(crate) fn resolve_identities(self, root: WidgetId) -> Self {
-        self.resolve_identity(root)
+        let mut resolved = self;
+        resolved.resolve_identity_in_place(root);
+        resolved
     }
 
-    fn resolve_identity(self, automatic_id: WidgetId) -> Self {
-        let resolved = if self.declared_id().is_some() {
-            self
-        } else {
-            self.with_id(automatic_id)
-        };
-        let parent = resolved.declared_id().unwrap_or(automatic_id);
-        resolved.resolve_descendants(parent)
+    fn resolve_identity_in_place(&mut self, automatic_id: WidgetId) {
+        if self.declared_id().is_none() {
+            self.set_id_in_place(automatic_id);
+        }
+        let parent = self.declared_id().unwrap_or(automatic_id);
+        self.resolve_descendants_in_place(parent);
     }
 
-    fn resolve_descendants(self, parent: WidgetId) -> Self {
-        let Self {
-            kind,
-            form_field_relationships,
-        } = self;
-        let child = |widget: Widget, slot: u32| {
-            let id = WidgetId::derived(
-                parent.as_u128(),
-                &[Self::CHILD_ROLE, slot, widget.kind_discriminator()],
-            );
-            widget.resolve_identity(id)
-        };
-        let children = |widgets: Vec<Widget>, first_slot: u32| {
-            widgets
-                .into_iter()
-                .enumerate()
-                .map(|(index, widget)| child(widget, first_slot + index as u32))
-                .collect()
-        };
+    fn resolve_child_identity(parent: WidgetId, slot: u32, widget: &mut Widget) {
+        let id = WidgetId::derived(
+            parent.as_u128(),
+            &[Self::CHILD_ROLE, slot, widget.kind_discriminator()],
+        );
+        widget.resolve_identity_in_place(id);
+    }
 
-        let kind = match *kind {
+    fn resolve_children_identities(parent: WidgetId, first_slot: u32, widgets: &mut [Widget]) {
+        for (index, widget) in widgets.iter_mut().enumerate() {
+            Self::resolve_child_identity(parent, first_slot + index as u32, widget);
+        }
+    }
+
+    fn resolve_descendants_in_place(&mut self, parent: WidgetId) {
+        match self.kind.as_mut() {
             WidgetKind::Identified {
                 id,
                 child: identified_child,
-            } => WidgetKind::Identified {
-                id,
+            } => {
                 // The structural wrapper is the logical identity for widget
                 // kinds that cannot store an id directly (ActionScope and
                 // Custom). Re-resolving that child would create wrappers
                 // recursively; only its descendants need identities here.
-                child: identified_child.resolve_descendants(id),
-            },
-            WidgetKind::ActionScope(mut widget) => {
-                widget.child = child(widget.child, 0);
-                WidgetKind::ActionScope(widget)
+                identified_child.resolve_descendants_in_place(*id);
             }
-            WidgetKind::Row(mut widget) => {
-                widget.children = children(widget.children, 0);
-                WidgetKind::Row(widget)
+            WidgetKind::ActionScope(widget) => {
+                Self::resolve_child_identity(parent, 0, &mut widget.child);
             }
-            WidgetKind::Column(mut widget) => {
-                widget.children = children(widget.children, 0);
-                WidgetKind::Column(widget)
+            WidgetKind::Row(widget) => {
+                Self::resolve_children_identities(parent, 0, &mut widget.children);
             }
-            WidgetKind::Align(mut widget) => {
-                widget.child = child(widget.child, 0);
-                WidgetKind::Align(widget)
+            WidgetKind::Column(widget) => {
+                Self::resolve_children_identities(parent, 0, &mut widget.children);
             }
-            WidgetKind::FocusScope(mut widget) => {
-                widget.children = children(widget.children, 0);
-                WidgetKind::FocusScope(widget)
+            WidgetKind::Align(widget) => {
+                Self::resolve_child_identity(parent, 0, &mut widget.child);
             }
-            WidgetKind::SelectionRegion(mut widget) => {
-                widget.child = child(widget.child, 0);
-                WidgetKind::SelectionRegion(widget)
+            WidgetKind::FocusScope(widget) => {
+                Self::resolve_children_identities(parent, 0, &mut widget.children);
             }
-            WidgetKind::Clip(mut widget) => {
-                widget.child = child(widget.child, 0);
-                WidgetKind::Clip(widget)
+            WidgetKind::SelectionRegion(widget) => {
+                Self::resolve_child_identity(parent, 0, &mut widget.child);
             }
-            WidgetKind::Text(widget) => WidgetKind::Text(widget),
-            WidgetKind::RichText(mut widget) => {
+            WidgetKind::Clip(widget) => {
+                Self::resolve_child_identity(parent, 0, &mut widget.child);
+            }
+            WidgetKind::Text(_) => {}
+            WidgetKind::RichText(widget) => {
                 for (index, inline) in widget.inline_widgets.iter_mut().enumerate() {
-                    inline.widget = child(inline.widget.clone(), index as u32);
+                    Self::resolve_child_identity(parent, index as u32, &mut inline.widget);
                 }
-                WidgetKind::RichText(widget)
             }
-            WidgetKind::Transform(mut widget) => {
-                widget.child = child(widget.child, 0);
-                WidgetKind::Transform(widget)
+            WidgetKind::Transform(widget) => {
+                Self::resolve_child_identity(parent, 0, &mut widget.child);
             }
             #[cfg(feature = "interactive-canvas")]
-            WidgetKind::InteractiveViewer(mut widget) => {
-                widget.child = child(widget.child, 0);
-                WidgetKind::InteractiveViewer(widget)
+            WidgetKind::InteractiveViewer(widget) => {
+                Self::resolve_child_identity(parent, 0, &mut widget.child);
             }
-            WidgetKind::Button(mut widget) => {
-                widget.child = widget.child.map(|value| child(value, 0));
-                WidgetKind::Button(widget)
+            WidgetKind::Button(widget) => {
+                if let Some(child) = &mut widget.child {
+                    Self::resolve_child_identity(parent, 0, child);
+                }
             }
-            WidgetKind::Pressable(mut widget) => {
-                widget.child = child(widget.child, 0);
-                WidgetKind::Pressable(widget)
+            WidgetKind::Pressable(widget) => {
+                Self::resolve_child_identity(parent, 0, &mut widget.child);
             }
-            WidgetKind::TextInput(mut widget) => {
-                widget.prefix = widget.prefix.map(|value| child(value, 0));
-                widget.suffix = widget.suffix.map(|value| child(value, 1));
-                WidgetKind::TextInput(widget)
+            WidgetKind::TextInput(widget) => {
+                if let Some(prefix) = &mut widget.prefix {
+                    Self::resolve_child_identity(parent, 0, prefix);
+                }
+                if let Some(suffix) = &mut widget.suffix {
+                    Self::resolve_child_identity(parent, 1, suffix);
+                }
             }
-            WidgetKind::Scroll(mut widget) => {
-                widget.child = widget.child.map(|value| child(value, 0));
-                WidgetKind::Scroll(widget)
+            WidgetKind::Scroll(widget) => {
+                if let Some(child) = &mut widget.child {
+                    Self::resolve_child_identity(parent, 0, child);
+                }
             }
-            WidgetKind::SemanticsRegion(mut widget) => {
-                widget.child = widget.child.map(|value| child(value, 0));
-                WidgetKind::SemanticsRegion(widget)
+            WidgetKind::SemanticsRegion(widget) => {
+                if let Some(child) = &mut widget.child {
+                    Self::resolve_child_identity(parent, 0, child);
+                }
             }
-            WidgetKind::Image(widget) => WidgetKind::Image(widget),
-            WidgetKind::Video(widget) => WidgetKind::Video(widget),
-            WidgetKind::ZStack(mut widget) => {
-                widget.children = children(widget.children, 0);
-                WidgetKind::ZStack(widget)
+            WidgetKind::Image(_) | WidgetKind::Video(_) => {}
+            WidgetKind::ZStack(widget) => {
+                Self::resolve_children_identities(parent, 0, &mut widget.children);
             }
-            WidgetKind::Overlay(mut widget) => {
-                widget.content = child(widget.content, 0);
-                widget.overlay = child(widget.overlay, 1);
-                WidgetKind::Overlay(widget)
+            WidgetKind::Overlay(widget) => {
+                Self::resolve_child_identity(parent, 0, &mut widget.content);
+                Self::resolve_child_identity(parent, 1, &mut widget.overlay);
             }
-            WidgetKind::Container(mut widget) => {
-                widget.child = widget.child.map(|value| child(value, 0));
-                WidgetKind::Container(widget)
+            WidgetKind::Container(widget) => {
+                if let Some(child) = &mut widget.child {
+                    Self::resolve_child_identity(parent, 0, child);
+                }
             }
-            WidgetKind::ContextMenuRegion(mut widget) => {
-                widget.child = child(widget.child, 0);
+            WidgetKind::ContextMenuRegion(widget) => {
+                Self::resolve_child_identity(parent, 0, &mut widget.child);
                 for (index, entry) in widget.menu.items.iter_mut().enumerate() {
                     if let ContextMenuEntry::Item(item) = entry {
-                        item.child = child(item.child.clone(), 1 + index as u32);
+                        Self::resolve_child_identity(parent, 1 + index as u32, &mut item.child);
                     }
                 }
-                WidgetKind::ContextMenuRegion(widget)
             }
-            WidgetKind::GestureDetector(mut widget) => {
-                widget.child = child(widget.child, 0);
-                WidgetKind::GestureDetector(widget)
+            WidgetKind::GestureDetector(widget) => {
+                Self::resolve_child_identity(parent, 0, &mut widget.child);
             }
-            WidgetKind::Grid(mut widget) => {
-                widget.children = children(widget.children, 0);
-                WidgetKind::Grid(widget)
+            WidgetKind::Grid(widget) => {
+                Self::resolve_children_identities(parent, 0, &mut widget.children);
             }
-            WidgetKind::GridItem(mut widget) => {
-                widget.child = child(widget.child, 0);
-                WidgetKind::GridItem(widget)
+            WidgetKind::GridItem(widget) => {
+                Self::resolve_child_identity(parent, 0, &mut widget.child);
             }
-            WidgetKind::Responsive(mut widget) => {
+            WidgetKind::Responsive(widget) => {
                 for (index, case) in widget.cases.iter_mut().enumerate() {
-                    case.child = child(case.child.clone(), index as u32);
+                    Self::resolve_child_identity(parent, index as u32, &mut case.child);
                 }
-                widget.fallback = child(widget.fallback, u32::MAX);
-                WidgetKind::Responsive(widget)
+                Self::resolve_child_identity(parent, u32::MAX, &mut widget.fallback);
             }
-            WidgetKind::Checkbox(widget) => WidgetKind::Checkbox(widget),
-            WidgetKind::Switch(widget) => WidgetKind::Switch(widget),
-            WidgetKind::Radio(widget) => WidgetKind::Radio(widget),
-            WidgetKind::SafeArea(mut widget) => {
-                widget.child = child(widget.child, 0);
-                WidgetKind::SafeArea(widget)
+            WidgetKind::Checkbox(_) | WidgetKind::Switch(_) | WidgetKind::Radio(_) => {}
+            WidgetKind::SafeArea(widget) => {
+                Self::resolve_child_identity(parent, 0, &mut widget.child);
             }
-            WidgetKind::Positioned(mut widget) => {
-                widget.child = widget.child.map(|value| child(value, 0));
-                WidgetKind::Positioned(widget)
+            WidgetKind::Positioned(widget) => {
+                if let Some(child) = &mut widget.child {
+                    Self::resolve_child_identity(parent, 0, child);
+                }
             }
-            WidgetKind::Spacer(widget) => WidgetKind::Spacer(widget),
-            WidgetKind::Slider(widget) => WidgetKind::Slider(widget),
-            WidgetKind::LazyColumn(mut widget) => {
-                widget.children = children(widget.children, 0);
-                WidgetKind::LazyColumn(widget)
+            WidgetKind::Spacer(_) | WidgetKind::Slider(_) => {}
+            WidgetKind::LazyColumn(widget) => {
+                Self::resolve_children_identities(parent, 0, &mut widget.children);
             }
-            WidgetKind::Icon(widget) => WidgetKind::Icon(widget),
-            WidgetKind::Composite(mut widget) => {
-                widget.child = child(widget.child, 0);
-                WidgetKind::Composite(widget)
+            WidgetKind::Icon(_) => {}
+            WidgetKind::Composite(widget) => {
+                Self::resolve_child_identity(parent, 0, &mut widget.child);
             }
-            WidgetKind::Custom(widget) => WidgetKind::Custom(widget),
-        };
-
-        Self {
-            kind: Box::new(kind),
-            form_field_relationships,
+            WidgetKind::Custom(_) => {}
         }
     }
 
@@ -1311,6 +1195,10 @@ impl From<CustomWidget> for Widget {
 mod visitor_tests {
     use super::*;
 
+    fn child_id(parent: WidgetId, slot: u32, discriminator: u32) -> WidgetId {
+        WidgetId::derived(parent.as_u128(), &[Widget::CHILD_ROLE, slot, discriminator])
+    }
+
     #[test]
     fn visitor_walks_nested_widgets_and_can_stop() {
         let root: Widget = Column {
@@ -1329,5 +1217,111 @@ mod visitor_tests {
         });
         assert!(matches!(result, ControlFlow::Break(())));
         assert_eq!(visited, 2);
+    }
+
+    #[test]
+    fn identity_resolution_preserves_structural_ids_and_explicit_scopes() {
+        let root_id = WidgetId::explicit("identity.snapshot.root");
+        let explicit_id = WidgetId::explicit("identity.snapshot.explicit");
+        let widget: Widget = Column {
+            children: vec![
+                Text::new("automatic").into(),
+                Container::new(Row {
+                    children: vec![Text::new("scoped").into()],
+                    ..Default::default()
+                })
+                .id(explicit_id),
+            ],
+            ..Default::default()
+        }
+        .into();
+
+        let resolved = widget.resolve_identities(root_id);
+        let WidgetKind::Column(root) = resolved.kind.as_ref() else {
+            panic!("expected resolved root column");
+        };
+        assert_eq!(root.id, Some(root_id));
+        assert_eq!(
+            root.children[0].declared_id(),
+            Some(child_id(root_id, 0, 8))
+        );
+        assert_eq!(root.children[1].declared_id(), Some(explicit_id));
+
+        let WidgetKind::Container(explicit) = root.children[1].kind.as_ref() else {
+            panic!("expected explicit container");
+        };
+        let row = explicit.child.as_ref().expect("explicit container child");
+        let row_id = child_id(explicit_id, 0, 3);
+        assert_eq!(row.declared_id(), Some(row_id));
+        let WidgetKind::Row(row) = row.kind.as_ref() else {
+            panic!("expected scoped row");
+        };
+        assert_eq!(row.children[0].declared_id(), Some(child_id(row_id, 0, 8)));
+    }
+
+    #[test]
+    fn composition_heavy_tree_resolves_without_large_by_value_frames() {
+        let mut branch: Widget = TextInput {
+            prefix: Some(Text::new("prefix").into()),
+            suffix: Some(
+                Button {
+                    child: Some(Text::new("send").into()),
+                    ..Default::default()
+                }
+                .into(),
+            ),
+            ..Default::default()
+        }
+        .into();
+
+        // This models the nested surface/section/row anatomy produced by
+        // composed cards, forms, timelines, and assistant panes. In an
+        // unoptimized Wasm build, the former consuming traversal retained a
+        // large WidgetKind value in every recursive frame.
+        for index in 0..96 {
+            branch = Container::new(Column {
+                children: vec![
+                    Row {
+                        children: vec![Text::new(format!("Section {index}")).into(), branch],
+                        ..Default::default()
+                    }
+                    .into(),
+                    Container::new(Text::new("supporting content")).into(),
+                ],
+                ..Default::default()
+            })
+            .into();
+        }
+
+        let root_id = WidgetId::explicit("identity.composition-heavy");
+        let resolved = branch.resolve_identities(root_id);
+        assert_eq!(resolved.declared_id(), Some(root_id));
+        let mut cursor = &resolved;
+        for _ in 0..96 {
+            assert!(cursor.declared_id().is_some());
+            let WidgetKind::Container(container) = cursor.kind.as_ref() else {
+                panic!("expected nested surface container");
+            };
+            let column = container.child.as_ref().expect("surface content");
+            let WidgetKind::Column(column) = column.kind.as_ref() else {
+                panic!("expected section column");
+            };
+            let WidgetKind::Row(row) = column.children[0].kind.as_ref() else {
+                panic!("expected section header row");
+            };
+            cursor = &row.children[1];
+        }
+        let WidgetKind::TextInput(input) = cursor.kind.as_ref() else {
+            panic!("expected retained text input leaf");
+        };
+        assert!(input.id.is_some());
+        assert!(input
+            .prefix
+            .as_ref()
+            .is_some_and(|prefix| prefix.declared_id().is_some()));
+        assert!(input
+            .suffix
+            .as_ref()
+            .is_some_and(|suffix| suffix.declared_id().is_some()));
     }
 }
