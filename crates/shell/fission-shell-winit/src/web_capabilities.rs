@@ -20,18 +20,19 @@ use fission_core::{
     NotificationSettings, PasskeyAuthenticationRequest, PasskeyAuthenticationResult,
     PasskeyAuthenticatorAttachment, PasskeyAvailability, PasskeyCredentialDescriptor, PasskeyError,
     PasskeyMediation, PasskeyRegistrationRequest, PasskeyRegistrationResult, PasskeyTransport,
-    PasskeyUserVerification, PushPlatform, PushRegistration, PushRegistrationRequest,
-    SetBadgeCountRequest, VolumeError, VolumeLevel, VolumeStream, WifiAvailability, WifiError,
-    WifiPermission, ADJUST_VOLUME_LEVEL, AUTHENTICATE_BIOMETRIC, AUTHENTICATE_PASSKEY,
-    CANCEL_ALL_NOTIFICATIONS, CANCEL_BARCODE_SCAN, CANCEL_BIOMETRIC_AUTHENTICATION,
-    CANCEL_CAMERA_CAPTURE, CANCEL_MICROPHONE_CAPTURE, CANCEL_NFC_SESSION, CANCEL_NOTIFICATION,
-    CANCEL_PASSKEY_OPERATION, CAPTURE_MICROPHONE_AUDIO, CAPTURE_PHOTO, CLEAR_CLIPBOARD,
-    CONNECT_BLUETOOTH_DEVICE, CONNECT_WIFI_NETWORK, DECODE_BARCODE_IMAGE,
-    DISCONNECT_BLUETOOTH_DEVICE, DISCONNECT_WIFI_NETWORK, EMULATE_NFC_TAG,
-    GET_BIOMETRIC_AVAILABILITY, GET_BLUETOOTH_AVAILABILITY, GET_CAMERA_AVAILABILITY,
-    GET_CURRENT_POSITION, GET_GEOLOCATION_PERMISSION, GET_MICROPHONE_AVAILABILITY,
-    GET_NFC_AVAILABILITY, GET_NOTIFICATION_SETTINGS, GET_PASSKEY_AVAILABILITY, GET_VOLUME_LEVEL,
-    GET_WIFI_AVAILABILITY, HAPTIC_IMPACT, HAPTIC_NOTIFICATION, HAPTIC_PATTERN, HAPTIC_SELECTION,
+    PasskeyUserVerification, PickOpenFilesError, PickOpenFilesRequest, PickOpenFilesResult,
+    PickedFile, PushPlatform, PushRegistration, PushRegistrationRequest, SetBadgeCountRequest,
+    VolumeError, VolumeLevel, VolumeStream, WifiAvailability, WifiError, WifiPermission,
+    ADJUST_VOLUME_LEVEL, AUTHENTICATE_BIOMETRIC, AUTHENTICATE_PASSKEY, CANCEL_ALL_NOTIFICATIONS,
+    CANCEL_BARCODE_SCAN, CANCEL_BIOMETRIC_AUTHENTICATION, CANCEL_CAMERA_CAPTURE,
+    CANCEL_MICROPHONE_CAPTURE, CANCEL_NFC_SESSION, CANCEL_NOTIFICATION, CANCEL_PASSKEY_OPERATION,
+    CAPTURE_MICROPHONE_AUDIO, CAPTURE_PHOTO, CLEAR_CLIPBOARD, CONNECT_BLUETOOTH_DEVICE,
+    CONNECT_WIFI_NETWORK, DECODE_BARCODE_IMAGE, DISCONNECT_BLUETOOTH_DEVICE,
+    DISCONNECT_WIFI_NETWORK, EMULATE_NFC_TAG, GET_BIOMETRIC_AVAILABILITY,
+    GET_BLUETOOTH_AVAILABILITY, GET_CAMERA_AVAILABILITY, GET_CURRENT_POSITION,
+    GET_GEOLOCATION_PERMISSION, GET_MICROPHONE_AVAILABILITY, GET_NFC_AVAILABILITY,
+    GET_NOTIFICATION_SETTINGS, GET_PASSKEY_AVAILABILITY, GET_VOLUME_LEVEL, GET_WIFI_AVAILABILITY,
+    HAPTIC_IMPACT, HAPTIC_NOTIFICATION, HAPTIC_PATTERN, HAPTIC_SELECTION, PICK_OPEN_FILES,
     READ_BLUETOOTH_CHARACTERISTIC, READ_CLIPBOARD_CONTENT, READ_CLIPBOARD_TEXT, REGISTER_PASSKEY,
     REGISTER_PUSH_NOTIFICATIONS, REQUEST_BLUETOOTH_PERMISSION, REQUEST_CAMERA_PERMISSION,
     REQUEST_GEOLOCATION_PERMISSION, REQUEST_MICROPHONE_PERMISSION, REQUEST_NOTIFICATION_PERMISSION,
@@ -698,6 +699,46 @@ export function fissionPasskeyAuthenticate(requestJson) {
     };
   })();
 }
+
+export function fissionPickOpenFiles(allowMultiple, accept) {
+  return new Promise((resolve, reject) => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.multiple = Boolean(allowMultiple);
+    if (accept) input.accept = accept;
+    input.style.position = "fixed";
+    input.style.left = "-10000px";
+    input.style.width = "1px";
+    input.style.height = "1px";
+    document.body.appendChild(input);
+
+    let settled = false;
+    const finish = (value, error) => {
+      if (settled) return;
+      settled = true;
+      input.remove();
+      if (error) reject(error); else resolve(value);
+    };
+    input.oncancel = () => finish([]);
+    input.onchange = async () => {
+      try {
+        const selected = [];
+        for (const file of Array.from(input.files || [])) {
+          selected.push({
+            name: file.name || "selected-file",
+            contentType: file.type || null,
+            byteLen: file.size,
+            bytes: new Uint8Array(await file.arrayBuffer()),
+          });
+        }
+        finish(selected);
+      } catch (error) {
+        finish(null, error);
+      }
+    };
+    input.click();
+  });
+}
 "#)]
 extern "C" {
     fn fissionNotificationPermission() -> String;
@@ -802,6 +843,8 @@ extern "C" {
     fn fissionPasskeyRegister(request_json: &str) -> Result<Promise, JsValue>;
     #[wasm_bindgen(catch)]
     fn fissionPasskeyAuthenticate(request_json: &str) -> Result<Promise, JsValue>;
+    #[wasm_bindgen(catch)]
+    fn fissionPickOpenFiles(allow_multiple: bool, accept: &str) -> Result<Promise, JsValue>;
 }
 
 pub(crate) fn register_web_operation_capabilities(async_registry: &mut AsyncRegistry) {
@@ -815,7 +858,58 @@ pub(crate) fn register_web_operation_capabilities(async_registry: &mut AsyncRegi
     register_nfc(async_registry);
     register_bluetooth(async_registry);
     register_passkeys(async_registry);
+    register_file_picker(async_registry);
     register_unsupported_web_gaps(async_registry);
+}
+
+fn register_file_picker(async_registry: &mut AsyncRegistry) {
+    async_registry.register_operation_capability(
+        PICK_OPEN_FILES,
+        move |request: PickOpenFilesRequest, ctx| async move {
+            let accept = request
+                .mime_types
+                .iter()
+                .cloned()
+                .chain(request.extensions.iter().filter_map(|extension| {
+                    let extension = extension.trim().trim_start_matches('.');
+                    (!extension.is_empty()).then(|| format!(".{extension}"))
+                }))
+                .collect::<Vec<_>>()
+                .join(",");
+            let value = await_promise(fissionPickOpenFiles(request.allow_multiple, &accept))
+                .await
+                .map_err(file_picker_error)?;
+            let values = value.dyn_into::<Array>().map_err(|_| {
+                PickOpenFilesError::new(
+                    "invalid_result",
+                    "browser file picker returned a non-array result",
+                )
+            })?;
+            let mut files = Vec::with_capacity(values.length() as usize);
+            for value in values.iter() {
+                let bytes = prop(&value, "bytes")
+                    .and_then(|value| value.dyn_into::<Uint8Array>().ok())
+                    .ok_or_else(|| {
+                        PickOpenFilesError::new(
+                            "invalid_result",
+                            "selected browser file did not contain bytes",
+                        )
+                    })?
+                    .to_vec();
+                let byte_len = f64_prop(&value, "byteLen")
+                    .filter(|value| value.is_finite() && *value >= 0.0)
+                    .map(|value| value as u64);
+                files.push(PickedFile {
+                    name: string_prop(&value, "name").unwrap_or_else(|| "selected-file".into()),
+                    content_type: string_prop(&value, "contentType")
+                        .filter(|value| !value.is_empty()),
+                    byte_len,
+                    stream: ctx.register_data_stream(single_chunk_data_stream(bytes)),
+                });
+            }
+            Ok(PickOpenFilesResult { files })
+        },
+    );
 }
 
 fn register_notifications(async_registry: &mut AsyncRegistry) {
@@ -1660,6 +1754,11 @@ fn notification_error(value: JsValue) -> NotificationError {
 fn clipboard_error(value: JsValue) -> ClipboardError {
     let (code, message) = js_error(value);
     ClipboardError::new(code, message)
+}
+
+fn file_picker_error(value: JsValue) -> PickOpenFilesError {
+    let (code, message) = js_error(value);
+    PickOpenFilesError::new(code, message)
 }
 
 fn geolocation_error(value: JsValue) -> GeolocationError {

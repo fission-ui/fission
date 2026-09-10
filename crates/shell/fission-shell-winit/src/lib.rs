@@ -290,7 +290,6 @@ fn register_builtin_operation_capabilities(async_registry: &mut AsyncRegistry) {
     #[cfg(target_arch = "wasm32")]
     {
         web_capabilities::register_web_operation_capabilities(async_registry);
-        register_unsupported_file_picker_capability(async_registry);
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -347,7 +346,7 @@ fn register_builtin_operation_capabilities(async_registry: &mut AsyncRegistry) {
     }
 }
 
-#[cfg(any(target_os = "android", target_os = "ios", target_arch = "wasm32"))]
+#[cfg(any(target_os = "android", target_os = "ios"))]
 fn register_unsupported_file_picker_capability(async_registry: &mut AsyncRegistry) {
     async_registry.register_operation_capability(
         fission_core::PICK_OPEN_FILES,
@@ -524,6 +523,9 @@ impl WebRenderer {
 
 #[cfg(target_arch = "wasm32")]
 type PendingWebGpuInit = Rc<RefCell<Option<Result<WebGpuPresenter, String>>>>;
+
+#[cfg(target_arch = "wasm32")]
+const WEBGPU_INIT_TIMEOUT: Duration = Duration::from_secs(10);
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct WindowViewportState {
@@ -5458,6 +5460,10 @@ where
         #[cfg(target_arch = "wasm32")]
         let mut webgpu_init_in_flight = false;
         #[cfg(target_arch = "wasm32")]
+        let mut webgpu_init_started_at: Option<Instant> = None;
+        #[cfg(target_arch = "wasm32")]
+        let webgpu_init_generation = Rc::new(Cell::new(0_u64));
+        #[cfg(target_arch = "wasm32")]
         let mut web_renderer_reported = false;
         #[cfg(target_arch = "wasm32")]
         let mut web_rendered_frames: u64 = 0;
@@ -7120,6 +7126,8 @@ where
                     {
                         web_renderer = None;
                         webgpu_init_in_flight = false;
+                        webgpu_init_started_at = None;
+                        webgpu_init_generation.set(webgpu_init_generation.get().wrapping_add(1));
                         *pending_webgpu_init.borrow_mut() = None;
                         web_renderer_reported = false;
                     }
@@ -8033,6 +8041,21 @@ where
                             #[cfg(target_arch = "wasm32")]
                             if web_renderer.is_none() {
                                 let request = web_renderer_request();
+                                if webgpu_init_in_flight
+                                    && webgpu_init_started_at.is_some_and(|started| {
+                                        Instant::now().duration_since(started)
+                                            >= WEBGPU_INIT_TIMEOUT
+                                    })
+                                {
+                                    webgpu_init_in_flight = false;
+                                    webgpu_init_started_at = None;
+                                    webgpu_init_generation
+                                        .set(webgpu_init_generation.get().wrapping_add(1));
+                                    *pending_webgpu_init.borrow_mut() = Some(Err(format!(
+                                        "initialization timed out after {} seconds",
+                                        WEBGPU_INIT_TIMEOUT.as_secs()
+                                    )));
+                                }
                                 if matches!(request, RendererRequest::Canvas2dSoftware) {
                                     match WebCanvasPresenter::new(window) {
                                         Ok(mut presenter) => {
@@ -8065,6 +8088,8 @@ where
                                     }
                                 } else if let Some(result) = pending_webgpu_init.borrow_mut().take()
                                 {
+                                    webgpu_init_in_flight = false;
+                                    webgpu_init_started_at = None;
                                     match result {
                                         Ok(presenter) => {
                                             web_renderer = Some(WebRenderer::WebGpu(presenter));
@@ -8120,7 +8145,10 @@ where
                                                 let pending = pending_webgpu_init.clone();
                                                 let proxy = event_proxy.clone();
                                                 let init_viewport = viewport_state;
+                                                let generation = webgpu_init_generation.clone();
+                                                let started_generation = generation.get();
                                                 webgpu_init_in_flight = true;
+                                                webgpu_init_started_at = Some(Instant::now());
                                                 wasm_bindgen_futures::spawn_local(async move {
                                                     let result = create_webgpu_presenter(
                                                         canvas,
@@ -8129,8 +8157,10 @@ where
                                                     )
                                                     .await
                                                     .map_err(|error| error.to_string());
-                                                    *pending.borrow_mut() = Some(result);
-                                                    let _ = proxy.send_event(TestEvent::Wake);
+                                                    if generation.get() == started_generation {
+                                                        *pending.borrow_mut() = Some(result);
+                                                        let _ = proxy.send_event(TestEvent::Wake);
+                                                    }
                                                 });
                                             }
                                             None => {
