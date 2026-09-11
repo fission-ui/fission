@@ -27,10 +27,10 @@ fn video_example_renders_a_surface_embed_and_syncs_video_state() {
     assert!(video_state.looped);
 
     let display_list = harness.get_last_display_list().expect("display list");
-    assert!(display_list.ops.iter().any(|op| matches!(
-        op,
-        DisplayOp::DrawText { text, .. } if text == "Video embed"
-    )));
+    assert!(display_list
+        .ops
+        .iter()
+        .any(|op| op.text().as_deref() == Some("Video embed")));
     assert!(display_list.ops.iter().any(|op| matches!(
         op,
         DisplayOp::DrawSurface { rect, .. }

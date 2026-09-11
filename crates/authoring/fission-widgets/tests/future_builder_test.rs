@@ -73,11 +73,9 @@ fn future_builder_declares_job_and_builds_from_snapshot() {
 
     let ir = fission_core::internal::lower_widget_to_ir(&node);
     assert!(
-        ir.nodes.values().any(|node| matches!(
-            &node.op,
-            fission_ir::Op::Paint(fission_ir::PaintOp::DrawText { text, .. })
-                if text == "Waiting"
-        )),
+        ir.nodes
+            .values()
+            .any(|node| node.op.text().as_deref() == Some("Waiting")),
         "FutureBuilder should render the node returned by its builder"
     );
 

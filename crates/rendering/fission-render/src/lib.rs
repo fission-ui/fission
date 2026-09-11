@@ -207,6 +207,28 @@ pub enum DisplayOp {
     },
 }
 
+impl DisplayOp {
+    /// Returns the text this op draws, if it draws any.
+    ///
+    /// The display-list counterpart of [`fission_ir::PaintOp::text`]. Whether a
+    /// widget produced one unstyled string or styled runs is an implementation
+    /// detail of that widget, so callers asking what the user reads should go
+    /// through this rather than matching a single variant.
+    pub fn text(&self) -> Option<std::borrow::Cow<'_, str>> {
+        match self {
+            Self::DrawText { text, .. } => Some(std::borrow::Cow::Borrowed(text.as_str())),
+            Self::DrawRichText { runs, .. } => match runs.as_slice() {
+                [] => None,
+                [run] => Some(std::borrow::Cow::Borrowed(run.text.as_str())),
+                runs => Some(std::borrow::Cow::Owned(
+                    runs.iter().map(|run| run.text.as_str()).collect(),
+                )),
+            },
+            _ => None,
+        }
+    }
+}
+
 pub fn embed_surface_id(kind: &EmbedKind, widget_id: WidgetId) -> u64 {
     let kind_tag = match kind {
         EmbedKind::Video => 0xF151_0000_0000_0001,

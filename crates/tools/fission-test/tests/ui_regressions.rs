@@ -255,10 +255,9 @@ fn test_multi_modal_stacking() {
     // Expected: Content -> Backdrop1 -> Modal1 -> Backdrop2 -> Modal2
 
     let mut order = Vec::new();
-    for op in dl.ops {
-        match op {
-            fission_render::DisplayOp::DrawText { text, .. } => order.push(text),
-            _ => {}
+    for op in &dl.ops {
+        if let Some(text) = op.text() {
+            order.push(text.into_owned());
         }
     }
 

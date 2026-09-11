@@ -9,10 +9,10 @@ fn scene_3d_example_renders_a_custom_surface_embed() {
     harness.pump().expect("pump 3d example");
 
     let display_list = harness.get_last_display_list().expect("display list");
-    assert!(display_list.ops.iter().any(|op| matches!(
-        op,
-        DisplayOp::DrawText { text, .. } if text == "3D embed"
-    )));
+    assert!(display_list
+        .ops
+        .iter()
+        .any(|op| op.text().as_deref() == Some("3D embed")));
     assert!(display_list.ops.iter().any(|op| matches!(
         op,
         DisplayOp::DrawSurface { rect, .. }

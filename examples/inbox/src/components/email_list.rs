@@ -745,21 +745,9 @@ mod tests {
         let ir = h.last_ir.as_ref().unwrap();
         ir.nodes
             .values()
-            .filter(|n| {
-                matches!(
-                    &n.op,
-                    fission_ir::Op::Paint(fission_ir::PaintOp::DrawText { text, .. })
-                        if subjects.contains(text)
-                )
-            })
-            .filter_map(|n| match &n.op {
-                fission_ir::Op::Paint(fission_ir::PaintOp::DrawText { text, .. })
-                    if subjects.contains(text) =>
-                {
-                    Some(text.clone())
-                }
-                _ => None,
-            })
+            .filter_map(|n| n.op.text())
+            .filter(|text| subjects.contains(text.as_ref()))
+            .map(|text| text.into_owned())
             .collect()
     }
 
