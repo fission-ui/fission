@@ -254,12 +254,9 @@ impl From<Drawer> for Widget {
         // may remain mounted for exit motion, but it must stop owning input on
         // the first closing build.
         let backdrop_visual: Widget = Container::new(fission_core::ui::widgets::Spacer::default())
-            .bg(Color {
-                r: 0,
-                g: 0,
-                b: 0,
-                a: 128,
-            })
+            // The scrim tints the app behind the panel, so it has to come from
+            // the design system rather than assuming a black backdrop.
+            .bg(tokens.colors.on_background.with_alpha(128))
             .flex_grow(1.0)
             .into();
         let mut backdrop: Widget = if this.is_open {

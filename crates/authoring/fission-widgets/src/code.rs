@@ -1,4 +1,4 @@
-use fission_core::op::{Color, Fill};
+use fission_core::op::Fill;
 use fission_core::ui::{Container, Text, Widget};
 use serde::{Deserialize, Serialize};
 
@@ -66,28 +66,38 @@ impl From<Kbd> for Widget {
         let this = &component;
 
         let tokens = &view.env().theme.tokens;
-        Container::new(
+        // A keycap is the code recipe with a raised surface, not a separate
+        // palette. The previous fixed light grey rendered a near-white cap in a
+        // dark theme, with the border invisible against it.
+        let style = &view.env().theme.components.code.style;
+        let mut cap = Container::new(
             Text::new(this.text.clone())
-                .size(12.0)
-                .color(tokens.colors.text_primary),
+                .size(style.font_size.unwrap_or(tokens.typography.font_size_xs))
+                .family(
+                    style
+                        .font_family
+                        .clone()
+                        .unwrap_or_else(|| tokens.typography.font_family_mono.clone()),
+                )
+                .color(style.text_color.unwrap_or(tokens.colors.text_primary)),
         )
-        .bg(Color {
-            r: 245,
-            g: 245,
-            b: 245,
-            a: 255,
-        })
-        .border(
-            Color {
-                r: 200,
-                g: 200,
-                b: 200,
-                a: 255,
-            },
-            1.0,
+        .bg_fill(
+            style
+                .background
+                .clone()
+                .unwrap_or(Fill::Solid(tokens.colors.surface_raised)),
         )
-        .border_radius(4.0)
-        .padding_all(4.0)
-        .into()
+        .border_radius(style.radius.unwrap_or(tokens.radii.small))
+        .padding(style.padding_box(tokens.spacing.xs, tokens.spacing.xs / 2.0));
+        let border_color = style
+            .border
+            .as_ref()
+            .and_then(|border| match &border.fill {
+                Fill::Solid(color) => Some(*color),
+                _ => None,
+            })
+            .unwrap_or(tokens.colors.border);
+        cap = cap.border(border_color, style.border.as_ref().map_or(1.0, |b| b.width));
+        cap.into()
     }
 }
