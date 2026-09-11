@@ -211,6 +211,38 @@ fn scene_texts(scene: &fission::render::RenderScene) -> Vec<String> {
     out
 }
 
+/// Finds the node carrying a semantics role, so tests click what the user sees
+/// rather than an id re-derived from a composite's internal path salt.
+fn semantics_node_by_role(h: &TestHarness<InboxState>, role: Role) -> Option<WidgetId> {
+    let ir = h.last_ir.as_ref()?;
+    ir.nodes.values().find_map(|node| match &node.op {
+        Op::Semantics(semantics) if semantics.role == role => Some(node.id),
+        _ => None,
+    })
+}
+
+fn click_role(h: &mut TestHarness<InboxState>, role: Role) -> Result<()> {
+    let id = semantics_node_by_role(h, role)
+        .unwrap_or_else(|| panic!("expected a {role:?} node to click"));
+    click_node(h, id)
+}
+
+/// Clicks the control carrying a stable semantics identifier.
+fn click_identifier(h: &mut TestHarness<InboxState>, identifier: &str) -> Result<()> {
+    let ir = h.last_ir.as_ref().expect("ir");
+    let id = ir
+        .nodes
+        .values()
+        .find_map(|node| match &node.op {
+            Op::Semantics(semantics) if semantics.identifier.as_deref() == Some(identifier) => {
+                Some(node.id)
+            }
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("expected a node identified as {identifier:?}"));
+    click_node(h, id)
+}
+
 fn node_rect(h: &TestHarness<InboxState>, node_id: WidgetId) -> Option<LayoutRect> {
     h.last_snapshot
         .as_ref()
@@ -593,8 +625,7 @@ fn compose_modal_backdrop_closes() -> Result<()> {
 fn compose_combobox_popup_is_bounded_and_clickable() -> Result<()> {
     let mut h = pump_state(state_compose())?;
 
-    let to_input_id = WidgetId::derived(WidgetId::explicit("compose_to").as_u128(), &[1]);
-    click_node(&mut h, to_input_id)?;
+    click_identifier(&mut h, "compose.to")?;
     h.send_event(InputEvent::Keyboard(KeyEvent::Down {
         key_code: KeyCode::Char('a'),
         modifiers: 0,
@@ -655,8 +686,7 @@ fn compose_combobox_popup_is_bounded_and_clickable() -> Result<()> {
 fn compose_combobox_popup_does_not_block_modal_close_button() -> Result<()> {
     let mut h = pump_state(state_compose())?;
 
-    let to_input_id = WidgetId::derived(WidgetId::explicit("compose_to").as_u128(), &[1]);
-    click_node(&mut h, to_input_id)?;
+    click_identifier(&mut h, "compose.to")?;
     h.send_event(InputEvent::Keyboard(KeyEvent::Down {
         key_code: KeyCode::Char('a'),
         modifiers: 0,
@@ -752,8 +782,7 @@ fn sidebar_click_navigates_to_sent() -> Result<()> {
 #[test]
 fn theme_select_opens_on_click() -> Result<()> {
     let mut h = pump_state(state_settings())?;
-    let select_id = WidgetId::derived(WidgetId::explicit("theme_select").as_u128(), &[]);
-    click_node(&mut h, select_id)?;
+    click_identifier(&mut h, "settings.theme")?;
     let state = h.runtime.get_app_state::<InboxState>().unwrap();
     assert!(state.show_theme_select, "theme select should open on click");
     Ok(())
@@ -993,7 +1022,7 @@ exact_text_test!(kbd_text_present, state_detail(), "g");
 exact_text_test!(
     pagination_ellipsis_present,
     state_pagination_ellipsis(),
-    "..."
+    "\u{2026}"
 );
 exact_text_test!(time_picker_separator_present, state_compose(), ":");
 
@@ -1019,15 +1048,18 @@ layout_test!(
 layout_test!(
     range_slider_grid_present,
     state_filters_open(),
+    // Each thumb owns a three-track grid: the leading percentage, the thumb
+    // itself at its recipe size, and the remaining free space.
     |op| match op {
         LayoutOp::Grid { columns, .. } => {
-            columns.len() == 5
+            columns.len() == 3
+                && matches!(columns.first(), Some(GridTrack::Percent(_)))
                 && matches!(columns.get(1), Some(GridTrack::Points(p)) if approx_eq(*p, 16.0))
-                && matches!(columns.get(3), Some(GridTrack::Points(p)) if approx_eq(*p, 16.0))
+                && matches!(columns.get(2), Some(GridTrack::Fr(_)))
         }
         _ => false,
     },
-    "expected range slider grid tracks"
+    "expected range slider thumb grid tracks"
 );
 
 // Storage progress bar removed from sidebar for compactness

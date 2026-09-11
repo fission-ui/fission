@@ -478,6 +478,7 @@ impl From<SettingsModal> for Widget {
                                 helper: None,
                                 child: Select {
                                     id: WidgetId::explicit("theme_select"),
+                                    trigger_semantics_identifier: Some("settings.theme".into()),
                                     selected_label: Some(theme_display),
                                     placeholder: t("settings.theme.placeholder"),
                                     is_open: view.state().show_theme_select,
