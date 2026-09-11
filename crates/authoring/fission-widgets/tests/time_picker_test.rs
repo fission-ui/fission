@@ -95,8 +95,11 @@ fn collect_buttons<'a>(node: &'a Widget, out: &mut Vec<&'a fission_core::ui::But
 #[test]
 fn time_picker_uses_compact_stepper_buttons() {
     let node = build_time_picker(9, 0);
+    // The hour and minute steppers are one time value, so the picker lowers
+    // through a group semantics region around its row.
+    let surface = semantics_child(&node).expect("time picker surface");
     let row =
-        fission_core::internal::widget_as_row(&node).expect("TimePicker should lower to a row");
+        fission_core::internal::widget_as_row(surface).expect("TimePicker should lower to a row");
     assert_eq!(
         row.children.len(),
         3,
