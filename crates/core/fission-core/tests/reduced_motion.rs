@@ -219,9 +219,15 @@ fn reduced_presence_hides_immediately_or_retains_an_inert_child() {
         wrapper.op,
         Op::Structural(StructuralOp::Group { .. })
     ));
-    assert_eq!(wrapper.children, vec![id]);
-
-    let inert = lowering.ir.nodes.get(&id).unwrap();
+    // The declared Presence id keys the motion state, not the inert boundary
+    // node: identity resolution derives a node id for the boundary itself.
+    assert_eq!(
+        wrapper.children.len(),
+        1,
+        "retained presence should wrap exactly one boundary"
+    );
+    let inert_id = wrapper.children[0];
+    let inert = lowering.ir.nodes.get(&inert_id).unwrap();
     assert!(matches!(
         inert.op,
         Op::Structural(StructuralOp::InteractionInert { .. })
