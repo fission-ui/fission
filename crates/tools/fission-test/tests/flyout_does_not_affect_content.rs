@@ -158,9 +158,6 @@ fn flyout_does_not_shift_content() -> Result<()> {
     )?;
     let snap1 = pipe.last_snapshot.clone().expect("snapshot1");
 
-    let anchor_node = WidgetId::derived(WidgetId::explicit("test_menu").as_u128(), &[]);
-    let anchor_rect1 = snap1.get_node_rect(anchor_node).expect("anchor rect1");
-
     // Frame 2: open
     {
         if let Some(state) = runtime.get_app_state_mut::<GlobalState>() {
@@ -229,6 +226,21 @@ fn flyout_does_not_shift_content() -> Result<()> {
         )?;
         let snap2 = pipe.last_snapshot.clone().expect("snapshot2");
 
+        // Take the anchor from the flyout rather than re-deriving an id from
+        // the widget's identity, which couples the test to whichever path salt
+        // the composite uses for its trigger. The node exists in both frames;
+        // only the flyout that points at it is new.
+        let anchor_node = ir2
+            .nodes
+            .values()
+            .find_map(|node| match &node.op {
+                fission_ir::Op::Layout(fission_ir::LayoutOp::Flyout { anchor, .. }) => {
+                    Some(*anchor)
+                }
+                _ => None,
+            })
+            .expect("flyout anchor");
+        let anchor_rect1 = snap1.get_node_rect(anchor_node).expect("anchor rect1");
         let anchor_rect2 = snap2.get_node_rect(anchor_node).expect("anchor rect2");
 
         // The anchor's geometry must be IDENTICAL to frame 1.

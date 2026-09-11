@@ -256,8 +256,19 @@ fn menu_portal_position_near_anchor() -> Result<()> {
 
         let snap2 = pipe.last_snapshot.clone().expect("snapshot2");
 
-        let widget_id = WidgetId::explicit("test_menu");
-        let anchor_node = WidgetId::derived(widget_id.as_u128(), &[]);
+        // Take the anchor from the flyout itself rather than re-deriving an id
+        // from the widget's identity, which couples the test to whichever path
+        // salt the composite happens to use for its trigger.
+        let anchor_node = ir2
+            .nodes
+            .values()
+            .find_map(|node| match &node.op {
+                fission_ir::Op::Layout(fission_ir::LayoutOp::Flyout { anchor, .. }) => {
+                    Some(*anchor)
+                }
+                _ => None,
+            })
+            .expect("flyout anchor");
         let anchor_rect = snap2.get_node_rect(anchor_node).expect("anchor rect");
 
         // Find Flyout op and check its content's geometry
