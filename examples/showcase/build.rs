@@ -10,6 +10,9 @@ fn main() {
         out_file: "showcase_design_system.rs".into(),
         type_name: "ShowcaseDesignSystem".into(),
         crate_path: "fission::theme".into(),
+        // An application design system customizes the components it cares
+        // about and inherits the rest.
+        require_complete_components: false,
     })
     .expect("failed to generate ShowcaseDesignSystem from design/dsp.json");
 }

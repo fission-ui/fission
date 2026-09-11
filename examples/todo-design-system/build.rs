@@ -8,6 +8,9 @@ fn main() {
         out_file: "todo_design_system.rs".into(),
         type_name: "TodoDesignSystem".into(),
         crate_path: "fission::theme".into(),
+        // An application design system customizes the components it cares
+        // about and inherits the rest.
+        require_complete_components: false,
     })
     .expect("failed to generate TodoDesignSystem from DSP JSON");
 }

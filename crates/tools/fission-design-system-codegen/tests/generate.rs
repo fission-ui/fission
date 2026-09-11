@@ -19,6 +19,7 @@ fn generates_rust_for_fission_dsp_package() {
         out_file: "generated.rs".into(),
         type_name: "GeneratedDesignSystem".into(),
         crate_path: "fission_theme".into(),
+        require_complete_components: false,
     })
     .unwrap();
     let generated = std::fs::read_to_string(out).unwrap();

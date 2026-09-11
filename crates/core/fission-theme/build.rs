@@ -34,6 +34,10 @@ fn generate(directory: &str, out_file: &str, type_name: &str) {
         out_file: out_file.into(),
         type_name: type_name.into(),
         crate_path: "crate".into(),
+        // Fission supplies these, so they are the complete authority for any
+        // application that selects one. An omitted recipe must fail the build
+        // rather than fall back to the codegen's own geometry.
+        require_complete_components: true,
     })
     .unwrap_or_else(|error| {
         panic!("failed to generate {directory} Fission design system: {error}")

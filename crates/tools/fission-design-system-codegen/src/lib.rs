@@ -10,6 +10,13 @@ pub struct Config {
     pub out_file: String,
     pub type_name: String,
     pub crate_path: String,
+    /// Whether this design system must define every recipe the generators read.
+    ///
+    /// True for the design systems Fission ships, which are the complete
+    /// authority for an application that selects one. False for an application
+    /// design system, which customizes the components it cares about and is
+    /// meant to inherit the rest.
+    pub require_complete_components: bool,
 }
 
 impl Config {
@@ -19,7 +26,15 @@ impl Config {
             out_file: "app_design_system.rs".into(),
             type_name: "AppDesignSystem".into(),
             crate_path: "fission_theme".into(),
+            require_complete_components: false,
         }
+    }
+
+    /// Marks this as a design system Fission supplies, so an omitted recipe
+    /// fails the build instead of silently falling back to inlined geometry.
+    pub fn require_complete_components(mut self) -> Self {
+        self.require_complete_components = true;
+        self
     }
 }
 
@@ -27,6 +42,9 @@ pub fn generate(config: Config) -> Result<PathBuf> {
     let out_dir = std::env::var_os("OUT_DIR").ok_or_else(|| anyhow!("OUT_DIR is not set"))?;
     let out_path = PathBuf::from(out_dir).join(&config.out_file);
     let package = Package::load(&config.dsp_path)?;
+    if config.require_complete_components {
+        package.check_required_components()?;
+    }
     println!("cargo:rerun-if-changed={}", package.dsp_path.display());
     println!("cargo:rerun-if-changed={}", package.tokens_path.display());
     for font_path in package.font_paths()? {
@@ -92,14 +110,12 @@ impl Package {
         let raw_tokens: Value = serde_json::from_str(&tokens_text)
             .with_context(|| format!("invalid JSON in {}", tokens_path.display()))?;
         let tokens = TokenStore::from_value(&raw_tokens)?;
-        let package = Self {
+        Ok(Self {
             dsp_path,
             tokens_path,
             dsp,
             tokens,
-        };
-        package.check_required_components()?;
-        Ok(package)
+        })
     }
 
     /// Fails the build when a design system omits a component recipe that the
