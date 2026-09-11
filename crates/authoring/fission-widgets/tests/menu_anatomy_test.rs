@@ -159,8 +159,11 @@ fn composed_menu_anatomy_uses_one_recipe_and_keeps_disabled_items_inert() {
             assert_eq!(style.width, Some(Length::Points(234.0)));
             assert_eq!(style.height, None);
             assert_eq!(style.min_height, Some(Length::Points(36.0)));
+            // Menu rows carry logical [start, end, top, bottom] padding so the
+            // selection indicator's reserved space follows reading order.
+            assert_eq!(style.padding, None);
             assert_eq!(
-                style.padding,
+                style.padding_directional,
                 Some([
                     Length::Points(11.0),
                     Length::Points(11.0),

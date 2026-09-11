@@ -101,8 +101,9 @@ impl From<RangeSlider> for Widget {
                 node_id,
                 start_thumb_id,
                 end_thumb_id,
+                config,
             })),
-            render_object: Some(Arc::new(config)),
+            render_object: None,
         })
     }
 }
@@ -113,6 +114,7 @@ struct RangeSliderLowerer {
     node_id: WidgetId,
     start_thumb_id: WidgetId,
     end_thumb_id: WidgetId,
+    config: RangeSliderRuntimeConfig,
 }
 
 impl LowerWidget for RangeSliderLowerer {
@@ -203,15 +205,29 @@ impl LowerWidget for RangeSliderLowerer {
         layout.build(cx);
 
         cx.pop_scope();
+        // A two-thumb range is a group containing two sliders, and the whole
+        // track accepts drag, so a press beside a thumb moves the nearer one.
+        // Marking it draggable is what makes the track hit-testable, the same
+        // way the single Slider does it; the thumbs stay the focus targets so
+        // the control keeps one tab stop per value.
         let semantics = Semantics {
-            role: Role::Generic,
+            role: Role::Group,
             identifier: self.component.semantics_identifier.clone(),
             value: Some(format!("{start}–{end}")),
+            draggable: true,
             ..Semantics::default()
         };
         let mut control = IrBuilder::new(control_id, Op::Semantics(semantics));
         control.add_child(layout_id);
-        control.build(cx)
+        control.build(cx);
+
+        // Controller config rides on the widget's own node, which is the parent
+        // of everything lowered here, so walking up from a hit thumb or the
+        // track finds it and geometry resolves against the whole control.
+        cx.ir
+            .custom_render_objects
+            .insert(self.node_id, std::sync::Arc::new(self.config.clone()));
+        control_id
     }
 
     fn stable_key(&self) -> u64 {

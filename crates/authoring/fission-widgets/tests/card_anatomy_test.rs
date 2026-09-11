@@ -21,7 +21,7 @@ fn lower(env: &Env, build_widget: impl FnOnce() -> Widget) -> CoreIR {
     let view = View::new(&state, &runtime, env, None);
     let mut ctx = BuildCtx::<TestState>::new();
     let widget = build::enter(&mut ctx, &view, build_widget);
-    fission_core::internal::lower_widget_to_ir(&widget)
+    fission_core::authoring::lower_widget_to_ir_in(env, &widget)
 }
 
 fn rich_text_style(

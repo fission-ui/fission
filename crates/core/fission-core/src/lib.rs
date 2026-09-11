@@ -199,6 +199,16 @@ pub mod authoring {
     pub fn lower_widget_to_ir_with_root(widget: &Widget, root: WidgetId) -> fission_ir::CoreIR {
         crate::internal::lower_widget_to_ir_with_root(widget, root)
     }
+
+    /// Lowers a complete widget into IR against a specific environment.
+    ///
+    /// Lowering reads the environment for layout direction, theme and locale,
+    /// so a test that varies any of those must pass the same `Env` it built the
+    /// widget with. [`lower_widget_to_ir`] uses a default environment, which is
+    /// only correct when the widget under test does not depend on one.
+    pub fn lower_widget_to_ir_in(env: &crate::Env, widget: &Widget) -> fission_ir::CoreIR {
+        crate::internal::lower_widget_to_ir_in(env, widget, WidgetId::app_root())
+    }
 }
 
 #[doc(hidden)]
@@ -236,9 +246,16 @@ pub mod internal {
     }
 
     pub fn lower_widget_to_ir_with_root(widget: &Widget, root: WidgetId) -> fission_ir::CoreIR {
-        let env = crate::Env::default();
+        lower_widget_to_ir_in(&crate::Env::default(), widget, root)
+    }
+
+    pub fn lower_widget_to_ir_in(
+        env: &crate::Env,
+        widget: &Widget,
+        root: WidgetId,
+    ) -> fission_ir::CoreIR {
         let runtime_state = crate::RuntimeState::default();
-        let mut cx = LoweringCx::new(&env, &runtime_state, None, None);
+        let mut cx = LoweringCx::new(env, &runtime_state, None, None);
         let root_id = widget.clone().resolve_identities(root).lower(&mut cx);
         cx.ir.root = Some(root_id);
         cx.ir
