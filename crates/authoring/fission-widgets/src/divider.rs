@@ -1,5 +1,6 @@
-use fission_core::ui::{Container, Widget};
+use fission_core::ui::{Container, SemanticsRegion, Widget};
 use fission_ir::op::Color;
+use fission_ir::{Role, SemanticOrientation};
 use serde::{Deserialize, Serialize};
 
 /// The direction of a [`Divider`] line.
@@ -58,6 +59,14 @@ impl From<Divider> for Widget {
         };
         c = c.flex_grow(0.0).flex_shrink(0.0);
 
-        c.into()
+        // A separator carries structure, not just paint: it tells a reader that
+        // the groups either side of it are distinct.
+        SemanticsRegion::new(c)
+            .role(Role::Separator)
+            .orientation(match this.orientation {
+                Orientation::Horizontal => SemanticOrientation::Horizontal,
+                Orientation::Vertical => SemanticOrientation::Vertical,
+            })
+            .into()
     }
 }

@@ -982,6 +982,7 @@ mod imp {
             Role::TableRow => AccessRole::Row,
             Role::TableCell => AccessRole::Cell,
             Role::ColumnHeader => AccessRole::ColumnHeader,
+            Role::ProgressBar => AccessRole::ProgressIndicator,
             Role::Generic => AccessRole::GenericContainer,
         }
     }

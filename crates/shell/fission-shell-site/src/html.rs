@@ -2210,7 +2210,8 @@ impl HtmlRenderer<'_> {
             | Role::Table
             | Role::TableRow
             | Role::TableCell
-            | Role::ColumnHeader => "div",
+            | Role::ColumnHeader
+            | Role::ProgressBar => "div",
             Role::TextInput
             | Role::Checkbox
             | Role::Radio
@@ -4211,6 +4212,7 @@ fn semantic_html_role(role: Role) -> Option<&'static str> {
         Role::TableRow => Some("row"),
         Role::TableCell => Some("cell"),
         Role::ColumnHeader => Some("columnheader"),
+        Role::ProgressBar => Some("progressbar"),
         Role::Button
         | Role::Link
         | Role::Text
@@ -4301,6 +4303,17 @@ fn semantic_html_attrs(ir: &CoreIR, node_id: WidgetId, semantics: &Semantics) ->
         attrs.push_str(" aria-invalid=\"true\"");
     }
 
+    // A range is unreadable without its bounds, so report them wherever a role
+    // carries one rather than only on a native range input.
+    if let Some(value) = semantics.min_value {
+        attrs.push_str(&format!(" aria-valuemin=\"{value}\""));
+    }
+    if let Some(value) = semantics.max_value {
+        attrs.push_str(&format!(" aria-valuemax=\"{value}\""));
+    }
+    if let Some(value) = semantics.current_value {
+        attrs.push_str(&format!(" aria-valuenow=\"{value}\""));
+    }
     let mut relation = |name: &str, ids: &[WidgetId]| {
         if ids.is_empty() {
             return;

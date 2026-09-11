@@ -83,6 +83,8 @@ pub enum Role {
     TableCell,
     /// A header cell naming a column.
     ColumnHeader,
+    /// A determinate or indeterminate measure of progress.
+    ProgressBar,
 }
 
 /// The kind of popup controlled by a semantic node.
@@ -384,6 +386,7 @@ mod tests {
         assert_eq!(Role::TableRow as u8, 30);
         assert_eq!(Role::TableCell as u8, 31);
         assert_eq!(Role::ColumnHeader as u8, 32);
+        assert_eq!(Role::ProgressBar as u8, 33);
     }
 
     #[test]

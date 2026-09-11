@@ -45,6 +45,15 @@ pub struct SemanticsRegion {
     /// Semantic orientation of this composite region, when applicable.
     #[serde(default)]
     pub orientation: Option<SemanticOrientation>,
+    /// Lower bound of a numeric range, for progress bars, sliders and meters.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_value: Option<f32>,
+    /// Upper bound of a numeric range.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_value: Option<f32>,
+    /// Current position within the range.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub current_value: Option<f32>,
     /// Whether this region represents a modal surface.
     #[serde(default)]
     pub modal: bool,
@@ -183,6 +192,17 @@ impl SemanticsRegion {
     }
 
     /// Sets the semantic orientation of this region.
+    /// Reports a numeric range and current position.
+    ///
+    /// Progress bars, sliders and meters are unreadable without this: the paint
+    /// carries the value for a sighted user and nothing for anyone else.
+    pub fn range(mut self, min: f32, max: f32, current: f32) -> Self {
+        self.min_value = Some(min);
+        self.max_value = Some(max);
+        self.current_value = Some(current);
+        self
+    }
+
     pub fn orientation(mut self, orientation: SemanticOrientation) -> Self {
         self.orientation = Some(orientation);
         self
@@ -276,6 +296,9 @@ impl Default for SemanticsRegion {
             expanded: None,
             has_popup: None,
             orientation: None,
+            min_value: None,
+            max_value: None,
+            current_value: None,
             modal: false,
             controls: Vec::new(),
             labelled_by: Vec::new(),
@@ -315,6 +338,9 @@ impl Lower for SemanticsRegion {
             expanded: self.expanded,
             has_popup: self.has_popup,
             orientation: self.orientation,
+            min_value: self.min_value,
+            max_value: self.max_value,
+            current_value: self.current_value,
             modal: self.modal,
             controls: self.controls.clone(),
             labelled_by: self.labelled_by.clone(),

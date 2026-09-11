@@ -337,7 +337,12 @@ fn test_toast_renders_content() {
 
     let node = build::enter(&mut ctx, &view, || toast.into());
 
-    assert_eq!(fission_core::internal::widget_kind_name(&node), "Container");
+    // A toast announces itself, so it lowers through a semantics region
+    // carrying Role::Alert rather than a bare container.
+    assert_eq!(
+        fission_core::internal::widget_kind_name(&node),
+        "SemanticsRegion"
+    );
 }
 
 #[test]
