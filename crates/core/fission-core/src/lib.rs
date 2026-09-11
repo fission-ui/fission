@@ -87,13 +87,112 @@ pub mod ui;
 
 pub mod view;
 
-#[doc(hidden)]
-/// Framework integration boundary for first-party shells, renderers, test
-/// harnesses, and generated widget implementations.
+/// Advanced widget authoring.
 ///
-/// This module is not part of the application authoring API. Application code
-/// should construct `Widget` values from widget structs and components instead
-/// of calling lowering helpers directly.
+/// Most applications never need this module. Compose the built-in widgets, or
+/// implement `From<YourType> for Widget` to lower a component into them.
+///
+/// Reach for `authoring` when a widget has to emit IR structure the built-in
+/// widget structs cannot express. Implement [`LowerWidget`], then wrap it with
+/// [`custom_widget`] to get an ordinary [`Widget`](crate::ui::Widget) that
+/// composes with everything else.
+///
+/// # The guarantee this API preserves
+///
+/// Widget authoring in Fission is *open composition over a closed vocabulary*.
+/// A widget may emit any structure it likes, but every node it emits is an
+/// [`Op`](fission_ir::Op) from a fixed set that every target already knows how
+/// to handle. Nothing written against this module can produce IR that a target
+/// cannot render, which is why the same widget tree reaches desktop, web,
+/// mobile, terminal, static-site, and SSR shells.
+///
+/// Two consequences follow, and both are deliberate:
+///
+/// - You cannot define a new layout algorithm. Layout must be reproducible from
+///   the IR alone or shells would disagree about geometry, so layout modes live
+///   in [`LayoutOp`](fission_ir::LayoutOp) where every target implements them
+///   once. If you need one that does not exist, open an issue rather than
+///   working around it.
+/// - You cannot define a new paint primitive. Emit
+///   [`PaintOp`](fission_ir::PaintOp) values instead.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// use fission_core::authoring::{custom_widget, IrBuilder, LowerWidget, LoweringCx};
+/// use fission_core::ui::Widget;
+/// use fission_ir::{LayoutOp, Op, WidgetId};
+///
+/// #[derive(Debug)]
+/// struct Banner {
+///     child: Widget,
+/// }
+///
+/// impl LowerWidget for Banner {
+///     fn lower_dyn(&self, cx: &mut LoweringCx) -> WidgetId {
+///         let child_id = fission_core::authoring::lower_widget(&self.child, cx);
+///         let id = cx.next_node_id();
+///         let mut builder = IrBuilder::new(id, Op::Layout(LayoutOp::AbsoluteFill));
+///         builder.add_child(child_id);
+///         builder.build(cx)
+///     }
+/// }
+///
+/// let widget = custom_widget("Banner", Banner { child });
+/// ```
+pub mod authoring {
+    use crate::ui::node::InternalRenderNode;
+    use crate::Widget;
+    use fission_ir::WidgetId;
+    use std::sync::Arc;
+
+    pub use crate::build_context::BuildCtx;
+    pub use crate::lowering::{IrBuilder, LoweringCx};
+    pub use crate::ui::traits::{Lower, LowerWidget};
+
+    /// Wraps a [`LowerWidget`] implementation as an ordinary [`Widget`].
+    ///
+    /// `debug_tag` names the node in devtools and diagnostic output. Use the
+    /// widget's type name.
+    pub fn custom_widget(
+        debug_tag: impl Into<String>,
+        lowerer: impl LowerWidget + 'static,
+    ) -> Widget {
+        Widget::custom(InternalRenderNode {
+            debug_tag: debug_tag.into(),
+            lowerer: Some(Arc::new(lowerer)),
+            render_object: None,
+        })
+    }
+
+    /// Lowers a child widget from inside [`LowerWidget::lower_dyn`].
+    ///
+    /// Call this for every child before emitting the parent node, and pass the
+    /// returned ids to [`IrBuilder::add_child`].
+    pub fn lower_widget(widget: &Widget, cx: &mut LoweringCx) -> WidgetId {
+        crate::internal::lower_widget(widget, cx)
+    }
+
+    /// Lowers a child widget under an explicit identity root.
+    ///
+    /// Use this when a widget owns retained state that must survive rebuilds
+    /// under a caller-chosen identity rather than the ambient one.
+    pub fn lower_widget_with_root(
+        widget: &Widget,
+        cx: &mut LoweringCx,
+        root: WidgetId,
+    ) -> WidgetId {
+        crate::internal::lower_widget_with_root(widget, cx, root)
+    }
+}
+
+#[doc(hidden)]
+/// Framework integration boundary for first-party shells, renderers, and test
+/// harnesses.
+///
+/// This module is not covered by semver. Widget authors want
+/// [`authoring`](crate::authoring) instead; everything here that is part of the
+/// widget-authoring contract is re-exported from there.
 pub mod internal {
     pub use crate::build_context::BuildCtx;
     pub use crate::lowering::{build_layout_tree, wrap_zstack_child, IrBuilder, LoweringCx};
