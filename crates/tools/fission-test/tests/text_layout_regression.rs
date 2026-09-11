@@ -76,7 +76,7 @@ fn test_email_list_overlap_regression() {
     let mut subject_rect = None;
 
     for (id, node) in &ir.nodes {
-        if let fission_ir::Op::Paint(fission_ir::PaintOp::DrawText { text, .. }) = &node.op {
+        if let Some(text) = node.op.text() {
             let geom = snap.get_node_geometry(*id).unwrap();
             if text.contains("preview") {
                 preview_rect = Some(geom.rect);

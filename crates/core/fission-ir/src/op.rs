@@ -19,6 +19,19 @@ pub enum Op {
     Semantics(Semantics),
 }
 
+impl Op {
+    /// Returns the text this node renders, if it renders any.
+    ///
+    /// See [`PaintOp::text`] for why callers should prefer this over matching
+    /// a single text paint op.
+    pub fn text(&self) -> Option<std::borrow::Cow<'_, str>> {
+        match self {
+            Self::Paint(paint) => paint.text(),
+            _ => None,
+        }
+    }
+}
+
 impl std::hash::Hash for Op {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         match self {
@@ -1825,6 +1838,33 @@ pub enum PaintOp {
         fill: Option<Fill>,
         stroke: Option<Stroke>,
     },
+}
+
+impl PaintOp {
+    /// Returns the text this op renders, if it renders any.
+    ///
+    /// Fission has two text paint ops: [`DrawText`](Self::DrawText) carries one
+    /// unstyled string, [`DrawRichText`](Self::DrawRichText) carries styled
+    /// runs. Which one a widget emits is an implementation detail of that
+    /// widget, so anything asking "what does the user read here" — semantic
+    /// tooling, devtools, search indexing, tests — should go through this
+    /// rather than matching a single variant and silently missing the other.
+    ///
+    /// Rich text is joined across runs without separators, because runs split
+    /// on styling rather than on word boundaries.
+    pub fn text(&self) -> Option<std::borrow::Cow<'_, str>> {
+        match self {
+            Self::DrawText { text, .. } => Some(std::borrow::Cow::Borrowed(text.as_str())),
+            Self::DrawRichText { runs, .. } => match runs.as_slice() {
+                [] => None,
+                [run] => Some(std::borrow::Cow::Borrowed(run.text.as_str())),
+                runs => Some(std::borrow::Cow::Owned(
+                    runs.iter().map(|run| run.text.as_str()).collect(),
+                )),
+            },
+            _ => None,
+        }
+    }
 }
 
 impl std::hash::Hash for PaintOp {

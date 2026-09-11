@@ -27,15 +27,10 @@ fn text_key_resolves_from_i18n_registry() {
     let root_id = fission_core::internal::lower_widget(&text.into(), &mut cx);
     cx.ir.root = Some(root_id);
 
-    let mut found = false;
-    for (_id, node) in &cx.ir.nodes {
-        if let Op::Paint(PaintOp::DrawText { text, .. }) = &node.op {
-            if text == "Hola" {
-                found = true;
-                break;
-            }
-        }
-    }
+    let found = cx.ir.nodes.values().any(|node| match &node.op {
+        Op::Paint(paint) => paint.text().as_deref() == Some("Hola"),
+        _ => false,
+    });
 
     assert!(found, "expected translated text 'Hola' to be emitted");
 }

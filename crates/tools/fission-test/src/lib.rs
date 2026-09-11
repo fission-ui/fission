@@ -25,21 +25,14 @@ pub fn layout_input_nodes(ir: &CoreIR, env: &Env) -> Vec<LayoutInputNode> {
     build_layout_tree(ir, env)
 }
 
-/// Returns the visible text an IR paint op carries, if any.
+/// Returns the visible text an IR op carries, if any.
 ///
-/// Fission has two text paint ops: `DrawText` for a single unstyled string and
-/// `DrawRichText` for styled runs. Which one a widget emits is an
-/// implementation detail — `Text` always emits rich runs so the resolved font
-/// family survives to the renderer, while simpler widgets may emit either.
-///
-/// Assertions about *what the user reads* should not encode that distinction,
-/// so use this instead of matching one op directly.
+/// Delegates to [`fission_ir::PaintOp::text`], which reads either text paint
+/// op. Assertions about *what the user reads* should not encode which
+/// primitive a widget happens to emit.
 pub fn op_text(op: &fission_ir::Op) -> Option<String> {
     match op {
-        fission_ir::Op::Paint(fission_ir::PaintOp::DrawText { text, .. }) => Some(text.clone()),
-        fission_ir::Op::Paint(fission_ir::PaintOp::DrawRichText { runs, .. }) => {
-            Some(runs.iter().map(|run| run.text.as_str()).collect())
-        }
+        fission_ir::Op::Paint(paint) => paint.text().map(|text| text.into_owned()),
         _ => None,
     }
 }
