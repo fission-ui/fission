@@ -119,6 +119,7 @@ fn closed_combobox_exposes_editable_popup_semantics_and_opens_on_focus() {
     let (ir, portals) = build_widget(|| {
         Combobox {
             id: combobox_id,
+            semantics_identifier: None,
             value: "Av".into(),
             items: vec!["Avery".into(), "Ava".into()],
             is_open: false,
@@ -258,6 +259,7 @@ fn open_combobox_uses_a_bounded_listbox_with_stable_options() {
     let (ir, portals) = build_widget(|| {
         Combobox {
             id: combobox_id,
+            semantics_identifier: None,
             value: "Avery".into(),
             items: vec!["Ava".into(), "Avery".into(), "Avril".into()],
             is_open: true,
@@ -345,6 +347,7 @@ fn combobox_keeps_side_placement_when_a_matching_label_is_ambiguous() {
     let (_, portals) = build_widget(|| {
         Combobox {
             id: combobox_id,
+            semantics_identifier: None,
             value: "Avery".into(),
             items: vec!["Avery".into(), "Avery".into()],
             is_open: true,
@@ -368,6 +371,7 @@ fn empty_combobox_never_claims_an_open_popup() {
     let (ir, portals) = build_widget(|| {
         Combobox {
             id: combobox_id,
+            semantics_identifier: None,
             value: String::new(),
             items: Vec::new(),
             is_open: true,

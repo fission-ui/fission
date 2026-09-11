@@ -313,6 +313,7 @@ fn form_control_relates_the_actual_editable_combobox_input() {
             label: Some("Assignee".into()),
             child: Combobox {
                 id: combobox_id,
+                semantics_identifier: None,
                 value: "Av".into(),
                 items: vec!["Avery".into()],
                 is_open: false,

@@ -240,6 +240,23 @@ pub struct Combobox {
     pub semantics_identifier: Option<String>,
 }
 
+impl Default for Combobox {
+    fn default() -> Self {
+        Self {
+            id: WidgetId::explicit("combobox"),
+            value: String::new(),
+            items: Vec::new(),
+            is_open: false,
+            width: None,
+            max_popup_height: None,
+            on_input: None,
+            on_select: None,
+            on_toggle: None,
+            semantics_identifier: None,
+        }
+    }
+}
+
 impl std::fmt::Debug for Combobox {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Combobox")

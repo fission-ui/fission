@@ -161,6 +161,7 @@ fn menu_select_and_combobox_choose_control_specific_policies() {
     let (_, combobox_portals) = build_widget(|| {
         Combobox {
             id: WidgetId::explicit("assignee"),
+            semantics_identifier: None,
             value: String::new(),
             items: vec!["Avery".into()],
             is_open: true,
