@@ -1,6 +1,5 @@
 use anyhow::Result;
 use fission_core::ui::{Row, Text, TextContent, Widget};
-use fission_render::DisplayOp;
 use fission_test::TestHarness;
 
 #[derive(Debug, Default, Clone)]
