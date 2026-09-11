@@ -575,16 +575,19 @@ fn text_input_lowers_cursor_and_semantics_overrides() {
         Some(false)
     );
 
+    // Every text node lowers to rich text, so select the editable surface by
+    // the value it renders rather than taking the first rich-text op.
     let caret = paint_ops(&ir)
         .find_map(|op| match op {
             PaintOp::DrawRichText {
+                runs,
                 caret_color,
                 caret_width,
                 caret_height,
                 caret_radius,
                 paragraph_style,
                 ..
-            } => Some((
+            } if runs.iter().any(|run| run.text == "hello") => Some((
                 caret_color,
                 caret_width,
                 caret_height,
@@ -627,7 +630,28 @@ fn text_input_lowers_cursor_and_semantics_overrides() {
         })
         .expect("value run");
     assert_eq!(value_run.style.locale.as_deref(), Some("fr-GB"));
-    assert_eq!(value_run.style.font_size, 20.0);
+
+    // text_scale multiplies whatever size the active recipe resolves, so assert
+    // the ratio rather than a constant that silently tracks the design system.
+    let unscaled_ir = lower_node(
+        TextInput {
+            value: "hello".into(),
+            ..Default::default()
+        }
+        .into(),
+    );
+    let unscaled_run = paint_ops(&unscaled_ir)
+        .find_map(|op| match op {
+            PaintOp::DrawRichText { runs, .. } => runs.iter().find(|run| run.text == "hello"),
+            _ => None,
+        })
+        .expect("unscaled value run");
+    assert!(
+        (value_run.style.font_size - unscaled_run.style.font_size * 1.25).abs() < 1e-4,
+        "expected text_scale 1.25 over the recipe size {}, got {}",
+        unscaled_run.style.font_size,
+        value_run.style.font_size
+    );
 }
 
 #[test]
@@ -649,13 +673,7 @@ fn text_lowers_paragraph_controls_for_alignment_and_ellipsis() {
     );
 
     let paragraph = paint_ops(&ir)
-        .find_map(|op| match op {
-            PaintOp::DrawText {
-                paragraph_style: Some(paragraph_style),
-                ..
-            } => Some(*paragraph_style),
-            _ => None,
-        })
+        .find_map(|op| op.paragraph_style().copied())
         .expect("paragraph metadata");
 
     assert_eq!(paragraph.text_align, TextAlign::Center);
@@ -749,13 +767,7 @@ fn text_lowers_longest_line_width_basis() {
     );
 
     let paragraph = paint_ops(&ir)
-        .find_map(|op| match op {
-            PaintOp::DrawText {
-                paragraph_style: Some(paragraph_style),
-                ..
-            } => Some(*paragraph_style),
-            _ => None,
-        })
+        .find_map(|op| op.paragraph_style().copied())
         .expect("paragraph metadata");
 
     assert_eq!(paragraph.text_width_basis, TextWidthBasis::LongestLine);

@@ -1865,6 +1865,23 @@ impl PaintOp {
             _ => None,
         }
     }
+
+    /// Returns the paragraph controls this text op carries, if it is a text op.
+    ///
+    /// Alignment, line limits, overflow, direction, width basis, strut and
+    /// height behaviour are identical on both text paint ops, so callers should
+    /// not have to know which one a widget emitted.
+    pub fn paragraph_style(&self) -> Option<&TextParagraphStyle> {
+        match self {
+            Self::DrawText {
+                paragraph_style, ..
+            }
+            | Self::DrawRichText {
+                paragraph_style, ..
+            } => paragraph_style.as_ref(),
+            _ => None,
+        }
+    }
 }
 
 impl std::hash::Hash for PaintOp {

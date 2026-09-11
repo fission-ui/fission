@@ -879,26 +879,28 @@ impl Lower for TextInput {
             None
         };
         let session_display = retained_session.map(|state| state.display_text());
+        // A collapsed caret cannot be carried across a model transform: the
+        // offset was measured against the local edit, and the model may have
+        // inserted or removed text anywhere before it. Move it to the end of
+        // the value actually being rendered.
+        //
+        // This applies whether or not the session was retained. A transform is
+        // precisely the case where it is not retained, so checking it only on
+        // the retained path left the rule unreachable.
+        let selection_for = |state: &crate::env::TextEditState| {
+            if pending_model_transform && state.caret == state.anchor {
+                (model_text.len(), model_text.len())
+            } else {
+                (
+                    clamp_text_offset(model_text, state.caret),
+                    clamp_text_offset(model_text, state.anchor),
+                )
+            }
+        };
         let model_selection = retained_session
-            .map(|state| {
-                if pending_model_transform && state.caret == state.anchor {
-                    (model_text.len(), model_text.len())
-                } else {
-                    (
-                        clamp_text_offset(model_text, state.caret),
-                        clamp_text_offset(model_text, state.anchor),
-                    )
-                }
-            })
+            .map(selection_for)
             .or(controlled_selection)
-            .or_else(|| {
-                session.map(|state| {
-                    (
-                        clamp_text_offset(model_text, state.caret),
-                        clamp_text_offset(model_text, state.anchor),
-                    )
-                })
-            })
+            .or_else(|| session.map(selection_for))
             .unwrap_or((model_text.len(), model_text.len()));
         let semantic_value = retained_session
             .map(|state| state.committed_text())
