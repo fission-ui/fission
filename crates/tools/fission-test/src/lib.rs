@@ -25,6 +25,61 @@ pub fn layout_input_nodes(ir: &CoreIR, env: &Env) -> Vec<LayoutInputNode> {
     build_layout_tree(ir, env)
 }
 
+/// Returns the visible text an IR paint op carries, if any.
+///
+/// Fission has two text paint ops: `DrawText` for a single unstyled string and
+/// `DrawRichText` for styled runs. Which one a widget emits is an
+/// implementation detail — `Text` always emits rich runs so the resolved font
+/// family survives to the renderer, while simpler widgets may emit either.
+///
+/// Assertions about *what the user reads* should not encode that distinction,
+/// so use this instead of matching one op directly.
+pub fn op_text(op: &fission_ir::Op) -> Option<String> {
+    match op {
+        fission_ir::Op::Paint(fission_ir::PaintOp::DrawText { text, .. }) => Some(text.clone()),
+        fission_ir::Op::Paint(fission_ir::PaintOp::DrawRichText { runs, .. }) => {
+            Some(runs.iter().map(|run| run.text.as_str()).collect())
+        }
+        _ => None,
+    }
+}
+
+/// Collects the visible text of every text node in an IR tree, in node order.
+pub fn ir_texts(ir: &CoreIR) -> Vec<String> {
+    ir.nodes
+        .values()
+        .filter_map(|node| op_text(&node.op))
+        .collect()
+}
+
+/// Returns whether any text node in the IR renders exactly `expected`.
+pub fn ir_has_text(ir: &CoreIR, expected: &str) -> bool {
+    ir_texts(ir).iter().any(|text| text == expected)
+}
+
+/// Returns the visible text a display-list op carries, if any.
+///
+/// The display-list counterpart of [`op_text`], with the same rationale.
+pub fn display_op_text(op: &DisplayOp) -> Option<String> {
+    match op {
+        DisplayOp::DrawText { text, .. } => Some(text.clone()),
+        DisplayOp::DrawRichText { runs, .. } => {
+            Some(runs.iter().map(|run| run.text.as_str()).collect())
+        }
+        _ => None,
+    }
+}
+
+/// Collects the visible text of every text op in a display list, in paint order.
+pub fn display_texts(list: &DisplayList) -> Vec<String> {
+    list.ops.iter().filter_map(display_op_text).collect()
+}
+
+/// Returns whether any text op in the display list renders exactly `expected`.
+pub fn display_has_text(list: &DisplayList, expected: &str) -> bool {
+    display_texts(list).iter().any(|text| text == expected)
+}
+
 // A mock renderer that captures the display list for inspection.
 #[derive(Default, Clone)]
 pub struct MockRenderer {
