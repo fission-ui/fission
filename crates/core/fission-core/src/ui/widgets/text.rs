@@ -1102,19 +1102,6 @@ impl Text {
             typography: self.typography.clone(),
         }
     }
-
-    fn needs_rich_text(&self) -> bool {
-        self.font_family.is_some()
-            || self.locale.is_some()
-            || self.font_weight.is_some()
-            || self.font_style != TextFontStyle::Normal
-            || self.line_height.is_some()
-            || self.letter_spacing.unwrap_or(0.0) != 0.0
-            || self.text_scale.unwrap_or(1.0) != 1.0
-            || self.text_scaler.is_some()
-            || self.typography != TextTypography::default()
-            || self.selection_range.is_some()
-    }
 }
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
@@ -1751,55 +1738,38 @@ impl Lower for Text {
         };
         let selection_range = runtime_selection.or(self.selection_range);
 
-        // A simple `DrawText` operation deliberately relies on the host's
-        // emergency fallback face. Once a design system supplies typography,
-        // retain the resolved family in rich-text IR so every renderer uses
-        // that design authority instead of silently choosing a host default.
-        let paint_node_id =
-            if style.font_family.is_some() || self.needs_rich_text() || selection_range.is_some() {
-                let runs = apply_selection_to_runs(
-                    vec![IrTextRun {
-                        text: resolved_text.clone(),
-                        style: style.clone(),
-                    }],
-                    selection_range,
-                    self.selection_color,
-                    self.selection_text_color,
-                );
-                IrBuilder::new(
-                    cx.next_node_id(),
-                    Op::Paint(PaintOp::DrawRichText {
-                        runs,
-                        wrap: self.wrap,
-                        caret_index: None,
-                        caret_color: None,
-                        caret_width: None,
-                        caret_height: None,
-                        caret_radius: None,
-                        paragraph_style,
-                    }),
-                )
-                .build(cx)
-            } else {
-                IrBuilder::new(
-                    cx.next_node_id(),
-                    Op::Paint(PaintOp::DrawText {
-                        text: resolved_text.clone(),
-                        size: style.font_size,
-                        color: style.color,
-                        underline: style.underline,
-                        locale: style.locale.clone(),
-                        wrap: self.wrap,
-                        caret_index: None,
-                        caret_color: None,
-                        caret_width: None,
-                        caret_height: None,
-                        caret_radius: None,
-                        paragraph_style,
-                    }),
-                )
-                .build(cx)
-            };
+        // `Text` always paints through rich-text IR, the way Flutter routes
+        // every `Text` through a single `Paragraph`.
+        //
+        // Style resolution falls back to the theme's sans family, so a resolved
+        // style always carries a font family. Emitting a bare `DrawText` here
+        // would drop that family and leave the renderer on the host's emergency
+        // fallback face, which is exactly the design-authority leak this node is
+        // meant to prevent. One paint primitive also means one shaping path per
+        // shell rather than two that can disagree about wrapping and metrics.
+        let runs = apply_selection_to_runs(
+            vec![IrTextRun {
+                text: resolved_text.clone(),
+                style: style.clone(),
+            }],
+            selection_range,
+            self.selection_color,
+            self.selection_text_color,
+        );
+        let paint_node_id = IrBuilder::new(
+            cx.next_node_id(),
+            Op::Paint(PaintOp::DrawRichText {
+                runs,
+                wrap: self.wrap,
+                caret_index: None,
+                caret_color: None,
+                caret_width: None,
+                caret_height: None,
+                caret_radius: None,
+                paragraph_style,
+            }),
+        )
+        .build(cx);
 
         let layout_node_id = wrap_paint_in_layout(
             cx,
