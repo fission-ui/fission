@@ -147,7 +147,7 @@ pub mod authoring {
     use std::sync::Arc;
 
     pub use crate::build_context::BuildCtx;
-    pub use crate::lowering::{IrBuilder, LoweringCx};
+    pub use crate::lowering::{wrap_zstack_child, IrBuilder, LoweringCx};
     pub use crate::ui::traits::{Lower, LowerWidget};
 
     /// Wraps a [`LowerWidget`] implementation as an ordinary [`Widget`].
@@ -183,6 +183,21 @@ pub mod authoring {
         root: WidgetId,
     ) -> WidgetId {
         crate::internal::lower_widget_with_root(widget, cx, root)
+    }
+
+    /// Lowers a complete widget into IR for assertions in tests.
+    ///
+    /// Testing a widget means asserting on the structure and semantics it
+    /// emits, not on pixels, because that is what every target consumes. Build
+    /// the widget inside [`build::enter`](crate::build::enter) so component
+    /// local state resolves, then lower it here.
+    pub fn lower_widget_to_ir(widget: &Widget) -> fission_ir::CoreIR {
+        crate::internal::lower_widget_to_ir(widget)
+    }
+
+    /// Lowers a complete widget into IR under an explicit identity root.
+    pub fn lower_widget_to_ir_with_root(widget: &Widget, root: WidgetId) -> fission_ir::CoreIR {
+        crate::internal::lower_widget_to_ir_with_root(widget, root)
     }
 }
 

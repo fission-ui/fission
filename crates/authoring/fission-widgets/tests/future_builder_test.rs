@@ -1,4 +1,4 @@
-use fission_core::internal::BuildCtx;
+use fission_core::authoring::BuildCtx;
 use fission_core::{
     build, Action, Effect, GlobalState, JobRef, JobSpec, ResourceKey, RuntimeResourceKind, View,
 };

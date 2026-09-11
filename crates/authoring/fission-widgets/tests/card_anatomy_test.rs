@@ -1,4 +1,4 @@
-use fission_core::internal::BuildCtx;
+use fission_core::authoring::BuildCtx;
 use fission_core::op::{Fill, JustifyContent, Length};
 use fission_core::ui::{CardPattern, ComponentSize, Container, Text};
 use fission_core::{

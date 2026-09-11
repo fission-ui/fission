@@ -1,5 +1,5 @@
+use fission_core::authoring::{lower_widget, BuildCtx, LoweringCx};
 use fission_core::env::Env;
-use fission_core::internal::{lower_widget, BuildCtx, LoweringCx};
 use fission_core::motion::{MotionDeclarationKind, MotionPropertyId};
 use fission_core::ui::{Button, ButtonMotion, Text, Widget};
 use fission_core::{build, GlobalState, RuntimeState, View, WidgetId};

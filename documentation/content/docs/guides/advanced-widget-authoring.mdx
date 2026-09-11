@@ -1,0 +1,173 @@
+---
+title: Advanced widget authoring
+description: Write widgets that emit their own IR structure using fission_core::authoring, and understand the closed-vocabulary guarantee that keeps them working on every target.
+---
+
+# Advanced widget authoring
+
+Almost every widget you write should be an ordinary Rust type that converts into a `Widget`:
+
+```rust
+impl From<PriceTag> for Widget {
+    fn from(tag: PriceTag) -> Widget {
+        Row {
+            gap: Some(4.0),
+            children: widgets![
+                Text::new(tag.currency).size(12.0),
+                Text::new(tag.amount).size(20.0),
+            ],
+            ..Default::default()
+        }
+        .into()
+    }
+}
+```
+
+That is the authoring API for the overwhelming majority of work, and it is the one to reach for first. This guide covers the rarer case: a widget that has to emit intermediate representation structure the built-in widget structs cannot express.
+
+## When you actually need it
+
+You need `fission_core::authoring` when all of these are true:
+
+- The structure you need is not expressible by composing built-in widgets.
+- You are not trying to invent a new layout algorithm or a new paint primitive. Neither is possible, by design. See [The closed vocabulary](#the-closed-vocabulary).
+- You have checked that the `LayoutOp` you want already exists.
+
+In practice this means widgets that need a layout op with no widget wrapper, such as flyout anchoring or aspect-ratio boxes, or widgets that need to control their own identity for retained state.
+
+If you are reaching for this module because a layout mode is missing, stop and open an issue instead. A layout mode added to `LayoutOp` works on every target; a workaround in one widget does not.
+
+## The closed vocabulary
+
+Fission lowers the widget tree into an intermediate representation before any target sees it. Every node in that representation is an `Op` drawn from a fixed set: `Structural`, `Layout`, `Paint`, `Semantics`. Desktop, web, mobile, terminal, static-site, and SSR shells all consume the same fixed set.
+
+Widget authoring is therefore **open composition over a closed vocabulary**. You may assemble any structure you like, but you cannot add a word to the language. That constraint is what makes a widget you write today keep working on a target that ships next year, and it is why the widget catalog reaches nine targets rather than one.
+
+Two things follow, and both are deliberate:
+
+- **You cannot define a custom layout algorithm.** Layout has to be reproducible from the IR alone, or a static-site build and a GPU shell would disagree about where things are. Layout modes live in `LayoutOp` so every target implements them once.
+- **You cannot define a custom paint primitive.** Emit `PaintOp` values instead.
+
+## Writing a lowered widget
+
+Implement `LowerWidget`, then wrap it with `custom_widget`.
+
+```rust
+use fission_core::authoring::{custom_widget, IrBuilder, LowerWidget, LoweringCx, lower_widget};
+use fission_core::ui::Widget;
+use fission_ir::{LayoutOp, Op, WidgetId};
+
+/// Constrains one child to a width-to-height ratio.
+#[derive(Clone, Debug)]
+pub struct AspectRatio {
+    pub ratio: f32,
+    pub child: Widget,
+}
+
+impl From<AspectRatio> for Widget {
+    fn from(component: AspectRatio) -> Widget {
+        custom_widget(
+            "AspectRatio",
+            AspectRatioLowerer {
+                ratio: component.ratio,
+                child: component.child,
+            },
+        )
+    }
+}
+
+#[derive(Debug)]
+struct AspectRatioLowerer {
+    ratio: f32,
+    child: Widget,
+}
+
+impl LowerWidget for AspectRatioLowerer {
+    fn lower_dyn(&self, cx: &mut LoweringCx) -> WidgetId {
+        let child_id = lower_widget(&self.child, cx);
+        let id = cx.next_node_id();
+
+        let mut builder = IrBuilder::new(
+            id,
+            Op::Layout(LayoutOp::Box {
+                aspect_ratio: Some(self.ratio),
+                ..Default::default()
+            }),
+        );
+        builder.add_child(child_id);
+        builder.build(cx)
+    }
+
+    fn stable_key(&self) -> u64 {
+        self.ratio.to_bits() as u64
+    }
+}
+```
+
+The shape is always the same:
+
+1. Lower every child with `lower_widget`, collecting the returned ids.
+2. Take a node id from `cx.next_node_id()`.
+3. Build an `IrBuilder` around the `Op` this widget emits.
+4. Add the child ids.
+5. `build(cx)` and return the resulting id.
+
+### `stable_key`
+
+`stable_key` feeds structural diffing. Return a content-derived hash so the runtime can tell an unchanged subtree from a changed one. Returning the default `0` is correct but forfeits an optimisation: the subtree is treated as changed on every rebuild.
+
+### `widget_id`
+
+Override `widget_id` when the widget owns retained state that must survive rebuilds, such as focus, text selection, or IME composition. Returning a stable id keeps that state attached to the same logical widget across frames.
+
+## Semantics are not optional
+
+A widget that emits its own structure is also responsible for its own accessibility. Emit an `Op::Semantics` node with the right `Role` and state, or wrap your content in `SemanticsRegion` before lowering it.
+
+A widget with no semantics is invisible to screen readers on every target, and invisible to the semantic test harness, which means it cannot be covered by widget tests either.
+
+## Testing a lowered widget
+
+Assert against the IR the widget emits, not against pixels. The IR is what every target consumes, so an IR assertion covers all nine of them at once.
+
+Build the widget inside `build::enter` so component local state resolves, then lower it:
+
+```rust
+use fission_core::authoring::{lower_widget_to_ir, BuildCtx};
+use fission_core::{build, Env, GlobalState, RuntimeState, View, Widget};
+use fission_ir::{CoreIR, LayoutOp, Op};
+
+#[derive(Default, Debug)]
+struct TestState;
+impl GlobalState for TestState {}
+
+fn lower(env: &Env, build_widget: impl FnOnce() -> Widget) -> CoreIR {
+    let state = TestState;
+    let runtime = RuntimeState::default();
+    let view = View::new(&state, &runtime, env, None);
+    let mut ctx = BuildCtx::<TestState>::new();
+    let widget = build::enter(&mut ctx, &view, build_widget);
+    lower_widget_to_ir(&widget)
+}
+
+#[test]
+fn aspect_ratio_constrains_its_child() {
+    let ir = lower(&Env::default(), || {
+        AspectRatio { ratio: 16.0 / 9.0, child: Text::new("hi").into() }.into()
+    });
+
+    let ratio = ir.nodes.values().find_map(|node| match &node.op {
+        Op::Layout(LayoutOp::Box { aspect_ratio, .. }) => *aspect_ratio,
+        _ => None,
+    });
+    assert_eq!(ratio, Some(16.0 / 9.0));
+}
+```
+
+Add a semantics assertion alongside the layout one. Widgets under test should be checked for the role and state they expose, not only the boxes they emit.
+
+## Stability
+
+`fission_core::authoring` is covered by semver.
+
+`fission_core::internal` is not. It exists for first-party shells, renderers, and test harnesses, and it changes without notice. If you find yourself importing from `internal`, either the thing you need belongs in `authoring` and should be moved there, or you are reaching for something that is not a widget-authoring concern. Open an issue either way.

@@ -1,7 +1,6 @@
 use std::hash::{Hash, Hasher};
-use std::sync::Arc;
 
-use fission_core::internal::{InternalRenderNode, IrBuilder, LowerWidget, LoweringCx};
+use fission_core::authoring::{IrBuilder, LowerWidget, LoweringCx};
 use fission_core::ui::Widget;
 use fission_core::{LayoutOp, Op, WidgetId};
 use fission_ir::op::{BoxStyle, Fill, Length, PaintOp, Stroke};
@@ -71,11 +70,7 @@ impl LowerWidget for CanvasVectorLayer {
 
 impl From<CanvasVectorLayer> for Widget {
     fn from(layer: CanvasVectorLayer) -> Self {
-        fission_core::internal::custom_render_widget(InternalRenderNode {
-            debug_tag: "InfiniteCanvasVectorLayer".into(),
-            lowerer: Some(Arc::new(layer)),
-            render_object: None,
-        })
+        fission_core::authoring::custom_widget("InfiniteCanvasVectorLayer", layer)
     }
 }
 

@@ -1,5 +1,5 @@
 use crate::motion_support::{slot_id, SLOT_INDICATOR};
-use fission_core::internal::{IrBuilder, LowerWidget, LoweringCx};
+use fission_core::authoring::{IrBuilder, LowerWidget, LoweringCx};
 use fission_core::motion::{
     deg, MotionDeclaration, MotionDeclarationKind, MotionEasing, MotionPhase, MotionPropertyId,
     MotionStartValue, MotionTrack, MotionTransition,
@@ -99,17 +99,14 @@ impl From<CircularProgress> for Widget {
         let color = this.color.unwrap_or(tokens.colors.primary);
         let track_color = this.track_color.unwrap_or(tokens.colors.border);
 
-        let node = fission_core::internal::custom_render_widget(
-            fission_core::internal::InternalRenderNode {
-                debug_tag: "CircularProgress".into(),
-                lowerer: Some(std::sync::Arc::new(CircularProgressLowerer {
-                    value: this.value,
-                    size: this.size,
-                    color,
-                    track_color,
-                    thickness: this.thickness,
-                })),
-                render_object: None,
+        let node = fission_core::authoring::custom_widget(
+            "CircularProgress",
+            CircularProgressLowerer {
+                value: this.value,
+                size: this.size,
+                color,
+                track_color,
+                thickness: this.thickness,
             },
         );
 

@@ -1,4 +1,4 @@
-use crate::internal::Lower;
+use crate::authoring::Lower;
 use crate::lowering::IrBuilder;
 use crate::ui::Widget;
 use crate::ActionEnvelope;

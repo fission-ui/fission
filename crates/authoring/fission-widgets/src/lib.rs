@@ -401,15 +401,14 @@ pub fn canvas<F>(width: Option<f32>, height: Option<f32>, painter: F) -> Widget
 where
     F: Fn(&mut LoweringCx) -> Vec<WidgetId> + Send + Sync + 'static,
 {
-    fission_core::internal::custom_render_widget(fission_core::CustomWidget {
-        debug_tag: "Canvas".into(),
-        lowerer: Some(Arc::new(CanvasLowerer {
+    fission_core::authoring::custom_widget(
+        "Canvas",
+        CanvasLowerer {
             width,
             height,
             painter: Arc::new(painter),
-        })),
-        render_object: None,
-    })
+        },
+    )
 }
 
 // AbsoluteFill convenience
@@ -436,13 +435,12 @@ impl LowerWidget for AbsoluteFillLowerer {
 /// Wraps a child node in an `AbsoluteFill` layout node, causing it to stretch
 /// to fill its parent's bounds.
 pub fn absolute_fill(child: impl Into<Widget>) -> Widget {
-    fission_core::internal::custom_render_widget(fission_core::internal::InternalRenderNode {
-        debug_tag: "AbsoluteFill".into(),
-        lowerer: Some(Arc::new(AbsoluteFillLowerer {
+    fission_core::authoring::custom_widget(
+        "AbsoluteFill",
+        AbsoluteFillLowerer {
             child: child.into(),
-        })),
-        render_object: None,
-    })
+        },
+    )
 }
 
 // Flyout (anchor-relative absolute positioning) convenience
@@ -493,15 +491,14 @@ pub fn flyout(anchor: WidgetId, content: Widget) -> Widget {
 /// popovers should use [`Popover`], which preserves the default start/auto/
 /// intrinsic-width behavior.
 pub fn flyout_with_options(anchor: WidgetId, content: Widget, options: FlyoutOptions) -> Widget {
-    fission_core::internal::custom_render_widget(fission_core::CustomWidget {
-        debug_tag: "Flyout".into(),
-        lowerer: Some(Arc::new(FlyoutLowerer {
+    fission_core::authoring::custom_widget(
+        "Flyout",
+        FlyoutLowerer {
             anchor,
             content,
             options,
-        })),
-        render_object: None,
-    })
+        },
+    )
 }
 
 /// Renders its child into the overlay layer, outside the normal layout tree.

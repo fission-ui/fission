@@ -1,4 +1,4 @@
-use crate::internal::Lower;
+use crate::authoring::Lower;
 use crate::lowering::{IrBuilder, LoweringCx};
 use crate::ui::widgets::context_menu::TextContextMenuConfig;
 use crate::ui::widgets::selection_region::wrap_implicit_selection_affordances;

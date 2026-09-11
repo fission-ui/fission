@@ -4,7 +4,7 @@ use crate::motion_support::{
 };
 use crate::stack::VStack;
 use crate::Badge;
-use fission_core::internal::{IrBuilder, LowerWidget, LoweringCx};
+use fission_core::authoring::{IrBuilder, LowerWidget, LoweringCx};
 use fission_core::motion::{follow_x_and_width, Motion, MotionTrack, Presence};
 use fission_core::op::{
     AlignItems, BoxAlignment, BoxStyle, Fill, FlexDirection, FlexWrap, JustifyContent, LayoutOp,
@@ -21,7 +21,6 @@ use fission_theme::ResolvedComponentStyle;
 pub use fission_theme::TabPresentation;
 use serde::{Deserialize, Serialize};
 use std::ops::Add;
-use std::sync::Arc;
 
 const TAB_LIST_ID_SALT: u32 = 0x5441_424c;
 const TAB_PANEL_ID_SALT: u32 = 0x5041_4e4c;
@@ -664,11 +663,7 @@ struct TabListSurface {
 
 impl From<TabListSurface> for Widget {
     fn from(surface: TabListSurface) -> Self {
-        fission_core::internal::custom_render_widget(fission_core::internal::InternalRenderNode {
-            debug_tag: "Tabs.TabList".into(),
-            lowerer: Some(Arc::new(surface)),
-            render_object: None,
-        })
+        fission_core::authoring::custom_widget("Tabs.TabList", surface)
     }
 }
 
@@ -758,11 +753,7 @@ struct TabTriggerSurface {
 
 impl From<TabTriggerSurface> for Widget {
     fn from(surface: TabTriggerSurface) -> Self {
-        fission_core::internal::custom_render_widget(fission_core::internal::InternalRenderNode {
-            debug_tag: "Tabs.Tab".into(),
-            lowerer: Some(Arc::new(surface)),
-            render_object: None,
-        })
+        fission_core::authoring::custom_widget("Tabs.Tab", surface)
     }
 }
 

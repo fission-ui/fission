@@ -1,4 +1,4 @@
-use fission_core::internal::BuildCtx;
+use fission_core::authoring::BuildCtx;
 use fission_core::op::{Color, LayoutOp, Length, Op, PaintOp};
 use fission_core::ui::Column;
 use fission_core::{build, ActionEnvelope, ActionId, Env, GlobalState, View, Widget, WidgetId};

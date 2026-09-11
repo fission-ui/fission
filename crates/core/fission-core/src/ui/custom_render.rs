@@ -5,7 +5,7 @@
 //! core IR enum variants.
 
 use crate::action::ActionEnvelope;
-use crate::internal::LowerWidget;
+use crate::authoring::LowerWidget;
 use crate::ui::node::InternalRenderNode;
 use crate::ui::Widget;
 use fission_ir::op::PaintOp;

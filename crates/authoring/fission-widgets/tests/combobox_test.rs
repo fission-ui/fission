@@ -1,4 +1,4 @@
-use fission_core::internal::BuildCtx;
+use fission_core::authoring::BuildCtx;
 use fission_core::{build, GlobalState, View, WidgetId};
 use fission_widgets::combobox::Combobox;
 use serde::{Deserialize, Serialize};

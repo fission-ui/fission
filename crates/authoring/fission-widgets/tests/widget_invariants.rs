@@ -1,4 +1,4 @@
-use fission_core::internal::{Lower, LoweringCx};
+use fission_core::authoring::{Lower, LoweringCx};
 use fission_core::{Action as CoreAction, ActionId, Env, RuntimeState};
 use fission_ir::{ActionSet, LayoutOp, Op, Role, Semantics}; // Removed StructuralOp
 use fission_widgets::{Button, Row, Text, TextContent, Widget};

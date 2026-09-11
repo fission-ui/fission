@@ -16,9 +16,8 @@ mod vector_layer;
 
 use std::collections::BTreeSet;
 use std::hash::{Hash, Hasher};
-use std::sync::Arc;
 
-use fission_core::internal::{InternalRenderNode, LowerWidget, LoweringCx};
+use fission_core::authoring::{LowerWidget, LoweringCx};
 use fission_core::ui::{
     IgnorePointer, InteractiveViewer, ViewportBoundary, ViewportClip, ViewportPanAxis,
     ViewportTransform, ViewportZoomPolicy,
@@ -120,11 +119,7 @@ impl Default for InfiniteCanvas {
 
 impl From<InfiniteCanvas> for Widget {
     fn from(canvas: InfiniteCanvas) -> Self {
-        fission_core::internal::custom_render_widget(InternalRenderNode {
-            debug_tag: "InfiniteCanvas".into(),
-            lowerer: Some(Arc::new(canvas)),
-            render_object: None,
-        })
+        fission_core::authoring::custom_widget("InfiniteCanvas", canvas)
     }
 }
 

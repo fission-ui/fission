@@ -1,4 +1,4 @@
-use crate::internal::Lower;
+use crate::authoring::Lower;
 use crate::lowering::{IrBuilder, LoweringCx};
 use crate::Widget;
 use fission_ir::op::{AlignItems, FlexWrap, JustifyContent};

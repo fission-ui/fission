@@ -1,4 +1,4 @@
-use fission_core::internal::{BuildCtx, LoweringCx};
+use fission_core::authoring::{BuildCtx, LoweringCx};
 use fission_core::ui::{Overlay, TextInput, ZStack};
 use fission_core::{
     build, ActionEnvelope, ActionId, Env, GlobalState, InputEvent, KeyCode, KeyEvent, Runtime,

@@ -1,7 +1,6 @@
+use crate::authoring::Lower;
+use crate::authoring::LowerWidget;
 use crate::env::{Env, RuntimeState};
-use crate::internal::InternalRenderNode;
-use crate::internal::Lower;
-use crate::internal::LowerWidget;
 use crate::lowering::{build_layout_tree, IrBuilder, LoweringCx};
 use crate::ui::Widget;
 use fission_ir::{Op, Semantics};
@@ -40,11 +39,7 @@ fn test_hero_text_layout_height() {
 
     // Construct Hero with Text that needs wrapping
     let text = crate::ui::Text::new("Long Subject That Wraps").into();
-    let hero = fission_core::internal::custom_render_widget(InternalRenderNode {
-        debug_tag: "Hero".into(),
-        lowerer: Some(std::sync::Arc::new(MockHero { child: text })),
-        render_object: None,
-    });
+    let hero = fission_core::authoring::custom_widget("Hero", MockHero { child: text });
 
     // VStack
     let vstack: Widget = crate::ui::Column::default()

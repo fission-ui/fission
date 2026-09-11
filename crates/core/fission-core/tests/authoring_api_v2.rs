@@ -1,4 +1,4 @@
-use fission_core::internal::BuildCtx;
+use fission_core::authoring::BuildCtx;
 use fission_core::{
     build, reduce, ui::TextContent, widgets, Action, ActionEnvelope, ActionId, Button, Column, Env,
     GlobalState, Provider, ReducerContext, Runtime, RuntimeState, Text, View, Widget, WidgetId,

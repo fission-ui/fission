@@ -1,4 +1,4 @@
-use fission_core::internal::BuildCtx;
+use fission_core::authoring::BuildCtx;
 use fission_core::ui::{Button, Text, Widget};
 use fission_core::{build, ActionEnvelope, ActionId, Env, RuntimeState, View, WidgetId};
 use fission_ir::{ActionTrigger, Op, Role};

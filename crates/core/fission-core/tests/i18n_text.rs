@@ -1,5 +1,5 @@
+use fission_core::authoring::LoweringCx;
 use fission_core::env::Env;
-use fission_core::internal::LoweringCx;
 use fission_core::ui::{Text, TextContent};
 use fission_i18n::{Locale, TranslationBundle};
 use fission_ir::{Op, PaintOp};

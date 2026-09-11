@@ -1,7 +1,7 @@
 use crate::popover::{popover_with_options, Popover};
 use crate::stack::{HStack, VStack};
 use crate::{FlyoutAlignment, FlyoutOptions, Icon};
-use fission_core::internal::{IrBuilder, LowerWidget, LoweringCx};
+use fission_core::authoring::{IrBuilder, LowerWidget, LoweringCx};
 use fission_core::op::{
     AlignItems, BoxAlignment, BoxStyle, Fill, FlexDirection, FlexWrap, JustifyContent, LayoutOp,
     Length, Op, PaintOp, Stroke,
@@ -19,7 +19,6 @@ use fission_ir::{
 };
 use fission_theme::{ComponentState, MenuTheme, ResolvedComponentStyle};
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
 
 const DEFAULT_MENU_MAX_HEIGHT: f32 = 300.0;
 const POPUP_ID_PATH: &[u32] = &[1];
@@ -990,14 +989,13 @@ impl From<MenuSeparator> for Widget {
                 fission_core::build::next_implicit_widget_id(IMPLICIT_MENU_SEPARATOR_ID_SALT)
             })
             .unwrap_or_else(|| WidgetId::explicit("fission.widgets.menu.separator"));
-        fission_core::internal::custom_render_widget(fission_core::internal::InternalRenderNode {
-            debug_tag: "Menu.Separator".into(),
-            lowerer: Some(Arc::new(MenuSeparatorLowerer {
+        fission_core::authoring::custom_widget(
+            "Menu.Separator",
+            MenuSeparatorLowerer {
                 id,
                 style: view.env().theme.components.menu.separator_style.clone(),
-            })),
-            render_object: None,
-        })
+            },
+        )
     }
 }
 
@@ -1157,9 +1155,9 @@ impl From<MenuActionItem> for Widget {
             metadata_style.text_color = style.text_color;
         }
 
-        fission_core::internal::custom_render_widget(fission_core::internal::InternalRenderNode {
-            debug_tag: "Menu.ActionItem".into(),
-            lowerer: Some(Arc::new(MenuActionItemLowerer {
+        fission_core::authoring::custom_widget(
+            "Menu.ActionItem",
+            MenuActionItemLowerer {
                 id,
                 label: item.label,
                 description: item.description,
@@ -1179,9 +1177,8 @@ impl From<MenuActionItem> for Widget {
                 shortcut_style,
                 metadata_style,
                 indicator_style: theme.indicator_style.clone(),
-            })),
-            render_object: None,
-        })
+            },
+        )
     }
 }
 

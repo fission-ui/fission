@@ -1,5 +1,6 @@
+use crate::authoring::{IrBuilder, LowerWidget, LoweringCx};
 use crate::env::{Env, RuntimeState};
-use crate::internal::{CustomRenderObject, InternalRenderNode, IrBuilder, LowerWidget, LoweringCx};
+use crate::internal::{CustomRenderObject, InternalRenderNode};
 use crate::Runtime;
 use fission_ir::{LayoutOp, Op, WidgetId};
 use std::sync::Arc;

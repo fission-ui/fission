@@ -22,7 +22,7 @@ macro_rules! eprintln {
 
 use anyhow::Result;
 use base64::Engine;
-use fission_core::internal::BuildCtx;
+use fission_core::authoring::BuildCtx;
 use std::collections::{HashMap, VecDeque};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
@@ -55,9 +55,9 @@ use winit::{
     window::{CursorIcon, Theme as WindowTheme, Window, WindowAttributes, WindowId},
 };
 
+use fission_core::authoring::LoweringCx;
 use fission_core::env::{VideoStatus, WindowInsets};
 use fission_core::internal::downcast_render_object;
-use fission_core::internal::LoweringCx;
 use fission_core::ui::VideoAudioOptions;
 use fission_core::{
     Action, ActionEnvelope, ActionId, ActionRegistry, DeepLink, DeepLinkConfig, DeepLinkReceived,

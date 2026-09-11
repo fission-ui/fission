@@ -1,6 +1,6 @@
 use crate::build::{build_site, check_site, list_site_routes, SiteBuildOptions};
 use anyhow::{bail, Context, Result};
-use fission_core::internal::BuildCtx;
+use fission_core::authoring::BuildCtx;
 use fission_core::registry::{VideoRegistration, WebRegistration};
 use fission_core::{Env, GlobalState, MotionDeclaration, RuntimeState, View, Widget, WidgetId};
 use fission_i18n::{I18nRegistry, Locale, TranslationBundle};

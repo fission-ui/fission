@@ -1,6 +1,6 @@
+use crate::authoring::Lower;
 use crate::env::{Env, RuntimeState};
 use crate::hit_test::find_next_focus_node;
-use crate::internal::Lower;
 use crate::lowering::LoweringCx;
 use crate::ui::Widget;
 use crate::{InputEvent, KeyCode, KeyEvent, Runtime};
@@ -17,11 +17,10 @@ fn test_explicit_focus_order() {
     // Explicit order: B2(1), B1(2), B3(3)
 
     fn button_with_focus(index: i32) -> Widget {
-        fission_core::internal::custom_render_widget(fission_core::internal::InternalRenderNode {
-            debug_tag: format!("Button({})", index),
-            lowerer: Some(std::sync::Arc::new(FocusButtonInternalLowerer { index })),
-            render_object: None,
-        })
+        fission_core::authoring::custom_widget(
+            format!("Button({})", index),
+            FocusButtonInternalLowerer { index },
+        )
     }
 
     #[derive(Debug)]
@@ -143,11 +142,10 @@ fn arrow_keys_enter_and_traverse_focus_order_without_prior_focus() {
     }
 
     fn button_with_focus(index: i32) -> Widget {
-        fission_core::internal::custom_render_widget(fission_core::internal::InternalRenderNode {
-            debug_tag: format!("Button({index})"),
-            lowerer: Some(std::sync::Arc::new(FocusButtonInternalLowerer { index })),
-            render_object: None,
-        })
+        fission_core::authoring::custom_widget(
+            format!("Button({index})"),
+            FocusButtonInternalLowerer { index },
+        )
     }
 
     let root = crate::ui::widgets::column::Column {
@@ -252,12 +250,7 @@ fn test_autofocus_assigns_initial_focus() {
         }
     }
 
-    let root =
-        fission_core::internal::custom_render_widget(fission_core::internal::InternalRenderNode {
-            debug_tag: "AutofocusTextInput".into(),
-            lowerer: Some(std::sync::Arc::new(AutofocusTextInput)),
-            render_object: None,
-        });
+    let root = fission_core::authoring::custom_widget("AutofocusTextInput", AutofocusTextInput);
 
     let mut cx = LoweringCx::new(&env, &runtime_state, None, None);
     let root_id = root.lower(&mut cx);

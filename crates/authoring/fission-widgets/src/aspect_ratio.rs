@@ -1,4 +1,4 @@
-use fission_core::internal::{IrBuilder, LowerWidget, LoweringCx};
+use fission_core::authoring::{IrBuilder, LowerWidget, LoweringCx};
 use fission_core::ui::Widget;
 use fission_ir::{LayoutOp, Op, WidgetId};
 use serde::{Deserialize, Serialize};
@@ -19,14 +19,13 @@ impl From<AspectRatio> for Widget {
     fn from(component: AspectRatio) -> Self {
         let this = &component;
 
-        fission_core::internal::custom_render_widget(fission_core::internal::InternalRenderNode {
-            debug_tag: "AspectRatio".into(),
-            lowerer: Some(std::sync::Arc::new(AspectRatioLowerer {
+        fission_core::authoring::custom_widget(
+            "AspectRatio",
+            AspectRatioLowerer {
                 ratio: this.ratio,
                 child: this.child.clone(),
-            })),
-            render_object: None,
-        })
+            },
+        )
     }
 }
 

@@ -1,5 +1,5 @@
+use crate::authoring::Lower;
 use crate::env::TextSelectionHandleKind;
-use crate::internal::Lower;
 use crate::lowering::{IrBuilder, LoweringCx};
 use crate::selection::{selectable_members_in_subtree, SelectionRegionController};
 use crate::ui::widgets::context_menu::{

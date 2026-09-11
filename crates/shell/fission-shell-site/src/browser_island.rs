@@ -1,7 +1,7 @@
 use crate::{render_ir_to_html_with_styles, CssVariableMap, HtmlRenderOptions, StyleRegistry};
 use anyhow::{anyhow, Context, Result};
-use fission_core::internal::BuildCtx;
-use fission_core::internal::LoweringCx;
+use fission_core::authoring::BuildCtx;
+use fission_core::authoring::LoweringCx;
 use fission_core::registry::{VideoRegistration, WebRegistration};
 use fission_core::ui::{Overlay, ZStack};
 use fission_core::{

@@ -1,5 +1,6 @@
+use fission_core::authoring::LoweringCx;
 use fission_core::env::{Env, RuntimeState};
-use fission_core::internal::{build_layout_tree, LoweringCx};
+use fission_core::internal::build_layout_tree;
 use fission_core::ui::widgets::text::{InlineWidgetSpan, RichTextChild, RichTextSpan};
 use fission_core::ui::{
     Button, ButtonVariant, Checkbox, Container, Radio, RichText, Row, Slider, Spacer, Text, Widget,

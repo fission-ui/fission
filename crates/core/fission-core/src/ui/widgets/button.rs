@@ -1,4 +1,4 @@
-use crate::internal::Lower;
+use crate::authoring::Lower;
 use crate::lowering::{IrBuilder, LoweringCx};
 use crate::motion::{
     color, fill as motion_fill, hover_press, px, ripple_effect, scalar, shadows as motion_shadows,

@@ -1,4 +1,4 @@
-use fission_core::internal::LoweringCx;
+use fission_core::authoring::LoweringCx;
 use fission_core::ui::widgets::button::{ButtonContent, ButtonIconContent};
 use fission_core::ui::{Button, ButtonStyleOverride, ButtonVariant, Icon, Text, TextInput};
 use fission_core::{Env, LayoutSize, RuntimeState, Widget, WidgetId};

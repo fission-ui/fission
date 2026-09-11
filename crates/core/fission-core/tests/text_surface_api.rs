@@ -1,5 +1,5 @@
+use fission_core::authoring::LoweringCx;
 use fission_core::env::{Env, RuntimeState, TextSelectionHandleKind};
-use fission_core::internal::LoweringCx;
 use fission_core::ui::widgets::text::{RichTextChild, RichTextSpan, TextScaler, WidgetSpan};
 use fission_core::ui::widgets::text_input::{
     DragStartBehavior, SpellCheckConfiguration, TextAlignVertical, TextInputRuntimeConfig,

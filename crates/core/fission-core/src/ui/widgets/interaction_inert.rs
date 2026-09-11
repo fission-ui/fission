@@ -1,9 +1,8 @@
-use crate::internal::{InternalRenderNode, LowerWidget, LoweringCx};
+use crate::authoring::{LowerWidget, LoweringCx};
 use crate::lowering::IrBuilder;
 use crate::ui::Widget;
 use fission_ir::{Op, StructuralOp, WidgetId};
 use std::hash::{Hash, Hasher};
-use std::sync::Arc;
 
 const WRAPPER_ID_PATH: u32 = 0x1A7E_7AC7;
 
@@ -48,10 +47,6 @@ impl LowerWidget for InteractionInert {
 
 impl From<InteractionInert> for Widget {
     fn from(value: InteractionInert) -> Self {
-        crate::internal::custom_render_widget(InternalRenderNode {
-            debug_tag: "InteractionInert".into(),
-            lowerer: Some(Arc::new(value)),
-            render_object: None,
-        })
+        crate::authoring::custom_widget("InteractionInert", value)
     }
 }

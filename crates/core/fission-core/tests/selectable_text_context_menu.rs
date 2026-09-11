@@ -1,5 +1,5 @@
+use fission_core::authoring::{lower_widget, LoweringCx};
 use fission_core::env::{Env, RuntimeState, SelectableTextState};
-use fission_core::internal::{lower_widget, LoweringCx};
 use fission_core::ui::{
     ContextMenu, ContextMenuEntry, ContextMenuItem, ContextMenuRegion, Text, TextContent,
 };

@@ -1,5 +1,5 @@
+use crate::authoring::Lower;
 use crate::env::{Env, RuntimeState, WindowInsets};
-use crate::internal::Lower;
 use crate::lowering::{build_layout_tree, LoweringCx};
 use crate::ui::widgets::container::Container;
 use crate::ui::widgets::safe_area::SafeArea;

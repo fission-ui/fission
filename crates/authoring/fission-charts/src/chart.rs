@@ -589,7 +589,7 @@ mod chart_theme_tests {
     }
 
     fn automatic_same_title_chart_ids() -> Vec<u128> {
-        use fission_core::internal::BuildCtx;
+        use fission_core::authoring::BuildCtx;
         use fission_core::ui::Row;
 
         let env = fission_core::Env::default();

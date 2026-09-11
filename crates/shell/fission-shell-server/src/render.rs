@@ -10,7 +10,7 @@ use crate::{
     ServerSessionConfig, SignedServerAction, VerifiedServerAction, WebRoute, WebRouteMode,
 };
 use anyhow::{anyhow, Context, Result};
-use fission_core::internal::LoweringCx;
+use fission_core::authoring::LoweringCx;
 use fission_core::ui::{Column, Overlay, ZStack};
 use fission_core::{
     ActionEnvelope, ActionId, Env, LinkTarget, NavigationCommand, RuntimeResourceDeclaration,

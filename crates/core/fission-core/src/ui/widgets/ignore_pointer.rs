@@ -1,10 +1,9 @@
-use crate::internal::{InternalRenderNode, LowerWidget, LoweringCx};
+use crate::authoring::{LowerWidget, LoweringCx};
 use crate::lowering::IrBuilder;
 use crate::ui::Widget;
 use fission_ir::{Op, StructuralOp, WidgetId};
 use serde::{Deserialize, Serialize};
 use std::hash::{Hash, Hasher};
-use std::sync::Arc;
 
 /// Paints and lays out a retained subtree without allowing it to receive pointer input.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -56,10 +55,6 @@ impl LowerWidget for IgnorePointer {
 
 impl From<IgnorePointer> for Widget {
     fn from(value: IgnorePointer) -> Self {
-        crate::internal::custom_render_widget(InternalRenderNode {
-            debug_tag: "IgnorePointer".into(),
-            lowerer: Some(Arc::new(value)),
-            render_object: None,
-        })
+        crate::authoring::custom_widget("IgnorePointer", value)
     }
 }

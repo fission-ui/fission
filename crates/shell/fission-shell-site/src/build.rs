@@ -18,8 +18,8 @@ use crate::site::{
 };
 use crate::tabs::expand_mdx_tabs;
 use anyhow::{bail, Context, Result};
-use fission_core::internal::BuildCtx;
-use fission_core::internal::LoweringCx;
+use fission_core::authoring::BuildCtx;
+use fission_core::authoring::LoweringCx;
 use fission_core::registry::{VideoRegistration, WebRegistration};
 use fission_core::ui::{Column, Overlay, ZStack};
 use fission_core::{Env, MotionDeclaration, RuntimeState, View, Widget, WidgetId};

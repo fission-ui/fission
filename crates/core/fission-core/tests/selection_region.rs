@@ -1,3 +1,4 @@
+use fission_core::authoring::{lower_widget, LoweringCx};
 use fission_core::env::{
     Clipboard, ContextMenuState, Env, GestureState, InteractionStateMap, RuntimeState,
     ScrollStateMap, SelectableTextStateMap, TextEditStateMap,
@@ -8,7 +9,6 @@ use fission_core::event::{
 };
 use fission_core::input::selectable_text::SelectableTextController;
 use fission_core::input::{ControllerContext, InputController, TextEditingConvention};
-use fission_core::internal::{lower_widget, LoweringCx};
 use fission_core::ui::{
     Column, SelectionPlatformStyle, SelectionRegion, SelectionRegionControls, Text, TextContent,
     Widget,

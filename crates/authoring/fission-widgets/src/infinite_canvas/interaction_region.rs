@@ -1,7 +1,6 @@
 use std::hash::{Hash, Hasher};
-use std::sync::Arc;
 
-use fission_core::internal::{InternalRenderNode, LowerWidget, LoweringCx};
+use fission_core::authoring::{LowerWidget, LoweringCx};
 use fission_core::ui::Widget;
 use fission_core::{ActionEnvelope, WidgetId};
 use fission_ir::{ActionEntry, ActionSet, ActionTrigger, CanvasTarget, Op, Role, Semantics};
@@ -72,11 +71,7 @@ fn hash_action(action: &Option<ActionEnvelope>, hasher: &mut impl Hasher) {
 
 impl From<CanvasInteractionRegion> for Widget {
     fn from(region: CanvasInteractionRegion) -> Self {
-        fission_core::internal::custom_render_widget(InternalRenderNode {
-            debug_tag: "InfiniteCanvasInteractionRegion".into(),
-            lowerer: Some(Arc::new(region)),
-            render_object: None,
-        })
+        fission_core::authoring::custom_widget("InfiniteCanvasInteractionRegion", region)
     }
 }
 

@@ -1,8 +1,8 @@
 use anyhow::Result;
 use fission_core::action::GlobalState as CoreGlobalState;
+use fission_core::authoring::BuildCtx;
+use fission_core::authoring::LoweringCx;
 use fission_core::env::Env;
-use fission_core::internal::BuildCtx;
-use fission_core::internal::LoweringCx;
 use fission_core::ui::{TextInput, Widget};
 use fission_core::{
     reduce_with, InputEvent, LayoutPoint, ReducerContext, Runtime, View, WidgetIdExt,

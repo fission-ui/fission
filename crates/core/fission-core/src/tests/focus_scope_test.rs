@@ -1,6 +1,6 @@
+use crate::authoring::Lower;
 use crate::env::{Env, RuntimeState};
 use crate::hit_test::find_next_focus_node;
-use crate::internal::Lower;
 use crate::lowering::LoweringCx;
 use crate::ui::widgets::button::Button;
 use crate::ui::widgets::focus_scope::FocusScope;

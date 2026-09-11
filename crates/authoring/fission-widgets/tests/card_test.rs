@@ -1,4 +1,4 @@
-use fission_core::internal::BuildCtx;
+use fission_core::authoring::BuildCtx;
 use fission_core::op::{Color, Fill, Overflow};
 use fission_core::ui::{CardPattern, Container, Text};
 use fission_core::{build, Env, GlobalState, RuntimeState, View, Widget, WidgetId, WidgetIdExt};

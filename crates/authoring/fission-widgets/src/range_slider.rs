@@ -1,8 +1,8 @@
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
+use fission_core::authoring::{wrap_zstack_child, IrBuilder, LowerWidget, LoweringCx};
 use fission_core::input::range_slider::RangeSliderRuntimeConfig;
-use fission_core::internal::{wrap_zstack_child, IrBuilder, LowerWidget, LoweringCx};
 use fission_core::ui::Widget;
 use fission_core::ActionEnvelope;
 use fission_ir::op::{Color, Fill, GridPlacement, GridTrack, LayoutOp, Op, PaintOp};

@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
-use fission_core::internal::{BuildCtx, LoweringCx};
+use fission_core::authoring::{BuildCtx, LoweringCx};
 use fission_core::ui::{Container, Overlay, ZStack};
 use fission_core::{
     ActionRegistry, Env, GlobalState, Runtime, View, Widget, WidgetId, WidgetIdExt,

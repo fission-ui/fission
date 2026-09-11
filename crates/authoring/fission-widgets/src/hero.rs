@@ -1,4 +1,4 @@
-use fission_core::internal::{IrBuilder, LowerWidget, LoweringCx};
+use fission_core::authoring::{IrBuilder, LowerWidget, LoweringCx};
 use fission_core::Widget;
 use fission_ir::WidgetId;
 use fission_ir::{semantics::Role, Op, Semantics};
@@ -26,14 +26,13 @@ impl From<Hero> for Widget {
     fn from(component: Hero) -> Self {
         let this = &component;
 
-        fission_core::internal::custom_render_widget(fission_core::internal::InternalRenderNode {
-            debug_tag: format!("Hero({})", this.tag),
-            lowerer: Some(std::sync::Arc::new(HeroLowerer {
+        fission_core::authoring::custom_widget(
+            format!("Hero({})", this.tag),
+            HeroLowerer {
                 tag: this.tag.clone(),
                 child: this.child.clone(),
-            })),
-            render_object: None,
-        })
+            },
+        )
     }
 }
 

@@ -1,4 +1,4 @@
-use fission_core::internal::{InternalRenderNode, IrBuilder, LowerWidget, LoweringCx};
+use fission_core::authoring::{IrBuilder, LowerWidget, LoweringCx};
 use fission_core::{Widget, WidgetId};
 use fission_ir::{EmbedKind, LayoutOp, Op};
 use serde::{Deserialize, Serialize};
@@ -37,16 +37,15 @@ impl From<WebView> for Widget {
             user_agent: this.user_agent.clone(),
         });
 
-        fission_core::internal::custom_render_widget(InternalRenderNode {
-            debug_tag: "WebView".into(),
-            lowerer: Some(std::sync::Arc::new(WebViewLowerer {
+        fission_core::authoring::custom_widget(
+            "WebView",
+            WebViewLowerer {
                 id: this.id,
                 url: this.url.clone(),
                 width: this.width,
                 height: this.height,
-            })),
-            render_object: None,
-        })
+            },
+        )
     }
 }
 

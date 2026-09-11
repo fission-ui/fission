@@ -1,4 +1,4 @@
-use fission_core::internal::BuildCtx;
+use fission_core::authoring::BuildCtx;
 use fission_core::{build, GlobalState, LayoutDirection, View, Widget};
 use fission_ir::op::{Color, Fill};
 use fission_widgets::pagination::Pagination;

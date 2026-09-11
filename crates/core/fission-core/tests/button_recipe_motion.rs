@@ -1,4 +1,4 @@
-use fission_core::internal::{BuildCtx, LoweringCx};
+use fission_core::authoring::{BuildCtx, LoweringCx};
 use fission_core::{
     build, widgets, Button, ButtonMotion, Column, Env, MotionDeclarationKind, MotionEasing,
     MotionPhase, MotionPreference, MotionPropertyId, MotionTransition, Runtime, RuntimeState, Text,

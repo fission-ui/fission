@@ -124,7 +124,7 @@ impl From<DefaultRouteDenied> for Widget {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use fission_core::internal::BuildCtx;
+    use fission_core::authoring::BuildCtx;
     use fission_core::{Env, GlobalState, RouteRedirect, RuntimeState, View};
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;

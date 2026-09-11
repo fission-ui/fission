@@ -1,5 +1,5 @@
+use crate::authoring::Lower;
 use crate::env::{Env, RuntimeState};
-use crate::internal::Lower;
 use crate::lowering::{build_layout_tree, LoweringCx};
 use crate::ui::widgets::text::TextContent;
 use crate::ui::widgets::{Column, Container, Text};

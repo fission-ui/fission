@@ -1,6 +1,6 @@
 use crate::hit_test::hit_test;
 use crate::lowering::{LoweringCx, build_layout_tree, IrBuilder};
-use crate::internal::{Lower, LowerWidget};
+use crate::authoring::{Lower, LowerWidget};
 use crate::ui::Widget;
 use crate::env::{Env, RuntimeState};
 use fission_ir::{LayoutOp, Op};
@@ -61,11 +61,7 @@ fn test_overlay_backdrop_hit_geometry() {
         ..Default::default()
     }.into();
 
-    let absolute_zstack = crate::internal::custom_render_widget(crate::internal::InternalRenderNode {
-        debug_tag: "AbsFill".into(),
-        lowerer: Some(std::sync::Arc::new(TestAbsoluteFill { child: zstack })),
-        render_object: None,
-    });
+    let absolute_zstack = crate::authoring::custom_widget("AbsFill", TestAbsoluteFill { child: zstack });
 
     let root = crate::ui::Container::new(
                         crate::ui::Row::default()

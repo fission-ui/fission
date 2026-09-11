@@ -1,5 +1,5 @@
+use fission_core::authoring::{lower_widget, LoweringCx};
 use fission_core::env::{Env, RuntimeState, VideoStateMap, WebStateMap};
-use fission_core::internal::{lower_widget, LoweringCx};
 use fission_core::ui::{Column, Container, Text, Widget};
 use fission_core::ScrollStateMap;
 use fission_ir::op::Length;

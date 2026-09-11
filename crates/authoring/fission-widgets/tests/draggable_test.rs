@@ -1,4 +1,4 @@
-use fission_core::internal::BuildCtx;
+use fission_core::authoring::BuildCtx;
 use fission_core::runtime::Runtime;
 use fission_core::ui::widgets::button::Button;
 use fission_core::ui::{Container, Widget};

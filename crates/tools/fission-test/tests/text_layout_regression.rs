@@ -1,5 +1,5 @@
-use fission_core::internal::LowerWidget;
-use fission_core::internal::{IrBuilder, LoweringCx};
+use fission_core::authoring::LowerWidget;
+use fission_core::authoring::{IrBuilder, LoweringCx};
 use fission_core::ui::{Column, Container, Row, Text, Widget};
 use fission_core::GlobalState;
 use fission_ir::{Op, Semantics};
@@ -47,17 +47,11 @@ fn test_email_list_overlap_regression() {
                     Container::new(
                         Column::default().children(vec![
                             // Hero Subject
-                            fission_core::internal::custom_render_widget(
-                                fission_core::internal::InternalRenderNode {
-                                    debug_tag: "Hero".into(),
-                                    lowerer: Some(std::sync::Arc::new(MockHero {
+                            fission_core::authoring::custom_widget("Hero", MockHero {
                                         child: Text::new("Subject 10 Subject 10 Subject 10")
                                             .min_width(0.0) // Ensure it can shrink
                                             .into(),
-                                    })),
-                                    render_object: None,
-                                },
-                            ),
+                                    }),
                             // Preview
                             Text::new("Short preview...").min_width(0.0).into(),
                         ]),

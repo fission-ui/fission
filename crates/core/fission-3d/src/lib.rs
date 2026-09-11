@@ -1,5 +1,5 @@
 pub mod render;
-use fission_core::internal::{InternalRenderNode, LowerWidget, LoweringCx};
+use fission_core::authoring::{LowerWidget, LoweringCx};
 use fission_core::op::Color;
 use fission_core::ui::{Container, Widget};
 
@@ -73,13 +73,10 @@ impl Scene3D {
 impl From<Scene3D> for Widget {
     fn from(component: Scene3D) -> Self {
         let this = &component;
-        let mut container = Container::new(fission_core::internal::custom_render_widget(
-            InternalRenderNode {
-                debug_tag: "fission_3d::Scene3D".into(),
-                lowerer: Some(std::sync::Arc::new(Scene3DInternalLowerer {
-                    scene: this.clone(),
-                })),
-                render_object: None,
+        let mut container = Container::new(fission_core::authoring::custom_widget(
+            "fission_3d::Scene3D",
+            Scene3DInternalLowerer {
+                scene: this.clone(),
             },
         ));
         if let Some(w) = this.width {

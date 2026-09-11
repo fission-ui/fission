@@ -1,9 +1,9 @@
 use anyhow::{Context, Result};
 use arboard::Clipboard;
+use fission_core::authoring::{IrBuilder, LowerWidget, LoweringCx};
 use fission_core::event::{ImeEvent, InputEvent, KeyCode, KeyEvent, PointerEvent};
 use fission_core::internal::{
-    CustomEventResult, CustomHitResult, CustomRenderObject, InternalRenderNode, IrBuilder,
-    LowerWidget, LoweringCx,
+    CustomEventResult, CustomHitResult, CustomRenderObject, InternalRenderNode,
 };
 use fission_core::op::Color;
 use fission_core::ui::Widget;

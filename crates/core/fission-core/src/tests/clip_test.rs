@@ -1,5 +1,5 @@
+use crate::authoring::Lower;
 use crate::env::{Env, RuntimeState};
-use crate::internal::Lower;
 use crate::lowering::LoweringCx;
 use crate::ui::widgets::clip::Clip;
 use crate::ui::widgets::container::Container;

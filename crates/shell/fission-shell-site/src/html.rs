@@ -4463,7 +4463,7 @@ fn escape_attr(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use fission_core::internal::BuildCtx;
+    use fission_core::authoring::BuildCtx;
     use fission_core::ui::widgets::text::{RichTextChild, RichTextSpan, WidgetSpan};
     use fission_core::ui::{
         Checkbox, Column, Grid, Radio, RichText, SemanticsRegion, Switch, Text, Widget,

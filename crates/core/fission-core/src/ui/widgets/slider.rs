@@ -1,4 +1,4 @@
-use crate::internal::Lower;
+use crate::authoring::Lower;
 use crate::lowering::wrap_zstack_child;
 use crate::lowering::{IrBuilder, LoweringCx};
 use crate::ActionEnvelope;

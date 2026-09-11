@@ -78,7 +78,7 @@ impl From<Link> for Widget {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use fission_core::internal::{BuildCtx, LoweringCx};
+    use fission_core::authoring::{BuildCtx, LoweringCx};
     use fission_core::{build, Env, LinkTarget, RuntimeState, View};
     use fission_ir::Op;
 

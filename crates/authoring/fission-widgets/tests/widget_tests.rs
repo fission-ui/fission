@@ -1,4 +1,4 @@
-use fission_core::internal::{Lower, LoweringCx};
+use fission_core::authoring::{Lower, LoweringCx};
 use fission_core::ui::GestureDetector;
 use fission_core::{ActionEnvelope, ActionId, Env, RuntimeState};
 use fission_ir::{semantics::ActionTrigger, Op, Role};

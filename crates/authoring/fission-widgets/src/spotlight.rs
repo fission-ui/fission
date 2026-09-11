@@ -3,7 +3,6 @@ use fission_core::{
     LayoutOp, Op, Widget,
 };
 use fission_ir::WidgetId;
-use std::sync::Arc;
 
 /// Lays out an inverse overlay around an already-laid-out anchor.
 ///
@@ -23,15 +22,14 @@ pub struct Spotlight {
 
 impl From<Spotlight> for Widget {
     fn from(spotlight: Spotlight) -> Self {
-        fission_core::internal::custom_render_widget(fission_core::CustomWidget {
-            debug_tag: "Spotlight".into(),
-            lowerer: Some(Arc::new(SpotlightLowerer {
+        fission_core::authoring::custom_widget(
+            "Spotlight",
+            SpotlightLowerer {
                 anchor: spotlight.anchor,
                 padding: spotlight.padding,
                 children: spotlight.children,
-            })),
-            render_object: None,
-        })
+            },
+        )
     }
 }
 

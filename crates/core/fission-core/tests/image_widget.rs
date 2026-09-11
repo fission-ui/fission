@@ -1,5 +1,5 @@
+use fission_core::authoring::LoweringCx;
 use fission_core::env::{Env, RuntimeState};
-use fission_core::internal::LoweringCx;
 use fission_core::ui::Image;
 use fission_ir::op::{ImageAlignment, ImageCachePolicy, ImageFit, ImageSource, Op, PaintOp};
 use fission_ir::CoreIR;

@@ -1,4 +1,4 @@
-use fission_core::internal::BuildCtx;
+use fission_core::authoring::BuildCtx;
 use fission_core::op::{AlignItems, Length, TextAlign};
 use fission_core::ui::{Column, Container, Icon, Text, WidgetKind};
 use fission_core::{build, Env, GlobalState, LayoutSize, RuntimeState, View, Widget};

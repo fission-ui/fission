@@ -1,4 +1,4 @@
-use fission_core::internal::{InternalRenderNode, LowerWidget};
+use fission_core::authoring::LowerWidget;
 use fission_core::ui::{Container, Video, Widget};
 use fission_core::{GlobalState, WidgetId};
 use fission_ir::{EmbedKind, LayoutOp, Op};
@@ -6,7 +6,6 @@ use fission_render::DisplayOp;
 use fission_test::TestHarness;
 use fission_widgets::WebView;
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
 
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
 struct EmbedState;
@@ -118,11 +117,7 @@ struct CustomEmbedApp;
 impl From<CustomEmbedApp> for Widget {
     fn from(_component: CustomEmbedApp) -> Self {
         let (_ctx, _view) = fission_core::build::current::<EmbedState>();
-        fission_core::internal::custom_render_widget(InternalRenderNode {
-            debug_tag: "TestCustomEmbed".into(),
-            lowerer: Some(Arc::new(CustomEmbedInternalLowerer)),
-            render_object: None,
-        })
+        fission_core::authoring::custom_widget("TestCustomEmbed", CustomEmbedInternalLowerer)
     }
 }
 #[derive(Debug)]

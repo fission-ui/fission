@@ -525,8 +525,7 @@ pub mod prelude {
     pub use fission_3d::*;
     #[cfg(feature = "charts")]
     pub use fission_charts::*;
-    #[cfg(feature = "store")]
-    pub use fission_store::*;
+
     #[cfg(any(feature = "store-sqlite-native", feature = "store-sqlite-web"))]
     pub use fission_store_sqlite::*;
 
