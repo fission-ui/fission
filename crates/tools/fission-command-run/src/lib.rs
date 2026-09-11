@@ -1265,19 +1265,12 @@ fn build_desktop_binary(
     target: Target,
     variant: Option<&NativeVariant>,
 ) -> Result<DesktopBinary> {
-    let project_dir = fs::canonicalize(project_dir).with_context(|| {
-        format!(
-            "failed to resolve project directory {}",
-            project_dir.display()
-        )
-    })?;
+    let project_dir = resolve_desktop_project_dir(project_dir)?;
     let metadata = cargo_metadata(&project_dir)?;
-    let manifest_path = fs::canonicalize(project_dir.join("Cargo.toml")).with_context(|| {
-        format!(
-            "failed to resolve Cargo manifest at {}",
-            project_dir.join("Cargo.toml").display()
-        )
-    })?;
+    let manifest_path = project_dir.join("Cargo.toml");
+    if !manifest_path.is_file() {
+        bail!("Cargo manifest is missing at {}", manifest_path.display());
+    }
     let package = desktop_package_for_manifest(&metadata, &manifest_path)?;
     let cargo_options =
         read_desktop_cargo_options(&project_dir, target, variant.map(NativeVariant::as_str))?;
@@ -1303,10 +1296,10 @@ fn build_desktop_binary(
     command
         .arg("build")
         .arg("--manifest-path")
-        .arg(project_dir.join("Cargo.toml"))
+        .arg(&manifest_path)
         .arg("--package")
-        .arg(&package.name)
-        .current_dir(project_dir);
+        .arg(&package.name);
+    set_desktop_cargo_current_dir(&mut command, &project_dir);
     if release {
         command.arg("--release");
     }
@@ -1339,6 +1332,40 @@ fn build_desktop_binary(
     })
 }
 
+fn resolve_desktop_project_dir(project_dir: &Path) -> Result<PathBuf> {
+    #[cfg(windows)]
+    {
+        let resolved = if project_dir.is_absolute() {
+            project_dir.to_path_buf()
+        } else {
+            env::current_dir()?.join(project_dir)
+        };
+        if !resolved.is_dir() {
+            bail!(
+                "failed to resolve project directory {}",
+                project_dir.display()
+            );
+        }
+        return Ok(resolved);
+    }
+
+    #[cfg(not(windows))]
+    fs::canonicalize(project_dir).with_context(|| {
+        format!(
+            "failed to resolve project directory {}",
+            project_dir.display()
+        )
+    })
+}
+
+fn set_desktop_cargo_current_dir(command: &mut Command, project_dir: &Path) {
+    #[cfg(not(windows))]
+    command.current_dir(project_dir);
+
+    #[cfg(windows)]
+    let _ = (command, project_dir);
+}
+
 fn desktop_package_for_manifest<'a>(
     metadata: &'a CargoMetadata,
     manifest_path: &Path,
@@ -1369,14 +1396,16 @@ fn paths_refer_to_same_file(left: &Path, right: &Path) -> bool {
 }
 
 fn cargo_metadata(project_dir: &Path) -> Result<CargoMetadata> {
-    let output = Command::new("cargo")
+    let mut command = Command::new("cargo");
+    command
         .arg("metadata")
+        .arg("--manifest-path")
+        .arg(project_dir.join("Cargo.toml"))
         .arg("--no-deps")
         .arg("--format-version")
-        .arg("1")
-        .current_dir(project_dir)
-        .output()
-        .context("failed to run cargo metadata")?;
+        .arg("1");
+    set_desktop_cargo_current_dir(&mut command, project_dir);
+    let output = command.output().context("failed to run cargo metadata")?;
     if !output.status.success() {
         io::stderr().write_all(&output.stderr).ok();
         bail!("cargo metadata failed with {}", output.status);
@@ -1548,12 +1577,7 @@ fn package_windows_run_app(
     variant: Option<&NativeVariant>,
     release: bool,
 ) -> Result<DesktopRunApp> {
-    let project_dir = fs::canonicalize(project_dir).with_context(|| {
-        format!(
-            "failed to resolve project directory {}",
-            project_dir.display()
-        )
-    })?;
+    let project_dir = resolve_desktop_project_dir(project_dir)?;
     let binary = build_desktop_binary(&project_dir, release, Target::Windows, variant)?;
     let profile = if release { "release" } else { "debug" };
     let app_root = variant_output_path(
@@ -2432,5 +2456,28 @@ mod tests {
         .expect_err("an unmatched project manifest must fail");
 
         assert!(error.to_string().contains("crates/desktop/Cargo.toml"));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_desktop_project_paths_are_not_canonicalized() {
+        let input = env::current_dir()
+            .expect("current directory")
+            .join("crates")
+            .join("..");
+
+        let resolved = resolve_desktop_project_dir(&input).expect("resolve project directory");
+
+        assert_eq!(resolved, input);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_desktop_cargo_inherits_the_callers_working_directory() {
+        let mut command = Command::new("cargo");
+
+        set_desktop_cargo_current_dir(&mut command, Path::new(r"Z:\workspace\desktop"));
+
+        assert_eq!(command.get_current_dir(), None);
     }
 }
