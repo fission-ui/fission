@@ -238,7 +238,27 @@ fn modal_title_and_close_control_use_dialog_recipe_typography_and_geometry() {
     let close_style = &env.theme.components.modal.close_button_style;
     assert_eq!(*width, close_style.width);
     assert_eq!(*height, close_style.height);
-    assert_eq!(*padding, close_style.padding.unwrap());
+
+    // Layout padding is the recipe padding inflated by the widest border the
+    // control can draw, so the box does not resize when a focus or hover state
+    // thickens its outline. Assert that relationship rather than the sum, which
+    // would re-encode the state recipes here.
+    let recipe_padding = close_style.padding.unwrap();
+    let inset: Vec<f32> = padding
+        .iter()
+        .zip(recipe_padding.iter())
+        .map(|(actual, recipe)| actual - recipe)
+        .collect();
+    assert!(
+        inset.iter().all(|value| *value >= 0.0),
+        "close control padding {padding:?} should contain its recipe padding {recipe_padding:?}"
+    );
+    assert!(
+        inset
+            .windows(2)
+            .all(|pair| (pair[0] - pair[1]).abs() < 1e-4),
+        "border inset should be uniform on every side, got {inset:?}"
+    );
 }
 
 #[test]
