@@ -44,6 +44,8 @@ impl From<CheckboxPreview<'_>> for Widget {
                         child: Checkbox {
                             id: Some(WidgetId::explicit("gallery.real.checkbox")),
                             semantics_identifier: Some("gallery.checkbox.accept_motion".into(),),
+                            name: None,
+                            form_id: None,
                             checked: preview_active(preview.state),
                             on_toggle: Some(on_toggle),
                             label: Some("Accept motion terms".into()),
