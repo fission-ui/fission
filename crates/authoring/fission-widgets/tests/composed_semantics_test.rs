@@ -87,6 +87,39 @@ fn assert_actionable(ir: &CoreIR, identifier: &str, expected_role: Role) {
     );
 }
 
+/// A dismissal backdrop is activatable by pointer but must stay out of the
+/// keyboard path, the way Flutter's ModalBarrier and an ARIA dialog overlay do.
+/// Keyboard users dismiss with Escape; a focusable scrim would put a stop with
+/// no visible affordance between the trigger and the dialog's own controls.
+fn assert_dismissal_backdrop(ir: &CoreIR, identifier: &str) {
+    let semantics = semantics(ir, identifier);
+    assert_eq!(semantics.role, Role::Generic);
+    assert!(
+        !semantics.focusable,
+        "{identifier} should not take keyboard focus"
+    );
+    assert_eq!(
+        semantics.actions.entries.len(),
+        1,
+        "{identifier} should own its dismissal action"
+    );
+}
+
+/// The control height an option reserves, taken from the rendered box rather
+/// than from a constant, so the check follows the active item recipe.
+fn option_min_height(ir: &CoreIR, identifier: &str) -> f32 {
+    use fission_ir::op::Length;
+    let (id, _) = semantics_entry(ir, identifier);
+    let node = &ir.nodes[&id];
+    match &ir.nodes[&node.children[0]].op {
+        Op::Layout(LayoutOp::StyledBox { style, .. }) => match &style.min_height {
+            Some(Length::Points(points)) => *points,
+            other => panic!("expected a points min-height on an option, got {other:?}"),
+        },
+        op => panic!("expected a styled option box, got {op:?}"),
+    }
+}
+
 fn build_widget(build_widget: impl FnOnce() -> Widget) -> (CoreIR, Vec<CoreIR>) {
     let mut runtime = fission_core::Runtime::default();
     runtime.add_app_state(Box::new(State)).unwrap();
@@ -309,19 +342,31 @@ fn menu_and_select_use_compact_bounded_popup_anatomy() {
     });
     let popup = &portals[0];
     let (trigger_id, _) = semantics_entry(&trigger_ir, "density.trigger");
+    // The recipe's control height is a floor, not a fixed height: a trigger
+    // with a taller value still has to contain it. Flutter models this the same
+    // way with ButtonStyle.minimumSize.
     match &trigger_ir.nodes[&trigger_ir.nodes[&trigger_id].children[0]].op {
-        Op::Layout(LayoutOp::Box { height, .. }) => assert_eq!(*height, Some(32.0)),
+        Op::Layout(LayoutOp::Box {
+            height, min_height, ..
+        }) => {
+            assert_eq!(*height, None, "trigger height should not be pinned");
+            assert_eq!(
+                *min_height,
+                Some(32.0),
+                "compact trigger should reserve the md control height"
+            );
+        }
         op => panic!("expected a compact select trigger box, got {op:?}"),
     }
     let (popup_id, _) = semantics_for_role(popup, Role::ListBox);
     let popup_node = &popup.nodes[&popup_id];
     let surface = &popup.nodes[&popup_node.children[0]];
+    let option_height = option_min_height(popup, "density.first");
     match &surface.op {
         Op::Layout(LayoutOp::StyledBox { style, .. }) => {
             use fission_ir::op::Length;
 
             assert_eq!(style.width, Some(Length::Points(240.0)));
-            assert_eq!(style.height, Some(Length::Points(76.0)));
             assert_eq!(
                 style.padding,
                 Some([
@@ -330,6 +375,16 @@ fn menu_and_select_use_compact_bounded_popup_anatomy() {
                     Length::Points(4.0),
                     Length::Points(4.0),
                 ])
+            );
+            // The surface reserves exactly its options plus its own vertical
+            // padding. Deriving this from the option geometry keeps the check
+            // meaningful when a design system changes the item recipe, instead
+            // of pinning a number that silently tracks one design system.
+            let expected = option_height * 2.0 + 4.0 + 4.0;
+            assert_eq!(
+                style.height,
+                Some(Length::Points(expected)),
+                "popup should reserve its options plus vertical padding"
             );
         }
         op => panic!("expected a styled popup surface, got {op:?}"),
@@ -343,10 +398,17 @@ fn menu_and_select_use_compact_bounded_popup_anatomy() {
     )));
 
     for identifier in ["density.first", "density.second"] {
+        use fission_ir::op::Length;
         let (id, _) = semantics_entry(popup, identifier);
         let node = &popup.nodes[&id];
         match &popup.nodes[&node.children[0]].op {
-            Op::Layout(LayoutOp::Box { height, .. }) => assert_eq!(*height, Some(32.0)),
+            Op::Layout(LayoutOp::StyledBox { style, .. }) => {
+                assert_eq!(
+                    style.min_height,
+                    Some(Length::Points(option_height)),
+                    "every option should reserve the same item recipe height"
+                );
+            }
             op => panic!("expected a compact option button box, got {op:?}"),
         }
     }
@@ -545,7 +607,7 @@ fn modal_and_modal_action_exhaustive_literal_shapes_remain_source_compatible() {
 
     assert_eq!(portals.len(), 1);
     let ir = &portals[0];
-    assert_actionable(ir, "modal.backdrop", Role::Generic);
+    assert_dismissal_backdrop(ir, "modal.backdrop");
     assert_actionable(ir, "modal.close", Role::Button);
     assert_actionable(ir, "modal.confirm", Role::Button);
     assert_eq!(semantics(ir, "modal.surface").role, Role::Dialog);
@@ -568,7 +630,7 @@ fn drawer_identifier_is_attached_to_the_dismissal_backdrop() {
     });
 
     assert_eq!(portals.len(), 1);
-    assert_actionable(&portals[0], "drawer.backdrop", Role::Generic);
+    assert_dismissal_backdrop(&portals[0], "drawer.backdrop");
 }
 
 #[test]
