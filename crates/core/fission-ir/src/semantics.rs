@@ -75,6 +75,14 @@ pub enum Role {
     Toolbar,
     /// A set of radios where exactly one is selected at a time.
     RadioGroup,
+    /// A grid of data arranged in rows and columns.
+    Table,
+    /// One row of a [`Table`](Role::Table).
+    TableRow,
+    /// One data cell inside a [`TableRow`](Role::TableRow).
+    TableCell,
+    /// A header cell naming a column.
+    ColumnHeader,
 }
 
 /// The kind of popup controlled by a semantic node.
@@ -372,6 +380,10 @@ mod tests {
         assert_eq!(Role::TreeItem as u8, 26);
         assert_eq!(Role::Toolbar as u8, 27);
         assert_eq!(Role::RadioGroup as u8, 28);
+        assert_eq!(Role::Table as u8, 29);
+        assert_eq!(Role::TableRow as u8, 30);
+        assert_eq!(Role::TableCell as u8, 31);
+        assert_eq!(Role::ColumnHeader as u8, 32);
     }
 
     #[test]

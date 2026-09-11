@@ -978,6 +978,10 @@ mod imp {
             Role::TreeItem => AccessRole::TreeItem,
             Role::Toolbar => AccessRole::Toolbar,
             Role::RadioGroup => AccessRole::RadioGroup,
+            Role::Table => AccessRole::Table,
+            Role::TableRow => AccessRole::Row,
+            Role::TableCell => AccessRole::Cell,
+            Role::ColumnHeader => AccessRole::ColumnHeader,
             Role::Generic => AccessRole::GenericContainer,
         }
     }

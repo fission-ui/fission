@@ -1,9 +1,11 @@
 use crate::stack::{HStack, VStack};
 use crate::Icon;
-use fission_core::op::Color;
-use fission_core::ui::{Button, ButtonVariant, Checkbox, Container, Scroll, Text, Widget};
+use fission_core::ui::{
+    Button, ButtonVariant, Checkbox, Container, Scroll, SemanticsRegion, Text, Widget,
+};
 use fission_core::{ActionEnvelope, WidgetId};
 use fission_icons::material;
+use fission_ir::Role;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
@@ -18,6 +20,15 @@ pub struct TableColumn {
     pub width: f32,
     /// Whether the header should expose sorting affordance.
     pub sortable: bool,
+    /// Action dispatched when this column's header is activated.
+    ///
+    /// A sortable column with no action renders its affordance disabled rather
+    /// than showing a control that does nothing when pressed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub on_sort: Option<ActionEnvelope>,
+    /// Current sort direction, when this column is the active sort.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sorted_ascending: Option<bool>,
 }
 
 /// One table row containing cells in the same order as the column declarations.
@@ -27,6 +38,19 @@ pub struct TableRow {
     pub id: String,
     /// Preformatted cell text corresponding positionally to table columns.
     pub cells: Vec<String>,
+}
+
+impl Default for TableColumn {
+    fn default() -> Self {
+        Self {
+            id: String::new(),
+            title: String::new(),
+            width: 120.0,
+            sortable: false,
+            on_sort: None,
+            sorted_ascending: None,
+        }
+    }
 }
 
 /// Scrollable controlled data table with row selection.
@@ -42,6 +66,27 @@ pub struct DataTable {
     pub selected_ids: Vec<String>,
     /// Factory that produces an action when a row selection is toggled.
     pub on_selection_change: Option<Arc<dyn Fn(String) -> ActionEnvelope + Send + Sync>>,
+    /// Action dispatched when the header's select-all control is toggled.
+    ///
+    /// Without this the header control is rendered disabled, rather than
+    /// offering a checkbox that silently does nothing.
+    pub on_select_all: Option<ActionEnvelope>,
+    /// Accessible name for the table.
+    pub label: Option<String>,
+}
+
+impl Default for DataTable {
+    fn default() -> Self {
+        Self {
+            id: WidgetId::explicit("data-table"),
+            columns: Vec::new(),
+            rows: Vec::new(),
+            selected_ids: Vec::new(),
+            on_selection_change: None,
+            on_select_all: None,
+            label: None,
+        }
+    }
 }
 
 impl std::fmt::Debug for DataTable {
@@ -69,54 +114,92 @@ impl From<DataTable> for Widget {
         // Header
         let mut header_cells = Vec::new();
         // Checkbox column
+        let all_selected = !this.rows.is_empty()
+            && this
+                .rows
+                .iter()
+                .all(|row| this.selected_ids.contains(&row.id));
         header_cells.push(
-            Container::new(Checkbox {
-                checked: false,
-                label: None,
-                on_toggle: None,
-                ..Default::default()
-            })
+            Container::new(
+                SemanticsRegion::new(Checkbox {
+                    checked: all_selected,
+                    label: None,
+                    on_toggle: this.on_select_all.clone(),
+                    disabled: this.on_select_all.is_none(),
+                    ..Default::default()
+                })
+                .label("Select all rows"),
+            )
             .width(40.0)
             .padding_all(8.0)
             .into(),
         );
 
         for col in &this.columns {
+            let label = Text::new(col.title.clone())
+                .color(tokens.colors.text_secondary)
+                .size(tokens.typography.font_size_base)
+                .weight(tokens.typography.font_weight_medium);
+            let affordance: Widget = if col.sortable {
+                // The glyph reports the direction currently applied, so the
+                // header states the table's order rather than only offering to
+                // change it.
+                let glyph = match col.sorted_ascending {
+                    Some(true) => material::navigation::arrow_drop_up::regular(),
+                    _ => material::navigation::arrow_drop_down::regular(),
+                };
+                Icon::svg(glyph)
+                    .size(tokens.spacing.m)
+                    .color(if col.sorted_ascending.is_some() {
+                        tokens.colors.text_primary
+                    } else {
+                        tokens.colors.text_secondary
+                    })
+                    .into()
+            } else {
+                fission_core::ui::widgets::Spacer {
+                    width: Some(tokens.spacing.m),
+                    ..Default::default()
+                }
+                .into()
+            };
+            let content: Widget = HStack {
+                spacing: Some(tokens.spacing.xs),
+                children: vec![label.into(), affordance],
+            }
+            .into();
+            let cell: Widget = if col.sortable && col.on_sort.is_some() {
+                Button {
+                    variant: ButtonVariant::Ghost,
+                    child: Some(content),
+                    on_press: col.on_sort.clone(),
+                    ..Default::default()
+                }
+                .into()
+            } else {
+                content
+            };
             header_cells.push(
-                Container::new(HStack {
-                    spacing: Some(4.0),
-                    children: vec![
-                        Text::new(col.title.clone())
-                            // .weight(fission_core::ui::FontWeight::Bold) // Stubbed
-                            .color(tokens.colors.text_secondary)
-                            .size(12.0)
-                            .into(),
-                        if col.sortable {
-                            Icon::svg(material::navigation::arrow_drop_down::regular())
-                                .size(16.0)
-                                .color(tokens.colors.text_secondary)
-                                .into()
-                        } else {
-                            fission_core::ui::widgets::Spacer {
-                                width: Some(16.0),
-                                ..Default::default()
-                            }
-                            .into()
-                        },
-                    ],
-                })
-                .width(col.width)
-                .padding_all(8.0)
+                SemanticsRegion::new(
+                    Container::new(cell)
+                        .width(col.width)
+                        .padding_all(tokens.spacing.s),
+                )
+                .role(Role::ColumnHeader)
+                .label(col.title.clone())
                 .into(),
             );
         }
 
-        let header = Container::new(HStack {
-            spacing: Some(0.0),
-            children: header_cells,
-        })
-        .bg(tokens.colors.surface)
-        .flex_shrink(0.0) // Header shouldn't shrink
+        let header: Widget = SemanticsRegion::new(
+            Container::new(HStack {
+                spacing: Some(0.0),
+                children: header_cells,
+            })
+            .bg(tokens.colors.surface)
+            .flex_shrink(0.0), // Header shouldn't shrink
+        )
+        .role(Role::TableRow)
         .into();
 
         // Rows
@@ -128,27 +211,33 @@ impl From<DataTable> for Widget {
             // Checkbox
             let toggle = this.on_selection_change.clone();
             row_cells.push(
-                Container::new(Checkbox {
-                    checked: is_selected,
-                    label: None,
-                    on_toggle: toggle.map(|f| f(row.id.clone())),
-                    ..Default::default()
-                })
+                Container::new(
+                    SemanticsRegion::new(Checkbox {
+                        checked: is_selected,
+                        label: None,
+                        on_toggle: toggle.map(|f| f(row.id.clone())),
+                        ..Default::default()
+                    })
+                    .label(format!("Select row {}", row.id)),
+                )
                 .width(40.0)
-                .padding_all(8.0)
+                .padding_all(tokens.spacing.s)
                 .into(),
             );
 
             for (i, cell_text) in row.cells.iter().enumerate() {
                 let width = this.columns.get(i).map(|c| c.width).unwrap_or(100.0);
                 row_cells.push(
-                    Container::new(
-                        Text::new(cell_text.clone())
-                            .size(14.0)
-                            .color(tokens.colors.text_primary),
+                    SemanticsRegion::new(
+                        Container::new(
+                            Text::new(cell_text.clone())
+                                .size(tokens.typography.body_medium_size)
+                                .color(tokens.colors.text_primary),
+                        )
+                        .width(width)
+                        .padding_all(tokens.spacing.s),
                     )
-                    .width(width)
-                    .padding_all(8.0)
+                    .role(Role::TableCell)
                     .into(),
                 );
             }
@@ -164,7 +253,9 @@ impl From<DataTable> for Widget {
                 .bg(if is_selected {
                     tokens.colors.primary.with_alpha(20)
                 } else {
-                    Color::WHITE
+                    // Previously Color::WHITE, which painted every row white in
+                    // a dark theme and left the text unreadable.
+                    tokens.colors.surface
                 })
                 .into();
             let row_node = if let Some(action) = row_toggle {
@@ -178,13 +269,18 @@ impl From<DataTable> for Widget {
             } else {
                 row_body
             };
-            row_nodes.push(row_node);
+            row_nodes.push(
+                SemanticsRegion::new(row_node)
+                    .role(Role::TableRow)
+                    .selected(is_selected)
+                    .into(),
+            );
 
             // Divider
             row_nodes.push(
                 Container::new(fission_core::ui::widgets::Spacer::default())
                     .height(1.0)
-                    .bg(tokens.colors.border)
+                    .bg(tokens.colors.divider)
                     .into(),
             );
         }
@@ -202,12 +298,18 @@ impl From<DataTable> for Widget {
         }
         .into();
 
-        Container::new(VStack {
-            spacing: Some(0.0),
-            children: vec![header, content],
-        })
-        .border(tokens.colors.border, 1.0)
-        .border_radius(tokens.radii.small)
-        .into()
+        let mut table = SemanticsRegion::new(
+            Container::new(VStack {
+                spacing: Some(0.0),
+                children: vec![header, content],
+            })
+            .border(tokens.colors.border, 1.0)
+            .border_radius(tokens.radii.small),
+        )
+        .role(Role::Table);
+        if let Some(label) = this.label.clone() {
+            table = table.label(label);
+        }
+        table.into()
     }
 }
