@@ -1552,7 +1552,15 @@ impl Lower for Button {
                 }),
             ),
         );
-        let content_padding = self.padding.unwrap_or(resolved_style.padding);
+        // Recipe padding is logical [start, end, top, bottom]; mirror it once
+        // here so no control has to branch on reading order itself.
+        let content_padding = self.padding.unwrap_or(match cx.env.layout_direction {
+            fission_ir::LayoutDirection::LeftToRight => resolved_style.padding,
+            fission_ir::LayoutDirection::RightToLeft => {
+                let [start, end, top, bottom] = resolved_style.padding;
+                [end, start, top, bottom]
+            }
+        });
         let layout_padding = [
             content_padding[0] + resolved_style.layout_border_width,
             content_padding[1] + resolved_style.layout_border_width,

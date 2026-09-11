@@ -203,7 +203,10 @@ fn alert_layout_exposes_retained_content_and_action_regions() {
         _ => panic!("alert action should be positioned independently of message flow"),
     };
     assert_eq!(positioned.top, Some(8.0));
-    assert_eq!(positioned.right, Some(8.0));
+    // The trailing action is inset from the end edge, so it follows reading
+    // order instead of pinning itself to the right in every locale.
+    assert_eq!(positioned.end, Some(8.0));
+    assert_eq!(positioned.right, None);
     assert_eq!(positioned.width, Some(64.0));
 }
 

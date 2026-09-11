@@ -14,8 +14,8 @@ use fission_core::{ActionEnvelope, WidgetId};
 use fission_icons::material;
 use fission_ir::semantics::ActionTrigger;
 use fission_ir::{
-    ActionEntry, ActionSet, CompositeScalar, CompositeStyle, LayoutDirection, PopupKind, Role,
-    SemanticOrientation, Semantics,
+    ActionEntry, ActionSet, CompositeScalar, CompositeStyle, PopupKind, Role, SemanticOrientation,
+    Semantics,
 };
 use fission_theme::{ComponentState, MenuTheme, ResolvedComponentStyle};
 use serde::{Deserialize, Serialize};
@@ -1339,13 +1339,12 @@ impl LowerWidget for MenuActionItemLowerer {
         }
 
         let row_id = row.build(cx);
+        // Logical [start, end, top, bottom]: the selection indicator sits at the
+        // end of the row, whichever physical edge that is.
         let mut padding = self.style.padding_box(8.0, 6.0);
         if self.reserve_indicator_space || self.selected == Some(true) {
             let inset = self.indicator_style.inset_end.unwrap_or(padding[1]);
-            match cx.env.layout_direction {
-                LayoutDirection::LeftToRight => padding[1] = padding[1].max(inset),
-                LayoutDirection::RightToLeft => padding[0] = padding[0].max(inset),
-            }
+            padding[1] = padding[1].max(inset);
         }
         let has_description = self.description.is_some();
         let mut layout = IrBuilder::new(
@@ -1358,7 +1357,7 @@ impl LowerWidget for MenuActionItemLowerer {
                         .flatten(),
                     min_height: self.style.height.map(Length::Points),
                     max_width: self.style.max_width.map(Length::Points),
-                    padding: Some(padding.map(Length::Points)),
+                    padding_directional: Some(padding.map(Length::Points)),
                     alignment: BoxAlignment::Stretch,
                     ..Default::default()
                 },
@@ -1672,10 +1671,8 @@ impl From<MenuTriggerRegion> for Widget {
         let tokens = &view.env().theme.tokens;
         let theme = &view.env().theme.components.menu;
         let mut style = theme.resolve_trigger(region.trigger.size, ComponentState::Default);
-        let mut padding = style.padding_box(tokens.spacing.s, tokens.spacing.xs);
-        if view.env().layout_direction == LayoutDirection::RightToLeft {
-            padding.swap(0, 1);
-        }
+        // Recipe padding is logical; Button mirrors it for the reading order.
+        let padding = style.padding_box(tokens.spacing.s, tokens.spacing.xs);
         style.padding = Some(padding);
         let text_color = style.text_color.unwrap_or(tokens.colors.text_primary);
         let label = region.trigger.label.resolve(view.env());

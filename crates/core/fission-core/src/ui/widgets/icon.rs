@@ -97,6 +97,32 @@ impl Icon {
         }
     }
 
+    /// Picks between a start-pointing and an end-pointing glyph for the active
+    /// reading order.
+    ///
+    /// A back chevron points left in a left-to-right layout and right in a
+    /// right-to-left one. Pass the two glyphs in reading order — the one that
+    /// means "towards the start" first — and this resolves which is which, so
+    /// widgets do not each re-derive the rule.
+    ///
+    /// ```rust,ignore
+    /// // A "previous page" control.
+    /// Icon::svg_directional(
+    ///     material::navigation::chevron_left::regular(),
+    ///     material::navigation::chevron_right::regular(),
+    /// )
+    /// ```
+    pub fn svg_directional(
+        towards_start: impl Into<String>,
+        towards_end: impl Into<String>,
+    ) -> Self {
+        let (_, view) = crate::build::current::<()>();
+        match view.env().layout_direction {
+            fission_ir::LayoutDirection::LeftToRight => Self::svg(towards_start),
+            fission_ir::LayoutDirection::RightToLeft => Self::svg(towards_end),
+        }
+    }
+
     // Deprecated: new -> path
     pub fn new(path: impl Into<String>) -> Self {
         Self::path(path)

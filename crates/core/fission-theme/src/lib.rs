@@ -14,6 +14,7 @@
 //! ```
 
 pub use fission_ir::op::{BoxShadow, Color, Fill, LineCap, LineJoin, Stroke};
+use fission_ir::LayoutDirection;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -419,6 +420,12 @@ impl ResolvedComponentStyle {
         merged
     }
 
+    /// Returns `[start, end, top, bottom]` padding in reading order.
+    ///
+    /// Component recipes describe spacing logically: a select trigger reserves
+    /// room at the end for its chevron, not "on the right". Resolve to physical
+    /// edges with [`padding_box_for`](Self::padding_box_for) at the point the
+    /// value reaches layout.
     pub fn padding_box(&self, fallback_x: f32, fallback_y: f32) -> [f32; 4] {
         self.padding.unwrap_or([
             self.padding_x.unwrap_or(fallback_x),
@@ -426,6 +433,24 @@ impl ResolvedComponentStyle {
             self.padding_y.unwrap_or(fallback_y),
             self.padding_y.unwrap_or(fallback_y),
         ])
+    }
+
+    /// Returns `[left, right, top, bottom]` padding for a reading order.
+    ///
+    /// Mirrors the inline edges of [`padding_box`](Self::padding_box) under a
+    /// right-to-left layout. Controls should call this once, where the recipe
+    /// meets layout, instead of every widget branching on direction itself.
+    pub fn padding_box_for(
+        &self,
+        direction: LayoutDirection,
+        fallback_x: f32,
+        fallback_y: f32,
+    ) -> [f32; 4] {
+        let [start, end, top, bottom] = self.padding_box(fallback_x, fallback_y);
+        match direction {
+            LayoutDirection::LeftToRight => [start, end, top, bottom],
+            LayoutDirection::RightToLeft => [end, start, top, bottom],
+        }
     }
 
     pub fn outer_shadows(&self) -> Vec<BoxShadow> {

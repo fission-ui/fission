@@ -2,7 +2,7 @@ use crate::Icon;
 use fission_core::ui::{
     Button, ButtonContentAlign, ButtonVariant, Container, Row, SemanticsRegion, Text, Widget,
 };
-use fission_core::{ActionEnvelope, LayoutDirection, WidgetId};
+use fission_core::{ActionEnvelope, WidgetId};
 use fission_icons::material;
 use fission_ir::{Role, Semantics};
 use serde::{Deserialize, Serialize};
@@ -164,15 +164,13 @@ impl From<BreadcrumbLayout> for Widget {
 
             if index > 0 {
                 let separator = separators.next().unwrap_or_else(|| {
-                    let source = if view.env().layout_direction == LayoutDirection::RightToLeft {
-                        material::navigation::chevron_left::regular()
-                    } else {
-                        material::navigation::chevron_right::regular()
-                    };
-                    Icon::svg(source)
-                        .size(16.0)
-                        .color(tokens.colors.text_secondary)
-                        .into()
+                    Icon::svg_directional(
+                        material::navigation::chevron_right::regular(),
+                        material::navigation::chevron_left::regular(),
+                    )
+                    .size(16.0)
+                    .color(tokens.colors.text_secondary)
+                    .into()
                 });
                 let mut separator_wrapper = Container::new(separator);
                 separator_wrapper.id = Some(WidgetId::derived(
