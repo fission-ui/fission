@@ -218,6 +218,44 @@ impl Container {
         self
     }
 
+    /// Sets `[start, end, top, bottom]` padding that follows reading order.
+    ///
+    /// `start` is the left edge in a left-to-right layout and the right edge in
+    /// a right-to-left one, so a widget written once is correct in both. Prefer
+    /// this over [`padding`](Self::padding) for anything asymmetric.
+    ///
+    /// Replaces any physical padding already set on this container.
+    pub fn padding_directional(mut self, padding: [f32; 4]) -> Self {
+        self.box_style.padding_directional = Some(padding.map(Length::Points));
+        self.box_style.padding = None;
+        self.padding = [0.0; 4];
+        self
+    }
+
+    /// Sets typed `[start, end, top, bottom]` padding that follows reading order.
+    pub fn padding_directional_lengths(mut self, padding: [Length; 4]) -> Self {
+        self.box_style.padding_directional = Some(padding);
+        self.box_style.padding = None;
+        self.padding = [0.0; 4];
+        self
+    }
+
+    /// Sets `[start, end, top, bottom]` margin that follows reading order.
+    pub fn margin_directional(mut self, margin: [f32; 4]) -> Self {
+        self.box_style.margin_directional = Some(margin.map(Length::Points));
+        self.box_style.margin = None;
+        self.margin = [0.0; 4];
+        self
+    }
+
+    /// Sets typed `[start, end, top, bottom]` margin that follows reading order.
+    pub fn margin_directional_lengths(mut self, margin: [Length; 4]) -> Self {
+        self.box_style.margin_directional = Some(margin);
+        self.box_style.margin = None;
+        self.margin = [0.0; 4];
+        self
+    }
+
     /// Sets equal point-based margin on every edge.
     pub fn margin_all(mut self, margin: f32) -> Self {
         self.margin = [margin; 4];

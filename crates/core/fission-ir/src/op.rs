@@ -417,9 +417,32 @@ pub struct BoxStyle {
     /// Maximum height constraint.
     pub max_height: Option<Length>,
     /// Inner spacing in `[left, right, top, bottom]` order.
+    ///
+    /// Physical edges. Prefer [`padding_directional`](Self::padding_directional)
+    /// for anything that should follow reading order.
     pub padding: Option<[Length; 4]>,
     /// Outer spacing in `[left, right, top, bottom]` order.
+    ///
+    /// Physical edges. Prefer [`margin_directional`](Self::margin_directional)
+    /// for anything that should follow reading order.
     pub margin: Option<[Length; 4]>,
+    /// Inner spacing in `[start, end, top, bottom]` order.
+    ///
+    /// The inline edges follow the layout direction: `start` is the left edge
+    /// in a left-to-right layout and the right edge in a right-to-left one.
+    /// This is the directional counterpart of [`padding`](Self::padding), the
+    /// way Flutter pairs `EdgeInsetsDirectional` with `EdgeInsets`.
+    ///
+    /// When present this replaces `padding` rather than merging with it, so a
+    /// box has exactly one source of inner spacing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub padding_directional: Option<[Length; 4]>,
+    /// Outer spacing in `[start, end, top, bottom]` order.
+    ///
+    /// The directional counterpart of [`margin`](Self::margin), with the same
+    /// replacement rule.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub margin_directional: Option<[Length; 4]>,
     /// Width-to-height ratio.
     pub aspect_ratio: Option<OrderedLayoutUnit>,
     /// Whether content can paint outside this box.
