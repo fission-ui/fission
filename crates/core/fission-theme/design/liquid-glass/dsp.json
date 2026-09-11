@@ -120,6 +120,62 @@
     ]
   },
   "components": {
+    "avatar_group": {
+      "$description": "A compact retained group of overlapping people with an accessible overflow count.",
+      "avatar": {
+        "width": "32px",
+        "height": "32px",
+        "radius": "{radius.full}",
+        "border": "2px solid {color.light.surface}"
+      },
+      "overflow": {
+        "background": "{color.light.surface_sunken}",
+        "color": "{color.light.text_secondary}",
+        "width": "32px",
+        "height": "32px",
+        "radius": "{radius.full}",
+        "border": "2px solid {color.light.surface}",
+        "font_size": "{typography.font_size.xs}",
+        "font_weight": "{typography.font_weight.medium}",
+        "line_height": "16px"
+      },
+      "overlap": "10px",
+      "max_visible": 4
+    },
+    "code": {
+      "$description": "Inline machine-readable text with design-system-owned typography and surface treatment.",
+      "background": "{color.light.surface_sunken}",
+      "color": "{color.light.text_primary}",
+      "radius": "{radius.medium}",
+      "padding_x": "{spacing.xs}",
+      "padding_y": "2px",
+      "font_size": "{typography.font_size.xs}",
+      "font_family": "{typography.font_family.mono}"
+    },
+    "pagination": {
+      "$description": "Compact page navigation whose directional controls follow layout direction.",
+      "anatomy": ["previous", "page*", "ellipsis?", "next"],
+      "gap": "{spacing.xs}",
+      "item": {
+        "color": "{color.light.text_primary}",
+        "size": "32px",
+        "padding": "0px",
+        "radius": "{radius.full}",
+        "font_size": "{typography.font_size.base}",
+        "font_weight": "{typography.font_weight.regular}",
+        "line_height": "20px",
+        "icon_size": "16px",
+        "box_shadow": "none"
+      },
+      "selected": { "background": "{color.light.surface_raised}", "border": "1px solid {color.light.surface_ring}", "color": "{color.light.text_primary}", "font_weight": "{typography.font_weight.medium}", "box_shadow": "{elevation.level1}" },
+      "ellipsis": {
+        "color": "{color.light.text_muted}",
+        "size": "32px",
+        "font_size": "{typography.font_size.base}",
+        "font_weight": "{typography.font_weight.regular}",
+        "line_height": "20px"
+      }
+    },
     "$comment": "Each component declares anatomy (named slots), sizes, hierarchies (visual variants), and states. Property values reference tokens via {namespace.path} or contain literal CSS values. Sourced from the Untitled UI Figma component matrix and bound to Fission's teal palette.",
     "avatar": {
       "$description": "An image or accessible initials fallback for a person.",

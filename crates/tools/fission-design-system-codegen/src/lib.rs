@@ -38,6 +38,32 @@ pub fn generate(config: Config) -> Result<PathBuf> {
     Ok(out_path)
 }
 
+/// Component recipes every supplied design system must define.
+///
+/// Keep this in step with the `/components/<name>` pointers the generators
+/// read. Adding a generator that consults a new recipe means adding the recipe
+/// to every design system under `crates/core/fission-theme/design/`, and adding
+/// the name here so the next one cannot be forgotten.
+const REQUIRED_COMPONENT_RECIPES: &[&str] = &[
+    "alert",
+    "avatar",
+    "avatar_group",
+    "badge",
+    "button",
+    "card",
+    "code",
+    "empty_state",
+    "feature_icon",
+    "input",
+    "menu",
+    "modal",
+    "pagination",
+    "progress_bar",
+    "select",
+    "tabs",
+    "tooltip",
+];
+
 #[derive(Debug, Clone)]
 struct Package {
     dsp_path: PathBuf,
@@ -66,12 +92,57 @@ impl Package {
         let raw_tokens: Value = serde_json::from_str(&tokens_text)
             .with_context(|| format!("invalid JSON in {}", tokens_path.display()))?;
         let tokens = TokenStore::from_value(&raw_tokens)?;
-        Ok(Self {
+        let package = Self {
             dsp_path,
             tokens_path,
             dsp,
             tokens,
-        })
+        };
+        package.check_required_components()?;
+        Ok(package)
+    }
+
+    /// Fails the build when a design system omits a component recipe that the
+    /// generated theme resolves.
+    ///
+    /// Without this, a missing recipe falls back to geometry inlined in this
+    /// crate. Colour, radius and typography still resolve through the design
+    /// system's own tokens, so the result is not visibly foreign and nobody
+    /// notices; but the control sizes, line heights and insets are then this
+    /// crate's rather than the design system's, and the design system has no
+    /// way to say otherwise because there is no recipe for it to say it in.
+    ///
+    /// Widgets should look like the design system that is loaded. If a recipe
+    /// is genuinely optional, read it with an explicit fallback and drop it
+    /// from this list.
+    fn check_required_components(&self) -> Result<()> {
+        let present = self
+            .dsp
+            .pointer("/components")
+            .and_then(Value::as_object)
+            .ok_or_else(|| anyhow!("{} has no components object", self.dsp_path.display()))?;
+        let missing = REQUIRED_COMPONENT_RECIPES
+            .iter()
+            .filter(|name| !present.contains_key(**name))
+            .copied()
+            .collect::<Vec<_>>();
+        if missing.is_empty() {
+            return Ok(());
+        }
+        Err(anyhow!(
+            "{} is missing component {}: {}.\n\
+             The generated theme resolves {} for every design system, so an \
+             omitted one silently falls back to fission-design-system-codegen's \
+             own geometry instead of this design system's.",
+            self.dsp_path.display(),
+            if missing.len() == 1 {
+                "recipe"
+            } else {
+                "recipes"
+            },
+            missing.join(", "),
+            if missing.len() == 1 { "it" } else { "them" },
+        ))
     }
 
     fn generate(&self, config: &Config) -> Result<String> {
