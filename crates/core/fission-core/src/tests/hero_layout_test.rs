@@ -1,8 +1,8 @@
 use crate::env::{Env, RuntimeState};
-use crate::internal::InternalLower;
-use crate::internal::InternalLowerer;
 use crate::internal::InternalRenderNode;
-use crate::lowering::{build_layout_tree, InternalIrBuilder, InternalLoweringCx};
+use crate::internal::Lower;
+use crate::internal::LowerWidget;
+use crate::lowering::{build_layout_tree, IrBuilder, LoweringCx};
 use crate::ui::Widget;
 use fission_ir::{Op, Semantics};
 use fission_layout::{LayoutEngine, LayoutSize};
@@ -12,8 +12,8 @@ struct MockHero {
     child: Widget,
 }
 
-impl InternalLowerer for MockHero {
-    fn lower_dyn(&self, cx: &mut InternalLoweringCx) -> fission_ir::WidgetId {
+impl LowerWidget for MockHero {
+    fn lower_dyn(&self, cx: &mut LoweringCx) -> fission_ir::WidgetId {
         let child_id = self.child.lower(cx);
         let id = cx.next_node_id();
 
@@ -23,7 +23,7 @@ impl InternalLowerer for MockHero {
         };
 
         // Hero lowers to Semantics op
-        let mut builder = InternalIrBuilder::new(id, Op::Semantics(semantics));
+        let mut builder = IrBuilder::new(id, Op::Semantics(semantics));
         builder.add_child(child_id);
         builder.build(cx)
     }
@@ -36,7 +36,7 @@ impl InternalLowerer for MockHero {
 fn test_hero_text_layout_height() {
     let env = Env::default();
     let runtime_state = RuntimeState::default();
-    let mut cx = InternalLoweringCx::new(&env, &runtime_state, None, None);
+    let mut cx = LoweringCx::new(&env, &runtime_state, None, None);
 
     // Construct Hero with Text that needs wrapping
     let text = crate::ui::Text::new("Long Subject That Wraps").into();

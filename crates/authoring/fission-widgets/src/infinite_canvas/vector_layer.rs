@@ -1,9 +1,7 @@
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
-use fission_core::internal::{
-    InternalIrBuilder, InternalLowerer, InternalLoweringCx, InternalRenderNode,
-};
+use fission_core::internal::{InternalRenderNode, IrBuilder, LowerWidget, LoweringCx};
 use fission_core::ui::Widget;
 use fission_core::{LayoutOp, Op, WidgetId};
 use fission_ir::op::{BoxStyle, Fill, Length, PaintOp, Stroke};
@@ -29,9 +27,9 @@ impl std::fmt::Debug for CanvasVectorLayer {
     }
 }
 
-impl InternalLowerer for CanvasVectorLayer {
-    fn lower_dyn(&self, cx: &mut InternalLoweringCx) -> WidgetId {
-        let paint = InternalIrBuilder::new(
+impl LowerWidget for CanvasVectorLayer {
+    fn lower_dyn(&self, cx: &mut LoweringCx) -> WidgetId {
+        let paint = IrBuilder::new(
             WidgetId::derived(self.id.as_u128(), &[1]),
             Op::Paint(PaintOp::DrawPath {
                 path: self.path.clone(),
@@ -41,7 +39,7 @@ impl InternalLowerer for CanvasVectorLayer {
         )
         .build(cx);
 
-        let mut layout = InternalIrBuilder::new(
+        let mut layout = IrBuilder::new(
             WidgetId::derived(self.id.as_u128(), &[0]),
             Op::Layout(LayoutOp::StyledBox {
                 style: BoxStyle {
@@ -109,7 +107,7 @@ mod tests {
         .into();
         let env = Env::default();
         let runtime = RuntimeState::default();
-        let mut cx = InternalLoweringCx::new(&env, &runtime, None, None);
+        let mut cx = LoweringCx::new(&env, &runtime, None, None);
         let root = fission_core::internal::lower_widget(&widget, &mut cx);
 
         assert_eq!(root, id);
@@ -147,7 +145,7 @@ mod tests {
         .into();
         let env = Env::default();
         let runtime = RuntimeState::default();
-        let mut cx = InternalLoweringCx::new(&env, &runtime, None, None);
+        let mut cx = LoweringCx::new(&env, &runtime, None, None);
         let root = fission_core::internal::lower_widget(&widget, &mut cx);
         let nodes = fission_core::internal::build_layout_tree(&cx.ir, &env);
         let snapshot = LayoutEngine::new()

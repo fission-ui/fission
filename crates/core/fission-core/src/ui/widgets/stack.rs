@@ -1,5 +1,5 @@
-use crate::internal::InternalLower;
-use crate::lowering::{wrap_zstack_child, InternalIrBuilder, InternalLoweringCx};
+use crate::internal::Lower;
+use crate::lowering::{wrap_zstack_child, IrBuilder, LoweringCx};
 use crate::ui::Widget;
 use fission_ir::{LayoutOp, Op, WidgetId};
 use serde::{Deserialize, Serialize};
@@ -43,13 +43,13 @@ impl ZStack {
     }
 }
 
-impl InternalLower for ZStack {
-    fn lower(&self, cx: &mut InternalLoweringCx) -> WidgetId {
+impl Lower for ZStack {
+    fn lower(&self, cx: &mut LoweringCx) -> WidgetId {
         let id = self.id.map(Into::into).unwrap_or_else(|| cx.next_node_id());
 
         cx.push_scope(id);
 
-        let mut builder = InternalIrBuilder::new(id, Op::Layout(LayoutOp::ZStack));
+        let mut builder = IrBuilder::new(id, Op::Layout(LayoutOp::ZStack));
         for child in &self.children {
             let child_id = child.lower(cx);
             builder.add_child(wrap_zstack_child(cx, child_id));

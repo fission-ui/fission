@@ -1,7 +1,7 @@
 use anyhow::Result;
 use fission_core::internal::build_layout_tree;
 use fission_core::internal::BuildCtx;
-use fission_core::internal::InternalLoweringCx;
+use fission_core::internal::LoweringCx;
 use fission_core::{
     Action, ActionEnvelope, ActionId, AdvanceTo, Clock, CurrentTime, Env, GlobalState, InputEvent,
     LayoutPoint, Runtime, ScrollStateMap, View, Widget, WidgetIdExt,
@@ -356,7 +356,7 @@ impl<S: GlobalState> TestHarness<S> {
         } else {
             self.env.viewport_size = viewport;
         }
-        // 1. Build & InternalLower
+        // 1. Build & Lower
         if let Some(root) = self.root_widget.as_ref() {
             // Build
             if trace {
@@ -431,12 +431,12 @@ impl<S: GlobalState> TestHarness<S> {
                 eprintln!("[test-trace] build done");
             }
 
-            // InternalLower
+            // Lower
             if trace {
                 eprintln!("[test-trace] lower start");
             }
             let (ir, root_id) = {
-                let mut cx = InternalLoweringCx::new(
+                let mut cx = LoweringCx::new(
                     &self.env,
                     &self.runtime.runtime_state,
                     Some(&self.measurer),

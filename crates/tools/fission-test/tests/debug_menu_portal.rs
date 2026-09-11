@@ -2,7 +2,7 @@ use anyhow::Result;
 use fission_core::build;
 use fission_core::env::Env;
 use fission_core::internal::BuildCtx;
-use fission_core::internal::InternalLoweringCx;
+use fission_core::internal::LoweringCx;
 use fission_core::ui::{Grid, GridItem, TextInput, Widget};
 use fission_core::Runtime;
 use fission_core::{op::GridTrack, View, WidgetId, WidgetIdExt};
@@ -155,8 +155,8 @@ fn menu_portal_position_near_anchor() -> Result<()> {
         .into()
     };
 
-    // InternalLower + layout
-    let mut cx = InternalLoweringCx::new(
+    // Lower + layout
+    let mut cx = LoweringCx::new(
         &env,
         &runtime.runtime_state,
         None,
@@ -232,7 +232,7 @@ fn menu_portal_position_near_anchor() -> Result<()> {
             .into()
         };
 
-        let mut cx = InternalLoweringCx::new(
+        let mut cx = LoweringCx::new(
             &env,
             &runtime.runtime_state,
             None,

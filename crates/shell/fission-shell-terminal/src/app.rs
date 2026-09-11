@@ -17,7 +17,7 @@ use crossterm::{execute, queue};
 use fission_core::event::ImeEvent;
 use fission_core::internal::build_layout_tree;
 use fission_core::internal::BuildCtx;
-use fission_core::internal::InternalLoweringCx;
+use fission_core::internal::LoweringCx;
 use fission_core::ui::{Container, Overlay, Widget, ZStack};
 use fission_core::{
     Action, ActionEnvelope, ActionId, ActionRegistry, Effect, Env, GlobalState, InputEvent,
@@ -395,7 +395,7 @@ where
             node_tree = self.build_widget_tree(viewport)?;
         }
         let (ir, root_id) = {
-            let mut cx = InternalLoweringCx::new(
+            let mut cx = LoweringCx::new(
                 &self.env,
                 &self.runtime.runtime_state,
                 Some(&self.measurer),

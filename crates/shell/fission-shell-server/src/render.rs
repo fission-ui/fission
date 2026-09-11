@@ -10,7 +10,7 @@ use crate::{
     ServerSessionConfig, SignedServerAction, VerifiedServerAction, WebRoute, WebRouteMode,
 };
 use anyhow::{anyhow, Context, Result};
-use fission_core::internal::InternalLoweringCx;
+use fission_core::internal::LoweringCx;
 use fission_core::ui::{Column, Overlay, ZStack};
 use fission_core::{
     ActionEnvelope, ActionId, Env, LinkTarget, NavigationCommand, RuntimeResourceDeclaration,
@@ -652,7 +652,7 @@ impl ServerRenderer {
         } = rendered;
         node = compose_server_portals(node, portals);
         let runtime = RuntimeState::default();
-        let mut lowering = InternalLoweringCx::new(&env, &runtime, None, None);
+        let mut lowering = LoweringCx::new(&env, &runtime, None, None);
         let root = fission_core::internal::lower_widget(&node, &mut lowering);
         lowering.ir.set_root(root);
 

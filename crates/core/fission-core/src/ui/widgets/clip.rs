@@ -1,5 +1,5 @@
-use crate::internal::InternalLower;
-use crate::lowering::{InternalIrBuilder, InternalLoweringCx};
+use crate::internal::Lower;
+use crate::lowering::{IrBuilder, LoweringCx};
 use crate::ui::Widget;
 use fission_ir::{LayoutOp, Op, WidgetId};
 use serde::{Deserialize, Serialize};
@@ -35,15 +35,15 @@ impl Clip {
     }
 }
 
-impl InternalLower for Clip {
-    fn lower(&self, cx: &mut InternalLoweringCx) -> WidgetId {
+impl Lower for Clip {
+    fn lower(&self, cx: &mut LoweringCx) -> WidgetId {
         let id = self.id.map(Into::into).unwrap_or_else(|| cx.next_node_id());
 
         cx.push_scope(id);
         let child_id = self.child.lower(cx);
         cx.pop_scope();
 
-        let mut builder = InternalIrBuilder::new(
+        let mut builder = IrBuilder::new(
             id,
             Op::Layout(LayoutOp::Clip {
                 path: self.path.clone(),

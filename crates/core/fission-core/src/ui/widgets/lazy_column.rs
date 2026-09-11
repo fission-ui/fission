@@ -1,5 +1,5 @@
-use crate::internal::InternalLower;
-use crate::lowering::{InternalIrBuilder, InternalLoweringCx};
+use crate::internal::Lower;
+use crate::lowering::{IrBuilder, LoweringCx};
 use crate::ui::Widget;
 use fission_ir::{
     op::{FlexDirection, LayoutOp, Op},
@@ -40,8 +40,8 @@ pub struct LazyColumn {
 
 impl LazyColumn {}
 
-impl InternalLower for LazyColumn {
-    fn lower(&self, cx: &mut InternalLoweringCx) -> WidgetId {
+impl Lower for LazyColumn {
+    fn lower(&self, cx: &mut LoweringCx) -> WidgetId {
         let scroll_id = self.id.map(Into::into).unwrap_or_else(|| cx.next_node_id());
 
         if self.item_height <= 0.0 {
@@ -54,7 +54,7 @@ impl InternalLower for LazyColumn {
                 cx.pop_scope();
             }
 
-            let mut col = InternalIrBuilder::new(
+            let mut col = IrBuilder::new(
                 col_id,
                 Op::Layout(LayoutOp::Flex {
                     direction: FlexDirection::Column,
@@ -72,7 +72,7 @@ impl InternalLower for LazyColumn {
             let col_id = col.build(cx);
 
             let content_id = cx.next_node_id();
-            let mut content_box = InternalIrBuilder::new(
+            let mut content_box = IrBuilder::new(
                 content_id,
                 Op::Layout(LayoutOp::Box {
                     width: None,
@@ -90,7 +90,7 @@ impl InternalLower for LazyColumn {
             content_box.add_child(col_id);
             let content_id = content_box.build(cx);
 
-            let mut scroll = InternalIrBuilder::new(
+            let mut scroll = IrBuilder::new(
                 scroll_id,
                 Op::Layout(LayoutOp::Scroll {
                     direction: FlexDirection::Column,
@@ -181,7 +181,7 @@ impl InternalLower for LazyColumn {
             let spacer_height = item_h * start_index as f32;
             if spacer_height > 0.0 {
                 let spacer_id = WidgetId::derived(col_id.as_u128(), &[u32::MAX - 1]);
-                let spacer = InternalIrBuilder::new(
+                let spacer = IrBuilder::new(
                     spacer_id,
                     Op::Layout(LayoutOp::Box {
                         width: None,
@@ -223,7 +223,7 @@ impl InternalLower for LazyColumn {
             let spacer_height = item_h * remaining as f32;
             if spacer_height > 0.0 {
                 let spacer_id = WidgetId::derived(col_id.as_u128(), &[u32::MAX]);
-                let spacer = InternalIrBuilder::new(
+                let spacer = IrBuilder::new(
                     spacer_id,
                     Op::Layout(LayoutOp::Box {
                         width: None,
@@ -242,7 +242,7 @@ impl InternalLower for LazyColumn {
             }
         }
 
-        let mut col = InternalIrBuilder::new(
+        let mut col = IrBuilder::new(
             col_id,
             Op::Layout(LayoutOp::Flex {
                 direction: FlexDirection::Column,
@@ -260,7 +260,7 @@ impl InternalLower for LazyColumn {
         let col_id = col.build(cx);
 
         let content_id = cx.next_node_id();
-        let mut content_box = InternalIrBuilder::new(
+        let mut content_box = IrBuilder::new(
             content_id,
             Op::Layout(LayoutOp::Box {
                 width: None,
@@ -279,7 +279,7 @@ impl InternalLower for LazyColumn {
         let content_id = content_box.build(cx);
 
         // Scroll
-        let mut scroll = InternalIrBuilder::new(
+        let mut scroll = IrBuilder::new(
             scroll_id,
             Op::Layout(LayoutOp::Scroll {
                 direction: FlexDirection::Column,

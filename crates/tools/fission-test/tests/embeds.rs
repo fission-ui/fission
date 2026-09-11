@@ -1,4 +1,4 @@
-use fission_core::internal::{InternalLowerer, InternalRenderNode};
+use fission_core::internal::{InternalRenderNode, LowerWidget};
 use fission_core::ui::{Container, Video, Widget};
 use fission_core::{GlobalState, WidgetId};
 use fission_ir::{EmbedKind, LayoutOp, Op};
@@ -128,8 +128,8 @@ impl From<CustomEmbedApp> for Widget {
 #[derive(Debug)]
 struct CustomEmbedInternalLowerer;
 
-impl InternalLowerer for CustomEmbedInternalLowerer {
-    fn lower_dyn(&self, cx: &mut fission_core::internal::InternalLoweringCx) -> WidgetId {
+impl LowerWidget for CustomEmbedInternalLowerer {
+    fn lower_dyn(&self, cx: &mut fission_core::internal::LoweringCx) -> WidgetId {
         let node_id = cx.next_node_id();
         cx.insert_node(
             node_id,

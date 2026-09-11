@@ -1,6 +1,6 @@
 use crate::env::{Env, RuntimeState};
-use crate::internal::InternalLower;
-use crate::lowering::{build_layout_tree, InternalLoweringCx};
+use crate::internal::Lower;
+use crate::lowering::{build_layout_tree, LoweringCx};
 use crate::ui::widgets::text::TextContent;
 use crate::ui::widgets::{Column, Container, Text};
 use fission_ir::WidgetId;
@@ -45,7 +45,7 @@ impl fission_layout::TextMeasurer for SimpleMeasurer {
 fn test_text_wrapping_in_constrained_flex() {
     let env = Env::default();
     let runtime_state = RuntimeState::default();
-    let mut cx = InternalLoweringCx::new(&env, &runtime_state, None, None);
+    let mut cx = LoweringCx::new(&env, &runtime_state, None, None);
 
     let root_base = WidgetId::derived(0xABC, &[0]);
     cx.push_scope(root_base);
@@ -54,7 +54,7 @@ fn test_text_wrapping_in_constrained_flex() {
     let text_id = cx.next_node_id();
 
     // Text "Hello World" (11 chars) -> 110px width.
-    let text_builder = crate::lowering::InternalIrBuilder::new(
+    let text_builder = crate::lowering::IrBuilder::new(
         text_id,
         Op::Paint(fission_ir::PaintOp::DrawText {
             text: "Hello World".into(),
@@ -74,7 +74,7 @@ fn test_text_wrapping_in_constrained_flex() {
     let text_final = text_builder.build(&mut cx);
 
     // Row: Width 50px.
-    let mut row_builder = crate::lowering::InternalIrBuilder::new(
+    let mut row_builder = crate::lowering::IrBuilder::new(
         row_id,
         Op::Layout(LayoutOp::Flex {
             direction: fission_ir::FlexDirection::Row,
@@ -92,7 +92,7 @@ fn test_text_wrapping_in_constrained_flex() {
     let row_final = row_builder.build(&mut cx);
 
     // Root: Box 50px.
-    let mut root_builder = crate::lowering::InternalIrBuilder::new(
+    let mut root_builder = crate::lowering::IrBuilder::new(
         root_id,
         Op::Layout(LayoutOp::Box {
             width: Some(50.0),
@@ -136,7 +136,7 @@ fn test_text_wrapping_in_constrained_flex() {
 fn text_parent_max_width_drives_wrapping() {
     let env = Env::default();
     let runtime_state = RuntimeState::default();
-    let mut cx = InternalLoweringCx::new(&env, &runtime_state, None, None);
+    let mut cx = LoweringCx::new(&env, &runtime_state, None, None);
 
     let text = Text {
         content: TextContent::Literal("HelloWorld".into()),
@@ -189,7 +189,7 @@ fn text_parent_max_width_drives_wrapping() {
 fn first_frame_descendant_max_width_is_the_paragraph_wrap_authority() {
     let env = Env::default();
     let runtime_state = RuntimeState::default();
-    let mut cx = InternalLoweringCx::new(&env, &runtime_state, None, None);
+    let mut cx = LoweringCx::new(&env, &runtime_state, None, None);
 
     let heading = "A deliberately long heading that wraps at the capped width";
     let sibling = "This sibling starts after the complete heading.";

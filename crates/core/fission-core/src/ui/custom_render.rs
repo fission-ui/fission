@@ -5,7 +5,7 @@
 //! core IR enum variants.
 
 use crate::action::ActionEnvelope;
-use crate::internal::InternalLowerer;
+use crate::internal::LowerWidget;
 use crate::ui::node::InternalRenderNode;
 use crate::ui::Widget;
 use fission_ir::op::PaintOp;
@@ -211,13 +211,13 @@ pub fn downcast_render_object(any: &AnyRenderObject) -> Option<&Arc<dyn CustomRe
 #[derive(Clone)]
 pub struct CustomRender {
     debug_tag: String,
-    lowerer: Arc<dyn InternalLowerer>,
+    lowerer: Arc<dyn LowerWidget>,
     render_object: Option<Arc<dyn CustomRenderObject>>,
 }
 
 impl CustomRender {
     /// Creates a custom-render-backed widget.
-    pub fn new(debug_tag: impl Into<String>, lowerer: Arc<dyn InternalLowerer>) -> Self {
+    pub fn new(debug_tag: impl Into<String>, lowerer: Arc<dyn LowerWidget>) -> Self {
         Self {
             debug_tag: debug_tag.into(),
             lowerer,

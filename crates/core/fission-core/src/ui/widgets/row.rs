@@ -1,5 +1,5 @@
-use crate::internal::InternalLower;
-use crate::lowering::{InternalIrBuilder, InternalLoweringCx};
+use crate::internal::Lower;
+use crate::lowering::{IrBuilder, LoweringCx};
 use crate::Widget;
 use fission_ir::op::{AlignItems, FlexWrap, JustifyContent};
 use fission_ir::{FlexDirection, LayoutOp, Op, Semantics, WidgetId};
@@ -100,13 +100,13 @@ impl Row {
     }
 }
 
-impl InternalLower for Row {
-    fn lower(&self, cx: &mut InternalLoweringCx) -> WidgetId {
+impl Lower for Row {
+    fn lower(&self, cx: &mut LoweringCx) -> WidgetId {
         let layout_id = self.id.map(Into::into).unwrap_or_else(|| cx.next_node_id());
 
         cx.push_scope(layout_id);
 
-        let mut builder = InternalIrBuilder::new(
+        let mut builder = IrBuilder::new(
             layout_id,
             Op::Layout(LayoutOp::Flex {
                 direction: FlexDirection::Row,
@@ -129,8 +129,7 @@ impl InternalLower for Row {
         let layout_id = builder.build(cx);
 
         if let Some(s) = &self.semantics {
-            let mut semantics_builder =
-                InternalIrBuilder::new(cx.next_node_id(), Op::Semantics(s.clone()));
+            let mut semantics_builder = IrBuilder::new(cx.next_node_id(), Op::Semantics(s.clone()));
             semantics_builder.add_child(layout_id);
             return semantics_builder.build(cx);
         }

@@ -24,7 +24,7 @@ fn lower(range: RangeSlider) -> (fission_ir::CoreIR, fission_layout::LayoutSnaps
     let widget = range.into();
     let env = Env::default();
     let runtime = RuntimeState::default();
-    let mut cx = fission_core::internal::InternalLoweringCx::new(&env, &runtime, None, None);
+    let mut cx = fission_core::internal::LoweringCx::new(&env, &runtime, None, None);
     let root = lower_widget(&widget, &mut cx);
     cx.ir.root = Some(root);
     let input = build_layout_tree(&cx.ir, &env);
@@ -59,7 +59,7 @@ fn ordinary_instances_receive_distinct_implicit_control_ids() {
     let widgets = fission_core::build::enter(&mut build_ctx, &view, || {
         vec![RangeSlider::default().into(), RangeSlider::default().into()]
     });
-    let mut cx = fission_core::internal::InternalLoweringCx::new(&env, &runtime, None, None);
+    let mut cx = fission_core::internal::LoweringCx::new(&env, &runtime, None, None);
     let first = lower_widget(&widgets[0], &mut cx);
     let second = lower_widget(&widgets[1], &mut cx);
     assert_ne!(first, second);

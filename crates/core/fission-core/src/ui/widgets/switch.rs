@@ -1,5 +1,5 @@
-use crate::internal::InternalLower;
-use crate::lowering::{wrap_zstack_child, InternalIrBuilder, InternalLoweringCx};
+use crate::internal::Lower;
+use crate::lowering::{wrap_zstack_child, IrBuilder, LoweringCx};
 use crate::ActionEnvelope;
 use fission_ir::{
     op::{Color, LayoutOp, Op, PaintOp},
@@ -53,8 +53,8 @@ impl Switch {
     }
 }
 
-impl InternalLower for Switch {
-    fn lower(&self, cx: &mut InternalLoweringCx) -> WidgetId {
+impl Lower for Switch {
+    fn lower(&self, cx: &mut LoweringCx) -> WidgetId {
         let id = self.id.map(Into::into).unwrap_or_else(|| cx.next_node_id());
         cx.push_scope(id);
 
@@ -84,7 +84,7 @@ impl InternalLower for Switch {
             corner_radius: height / 2.0,
             shadow: None,
         });
-        let track_node = InternalIrBuilder::new(cx.next_node_id(), track_paint).build(cx);
+        let track_node = IrBuilder::new(cx.next_node_id(), track_paint).build(cx);
 
         // Thumb
         let thumb_paint = Op::Paint(PaintOp::DrawRect {
@@ -104,7 +104,7 @@ impl InternalLower for Switch {
                 offset: (0.0, 1.0),
             }),
         });
-        let thumb_paint_node = InternalIrBuilder::new(cx.next_node_id(), thumb_paint).build(cx);
+        let thumb_paint_node = IrBuilder::new(cx.next_node_id(), thumb_paint).build(cx);
 
         let left_padding = if self.checked {
             width - thumb_size - padding
@@ -112,7 +112,7 @@ impl InternalLower for Switch {
             padding
         };
 
-        let mut thumb_wrapper = InternalIrBuilder::new(
+        let mut thumb_wrapper = IrBuilder::new(
             cx.next_node_id(),
             Op::Layout(LayoutOp::Box {
                 width: Some(thumb_size),
@@ -133,14 +133,13 @@ impl InternalLower for Switch {
         // ZStack for Track + Content
         let layout_id = cx.next_node_id();
         let bg_id = {
-            let mut bg_fill =
-                InternalIrBuilder::new(cx.next_node_id(), Op::Layout(LayoutOp::AbsoluteFill));
+            let mut bg_fill = IrBuilder::new(cx.next_node_id(), Op::Layout(LayoutOp::AbsoluteFill));
             bg_fill.add_child(track_node);
             bg_fill.build(cx)
         };
 
         let content_id = {
-            let mut thumb_track = InternalIrBuilder::new(
+            let mut thumb_track = IrBuilder::new(
                 cx.next_node_id(),
                 Op::Layout(LayoutOp::Box {
                     width: Some(width),
@@ -164,7 +163,7 @@ impl InternalLower for Switch {
         let content_wrapped = wrap_zstack_child(cx, content_id);
         cx.pop_scope();
 
-        let mut root = InternalIrBuilder::new(layout_id, Op::Layout(LayoutOp::ZStack));
+        let mut root = IrBuilder::new(layout_id, Op::Layout(LayoutOp::ZStack));
         root.add_child(bg_wrapped);
         root.add_child(content_wrapped);
         root.build(cx);
@@ -194,7 +193,7 @@ impl InternalLower for Switch {
             }
         }
 
-        let mut sem_node = InternalIrBuilder::new(id, Op::Semantics(semantics));
+        let mut sem_node = IrBuilder::new(id, Op::Semantics(semantics));
         sem_node.add_child(layout_id);
         sem_node.build(cx)
     }

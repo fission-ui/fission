@@ -57,7 +57,7 @@ use winit::{
 
 use fission_core::env::{VideoStatus, WindowInsets};
 use fission_core::internal::downcast_render_object;
-use fission_core::internal::InternalLoweringCx;
+use fission_core::internal::LoweringCx;
 use fission_core::ui::VideoAudioOptions;
 use fission_core::{
     Action, ActionEnvelope, ActionId, ActionRegistry, DeepLink, DeepLinkConfig, DeepLinkReceived,
@@ -8451,7 +8451,7 @@ where
                                 .into();
 
                                 let ir = {
-                                    let mut lower_cx = InternalLoweringCx::new(
+                                    let mut lower_cx = LoweringCx::new(
                                         &env,
                                         &runtime.runtime_state,
                                         runtime.measurer.as_ref(),

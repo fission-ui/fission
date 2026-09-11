@@ -1,7 +1,5 @@
 use crate::env::{Env, RuntimeState};
-use crate::internal::{
-    CustomRenderObject, InternalIrBuilder, InternalLowerer, InternalLoweringCx, InternalRenderNode,
-};
+use crate::internal::{CustomRenderObject, InternalRenderNode, IrBuilder, LowerWidget, LoweringCx};
 use crate::Runtime;
 use fission_ir::{LayoutOp, Op, WidgetId};
 use std::sync::Arc;
@@ -11,9 +9,9 @@ struct TextSurfaceLowerer {
     id: WidgetId,
 }
 
-impl InternalLowerer for TextSurfaceLowerer {
-    fn lower_dyn(&self, cx: &mut InternalLoweringCx) -> WidgetId {
-        InternalIrBuilder::new(
+impl LowerWidget for TextSurfaceLowerer {
+    fn lower_dyn(&self, cx: &mut LoweringCx) -> WidgetId {
+        IrBuilder::new(
             cx.next_node_id(),
             Op::Layout(LayoutOp::Box {
                 width: Some(320.0),
@@ -53,7 +51,7 @@ fn lower_text_surface(id: WidgetId) -> fission_ir::CoreIR {
     });
     let env = Env::default();
     let runtime_state = RuntimeState::default();
-    let mut cx = InternalLoweringCx::new(&env, &runtime_state, None, None);
+    let mut cx = LoweringCx::new(&env, &runtime_state, None, None);
     let root = widget.lower(&mut cx);
     cx.ir.root = Some(root);
     cx.ir

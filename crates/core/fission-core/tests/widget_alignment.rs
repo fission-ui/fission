@@ -1,5 +1,5 @@
 use fission_core::env::{Env, RuntimeState};
-use fission_core::internal::{build_layout_tree, InternalLoweringCx};
+use fission_core::internal::{build_layout_tree, LoweringCx};
 use fission_core::ui::widgets::text::{InlineWidgetSpan, RichTextChild, RichTextSpan};
 use fission_core::ui::{
     Button, ButtonVariant, Checkbox, Container, Radio, RichText, Row, Slider, Spacer, Text, Widget,
@@ -147,7 +147,7 @@ fn layout_from_widget_at_size(
     let runtime_state = RuntimeState::default();
     let measurer_ref = measurer.clone();
 
-    let mut cx = InternalLoweringCx::new(&env, &runtime_state, Some(&measurer_ref), None);
+    let mut cx = LoweringCx::new(&env, &runtime_state, Some(&measurer_ref), None);
     let root_id = fission_core::internal::lower_widget(&node, &mut cx);
     cx.ir.root = Some(root_id);
     let input_nodes = build_layout_tree(&cx.ir, &env);

@@ -1,5 +1,5 @@
-use crate::internal::{InternalLowerer, InternalLoweringCx, InternalRenderNode};
-use crate::lowering::InternalIrBuilder;
+use crate::internal::{InternalRenderNode, LowerWidget, LoweringCx};
+use crate::lowering::IrBuilder;
 use crate::ui::Widget;
 use fission_ir::{Op, StructuralOp, WidgetId};
 use std::hash::{Hash, Hasher};
@@ -15,8 +15,8 @@ pub(crate) struct InteractionInert {
     pub(crate) child: Widget,
 }
 
-impl InternalLowerer for InteractionInert {
-    fn lower_dyn(&self, cx: &mut InternalLoweringCx) -> WidgetId {
+impl LowerWidget for InteractionInert {
+    fn lower_dyn(&self, cx: &mut LoweringCx) -> WidgetId {
         let id = self.id;
         cx.push_scope(id);
         let child = crate::internal::lower_widget(&self.child, cx);
@@ -26,7 +26,7 @@ impl InternalLowerer for InteractionInert {
         id.hash(&mut hasher);
         child.hash(&mut hasher);
         let stable_hash = hasher.finish();
-        let mut builder = InternalIrBuilder::new(
+        let mut builder = IrBuilder::new(
             id,
             Op::Structural(StructuralOp::InteractionInert { stable_hash }),
         );

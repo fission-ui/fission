@@ -1,6 +1,6 @@
 use crate::hit_test::hit_test;
-use crate::lowering::{InternalLoweringCx, build_layout_tree, InternalIrBuilder};
-use crate::internal::{InternalLower, InternalLowerer};
+use crate::lowering::{LoweringCx, build_layout_tree, IrBuilder};
+use crate::internal::{Lower, LowerWidget};
 use crate::ui::Widget;
 use crate::env::{Env, RuntimeState};
 use fission_ir::{LayoutOp, Op};
@@ -11,10 +11,10 @@ struct TestAbsoluteFill {
     child: Widget,
 }
 
-impl InternalLowerer for TestAbsoluteFill {
-    fn lower_dyn(&self, cx: &mut InternalLoweringCx) -> fission_ir::WidgetId {
+impl LowerWidget for TestAbsoluteFill {
+    fn lower_dyn(&self, cx: &mut LoweringCx) -> fission_ir::WidgetId {
         let child_id = self.child.lower(cx);
-        let mut builder = InternalIrBuilder::new(cx.next_node_id(), Op::Layout(LayoutOp::AbsoluteFill));
+        let mut builder = IrBuilder::new(cx.next_node_id(), Op::Layout(LayoutOp::AbsoluteFill));
         builder.add_child(child_id);
         builder.build(cx)
     }
@@ -80,7 +80,7 @@ fn test_overlay_backdrop_hit_geometry() {
     .height(600.0)
     .into();
 
-    let mut cx = InternalLoweringCx::new(&env, &runtime_state, None, None);
+    let mut cx = LoweringCx::new(&env, &runtime_state, None, None);
     let root_id = root.lower(&mut cx);
     cx.ir.root = Some(root_id);
 

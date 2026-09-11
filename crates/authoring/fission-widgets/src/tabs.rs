@@ -4,7 +4,7 @@ use crate::motion_support::{
 };
 use crate::stack::VStack;
 use crate::Badge;
-use fission_core::internal::{InternalIrBuilder, InternalLowerer, InternalLoweringCx};
+use fission_core::internal::{IrBuilder, LowerWidget, LoweringCx};
 use fission_core::motion::{follow_x_and_width, Motion, MotionTrack, Presence};
 use fission_core::op::{
     AlignItems, BoxAlignment, BoxStyle, Fill, FlexDirection, FlexWrap, JustifyContent, LayoutOp,
@@ -672,13 +672,13 @@ impl From<TabListSurface> for Widget {
     }
 }
 
-impl InternalLowerer for TabListSurface {
-    fn lower_dyn(&self, cx: &mut InternalLoweringCx) -> WidgetId {
+impl LowerWidget for TabListSurface {
+    fn lower_dyn(&self, cx: &mut LoweringCx) -> WidgetId {
         cx.push_scope(self.id);
         let layout_id = cx.next_node_id();
         cx.push_scope(layout_id);
 
-        let mut row = InternalIrBuilder::new(
+        let mut row = IrBuilder::new(
             cx.next_node_id(),
             Op::Layout(LayoutOp::Flex {
                 direction: FlexDirection::Row,
@@ -697,7 +697,7 @@ impl InternalLowerer for TabListSurface {
         }
         let row_id = row.build(cx);
 
-        let mut layout = InternalIrBuilder::new(
+        let mut layout = IrBuilder::new(
             layout_id,
             Op::Layout(LayoutOp::StyledBox {
                 style: recipe_box_style(&self.style, [2.0; 4], BoxAlignment::Start, None),
@@ -718,7 +718,7 @@ impl InternalLowerer for TabListSurface {
         cx.pop_scope();
         cx.pop_scope();
 
-        let mut semantics = InternalIrBuilder::new(
+        let mut semantics = IrBuilder::new(
             self.id,
             Op::Semantics(Semantics {
                 role: Role::TabList,
@@ -766,13 +766,13 @@ impl From<TabTriggerSurface> for Widget {
     }
 }
 
-impl InternalLowerer for TabTriggerSurface {
-    fn lower_dyn(&self, cx: &mut InternalLoweringCx) -> WidgetId {
+impl LowerWidget for TabTriggerSurface {
+    fn lower_dyn(&self, cx: &mut LoweringCx) -> WidgetId {
         cx.push_scope(self.id);
         let layout_id = cx.next_node_id();
         cx.push_scope(layout_id);
 
-        let mut content = InternalIrBuilder::new(
+        let mut content = IrBuilder::new(
             cx.next_node_id(),
             Op::Layout(LayoutOp::Flex {
                 direction: FlexDirection::Row,
@@ -789,7 +789,7 @@ impl InternalLowerer for TabTriggerSurface {
         content.add_child(fission_core::internal::lower_widget(&self.child, cx));
         let content_id = content.build(cx);
 
-        let mut layout = InternalIrBuilder::new(
+        let mut layout = IrBuilder::new(
             layout_id,
             Op::Layout(LayoutOp::StyledBox {
                 style: recipe_box_style(
@@ -820,7 +820,7 @@ impl InternalLowerer for TabTriggerSurface {
                 });
             }
         }
-        let mut semantics = InternalIrBuilder::new(
+        let mut semantics = IrBuilder::new(
             self.id,
             Op::Semantics(Semantics {
                 role: Role::Tab,
@@ -886,15 +886,15 @@ fn recipe_box_style(
 }
 
 fn append_recipe_paint(
-    layout: &mut InternalIrBuilder,
-    cx: &mut InternalLoweringCx,
+    layout: &mut IrBuilder,
+    cx: &mut LoweringCx,
     style: &ResolvedComponentStyle,
     fallback_background: Option<Fill>,
 ) {
     let radius = style.radius.unwrap_or(0.0);
     for shadow in &style.shadows {
         layout.add_child(
-            InternalIrBuilder::new(
+            IrBuilder::new(
                 cx.next_node_id(),
                 Op::Paint(PaintOp::DrawRect {
                     fill: None,
@@ -917,7 +917,7 @@ fn append_recipe_paint(
     });
     if fill.is_some() || stroke.is_some() {
         layout.add_child(
-            InternalIrBuilder::new(
+            IrBuilder::new(
                 cx.next_node_id(),
                 Op::Paint(PaintOp::DrawRect {
                     fill,

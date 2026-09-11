@@ -387,7 +387,7 @@ impl From<ArchitectureSection> for Widget {
                                 .weight(tokens.typography.font_weight_bold)
                                 .color(tokens.colors.text_muted)
                                 .into(),
-                            Text::new("Build -> InternalLower -> Layout -> Paint -> Render")
+                            Text::new("Build -> Lower -> Layout -> Paint -> Render")
                                 .size(tokens.typography.font_size_sm)
                                 .family(tokens.typography.font_family_mono.clone())
                                 .color(tokens.colors.text_primary)

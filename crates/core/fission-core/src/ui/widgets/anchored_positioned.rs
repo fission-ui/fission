@@ -1,5 +1,5 @@
-use crate::internal::{InternalLowerer, InternalLoweringCx, InternalRenderNode};
-use crate::lowering::InternalIrBuilder;
+use crate::internal::{InternalRenderNode, LowerWidget, LoweringCx};
+use crate::lowering::IrBuilder;
 use crate::ui::Widget;
 use fission_ir::{LayoutOp, Op, WidgetId};
 use serde::{Deserialize, Serialize};
@@ -36,13 +36,13 @@ impl AnchoredPositioned {
     }
 }
 
-impl InternalLowerer for AnchoredPositioned {
-    fn lower_dyn(&self, cx: &mut InternalLoweringCx) -> WidgetId {
+impl LowerWidget for AnchoredPositioned {
+    fn lower_dyn(&self, cx: &mut LoweringCx) -> WidgetId {
         let id = self.id.unwrap_or_else(|| cx.next_node_id());
         cx.push_scope(id);
         let child = crate::internal::lower_widget(&self.child, cx);
         cx.pop_scope();
-        let mut builder = InternalIrBuilder::new(
+        let mut builder = IrBuilder::new(
             id,
             Op::Layout(LayoutOp::AnchoredPositioned {
                 x: self.x,

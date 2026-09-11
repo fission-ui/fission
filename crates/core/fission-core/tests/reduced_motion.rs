@@ -1,4 +1,4 @@
-use fission_core::internal::{BuildCtx, InternalLoweringCx};
+use fission_core::internal::{BuildCtx, LoweringCx};
 use fission_core::{
     build, scalar, Button, ButtonMotion, Env, Motion, MotionDeclarationKind, MotionEasing,
     MotionPhase, MotionPreference, MotionPropertyId, MotionStartValue, MotionTrack,
@@ -182,7 +182,7 @@ fn reduced_presence_hides_immediately_or_retains_an_inert_child() {
         }
         .into()
     });
-    let mut lowering = InternalLoweringCx::new(&env, &runtime.runtime_state, None, None);
+    let mut lowering = LoweringCx::new(&env, &runtime.runtime_state, None, None);
     let hidden_root = fission_core::internal::lower_widget(&hidden, &mut lowering);
     lowering.ir.set_root(hidden_root);
     assert!(!lowering.ir.nodes.values().any(|node| {
@@ -207,7 +207,7 @@ fn reduced_presence_hides_immediately_or_retains_an_inert_child() {
         }
         .into()
     });
-    let mut lowering = InternalLoweringCx::new(&env, &runtime.runtime_state, None, None);
+    let mut lowering = LoweringCx::new(&env, &runtime.runtime_state, None, None);
     let retained_root = fission_core::internal::lower_widget(&retained, &mut lowering);
     lowering.ir.set_root(retained_root);
     assert_ne!(

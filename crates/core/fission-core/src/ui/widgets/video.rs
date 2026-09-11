@@ -1,5 +1,5 @@
-use crate::internal::InternalLower;
-use crate::lowering::{InternalIrBuilder, InternalLoweringCx};
+use crate::internal::Lower;
+use crate::lowering::{IrBuilder, LoweringCx};
 use fission_ir::{
     op::{EmbedKind, LayoutOp, Op},
     WidgetId,
@@ -397,14 +397,14 @@ pub enum IosAudioSessionCategoryOption {
     Raw(u64),
 }
 
-impl InternalLower for Video {
-    fn lower(&self, cx: &mut InternalLoweringCx) -> WidgetId {
+impl Lower for Video {
+    fn lower(&self, cx: &mut LoweringCx) -> WidgetId {
         let widget_id = self
             .id
             .unwrap_or_else(|| WidgetId::explicit(&self.source.key()));
         let layout_id = cx.widget_node_id(widget_id);
 
-        let embed_id = InternalIrBuilder::new(
+        let embed_id = IrBuilder::new(
             cx.next_node_id(),
             Op::Layout(LayoutOp::Embed {
                 kind: EmbedKind::Video,
@@ -415,7 +415,7 @@ impl InternalLower for Video {
         )
         .build(cx);
 
-        let mut layout_builder = InternalIrBuilder::new(
+        let mut layout_builder = IrBuilder::new(
             layout_id,
             Op::Layout(LayoutOp::Box {
                 width: self.width,

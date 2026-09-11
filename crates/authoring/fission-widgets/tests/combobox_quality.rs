@@ -1,4 +1,4 @@
-use fission_core::internal::{BuildCtx, InternalLoweringCx};
+use fission_core::internal::{BuildCtx, LoweringCx};
 use fission_core::ui::{Overlay, TextInput, ZStack};
 use fission_core::{
     build, ActionEnvelope, ActionId, Env, GlobalState, InputEvent, KeyCode, KeyEvent, Runtime,
@@ -62,7 +62,7 @@ fn build_runtime_widget(runtime: &Runtime, build: impl FnOnce() -> Widget) -> Co
         .into(),
     }
     .into();
-    let mut lower = InternalLoweringCx::new(&env, &runtime.runtime_state, None, None);
+    let mut lower = LoweringCx::new(&env, &runtime.runtime_state, None, None);
     let root_id = fission_core::internal::lower_widget(&root, &mut lower);
     lower.ir.root = Some(root_id);
     lower.ir

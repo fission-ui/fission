@@ -1,7 +1,7 @@
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
-use fission_core::internal::{InternalLowerer, InternalLoweringCx, InternalRenderNode};
+use fission_core::internal::{InternalRenderNode, LowerWidget, LoweringCx};
 use fission_core::ui::Widget;
 use fission_core::{ActionEnvelope, WidgetId};
 use fission_ir::{ActionEntry, ActionSet, ActionTrigger, CanvasTarget, Op, Role, Semantics};
@@ -16,8 +16,8 @@ pub(crate) struct CanvasInteractionRegion {
     pub on_drag: Option<ActionEnvelope>,
 }
 
-impl InternalLowerer for CanvasInteractionRegion {
-    fn lower_dyn(&self, cx: &mut InternalLoweringCx) -> WidgetId {
+impl LowerWidget for CanvasInteractionRegion {
+    fn lower_dyn(&self, cx: &mut LoweringCx) -> WidgetId {
         cx.push_scope(self.id);
         let child = fission_core::internal::lower_widget(&self.child, cx);
         cx.pop_scope();

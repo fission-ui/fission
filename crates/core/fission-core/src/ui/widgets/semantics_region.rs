@@ -1,5 +1,5 @@
-use crate::internal::InternalLower;
-use crate::lowering::InternalIrBuilder;
+use crate::internal::Lower;
+use crate::lowering::IrBuilder;
 use crate::ui::Widget;
 use crate::ActionEnvelope;
 use fission_ir::semantics::{ActionTrigger, PopupKind, SemanticOrientation};
@@ -291,8 +291,8 @@ impl Default for SemanticsRegion {
     }
 }
 
-impl InternalLower for SemanticsRegion {
-    fn lower(&self, cx: &mut crate::lowering::InternalLoweringCx) -> WidgetId {
+impl Lower for SemanticsRegion {
+    fn lower(&self, cx: &mut crate::lowering::LoweringCx) -> WidgetId {
         let id = self.id.map(Into::into).unwrap_or_else(|| cx.next_node_id());
         cx.push_scope(id);
         let semantics = Semantics {
@@ -326,7 +326,7 @@ impl InternalLower for SemanticsRegion {
             ..Default::default()
         };
         let child_id = self.child.as_ref().map(|child| child.lower(cx));
-        let mut builder = InternalIrBuilder::new(id, Op::Semantics(semantics));
+        let mut builder = IrBuilder::new(id, Op::Semantics(semantics));
         if let Some(child_id) = child_id {
             builder.add_child(child_id);
         }

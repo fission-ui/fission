@@ -1,7 +1,7 @@
 use crate::env::TextSelectionHandleKind;
-use crate::lowering::{InternalIrBuilder, InternalLoweringCx};
+use crate::lowering::{IrBuilder, LoweringCx};
 use crate::ui::{
-    traits::InternalLower,
+    traits::Lower,
     widgets::context_menu::{TextContextMenuAction, TextContextMenuConfig},
     Button, ButtonContentAlign, ButtonVariant, Container, Positioned, Row, Spacer, Text,
     TextContent, TextFontStyle, Widget,
@@ -840,8 +840,8 @@ impl Default for TextInput {
     }
 }
 
-impl InternalLower for TextInput {
-    fn lower(&self, cx: &mut InternalLoweringCx) -> WidgetId {
+impl Lower for TextInput {
+    fn lower(&self, cx: &mut LoweringCx) -> WidgetId {
         let input_id = self.id.map(Into::into).unwrap_or_else(|| cx.next_node_id());
         let is_focused = cx.runtime_state.interaction.is_focused(input_id);
         let is_hovered = cx.runtime_state.interaction.is_hovered(input_id);
@@ -1131,7 +1131,7 @@ impl InternalLower for TextInput {
                 .filter(|shadow| !shadow.inset)
             {
                 ids.push(
-                    InternalIrBuilder::new(
+                    IrBuilder::new(
                         cx.next_node_id(),
                         Op::Paint(PaintOp::DrawRect {
                             fill: None,
@@ -1144,7 +1144,7 @@ impl InternalLower for TextInput {
                 );
             }
             ids.push(
-                InternalIrBuilder::new(
+                IrBuilder::new(
                     cx.next_node_id(),
                     Op::Paint(PaintOp::DrawRect {
                         fill: Some(
@@ -1168,7 +1168,7 @@ impl InternalLower for TextInput {
             );
             for shadow in component_style.shadows.iter().filter(|shadow| shadow.inset) {
                 ids.push(
-                    InternalIrBuilder::new(
+                    IrBuilder::new(
                         cx.next_node_id(),
                         Op::Paint(PaintOp::DrawRect {
                             fill: None,
@@ -1428,7 +1428,7 @@ impl InternalLower for TextInput {
                 }
         });
 
-        let text_id = InternalIrBuilder::new(
+        let text_id = IrBuilder::new(
             cx.next_node_id(),
             Op::Paint(PaintOp::DrawRichText {
                 runs,
@@ -1443,7 +1443,7 @@ impl InternalLower for TextInput {
         )
         .build(cx);
 
-        let mut text_box = InternalIrBuilder::new(
+        let mut text_box = IrBuilder::new(
             cx.next_node_id(),
             Op::Layout(LayoutOp::Box {
                 width: None,
@@ -1462,7 +1462,7 @@ impl InternalLower for TextInput {
         let text_layout_id = text_box.build(cx);
 
         // 3. Scroll Container
-        let mut scroll = InternalIrBuilder::new(
+        let mut scroll = IrBuilder::new(
             cx.next_node_id(),
             Op::Layout(LayoutOp::Scroll {
                 direction: if self.multiline && self.wrap_mode != TextWrapMode::NoWrap {
@@ -1488,7 +1488,7 @@ impl InternalLower for TextInput {
         let scroll_id = scroll.build(cx);
 
         // 4. Editable content row and vertical alignment container.
-        let mut content_row = InternalIrBuilder::new(
+        let mut content_row = IrBuilder::new(
             cx.next_node_id(),
             Op::Layout(LayoutOp::Flex {
                 direction: FlexDirection::Row,
@@ -1523,7 +1523,7 @@ impl InternalLower for TextInput {
         }
         let content_row_id = content_row.build(cx);
 
-        let mut content_alignment = InternalIrBuilder::new(
+        let mut content_alignment = IrBuilder::new(
             cx.next_node_id(),
             Op::Layout(LayoutOp::Flex {
                 direction: FlexDirection::Column,
@@ -1566,7 +1566,7 @@ impl InternalLower for TextInput {
 
         // 5. Wrapper (Border + Padding)
         let wrapper_id = cx.next_node_id();
-        let mut wrapper = InternalIrBuilder::new(
+        let mut wrapper = IrBuilder::new(
             wrapper_id,
             Op::Layout(LayoutOp::Box {
                 width: self.width.or(component_style.width),
@@ -1653,8 +1653,7 @@ impl InternalLower for TextInput {
                 }
 
                 if !overlay_children.is_empty() {
-                    let mut stack =
-                        InternalIrBuilder::new(cx.next_node_id(), Op::Layout(LayoutOp::ZStack));
+                    let mut stack = IrBuilder::new(cx.next_node_id(), Op::Layout(LayoutOp::ZStack));
                     stack.add_child(wrapper_visual_id);
                     for child in overlay_children {
                         stack.add_child(child);
@@ -1699,7 +1698,7 @@ impl InternalLower for TextInput {
                         .text_color
                         .unwrap_or(tokens.colors.text_secondary),
                 );
-                let mut column = InternalIrBuilder::new(
+                let mut column = IrBuilder::new(
                     cx.next_node_id(),
                     Op::Layout(LayoutOp::Flex {
                         direction: FlexDirection::Column,
@@ -1904,7 +1903,7 @@ impl InternalLower for TextInput {
                 .entries
                 .push(fission_ir::ActionEntry::hover_cursor(mouse_cursor));
         }
-        let mut semantics_builder = InternalIrBuilder::new(input_id, Op::Semantics(semantics));
+        let mut semantics_builder = IrBuilder::new(input_id, Op::Semantics(semantics));
         semantics_builder.add_child(field_body_id);
         let semantics_id = semantics_builder.build(cx);
         cx.ir.custom_render_objects.insert(

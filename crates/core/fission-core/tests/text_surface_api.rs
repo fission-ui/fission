@@ -1,5 +1,5 @@
 use fission_core::env::{Env, RuntimeState, TextSelectionHandleKind};
-use fission_core::internal::InternalLoweringCx;
+use fission_core::internal::LoweringCx;
 use fission_core::ui::widgets::text::{RichTextChild, RichTextSpan, TextScaler, WidgetSpan};
 use fission_core::ui::widgets::text_input::{
     DragStartBehavior, SpellCheckConfiguration, TextAlignVertical, TextInputRuntimeConfig,
@@ -21,7 +21,7 @@ use fission_ir::{CoreIR, FlexDirection};
 fn lower_node(node: Widget) -> CoreIR {
     let env = Env::default();
     let runtime = RuntimeState::default();
-    let mut cx = InternalLoweringCx::new(&env, &runtime, None, None);
+    let mut cx = LoweringCx::new(&env, &runtime, None, None);
     let root = fission_core::internal::lower_widget(&node, &mut cx);
     cx.ir.root = Some(root);
     cx.ir
@@ -29,7 +29,7 @@ fn lower_node(node: Widget) -> CoreIR {
 
 fn lower_node_with_env(node: Widget, env: Env) -> CoreIR {
     let runtime = RuntimeState::default();
-    let mut cx = InternalLoweringCx::new(&env, &runtime, None, None);
+    let mut cx = LoweringCx::new(&env, &runtime, None, None);
     let root = fission_core::internal::lower_widget(&node, &mut cx);
     cx.ir.root = Some(root);
     cx.ir
@@ -37,7 +37,7 @@ fn lower_node_with_env(node: Widget, env: Env) -> CoreIR {
 
 fn lower_node_with_runtime(node: Widget, runtime: RuntimeState) -> CoreIR {
     let env = Env::default();
-    let mut cx = InternalLoweringCx::new(&env, &runtime, None, None);
+    let mut cx = LoweringCx::new(&env, &runtime, None, None);
     let root = fission_core::internal::lower_widget(&node, &mut cx);
     cx.ir.root = Some(root);
     cx.ir

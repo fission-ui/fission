@@ -1,4 +1,4 @@
-use fission_core::internal::{InternalLower, InternalLoweringCx};
+use fission_core::internal::{Lower, LoweringCx};
 use fission_core::{Action as CoreAction, ActionId, Env, RuntimeState};
 use fission_ir::{ActionSet, LayoutOp, Op, Role, Semantics}; // Removed StructuralOp
 use fission_widgets::{Button, Row, Text, TextContent, Widget};
@@ -29,7 +29,7 @@ fn test_text_widget_default_and_lower() {
 
     let env = Env::default();
     let runtime_state = RuntimeState::default();
-    let mut cx = InternalLoweringCx::new(&env, &runtime_state, None, None);
+    let mut cx = LoweringCx::new(&env, &runtime_state, None, None);
     let node_id = text_widget.lower(&mut cx);
 
     assert!(cx.ir.nodes.contains_key(&node_id));
@@ -60,7 +60,7 @@ fn test_row_widget_children_lower() {
 
     let env = Env::default();
     let runtime_state = RuntimeState::default();
-    let mut cx = InternalLoweringCx::new(&env, &runtime_state, None, None);
+    let mut cx = LoweringCx::new(&env, &runtime_state, None, None);
     let row_node_id = row_widget.lower(&mut cx);
 
     assert!(cx.ir.nodes.contains_key(&row_node_id));
@@ -137,7 +137,7 @@ fn test_button_widget_lower_with_child_and_semantics() {
 
     let env = Env::default();
     let runtime_state = RuntimeState::default();
-    let mut cx = InternalLoweringCx::new(&env, &runtime_state, None, None);
+    let mut cx = LoweringCx::new(&env, &runtime_state, None, None);
     let button_node_id = button_widget.lower(&mut cx);
 
     assert!(cx.ir.nodes.contains_key(&button_node_id));
@@ -165,7 +165,7 @@ fn test_node_enum_lower() {
     let node = Widget::from(Text::default());
     let env = Env::default();
     let runtime_state = RuntimeState::default();
-    let mut cx = InternalLoweringCx::new(&env, &runtime_state, None, None);
+    let mut cx = LoweringCx::new(&env, &runtime_state, None, None);
     fission_core::internal::lower_widget(&node, &mut cx);
     assert!(!cx.ir.nodes.is_empty());
 }

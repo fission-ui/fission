@@ -1,5 +1,5 @@
 use fission_core::env::Env;
-use fission_core::internal::{lower_widget, BuildCtx, InternalLoweringCx};
+use fission_core::internal::{lower_widget, BuildCtx, LoweringCx};
 use fission_core::motion::{MotionDeclarationKind, MotionPropertyId};
 use fission_core::ui::{Button, ButtonMotion, Text, Widget};
 use fission_core::{build, GlobalState, RuntimeState, View, WidgetId};
@@ -29,7 +29,7 @@ fn test_view<'a>(
 fn assert_widget_has_no_self_child_edges(label: &str, widget: &Widget) {
     let env = Env::default();
     let runtime_state = RuntimeState::default();
-    let mut cx = InternalLoweringCx::new(&env, &runtime_state, None, None);
+    let mut cx = LoweringCx::new(&env, &runtime_state, None, None);
     lower_widget(widget, &mut cx);
 
     for (id, node) in &cx.ir.nodes {

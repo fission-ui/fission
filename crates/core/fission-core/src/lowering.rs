@@ -7,7 +7,7 @@ use fission_layout::{LayoutInputNode, LayoutSnapshot, TextMeasurer};
 use std::collections::HashMap;
 use std::sync::Arc;
 
-pub struct InternalLoweringCx<'a> {
+pub struct LoweringCx<'a> {
     pub env: &'a Env,
     pub runtime_state: &'a RuntimeState,
     pub ir: CoreIR,
@@ -29,7 +29,7 @@ pub(crate) struct FormFieldContext {
     pub invalid_message: Option<String>,
 }
 
-impl<'a> InternalLoweringCx<'a> {
+impl<'a> LoweringCx<'a> {
     pub fn new(
         env: &'a Env,
         runtime_state: &'a RuntimeState,
@@ -137,14 +137,14 @@ impl<'a> InternalLoweringCx<'a> {
     }
 }
 
-pub struct InternalIrBuilder {
+pub struct IrBuilder {
     node_id: WidgetId,
     op: Op,
     composite: CompositeStyle,
     children: Vec<WidgetId>,
 }
 
-impl InternalIrBuilder {
+impl IrBuilder {
     pub fn new(node_id: WidgetId, op: Op) -> Self {
         Self {
             node_id,
@@ -170,14 +170,14 @@ impl InternalIrBuilder {
         self.children.extend(children);
     }
 
-    pub fn build(self, cx: &mut InternalLoweringCx) -> WidgetId {
+    pub fn build(self, cx: &mut LoweringCx) -> WidgetId {
         cx.insert_node_with_composite(self.node_id, self.op, self.composite, self.children);
         self.node_id
     }
 }
 
-pub fn wrap_zstack_child(cx: &mut InternalLoweringCx, child_id: WidgetId) -> WidgetId {
-    let mut item = InternalIrBuilder::new(
+pub fn wrap_zstack_child(cx: &mut LoweringCx, child_id: WidgetId) -> WidgetId {
+    let mut item = IrBuilder::new(
         cx.next_node_id(),
         Op::Layout(LayoutOp::GridItem {
             row_start: GridPlacement::Line(1),

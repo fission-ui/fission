@@ -36,7 +36,7 @@ fn test_internal_drag_drop_flow() {
     registry.register(reduce_with!(handle_drop));
     runtime.absorb_registry(registry);
 
-    // Pass 1: InternalLower and Layout
+    // Pass 1: Lower and Layout
     let env = fission_core::Env::default();
 
     // Build tree manually
@@ -88,8 +88,7 @@ fn test_internal_drag_drop_flow() {
     }
     .into();
 
-    let mut cx =
-        fission_core::internal::InternalLoweringCx::new(&env, &runtime.runtime_state, None, None);
+    let mut cx = fission_core::internal::LoweringCx::new(&env, &runtime.runtime_state, None, None);
     let root_id = fission_core::internal::lower_widget(&root, &mut cx);
     let mut ir = cx.ir;
     ir.root = Some(root_id);

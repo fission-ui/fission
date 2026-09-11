@@ -1,5 +1,5 @@
-use crate::internal::InternalLower;
-use crate::lowering::{InternalIrBuilder, InternalLoweringCx};
+use crate::internal::Lower;
+use crate::lowering::{IrBuilder, LoweringCx};
 use crate::ui::widgets::context_menu::TextContextMenuConfig;
 use crate::ui::widgets::selection_region::wrap_implicit_selection_affordances;
 use crate::ActionEnvelope;
@@ -1060,11 +1060,11 @@ impl Text {
         self
     }
 
-    fn resolve_text(&self, cx: &InternalLoweringCx<'_>) -> String {
+    fn resolve_text(&self, cx: &LoweringCx<'_>) -> String {
         self.content.resolve(cx.env)
     }
 
-    fn resolved_style(&self, cx: &InternalLoweringCx<'_>) -> fission_ir::op::TextStyle {
+    fn resolved_style(&self, cx: &LoweringCx<'_>) -> fission_ir::op::TextStyle {
         let base_font_size = self
             .font_size
             .unwrap_or(cx.env.theme.tokens.typography.body_medium_size);
@@ -1417,7 +1417,7 @@ impl RichText {
         self
     }
 
-    fn lower_runs(&self, cx: &InternalLoweringCx<'_>) -> Vec<IrTextRun> {
+    fn lower_runs(&self, cx: &LoweringCx<'_>) -> Vec<IrTextRun> {
         self.runs
             .iter()
             .map(|run| run.lower_with_theme(&cx.env.theme, None, None, &cx.env.text_scaler))
@@ -1551,7 +1551,7 @@ fn upsert_action_entry(
 }
 
 fn wrap_paint_in_layout(
-    cx: &mut InternalLoweringCx<'_>,
+    cx: &mut LoweringCx<'_>,
     layout_node_id: WidgetId,
     paint_node_id: WidgetId,
     width: Option<f32>,
@@ -1564,7 +1564,7 @@ fn wrap_paint_in_layout(
     flex_grow: f32,
     flex_shrink: f32,
 ) -> WidgetId {
-    let mut layout_builder = InternalIrBuilder::new(
+    let mut layout_builder = IrBuilder::new(
         layout_node_id,
         Op::Layout(LayoutOp::Box {
             width,
@@ -1661,7 +1661,7 @@ fn rich_text_line_height(
 }
 
 fn maybe_wrap_semantics(
-    cx: &mut InternalLoweringCx<'_>,
+    cx: &mut LoweringCx<'_>,
     layout_node_id: WidgetId,
     semantics: Option<Semantics>,
     multiline: bool,
@@ -1676,7 +1676,7 @@ fn maybe_wrap_semantics(
             .entries
             .iter()
             .any(|entry| entry.trigger == ActionTrigger::Default);
-        let mut semantics_builder = InternalIrBuilder::new(cx.next_node_id(), Op::Semantics(s));
+        let mut semantics_builder = IrBuilder::new(cx.next_node_id(), Op::Semantics(s));
         semantics_builder.add_child(layout_node_id);
         semantics_builder.build(cx)
     } else {
@@ -1706,7 +1706,7 @@ fn selectable_text_semantics(
 }
 
 fn wrap_selectable_context_menu(
-    cx: &mut InternalLoweringCx<'_>,
+    cx: &mut LoweringCx<'_>,
     owner: WidgetId,
     visual_id: WidgetId,
     config: &TextContextMenuConfig,
@@ -1716,8 +1716,8 @@ fn wrap_selectable_context_menu(
     wrap_implicit_selection_affordances(cx, owner, visual_id, config, selection, text)
 }
 
-impl InternalLower for Text {
-    fn lower(&self, cx: &mut InternalLoweringCx) -> WidgetId {
+impl Lower for Text {
+    fn lower(&self, cx: &mut LoweringCx) -> WidgetId {
         let owner_id = self.id.map(Into::into).unwrap_or_else(|| cx.next_node_id());
         let layout_node_id = if self.selectable {
             cx.next_node_id()
@@ -1766,7 +1766,7 @@ impl InternalLower for Text {
                     self.selection_color,
                     self.selection_text_color,
                 );
-                InternalIrBuilder::new(
+                IrBuilder::new(
                     cx.next_node_id(),
                     Op::Paint(PaintOp::DrawRichText {
                         runs,
@@ -1781,7 +1781,7 @@ impl InternalLower for Text {
                 )
                 .build(cx)
             } else {
-                InternalIrBuilder::new(
+                IrBuilder::new(
                     cx.next_node_id(),
                     Op::Paint(PaintOp::DrawText {
                         text: resolved_text.clone(),
@@ -1832,7 +1832,7 @@ impl InternalLower for Text {
                 runtime_selection,
                 self.context_menu.enabled,
             );
-            let mut builder = InternalIrBuilder::new(owner_id, Op::Semantics(semantics));
+            let mut builder = IrBuilder::new(owner_id, Op::Semantics(semantics));
             builder.add_child(visual_id);
             builder.build(cx)
         } else {
@@ -1841,8 +1841,8 @@ impl InternalLower for Text {
     }
 }
 
-impl InternalLower for RichText {
-    fn lower(&self, cx: &mut InternalLoweringCx) -> WidgetId {
+impl Lower for RichText {
+    fn lower(&self, cx: &mut LoweringCx) -> WidgetId {
         let owner_id = self.id.map(Into::into).unwrap_or_else(|| cx.next_node_id());
         let layout_node_id = if self.selectable {
             cx.next_node_id()
@@ -1882,7 +1882,7 @@ impl InternalLower for RichText {
             ),
         );
         let clip_to_bounds = should_clip_paragraph(self.max_lines, self.overflow);
-        let mut paint_builder = InternalIrBuilder::new(
+        let mut paint_builder = IrBuilder::new(
             cx.next_node_id(),
             Op::Paint(PaintOp::DrawRichText {
                 runs,
@@ -1937,7 +1937,7 @@ impl InternalLower for RichText {
                 runtime_selection,
                 self.context_menu.enabled,
             );
-            let mut builder = InternalIrBuilder::new(owner_id, Op::Semantics(semantics));
+            let mut builder = IrBuilder::new(owner_id, Op::Semantics(semantics));
             builder.add_child(visual_id);
             builder.build(cx)
         } else {

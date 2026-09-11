@@ -1,7 +1,7 @@
 use fission_3d::{Point3D, Primitive3D, Scene3D, Scene3DInternalLowerer};
 use fission_core::{
     env::Env,
-    internal::{InternalLowerer, InternalLoweringCx},
+    internal::{LowerWidget, LoweringCx},
     op::Color,
     RuntimeState,
 };
@@ -35,7 +35,7 @@ fn test_scene3d_lowering() {
 
     let env = Env::default();
     let runtime_state = RuntimeState::default();
-    let mut cx = InternalLoweringCx::new(&env, &runtime_state, None, None);
+    let mut cx = LoweringCx::new(&env, &runtime_state, None, None);
 
     // Simulate lowering context initialization
     let root_id = cx.next_node_id();

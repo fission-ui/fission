@@ -1,4 +1,4 @@
-use fission_core::internal::{InternalIrBuilder, InternalLowerer, InternalLoweringCx};
+use fission_core::internal::{IrBuilder, LowerWidget, LoweringCx};
 use fission_core::ui::Widget;
 use fission_ir::{LayoutOp, Op, WidgetId};
 use serde::{Deserialize, Serialize};
@@ -36,12 +36,12 @@ struct AspectRatioLowerer {
     child: Widget,
 }
 
-impl InternalLowerer for AspectRatioLowerer {
-    fn lower_dyn(&self, cx: &mut InternalLoweringCx) -> WidgetId {
+impl LowerWidget for AspectRatioLowerer {
+    fn lower_dyn(&self, cx: &mut LoweringCx) -> WidgetId {
         let child_id = fission_core::internal::lower_widget(&self.child, cx);
         let id = cx.next_node_id();
 
-        let mut builder = InternalIrBuilder::new(
+        let mut builder = IrBuilder::new(
             id,
             Op::Layout(LayoutOp::Box {
                 width: None,

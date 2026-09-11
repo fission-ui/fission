@@ -1,6 +1,6 @@
-use crate::internal::InternalLower;
+use crate::internal::Lower;
 use crate::lowering::wrap_zstack_child;
-use crate::lowering::{InternalIrBuilder, InternalLoweringCx};
+use crate::lowering::{IrBuilder, LoweringCx};
 use crate::ActionEnvelope;
 use fission_ir::{
     op::{Color, Fill, GridTrack, LayoutOp, Op, PaintOp},
@@ -83,8 +83,8 @@ impl Default for Slider {
     }
 }
 
-impl InternalLower for Slider {
-    fn lower(&self, cx: &mut InternalLoweringCx) -> WidgetId {
+impl Lower for Slider {
+    fn lower(&self, cx: &mut LoweringCx) -> WidgetId {
         let id = self.id.map(Into::into).unwrap_or_else(|| cx.next_node_id());
         cx.push_scope(id);
 
@@ -102,7 +102,7 @@ impl InternalLower for Slider {
         let track_layer = {
             let p_y = (control_height - track_height) / 2.0;
 
-            let mut track_container = InternalIrBuilder::new(
+            let mut track_container = IrBuilder::new(
                 cx.next_node_id(),
                 Op::Layout(LayoutOp::Box {
                     width: None,
@@ -118,7 +118,7 @@ impl InternalLower for Slider {
                 }),
             );
 
-            let inner_paint = InternalIrBuilder::new(
+            let inner_paint = IrBuilder::new(
                 cx.next_node_id(),
                 Op::Paint(PaintOp::DrawRect {
                     fill: Some(
@@ -134,7 +134,7 @@ impl InternalLower for Slider {
             .build(cx);
 
             let mut inner_box =
-                InternalIrBuilder::new(cx.next_node_id(), Op::Layout(LayoutOp::AbsoluteFill));
+                IrBuilder::new(cx.next_node_id(), Op::Layout(LayoutOp::AbsoluteFill));
             inner_box.add_child(inner_paint);
             let inner_id = inner_box.build(cx);
 
@@ -144,7 +144,7 @@ impl InternalLower for Slider {
 
         // Layer 2: Thumb Grid
         let thumb_layer = {
-            let thumb_paint = InternalIrBuilder::new(
+            let thumb_paint = IrBuilder::new(
                 cx.next_node_id(),
                 Op::Paint(PaintOp::DrawRect {
                     fill: Some(
@@ -170,7 +170,7 @@ impl InternalLower for Slider {
             )
             .build(cx);
 
-            let mut thumb_box = InternalIrBuilder::new(
+            let mut thumb_box = IrBuilder::new(
                 cx.next_node_id(),
                 Op::Layout(LayoutOp::Box {
                     width: Some(thumb_size),
@@ -191,7 +191,7 @@ impl InternalLower for Slider {
             // Grid placement positions the thumb's left edge at the value
             // percentage. Translate the visual thumb so its centre sits on the
             // track point the user clicked or dragged to.
-            let mut transformed_thumb = InternalIrBuilder::new(
+            let mut transformed_thumb = IrBuilder::new(
                 cx.next_node_id(),
                 Op::Layout(LayoutOp::Transform {
                     transform: [
@@ -217,7 +217,7 @@ impl InternalLower for Slider {
             transformed_thumb.add_child(thumb_box_id);
             let transformed_thumb_id = transformed_thumb.build(cx);
 
-            let mut grid = InternalIrBuilder::new(
+            let mut grid = IrBuilder::new(
                 cx.next_node_id(),
                 Op::Layout(LayoutOp::Grid {
                     columns: vec![
@@ -233,7 +233,7 @@ impl InternalLower for Slider {
             );
 
             // Thumb item at col 2
-            let mut item = InternalIrBuilder::new(
+            let mut item = IrBuilder::new(
                 cx.next_node_id(),
                 Op::Layout(LayoutOp::GridItem {
                     row_start: fission_ir::op::GridPlacement::Line(1),
@@ -254,12 +254,12 @@ impl InternalLower for Slider {
         let thumb_wrapped = wrap_zstack_child(cx, thumb_layer);
         cx.pop_scope();
 
-        let mut zstack = InternalIrBuilder::new(stack_id, Op::Layout(LayoutOp::ZStack));
+        let mut zstack = IrBuilder::new(stack_id, Op::Layout(LayoutOp::ZStack));
         zstack.add_child(track_wrapped);
         zstack.add_child(thumb_wrapped);
         zstack.build(cx);
 
-        let mut layout = InternalIrBuilder::new(
+        let mut layout = IrBuilder::new(
             layout_id,
             Op::Layout(LayoutOp::Box {
                 width: None,
@@ -299,7 +299,7 @@ impl InternalLower for Slider {
             });
         }
 
-        let mut sem_node = InternalIrBuilder::new(id, Op::Semantics(semantics));
+        let mut sem_node = IrBuilder::new(id, Op::Semantics(semantics));
         sem_node.add_child(layout_id);
         sem_node.build(cx)
     }

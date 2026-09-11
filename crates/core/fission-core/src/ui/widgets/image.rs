@@ -1,5 +1,5 @@
-use crate::internal::InternalLower;
-use crate::lowering::{InternalIrBuilder, InternalLoweringCx};
+use crate::internal::Lower;
+use crate::lowering::{IrBuilder, LoweringCx};
 use fission_ir::{
     op::{ImageFit, LayoutOp, Op, PaintOp},
     WidgetId,
@@ -154,8 +154,8 @@ impl Image {
     }
 }
 
-impl InternalLower for Image {
-    fn lower(&self, cx: &mut InternalLoweringCx) -> WidgetId {
+impl Lower for Image {
+    fn lower(&self, cx: &mut LoweringCx) -> WidgetId {
         let layout_id = self.id.map(Into::into).unwrap_or_else(|| cx.next_node_id());
         let paint_op = match &self.request.source {
             ImageSource::SvgText { content } => PaintOp::DrawSvg {
@@ -169,9 +169,9 @@ impl InternalLower for Image {
                 alignment: self.alignment,
             },
         };
-        let paint_id = InternalIrBuilder::new(cx.next_node_id(), Op::Paint(paint_op)).build(cx);
+        let paint_id = IrBuilder::new(cx.next_node_id(), Op::Paint(paint_op)).build(cx);
 
-        let mut layout_builder = InternalIrBuilder::new(
+        let mut layout_builder = IrBuilder::new(
             layout_id,
             Op::Layout(LayoutOp::Box {
                 width: self.width,

@@ -1,5 +1,5 @@
-use fission_core::internal::InternalLowerer;
-use fission_core::internal::{InternalIrBuilder, InternalLoweringCx};
+use fission_core::internal::LowerWidget;
+use fission_core::internal::{IrBuilder, LoweringCx};
 use fission_core::ui::{Column, Container, Row, Text, Widget};
 use fission_core::GlobalState;
 use fission_ir::{Op, Semantics};
@@ -14,15 +14,15 @@ struct MockHero {
     child: Widget,
 }
 
-impl InternalLowerer for MockHero {
-    fn lower_dyn(&self, cx: &mut InternalLoweringCx) -> fission_ir::WidgetId {
+impl LowerWidget for MockHero {
+    fn lower_dyn(&self, cx: &mut LoweringCx) -> fission_ir::WidgetId {
         let child_id = fission_core::internal::lower_widget(&self.child, cx);
         let id = cx.next_node_id();
         let semantics = Semantics {
             hero_tag: Some("t".into()),
             ..Default::default()
         };
-        let mut builder = InternalIrBuilder::new(id, Op::Semantics(semantics));
+        let mut builder = IrBuilder::new(id, Op::Semantics(semantics));
         builder.add_child(child_id);
         builder.build(cx)
     }

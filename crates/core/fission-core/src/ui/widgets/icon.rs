@@ -1,5 +1,5 @@
-use crate::internal::InternalLower;
-use crate::lowering::{InternalIrBuilder, InternalLoweringCx};
+use crate::internal::Lower;
+use crate::lowering::{IrBuilder, LoweringCx};
 use fission_ir::{
     op::{Color, LayoutOp, Op, PaintOp, Stroke},
     WidgetId,
@@ -118,8 +118,8 @@ impl Icon {
     }
 }
 
-impl InternalLower for Icon {
-    fn lower(&self, cx: &mut InternalLoweringCx) -> WidgetId {
+impl Lower for Icon {
+    fn lower(&self, cx: &mut LoweringCx) -> WidgetId {
         let id = self.id.map(Into::into).unwrap_or_else(|| cx.next_node_id());
 
         let tokens = &cx.env.theme.tokens;
@@ -160,9 +160,9 @@ impl InternalLower for Icon {
             },
         };
 
-        let paint_id = InternalIrBuilder::new(cx.next_node_id(), Op::Paint(paint_op)).build(cx);
+        let paint_id = IrBuilder::new(cx.next_node_id(), Op::Paint(paint_op)).build(cx);
 
-        let mut layout = InternalIrBuilder::new(
+        let mut layout = IrBuilder::new(
             id,
             Op::Layout(LayoutOp::Box {
                 width: Some(size),

@@ -1,5 +1,5 @@
-use crate::internal::{InternalLowerer, InternalLoweringCx, InternalRenderNode};
-use crate::lowering::InternalIrBuilder;
+use crate::internal::{InternalRenderNode, LowerWidget, LoweringCx};
+use crate::lowering::IrBuilder;
 use crate::ui::Widget;
 use fission_ir::{Op, StructuralOp, WidgetId};
 use serde::{Deserialize, Serialize};
@@ -22,8 +22,8 @@ impl IgnorePointer {
     }
 }
 
-impl InternalLowerer for IgnorePointer {
-    fn lower_dyn(&self, cx: &mut InternalLoweringCx) -> WidgetId {
+impl LowerWidget for IgnorePointer {
+    fn lower_dyn(&self, cx: &mut LoweringCx) -> WidgetId {
         let id = self.id.unwrap_or_else(|| cx.next_node_id());
         cx.push_scope(id);
         let child = crate::internal::lower_widget(&self.child, cx);
@@ -33,7 +33,7 @@ impl InternalLowerer for IgnorePointer {
         id.hash(&mut hasher);
         child.hash(&mut hasher);
         let stable_hash = hasher.finish();
-        let mut builder = InternalIrBuilder::new(
+        let mut builder = IrBuilder::new(
             id,
             Op::Structural(StructuralOp::PointerTransparent { stable_hash }),
         );

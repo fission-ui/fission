@@ -1,5 +1,5 @@
 use crate::motion_support::{slot_id, SLOT_INDICATOR};
-use fission_core::internal::{InternalIrBuilder, InternalLowerer, InternalLoweringCx};
+use fission_core::internal::{IrBuilder, LowerWidget, LoweringCx};
 use fission_core::motion::{
     deg, MotionDeclaration, MotionDeclarationKind, MotionEasing, MotionPhase, MotionPropertyId,
     MotionStartValue, MotionTrack, MotionTransition,
@@ -153,8 +153,8 @@ struct CircularProgressLowerer {
     thickness: f32,
 }
 
-impl InternalLowerer for CircularProgressLowerer {
-    fn lower_dyn(&self, cx: &mut InternalLoweringCx) -> WidgetId {
+impl LowerWidget for CircularProgressLowerer {
+    fn lower_dyn(&self, cx: &mut LoweringCx) -> WidgetId {
         let id = cx.next_node_id();
 
         // Track Circle
@@ -173,7 +173,7 @@ impl InternalLowerer for CircularProgressLowerer {
             d = r * 2.0
         );
 
-        let track = InternalIrBuilder::new(
+        let track = IrBuilder::new(
             cx.next_node_id(),
             Op::Paint(PaintOp::DrawPath {
                 path: track_path,
@@ -220,7 +220,7 @@ impl InternalLowerer for CircularProgressLowerer {
             y2 = y2
         );
 
-        let indicator = InternalIrBuilder::new(
+        let indicator = IrBuilder::new(
             cx.next_node_id(),
             Op::Paint(PaintOp::DrawPath {
                 path: arc_path,
@@ -236,7 +236,7 @@ impl InternalLowerer for CircularProgressLowerer {
         )
         .build(cx);
 
-        let mut layout = InternalIrBuilder::new(
+        let mut layout = IrBuilder::new(
             id,
             Op::Layout(LayoutOp::Box {
                 width: Some(self.size),

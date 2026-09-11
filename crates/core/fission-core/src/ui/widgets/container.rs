@@ -1,5 +1,5 @@
-use crate::internal::InternalLower;
-use crate::lowering::{InternalIrBuilder, InternalLoweringCx};
+use crate::internal::Lower;
+use crate::lowering::{IrBuilder, LoweringCx};
 use crate::ui::Widget;
 use fission_ir::{
     op::{
@@ -371,15 +371,15 @@ impl Container {
     }
 }
 
-impl InternalLower for Container {
-    fn lower(&self, cx: &mut InternalLoweringCx) -> WidgetId {
+impl Lower for Container {
+    fn lower(&self, cx: &mut LoweringCx) -> WidgetId {
         let id = self.id.map(Into::into).unwrap_or_else(|| cx.next_node_id());
         cx.push_scope(id);
 
         let mut children_ids = Vec::new();
 
         if let Some(filter) = self.backdrop_filter {
-            let paint = InternalIrBuilder::new(
+            let paint = IrBuilder::new(
                 cx.next_node_id(),
                 Op::Paint(PaintOp::BackdropFilter {
                     filter,
@@ -398,7 +398,7 @@ impl InternalLower for Container {
             || !self.shadows.is_empty()
         {
             for shadow in &self.shadows {
-                let paint = InternalIrBuilder::new(
+                let paint = IrBuilder::new(
                     cx.next_node_id(),
                     Op::Paint(PaintOp::DrawRect {
                         fill: None,
@@ -410,7 +410,7 @@ impl InternalLower for Container {
                 .build(cx);
                 children_ids.push(paint);
             }
-            let paint = InternalIrBuilder::new(
+            let paint = IrBuilder::new(
                 cx.next_node_id(),
                 Op::Paint(PaintOp::DrawRect {
                     fill: self
@@ -464,7 +464,7 @@ impl InternalLower for Container {
             .map(|value| value.0)
             .unwrap_or(self.flex_shrink);
 
-        let mut layout = InternalIrBuilder::new(
+        let mut layout = IrBuilder::new(
             id,
             Op::Layout(LayoutOp::StyledBox {
                 style: style.clone(),
@@ -483,7 +483,7 @@ impl InternalLower for Container {
 
         let mut result = layout.build(cx);
         if let Some(margin_style) = margin_style {
-            let mut outer = InternalIrBuilder::new(
+            let mut outer = IrBuilder::new(
                 cx.next_node_id(),
                 Op::Layout(LayoutOp::StyledBox {
                     style: margin_style,
@@ -495,7 +495,7 @@ impl InternalLower for Container {
             result = outer.build(cx);
         }
         if let Some(position) = position {
-            let mut outer = InternalIrBuilder::new(
+            let mut outer = IrBuilder::new(
                 cx.next_node_id(),
                 Op::Layout(LayoutOp::PositionedLengths {
                     left: position.left,
@@ -510,7 +510,7 @@ impl InternalLower for Container {
             result = outer.build(cx);
         }
         if let Some(grid) = grid {
-            let mut outer = InternalIrBuilder::new(
+            let mut outer = IrBuilder::new(
                 cx.next_node_id(),
                 Op::Layout(LayoutOp::GridItem {
                     row_start: grid.row_start,

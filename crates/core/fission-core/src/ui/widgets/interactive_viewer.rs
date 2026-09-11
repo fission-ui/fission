@@ -1,5 +1,5 @@
-use crate::internal::InternalLower;
-use crate::lowering::{InternalIrBuilder, InternalLoweringCx};
+use crate::internal::Lower;
+use crate::lowering::{IrBuilder, LoweringCx};
 use crate::ui::Widget;
 use crate::ActionEnvelope;
 use fission_ir::{semantics::ActionTrigger, ActionEntry, LayoutOp, Op, WidgetId};
@@ -67,8 +67,8 @@ impl Default for InteractiveViewer {
     }
 }
 
-impl InternalLower for InteractiveViewer {
-    fn lower(&self, cx: &mut InternalLoweringCx) -> WidgetId {
+impl Lower for InteractiveViewer {
+    fn lower(&self, cx: &mut LoweringCx) -> WidgetId {
         let id = self.id.unwrap_or_else(|| cx.next_node_id());
         let (min_scale, max_scale) = normalized_scale_bounds(self.min_scale, self.max_scale);
 
@@ -76,7 +76,7 @@ impl InternalLower for InteractiveViewer {
         let child_id = self.child.lower(cx);
         cx.pop_scope();
 
-        let mut builder = InternalIrBuilder::new(
+        let mut builder = IrBuilder::new(
             id,
             Op::Layout(LayoutOp::InteractiveViewport {
                 initial_transform: clamped_transform(self.initial_transform, min_scale, max_scale),
@@ -154,7 +154,7 @@ mod tests {
     use super::*;
     use crate::action::ActionId;
     use crate::env::{Env, RuntimeState};
-    use crate::lowering::InternalLoweringCx;
+    use crate::lowering::LoweringCx;
     use crate::ui::Container;
 
     #[test]
@@ -218,7 +218,7 @@ mod tests {
 
         let env = Env::default();
         let runtime_state = RuntimeState::default();
-        let mut cx = InternalLoweringCx::new(&env, &runtime_state, None, None);
+        let mut cx = LoweringCx::new(&env, &runtime_state, None, None);
         let root_id = viewer.lower(&mut cx);
         let node = cx.ir.nodes.get(&root_id).expect("viewer node");
 

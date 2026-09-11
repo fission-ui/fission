@@ -1,6 +1,4 @@
-use fission_core::internal::{
-    InternalIrBuilder, InternalLowerer, InternalLoweringCx, InternalRenderNode,
-};
+use fission_core::internal::{InternalRenderNode, IrBuilder, LowerWidget, LoweringCx};
 use fission_core::{Widget, WidgetId};
 use fission_ir::{EmbedKind, LayoutOp, Op};
 use serde::{Deserialize, Serialize};
@@ -60,11 +58,11 @@ struct WebViewLowerer {
     height: Option<f32>,
 }
 
-impl InternalLowerer for WebViewLowerer {
-    fn lower_dyn(&self, cx: &mut InternalLoweringCx) -> WidgetId {
+impl LowerWidget for WebViewLowerer {
+    fn lower_dyn(&self, cx: &mut LoweringCx) -> WidgetId {
         let id = cx.widget_node_id(self.id);
 
-        let builder = InternalIrBuilder::new(
+        let builder = IrBuilder::new(
             id,
             Op::Layout(LayoutOp::Embed {
                 kind: EmbedKind::Web,

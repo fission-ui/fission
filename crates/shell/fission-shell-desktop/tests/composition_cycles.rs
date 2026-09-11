@@ -2,7 +2,7 @@ use anyhow::Result;
 use fission_core::action::GlobalState as CoreGlobalState;
 use fission_core::env::Env;
 use fission_core::internal::BuildCtx;
-use fission_core::internal::InternalLoweringCx;
+use fission_core::internal::LoweringCx;
 use fission_core::ui::{TextInput, Widget};
 use fission_core::{reduce_with, ReducerContext, Runtime, View, WidgetIdExt};
 use fission_layout::{LayoutEngine, LayoutSize, LineMetric, TextMeasurer};
@@ -187,8 +187,8 @@ where
         }
         tree
     };
-    // InternalLower
-    let mut cx = InternalLoweringCx::new(
+    // Lower
+    let mut cx = LoweringCx::new(
         env,
         &runtime.runtime_state,
         None,

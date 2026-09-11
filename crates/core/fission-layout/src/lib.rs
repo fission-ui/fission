@@ -2350,7 +2350,7 @@ impl LayoutEngine {
         Ok(snapshot)
     }
 
-    /// InternalLower-level layout that skips scroll diagnostics.
+    /// Lower-level layout that skips scroll diagnostics.
     ///
     /// Same as [`compute_layout`](LayoutEngine::compute_layout) but does not emit
     /// diagnostic events. Useful when you need the snapshot but not the debug output.

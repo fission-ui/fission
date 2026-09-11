@@ -1,5 +1,5 @@
-use crate::internal::InternalLower;
-use crate::lowering::{wrap_zstack_child, InternalIrBuilder, InternalLoweringCx};
+use crate::internal::Lower;
+use crate::lowering::{wrap_zstack_child, IrBuilder, LoweringCx};
 use crate::ui::Widget;
 use fission_ir::{Op, Semantics, WidgetId};
 use serde::{Deserialize, Serialize};
@@ -23,8 +23,8 @@ impl Default for FocusScope {
 
 impl FocusScope {}
 
-impl InternalLower for FocusScope {
-    fn lower(&self, cx: &mut InternalLoweringCx) -> WidgetId {
+impl Lower for FocusScope {
+    fn lower(&self, cx: &mut LoweringCx) -> WidgetId {
         let id = self.id.map(Into::into).unwrap_or_else(|| cx.next_node_id());
 
         cx.push_scope(id);
@@ -44,7 +44,7 @@ impl InternalLower for FocusScope {
         cx.pop_scope();
 
         let mut layout_builder =
-            InternalIrBuilder::new(layout_id, Op::Layout(fission_ir::LayoutOp::ZStack));
+            IrBuilder::new(layout_id, Op::Layout(fission_ir::LayoutOp::ZStack));
         for cid in wrapped_children {
             layout_builder.add_child(cid);
         }
@@ -56,7 +56,7 @@ impl InternalLower for FocusScope {
             ..Semantics::default()
         };
 
-        let mut node = InternalIrBuilder::new(id, Op::Semantics(semantics));
+        let mut node = IrBuilder::new(id, Op::Semantics(semantics));
         node.add_child(layout_id);
         node.build(cx)
     }

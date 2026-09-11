@@ -1,7 +1,7 @@
 use crate::popover::{popover_with_options, Popover};
 use crate::stack::{HStack, VStack};
 use crate::{FlyoutAlignment, FlyoutOptions, Icon};
-use fission_core::internal::{InternalIrBuilder, InternalLowerer, InternalLoweringCx};
+use fission_core::internal::{IrBuilder, LowerWidget, LoweringCx};
 use fission_core::op::{
     AlignItems, BoxAlignment, BoxStyle, Fill, FlexDirection, FlexWrap, JustifyContent, LayoutOp,
     Length, Op, PaintOp, Stroke,
@@ -1001,8 +1001,8 @@ impl From<MenuSeparator> for Widget {
     }
 }
 
-impl InternalLowerer for MenuSeparatorLowerer {
-    fn lower_dyn(&self, cx: &mut InternalLoweringCx) -> WidgetId {
+impl LowerWidget for MenuSeparatorLowerer {
+    fn lower_dyn(&self, cx: &mut LoweringCx) -> WidgetId {
         let border = self.style.border.clone();
         let line_height = border.as_ref().map(|border| border.width).unwrap_or(1.0);
         let line_fill = border.map(|border| border.fill);
@@ -1010,7 +1010,7 @@ impl InternalLowerer for MenuSeparatorLowerer {
         let margin = self.style.margin.unwrap_or([0.0; 4]);
 
         cx.push_scope(self.id);
-        let mut line = InternalIrBuilder::new(
+        let mut line = IrBuilder::new(
             cx.next_node_id(),
             Op::Layout(LayoutOp::StyledBox {
                 style: BoxStyle {
@@ -1025,7 +1025,7 @@ impl InternalLowerer for MenuSeparatorLowerer {
         );
         if let Some(fill) = line_fill {
             line.add_child(
-                InternalIrBuilder::new(
+                IrBuilder::new(
                     cx.next_node_id(),
                     Op::Paint(PaintOp::DrawRect {
                         fill: Some(fill),
@@ -1038,7 +1038,7 @@ impl InternalLowerer for MenuSeparatorLowerer {
             );
         }
         let line_id = line.build(cx);
-        let mut positioned_line = InternalIrBuilder::new(
+        let mut positioned_line = IrBuilder::new(
             cx.next_node_id(),
             Op::Layout(LayoutOp::PositionedLengths {
                 left: Some(Length::Points(margin[0])),
@@ -1052,7 +1052,7 @@ impl InternalLowerer for MenuSeparatorLowerer {
         positioned_line.add_child(line_id);
         let positioned_line_id = positioned_line.build(cx);
 
-        let mut outer = InternalIrBuilder::new(
+        let mut outer = IrBuilder::new(
             cx.next_node_id(),
             Op::Layout(LayoutOp::StyledBox {
                 style: BoxStyle {
@@ -1066,7 +1066,7 @@ impl InternalLowerer for MenuSeparatorLowerer {
         );
         outer.add_child(positioned_line_id);
         let outer_id = outer.build(cx);
-        let mut semantics = InternalIrBuilder::new(
+        let mut semantics = IrBuilder::new(
             self.id,
             Op::Semantics(Semantics {
                 role: Role::Separator,
@@ -1185,8 +1185,8 @@ impl From<MenuActionItem> for Widget {
     }
 }
 
-impl InternalLowerer for MenuActionItemLowerer {
-    fn lower_dyn(&self, cx: &mut InternalLoweringCx) -> WidgetId {
+impl LowerWidget for MenuActionItemLowerer {
+    fn lower_dyn(&self, cx: &mut LoweringCx) -> WidgetId {
         cx.push_scope(self.id);
         let layout_id = cx.next_node_id();
         cx.push_scope(layout_id);
@@ -1196,7 +1196,7 @@ impl InternalLowerer for MenuActionItemLowerer {
             .text_color
             .unwrap_or(cx.env.theme.tokens.colors.text_primary);
         let icon_size = self.style.icon_size.unwrap_or(16.0);
-        let mut row = InternalIrBuilder::new(
+        let mut row = IrBuilder::new(
             cx.next_node_id(),
             Op::Layout(LayoutOp::Flex {
                 direction: FlexDirection::Row,
@@ -1243,7 +1243,7 @@ impl InternalLowerer for MenuActionItemLowerer {
         }
         let label: Widget = label.into();
 
-        let mut text_stack = InternalIrBuilder::new(
+        let mut text_stack = IrBuilder::new(
             cx.next_node_id(),
             Op::Layout(LayoutOp::Flex {
                 direction: FlexDirection::Column,
@@ -1351,7 +1351,7 @@ impl InternalLowerer for MenuActionItemLowerer {
             }
         }
         let has_description = self.description.is_some();
-        let mut layout = InternalIrBuilder::new(
+        let mut layout = IrBuilder::new(
             layout_id,
             Op::Layout(LayoutOp::StyledBox {
                 style: BoxStyle {
@@ -1387,7 +1387,7 @@ impl InternalLowerer for MenuActionItemLowerer {
                 });
             }
         }
-        let mut semantics = InternalIrBuilder::new(
+        let mut semantics = IrBuilder::new(
             self.id,
             Op::Semantics(Semantics {
                 role: self.role,
@@ -1419,14 +1419,14 @@ impl InternalLowerer for MenuActionItemLowerer {
 }
 
 fn append_recipe_paint(
-    layout: &mut InternalIrBuilder,
-    cx: &mut InternalLoweringCx,
+    layout: &mut IrBuilder,
+    cx: &mut LoweringCx,
     style: &ResolvedComponentStyle,
 ) {
     let radius = style.radius.unwrap_or(0.0);
     for shadow in &style.shadows {
         layout.add_child(
-            InternalIrBuilder::new(
+            IrBuilder::new(
                 cx.next_node_id(),
                 Op::Paint(PaintOp::DrawRect {
                     fill: None,
@@ -1447,7 +1447,7 @@ fn append_recipe_paint(
     });
     if style.background.is_some() || stroke.is_some() {
         layout.add_child(
-            InternalIrBuilder::new(
+            IrBuilder::new(
                 cx.next_node_id(),
                 Op::Paint(PaintOp::DrawRect {
                     fill: style.background.clone(),

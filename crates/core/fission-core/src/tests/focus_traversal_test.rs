@@ -1,7 +1,7 @@
 use crate::env::{Env, RuntimeState};
 use crate::hit_test::find_next_focus_node;
-use crate::internal::InternalLower;
-use crate::lowering::InternalLoweringCx;
+use crate::internal::Lower;
+use crate::lowering::LoweringCx;
 use crate::ui::Widget;
 use crate::{InputEvent, KeyCode, KeyEvent, Runtime};
 use fission_core::Op;
@@ -28,11 +28,8 @@ fn test_explicit_focus_order() {
     struct FocusButtonInternalLowerer {
         index: i32,
     }
-    impl fission_core::internal::InternalLowerer for FocusButtonInternalLowerer {
-        fn lower_dyn(
-            &self,
-            cx: &mut fission_core::internal::InternalLoweringCx,
-        ) -> fission_ir::WidgetId {
+    impl fission_core::internal::LowerWidget for FocusButtonInternalLowerer {
+        fn lower_dyn(&self, cx: &mut fission_core::internal::LoweringCx) -> fission_ir::WidgetId {
             let id = cx.next_node_id();
             let s = Semantics {
                 role: Role::Button,
@@ -54,7 +51,7 @@ fn test_explicit_focus_order() {
                 auto_indent: false,
                 ..Default::default()
             };
-            fission_core::internal::InternalIrBuilder::new(id, Op::Semantics(s)).build(cx)
+            fission_core::internal::IrBuilder::new(id, Op::Semantics(s)).build(cx)
         }
         fn stable_key(&self) -> u64 {
             self.index as u64
@@ -70,7 +67,7 @@ fn test_explicit_focus_order() {
         ..Default::default()
     };
 
-    let mut cx = InternalLoweringCx::new(&env, &runtime_state, None, None);
+    let mut cx = LoweringCx::new(&env, &runtime_state, None, None);
     let root_id = root.lower(&mut cx);
     cx.ir.root = Some(root_id);
 
@@ -128,11 +125,8 @@ fn arrow_keys_enter_and_traverse_focus_order_without_prior_focus() {
         index: i32,
     }
 
-    impl fission_core::internal::InternalLowerer for FocusButtonInternalLowerer {
-        fn lower_dyn(
-            &self,
-            cx: &mut fission_core::internal::InternalLoweringCx,
-        ) -> fission_ir::WidgetId {
+    impl fission_core::internal::LowerWidget for FocusButtonInternalLowerer {
+        fn lower_dyn(&self, cx: &mut fission_core::internal::LoweringCx) -> fission_ir::WidgetId {
             let id = cx.next_node_id();
             let semantics = Semantics {
                 role: Role::Button,
@@ -140,7 +134,7 @@ fn arrow_keys_enter_and_traverse_focus_order_without_prior_focus() {
                 focus_index: Some(self.index),
                 ..Default::default()
             };
-            fission_core::internal::InternalIrBuilder::new(id, Op::Semantics(semantics)).build(cx)
+            fission_core::internal::IrBuilder::new(id, Op::Semantics(semantics)).build(cx)
         }
 
         fn stable_key(&self) -> u64 {
@@ -164,7 +158,7 @@ fn arrow_keys_enter_and_traverse_focus_order_without_prior_focus() {
         ],
         ..Default::default()
     };
-    let mut cx = InternalLoweringCx::new(&env, &runtime_state, None, None);
+    let mut cx = LoweringCx::new(&env, &runtime_state, None, None);
     let root_id = root.lower(&mut cx);
     cx.ir.root = Some(root_id);
     let layout = LayoutSnapshot::new(LayoutSize::new(100.0, 50.0));
@@ -241,11 +235,8 @@ fn test_autofocus_assigns_initial_focus() {
     #[derive(Debug)]
     struct AutofocusTextInput;
 
-    impl fission_core::internal::InternalLowerer for AutofocusTextInput {
-        fn lower_dyn(
-            &self,
-            cx: &mut fission_core::internal::InternalLoweringCx,
-        ) -> fission_ir::WidgetId {
+    impl fission_core::internal::LowerWidget for AutofocusTextInput {
+        fn lower_dyn(&self, cx: &mut fission_core::internal::LoweringCx) -> fission_ir::WidgetId {
             let id = cx.next_node_id();
             let semantics = Semantics {
                 role: Role::TextInput,
@@ -253,7 +244,7 @@ fn test_autofocus_assigns_initial_focus() {
                 autofocus: true,
                 ..Default::default()
             };
-            fission_core::internal::InternalIrBuilder::new(id, Op::Semantics(semantics)).build(cx)
+            fission_core::internal::IrBuilder::new(id, Op::Semantics(semantics)).build(cx)
         }
 
         fn stable_key(&self) -> u64 {
@@ -268,7 +259,7 @@ fn test_autofocus_assigns_initial_focus() {
             render_object: None,
         });
 
-    let mut cx = InternalLoweringCx::new(&env, &runtime_state, None, None);
+    let mut cx = LoweringCx::new(&env, &runtime_state, None, None);
     let root_id = root.lower(&mut cx);
     cx.ir.root = Some(root_id);
     let layout = LayoutSnapshot::new(LayoutSize::new(100.0, 50.0));

@@ -96,9 +96,7 @@ pub mod view;
 /// of calling lowering helpers directly.
 pub mod internal {
     pub use crate::build_context::BuildCtx;
-    pub use crate::lowering::{
-        build_layout_tree, wrap_zstack_child, InternalIrBuilder, InternalLoweringCx,
-    };
+    pub use crate::lowering::{build_layout_tree, wrap_zstack_child, IrBuilder, LoweringCx};
     use crate::Widget;
     use fission_ir::WidgetId;
 
@@ -106,14 +104,14 @@ pub mod internal {
         Widget::custom(node)
     }
 
-    pub fn lower_widget(widget: &Widget, cx: &mut InternalLoweringCx) -> WidgetId {
+    pub fn lower_widget(widget: &Widget, cx: &mut LoweringCx) -> WidgetId {
         let root = cx.next_widget_root();
         lower_widget_with_root(widget, cx, root)
     }
 
     pub fn lower_widget_with_root(
         widget: &Widget,
-        cx: &mut InternalLoweringCx,
+        cx: &mut LoweringCx,
         root: WidgetId,
     ) -> WidgetId {
         widget.clone().resolve_identities(root).lower(cx)
@@ -126,7 +124,7 @@ pub mod internal {
     pub fn lower_widget_to_ir_with_root(widget: &Widget, root: WidgetId) -> fission_ir::CoreIR {
         let env = crate::Env::default();
         let runtime_state = crate::RuntimeState::default();
-        let mut cx = InternalLoweringCx::new(&env, &runtime_state, None, None);
+        let mut cx = LoweringCx::new(&env, &runtime_state, None, None);
         let root_id = widget.clone().resolve_identities(root).lower(&mut cx);
         cx.ir.root = Some(root_id);
         cx.ir
@@ -198,7 +196,7 @@ pub mod internal {
         CustomRenderObject,
     };
     pub use crate::ui::node::{CustomWidget, InternalRenderNode};
-    pub use crate::ui::traits::{InternalLower, InternalLowerer};
+    pub use crate::ui::traits::{Lower, LowerWidget};
 }
 
 pub mod public {

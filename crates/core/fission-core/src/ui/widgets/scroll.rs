@@ -1,5 +1,5 @@
-use crate::lowering::{InternalIrBuilder, InternalLoweringCx};
-use crate::ui::{traits::InternalLower, Widget};
+use crate::lowering::{IrBuilder, LoweringCx};
+use crate::ui::{traits::Lower, Widget};
 use fission_ir::{
     op::{FlexDirection, LayoutOp, Op},
     WidgetId,
@@ -60,13 +60,13 @@ impl Default for Scroll {
     }
 }
 
-impl InternalLower for Scroll {
-    fn lower(&self, cx: &mut InternalLoweringCx) -> WidgetId {
+impl Lower for Scroll {
+    fn lower(&self, cx: &mut LoweringCx) -> WidgetId {
         let layout_id = self.id.map(Into::into).unwrap_or_else(|| cx.next_node_id());
 
         cx.push_scope(layout_id);
 
-        let mut builder = InternalIrBuilder::new(
+        let mut builder = IrBuilder::new(
             layout_id,
             Op::Layout(LayoutOp::Scroll {
                 direction: self.direction,
@@ -86,7 +86,7 @@ impl InternalLower for Scroll {
             // Wrap content in a non-shrinking Box to ensure it overflows the viewport
             // allowing scrolling to work.
             let content_id = cx.next_node_id();
-            let mut content_box = InternalIrBuilder::new(
+            let mut content_box = IrBuilder::new(
                 content_id,
                 Op::Layout(LayoutOp::Box {
                     width: None,
