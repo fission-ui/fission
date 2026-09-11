@@ -77,13 +77,26 @@ jobs:
           FISSION_WEB_TEST_CONTROL: '1'
         run: ./examples/web-smoke/platforms/web/build-wasm.sh
 
-      - name: Run Web Canvas text-input conformance in Chromium
+      - name: Run Web Canvas interaction and capture conformance in Chromium
         run: |
           python3 -m http.server 8126 --bind 127.0.0.1 --directory examples/web-smoke/platforms/web &
           server_pid=$!
           trap 'kill "$server_pid"' EXIT
+          for attempt in $(seq 1 50); do
+            if curl --fail --silent http://127.0.0.1:8126/ >/dev/null; then
+              break
+            fi
+            sleep 0.1
+          done
+          curl --fail --silent http://127.0.0.1:8126/ >/dev/null
           FISSION_WEB_SMOKE_URL='http://127.0.0.1:8126/?fission_renderer=canvas2d-software' \
             cargo test --locked -p web-smoke --test text_input_browser -- --nocapture
+          FISSION_WEB_SMOKE_URL='http://127.0.0.1:8126/?fission_renderer=canvas2d-software' \
+            cargo test --locked -p web-smoke --test canvas_capture_browser -- --nocapture --test-threads=1
+          FISSION_WEB_SMOKE_URL='http://127.0.0.1:8126/?fission_renderer=canvas2d-software' \
+            cargo test --locked -p web-smoke --test scene_path_browser -- --nocapture --test-threads=1
+          FISSION_WEB_SMOKE_URL='http://127.0.0.1:8126/' \
+            cargo test --locked -p web-smoke --test scene_path_browser -- --nocapture --test-threads=1
 
       - name: Run Web SQLite multi-context conformance in Chromium
         run: |
