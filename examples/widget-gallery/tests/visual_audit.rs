@@ -190,6 +190,7 @@ impl From<AllWidgets> for Widget {
                 .into(),
                 Spinner {
                     id: WidgetId::explicit("sp"),
+                    label: None,
                     color: None,
                     motion: Some(SpinnerMotion::Default),
                 }

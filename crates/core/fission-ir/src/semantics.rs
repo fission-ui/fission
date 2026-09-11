@@ -85,6 +85,10 @@ pub enum Role {
     ColumnHeader,
     /// A determinate or indeterminate measure of progress.
     ProgressBar,
+    /// Supplementary text describing the control it is attached to.
+    Tooltip,
+    /// A region whose updates are announced without taking focus.
+    Status,
 }
 
 /// The kind of popup controlled by a semantic node.
@@ -387,6 +391,8 @@ mod tests {
         assert_eq!(Role::TableCell as u8, 31);
         assert_eq!(Role::ColumnHeader as u8, 32);
         assert_eq!(Role::ProgressBar as u8, 33);
+        assert_eq!(Role::Tooltip as u8, 34);
+        assert_eq!(Role::Status as u8, 35);
     }
 
     #[test]

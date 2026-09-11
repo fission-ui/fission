@@ -150,6 +150,7 @@ impl From<RightSidebar> for Widget {
                                         children: vec![
                                             Spinner {
                                                 id: WidgetId::explicit("sync_spinner"),
+                                                label: None,
                                                 color: Some(tokens.colors.primary),
                                                 motion: Some(SpinnerMotion::Default),
                                             }

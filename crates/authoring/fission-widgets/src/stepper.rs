@@ -1,5 +1,6 @@
 use crate::stack::{HStack, VStack};
-use fission_core::ui::{Align, Container, Text, Widget};
+use fission_core::ui::{Align, Container, SemanticsRegion, Text, Widget};
+use fission_ir::Role;
 use serde::{Deserialize, Serialize};
 
 /// Ordered progress indicator for a finite multi-step workflow.
@@ -92,8 +93,17 @@ impl From<Stepper> for Widget {
             }
         }
 
-        VStack {
-            spacing: Some(8.0),
+        // A stepper is a progress measure with named stops. Reporting position
+        // and total means a reader hears "step 2 of 4, Delivery" rather than a
+        // row of unlabelled circles.
+        let position = (this.active_index + 1).min(this.steps.len());
+        let active_label = this
+            .steps
+            .get(this.active_index)
+            .cloned()
+            .unwrap_or_default();
+        SemanticsRegion::new(VStack {
+            spacing: Some(tokens.spacing.s),
             children: vec![
                 HStack {
                     spacing: Some(0.0),
@@ -106,7 +116,14 @@ impl From<Stepper> for Widget {
                 }
                 .into(),
             ],
-        }
+        })
+        .role(Role::ProgressBar)
+        .label(format!(
+            "Step {position} of {}: {active_label}",
+            this.steps.len()
+        ))
+        .value(active_label)
+        .range(1.0, this.steps.len() as f32, position as f32)
         .into()
     }
 }

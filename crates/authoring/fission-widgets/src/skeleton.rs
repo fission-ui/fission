@@ -3,9 +3,9 @@ use fission_core::motion::{
     scalar, MotionDeclaration, MotionDeclarationKind, MotionEasing, MotionPhase, MotionPropertyId,
     MotionStartValue, MotionTrack, MotionTransition,
 };
-use fission_core::op::Color;
-use fission_core::ui::{Composite, Container, Widget};
+use fission_core::ui::{Composite, Container, SemanticsRegion, Widget};
 use fission_core::WidgetId;
+use fission_ir::Role;
 use serde::{Deserialize, Serialize};
 
 const LOW_PRIORITY_REPEAT_FRAME_MS: u64 = 166;
@@ -86,21 +86,19 @@ impl From<Skeleton> for Widget {
         let base: Widget = Container::new(fission_core::ui::widgets::Spacer::default())
             .width(this.width.unwrap_or(100.0))
             .height(this.height.unwrap_or(20.0))
-            .bg(Color {
-                r: 200,
-                g: 200,
-                b: 200,
-                a: (0.8 * 255.0) as u8,
-            })
+            // Previously a fixed light grey, which showed as a pale block in a
+            // dark theme. The sunken surface is the design system's own
+            // placeholder tone.
+            .bg(tokens.colors.surface_sunken)
             .border_radius(if this.circle {
                 9999.0
             } else {
                 tokens.radii.small
             })
             .into();
-        let boundary = Composite::new(base).repaint_boundary(true).into();
+        let boundary: Widget = Composite::new(base).repaint_boundary(true).into();
 
-        if let Some(motion) = &this.motion {
+        let rendered: Widget = if let Some(motion) = &this.motion {
             let motion_id = slot_id(this.id, SLOT_SURFACE);
             ctx.register_motion(MotionDeclaration {
                 id: motion_id,
@@ -113,7 +111,13 @@ impl From<Skeleton> for Widget {
                 .into()
         } else {
             boundary
-        }
+        };
+        // Placeholder content is meaningless to a reader unless it says what it
+        // stands in for.
+        SemanticsRegion::new(rendered)
+            .role(Role::Status)
+            .label("Loading content")
+            .into()
     }
 }
 

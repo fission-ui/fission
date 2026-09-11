@@ -1,8 +1,9 @@
 use crate::motion_support::{
-    dedupe, exit_for, fade_in, push_enter_with_exit, scale_in, slide_y_in, slot_id, SLOT_SURFACE,
+    dedupe, exit_for, fade_in, push_enter_with_exit, scale_in, slide_y_in, slot_id, SLOT_CONTENT,
+    SLOT_SURFACE,
 };
 use fission_core::motion::{MotionTrack, Presence};
-use fission_core::ui::{Container, Text, Widget};
+use fission_core::ui::{Container, SemanticsRegion, Text, Widget};
 use fission_core::{WidgetId, WidgetIdExt};
 use serde::{Deserialize, Serialize};
 use std::ops::Add;
@@ -166,7 +167,14 @@ impl From<Tooltip> for Widget {
         let is_hovered = view.runtime().interaction.is_hovered(trigger_id);
         let show_tooltip = this.is_visible || is_hovered;
 
-        let trigger = Container::new(this.child.clone()).id(trigger_id);
+        // The tooltip's whole purpose is to describe its trigger, so the
+        // trigger has to point at it. Without described_by the text is visible
+        // to a sighted user and absent for everyone else.
+        let tooltip_id = slot_id(this.id, SLOT_CONTENT);
+        let trigger: Widget =
+            SemanticsRegion::new(Container::new(this.child.clone()).id(trigger_id))
+                .described_by(vec![tooltip_id])
+                .into();
 
         if show_tooltip || this.motion.is_some() {
             let style = &theme.style;
@@ -201,6 +209,11 @@ impl From<Tooltip> for Widget {
                 .into();
             }
 
+            let tooltip_card: Widget = SemanticsRegion::new(tooltip_card)
+                .id(tooltip_id)
+                .role(fission_ir::Role::Tooltip)
+                .label(this.text.clone())
+                .into();
             let flyout_node = crate::flyout(
                 fission_ir::WidgetId::derived(this.id.as_u128(), &[]),
                 tooltip_card,

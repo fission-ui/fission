@@ -48,6 +48,7 @@ impl From<FeedbackSection> for Widget {
                     children: widgets![
                         Spinner {
                             id: WidgetId::explicit("spinner1"),
+                            label: None,
                             color: None,
                             motion: Some(SpinnerMotion::Default),
                         },

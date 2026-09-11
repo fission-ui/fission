@@ -316,6 +316,7 @@ impl From<EmailDetail> for Widget {
                     children: vec![
                         Spinner {
                             id: WidgetId::explicit("attachments_spinner"),
+                            label: None,
                             color: None,
                             motion: Some(SpinnerMotion::Default),
                         }

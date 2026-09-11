@@ -2211,7 +2211,9 @@ impl HtmlRenderer<'_> {
             | Role::TableRow
             | Role::TableCell
             | Role::ColumnHeader
-            | Role::ProgressBar => "div",
+            | Role::ProgressBar
+            | Role::Tooltip
+            | Role::Status => "div",
             Role::TextInput
             | Role::Checkbox
             | Role::Radio
@@ -4213,6 +4215,8 @@ fn semantic_html_role(role: Role) -> Option<&'static str> {
         Role::TableCell => Some("cell"),
         Role::ColumnHeader => Some("columnheader"),
         Role::ProgressBar => Some("progressbar"),
+        Role::Tooltip => Some("tooltip"),
+        Role::Status => Some("status"),
         Role::Button
         | Role::Link
         | Role::Text

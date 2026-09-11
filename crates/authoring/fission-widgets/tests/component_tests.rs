@@ -260,6 +260,7 @@ fn motion_enabled_widgets_do_not_reuse_wrapper_id_for_wrapped_widget() {
     assert_motion_widget_ids_are_not_self_referential("spinner", || {
         Spinner {
             id: WidgetId::explicit("motion_id.spinner"),
+            label: None,
             color: None,
             motion: Some(SpinnerMotion::Default),
         }
