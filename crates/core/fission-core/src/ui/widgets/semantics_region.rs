@@ -113,6 +113,15 @@ impl SemanticsRegion {
     /// Identifiers are intended to be stable within a route. They are used by
     /// tests, accessibility bridges, and progressive enhancement code to find
     /// the right semantic region without depending on generated DOM structure.
+    /// Gives this region an explicit node identity.
+    ///
+    /// Needed whenever another node references it through `controls`,
+    /// `labelled_by`, `described_by` or `active_descendant`.
+    pub fn id(mut self, id: WidgetId) -> Self {
+        self.id = Some(id);
+        self
+    }
+
     pub fn identifier(mut self, identifier: impl Into<String>) -> Self {
         self.identifier = Some(identifier.into());
         self

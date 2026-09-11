@@ -1,6 +1,6 @@
 use crate::motion_support::{
-    collapse_y_in, dedupe, exit_for, fade_in, push_enter_with_exit, slot_id, SLOT_INDICATOR,
-    SLOT_PANEL,
+    collapse_y_in, dedupe, exit_for, fade_in, push_enter_with_exit, slot_id, SLOT_CONTENT,
+    SLOT_HEADER, SLOT_INDICATOR, SLOT_PANEL,
 };
 use crate::stack::{HStack, VStack};
 use fission_core::motion::{
@@ -8,9 +8,11 @@ use fission_core::motion::{
     Presence,
 };
 use fission_core::ui::{
-    Button, ButtonContentAlign, ButtonVariant, Container, Text, TextContent, Widget,
+    Button, ButtonContentAlign, ButtonVariant, Container, SemanticsRegion, Text, TextContent,
+    Widget,
 };
 use fission_core::{ActionEnvelope, WidgetId};
+use fission_ir::Role;
 use serde::{Deserialize, Serialize};
 use std::ops::Add;
 
@@ -211,6 +213,12 @@ impl From<Accordion> for Widget {
                 WidgetId::derived(base_id.as_u128(), &[index as u32]),
                 SLOT_PANEL,
             );
+            // The presence wrapper owns panel_id, so the panel's semantics node
+            // needs an identity of its own for the header to point at.
+            let panel_semantics_id = slot_id(
+                WidgetId::derived(base_id.as_u128(), &[index as u32]),
+                SLOT_CONTENT,
+            );
             let indicator_id = slot_id(
                 WidgetId::derived(base_id.as_u128(), &[index as u32]),
                 SLOT_INDICATOR,
@@ -221,7 +229,7 @@ impl From<Accordion> for Widget {
                 .map(|motion| motion.plan(item.is_expanded));
             let mut indicator: Widget = Text {
                 content: TextContent::Literal(if item.is_expanded { "▼" } else { "▶" }.into()),
-                font_size: Some(12.0),
+                font_size: Some(tokens.typography.font_size_xs),
                 color: Some(tokens.colors.text_secondary),
                 ..Default::default()
             }
@@ -238,8 +246,12 @@ impl From<Accordion> for Widget {
                 }
             }
             // Header
+            let header_id = slot_id(
+                WidgetId::derived(base_id.as_u128(), &[index as u32]),
+                SLOT_HEADER,
+            );
             children.push(
-                Button {
+                SemanticsRegion::new(Button {
                     variant: ButtonVariant::Ghost,
                     content_align: ButtonContentAlign::Start,
                     child: Some(
@@ -265,17 +277,29 @@ impl From<Accordion> for Widget {
                     ),
                     on_press: item.on_toggle.clone(),
                     ..Default::default()
-                }
+                })
+                // A disclosure header states whether its panel is open and
+                // which panel it controls, so a reader knows what pressing it
+                // does and can jump to the revealed content.
+                .id(header_id)
+                .label(item.title.clone())
+                .expanded(item.is_expanded)
+                .controls(vec![panel_semantics_id])
                 .into(),
             );
 
             // Content
             if item.is_expanded || this.motion.is_some() {
-                let mut panel: Widget = Container::new(item.content.clone())
-                    .padding_all(tokens.spacing.m)
-                    .bg(tokens.colors.background)
-                    .border(tokens.colors.border, 1.0)
-                    .into();
+                let mut panel: Widget = SemanticsRegion::new(
+                    Container::new(item.content.clone())
+                        .padding_all(tokens.spacing.m)
+                        .bg(tokens.colors.background)
+                        .border(tokens.colors.border, 1.0),
+                )
+                .id(panel_semantics_id)
+                .role(Role::Group)
+                .labelled_by(vec![header_id])
+                .into();
                 if let Some(plan) = &motion_plan {
                     panel = Presence {
                         id: panel_id,

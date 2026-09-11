@@ -1,6 +1,7 @@
 use crate::stack::HStack;
-use fission_core::ui::{Button, ButtonVariant, Container, Text, Widget};
+use fission_core::ui::{Button, ButtonVariant, Container, SemanticsRegion, Text, Widget};
 use fission_core::ActionEnvelope;
+use fission_ir::{Role, SemanticOrientation};
 use std::sync::Arc;
 
 /// A horizontal row of toggle buttons where exactly one option is active.
@@ -46,7 +47,7 @@ impl From<SegmentedControl> for Widget {
             let is_selected = i == this.selected_index;
             let cb = this.on_change.clone();
 
-            let button: Widget = Button {
+            let button: Widget = SemanticsRegion::new(Button {
                 variant: if is_selected {
                     ButtonVariant::Filled
                 } else {
@@ -54,7 +55,7 @@ impl From<SegmentedControl> for Widget {
                 },
                 child: Some(
                     Text::new(opt.clone())
-                        .size(14.0)
+                        .size(tokens.typography.body_medium_size)
                         .color(if is_selected {
                             theme.active_text
                         } else {
@@ -62,24 +63,33 @@ impl From<SegmentedControl> for Widget {
                         })
                         .into(),
                 ),
-                height: Some(40.0),
-                padding: Some([12.0, 12.0, 0.0, 0.0]),
+                padding: Some([tokens.spacing.s, tokens.spacing.s, 0.0, 0.0]),
                 on_press: cb.map(|f| f(i)),
                 ..Default::default()
-            }
+            })
+            // One-of-many selection, so each segment is a radio rather than an
+            // unrelated button. This also puts the group in the composite
+            // keyboard contract, giving it arrow navigation over its segments.
+            .role(Role::Radio)
+            .label(opt.clone())
+            .selected(is_selected)
             .into();
 
             children.push(Container::new(button).flex_grow(1.0).into());
         }
 
-        Container::new(HStack {
-            spacing: Some(2.0),
-            children,
-        })
-        .padding_all(1.0)
-        .bg(theme.bg_color)
-        .border(theme.border_color, 1.0)
-        .border_radius(theme.radius)
+        SemanticsRegion::new(
+            Container::new(HStack {
+                spacing: Some(2.0),
+                children,
+            })
+            .padding_all(1.0)
+            .bg(theme.bg_color)
+            .border(theme.border_color, 1.0)
+            .border_radius(theme.radius),
+        )
+        .role(Role::RadioGroup)
+        .orientation(SemanticOrientation::Horizontal)
         .into()
     }
 }
