@@ -9,6 +9,19 @@ impl GlobalState for State {}
 #[fission_macros::fission_action]
 struct RefreshRequested;
 
+/// The detector is wrapped in a status region announcing the refresh state, so
+/// unwrap that before inspecting gesture wiring.
+fn detector_of(node: &fission_core::Widget) -> &fission_core::ui::GestureDetector {
+    let surface = match node.kind() {
+        fission_core::ui::WidgetKind::SemanticsRegion(region) => {
+            region.child.as_ref().expect("refresh indicator surface")
+        }
+        _ => node,
+    };
+    fission_core::internal::widget_as_gesture_detector(surface)
+        .expect("RefreshIndicator should return a gesture detector")
+}
+
 #[fission_macros::fission_action]
 struct PullCanceled;
 
@@ -44,8 +57,7 @@ fn refresh_indicator_dispatches_refresh_when_armed() {
             .into()
     });
 
-    let detector = fission_core::internal::widget_as_gesture_detector(&node)
-        .expect("RefreshIndicator should wrap content in a gesture detector");
+    let detector = detector_of(&node);
 
     assert_eq!(detector.on_drag_end.as_ref(), Some(&refresh));
     let stack = fission_core::internal::widget_as_zstack(&detector.child)
@@ -70,8 +82,7 @@ fn refresh_indicator_dispatches_cancel_when_not_armed() {
             .into()
     });
 
-    let detector = fission_core::internal::widget_as_gesture_detector(&node)
-        .expect("RefreshIndicator should wrap content in a gesture detector");
+    let detector = detector_of(&node);
     assert_eq!(detector.on_drag_end.as_ref(), Some(&cancel));
 }
 
@@ -85,8 +96,7 @@ fn refresh_indicator_hides_overlay_when_inactive() {
         RefreshIndicator::new(Text::new("content")).into()
     });
 
-    let detector = fission_core::internal::widget_as_gesture_detector(&node)
-        .expect("RefreshIndicator should wrap content in a gesture detector");
+    let detector = detector_of(&node);
     let stack = fission_core::internal::widget_as_zstack(&detector.child)
         .expect("RefreshIndicator should use a stack for the overlay");
     assert_eq!(stack.children.len(), 1);

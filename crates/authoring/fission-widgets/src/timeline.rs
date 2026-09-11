@@ -1,8 +1,9 @@
 use crate::stack::VStack;
-use fission_core::ui::{Container, Positioned, Row, Spacer, Text, Widget, ZStack};
+use fission_core::ui::{Container, Positioned, Row, SemanticsRegion, Spacer, Text, Widget, ZStack};
 use fission_core::WidgetId;
 use fission_ir::op::AlignItems;
 use fission_ir::op::Color;
+use fission_ir::Role;
 use serde::{Deserialize, Serialize};
 
 const IMPLICIT_TIMELINE_ID_SALT: u32 = 0x5449_4d45;
@@ -256,12 +257,15 @@ impl From<TimelineLayout> for Widget {
             })
             .collect();
 
-        fission_core::ui::Column {
+        // An ordered sequence of events is a list, so a reader can count it
+        // and move through it rather than meeting a wall of text.
+        SemanticsRegion::new(fission_core::ui::Column {
             id: component.id,
             gap: Some(0.0),
             children,
             ..Default::default()
-        }
+        })
+        .role(Role::List)
         .into()
     }
 }

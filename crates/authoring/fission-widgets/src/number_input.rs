@@ -1,7 +1,8 @@
 use crate::Icon;
-use fission_core::ui::{Button, ButtonVariant, Container, Row, TextInput, Widget};
+use fission_core::ui::{Button, ButtonVariant, Container, Row, SemanticsRegion, TextInput, Widget};
 use fission_core::{ActionEnvelope, WidgetId};
 use fission_icons::material;
+use fission_ir::Role;
 use serde::{Deserialize, Serialize};
 
 /// Controlled numeric field with increment and decrement buttons.
@@ -35,6 +36,9 @@ pub struct NumberInput {
     /// Action dispatched for typed edits. Parse `ctx.input.text_change().new_text`
     /// in the reducer so validation remains an application decision.
     pub on_input: Option<ActionEnvelope>,
+    /// Accessible name for the value being adjusted.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
 }
 
 impl Default for NumberInput {
@@ -52,6 +56,7 @@ impl Default for NumberInput {
             on_increment: None,
             on_decrement: None,
             on_input: None,
+            label: None,
         }
     }
 }
@@ -79,12 +84,13 @@ impl From<NumberInput> for Widget {
             .as_ref()
             .map(|id| WidgetId::derived(id.as_u128(), &[0]));
 
-        Container::new(
+        let display_value = display_text.clone();
+        let field = Container::new(
             Row::default()
                 .gap(this.gap.unwrap_or(4.0))
                 .align_items(fission_ir::op::AlignItems::Center)
                 .children(vec![
-                    Button {
+                    SemanticsRegion::new(Button {
                         variant: ButtonVariant::Ghost,
                         child: Some(
                             Icon::svg(material::content::remove::regular())
@@ -96,7 +102,10 @@ impl From<NumberInput> for Widget {
                         height: Some(button_size),
                         padding: Some([0.0; 4]),
                         ..Default::default()
-                    }
+                    })
+                    // Icon-only controls need names; a bare glyph announces
+                    // nothing.
+                    .label("Decrease")
                     .into(),
                     TextInput {
                         id: input_id.map(Into::into),
@@ -108,7 +117,7 @@ impl From<NumberInput> for Widget {
                         ..Default::default()
                     }
                     .into(),
-                    Button {
+                    SemanticsRegion::new(Button {
                         variant: ButtonVariant::Ghost,
                         child: Some(
                             Icon::svg(material::content::add::regular())
@@ -120,14 +129,28 @@ impl From<NumberInput> for Widget {
                         height: Some(button_size),
                         padding: Some([0.0; 4]),
                         ..Default::default()
-                    }
+                    })
+                    .label("Increase")
                     .into(),
                 ]),
         )
         .padding_all(2.0)
         .bg(tokens.colors.background)
         .border(tokens.colors.border, 1.0)
-        .border_radius(tokens.radii.medium)
-        .into()
+        .border_radius(tokens.radii.medium);
+
+        // A stepper over a number is a spin button: the group reports the value
+        // and its bounds, so a reader hears the number and how far it can go
+        // rather than three unrelated controls.
+        let mut semantics = SemanticsRegion::new(field)
+            .role(Role::SpinButton)
+            .value(display_value);
+        if let (Some(min), Some(max)) = (this.min, this.max) {
+            semantics = semantics.range(min, max, this.value);
+        }
+        if let Some(label) = this.label.clone() {
+            semantics = semantics.label(label);
+        }
+        semantics.into()
     }
 }

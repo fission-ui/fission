@@ -89,6 +89,8 @@ pub enum Role {
     Tooltip,
     /// A region whose updates are announced without taking focus.
     Status,
+    /// A numeric field adjusted by stepping controls.
+    SpinButton,
 }
 
 /// The kind of popup controlled by a semantic node.
@@ -393,6 +395,7 @@ mod tests {
         assert_eq!(Role::ProgressBar as u8, 33);
         assert_eq!(Role::Tooltip as u8, 34);
         assert_eq!(Role::Status as u8, 35);
+        assert_eq!(Role::SpinButton as u8, 36);
     }
 
     #[test]

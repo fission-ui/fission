@@ -91,7 +91,15 @@ fn supplied_icon_uses_empty_state_recipe_defaults_without_losing_explicit_overri
 }
 
 fn panel(widget: &Widget) -> &Container {
-    fission_core::internal::widget_as_container(widget).expect("empty-state panel")
+    // The panel is wrapped in a semantics region that announces why the region
+    // is empty, so unwrap that first.
+    let surface = match widget.kind() {
+        fission_core::ui::WidgetKind::SemanticsRegion(region) => {
+            region.child.as_ref().expect("empty-state surface")
+        }
+        _ => widget,
+    };
+    fission_core::internal::widget_as_container(surface).expect("empty-state panel")
 }
 
 fn sections(panel: &Container) -> &Column {

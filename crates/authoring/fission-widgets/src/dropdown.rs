@@ -4,6 +4,7 @@ use fission_core::action::ActionEnvelope;
 use fission_core::ui::{Button, ButtonContentAlign, Text, TextContent};
 use fission_core::Widget;
 use fission_icons::material;
+use fission_ir::{PopupKind, Role, Semantics};
 
 /// A simplified dropdown trigger button.
 ///
@@ -23,6 +24,11 @@ pub struct DropDown {
     pub on_select: Option<ActionEnvelope>,
     /// Label displayed in the trigger, or the default placeholder when absent.
     pub selected: Option<String>,
+    /// Whether the menu this trigger controls is currently open.
+    ///
+    /// Reported to assistive technology. A trigger that never says it is open
+    /// leaves a reader unable to tell whether pressing it did anything.
+    pub is_open: bool,
 }
 
 impl From<DropDown> for Widget {
@@ -56,8 +62,19 @@ impl From<DropDown> for Widget {
             ),
             on_press: this.on_toggle.clone(),
             content_align: ButtonContentAlign::Start,
-            height: Some(40.0),
-            padding: Some([12.0, 12.0, 0.0, 0.0]),
+            padding: Some([tokens.spacing.s, tokens.spacing.s, 0.0, 0.0]),
+            semantics: Some(Semantics {
+                role: Role::ComboBox,
+                label: Some(button_text.to_string()),
+                value: Some(button_text.to_string()),
+                // A trigger that opens a menu has to announce that it does, and
+                // whether it is currently open, or a reader has no way to know
+                // pressing it reveals anything.
+                has_popup: Some(PopupKind::Menu),
+                expanded: Some(this.is_open),
+                focusable: true,
+                ..Default::default()
+            }),
             ..Default::default()
         }
         .into()

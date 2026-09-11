@@ -4,8 +4,9 @@ use fission_core::motion::{
     deg, MotionDeclaration, MotionDeclarationKind, MotionEasing, MotionPhase, MotionPropertyId,
     MotionStartValue, MotionTrack, MotionTransition,
 };
-use fission_core::ui::{Composite, Widget};
+use fission_core::ui::{Composite, SemanticsRegion, Widget};
 use fission_core::WidgetId;
+use fission_ir::Role;
 use fission_ir::{op::Color, LayoutOp, Op, PaintOp};
 use serde::{Deserialize, Serialize};
 use std::f32::consts::PI;
@@ -35,6 +36,9 @@ pub struct CircularProgress {
     /// Optional explicit progress motion. `None` emits no progress-owned motion declarations.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub motion: Option<CircularProgressMotion>,
+    /// What is progressing or loading, announced to assistive technology.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -82,6 +86,7 @@ impl Default for CircularProgress {
             track_color: None,
             thickness: 4.0,
             motion: None,
+            label: None,
         }
     }
 }
@@ -110,24 +115,44 @@ impl From<CircularProgress> for Widget {
             },
         );
 
-        if this.value.is_none() {
-            let Some(motion) = &this.motion else {
-                return node;
-            };
-            let motion_id = slot_id(this.id, SLOT_INDICATOR);
-            ctx.register_motion(MotionDeclaration {
-                id: motion_id,
-                kind: MotionDeclarationKind::Tracks {
-                    tracks: motion.tracks(),
-                },
-            });
-            Composite::new(node)
-                .repaint_boundary(true)
-                .motion_rotation(motion_id, 0.0)
-                .into()
+        let painted: Widget = if this.value.is_none() {
+            match &this.motion {
+                Some(motion) => {
+                    let motion_id = slot_id(this.id, SLOT_INDICATOR);
+                    ctx.register_motion(MotionDeclaration {
+                        id: motion_id,
+                        kind: MotionDeclarationKind::Tracks {
+                            tracks: motion.tracks(),
+                        },
+                    });
+                    Composite::new(node)
+                        .repaint_boundary(true)
+                        .motion_rotation(motion_id, 0.0)
+                        .into()
+                }
+                None => node,
+            }
         } else {
             node
-        }
+        };
+
+        // A ring that paints an arc reports nothing on its own. A determinate
+        // ring is a progress measure; an indeterminate one is a busy status,
+        // because there is no position to announce.
+        let mut semantics = SemanticsRegion::new(painted);
+        semantics = match this.value {
+            Some(value) => {
+                let percent = (value * 100.0).clamp(0.0, 100.0);
+                semantics
+                    .role(Role::ProgressBar)
+                    .value(format!("{}%", percent.round() as i32))
+                    .range(0.0, 100.0, percent)
+            }
+            None => semantics.role(Role::Status),
+        };
+        semantics
+            .label(this.label.clone().unwrap_or_else(|| "Loading".to_string()))
+            .into()
     }
 }
 

@@ -1,6 +1,7 @@
 use fission_core::op::Color;
-use fission_core::ui::{Column, Container, Row, Widget};
+use fission_core::ui::{Column, Container, Row, SemanticsRegion, Widget};
 use fission_core::{ActionEnvelope, WidgetId};
+use fission_ir::{Role, SemanticOrientation};
 use serde::{Deserialize, Serialize};
 
 /// The axis along which a [`SplitView`] divides its two panes.
@@ -122,6 +123,18 @@ impl From<SplitView> for Widget {
 
         // Ensure ratio is clamped
         let ratio = this.split_ratio.clamp(0.1, 0.9);
+        // The handle is a resizable separator, not decoration: it reports the
+        // axis it splits and where it currently sits, so a reader knows the
+        // panes are adjustable and by how much.
+        let handle: Widget = SemanticsRegion::new(handle)
+            .role(Role::Separator)
+            .label("Resize panes")
+            .orientation(match this.direction {
+                SplitDirection::Horizontal => SemanticOrientation::Vertical,
+                SplitDirection::Vertical => SemanticOrientation::Horizontal,
+            })
+            .range(10.0, 90.0, ratio * 100.0)
+            .into();
         let first_grow = ratio;
         let second_grow = 1.0 - ratio;
 
@@ -140,7 +153,7 @@ impl From<SplitView> for Widget {
 
         match this.direction {
             SplitDirection::Horizontal => Row {
-                children: vec![first_pane, handle.into(), second_pane],
+                children: vec![first_pane, handle.clone(), second_pane],
                 align_items: fission_ir::op::AlignItems::Stretch,
                 justify_content: fission_ir::op::JustifyContent::Start,
                 flex_grow: 1.0,
@@ -149,7 +162,7 @@ impl From<SplitView> for Widget {
             }
             .into(),
             SplitDirection::Vertical => Column {
-                children: vec![first_pane, handle.into(), second_pane],
+                children: vec![first_pane, handle.clone(), second_pane],
                 align_items: fission_ir::op::AlignItems::Stretch,
                 justify_content: fission_ir::op::JustifyContent::Start,
                 flex_grow: 1.0,

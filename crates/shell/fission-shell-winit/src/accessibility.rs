@@ -985,6 +985,7 @@ mod imp {
             Role::ProgressBar => AccessRole::ProgressIndicator,
             Role::Tooltip => AccessRole::Tooltip,
             Role::Status => AccessRole::Status,
+            Role::SpinButton => AccessRole::SpinButton,
             Role::Generic => AccessRole::GenericContainer,
         }
     }

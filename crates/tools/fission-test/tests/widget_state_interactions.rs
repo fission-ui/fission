@@ -85,6 +85,7 @@ fn number_input_text_entry_dispatches_parsed_float() -> Result<()> {
             let (ctx, view) = fission_core::build::current::<State>();
             NumberInput {
                 id: Some(WidgetId::explicit("quantity")),
+                label: None,
                 value: view.state().number,
                 display_text: Some(String::new()),
                 on_input: Some(ctx.bind(
@@ -139,6 +140,7 @@ fn number_input_ignores_invalid_intermediate_float() -> Result<()> {
             let (ctx, view) = fission_core::build::current::<State>();
             NumberInput {
                 id: Some(WidgetId::explicit("quantity")),
+                label: None,
                 value: view.state().number,
                 display_text: Some(String::new()),
                 on_input: Some(ctx.bind(
@@ -397,6 +399,7 @@ fn circular_progress_indeterminate_registers_repeating_rotation() -> Result<()> 
             let (_ctx, _view) = fission_core::build::current::<State>();
             CircularProgress {
                 id: component.progress_id,
+                label: None,
                 value: None,
                 motion: Some(CircularProgressMotion::Spin),
                 ..Default::default()
@@ -466,6 +469,7 @@ fn circular_progress_indeterminate_without_motion_renders_static_indicator() -> 
             let (_ctx, _view) = fission_core::build::current::<State>();
             CircularProgress {
                 id: WidgetId::explicit("static_spinner"),
+                label: None,
                 value: None,
                 motion: None,
                 ..Default::default()
@@ -506,6 +510,7 @@ fn circular_progress_determinate_does_not_register_rotation() -> Result<()> {
             let (_ctx, _view) = fission_core::build::current::<State>();
             CircularProgress {
                 id: component.progress_id,
+                label: None,
                 value: Some(0.5),
                 motion: Some(CircularProgressMotion::Spin),
                 ..Default::default()

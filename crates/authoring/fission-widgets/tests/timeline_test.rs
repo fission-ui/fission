@@ -34,7 +34,12 @@ fn test_timeline_structure() {
     };
 
     let node = build::enter(&mut ctx, &view, || timeline.into());
-    assert_eq!(fission_core::internal::widget_kind_name(&node), "Column");
+    // A timeline is an ordered list of events, so it lowers through a semantics
+    // region carrying Role::List rather than a bare column.
+    assert_eq!(
+        fission_core::internal::widget_kind_name(&node),
+        "SemanticsRegion"
+    );
 }
 
 #[test]

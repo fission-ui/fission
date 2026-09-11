@@ -99,6 +99,7 @@ impl From<DefaultRoutePending> for Widget {
         Center {
             child: CircularProgress {
                 id: WidgetId::explicit("fission.protected_route.pending"),
+                label: None,
                 motion: Some(CircularProgressMotion::Default),
                 ..Default::default()
             }
