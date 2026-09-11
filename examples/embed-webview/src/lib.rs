@@ -31,6 +31,7 @@ impl From<WebViewEmbedApp> for Widget {
                     .into(),
                 Container::new(WebView {
                     id: WidgetId::explicit("embed-webview.demo"),
+                    label: None,
                     url: WEBVIEW_DEMO_URL.into(),
                     user_agent: None,
                     width: Some(480.0),

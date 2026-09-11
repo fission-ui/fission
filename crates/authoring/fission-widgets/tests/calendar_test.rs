@@ -29,9 +29,17 @@ fn test_calendar_build() {
         padding: None,
     };
 
-    let node = build::enter(&mut ctx, &view, || calendar.into());
+    let node: fission_core::Widget = build::enter(&mut ctx, &view, || calendar.into());
 
-    let c = fission_core::internal::widget_as_container(&node)
+    // The month view is wrapped in a table semantics region, so unwrap it
+    // before inspecting the surface container.
+    let surface = match node.kind() {
+        fission_core::ui::WidgetKind::SemanticsRegion(region) => {
+            region.child.as_ref().expect("calendar surface")
+        }
+        _ => &node,
+    };
+    let c = fission_core::internal::widget_as_container(surface)
         .expect("Calendar should return a Container root");
     assert!(c.child.is_some());
 }

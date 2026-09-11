@@ -72,6 +72,7 @@ impl From<WebApp> for Widget {
         let (_ctx, _view) = fission_core::build::current::<EmbedState>();
         Container::new(WebView {
             id: WidgetId::explicit("test.web"),
+            label: None,
             url: "https://example.test/docs".into(),
             user_agent: Some("FissionTest/1".into()),
             width: Some(320.0),

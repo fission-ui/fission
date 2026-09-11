@@ -1,5 +1,7 @@
 use fission_core::authoring::{IrBuilder, LowerWidget, LoweringCx};
+use fission_core::ui::SemanticsRegion;
 use fission_core::{Widget, WidgetId};
+use fission_ir::Role;
 use fission_ir::{EmbedKind, LayoutOp, Op};
 use serde::{Deserialize, Serialize};
 
@@ -16,6 +18,9 @@ pub struct WebView {
     pub url: String,
     /// Optional user-agent override where the platform web-view API supports it.
     pub user_agent: Option<String>,
+    /// Accessible name describing the embedded document.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
     /// Optional logical width; surrounding constraints apply when absent.
     pub width: Option<f32>,
     /// Optional logical height; surrounding constraints apply when absent.
@@ -37,7 +42,10 @@ impl From<WebView> for Widget {
             user_agent: this.user_agent.clone(),
         });
 
-        fission_core::authoring::custom_widget(
+        // An embedded document is opaque to the host's accessibility tree, so
+        // it has to carry a name saying what it contains. Falls back to the URL
+        // rather than announcing an unnamed frame.
+        SemanticsRegion::new(fission_core::authoring::custom_widget(
             "WebView",
             WebViewLowerer {
                 id: this.id,
@@ -45,7 +53,10 @@ impl From<WebView> for Widget {
                 width: this.width,
                 height: this.height,
             },
-        )
+        ))
+        .role(Role::Group)
+        .label(this.label.clone().unwrap_or_else(|| this.url.clone()))
+        .into()
     }
 }
 
