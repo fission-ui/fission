@@ -16,7 +16,8 @@ jobs:
     name: CLI platform script tests
     if: >-
       github.event_name != 'pull_request' ||
-      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR","CONTRIBUTOR"]'), github.event.pull_request.author_association)
+      (github.event.pull_request.draft == false &&
+      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR","CONTRIBUTOR"]'), github.event.pull_request.author_association))
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
@@ -43,7 +44,8 @@ jobs:
     name: Web / wasm
     if: >-
       github.event_name != 'pull_request' ||
-      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR","CONTRIBUTOR"]'), github.event.pull_request.author_association)
+      (github.event.pull_request.draft == false &&
+      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR","CONTRIBUTOR"]'), github.event.pull_request.author_association))
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
@@ -124,7 +126,8 @@ jobs:
     name: Android package smoke
     if: >-
       github.event_name != 'pull_request' ||
-      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR","CONTRIBUTOR"]'), github.event.pull_request.author_association)
+      (github.event.pull_request.draft == false &&
+      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR","CONTRIBUTOR"]'), github.event.pull_request.author_association))
     runs-on: ubuntu-latest
     env:
       ANDROID_MIN_API_LEVEL: '24'
@@ -188,7 +191,8 @@ jobs:
     name: iOS simulator and device compile
     if: >-
       github.event_name != 'pull_request' ||
-      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR","CONTRIBUTOR"]'), github.event.pull_request.author_association)
+      (github.event.pull_request.draft == false &&
+      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR","CONTRIBUTOR"]'), github.event.pull_request.author_association))
     runs-on: macos-latest
     steps:
       - name: Check out repository
