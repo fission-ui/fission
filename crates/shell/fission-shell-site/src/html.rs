@@ -2202,7 +2202,11 @@ impl HtmlRenderer<'_> {
             | Role::TabList
             | Role::Alert
             | Role::Group
-            | Role::Separator => "div",
+            | Role::Separator
+            | Role::Tree
+            | Role::TreeItem
+            | Role::Toolbar
+            | Role::RadioGroup => "div",
             Role::TextInput
             | Role::Checkbox
             | Role::Radio
@@ -4195,6 +4199,10 @@ fn semantic_html_role(role: Role) -> Option<&'static str> {
         Role::Alert => Some("alert"),
         Role::Group => Some("group"),
         Role::Separator => Some("separator"),
+        Role::Tree => Some("tree"),
+        Role::TreeItem => Some("treeitem"),
+        Role::Toolbar => Some("toolbar"),
+        Role::RadioGroup => Some("radiogroup"),
         Role::Button
         | Role::Link
         | Role::Text

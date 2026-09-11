@@ -67,6 +67,14 @@ pub enum Role {
     Group,
     /// A visual or structural separator between adjacent groups or items.
     Separator,
+    /// A hierarchical list of expandable items.
+    Tree,
+    /// One item in a [`Tree`](Role::Tree), which may own child items.
+    TreeItem,
+    /// A grouped set of controls sharing one tab stop, such as a formatting bar.
+    Toolbar,
+    /// A set of radios where exactly one is selected at a time.
+    RadioGroup,
 }
 
 /// The kind of popup controlled by a semantic node.
@@ -360,6 +368,10 @@ mod tests {
         assert_eq!(Role::Alert as u8, 22);
         assert_eq!(Role::Group as u8, 23);
         assert_eq!(Role::Separator as u8, 24);
+        assert_eq!(Role::Tree as u8, 25);
+        assert_eq!(Role::TreeItem as u8, 26);
+        assert_eq!(Role::Toolbar as u8, 27);
+        assert_eq!(Role::RadioGroup as u8, 28);
     }
 
     #[test]

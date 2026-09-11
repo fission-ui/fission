@@ -755,13 +755,75 @@ fn semantics(ir: &CoreIR, node_id: WidgetId) -> Option<&fission_ir::Semantics> {
     }
 }
 
-fn composite_contract(role: Role) -> Option<(Role, SemanticOrientation, bool)> {
-    match role {
-        Role::Menu => Some((Role::MenuItem, SemanticOrientation::Vertical, true)),
-        Role::ListBox => Some((Role::Option, SemanticOrientation::Vertical, true)),
-        Role::TabList => Some((Role::Tab, SemanticOrientation::Horizontal, false)),
-        _ => None,
+/// How a composite role moves keyboard focus between its items.
+///
+/// A composite owns one tab stop and moves an inner cursor with the arrow keys,
+/// the way a menu, a list box or a tab strip does. Adding a role here is all it
+/// takes to give a new composite the shared navigation contract: wrapping,
+/// Home and End, disabled skipping, and typeahead where it applies.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct CompositeContract {
+    /// The role its focusable items carry.
+    pub item_role: Role,
+    /// Axis used when the composite does not declare one itself.
+    pub default_orientation: SemanticOrientation,
+    /// Whether typing a character jumps to the next item starting with it.
+    ///
+    /// Right for menus and lists of names; wrong for a tab strip, where typing
+    /// belongs to the panel rather than the strip.
+    pub supports_typeahead: bool,
+}
+
+impl CompositeContract {
+    const fn new(
+        item_role: Role,
+        default_orientation: SemanticOrientation,
+        supports_typeahead: bool,
+    ) -> Self {
+        Self {
+            item_role,
+            default_orientation,
+            supports_typeahead,
+        }
     }
+}
+
+/// Every composite whose items share one tab stop.
+///
+/// Keep this as the single place the contract is declared. A composite absent
+/// from this table falls back to plain Tab traversal, which is why TreeView and
+/// DataTable had no keyboard model before their roles were listed.
+const COMPOSITE_CONTRACTS: &[(Role, CompositeContract)] = &[
+    (
+        Role::Menu,
+        CompositeContract::new(Role::MenuItem, SemanticOrientation::Vertical, true),
+    ),
+    (
+        Role::ListBox,
+        CompositeContract::new(Role::Option, SemanticOrientation::Vertical, true),
+    ),
+    (
+        Role::TabList,
+        CompositeContract::new(Role::Tab, SemanticOrientation::Horizontal, false),
+    ),
+    (
+        Role::Tree,
+        CompositeContract::new(Role::TreeItem, SemanticOrientation::Vertical, true),
+    ),
+    (
+        Role::Toolbar,
+        CompositeContract::new(Role::Button, SemanticOrientation::Horizontal, false),
+    ),
+    (
+        Role::RadioGroup,
+        CompositeContract::new(Role::Radio, SemanticOrientation::Vertical, false),
+    ),
+];
+
+fn composite_contract(role: Role) -> Option<CompositeContract> {
+    COMPOSITE_CONTRACTS
+        .iter()
+        .find_map(|(candidate, contract)| (*candidate == role).then_some(*contract))
 }
 
 fn containing_composite(
@@ -772,14 +834,12 @@ fn containing_composite(
     while let Some(node_id) = current {
         let node = ir.nodes.get(&node_id)?;
         if let Op::Semantics(value) = &node.op {
-            if let Some((item_role, default_orientation, supports_typeahead)) =
-                composite_contract(value.role)
-            {
+            if let Some(contract) = composite_contract(value.role) {
                 return Some((
                     node_id,
-                    item_role,
-                    value.orientation.unwrap_or(default_orientation),
-                    supports_typeahead,
+                    contract.item_role,
+                    value.orientation.unwrap_or(contract.default_orientation),
+                    contract.supports_typeahead,
                 ));
             }
         }
@@ -964,7 +1024,7 @@ fn controlled_popup(ir: &CoreIR, controller: WidgetId) -> Option<(WidgetId, Role
         if popup_semantics.role != popup_role || is_interaction_inert(ir, *popup_id) {
             continue;
         }
-        let (item_role, _, _) = composite_contract(popup_role)?;
+        let item_role = composite_contract(popup_role)?.item_role;
         let items = composite_items(ir, *popup_id, item_role);
         return Some((*popup_id, item_role, items));
     }

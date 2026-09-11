@@ -974,6 +974,10 @@ mod imp {
             Role::Alert => AccessRole::Alert,
             Role::Group => AccessRole::Group,
             Role::Separator => AccessRole::Splitter,
+            Role::Tree => AccessRole::Tree,
+            Role::TreeItem => AccessRole::TreeItem,
+            Role::Toolbar => AccessRole::Toolbar,
+            Role::RadioGroup => AccessRole::RadioGroup,
             Role::Generic => AccessRole::GenericContainer,
         }
     }
