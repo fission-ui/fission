@@ -6,6 +6,7 @@ use fission_core::internal::{
     CustomEventResult, CustomHitResult, CustomRenderObject, InternalRenderNode,
 };
 use fission_core::op::Color;
+use fission_core::ui::SemanticsRegion;
 use fission_core::ui::Widget;
 use fission_core::FlexDirection;
 use fission_ir::op::{AlignItems, Fill, LayoutOp, PaintOp, TextRun, TextStyle};
@@ -195,11 +196,20 @@ impl From<TerminalView> for Widget {
         ));
         let lowerer: Arc<dyn LowerWidget> = render_node.clone();
         let render_object: Arc<dyn CustomRenderObject> = render_node;
-        fission_core::internal::custom_render_widget(InternalRenderNode {
-            debug_tag: format!("TerminalView({})", this.session.id()),
-            lowerer: Some(lowerer),
-            render_object: Some(render_object),
-        })
+        // The terminal owns raw keys and IME, so it has to be reachable by
+        // keyboard and announced as an editable surface rather than an opaque
+        // painted region.
+        SemanticsRegion::new(fission_core::internal::custom_render_widget(
+            InternalRenderNode {
+                debug_tag: format!("TerminalView({})", this.session.id()),
+                lowerer: Some(lowerer),
+                render_object: Some(render_object),
+            },
+        ))
+        .role(fission_ir::Role::TextInput)
+        .label("Terminal")
+        .focusable(true)
+        .into()
     }
 }
 

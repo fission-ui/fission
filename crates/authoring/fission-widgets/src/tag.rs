@@ -1,6 +1,8 @@
 use crate::stack::HStack;
 use fission_core::action::ActionEnvelope;
-use fission_core::ui::{Button, ButtonVariant, Container, Text, TextContent, Widget};
+use fission_core::ui::{
+    Button, ButtonVariant, Container, SemanticsRegion, Text, TextContent, Widget,
+};
 use serde::{Deserialize, Serialize};
 
 /// A pill-shaped label with an optional close button.
@@ -32,7 +34,7 @@ impl From<Tag> for Widget {
 
         if let Some(action) = &this.on_close {
             children.push(
-                Button {
+                SemanticsRegion::new(Button {
                     variant: ButtonVariant::Ghost,
                     child: Some(
                         Text {
@@ -48,7 +50,10 @@ impl From<Tag> for Widget {
                     width: Some(20.0),
                     height: Some(20.0),
                     ..Default::default()
-                }
+                })
+                // A bare multiplication sign announces nothing. Name the action
+                // and what it removes.
+                .label(format!("Remove {}", this.label))
                 .into(),
             );
         }
