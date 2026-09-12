@@ -103,7 +103,7 @@ mod tests {
         fission_core::internal::lower_widget(&widget, &mut lowering);
 
         let link = lowering
-            .ir
+            .ir()
             .nodes
             .values()
             .find_map(|node| match &node.op {

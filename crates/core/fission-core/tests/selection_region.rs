@@ -492,7 +492,7 @@ fn rebuilt_region_exposes_one_directional_accessibility_selection() {
     let mut first_lower = LoweringContext::new(&env, &runtime, None, None);
     let root = lower_widget(&Widget::from(tree.clone()), &mut first_lower);
     first_lower.set_root(root);
-    let first_ir = first_lower.ir.clone();
+    let first_ir = first_lower.ir().clone();
     drop(first_lower);
     SelectionRegionController::new(region_id)
         .apply(
@@ -673,15 +673,15 @@ fn adaptive_touch_affordances_observe_slop_and_render_handles_and_magnifier() {
         &mut cx,
     );
     assert!(cx
-        .ir
+        .ir()
         .nodes
         .contains_key(&WidgetId::derived(region.as_u128(), &[0x5E1E, 1])));
     assert!(cx
-        .ir
+        .ir()
         .nodes
         .contains_key(&WidgetId::derived(region.as_u128(), &[0x5E1E, 2])));
     assert!(cx
-        .ir
+        .ir()
         .nodes
         .contains_key(&WidgetId::derived(region.as_u128(), &[0x5E1E, 3])));
     assert!(matches!(
@@ -707,11 +707,11 @@ fn adaptive_touch_affordances_observe_slop_and_render_handles_and_magnifier() {
         &mut desktop_cx,
     );
     assert!(!desktop_cx
-        .ir
+        .ir()
         .nodes
         .contains_key(&WidgetId::derived(region.as_u128(), &[0x5E1E, 1])));
     assert!(!desktop_cx
-        .ir
+        .ir()
         .nodes
         .contains_key(&WidgetId::derived(region.as_u128(), &[0x5E1E, 3])));
 }

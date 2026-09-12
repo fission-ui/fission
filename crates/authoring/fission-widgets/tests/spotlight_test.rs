@@ -20,7 +20,7 @@ fn spotlight_lowers_five_ordered_regions() {
     let mut cx = LoweringContext::new(&env, &runtime_state, None, None);
     let _root = lower_widget(&spotlight, &mut cx);
     let node = cx
-        .ir
+        .ir()
         .nodes
         .values()
         .find(|node| matches!(node.op, Op::Layout(LayoutOp::Spotlight { .. })))

@@ -32,7 +32,7 @@ fn selectable_text_lowers_semantics_and_runtime_selection() {
     cx.set_root(root_id);
 
     let semantics = cx
-        .ir
+        .ir()
         .nodes
         .get(&text_id)
         .and_then(|node| match &node.op {
@@ -83,7 +83,7 @@ fn context_menu_region_accepts_widget_children_and_fallback_i18n_text() {
     cx.set_root(root_id);
 
     let semantics = cx
-        .ir
+        .ir()
         .nodes
         .get(&menu_id)
         .and_then(|node| match &node.op {

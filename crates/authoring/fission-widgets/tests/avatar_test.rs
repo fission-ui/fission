@@ -108,7 +108,7 @@ fn named_avatar_is_one_non_focusable_accessible_image() {
     let root = fission_core::internal::lower_widget(&widget, &mut lowering);
     lowering.set_root(root);
     let images = lowering
-        .ir
+        .ir()
         .nodes
         .values()
         .filter_map(|node| match &node.op {
@@ -136,7 +136,7 @@ fn unnamed_avatar_remains_decorative() {
     lowering.set_root(root);
 
     assert!(!lowering
-        .ir
+        .ir()
         .nodes
         .values()
         .any(|node| matches!(&node.op, Op::Semantics(semantics) if semantics.role == Role::Image)));
