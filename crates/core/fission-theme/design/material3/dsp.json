@@ -121,6 +121,192 @@
     ]
   },
   "components": {
+    "accordion": {
+      "$description": "Stacked disclosure sections with a header and revealed panel.",
+      "anatomy": ["header*", "indicator*", "panel*"],
+      "header": {
+        "padding": "{spacing.m}",
+        "gap": "{spacing.s}",
+        "background": "{color.light.surface}",
+        "border": "1px solid {color.light.border}",
+        "color": "{color.light.text_primary}"
+      },
+      "indicator": {
+        "color": "{color.light.text_secondary}",
+        "font_size": "{typography.font_size.xs}"
+      },
+      "panel": {
+        "padding": "{spacing.m}",
+        "background": "{color.light.background}",
+        "border": "1px solid {color.light.border}"
+      }
+    },
+    "breadcrumb": {
+      "$description": "Trail of ancestor links with directional separators.",
+      "anatomy": ["item*", "separator*"],
+      "gap": "{spacing.xs}",
+      "separator": {
+        "icon_size": "{spacing.m}",
+        "color": "{color.light.text_muted}"
+      },
+      "item": { "color": "{color.light.text_secondary}", "font_size": "{typography.font_size.base}" },
+      "current": { "color": "{color.light.text_primary}", "font_weight": "{typography.font_weight.medium}" }
+    },
+    "drawer": {
+      "$description": "Edge-anchored panel over a dismissal scrim.",
+      "anatomy": ["scrim", "panel"],
+      "scrim": { "background": "{color.light.on_background}" },
+      "panel": {
+        "background": "{color.light.surface}",
+        "box_shadow": "{elevation.level3}",
+        "width": "320px"
+      }
+    },
+    "popover": {
+      "$description": "Anchored surface holding transient content.",
+      "anatomy": ["surface"],
+      "background": "{color.light.surface}",
+      "border": "1px solid {color.light.border}",
+      "radius": "{radius.medium}",
+      "padding": "{spacing.s}",
+      "box_shadow": "{elevation.level2}"
+    },
+    "markdown": {
+      "$description": "Rendered prose with design-system typography.",
+      "anatomy": ["heading*", "paragraph*", "code*", "quote*"],
+      "gap": "{spacing.s}",
+      "paragraph": {
+        "color": "{color.light.text_primary}",
+        "font_size": "{typography.font_size.base}",
+        "line_height": "22px"
+      },
+      "heading": {
+        "color": "{color.light.heading}",
+        "font_weight": "{typography.font_weight.medium}"
+      },
+      "code": {
+        "background": "{color.light.surface_sunken}",
+        "radius": "{radius.small}",
+        "font_family": "{typography.font_family.mono}",
+        "font_size": "{typography.font_size.xs}"
+      },
+      "quote": {
+        "color": "{color.light.text_secondary}",
+        "border": "2px solid {color.light.border}",
+        "padding_x": "{spacing.s}"
+      }
+    },
+    "colour_picker": {
+      "$description": "Saturation field, hue slider and swatch previews.",
+      "anatomy": ["field", "slider*", "swatch*", "preview"],
+      "padding": "{spacing.s}",
+      "gap": "{spacing.s}",
+      "radius": "{radius.medium}",
+      "field": { "height": "92px", "radius": "{radius.small}" },
+      "swatch": { "size": "20px", "radius": "{radius.small}" },
+      "preview": { "width": "92px", "radius": "{radius.small}" }
+    },
+    "data_table": {
+      "$description": "Scrollable grid of records with selection.",
+      "anatomy": ["header", "row*", "cell*", "selection*"],
+      "border": "1px solid {color.light.border}",
+      "radius": "{radius.small}",
+      "header": {
+        "background": "{color.light.surface}",
+        "color": "{color.light.text_secondary}",
+        "font_size": "{typography.font_size.base}",
+        "font_weight": "{typography.font_weight.medium}",
+        "padding": "{spacing.s}"
+      },
+      "cell": {
+        "color": "{color.light.text_primary}",
+        "font_size": "{typography.font_size.base}",
+        "padding": "{spacing.s}"
+      },
+      "row": { "background": "{color.light.surface}" },
+      "selection": { "width": "40px" },
+      "divider": { "height": "1px", "background": "{color.light.divider}" }
+    },
+    "dropdown": {
+      "$description": "Trigger presenting the current selection.",
+      "anatomy": ["value", "indicator"],
+      "gap": "{spacing.s}",
+      "padding_x": "{spacing.s}",
+      "value": { "color": "{color.light.text_primary}", "font_size": "{typography.font_size.base}" },
+      "indicator": { "icon_size": "18px", "color": "{color.light.text_secondary}" }
+    },
+    "number_input": {
+      "$description": "Numeric field between stepping controls.",
+      "anatomy": ["decrement", "field", "increment"],
+      "gap": "{spacing.xs}",
+      "padding": "2px",
+      "background": "{color.light.background}",
+      "border": "1px solid {color.light.border}",
+      "radius": "{radius.medium}",
+      "stepper": { "size": "32px" }
+    },
+    "range_slider": {
+      "$description": "Two-thumb range over a track.",
+      "anatomy": ["track", "selected", "thumb*"],
+      "track": { "height": "4px", "background": "{color.light.border_strong}" },
+      "selected": { "height": "4px", "background": "{color.light.primary}" },
+      "thumb": { "size": "16px", "radius": "{radius.full}", "background": "{color.light.primary}" }
+    },
+    "split_view": {
+      "$description": "Two panes with a resizable separator.",
+      "anatomy": ["pane*", "handle"],
+      "handle": { "size": "8px", "background": "{color.light.border}" }
+    },
+    "spinner": {
+      "$description": "Indeterminate busy indicator.",
+      "anatomy": ["dot*"],
+      "gap": "6px",
+      "dot": { "size": "8px", "radius": "{radius.full}", "background": "{color.light.primary}" }
+    },
+    "circular_progress": {
+      "$description": "Ring showing determinate or indeterminate progress.",
+      "anatomy": ["track", "indicator"],
+      "size": "40px",
+      "track": { "background": "{color.light.border}" },
+      "indicator": { "background": "{color.light.primary}" },
+      "thickness": "4px"
+    },
+    "refresh_indicator": {
+      "$description": "Pull-to-refresh affordance above scrollable content.",
+      "anatomy": ["indicator"],
+      "indicator": { "size": "28px", "background": "{color.light.surface}", "box_shadow": "{elevation.level2}" }
+    },
+    "file_upload": {
+      "$description": "Browse control beside the current selection.",
+      "anatomy": ["browse", "filename"],
+      "gap": "{spacing.s}",
+      "filename": { "color": "{color.light.text_secondary}", "font_size": "{typography.font_size.base}" }
+    },
+    "hero": {
+      "$description": "Shared-element transition surface.",
+      "anatomy": ["surface"],
+      "radius": "{radius.large}"
+    },
+    "terminal": {
+      "$description": "Embedded character grid with its own key handling.",
+      "anatomy": ["surface"],
+      "background": "{color.light.background}",
+      "color": "{color.light.text_primary}",
+      "font_family": "{typography.font_family.mono}",
+      "font_size": "{typography.font_size.xs}",
+      "padding": "{spacing.xs}"
+    },
+    "time_picker": {
+      "$description": "Hour and minute steppers around a separator.",
+      "anatomy": ["hour", "separator", "minute"],
+      "gap": "{spacing.xs}",
+      "separator": { "color": "{color.light.text_secondary}", "font_size": "{typography.font_size.base}" }
+    },
+    "date_picker": {
+      "$description": "Trigger opening a calendar surface.",
+      "anatomy": ["trigger", "calendar"],
+      "trigger": { "height": "36px", "padding_x": "{spacing.s}" }
+    },
     "toast": {
       "$description": "Transient notification surface with a tone icon and dismissal control.",
       "anatomy": ["icon", "message", "dismiss?"],

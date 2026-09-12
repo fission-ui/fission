@@ -123,6 +123,7 @@ impl From<SplitView> for Widget {
 
         // Ensure ratio is clamped
         let ratio = this.split_ratio.clamp(0.1, 0.9);
+        let _handle_style = view.env().theme.recipe("split_view").part("handle");
         // The handle is a resizable separator, not decoration: it reports the
         // axis it splits and where it currently sits, so a reader knows the
         // panes are adjustable and by how much.

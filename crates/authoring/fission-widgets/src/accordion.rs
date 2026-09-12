@@ -7,6 +7,7 @@ use fission_core::motion::{
     deg, Motion, MotionEasing, MotionPropertyId, MotionStartValue, MotionTrack, MotionTransition,
     Presence,
 };
+use fission_core::op::Fill;
 use fission_core::ui::{
     Button, ButtonContentAlign, ButtonVariant, Container, SemanticsRegion, Text, TextContent,
     Widget,
@@ -203,6 +204,10 @@ impl From<Accordion> for Widget {
         let this = &component;
 
         let tokens = &view.env().theme.tokens;
+        let recipe = view.env().theme.recipe("accordion");
+        let header_style = recipe.part("header");
+        let panel_style = recipe.part("panel");
+        let indicator_style = recipe.part("indicator");
         let base_id = fission_core::build::current_widget_id()
             .unwrap_or_else(|| WidgetId::explicit("fission.widgets.accordion.motion"));
 
@@ -229,7 +234,11 @@ impl From<Accordion> for Widget {
                 .map(|motion| motion.plan(item.is_expanded));
             let mut indicator: Widget = Text {
                 content: TextContent::Literal(if item.is_expanded { "▼" } else { "▶" }.into()),
-                font_size: Some(tokens.typography.font_size_xs),
+                font_size: Some(
+                    indicator_style
+                        .font_size
+                        .unwrap_or(tokens.typography.font_size_xs),
+                ),
                 color: Some(tokens.colors.text_secondary),
                 ..Default::default()
             }
@@ -256,7 +265,7 @@ impl From<Accordion> for Widget {
                     content_align: ButtonContentAlign::Start,
                     child: Some(
                         Container::new(HStack {
-                            spacing: Some(8.0),
+                            spacing: Some(header_style.gap.unwrap_or(tokens.spacing.s)),
                             children: vec![
                                 // Expand icon (chevron)
                                 indicator,
@@ -270,8 +279,13 @@ impl From<Accordion> for Widget {
                                 .into(),
                             ],
                         })
-                        .padding_all(tokens.spacing.m)
-                        .bg(tokens.colors.surface)
+                        .padding(header_style.padding_box(tokens.spacing.m, tokens.spacing.m))
+                        .bg_fill(
+                            header_style
+                                .background
+                                .clone()
+                                .unwrap_or(Fill::Solid(tokens.colors.surface)),
+                        )
                         .border(tokens.colors.border, 1.0)
                         .into(),
                     ),
@@ -292,8 +306,13 @@ impl From<Accordion> for Widget {
             if item.is_expanded || this.motion.is_some() {
                 let mut panel: Widget = SemanticsRegion::new(
                     Container::new(item.content.clone())
-                        .padding_all(tokens.spacing.m)
-                        .bg(tokens.colors.background)
+                        .padding(panel_style.padding_box(tokens.spacing.m, tokens.spacing.m))
+                        .bg_fill(
+                            panel_style
+                                .background
+                                .clone()
+                                .unwrap_or(Fill::Solid(tokens.colors.background)),
+                        )
                         .border(tokens.colors.border, 1.0),
                 )
                 .id(panel_semantics_id)

@@ -38,23 +38,34 @@ impl From<DropDown> for Widget {
 
         let button_text = this.selected.as_deref().unwrap_or("Select an option");
         let tokens = &view.env().theme.tokens;
+        let recipe = view.env().theme.recipe("dropdown");
+        let value_style = recipe.part("value");
+        let indicator_style = recipe.part("indicator");
 
         Button {
             variant: fission_core::ui::ButtonVariant::Outline,
             child: Some(
                 HStack {
-                    spacing: Some(8.0),
+                    spacing: Some(recipe.base.gap.unwrap_or(tokens.spacing.s)),
                     children: vec![
                         Text {
                             content: TextContent::Literal(button_text.into()),
-                            font_size: Some(14.0),
+                            font_size: Some(
+                                value_style
+                                    .font_size
+                                    .unwrap_or(tokens.typography.body_medium_size),
+                            ),
                             color: Some(tokens.colors.text_primary),
                             ..Default::default()
                         }
                         .into(),
                         Icon::svg(material::navigation::expand_more::regular())
-                            .size(18.0)
-                            .color(tokens.colors.text_secondary)
+                            .size(indicator_style.icon_size.unwrap_or(18.0))
+                            .color(
+                                indicator_style
+                                    .text_color
+                                    .unwrap_or(tokens.colors.text_secondary),
+                            )
                             .into(),
                     ],
                 }

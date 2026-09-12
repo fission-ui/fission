@@ -63,6 +63,25 @@ pub fn generate(config: Config) -> Result<PathBuf> {
 /// to every design system under `crates/core/fission-theme/design/`, and adding
 /// the name here so the next one cannot be forgotten.
 const REQUIRED_COMPONENT_RECIPES: &[&str] = &[
+    "accordion",
+    "breadcrumb",
+    "circular_progress",
+    "colour_picker",
+    "data_table",
+    "date_picker",
+    "drawer",
+    "dropdown",
+    "file_upload",
+    "hero",
+    "markdown",
+    "number_input",
+    "popover",
+    "range_slider",
+    "refresh_indicator",
+    "spinner",
+    "split_view",
+    "terminal",
+    "time_picker",
     "alert",
     "avatar",
     "avatar_group",
@@ -2378,14 +2397,17 @@ impl {krate}::DesignSystem for {type_name} {{
                 continue;
             };
             entries.push(format!(
-                "({}.to_string(), {})",
+                "recipes.insert({}.to_string(), {});",
                 rust_string(name),
                 self.component_recipe_expr(krate, mode, recipe)?
             ));
         }
+        // Built with successive inserts rather than one array literal: a
+        // literal holding every recipe is a single enormous temporary, and
+        // materialising it overflows the stack on a normal thread.
         Ok(format!(
-            "[{}].into_iter().collect::<std::collections::BTreeMap<_, _>>()",
-            entries.join(",")
+            "{{ let mut recipes = std::collections::BTreeMap::new(); {} recipes }}",
+            entries.join(" ")
         ))
     }
 

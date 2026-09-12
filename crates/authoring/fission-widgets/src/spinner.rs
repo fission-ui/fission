@@ -86,6 +86,7 @@ impl From<Spinner> for Widget {
         let this = &component;
 
         let tokens = &view.env().theme.tokens;
+        let recipe = view.env().theme.recipe("spinner");
         let color = this.color.unwrap_or(tokens.colors.primary);
         let dot_size = 10.0;
 
@@ -121,7 +122,7 @@ impl From<Spinner> for Widget {
         // A spinner says "still working" to a sighted user and nothing to
         // anyone else. Role::Status announces that without stealing focus.
         SemanticsRegion::new(HStack {
-            spacing: Some(6.0),
+            spacing: Some(recipe.base.gap.unwrap_or(6.0)),
             children: dots,
         })
         .role(Role::Status)

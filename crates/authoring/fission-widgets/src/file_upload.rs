@@ -30,6 +30,7 @@ impl From<FileUpload> for Widget {
         let this = &component;
 
         let tokens = &view.env().theme.tokens;
+        let recipe = view.env().theme.recipe("file_upload");
 
         let mut browse_button = Button {
             variant: ButtonVariant::Outline,
@@ -53,7 +54,7 @@ impl From<FileUpload> for Widget {
         }
 
         SemanticsRegion::new(HStack {
-            spacing: Some(8.0),
+            spacing: Some(recipe.base.gap.unwrap_or(tokens.spacing.s)),
             children: vec![
                 browse_button.into(),
                 Text::new(

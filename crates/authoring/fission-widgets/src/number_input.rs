@@ -69,6 +69,7 @@ impl From<NumberInput> for Widget {
         let this = &component;
 
         let tokens = &view.env().theme.tokens;
+        let recipe = view.env().theme.recipe("number_input");
         let display_text = this
             .display_text
             .clone()
@@ -77,7 +78,11 @@ impl From<NumberInput> for Widget {
         let field_width = this
             .field_width
             .unwrap_or((glyph_count * 10.0 + 20.0).clamp(52.0, 96.0));
-        let button_size = this.button_size.unwrap_or(32.0).max(28.0);
+        let button_size = this
+            .button_size
+            .or(recipe.part("stepper").width)
+            .unwrap_or(32.0)
+            .max(28.0);
         let icon_size = (button_size * 0.5).clamp(14.0, 18.0);
         let input_id = this
             .id
@@ -87,7 +92,7 @@ impl From<NumberInput> for Widget {
         let display_value = display_text.clone();
         let field = Container::new(
             Row::default()
-                .gap(this.gap.unwrap_or(4.0))
+                .gap(this.gap.or(recipe.base.gap).unwrap_or(4.0))
                 .align_items(fission_ir::op::AlignItems::Center)
                 .children(vec![
                     SemanticsRegion::new(Button {
@@ -134,10 +139,16 @@ impl From<NumberInput> for Widget {
                     .into(),
                 ]),
         )
-        .padding_all(2.0)
-        .bg(tokens.colors.background)
+        .padding(recipe.base.padding_box(2.0, 2.0))
+        .bg_fill(
+            recipe
+                .base
+                .background
+                .clone()
+                .unwrap_or(fission_core::op::Fill::Solid(tokens.colors.background)),
+        )
         .border(tokens.colors.border, 1.0)
-        .border_radius(tokens.radii.medium);
+        .border_radius(recipe.base.radius.unwrap_or(tokens.radii.medium));
 
         // A stepper over a number is a spin button: the group reports the value
         // and its bounds, so a reader hears the number and how far it can go

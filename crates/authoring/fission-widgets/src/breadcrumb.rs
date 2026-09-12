@@ -151,6 +151,7 @@ impl From<BreadcrumbLayout> for Widget {
     fn from(component: BreadcrumbLayout) -> Self {
         let (_, view) = fission_core::build::current::<()>();
         let tokens = &view.env().theme.tokens;
+        let separator_style = view.env().theme.recipe("breadcrumb").part("separator");
         let root_id = component
             .id
             .or_else(|| fission_core::build::next_implicit_widget_id(IMPLICIT_BREADCRUMB_ID_SALT))
@@ -168,7 +169,7 @@ impl From<BreadcrumbLayout> for Widget {
                         material::navigation::chevron_right::regular(),
                         material::navigation::chevron_left::regular(),
                     )
-                    .size(16.0)
+                    .size(separator_style.icon_size.unwrap_or(tokens.spacing.m))
                     .color(tokens.colors.text_secondary)
                     .into()
                 });
