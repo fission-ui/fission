@@ -69,7 +69,10 @@ impl From<NumberInput> for Widget {
         let this = &component;
 
         let tokens = &view.env().theme.tokens;
-        let recipe = view.env().theme.recipe("number_input");
+        let recipe = view
+            .env()
+            .theme
+            .recipe(fission_theme::recipe_names::NUMBER_INPUT);
         let display_text = this
             .display_text
             .clone()

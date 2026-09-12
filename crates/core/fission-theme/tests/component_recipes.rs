@@ -30,41 +30,28 @@ fn systems() -> Vec<(&'static str, Theme)> {
 
 #[test]
 fn every_supplied_system_declares_the_required_recipes() {
-    // Mirrors REQUIRED_COMPONENT_RECIPES in the codegen. A widget reading one of
-    // these can rely on it being present in any supplied design system.
-    let required = [
-        "alert",
-        "avatar",
-        "avatar_group",
-        "badge",
-        "button",
-        "card",
-        "code",
-        "divider",
-        "empty_state",
-        "feature_icon",
-        "input",
-        "menu",
-        "modal",
-        "pagination",
-        "progress_bar",
-        "select",
-        "skeleton",
-        "stat",
-        "stepper",
-        "tabs",
-        "tag",
-        "toast",
-        "tooltip",
-    ];
+    // A widget reading one of these can rely on it being present in any
+    // supplied design system.
     for (name, theme) in systems() {
-        for recipe in required {
+        for recipe in fission_theme::recipe_names::REQUIRED {
             assert!(
                 theme.try_recipe(recipe).is_some(),
                 "{name} should declare a {recipe} recipe"
             );
         }
     }
+}
+
+#[test]
+fn recipe_names_match_the_codegen_requirement() {
+    let mut named = fission_theme::recipe_names::REQUIRED.to_vec();
+    let mut required = fission_design_system_codegen::REQUIRED_COMPONENT_RECIPES.to_vec();
+    named.sort_unstable();
+    required.sort_unstable();
+    assert_eq!(
+        named, required,
+        "fission_theme::recipe_names must name exactly the recipes the codegen requires"
+    );
 }
 
 #[test]

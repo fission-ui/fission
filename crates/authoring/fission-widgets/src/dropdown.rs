@@ -38,7 +38,10 @@ impl From<DropDown> for Widget {
 
         let button_text = this.selected.as_deref().unwrap_or("Select an option");
         let tokens = &view.env().theme.tokens;
-        let recipe = view.env().theme.recipe("dropdown");
+        let recipe = view
+            .env()
+            .theme
+            .recipe(fission_theme::recipe_names::DROPDOWN);
         let value_style = recipe.part("value");
         let indicator_style = recipe.part("indicator");
 

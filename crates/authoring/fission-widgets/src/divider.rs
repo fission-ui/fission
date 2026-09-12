@@ -42,7 +42,10 @@ impl From<Divider> for Widget {
 
         let tokens = &view.env().theme.tokens;
 
-        let recipe = view.env().theme.recipe("divider");
+        let recipe = view
+            .env()
+            .theme
+            .recipe(fission_theme::recipe_names::DIVIDER);
         let thickness = this
             .thickness
             .or(recipe.base.height)
@@ -50,7 +53,7 @@ impl From<Divider> for Widget {
             .max(0.0);
         let color = this
             .color
-            .or_else(|| match recipe.base.background {
+            .or(match recipe.base.background {
                 Some(fission_core::op::Fill::Solid(color)) => Some(color),
                 _ => None,
             })

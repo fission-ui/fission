@@ -30,7 +30,10 @@ impl From<FileUpload> for Widget {
         let this = &component;
 
         let tokens = &view.env().theme.tokens;
-        let recipe = view.env().theme.recipe("file_upload");
+        let recipe = view
+            .env()
+            .theme
+            .recipe(fission_theme::recipe_names::FILE_UPLOAD);
 
         let mut browse_button = Button {
             variant: ButtonVariant::Outline,

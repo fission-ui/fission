@@ -23,7 +23,7 @@ impl From<Stat> for Widget {
         let this = &component;
 
         let tokens = &view.env().theme.tokens;
-        let recipe = view.env().theme.recipe("stat");
+        let recipe = view.env().theme.recipe(fission_theme::recipe_names::STAT);
 
         let mut children = vec![
             Text::new(this.label.clone())

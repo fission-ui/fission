@@ -23,7 +23,7 @@ impl From<Tag> for Widget {
         let this = &component;
 
         let tokens = &view.env().theme.tokens;
-        let recipe = view.env().theme.recipe("tag");
+        let recipe = view.env().theme.recipe(fission_theme::recipe_names::TAG);
 
         let mut children = vec![Text {
             content: TextContent::Literal(this.label.clone()),

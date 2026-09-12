@@ -151,7 +151,11 @@ impl From<BreadcrumbLayout> for Widget {
     fn from(component: BreadcrumbLayout) -> Self {
         let (_, view) = fission_core::build::current::<()>();
         let tokens = &view.env().theme.tokens;
-        let separator_style = view.env().theme.recipe("breadcrumb").part("separator");
+        let separator_style = view
+            .env()
+            .theme
+            .recipe(fission_theme::recipe_names::BREADCRUMB)
+            .part("separator");
         let root_id = component
             .id
             .or_else(|| fission_core::build::next_implicit_widget_id(IMPLICIT_BREADCRUMB_ID_SALT))

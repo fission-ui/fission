@@ -181,7 +181,7 @@ impl From<Toast> for Widget {
         let this = &component;
 
         let tokens = &view.env().theme.tokens;
-        let recipe = view.env().theme.recipe("toast");
+        let recipe = view.env().theme.recipe(fission_theme::recipe_names::TOAST);
 
         let (icon_path, icon_color) = match this.kind {
             ToastKind::Info => (material::action::info::regular(), tokens.colors.primary),

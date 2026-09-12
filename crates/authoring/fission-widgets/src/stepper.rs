@@ -22,7 +22,10 @@ impl From<Stepper> for Widget {
             return fission_core::ui::widgets::Spacer::default().into();
         }
 
-        let recipe = view.env().theme.recipe("stepper");
+        let recipe = view
+            .env()
+            .theme
+            .recipe(fission_theme::recipe_names::STEPPER);
         let node_style = recipe.part("node");
         let connector_style = recipe.part("connector");
         let label_style = recipe.part("label");

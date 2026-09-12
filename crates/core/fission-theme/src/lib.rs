@@ -3698,6 +3698,104 @@ impl ComponentTheme {
     }
 }
 
+/// Names of the component recipes widgets read.
+///
+/// Read a recipe through one of these rather than a string literal, so a
+/// misspelt component name is a compile error instead of a silently empty
+/// recipe. Every design system Fission supplies declares all of
+/// [`REQUIRED`](recipe_names::REQUIRED), and a test holds that list to the one
+/// the design system codegen enforces.
+pub mod recipe_names {
+    pub const ACCORDION: &str = "accordion";
+    pub const BREADCRUMB: &str = "breadcrumb";
+    pub const CIRCULAR_PROGRESS: &str = "circular_progress";
+    pub const COLOUR_PICKER: &str = "colour_picker";
+    pub const DATA_TABLE: &str = "data_table";
+    pub const DATE_PICKER: &str = "date_picker";
+    pub const DRAWER: &str = "drawer";
+    pub const DROPDOWN: &str = "dropdown";
+    pub const FILE_UPLOAD: &str = "file_upload";
+    pub const HERO: &str = "hero";
+    pub const MARKDOWN: &str = "markdown";
+    pub const NUMBER_INPUT: &str = "number_input";
+    pub const POPOVER: &str = "popover";
+    pub const RANGE_SLIDER: &str = "range_slider";
+    pub const REFRESH_INDICATOR: &str = "refresh_indicator";
+    pub const SPINNER: &str = "spinner";
+    pub const SPLIT_VIEW: &str = "split_view";
+    pub const TERMINAL: &str = "terminal";
+    pub const TIME_PICKER: &str = "time_picker";
+    pub const ALERT: &str = "alert";
+    pub const AVATAR: &str = "avatar";
+    pub const AVATAR_GROUP: &str = "avatar_group";
+    pub const BADGE: &str = "badge";
+    pub const BUTTON: &str = "button";
+    pub const CARD: &str = "card";
+    pub const CODE: &str = "code";
+    pub const DIVIDER: &str = "divider";
+    pub const EMPTY_STATE: &str = "empty_state";
+    pub const FEATURE_ICON: &str = "feature_icon";
+    pub const INPUT: &str = "input";
+    pub const MENU: &str = "menu";
+    pub const MODAL: &str = "modal";
+    pub const PAGINATION: &str = "pagination";
+    pub const PROGRESS_BAR: &str = "progress_bar";
+    pub const SKELETON: &str = "skeleton";
+    pub const SELECT: &str = "select";
+    pub const STAT: &str = "stat";
+    pub const STEPPER: &str = "stepper";
+    pub const TABS: &str = "tabs";
+    pub const TAG: &str = "tag";
+    pub const TOAST: &str = "toast";
+    pub const TOOLTIP: &str = "tooltip";
+
+    /// The recipes every supplied design system must declare.
+    pub const REQUIRED: &[&str] = &[
+        ACCORDION,
+        BREADCRUMB,
+        CIRCULAR_PROGRESS,
+        COLOUR_PICKER,
+        DATA_TABLE,
+        DATE_PICKER,
+        DRAWER,
+        DROPDOWN,
+        FILE_UPLOAD,
+        HERO,
+        MARKDOWN,
+        NUMBER_INPUT,
+        POPOVER,
+        RANGE_SLIDER,
+        REFRESH_INDICATOR,
+        SPINNER,
+        SPLIT_VIEW,
+        TERMINAL,
+        TIME_PICKER,
+        ALERT,
+        AVATAR,
+        AVATAR_GROUP,
+        BADGE,
+        BUTTON,
+        CARD,
+        CODE,
+        DIVIDER,
+        EMPTY_STATE,
+        FEATURE_ICON,
+        INPUT,
+        MENU,
+        MODAL,
+        PAGINATION,
+        PROGRESS_BAR,
+        SKELETON,
+        SELECT,
+        STAT,
+        STEPPER,
+        TABS,
+        TAG,
+        TOAST,
+        TOOLTIP,
+    ];
+}
+
 /// The top-level theme combining primitive [`Tokens`] and derived [`ComponentTheme`].
 ///
 /// Use [`Theme::default()`] for light mode and [`Theme::dark()`] for dark mode.

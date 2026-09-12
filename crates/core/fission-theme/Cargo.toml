@@ -33,6 +33,7 @@ fission-ir = { path = "../fission-ir", version = "0.14.1" }
 serde = { version = "1.0", features = ["derive", "rc"] }
 
 [dev-dependencies]
+fission-design-system-codegen = { path = "../../tools/fission-design-system-codegen" }
 serde_json = "1.0"
 
 [build-dependencies]
