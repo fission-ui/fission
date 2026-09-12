@@ -11,6 +11,70 @@
 use crate::WidgetId;
 use serde::{Deserialize, Serialize};
 
+/// A keyboard key, independent of layout and platform.
+///
+/// This lives in the IR rather than in the runtime because a semantic node can
+/// declare that it responds to a key. Without that, only the runtime's built-in
+/// contracts could handle keys, and no application or third-party widget could
+/// author a keyboard-driven control of its own.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum KeyCode {
+    Space,
+    Enter,
+    Escape,
+    Backspace,
+    Delete,
+    Tab,
+    Left,
+    Right,
+    Up,
+    Down,
+    Home,
+    End,
+    PageUp,
+    PageDown,
+    /// A printable character.
+    Char(char),
+}
+
+/// Shift modifier bit.
+pub const MOD_SHIFT: u8 = 1;
+/// Alt/Option modifier bit.
+pub const MOD_ALT: u8 = 2;
+/// Control modifier bit.
+pub const MOD_CTRL: u8 = 4;
+/// Super/Meta/Command modifier bit.
+pub const MOD_SUPER: u8 = 8;
+
+/// A key plus the modifiers that must be held with it.
+///
+/// `modifiers` is an exact match, so a binding for Enter does not fire for
+/// Ctrl+Enter. Use [`MOD_SHIFT`] and friends to build the mask.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct KeyBinding {
+    /// The key that triggers this action.
+    pub key: KeyCode,
+    /// Exact modifier bitmask required alongside the key.
+    pub modifiers: u8,
+}
+
+impl KeyBinding {
+    /// A binding with no modifiers held.
+    pub fn new(key: KeyCode) -> Self {
+        Self { key, modifiers: 0 }
+    }
+
+    /// A binding requiring an exact modifier mask.
+    pub fn with_modifiers(key: KeyCode, modifiers: u8) -> Self {
+        Self { key, modifiers }
+    }
+
+    /// Whether a key press matches this binding.
+    pub fn matches(&self, key: &KeyCode, modifiers: u8) -> bool {
+        self.key == *key && self.modifiers == modifiers
+    }
+}
+
 /// The accessibility role of a node.
 ///
 /// Roles tell screen readers and other assistive technology what kind of control a
