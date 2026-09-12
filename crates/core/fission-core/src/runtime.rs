@@ -1815,11 +1815,9 @@ impl Runtime {
                         .find(|entry| {
                             entry.trigger == fission_ir::semantics::ActionTrigger::Default
                         })
-                        .and_then(|entry| {
-                            entry.payload_data.as_ref().map(|payload| ActionEnvelope {
-                                id: ActionId::from_u128(entry.action_id),
-                                payload: payload.clone(),
-                            })
+                        .map(|entry| ActionEnvelope {
+                            id: ActionId::from_u128(entry.action_id),
+                            payload: entry.payload_data.clone().unwrap_or_default(),
                         }),
                     _ => None,
                 });
@@ -2377,13 +2375,15 @@ impl Runtime {
                                             entry.trigger
                                                 == fission_ir::semantics::ActionTrigger::Default
                                         })
-                                        .and_then(|entry| {
-                                            entry.payload_data.as_ref().map(|payload| {
-                                                ActionEnvelope {
-                                                    id: ActionId::from_u128(entry.action_id),
-                                                    payload: payload.clone(),
-                                                }
-                                            })
+                                        // An action without a payload is
+                                        // still an action. Requiring one
+                                        // here made Enter and Space do
+                                        // nothing on every control whose
+                                        // handler takes no data, which is
+                                        // most of them.
+                                        .map(|entry| ActionEnvelope {
+                                            id: ActionId::from_u128(entry.action_id),
+                                            payload: entry.payload_data.clone().unwrap_or_default(),
                                         });
                                     let hyperlink = semantics.hyperlink.clone();
                                     if action_entry.is_some() || hyperlink.is_some() {
