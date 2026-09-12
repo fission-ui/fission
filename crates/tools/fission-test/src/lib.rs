@@ -491,8 +491,8 @@ impl<S: GlobalState> TestHarness<S> {
                     self.last_snapshot.as_ref(),
                 );
                 let root_id = fission_core::internal::lower_widget(&node_tree, &mut cx);
-                cx.ir.root = Some(root_id);
-                (cx.ir, root_id)
+                cx.set_root(root_id);
+                (cx.into_ir(), root_id)
             };
             self.runtime.reconcile_focus(&ir)?;
 
