@@ -39,7 +39,7 @@ fn lower(widget: &Widget, env: &Env, runtime: &RuntimeState) -> fission_ir::Core
 
 fn primary_states(env: &mut Env) -> &mut fission_theme::ComponentStateStyles {
     env.theme
-        .components
+        .components_mut()
         .button
         .hierarchies
         .iter_mut()
@@ -63,7 +63,7 @@ fn install_linear_transition_recipe(env: &mut Env) {
         duration_ms: 100,
         easing: EasingCurve::Linear,
     };
-    env.theme.components.button.transition = Some(transition.clone());
+    env.theme.components_mut().button.transition = Some(transition.clone());
     let states = primary_states(env);
     states.default = ResolvedComponentStyle {
         background: Some(Fill::Solid(Color::BLACK)),
@@ -220,7 +220,7 @@ fn button_recipe_registers_and_consumes_paint_state_transitions() {
 fn button_recipe_without_a_transition_keeps_state_paint_immediate() {
     let id = WidgetId::explicit("button.immediate-recipe");
     let mut env = Env::default();
-    env.theme.components.button.transition = None;
+    env.theme.components_mut().button.transition = None;
     let states = primary_states(&mut env);
     states.default.transition = None;
     states.default.background = Some(Fill::Solid(Color::BLACK));

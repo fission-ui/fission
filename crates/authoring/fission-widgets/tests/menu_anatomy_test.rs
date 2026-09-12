@@ -64,7 +64,7 @@ fn composed_menu_anatomy_uses_one_recipe_and_keeps_disabled_items_inert() {
     let separator_id = WidgetId::derived(content_id.as_u128(), &[0x5345_5052, 1]);
 
     let mut env = Env::default();
-    let menu = &mut env.theme.components.menu;
+    let menu = &mut env.theme.components_mut().menu;
     menu.surface_style.width = Some(244.0);
     menu.surface_style.padding = Some([5.0; 4]);
     menu.surface_style.radius = Some(13.0);
@@ -223,7 +223,7 @@ fn legacy_menu_items_lower_into_the_same_action_item_recipe() {
     use fission_widgets::{Menu, MenuItem};
 
     let mut env = Env::default();
-    env.theme.components.menu.item_states.default.height = Some(41.0);
+    env.theme.components_mut().menu.item_states.default.height = Some(41.0);
     let ir = build_widget(&env, || {
         Menu {
             items: vec![MenuItem {

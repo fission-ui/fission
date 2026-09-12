@@ -298,7 +298,7 @@ impl {krate}::DesignSystem for {type_name} {{
                     motion: {motion},
                     data_visualization: {data_visualization},
                 }};
-                let components = {components};
+                let components = std::sync::Arc::new({components});
                 let design_system = {krate}::ResolvedDesignSystem {{
                     mode: {krate}::DesignMode::{mode_name},
                     info: <{type_placeholder} as {krate}::DesignSystem>::info().clone(),

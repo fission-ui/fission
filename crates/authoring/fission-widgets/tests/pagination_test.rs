@@ -53,9 +53,13 @@ fn pagination_geometry_and_current_page_come_from_component_recipe() {
         b: 67,
         a: 255,
     };
-    env.theme.components.pagination.item_style.width = Some(31.0);
-    env.theme.components.pagination.item_style.height = Some(29.0);
-    env.theme.components.pagination.selected_style.background = Some(Fill::Solid(selected));
+    env.theme.components_mut().pagination.item_style.width = Some(31.0);
+    env.theme.components_mut().pagination.item_style.height = Some(29.0);
+    env.theme
+        .components_mut()
+        .pagination
+        .selected_style
+        .background = Some(Fill::Solid(selected));
 
     let widget = build_pagination(&env, 1, 5);
     let row = fission_core::internal::widget_as_row(&widget).expect("pagination row");

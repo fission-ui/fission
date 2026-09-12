@@ -45,8 +45,8 @@ fn supplied_icon_uses_empty_state_recipe_defaults_without_losing_explicit_overri
         b: 86,
         a: 255,
     };
-    env.theme.components.empty_state.icon_style.icon_size = Some(17.0);
-    env.theme.components.empty_state.icon_style.text_color = Some(recipe_color);
+    env.theme.components_mut().empty_state.icon_style.icon_size = Some(17.0);
+    env.theme.components_mut().empty_state.icon_style.text_color = Some(recipe_color);
 
     let widget = build_empty_state_with_icon(
         &env,
@@ -151,13 +151,13 @@ fn empty_state_uses_a_bounded_token_driven_panel() {
 #[test]
 fn empty_state_composes_the_theme_owned_narrow_surface_below_its_breakpoint() {
     let mut env = Env::default();
-    env.theme.components.empty_state.surface_style.padding = Some([9.0, 11.0, 13.0, 15.0]);
+    env.theme.components_mut().empty_state.surface_style.padding = Some([9.0, 11.0, 13.0, 15.0]);
     env.theme
-        .components
+        .components_mut()
         .empty_state
         .narrow_surface_style
         .min_height = Some(127.0);
-    env.theme.components.empty_state.narrow_breakpoint = 500.0;
+    env.theme.components_mut().empty_state.narrow_breakpoint = 500.0;
     env.viewport_size = LayoutSize::new(499.0, 700.0);
 
     let widget = build_empty_state(&env, None, None);

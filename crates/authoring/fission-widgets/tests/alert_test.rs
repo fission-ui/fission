@@ -225,12 +225,12 @@ fn alert_surface_and_tone_resolve_from_component_recipe() {
         b: 214,
         a: 255,
     };
-    env.theme.components.alert.surface_style.background = Some(Fill::Solid(surface));
-    env.theme.components.alert.surface_style.padding = Some([3.0, 5.0, 7.0, 11.0]);
-    env.theme.components.alert.surface_style.min_height = Some(47.0);
-    env.theme.components.alert.info_style.background = Some(Fill::Solid(surface));
-    env.theme.components.alert.info_style.text_color = Some(tone);
-    env.theme.components.alert.icon_style.translate_y = Some(-3.5);
+    env.theme.components_mut().alert.surface_style.background = Some(Fill::Solid(surface));
+    env.theme.components_mut().alert.surface_style.padding = Some([3.0, 5.0, 7.0, 11.0]);
+    env.theme.components_mut().alert.surface_style.min_height = Some(47.0);
+    env.theme.components_mut().alert.info_style.background = Some(Fill::Solid(surface));
+    env.theme.components_mut().alert.info_style.text_color = Some(tone);
+    env.theme.components_mut().alert.icon_style.translate_y = Some(-3.5);
 
     let widget = build_alert(&env, AlertKind::Info, Some("Supporting detail"));
     let container = root_container(&widget);

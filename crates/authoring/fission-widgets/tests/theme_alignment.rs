@@ -143,10 +143,11 @@ fn code_uses_the_active_component_recipe_and_monospace_family() {
         b: 43,
         a: 255,
     };
-    env.theme.components.code.style.background = Some(fission_ir::op::Fill::Solid(background));
-    env.theme.components.code.style.font_family = Some("Fixture Mono".into());
-    env.theme.components.code.style.font_size = Some(13.0);
-    env.theme.components.code.style.padding = Some([7.0, 9.0, 3.0, 5.0]);
+    env.theme.components_mut().code.style.background =
+        Some(fission_ir::op::Fill::Solid(background));
+    env.theme.components_mut().code.style.font_family = Some("Fixture Mono".into());
+    env.theme.components_mut().code.style.font_size = Some(13.0);
+    env.theme.components_mut().code.style.padding = Some([7.0, 9.0, 3.0, 5.0]);
 
     let (ir, _) = build_widget_ir(
         Code {

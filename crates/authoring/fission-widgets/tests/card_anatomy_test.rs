@@ -61,7 +61,7 @@ fn contains_text(ir: &CoreIR, expected_text: &str) -> bool {
 fn sectioned_card_uses_edge_to_edge_separators_and_region_padding() {
     let mut env = Env::default();
     env.theme
-        .components
+        .components_mut()
         .card
         .sizes
         .iter_mut()
@@ -160,7 +160,7 @@ fn card_anatomy_preserves_custom_title_content_and_actions() {
 #[test]
 fn standard_card_heading_text_uses_active_typography_tokens() {
     let mut env = Env::default();
-    let card_theme = &mut env.theme.components.card;
+    let card_theme = &mut &mut env.theme.components_mut().card;
     let medium = &mut card_theme
         .sizes
         .iter_mut()
@@ -198,15 +198,15 @@ fn standard_card_heading_text_uses_active_typography_tokens() {
 #[test]
 fn legacy_card_keeps_resolved_content_padding_and_single_child_contract() {
     let mut env = Env::default();
-    let plain = &mut env
+    let plain = env
         .theme
-        .components
+        .components_mut()
         .card
         .patterns
         .iter_mut()
         .find(|(pattern, _)| *pattern == CardPattern::Plain)
-        .expect("plain card recipe")
-        .1;
+        .expect("plain card recipe");
+    let plain = &mut plain.1;
     plain.padding_x = Some(19.0);
     plain.padding_y = Some(19.0);
     let card_id = WidgetId::explicit("card.legacy");
@@ -351,11 +351,11 @@ fn footer_uses_theme_tint_gap_and_full_width_separator() {
         b: 66,
         a: 255,
     };
-    env.theme.components.card.footer_style.background = Some(Fill::Solid(footer_tint));
-    env.theme.components.card.footer_style.gap = Some(11.0);
-    let separator = env
+    env.theme.components_mut().card.footer_style.background = Some(Fill::Solid(footer_tint));
+    env.theme.components_mut().card.footer_style.gap = Some(11.0);
+    let separator = &mut env
         .theme
-        .components
+        .components_mut()
         .card
         .footer_style
         .border
@@ -421,10 +421,10 @@ fn separated_footer_falls_back_to_the_shared_section_boundary_recipe() {
         b: 129,
         a: 255,
     };
-    env.theme.components.card.footer_style.border = None;
-    let separator = env
+    env.theme.components_mut().card.footer_style.border = None;
+    let separator = &mut env
         .theme
-        .components
+        .components_mut()
         .card
         .separator_style
         .border
@@ -467,7 +467,7 @@ fn card_layout_supports_controlled_selection_and_inset_separators() {
         a: 255,
     };
     let mut env = Env::default();
-    env.theme.components.card.selected_style.border = Some(ComponentBorder {
+    env.theme.components_mut().card.selected_style.border = Some(ComponentBorder {
         fill: Fill::Solid(selected_tint),
         width: 2.0,
     });
@@ -519,13 +519,21 @@ fn selected_card_indicator_uses_the_logical_leading_edge() {
     ] {
         let mut env = Env::default();
         env.layout_direction = direction;
-        env.theme.components.card.selected_indicator_style.width = Some(5.0);
         env.theme
-            .components
+            .components_mut()
+            .card
+            .selected_indicator_style
+            .width = Some(5.0);
+        env.theme
+            .components_mut()
             .card
             .selected_indicator_style
             .background = Some(Fill::Solid(accent));
-        env.theme.components.card.selected_indicator_style.margin = Some([0.0, 0.0, 3.0, 7.0]);
+        env.theme
+            .components_mut()
+            .card
+            .selected_indicator_style
+            .margin = Some([0.0, 0.0, 3.0, 7.0]);
 
         let ir = lower(&env, || {
             CardLayout::new()
@@ -562,7 +570,11 @@ fn selected_card_indicator_uses_the_logical_leading_edge() {
 fn card_indicator_is_absent_when_unselected_or_disabled_by_recipe() {
     for (selected, width) in [(false, Some(4.0)), (true, None)] {
         let mut env = Env::default();
-        env.theme.components.card.selected_indicator_style.width = width;
+        env.theme
+            .components_mut()
+            .card
+            .selected_indicator_style
+            .width = width;
         let ir = lower(&env, || {
             Card {
                 child: Text::new("Card").into(),
@@ -586,7 +598,7 @@ fn card_indicator_is_absent_when_unselected_or_disabled_by_recipe() {
 #[test]
 fn card_separator_uses_recipe_margin_when_layout_has_no_override() {
     let mut env = Env::default();
-    env.theme.components.card.separator_style.margin = Some([12.0, 13.0, 2.0, 3.0]);
+    env.theme.components_mut().card.separator_style.margin = Some([12.0, 13.0, 2.0, 3.0]);
     let ir = lower(&env, || {
         CardLayout::new()
             .header(CardHeader::new(CardTitle::new("Header")))

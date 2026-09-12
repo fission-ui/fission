@@ -69,8 +69,8 @@ fn avatar_uses_the_active_fallback_colors() {
         a: 255,
     };
     let mut env = Env::default();
-    env.theme.components.avatar.fallback_style.background = Some(Fill::Solid(background));
-    env.theme.components.avatar.fallback_style.text_color = Some(foreground);
+    env.theme.components_mut().avatar.fallback_style.background = Some(Fill::Solid(background));
+    env.theme.components_mut().avatar.fallback_style.text_color = Some(foreground);
     let widget = build_avatar_with_env(Avatar::default(), &env);
     let container = fission_core::internal::widget_as_container(&widget).expect("avatar container");
     assert_eq!(container.background_fill, Some(Fill::Solid(background)));

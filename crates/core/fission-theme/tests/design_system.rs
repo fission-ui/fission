@@ -47,10 +47,10 @@ fn token_derived_card_patterns_and_selection_are_coherent() {
     let tokens = Tokens::default();
     let card = CardTheme::from_tokens(&tokens);
     let theme = Theme {
-        components: ComponentTheme {
+        components: std::sync::Arc::new(ComponentTheme {
             card,
             ..ComponentTheme::from_tokens(&tokens)
-        },
+        }),
         tokens,
         ..Theme::default()
     };

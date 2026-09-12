@@ -220,7 +220,7 @@ fn tabs_consume_track_and_active_tab_recipe_without_zero_height_underline() {
     };
 
     let mut env = Env::default();
-    let tabs_theme = &mut env.theme.components.tabs;
+    let tabs_theme = &mut &mut env.theme.components_mut().tabs;
     tabs_theme.indicator_height = 0.0;
     tabs_theme.track_style = ResolvedComponentStyle {
         background: Some(track_fill.clone()),
@@ -343,8 +343,8 @@ fn tabs_keep_the_legacy_underline_for_themes_that_request_it() {
         a: 255,
     };
     let mut env = Env::default();
-    env.theme.components.tabs.indicator_height = 3.0;
-    env.theme.components.tabs.active_color = indicator;
+    env.theme.components_mut().tabs.indicator_height = 3.0;
+    env.theme.components_mut().tabs.active_color = indicator;
 
     let tabs = Tabs {
         items: vec![actionable_tab("General", "underline.general")],
@@ -620,7 +620,7 @@ fn tabs_resolve_hover_style_against_the_stable_trigger_id() {
     let first_id = WidgetId::derived(base_id.as_u128(), &[0, 0]);
     let hover_fill = gradient(Color::WHITE, Color::GREEN);
     let mut env = Env::default();
-    env.theme.components.tabs.states.hover = Some(ResolvedComponentStyle {
+    env.theme.components_mut().tabs.states.hover = Some(ResolvedComponentStyle {
         background: Some(hover_fill.clone()),
         ..Default::default()
     });

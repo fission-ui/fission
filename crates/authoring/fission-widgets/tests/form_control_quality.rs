@@ -84,12 +84,28 @@ fn subtree_has_stroke_color(ir: &CoreIR, root: WidgetId, expected: fission_ir::o
 fn form_control_uses_compact_theme_anatomy_and_stable_relations() {
     let mut env = Env::default();
     env.theme.tokens.spacing.s = 9.0;
-    env.theme.components.text_input.label_style.font_size = Some(17.0);
-    env.theme.components.text_input.label_style.font_weight = Some(600);
-    env.theme.components.text_input.label_style.line_height = Some(17.0);
-    env.theme.components.text_input.helper_style.font_size = Some(13.0);
-    env.theme.components.text_input.helper_style.font_weight = Some(400);
-    env.theme.components.text_input.helper_style.line_height = Some(19.0);
+    env.theme.components_mut().text_input.label_style.font_size = Some(17.0);
+    env.theme
+        .components_mut()
+        .text_input
+        .label_style
+        .font_weight = Some(600);
+    env.theme
+        .components_mut()
+        .text_input
+        .label_style
+        .line_height = Some(17.0);
+    env.theme.components_mut().text_input.helper_style.font_size = Some(13.0);
+    env.theme
+        .components_mut()
+        .text_input
+        .helper_style
+        .font_weight = Some(400);
+    env.theme
+        .components_mut()
+        .text_input
+        .helper_style
+        .line_height = Some(19.0);
 
     let control_id = WidgetId::explicit("recovery-email.field");
     let input_id = WidgetId::explicit("recovery-email.input");

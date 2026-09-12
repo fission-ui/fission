@@ -3707,7 +3707,16 @@ impl ComponentTheme {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Theme {
     pub tokens: Tokens,
-    pub components: ComponentTheme,
+    /// Component themes, shared rather than owned.
+    ///
+    /// `ComponentTheme` is around 40 KB — `MenuTheme` alone is 11 KB — and a
+    /// `Theme` is cloned per SSR request and per generated site document.
+    /// Owning it inline made every clone a 40 KB copy and made the type large
+    /// enough that constructing one overflowed a 2 MB thread stack.
+    ///
+    /// Read through the `Arc` as before; use
+    /// [`components_mut`](Theme::components_mut) to change one.
+    pub components: Arc<ComponentTheme>,
     #[serde(default)]
     pub design_system: ResolvedDesignSystem,
 }
@@ -3729,6 +3738,12 @@ impl Theme {
     /// recipes widgets read, so an empty result here means either an
     /// application design system that chose not to override this component, or
     /// a widget reading a name nobody declares.
+    /// Returns the component themes for mutation, copying them only if this
+    /// theme's set is shared with another.
+    pub fn components_mut(&mut self) -> &mut ComponentTheme {
+        Arc::make_mut(&mut self.components)
+    }
+
     pub fn recipe(&self, name: &str) -> &ComponentRecipe {
         static EMPTY: std::sync::OnceLock<ComponentRecipe> = std::sync::OnceLock::new();
         self.components
@@ -3752,7 +3767,7 @@ impl Theme {
             return generated.clone();
         }
 
-        let components = ComponentTheme::from_tokens(&tokens);
+        let components = Arc::new(ComponentTheme::from_tokens(&tokens));
         Self {
             tokens,
             components,

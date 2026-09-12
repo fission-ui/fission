@@ -154,7 +154,7 @@ fn controlled_selection_uses_the_card_selection_recipe() {
         a: 255,
     };
     let mut env = Env::default();
-    env.theme.components.card.selected_style.border = Some(ComponentBorder {
+    env.theme.components_mut().card.selected_style.border = Some(ComponentBorder {
         fill: Fill::Solid(selected_color),
         width: 3.0,
     });

@@ -356,10 +356,10 @@ fn modal_footer_recipe_renders_one_full_width_top_boundary_without_a_box_border(
         b: 143,
         a: 255,
     };
-    env.theme.components.modal.footer_style.background = Some(Fill::Solid(footer_tint));
-    let boundary = env
+    env.theme.components_mut().modal.footer_style.background = Some(Fill::Solid(footer_tint));
+    let boundary = &mut env
         .theme
-        .components
+        .components_mut()
         .modal
         .footer_style
         .border
