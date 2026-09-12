@@ -22,8 +22,8 @@ pub use op::{
 };
 pub use semantics::{
     ActionEntry, ActionSet, ActionTrigger, CanvasNodeMoveTarget, CanvasSelectionPolicy,
-    CanvasTarget, CanvasTargetKind, FocusPolicy, Hyperlink, InputFormatter, KeyBinding, KeyCode,
-    LinkTarget, MaxLengthEnforcement, PopoverAction, PopoverTarget, PopupKind, Role,
+    CanvasTarget, CanvasTargetKind, FocusPolicy, Hyperlink, InputFormatter, KeyAction, KeyBinding,
+    KeyCode, LinkTarget, MaxLengthEnforcement, PopoverAction, PopoverTarget, PopupKind, Role,
     SelectionRegionSemantics, SemanticOrientation, Semantics, TextCapitalization,
     TextFieldValidationState, TextInputAction, TextInputType, TextWrapMode, MOD_ALT, MOD_CTRL,
     MOD_SHIFT, MOD_SUPER,

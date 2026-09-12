@@ -397,6 +397,13 @@ pub enum ActionTrigger {
     Validation,
     /// A dismissible surface was asked to close, normally via Escape.
     Dismiss,
+    /// A declared key was pressed while this node held focus.
+    ///
+    /// The binding travels on the [`ActionEntry`], so a node can declare several
+    /// keys with different actions. Unlike [`Default`](Self::Default), which
+    /// means "activate", this says nothing about what the key does — that is
+    /// the application's to decide.
+    Key,
 }
 
 #[cfg(test)]
@@ -433,6 +440,7 @@ mod tests {
         assert_eq!(ActionTrigger::ViewportInteractionEnd as u8, 22);
         assert_eq!(ActionTrigger::Validation as u8, 23);
         assert_eq!(ActionTrigger::Dismiss as u8, 24);
+        assert_eq!(ActionTrigger::Key as u8, 25);
     }
 
     #[test]
@@ -730,6 +738,72 @@ pub struct ActionEntry {
     pub payload_data: Option<Vec<u8>>,
 }
 
+/// A key press a node declares it responds to.
+///
+/// Fission's built-in keyboard contracts cover the keys a role implies — Space
+/// and Enter activate, arrows move within a composite, Escape dismisses. They
+/// cannot cover a key whose meaning only the application knows. Without a way
+/// to declare one, an application that wants `Ctrl+K` to open a command palette
+/// has to reach around the framework for raw key events, losing focus scoping
+/// and the shell's own key routing along with it.
+///
+/// A declared binding is scoped to focus: it fires when its node, or a
+/// descendant of it, holds focus. That makes the enclosing node the scope, so a
+/// dialog can bind a key for its whole subtree without every child knowing.
+///
+/// # Example
+///
+/// ```rust
+/// use fission_ir::semantics::{ActionEntry, ActionTrigger, KeyAction, KeyBinding};
+/// use fission_ir::{KeyCode, MOD_CTRL};
+///
+/// let palette = KeyAction {
+///     binding: KeyBinding::with_modifiers(KeyCode::Char('k'), MOD_CTRL),
+///     action: ActionEntry {
+///         trigger: ActionTrigger::Key,
+///         action_id: 7,
+///         payload_data: None,
+///     },
+/// };
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct KeyAction {
+    /// The key and exact modifier mask that fire this action.
+    pub binding: KeyBinding,
+    /// The action dispatched on a match. Its trigger is [`ActionTrigger::Key`].
+    pub action: ActionEntry,
+}
+
+impl KeyAction {
+    /// Binds a key with no modifiers to an action ID.
+    pub fn new(key: KeyCode, action_id: u128) -> Self {
+        Self::with_modifiers(key, 0, action_id)
+    }
+
+    /// Binds a key with an exact modifier mask to an action ID.
+    pub fn with_modifiers(key: KeyCode, modifiers: u8, action_id: u128) -> Self {
+        Self {
+            binding: KeyBinding::with_modifiers(key, modifiers),
+            action: ActionEntry {
+                trigger: ActionTrigger::Key,
+                action_id,
+                payload_data: None,
+            },
+        }
+    }
+
+    /// Attaches a serialized payload to the dispatched action.
+    pub fn payload(mut self, payload: Vec<u8>) -> Self {
+        self.action.payload_data = Some(payload);
+        self
+    }
+
+    /// Whether a key press matches this binding.
+    pub fn matches(&self, key: &KeyCode, modifiers: u8) -> bool {
+        self.binding.matches(key, modifiers)
+    }
+}
+
 /// Canvas-specific semantic target used by the shared gesture controller.
 ///
 /// This keeps stable document identity and geometry in backend-neutral IR while
@@ -915,6 +989,14 @@ pub struct Semantics {
     pub popover_target: Option<PopoverTarget>,
     /// The set of actions this node responds to.
     pub actions: ActionSet,
+    /// Keys this node declares, dispatched while it or a descendant has focus.
+    ///
+    /// Checked before the framework's own handling for that key, so a node that
+    /// explicitly asks for Enter gets Enter rather than default activation.
+    /// Tab is the exception: focus traversal belongs to the framework and is
+    /// never overridden, or a single widget could trap focus for the whole app.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub key_actions: Vec<KeyAction>,
     /// Structured InfiniteCanvas target metadata for contextual gesture input.
     #[serde(default)]
     pub canvas_target: Option<CanvasTarget>,
@@ -1172,6 +1254,7 @@ impl Default for Semantics {
             hyperlink: None,
             popover_target: None,
             actions: ActionSet::default(),
+            key_actions: Vec::new(),
             canvas_target: None,
             action_scope_id: None,
             focusable: false,

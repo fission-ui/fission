@@ -3,7 +3,7 @@ use crate::input::viewport::ViewportStateMap;
 use crate::ui::custom_render::downcast_render_object;
 use fission_diagnostics::prelude as diag;
 use fission_ir::{
-    ActionEntry, ActionTrigger, CoreIR, LayoutOp, Op, PaintOp, PopupKind, Role,
+    ActionEntry, ActionTrigger, CoreIR, KeyCode, LayoutOp, Op, PaintOp, PopupKind, Role,
     SemanticOrientation, StructuralOp, WidgetId,
 };
 use fission_layout::{LayoutPoint, LayoutSnapshot};
@@ -572,6 +572,49 @@ pub fn is_interaction_inert(ir: &CoreIR, node_id: WidgetId) -> bool {
         current = node.parent;
     }
     false
+}
+
+/// Finds the key binding that should handle a press, given the focused node.
+///
+/// The walk goes from the focused node outward through its ancestors, so the
+/// innermost declaration wins. That is what makes a binding on a container
+/// behave as a scope: a dialog can bind Enter for everything inside it, and a
+/// text field within that dialog can still bind Enter for itself and take
+/// precedence.
+///
+/// Nodes marked disabled are skipped, matching every other interaction path —
+/// a disabled control must not respond to a key any more than to a click.
+/// Inert subtrees are not consulted, because a node exiting a transition is
+/// still painted but is no longer logically present.
+pub fn declared_key_action(
+    ir: &CoreIR,
+    focused: Option<WidgetId>,
+    key: &KeyCode,
+    modifiers: u8,
+) -> Option<(WidgetId, ActionEntry)> {
+    let mut current = focused;
+    while let Some(node_id) = current {
+        let node = ir.nodes.get(&node_id)?;
+        if matches!(
+            node.op,
+            Op::Structural(StructuralOp::InteractionInert { .. })
+        ) {
+            return None;
+        }
+        if let Op::Semantics(semantics) = &node.op {
+            if !semantics.disabled {
+                if let Some(action) = semantics
+                    .key_actions
+                    .iter()
+                    .find(|binding| binding.matches(key, modifiers))
+                {
+                    return Some((node_id, action.action.clone()));
+                }
+            }
+        }
+        current = node.parent;
+    }
+    None
 }
 
 /// Returns the last active semantic action with `trigger` in paint/tree order.

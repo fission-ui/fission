@@ -1730,6 +1730,7 @@ fn default_button_semantics() -> Semantics {
         hyperlink: None,
         popover_target: None,
         actions: ActionSet::default(),
+        key_actions: Vec::new(),
         canvas_target: None,
         action_scope_id: None,
         focusable: true,
