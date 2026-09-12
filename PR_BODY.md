@@ -40,10 +40,10 @@ IR from before this change still loads.
 the lowering machinery that first-party widgets use, and nothing else:
 
 ```rust
-use fission_core::authoring::{IrBuilder, Lower, LoweringCx};
+use fission_core::authoring::{IrBuilder, Lower, LoweringContext};
 
 impl Lower for AspectRatio {
-    fn lower(&self, cx: &mut LoweringCx) -> WidgetId {
+    fn lower(&self, cx: &mut LoweringContext) -> WidgetId {
         let id = cx.next_node_id();
         let child = self.child.lower(cx);
         IrBuilder::new(id, Op::Layout(LayoutOp::StyledBox { .. }))
@@ -58,9 +58,9 @@ renderer and test helpers. Every first-party widget was moved onto the public
 API, so the API is used by roughly a hundred call sites in-tree rather than
 being a façade nobody exercises.
 
-The traits were renamed as part of this (`LowerWidget` → `Lower`,
-`LoweringContext` → `LoweringCx`, etc.), and their documentation rewritten for
-an external reader rather than for someone who already knows the codebase.
+The traits were renamed as part of this (`LowerWidget` → `Lower`), and their
+documentation rewritten for an external reader rather than for someone who
+already knows the codebase. `LoweringContext` keeps its name.
 
 **Breaking:** the renamed traits, and `internal` no longer re-exporting lowering.
 
@@ -273,6 +273,56 @@ has nothing to work with. Four cases were silently broken:
 `AccessRole::Video` on the winit shell and to a labelled `group` on the site
 shell, since ARIA has no video role.
 
+### 11. Shapes the paint vocabulary could not express
+
+Three gaps found by auditing what the closed vocabulary can actually say. All
+three are field additions to existing ops — no new `Op` arm, no `Custom` escape
+hatch — which is the point: the vocabulary being closed was never the
+constraint, it was under-specified in three places.
+
+**Corner radius was a single scalar.** `PaintOp::DrawRect { corner_radius: f32 }`
+had no per-corner representation anywhere, which ruled out a bottom sheet or
+drawer rounded along one edge, a tab, the first and last rows of a grouped list,
+a segmented control's end caps, and a bubble with one square corner. This was
+already visible in-tree: `drawer.rs` had **no rounding at all** — not a style
+choice — and `segmented_control.rs` rounded the whole track uniformly, so no
+segment could cap correctly.
+
+`CornerRadii` is now carried as an optional override alongside the scalar, read
+through `PaintOp::corner_radii()` so backends have one path for both cases. The
+`Container` API exposes it logically — `border_radius_top`,
+`border_radius_start`, `border_radius_end` — mirrored during lowering, so RTL is
+correct without any widget branching on direction. The drawer now rounds the
+edge it slides away from, and segmented-control end caps follow the track.
+
+**Borders were uniform.** One stroke for the whole outline cannot say "bottom
+only", which ruled out a filled text field's underline, a table's cell grid, a
+card's leading accent bar, and a tab indicator drawn as an edge. `BorderSides`
+carries the four physical edges, read through `PaintOp::border_sides()`, which
+returns the uniform stroke expanded to four edges when no override is set.
+`Container::border_bottom` and `border_start` are the ergonomic entry points,
+also direction-mirrored. Edge-only borders count as painted content for hit
+testing, as a full border already did.
+
+**Gradients were linear and radial only.** Added `Fill::SweepGradient` — CSS's
+`conic-gradient`, Skia's sweep — which a circular progress track, a colour wheel
+and a rotating shimmer all need, plus `GradientExtend` (`Pad`, `Repeat`,
+`Reflect`) on all three.
+
+Backend coverage: vello draws per-corner radii through `RoundedRectRadii`,
+strokes each edge separately when they differ, and maps every extend mode and
+sweep gradients natively. The site shell emits `border-radius` with four values,
+per-edge `border-*` properties, `conic-gradient` and `repeating-*`; CSS has no
+reflect mode, so reflect is emulated exactly by mirroring the stop list about
+its midpoint rather than approximated. The software renderer builds per-corner
+paths and strokes individual edges; tiny-skia has no sweep gradient, so that one
+falls back to the stop nearest the middle of the sweep rather than dropping the
+fill.
+
+While rewriting the site's gradient CSS: linear gradients were snapping to
+`90deg` or `180deg`, which silently squared off every diagonal gradient. The
+real angle is now computed from the start and end points.
+
 ## Performance
 
 Fixing the recipe mechanism turned out to fix a class of stack overflows.
@@ -300,8 +350,8 @@ serialization.
 
 ## Verification
 
-- Full workspace suite: **316 test binaries, 1959 tests, 0 failures, 0 stack
-  overflows.**
+- Full workspace suite with `--no-fail-fast`: **318 test binaries, 1975 tests,
+  0 failures, 0 stack overflows.**
 - `cargo fmt --check` clean.
 - `cargo clippy --workspace --all-targets` clean.
 
@@ -313,11 +363,13 @@ on its own and an empty failure list would otherwise have looked like success.
 
 | Change | Migration |
 | --- | --- |
-| `LowerWidget` → `Lower`, `LoweringContext` → `LoweringCx` | Rename; import from `fission_core::authoring` |
+| `LowerWidget` → `Lower` | Rename; import from `fission_core::authoring` |
 | `fission_core::internal` no longer re-exports lowering | Import from `fission_core::authoring` |
 | Per-component theme structs → `ComponentRecipe` | `theme.recipe("name")`, `.part("name")` |
 | `CustomRenderObject::range_slider_config` removed | Use the typed sidecar |
 | `BackdropFilter` is no longer `Copy` | `.clone()` where it was copied |
+| `PaintOp::DrawRect` gained `corner_radii`, `border_sides` | `None` for existing behaviour; read via the accessors |
+| `Fill` gradients gained `extend`; `SweepGradient` added | `GradientExtend::Pad` matches previous behaviour |
 | `Combobox` gained fields | It now derives `Default`; use `..Default::default()` |
 
 Serialized IR compatibility is preserved: every new role, trigger and field is
