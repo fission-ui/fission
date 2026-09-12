@@ -42,8 +42,19 @@ impl From<Divider> for Widget {
 
         let tokens = &view.env().theme.tokens;
 
-        let thickness = this.thickness.unwrap_or(1.0).max(0.0);
-        let color = this.color.unwrap_or(tokens.colors.border);
+        let recipe = view.env().theme.recipe("divider");
+        let thickness = this
+            .thickness
+            .or(recipe.base.height)
+            .unwrap_or(1.0)
+            .max(0.0);
+        let color = this
+            .color
+            .or_else(|| match recipe.base.background {
+                Some(fission_core::op::Fill::Solid(color)) => Some(color),
+                _ => None,
+            })
+            .unwrap_or(tokens.colors.divider);
         let mut c = Container::new(fission_core::ui::Row::default()); // Empty
         if let Some(pattern) = &this.dash_pattern {
             c = c

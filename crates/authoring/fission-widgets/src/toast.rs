@@ -181,6 +181,7 @@ impl From<Toast> for Widget {
         let this = &component;
 
         let tokens = &view.env().theme.tokens;
+        let recipe = view.env().theme.recipe("toast");
 
         let (icon_path, icon_color) = match this.kind {
             ToastKind::Info => (material::action::info::regular(), tokens.colors.primary),
@@ -222,9 +223,26 @@ impl From<Toast> for Widget {
         .into();
 
         let mut toast: Widget = Container::new(content)
-            .bg(tokens.colors.surface)
-            .border(tokens.colors.border, 1.0)
-            .border_radius(tokens.radii.medium)
+            .bg_fill(
+                recipe
+                    .base
+                    .background
+                    .clone()
+                    .unwrap_or(fission_core::op::Fill::Solid(tokens.colors.surface)),
+            )
+            .border(
+                recipe
+                    .base
+                    .border
+                    .as_ref()
+                    .and_then(|border| match border.fill {
+                        fission_core::op::Fill::Solid(color) => Some(color),
+                        _ => None,
+                    })
+                    .unwrap_or(tokens.colors.border),
+                recipe.base.border.as_ref().map_or(1.0, |b| b.width),
+            )
+            .border_radius(recipe.base.radius.unwrap_or(tokens.radii.medium))
             .shadow(
                 tokens
                     .elevations

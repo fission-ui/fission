@@ -121,6 +121,87 @@
     ]
   },
   "components": {
+    "toast": {
+      "$description": "Transient notification surface with a tone icon and dismissal control.",
+      "anatomy": ["icon", "message", "dismiss?"],
+      "background": "{color.light.surface}",
+      "border": "1px solid {color.light.border}",
+      "radius": "{radius.medium}",
+      "padding": "{spacing.s}",
+      "gap": "{spacing.s}",
+      "box_shadow": "{elevation.level3}",
+      "icon": { "icon_size": "{spacing.m}" },
+      "message": {
+        "color": "{color.light.text_primary}",
+        "font_size": "{typography.font_size.base}",
+        "line_height": "20px"
+      },
+      "dismiss": { "icon_size": "{spacing.m}" }
+    },
+    "tag": {
+      "$description": "Removable pill labelling a filter, category or selection.",
+      "anatomy": ["label", "remove?"],
+      "background": "{color.light.surface}",
+      "border": "1px solid {color.light.border}",
+      "radius": "{radius.full}",
+      "height": "24px",
+      "padding_x": "{spacing.xs}",
+      "gap": "{spacing.xs}",
+      "font_size": "{typography.font_size.xs}",
+      "color": "{color.light.text_primary}",
+      "remove": { "size": "20px", "icon_size": "12px", "color": "{color.light.text_secondary}" }
+    },
+    "stat": {
+      "$description": "A caption with the figure it measures.",
+      "anatomy": ["label", "value", "delta?"],
+      "border": "1px solid {color.light.border}",
+      "radius": "{radius.medium}",
+      "padding": "{spacing.m}",
+      "gap": "{spacing.xs}",
+      "label": {
+        "color": "{color.light.text_secondary}",
+        "font_size": "{typography.font_size.xs}",
+        "font_weight": "{typography.font_weight.medium}"
+      },
+      "value": {
+        "color": "{color.light.text_primary}",
+        "font_size": "{typography.font_size.h3}",
+        "font_weight": "{typography.font_weight.medium}"
+      }
+    },
+    "stepper": {
+      "$description": "Ordered progress through a finite workflow.",
+      "anatomy": ["node*", "connector*", "label*"],
+      "gap": "{spacing.s}",
+      "node": {
+        "size": "24px",
+        "radius": "{radius.full}",
+        "background": "{color.light.surface}",
+        "border": "1px solid {color.light.border}",
+        "color": "{color.light.text_secondary}",
+        "font_size": "{typography.font_size.xs}"
+      },
+      "node_active": {
+        "background": "{color.light.primary}",
+        "color": "{color.light.on_primary}"
+      },
+      "connector": { "height": "2px", "background": "{color.light.border}", "width": "22px" },
+      "label": {
+        "color": "{color.light.text_secondary}",
+        "font_size": "{typography.font_size.xs}"
+      },
+      "node_slot": "62px"
+    },
+    "divider": {
+      "$description": "Structural rule between adjacent groups.",
+      "background": "{color.light.divider}",
+      "height": "1px"
+    },
+    "skeleton": {
+      "$description": "Placeholder standing in for content that has not arrived.",
+      "background": "{color.light.surface_sunken}",
+      "radius": "{radius.small}"
+    },
     "avatar_group": {
       "$description": "A compact retained group of overlapping people with an accessible overflow count.",
       "avatar": {

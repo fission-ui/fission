@@ -23,6 +23,7 @@ impl From<Tag> for Widget {
         let this = &component;
 
         let tokens = &view.env().theme.tokens;
+        let recipe = view.env().theme.recipe("tag");
 
         let mut children = vec![Text {
             content: TextContent::Literal(this.label.clone()),
@@ -62,11 +63,21 @@ impl From<Tag> for Widget {
             spacing: Some(4.0),
             children,
         })
-        .bg(tokens.colors.surface) // or slightly darker
+        .bg_fill(
+            recipe
+                .base
+                .background
+                .clone()
+                .unwrap_or(fission_core::op::Fill::Solid(tokens.colors.surface)),
+        )
         .border(tokens.colors.border, 1.0)
-        .border_radius(16.0)
-        .padding_all(6.0)
-        .height(30.0)
+        .border_radius(recipe.base.radius.unwrap_or(tokens.radii.full))
+        .padding(
+            recipe
+                .base
+                .padding_box(tokens.spacing.xs, tokens.spacing.xs / 2.0),
+        )
+        .height(recipe.base.height.unwrap_or(24.0))
         .into()
     }
 }

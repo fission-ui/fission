@@ -70,6 +70,7 @@ const REQUIRED_COMPONENT_RECIPES: &[&str] = &[
     "button",
     "card",
     "code",
+    "divider",
     "empty_state",
     "feature_icon",
     "input",
@@ -77,8 +78,13 @@ const REQUIRED_COMPONENT_RECIPES: &[&str] = &[
     "modal",
     "pagination",
     "progress_bar",
+    "skeleton",
     "select",
+    "stat",
+    "stepper",
     "tabs",
+    "tag",
+    "toast",
     "tooltip",
 ];
 
@@ -538,6 +544,7 @@ impl {krate}::DesignSystem for {type_name} {{
         let code = self.code_theme_expr(krate, mode)?;
         let empty_state = self.empty_state_theme_expr(krate, mode)?;
         let feature_icon = self.feature_icon_theme_expr(krate, mode)?;
+        let recipes = self.component_recipes_expr(krate, mode)?;
         let colors_prefix = match mode {
             Mode::Light => "color.light",
             Mode::Dark => "color.dark",
@@ -565,6 +572,7 @@ impl {krate}::DesignSystem for {type_name} {{
                 code: {code},
                 empty_state: {empty_state},
                 feature_icon: {feature_icon},
+                recipes: {recipes},
             }}"#,
             surface = self.color_expr(krate, &format!("{colors_prefix}.surface"))?,
             border = self.color_expr(krate, &format!("{colors_prefix}.border"))?,
@@ -2344,6 +2352,117 @@ impl {krate}::DesignSystem for {type_name} {{
         Ok(format!(
             "{krate}::DesignTokenSet {{ tokens: vec![{}] }}",
             items.join(",")
+        ))
+    }
+
+    /// Emits every `/components/<name>` block as a generic `ComponentRecipe`.
+    ///
+    /// This is the path that makes design authority cheap to add. `style_expr`
+    /// already converts any recipe object into a `ResolvedComponentStyle`, so a
+    /// component needs no bespoke emitter here and no hand-written theme struct
+    /// in fission-theme — it only needs a recipe in each design system and a
+    /// widget that reads it.
+    ///
+    /// Sub-objects become named parts, `sizes` and `states` become density and
+    /// interaction variants, and plain numbers become scalars.
+    fn component_recipes_expr(&self, krate: &str, mode: Mode) -> Result<String> {
+        let Some(obj) = self.dsp.get("components").and_then(Value::as_object) else {
+            return Ok("Default::default()".into());
+        };
+        let mut entries = Vec::new();
+        for (name, value) in obj {
+            if name.starts_with('$') {
+                continue;
+            }
+            let Some(recipe) = value.as_object() else {
+                continue;
+            };
+            entries.push(format!(
+                "({}.to_string(), {})",
+                rust_string(name),
+                self.component_recipe_expr(krate, mode, recipe)?
+            ));
+        }
+        Ok(format!(
+            "[{}].into_iter().collect::<std::collections::BTreeMap<_, _>>()",
+            entries.join(",")
+        ))
+    }
+
+    fn component_recipe_expr(
+        &self,
+        krate: &str,
+        mode: Mode,
+        recipe: &serde_json::Map<String, Value>,
+    ) -> Result<String> {
+        // Scalar-valued keys on the recipe body are style fields; style_expr
+        // reads the ones it knows and ignores the rest.
+        let base = self.style_expr(krate, mode, Some(&Value::Object(recipe.clone())))?;
+
+        let mut parts = Vec::new();
+        let mut scalars = Vec::new();
+        for (key, value) in recipe {
+            if key.starts_with('$') || matches!(key.as_str(), "sizes" | "states" | "anatomy") {
+                continue;
+            }
+            match value {
+                Value::Object(_) => parts.push(format!(
+                    "({}.to_string(), {})",
+                    rust_string(key),
+                    self.style_expr(krate, mode, Some(value))?
+                )),
+                Value::Number(number) => {
+                    if let Some(number) = number.as_f64() {
+                        scalars.push(format!("({}.to_string(), {}f32)", rust_string(key), number));
+                    }
+                }
+                Value::String(_) => {
+                    // A dimension string such as "640px" is useful as a scalar
+                    // even when it is not one of the style fields. f32::NAN
+                    // marks "not a dimension" so non-numeric strings are
+                    // skipped rather than recorded as zero.
+                    let resolved = self.style_dimension_optional(mode, Some(value), f32::NAN)?;
+                    if resolved.is_finite() {
+                        scalars.push(format!(
+                            "({}.to_string(), {})",
+                            rust_string(key),
+                            f32_lit(resolved)
+                        ));
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        let sizes = match recipe.get("sizes").and_then(Value::as_object) {
+            Some(sizes) => {
+                let mut entries = Vec::new();
+                for (name, value) in sizes {
+                    let Some(variant) = component_size_variant(krate, name) else {
+                        continue;
+                    };
+                    entries.push(format!(
+                        "({variant}, {})",
+                        self.style_expr(krate, mode, Some(value))?
+                    ));
+                }
+                format!(
+                    "[{}].into_iter().collect::<std::collections::BTreeMap<_, _>>()",
+                    entries.join(",")
+                )
+            }
+            None => "Default::default()".to_string(),
+        };
+
+        let states = match recipe.get("states") {
+            Some(states) => self.state_styles_expr(krate, mode, Some(states))?,
+            None => format!("{krate}::ComponentStateStyles::default()"),
+        };
+
+        Ok(format!(
+            "{krate}::ComponentRecipe {{ base: {base}, parts: [{}].into_iter().collect::<std::collections::BTreeMap<_, _>>(), sizes: {sizes}, states: {states}, scalars: [{}].into_iter().collect::<std::collections::BTreeMap<_, _>>() }}",
+            parts.join(","),
+            scalars.join(",")
         ))
     }
 

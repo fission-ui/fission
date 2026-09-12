@@ -82,18 +82,24 @@ impl From<Skeleton> for Widget {
         let this = &component;
 
         let tokens = &view.env().theme.tokens;
+        let recipe = view.env().theme.recipe("skeleton");
 
         let base: Widget = Container::new(fission_core::ui::widgets::Spacer::default())
             .width(this.width.unwrap_or(100.0))
             .height(this.height.unwrap_or(20.0))
             // Previously a fixed light grey, which showed as a pale block in a
-            // dark theme. The sunken surface is the design system's own
-            // placeholder tone.
-            .bg(tokens.colors.surface_sunken)
+            // dark theme. The recipe owns the placeholder tone now.
+            .bg_fill(
+                recipe
+                    .base
+                    .background
+                    .clone()
+                    .unwrap_or(fission_core::op::Fill::Solid(tokens.colors.surface_sunken)),
+            )
             .border_radius(if this.circle {
-                9999.0
+                tokens.radii.full
             } else {
-                tokens.radii.small
+                recipe.base.radius.unwrap_or(tokens.radii.small)
             })
             .into();
         let boundary: Widget = Composite::new(base).repaint_boundary(true).into();

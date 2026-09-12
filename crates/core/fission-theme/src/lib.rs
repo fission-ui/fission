@@ -16,6 +16,7 @@
 pub use fission_ir::op::{BoxShadow, Color, Fill, LineCap, LineJoin, Stroke};
 use fission_ir::LayoutDirection;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DesignMode {
@@ -223,7 +224,7 @@ pub struct PackagedFont {
     pub axes: &'static [FontVariationAxis],
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum ComponentSize {
     Sm,
     #[default]
@@ -469,6 +470,74 @@ impl ResolvedComponentStyle {
                 fill: Fill::Solid(layer.color),
                 width: layer.spread_radius,
             })
+    }
+}
+
+/// A component's complete design-system recipe, resolved from its DSP entry.
+///
+/// Every `/components/<name>` block in a design system lowers into one of
+/// these, generically. A widget reads its recipe by name and asks for the parts
+/// it needs, so adding design authority to a widget is two steps — write the
+/// recipe in each design system, then read it — rather than also hand-writing a
+/// theme struct, a token fallback, a field on [`ComponentTheme`], and a bespoke
+/// emitter in the codegen.
+///
+/// Sub-objects in the recipe become [`parts`](Self::parts) keyed by their JSON
+/// name, `sizes` becomes density variants, `states` becomes interaction states,
+/// and plain numbers become [`scalars`](Self::scalars).
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct ComponentRecipe {
+    /// Style declared directly on the recipe, outside any sub-object.
+    #[serde(default)]
+    pub base: ResolvedComponentStyle,
+    /// Named anatomy, keyed as the design system names it: `item`, `surface`,
+    /// `indicator`, `title`, and so on.
+    #[serde(default)]
+    pub parts: BTreeMap<String, ResolvedComponentStyle>,
+    /// Density variants from the recipe's `sizes` block.
+    #[serde(default)]
+    pub sizes: BTreeMap<ComponentSize, ResolvedComponentStyle>,
+    /// Interaction states from the recipe's `states` block.
+    #[serde(default)]
+    pub states: ComponentStateStyles,
+    /// Plain numeric values that are not styles, such as `max_visible`,
+    /// `overlap` or `narrow_breakpoint`.
+    #[serde(default)]
+    pub scalars: BTreeMap<String, f32>,
+}
+
+impl ComponentRecipe {
+    /// Returns a named part, or an empty style when the design system does not
+    /// declare one.
+    ///
+    /// Returning a default rather than `None` keeps widget code linear: ask for
+    /// the part, then fall back per field with `unwrap_or`, so a design system
+    /// can declare as much or as little as it wants.
+    pub fn part(&self, name: &str) -> ResolvedComponentStyle {
+        self.parts.get(name).cloned().unwrap_or_default()
+    }
+
+    /// Returns a named part only when the design system declares it.
+    pub fn try_part(&self, name: &str) -> Option<&ResolvedComponentStyle> {
+        self.parts.get(name)
+    }
+
+    /// Returns the density variant for `size`, falling back to the base style.
+    pub fn size(&self, size: ComponentSize) -> ResolvedComponentStyle {
+        self.sizes
+            .get(&size)
+            .map(|style| self.base.merge(style))
+            .unwrap_or_else(|| self.base.clone())
+    }
+
+    /// Returns the base style with `state`'s overlay applied.
+    pub fn state(&self, state: ComponentState) -> ResolvedComponentStyle {
+        self.base.merge(&self.states.resolve(state))
+    }
+
+    /// Returns a scalar declared on the recipe.
+    pub fn scalar(&self, name: &str) -> Option<f32> {
+        self.scalars.get(name).copied()
     }
 }
 
@@ -3579,6 +3648,17 @@ pub struct ComponentTheme {
     pub select: SelectTheme,
     #[serde(default)]
     pub empty_state: EmptyStateTheme,
+    /// Every component recipe the active design system declares, by name.
+    ///
+    /// This is the generic path. A widget with no hand-written theme struct
+    /// still gets full design authority by reading its recipe from here, which
+    /// is why adding authority to a widget no longer requires touching this
+    /// crate or the codegen at all.
+    ///
+    /// The named fields above predate it and stay for the components that were
+    /// already migrated; new components should use this.
+    #[serde(default)]
+    pub recipes: BTreeMap<String, ComponentRecipe>,
 }
 
 impl ComponentTheme {
@@ -3602,6 +3682,7 @@ impl ComponentTheme {
             progress: ProgressTheme::from_tokens(tokens),
             tooltip: TooltipTheme::from_tokens(tokens),
             card: CardTheme::from_tokens(tokens),
+            recipes: BTreeMap::new(),
             code: CodeTheme::from_tokens(tokens),
             empty_state: EmptyStateTheme::from_tokens(tokens),
             feature_icon: FeatureIconTheme::from_tokens(tokens),
@@ -3630,6 +3711,29 @@ impl Default for Theme {
 }
 
 impl Theme {
+    /// Returns the design system's recipe for `name`.
+    ///
+    /// Returns an empty recipe when the design system does not declare one, so
+    /// a widget can read parts and fall back per field rather than branching on
+    /// whether a recipe exists.
+    ///
+    /// A build-time check requires every supplied design system to declare the
+    /// recipes widgets read, so an empty result here means either an
+    /// application design system that chose not to override this component, or
+    /// a widget reading a name nobody declares.
+    pub fn recipe(&self, name: &str) -> ComponentRecipe {
+        self.components
+            .recipes
+            .get(name)
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    /// Returns the recipe for `name` only when the design system declares it.
+    pub fn try_recipe(&self, name: &str) -> Option<&ComponentRecipe> {
+        self.components.recipes.get(name)
+    }
+
     pub fn dark() -> Self {
         FissionDefaultDesignSystem::theme(DesignMode::Dark)
     }
