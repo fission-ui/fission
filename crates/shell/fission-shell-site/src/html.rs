@@ -2206,6 +2206,7 @@ impl HtmlRenderer<'_> {
             Role::MenuItem => "button",
             Role::Option | Role::Tab => "button",
             Role::Image => "figure",
+            Role::Video => "div",
             Role::List => "ul",
             Role::ListItem => "li",
             Role::Dialog | Role::TabPanel => "section",
@@ -4211,6 +4212,9 @@ fn semantic_html_role(role: Role) -> Option<&'static str> {
     match role {
         Role::MenuItem => Some("menuitem"),
         Role::Image => Some("img"),
+        // ARIA has no video role; a labelled group is what screen readers
+        // actually announce usefully for a media surface.
+        Role::Video => Some("group"),
         Role::Dialog => Some("dialog"),
         Role::Menu => Some("menu"),
         Role::ListBox => Some("listbox"),

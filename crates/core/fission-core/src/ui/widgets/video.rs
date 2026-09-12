@@ -2,7 +2,7 @@ use crate::authoring::Lower;
 use crate::lowering::{IrBuilder, LoweringCx};
 use fission_ir::{
     op::{EmbedKind, LayoutOp, Op},
-    WidgetId,
+    Role, Semantics, WidgetId,
 };
 use serde::{Deserialize, Serialize};
 use std::path::Path;
@@ -47,6 +47,13 @@ pub struct Video {
     /// should behave like a video player rather than incidental UI audio.
     #[serde(default)]
     pub audio: VideoAudioOptions,
+    /// Accessible name for the video surface.
+    ///
+    /// A video is opaque to assistive technology -- there is no text to fall
+    /// back on the way there is for a button -- so without this a screen reader
+    /// has nothing to announce at all.
+    #[serde(default)]
+    pub semantic_label: Option<String>,
 }
 
 impl Default for Video {
@@ -59,6 +66,7 @@ impl Default for Video {
             autoplay: false,
             loop_playback: false,
             audio: VideoAudioOptions::default(),
+            semantic_label: None,
         }
     }
 }
@@ -135,6 +143,12 @@ fn infer_video_source(source: &str) -> VideoSource {
 }
 
 impl Video {
+    /// Names this video for assistive technology.
+    pub fn semantic_label(mut self, label: impl Into<String>) -> Self {
+        self.semantic_label = Some(label.into());
+        self
+    }
+
     /// Creates a video from an app-bundled asset path.
     pub fn asset(path: impl Into<String>) -> Self {
         Self::from_source(VideoSource::Asset { path: path.into() })
@@ -431,6 +445,19 @@ impl Lower for Video {
             }),
         );
         layout_builder.add_child(embed_id);
-        layout_builder.build(cx)
+        let layout_id = layout_builder.build(cx);
+
+        // Always emitted, labelled or not. A video with no name is still a
+        // video, and announcing "video" beats announcing nothing.
+        let mut semantics = IrBuilder::new(
+            cx.next_node_id(),
+            Op::Semantics(Semantics {
+                role: Role::Video,
+                label: self.semantic_label.clone(),
+                ..Default::default()
+            }),
+        );
+        semantics.add_child(layout_id);
+        semantics.build(cx)
     }
 }

@@ -2,7 +2,7 @@ use crate::lowering::{IrBuilder, LoweringCx};
 use crate::ui::{traits::Lower, Widget};
 use fission_ir::{
     op::{FlexDirection, LayoutOp, Op},
-    WidgetId,
+    Role, Semantics, WidgetId,
 };
 use serde::{Deserialize, Serialize};
 
@@ -41,9 +41,20 @@ pub struct Scroll {
     pub flex_grow: f32,
     /// Flex shrink factor.
     pub flex_shrink: f32,
+    /// Accessible name for the scroll region.
+    ///
+    /// Optional. A scroll view is usually named by what it contains, but a page
+    /// with several independent scroll regions needs them told apart.
+    pub semantic_label: Option<String>,
 }
 
-impl Scroll {}
+impl Scroll {
+    /// Names this scroll region for assistive technology.
+    pub fn semantic_label(mut self, label: impl Into<String>) -> Self {
+        self.semantic_label = Some(label.into());
+        self
+    }
+}
 
 impl Default for Scroll {
     fn default() -> Self {
@@ -56,6 +67,7 @@ impl Default for Scroll {
             show_scrollbar: true,
             flex_grow: 0.0,
             flex_shrink: 0.0,
+            semantic_label: None,
         }
     }
 }
@@ -107,6 +119,30 @@ impl Lower for Scroll {
 
         cx.pop_scope();
 
-        builder.build(cx)
+        let scroll_id = builder.build(cx);
+
+        // A scroll view that does not declare its axis is unreachable by
+        // assistive technology: the shells can already report offsets and
+        // accept scroll actions, but they key that off `scrollable_x` and
+        // `scrollable_y`, which nothing was setting. Without this a screen
+        // reader user cannot move a Fission scroll view at all.
+        let horizontal = self.direction == FlexDirection::Row;
+        let semantics = IrBuilder::new(
+            cx.next_node_id(),
+            Op::Semantics(Semantics {
+                // Generic, not Group: a scroll viewport is not a group of
+                // related items, and calling it one would put it alongside the
+                // real groups a menu or listbox declares. The shells keep a
+                // generic node precisely when it is scrollable.
+                role: Role::Generic,
+                label: self.semantic_label.clone(),
+                scrollable_x: horizontal,
+                scrollable_y: !horizontal,
+                ..Default::default()
+            }),
+        );
+        let mut semantics = semantics;
+        semantics.add_child(scroll_id);
+        semantics.build(cx)
     }
 }

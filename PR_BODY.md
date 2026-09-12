@@ -242,6 +242,37 @@ does. The hook and a dead `paint()` method are gone.
 No `as_any` was added. The typed-sidecar mechanism (`AnyRenderObject`) already
 existed and is what this uses.
 
+### 10. Widgets with no text to fall back on
+
+A button can be named by the text inside it. An image, an icon, a video and a
+scroll view cannot — if they do not declare what they are, assistive technology
+has nothing to work with. Four cases were silently broken:
+
+- **`Scroll` never declared its axis.** Nothing in the repo set `scrollable_x`
+  or `scrollable_y`, so the shells' scroll support — `Action::ScrollDown`,
+  `set_scroll_y_max`, the offset reporting — was unreachable code. A screen
+  reader user could not scroll a Fission scroll view on any target. `Scroll`
+  now emits a semantic region declaring the axis it scrolls, plus an optional
+  `semantic_label` for pages with several independent scroll regions. The region
+  is `Role::Generic` rather than `Role::Group` — a scroll viewport is not a
+  group of related items, and the shells already retain a generic node
+  precisely when it declares itself scrollable.
+- **`Image::semantic_label` reached the web and nowhere else.** The site shell
+  reads it off the paint op to emit `alt`; AccessKit only walks semantic nodes
+  and never saw `PaintOp::DrawImage`. The same image was announced in a browser
+  and silent on macOS, Windows, Linux, Android and iOS. A labelled image now
+  emits `Role::Image` semantics; an unlabelled one still emits none, so
+  decorative images stay out of the accessibility tree.
+- **`Icon` had no accessible name at all**, where Flutter's `Icon` has
+  `semanticLabel`. Added, and deliberately opt-in: an icon inside a labelled
+  button is decorative, and naming it would make the control announce twice.
+- **`Video` had no semantics.** Unlike an image there is no decorative video, so
+  it always emits semantics now — announcing "video" beats announcing nothing.
+
+`Role::Video` was appended for this (discriminant 37), mapped to
+`AccessRole::Video` on the winit shell and to a labelled `group` on the site
+shell, since ARIA has no video role.
+
 ## Performance
 
 Fixing the recipe mechanism turned out to fix a class of stack overflows.

@@ -155,6 +155,12 @@ pub enum Role {
     Status,
     /// A numeric field adjusted by stepping controls.
     SpinButton,
+    /// A playable video surface.
+    ///
+    /// Distinct from [`Image`](Self::Image) because assistive technology
+    /// announces time-based media differently and offers transport controls
+    /// for it.
+    Video,
 }
 
 /// The kind of popup controlled by a semantic node.
@@ -468,6 +474,7 @@ mod tests {
         assert_eq!(Role::Tooltip as u8, 34);
         assert_eq!(Role::Status as u8, 35);
         assert_eq!(Role::SpinButton as u8, 36);
+        assert_eq!(Role::Video as u8, 37);
     }
 
     #[test]

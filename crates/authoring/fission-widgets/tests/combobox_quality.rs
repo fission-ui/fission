@@ -326,18 +326,26 @@ fn open_combobox_uses_a_bounded_listbox_with_stable_options() {
         }
         op => panic!("expected bounded combobox popup surface, got {op:?}"),
     }
-    let scroll = surface
-        .children
-        .iter()
-        .find_map(|id| match &popup.nodes[id].op {
-            Op::Layout(LayoutOp::Scroll {
-                height,
-                show_scrollbar,
-                ..
-            }) => Some((*height, *show_scrollbar)),
-            _ => None,
-        })
-        .expect("combobox popup should contain a scroll viewport");
+    // Searched through descendants, not just direct children: `Scroll` emits a
+    // semantic region declaring the axis it scrolls, so the layout node sits
+    // one level below the surface. What matters here is that the popup bounds
+    // a scroll viewport, not how many nodes separate them.
+    let mut stack: Vec<_> = surface.children.clone();
+    let mut scroll = None;
+    while let Some(id) = stack.pop() {
+        let node = &popup.nodes[&id];
+        if let Op::Layout(LayoutOp::Scroll {
+            height,
+            show_scrollbar,
+            ..
+        }) = &node.op
+        {
+            scroll = Some((*height, *show_scrollbar));
+            break;
+        }
+        stack.extend(node.children.iter().copied());
+    }
+    let scroll = scroll.expect("combobox popup should contain a scroll viewport");
     assert_eq!(scroll, (Some(64.0), true));
 }
 

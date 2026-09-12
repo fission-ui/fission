@@ -2,7 +2,7 @@ use crate::authoring::Lower;
 use crate::lowering::{IrBuilder, LoweringCx};
 use fission_ir::{
     op::{Color, LayoutOp, Op, PaintOp, Stroke},
-    WidgetId,
+    Role, Semantics, WidgetId,
 };
 use serde::{Deserialize, Serialize};
 
@@ -64,6 +64,11 @@ pub struct Icon {
     pub size: Option<f32>,
     /// Optional stroke (when set, the fill is suppressed).
     pub stroke: Option<Stroke>,
+    /// Accessible name, for an icon that carries meaning on its own.
+    ///
+    /// Leave it unset for decorative icons and for icons inside a control that
+    /// already has a label -- naming both makes a screen reader say it twice.
+    pub semantic_label: Option<String>,
 }
 
 impl Icon {
@@ -74,6 +79,7 @@ impl Icon {
             color: None,
             size: None,
             stroke: None,
+            semantic_label: None,
         }
     }
 
@@ -84,6 +90,7 @@ impl Icon {
             color: None,
             size: None,
             stroke: None,
+            semantic_label: None,
         }
     }
 
@@ -94,6 +101,7 @@ impl Icon {
             color: None,
             size: None,
             stroke: None,
+            semantic_label: None,
         }
     }
 
@@ -126,6 +134,16 @@ impl Icon {
     // Deprecated: new -> path
     pub fn new(path: impl Into<String>) -> Self {
         Self::path(path)
+    }
+
+    /// Names this icon for assistive technology.
+    ///
+    /// Only for an icon that conveys meaning by itself. An icon inside a
+    /// labelled button is decorative as far as a screen reader is concerned,
+    /// and naming it makes the control announce twice.
+    pub fn semantic_label(mut self, label: impl Into<String>) -> Self {
+        self.semantic_label = Some(label.into());
+        self
     }
 
     pub fn size(mut self, s: f32) -> Self {
@@ -204,6 +222,20 @@ impl Lower for Icon {
             }),
         );
         layout.add_child(paint_id);
-        layout.build(cx)
+        let layout_id = layout.build(cx);
+
+        let Some(label) = self.semantic_label.clone() else {
+            return layout_id;
+        };
+        let mut semantics = IrBuilder::new(
+            cx.next_node_id(),
+            Op::Semantics(Semantics {
+                role: Role::Image,
+                label: Some(label),
+                ..Default::default()
+            }),
+        );
+        semantics.add_child(layout_id);
+        semantics.build(cx)
     }
 }

@@ -592,6 +592,7 @@ mod imp {
                         | Role::Link
                         | Role::MenuItem
                         | Role::Image
+                        | Role::Video
                         | Role::TextInput
                         | Role::Checkbox
                         | Role::Radio
@@ -986,6 +987,7 @@ mod imp {
             Role::Tooltip => AccessRole::Tooltip,
             Role::Status => AccessRole::Status,
             Role::SpinButton => AccessRole::SpinButton,
+            Role::Video => AccessRole::Video,
             Role::Generic => AccessRole::GenericContainer,
         }
     }

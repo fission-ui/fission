@@ -474,18 +474,26 @@ fn menu_and_select_use_compact_bounded_popup_anatomy() {
         }
         op => panic!("expected a bounded menu surface, got {op:?}"),
     }
-    let scroll = menu_surface
-        .children
-        .iter()
-        .find_map(|id| match &bounded_menu.nodes[id].op {
-            Op::Layout(LayoutOp::Scroll {
-                height,
-                show_scrollbar,
-                ..
-            }) => Some((*height, *show_scrollbar)),
-            _ => None,
-        })
-        .expect("bounded menu surface should contain a scroll viewport");
+    // Searched through descendants, not just direct children: `Scroll` emits a
+    // semantic region declaring the axis it scrolls, so the layout node sits
+    // one level below the surface. The contract here is that the surface bounds
+    // a scroll viewport, not how many nodes separate them.
+    let mut stack: Vec<_> = menu_surface.children.clone();
+    let mut scroll = None;
+    while let Some(id) = stack.pop() {
+        let node = &bounded_menu.nodes[&id];
+        if let Op::Layout(LayoutOp::Scroll {
+            height,
+            show_scrollbar,
+            ..
+        }) = &node.op
+        {
+            scroll = Some((*height, *show_scrollbar));
+            break;
+        }
+        stack.extend(node.children.iter().copied());
+    }
+    let scroll = scroll.expect("bounded menu surface should contain a scroll viewport");
     assert_eq!(scroll, (Some(42.0), true));
 }
 

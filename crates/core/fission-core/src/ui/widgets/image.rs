@@ -2,7 +2,7 @@ use crate::authoring::Lower;
 use crate::lowering::{IrBuilder, LoweringCx};
 use fission_ir::{
     op::{ImageFit, LayoutOp, Op, PaintOp},
-    WidgetId,
+    Role, Semantics, WidgetId,
 };
 use serde::{Deserialize, Serialize};
 
@@ -187,6 +187,24 @@ impl Lower for Image {
             }),
         );
         layout_builder.add_child(paint_id);
-        layout_builder.build(cx)
+        let layout_id = layout_builder.build(cx);
+
+        // The site shell reads the label straight off the paint op to emit
+        // `alt`, but AccessKit only walks semantic nodes, so without this the
+        // same image is announced on the web and silent on every desktop and
+        // mobile target.
+        let Some(label) = self.request.semantic_label.clone() else {
+            return layout_id;
+        };
+        let mut semantics = IrBuilder::new(
+            cx.next_node_id(),
+            Op::Semantics(Semantics {
+                role: Role::Image,
+                label: Some(label),
+                ..Default::default()
+            }),
+        );
+        semantics.add_child(layout_id);
+        semantics.build(cx)
     }
 }
