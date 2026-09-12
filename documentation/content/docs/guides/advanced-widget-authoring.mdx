@@ -53,7 +53,7 @@ Two things follow, and both are deliberate:
 Implement `LowerWidget`, then wrap it with `custom_widget`.
 
 ```rust
-use fission_core::authoring::{custom_widget, IrBuilder, LowerWidget, LoweringCx, lower_widget};
+use fission_core::authoring::{custom_widget, lower_widget, IrBuilder, LowerWidget, LoweringContext};
 use fission_core::ui::Widget;
 use fission_ir::{LayoutOp, Op, WidgetId};
 
@@ -83,15 +83,23 @@ struct AspectRatioLowerer {
 }
 
 impl LowerWidget for AspectRatioLowerer {
-    fn lower_dyn(&self, cx: &mut LoweringCx) -> WidgetId {
+    fn lower_dyn(&self, cx: &mut LoweringContext) -> WidgetId {
         let child_id = lower_widget(&self.child, cx);
         let id = cx.next_node_id();
 
         let mut builder = IrBuilder::new(
             id,
             Op::Layout(LayoutOp::Box {
+                width: None,
+                height: None,
+                min_width: None,
+                max_width: None,
+                min_height: None,
+                max_height: None,
+                padding: [0.0; 4],
+                flex_grow: 0.0,
+                flex_shrink: 1.0,
                 aspect_ratio: Some(self.ratio),
-                ..Default::default()
             }),
         );
         builder.add_child(child_id);
@@ -111,6 +119,18 @@ The shape is always the same:
 3. Build an `IrBuilder` around the `Op` this widget emits.
 4. Add the child ids.
 5. `build(cx)` and return the resulting id.
+
+### What the context gives you
+
+`LoweringContext` is deliberately small. A lowered widget can:
+
+- read the environment with `cx.env()`: theme, locale, viewport size and layout direction;
+- read runtime state such as scroll offsets with `cx.runtime_state()`;
+- allocate node ids with `cx.next_node_id()`, and allocate them under a stable identity with `cx.with_scope(id, |cx| ...)`;
+- read back what its children emitted with `cx.ir()`;
+- attach a render object to a node with `cx.set_render_object(id, object)`.
+
+Nodes are only ever added through `IrBuilder`. The context does not hand out mutable access to the IR, so every node is hashed for structural diffing and no widget can splice in a node another target cannot see.
 
 ### `stable_key`
 
@@ -134,6 +154,7 @@ Build the widget inside `build::enter` so component local state resolves, then l
 
 ```rust
 use fission_core::authoring::{lower_widget_to_ir, BuildCtx};
+use fission_core::ui::Text;
 use fission_core::{build, Env, GlobalState, RuntimeState, View, Widget};
 use fission_ir::{CoreIR, LayoutOp, Op};
 
