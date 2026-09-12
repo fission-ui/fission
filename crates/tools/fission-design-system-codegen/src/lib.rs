@@ -2406,7 +2406,7 @@ impl {krate}::DesignSystem for {type_name} {{
         // literal holding every recipe is a single enormous temporary, and
         // materialising it overflows the stack on a normal thread.
         Ok(format!(
-            "{{ let mut recipes = std::collections::BTreeMap::new(); {} recipes }}",
+            "std::sync::Arc::new({{ let mut recipes = std::collections::BTreeMap::new(); {} recipes }})",
             entries.join(" ")
         ))
     }

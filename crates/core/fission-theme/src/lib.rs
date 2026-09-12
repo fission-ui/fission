@@ -17,6 +17,7 @@ pub use fission_ir::op::{BoxShadow, Color, Fill, LineCap, LineJoin, Stroke};
 use fission_ir::LayoutDirection;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DesignMode {
@@ -513,8 +514,11 @@ impl ComponentRecipe {
     /// Returning a default rather than `None` keeps widget code linear: ask for
     /// the part, then fall back per field with `unwrap_or`, so a design system
     /// can declare as much or as little as it wants.
-    pub fn part(&self, name: &str) -> ResolvedComponentStyle {
-        self.parts.get(name).cloned().unwrap_or_default()
+    pub fn part(&self, name: &str) -> &ResolvedComponentStyle {
+        static EMPTY: std::sync::OnceLock<ResolvedComponentStyle> = std::sync::OnceLock::new();
+        self.parts
+            .get(name)
+            .unwrap_or_else(|| EMPTY.get_or_init(ResolvedComponentStyle::default))
     }
 
     /// Returns a named part only when the design system declares it.
@@ -3657,8 +3661,12 @@ pub struct ComponentTheme {
     ///
     /// The named fields above predate it and stay for the components that were
     /// already migrated; new components should use this.
+    ///
+    /// Shared rather than owned: a `Theme` is cloned per SSR request and per
+    /// site document, and the recipe set is around 140 KB. Cloning a theme
+    /// bumps a refcount instead of deep-copying every recipe.
     #[serde(default)]
-    pub recipes: BTreeMap<String, ComponentRecipe>,
+    pub recipes: Arc<BTreeMap<String, ComponentRecipe>>,
 }
 
 impl ComponentTheme {
@@ -3682,7 +3690,7 @@ impl ComponentTheme {
             progress: ProgressTheme::from_tokens(tokens),
             tooltip: TooltipTheme::from_tokens(tokens),
             card: CardTheme::from_tokens(tokens),
-            recipes: BTreeMap::new(),
+            recipes: Arc::new(BTreeMap::new()),
             code: CodeTheme::from_tokens(tokens),
             empty_state: EmptyStateTheme::from_tokens(tokens),
             feature_icon: FeatureIconTheme::from_tokens(tokens),
@@ -3721,12 +3729,12 @@ impl Theme {
     /// recipes widgets read, so an empty result here means either an
     /// application design system that chose not to override this component, or
     /// a widget reading a name nobody declares.
-    pub fn recipe(&self, name: &str) -> ComponentRecipe {
+    pub fn recipe(&self, name: &str) -> &ComponentRecipe {
+        static EMPTY: std::sync::OnceLock<ComponentRecipe> = std::sync::OnceLock::new();
         self.components
             .recipes
             .get(name)
-            .cloned()
-            .unwrap_or_default()
+            .unwrap_or_else(|| EMPTY.get_or_init(ComponentRecipe::default))
     }
 
     /// Returns the recipe for `name` only when the design system declares it.
