@@ -20,7 +20,7 @@ pub enum Error {
     RequestDevice {
         source: wgpu::RequestDeviceError,
         required_features: wgpu::Features,
-        required_limits: wgpu::Limits,
+        required_limits: Box<wgpu::Limits>,
     },
     /// The window surface could not be created.
     CreateSurface(wgpu::CreateSurfaceError),
@@ -231,7 +231,7 @@ impl RenderContext {
             .map_err(|source| Error::RequestDevice {
                 source,
                 required_features,
-                required_limits: limits,
+                required_limits: Box::new(limits),
             })?;
         self.devices.push(DeviceHandle {
             adapter,

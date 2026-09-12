@@ -211,22 +211,6 @@ fn scene_texts(scene: &fission::render::RenderScene) -> Vec<String> {
     out
 }
 
-/// Finds the node carrying a semantics role, so tests click what the user sees
-/// rather than an id re-derived from a composite's internal path salt.
-fn semantics_node_by_role(h: &TestHarness<InboxState>, role: Role) -> Option<WidgetId> {
-    let ir = h.last_ir.as_ref()?;
-    ir.nodes.values().find_map(|node| match &node.op {
-        Op::Semantics(semantics) if semantics.role == role => Some(node.id),
-        _ => None,
-    })
-}
-
-fn click_role(h: &mut TestHarness<InboxState>, role: Role) -> Result<()> {
-    let id = semantics_node_by_role(h, role)
-        .unwrap_or_else(|| panic!("expected a {role:?} node to click"));
-    click_node(h, id)
-}
-
 /// Clicks the control carrying a stable semantics identifier.
 fn click_identifier(h: &mut TestHarness<InboxState>, identifier: &str) -> Result<()> {
     let ir = h.last_ir.as_ref().expect("ir");

@@ -101,8 +101,10 @@ fn rows_do_not_paint_a_fixed_white_background() {
     // colour has to come from the active token set.
     use fission_ir::op::{Color, Fill, PaintOp};
 
-    let mut env = Env::default();
-    env.theme = fission_theme::Theme::dark();
+    let env = Env {
+        theme: fission_theme::Theme::dark(),
+        ..Env::default()
+    };
     let ir = lower(&env, || table().into());
     let white = Color {
         r: 255,

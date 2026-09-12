@@ -525,8 +525,10 @@ fn selected_card_indicator_uses_the_logical_leading_edge() {
         (LayoutDirection::LeftToRight, Some(0.0), None),
         (LayoutDirection::RightToLeft, None, Some(0.0)),
     ] {
-        let mut env = Env::default();
-        env.layout_direction = direction;
+        let mut env = Env {
+            layout_direction: direction,
+            ..Env::default()
+        };
         env.theme
             .components_mut()
             .card
