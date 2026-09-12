@@ -9,7 +9,7 @@ use super::widgets::{
     SelectionRegion, SemanticsRegion, Slider, Spacer, Switch, Text, TextInput, Transform, Video,
     ZStack,
 };
-use crate::lowering::{FormFieldContext, LoweringCx};
+use crate::lowering::{FormFieldContext, LoweringContext};
 use fission_ir::{CoreIR, Op, Role, StructuralOp, TextFieldValidationState, WidgetId};
 use serde::{Deserialize, Serialize};
 use std::hash::{Hash, Hasher};
@@ -865,7 +865,7 @@ pub trait WidgetIdExt: Into<Widget> + Sized {
 impl<T> WidgetIdExt for T where T: Into<Widget> {}
 
 impl Widget {
-    pub(crate) fn lower(&self, cx: &mut LoweringCx) -> WidgetId {
+    pub(crate) fn lower(&self, cx: &mut LoweringContext) -> WidgetId {
         let has_form_field_context =
             self.form_field_relationships.is_some() && retained_form_control_count(self) == 1;
         if let Some(relationships) = self

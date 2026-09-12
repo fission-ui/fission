@@ -1,4 +1,4 @@
-use fission_core::authoring::LoweringCx;
+use fission_core::authoring::LoweringContext;
 use fission_core::env::Env;
 use fission_core::ui::{Text, TextContent};
 use fission_i18n::{Locale, TranslationBundle};
@@ -23,7 +23,7 @@ fn text_key_resolves_from_i18n_registry() {
     };
 
     let runtime = fission_core::env::RuntimeState::default();
-    let mut cx = LoweringCx::new(&env, &runtime, None, None);
+    let mut cx = LoweringContext::new(&env, &runtime, None, None);
     let root_id = fission_core::internal::lower_widget(&text.into(), &mut cx);
     cx.ir.root = Some(root_id);
 

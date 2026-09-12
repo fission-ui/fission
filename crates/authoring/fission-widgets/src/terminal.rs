@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 use arboard::Clipboard;
-use fission_core::authoring::{IrBuilder, LowerWidget, LoweringCx};
+use fission_core::authoring::{IrBuilder, LowerWidget, LoweringContext};
 use fission_core::event::{ImeEvent, InputEvent, KeyCode, KeyEvent, PointerEvent};
 use fission_core::internal::{
     CustomEventResult, CustomHitResult, CustomRenderObject, InternalRenderNode,
@@ -480,7 +480,7 @@ impl TerminalRenderNode {
 }
 
 impl LowerWidget for TerminalRenderNode {
-    fn lower_dyn(&self, cx: &mut LoweringCx) -> WidgetId {
+    fn lower_dyn(&self, cx: &mut LoweringContext) -> WidgetId {
         let outer_height = self
             .viewport_height
             .max(self.line_height * self.snapshot.rows as f32 + self.padding_y * 2.0);

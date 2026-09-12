@@ -1,6 +1,6 @@
 use crate::authoring::Lower;
 use crate::env::{Env, RuntimeState};
-use crate::lowering::LoweringCx;
+use crate::lowering::LoweringContext;
 use crate::ui::widgets::clip::Clip;
 use crate::ui::widgets::container::Container;
 use fission_ir::{LayoutOp, Op};
@@ -16,7 +16,7 @@ fn test_clip_lowering() {
         ..Default::default()
     };
 
-    let mut cx = LoweringCx::new(&env, &runtime_state, None, None);
+    let mut cx = LoweringContext::new(&env, &runtime_state, None, None);
     let root_id = clip.lower(&mut cx);
 
     let node = cx.ir.nodes.get(&root_id).unwrap();

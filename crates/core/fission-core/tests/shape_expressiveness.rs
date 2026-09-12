@@ -6,7 +6,7 @@
 //! `Op` -- they needed the existing ones to carry the information a backend
 //! already knows how to draw.
 
-use fission_core::authoring::LoweringCx;
+use fission_core::authoring::LoweringContext;
 use fission_core::env::{Env, RuntimeState};
 use fission_core::op::{BorderSides, Color, CornerRadii, Fill, Stroke};
 use fission_core::ui::{Container, Text, TextContent};
@@ -17,7 +17,7 @@ fn paint_ops(widget: Widget, direction: LayoutDirection) -> Vec<PaintOp> {
     let mut env = Env::default();
     env.layout_direction = direction;
     let runtime = RuntimeState::default();
-    let mut cx = LoweringCx::new(&env, &runtime, None, None);
+    let mut cx = LoweringContext::new(&env, &runtime, None, None);
     let root = fission_core::internal::lower_widget(&widget, &mut cx);
     cx.ir.root = Some(root);
     cx.ir

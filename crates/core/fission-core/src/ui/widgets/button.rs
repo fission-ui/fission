@@ -1,5 +1,5 @@
 use crate::authoring::Lower;
-use crate::lowering::{IrBuilder, LoweringCx};
+use crate::lowering::{IrBuilder, LoweringContext};
 use crate::motion::{
     color, fill as motion_fill, hover_press, px, ripple_effect, scalar, shadows as motion_shadows,
     MotionEasing, MotionExpr, MotionPhase, MotionPredicate, MotionPropertyId, MotionStartValue,
@@ -546,7 +546,7 @@ struct ButtonStyleResolved {
 impl ButtonContent {
     fn lower_with_style(
         &self,
-        cx: &mut LoweringCx<'_>,
+        cx: &mut LoweringContext<'_>,
         style: &ButtonStyleResolved,
         button_id: WidgetId,
     ) -> WidgetId {
@@ -593,7 +593,7 @@ impl ButtonContent {
 impl ButtonIconContent {
     fn lower_with_style(
         &self,
-        cx: &mut LoweringCx<'_>,
+        cx: &mut LoweringContext<'_>,
         style: &ButtonStyleResolved,
         button_id: WidgetId,
     ) -> WidgetId {
@@ -603,7 +603,7 @@ impl ButtonIconContent {
 
 fn lower_content_icon(
     icon: &Icon,
-    cx: &mut LoweringCx<'_>,
+    cx: &mut LoweringContext<'_>,
     style: &ButtonStyleResolved,
     button_id: WidgetId,
     slot: u32,
@@ -1275,7 +1275,7 @@ impl Button {
 
     fn animated_style(
         &self,
-        cx: &LoweringCx<'_>,
+        cx: &LoweringContext<'_>,
         mut style: ButtonStyleResolved,
     ) -> ButtonStyleResolved {
         if self.recipe_component_motion(cx.env).is_none() {
@@ -1511,7 +1511,7 @@ fn button_state_track<T: Clone + PartialEq>(
 }
 
 impl Lower for Button {
-    fn lower(&self, cx: &mut LoweringCx) -> WidgetId {
+    fn lower(&self, cx: &mut LoweringContext) -> WidgetId {
         let mut semantics_op = self.build_semantics();
         if let (Some(semantics), Some(context)) = (&mut semantics_op, cx.form_field_context()) {
             semantics.required |= context.required;

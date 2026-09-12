@@ -1,7 +1,7 @@
 use super::*;
 
 impl TextInput {
-    pub(super) fn resolve_text_content(content: &TextContent, cx: &LoweringCx<'_>) -> String {
+    pub(super) fn resolve_text_content(content: &TextContent, cx: &LoweringContext<'_>) -> String {
         match content {
             TextContent::Literal(s) => s.clone(),
             TextContent::Key(key) => cx
@@ -43,7 +43,7 @@ impl TextInput {
 
     pub(super) fn supporting_counter_text(
         &self,
-        cx: &LoweringCx<'_>,
+        cx: &LoweringContext<'_>,
         current_text: &str,
     ) -> Option<String> {
         self.counter_text
@@ -58,7 +58,7 @@ impl TextInput {
 
     pub(super) fn build_selection_handle_overlay(
         &self,
-        cx: &mut LoweringCx,
+        cx: &mut LoweringContext,
         input_id: WidgetId,
         kind: TextSelectionHandleKind,
         point: fission_layout::LayoutPoint,
@@ -113,7 +113,7 @@ impl TextInput {
 
     pub(super) fn build_toolbar_overlay(
         &self,
-        cx: &mut LoweringCx,
+        cx: &mut LoweringContext,
         input_id: WidgetId,
         anchor: fission_layout::LayoutPoint,
     ) -> WidgetId {
@@ -188,7 +188,7 @@ impl TextInput {
 
     pub(super) fn build_magnifier_overlay(
         &self,
-        cx: &mut LoweringCx,
+        cx: &mut LoweringContext,
         anchor: fission_layout::LayoutPoint,
         display_text: &str,
         caret: usize,

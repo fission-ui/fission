@@ -1,5 +1,5 @@
 use crate::authoring::Lower;
-use crate::lowering::{IrBuilder, LoweringCx};
+use crate::lowering::{IrBuilder, LoweringContext};
 use crate::Widget;
 use fission_ir::op::{AlignItems, FlexWrap, JustifyContent};
 use fission_ir::{FlexDirection, LayoutOp, Op, Semantics, WidgetId};
@@ -101,7 +101,7 @@ impl Row {
 }
 
 impl Lower for Row {
-    fn lower(&self, cx: &mut LoweringCx) -> WidgetId {
+    fn lower(&self, cx: &mut LoweringContext) -> WidgetId {
         let layout_id = self.id.map(Into::into).unwrap_or_else(|| cx.next_node_id());
 
         cx.push_scope(layout_id);

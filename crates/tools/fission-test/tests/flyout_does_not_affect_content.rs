@@ -1,6 +1,6 @@
 use anyhow::Result;
 use fission_core::authoring::BuildCtx;
-use fission_core::authoring::LoweringCx;
+use fission_core::authoring::LoweringContext;
 use fission_core::env::Env;
 use fission_core::ui::{Grid, GridItem, TextInput, Widget};
 use fission_core::Runtime;
@@ -137,7 +137,7 @@ fn flyout_does_not_shift_content() -> Result<()> {
         (node, portals)
     };
 
-    let mut cx = LoweringCx::new(&env, &runtime.runtime_state, None, None);
+    let mut cx = LoweringContext::new(&env, &runtime.runtime_state, None, None);
     let root_id = fission_core::internal::lower_widget(&node_tree, &mut cx);
     cx.ir.root = Some(root_id);
     let ir1 = cx.ir;
@@ -204,7 +204,7 @@ fn flyout_does_not_shift_content() -> Result<()> {
             .into()
         };
 
-        let mut cx = LoweringCx::new(
+        let mut cx = LoweringContext::new(
             &env,
             &runtime.runtime_state,
             None,

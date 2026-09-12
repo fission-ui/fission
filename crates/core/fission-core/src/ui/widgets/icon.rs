@@ -1,5 +1,5 @@
 use crate::authoring::Lower;
-use crate::lowering::{IrBuilder, LoweringCx};
+use crate::lowering::{IrBuilder, LoweringContext};
 use fission_ir::{
     op::{Color, LayoutOp, Op, PaintOp, Stroke},
     Role, Semantics, WidgetId,
@@ -163,7 +163,7 @@ impl Icon {
 }
 
 impl Lower for Icon {
-    fn lower(&self, cx: &mut LoweringCx) -> WidgetId {
+    fn lower(&self, cx: &mut LoweringContext) -> WidgetId {
         let id = self.id.map(Into::into).unwrap_or_else(|| cx.next_node_id());
 
         let tokens = &cx.env.theme.tokens;

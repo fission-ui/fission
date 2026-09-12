@@ -1,5 +1,5 @@
 use fission_core::{
-    internal::{IrBuilder, LowerWidget, LoweringCx},
+    internal::{IrBuilder, LowerWidget, LoweringContext},
     LayoutOp, Op, Widget,
 };
 use fission_ir::WidgetId;
@@ -41,7 +41,7 @@ struct SpotlightLowerer {
 }
 
 impl LowerWidget for SpotlightLowerer {
-    fn lower_dyn(&self, cx: &mut LoweringCx) -> WidgetId {
+    fn lower_dyn(&self, cx: &mut LoweringContext) -> WidgetId {
         let children = self
             .children
             .iter()

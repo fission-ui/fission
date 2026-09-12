@@ -1,4 +1,4 @@
-use fission_core::authoring::{BuildCtx, LoweringCx};
+use fission_core::authoring::{BuildCtx, LoweringContext};
 use fission_core::{
     build, widgets, Button, ButtonMotion, Column, Env, MotionDeclarationKind, MotionEasing,
     MotionPhase, MotionPreference, MotionPropertyId, MotionTransition, Runtime, RuntimeState, Text,
@@ -31,7 +31,7 @@ fn build_button(env: &Env, runtime: &RuntimeState, button: Button) -> (Widget, B
 }
 
 fn lower(widget: &Widget, env: &Env, runtime: &RuntimeState) -> fission_ir::CoreIR {
-    let mut cx = LoweringCx::new(env, runtime, None, None);
+    let mut cx = LoweringContext::new(env, runtime, None, None);
     let root = fission_core::internal::lower_widget(widget, &mut cx);
     cx.ir.set_root(root);
     cx.ir

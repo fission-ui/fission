@@ -1,4 +1,4 @@
-use fission_core::authoring::{BuildCtx, LoweringCx};
+use fission_core::authoring::{BuildCtx, LoweringContext};
 use fission_core::internal::build_layout_tree;
 use fission_core::ui::{Column, Scroll, Text, Widget};
 use fission_core::{
@@ -57,7 +57,7 @@ fn implicit_tabs_ids_are_unique_across_sibling_instances() {
         }
         .into()
     });
-    let mut lowering = LoweringCx::new(&env, &runtime, None, None);
+    let mut lowering = LoweringContext::new(&env, &runtime, None, None);
     let root = fission_core::internal::lower_widget(&node, &mut lowering);
     lowering.ir.root = Some(root);
     let ir = lowering.ir;
@@ -749,7 +749,7 @@ fn lower_widget(
     let view = View::new(&state, runtime, env, None);
     let mut ctx = BuildCtx::<State>::new();
     let node = build::enter(&mut ctx, &view, build_widget);
-    let mut lowering = LoweringCx::new(env, runtime, None, None);
+    let mut lowering = LoweringContext::new(env, runtime, None, None);
     let root = fission_core::internal::lower_widget(&node, &mut lowering);
     lowering.ir.root = Some(root);
     lowering.ir
@@ -763,7 +763,7 @@ fn lower_tabs(tabs: Tabs, env: &Env, runtime: &RuntimeState, id: Option<WidgetId
         Some(id) => tabs.id(id),
         None => tabs.into(),
     });
-    let mut lowering = LoweringCx::new(env, runtime, None, None);
+    let mut lowering = LoweringContext::new(env, runtime, None, None);
     let root = fission_core::internal::lower_widget(&node, &mut lowering);
     lowering.ir.root = Some(root);
     lowering.ir

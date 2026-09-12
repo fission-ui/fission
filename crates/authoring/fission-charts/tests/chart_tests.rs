@@ -10,7 +10,7 @@ use fission_charts::{
 };
 use fission_core::{
     env::Env,
-    internal::{LowerWidget, LoweringCx},
+    internal::{LowerWidget, LoweringContext},
     MotionPropertyId, MotionValue, WidgetId,
 };
 use fission_ir::op::{Color, Fill, LayoutOp, PaintOp};
@@ -54,7 +54,7 @@ fn lower_chart_with_animation_progress(
         ),
         MotionValue::Scalar(progress),
     );
-    let mut cx = LoweringCx::new(&env, &runtime_state, None, None);
+    let mut cx = LoweringContext::new(&env, &runtime_state, None, None);
     let root_id = cx.next_node_id();
     cx.push_scope(root_id);
     lowerer.lower_dyn(&mut cx);
@@ -479,7 +479,7 @@ fn chart_theme_follows_dark_fission_env() {
         a: 255,
     };
     let runtime_state = fission_core::RuntimeState::default();
-    let mut cx = LoweringCx::new(&env, &runtime_state, None, None);
+    let mut cx = LoweringContext::new(&env, &runtime_state, None, None);
     let root_id = cx.next_node_id();
     cx.push_scope(root_id);
     lowerer.lower_dyn(&mut cx);
@@ -566,7 +566,7 @@ fn map_lines_tree_sunburst_and_theme_river_lower_to_paths() {
     let lowerer = ChartInternalLowerer { chart };
     let env = Env::default();
     let runtime_state = fission_core::RuntimeState::default();
-    let mut cx = LoweringCx::new(&env, &runtime_state, None, None);
+    let mut cx = LoweringContext::new(&env, &runtime_state, None, None);
     let root_id = cx.next_node_id();
     cx.push_scope(root_id);
     lowerer.lower_dyn(&mut cx);
@@ -606,7 +606,7 @@ fn mark_components_lower_to_paint_nodes() {
     let lowerer = ChartInternalLowerer { chart };
     let env = Env::default();
     let runtime_state = fission_core::RuntimeState::default();
-    let mut cx = LoweringCx::new(&env, &runtime_state, None, None);
+    let mut cx = LoweringContext::new(&env, &runtime_state, None, None);
     let root_id = cx.next_node_id();
     cx.push_scope(root_id);
     lowerer.lower_dyn(&mut cx);
@@ -644,7 +644,7 @@ fn test_chart_lowering() {
 
     let env = Env::default();
     let runtime_state = fission_core::RuntimeState::default();
-    let mut cx = LoweringCx::new(&env, &runtime_state, None, None);
+    let mut cx = LoweringContext::new(&env, &runtime_state, None, None);
 
     let root_id = cx.next_node_id();
     cx.push_scope(root_id);

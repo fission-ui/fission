@@ -404,7 +404,7 @@ fn accessible_range_slider() -> (CoreIR, LayoutSnapshot, WidgetId, WidgetId) {
     .into();
     let env = fission_core::Env::default();
     let runtime = fission_core::RuntimeState::default();
-    let mut lowering = fission_core::internal::LoweringCx::new(&env, &runtime, None, None);
+    let mut lowering = fission_core::internal::LoweringContext::new(&env, &runtime, None, None);
     let root = fission_core::internal::lower_widget(&widget, &mut lowering);
     lowering.ir.root = Some(root);
     let input = fission_core::internal::build_layout_tree(&lowering.ir, &env);

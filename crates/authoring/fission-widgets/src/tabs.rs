@@ -4,7 +4,7 @@ use crate::motion_support::{
 };
 use crate::stack::VStack;
 use crate::Badge;
-use fission_core::authoring::{IrBuilder, LowerWidget, LoweringCx};
+use fission_core::authoring::{IrBuilder, LowerWidget, LoweringContext};
 use fission_core::motion::{follow_x_and_width, Motion, MotionTrack, Presence};
 use fission_core::op::{
     AlignItems, BoxAlignment, BoxStyle, Fill, FlexDirection, FlexWrap, JustifyContent, LayoutOp,
@@ -668,7 +668,7 @@ impl From<TabListSurface> for Widget {
 }
 
 impl LowerWidget for TabListSurface {
-    fn lower_dyn(&self, cx: &mut LoweringCx) -> WidgetId {
+    fn lower_dyn(&self, cx: &mut LoweringContext) -> WidgetId {
         cx.push_scope(self.id);
         let layout_id = cx.next_node_id();
         cx.push_scope(layout_id);
@@ -758,7 +758,7 @@ impl From<TabTriggerSurface> for Widget {
 }
 
 impl LowerWidget for TabTriggerSurface {
-    fn lower_dyn(&self, cx: &mut LoweringCx) -> WidgetId {
+    fn lower_dyn(&self, cx: &mut LoweringContext) -> WidgetId {
         cx.push_scope(self.id);
         let layout_id = cx.next_node_id();
         cx.push_scope(layout_id);
@@ -878,7 +878,7 @@ fn recipe_box_style(
 
 fn append_recipe_paint(
     layout: &mut IrBuilder,
-    cx: &mut LoweringCx,
+    cx: &mut LoweringContext,
     style: &ResolvedComponentStyle,
     fallback_background: Option<Fill>,
 ) {

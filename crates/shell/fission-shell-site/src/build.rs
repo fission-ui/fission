@@ -19,7 +19,7 @@ use crate::site::{
 use crate::tabs::expand_mdx_tabs;
 use anyhow::{bail, Context, Result};
 use fission_core::authoring::BuildCtx;
-use fission_core::authoring::LoweringCx;
+use fission_core::authoring::LoweringContext;
 use fission_core::registry::{VideoRegistration, WebRegistration};
 use fission_core::ui::{Column, Overlay, ZStack};
 use fission_core::{Env, MotionDeclaration, RuntimeState, View, Widget, WidgetId};
@@ -1019,7 +1019,7 @@ fn render_node_to_html(
     route_structured_data: Vec<String>,
 ) -> Result<String> {
     let runtime = RuntimeState::default();
-    let mut lowering = LoweringCx::new(env, &runtime, None, None);
+    let mut lowering = LoweringContext::new(env, &runtime, None, None);
     let root = fission_core::internal::lower_widget(&node, &mut lowering);
     lowering.ir.set_root(root);
 

@@ -1,6 +1,6 @@
 use crate::authoring::Lower;
 use crate::env::{Env, RuntimeState};
-use crate::lowering::{build_layout_tree, LoweringCx};
+use crate::lowering::{build_layout_tree, LoweringContext};
 use crate::ui::widgets::text::TextContent;
 use crate::ui::widgets::{Column, Container, Text};
 use fission_ir::WidgetId;
@@ -45,7 +45,7 @@ impl fission_layout::TextMeasurer for SimpleMeasurer {
 fn test_text_wrapping_in_constrained_flex() {
     let env = Env::default();
     let runtime_state = RuntimeState::default();
-    let mut cx = LoweringCx::new(&env, &runtime_state, None, None);
+    let mut cx = LoweringContext::new(&env, &runtime_state, None, None);
 
     let root_base = WidgetId::derived(0xABC, &[0]);
     cx.push_scope(root_base);
@@ -136,7 +136,7 @@ fn test_text_wrapping_in_constrained_flex() {
 fn text_parent_max_width_drives_wrapping() {
     let env = Env::default();
     let runtime_state = RuntimeState::default();
-    let mut cx = LoweringCx::new(&env, &runtime_state, None, None);
+    let mut cx = LoweringContext::new(&env, &runtime_state, None, None);
 
     let text = Text {
         content: TextContent::Literal("HelloWorld".into()),
@@ -189,7 +189,7 @@ fn text_parent_max_width_drives_wrapping() {
 fn first_frame_descendant_max_width_is_the_paragraph_wrap_authority() {
     let env = Env::default();
     let runtime_state = RuntimeState::default();
-    let mut cx = LoweringCx::new(&env, &runtime_state, None, None);
+    let mut cx = LoweringContext::new(&env, &runtime_state, None, None);
 
     let heading = "A deliberately long heading that wraps at the capped width";
     let sibling = "This sibling starts after the complete heading.";

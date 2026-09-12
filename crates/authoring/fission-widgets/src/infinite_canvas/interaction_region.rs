@@ -1,6 +1,6 @@
 use std::hash::{Hash, Hasher};
 
-use fission_core::authoring::{LowerWidget, LoweringCx};
+use fission_core::authoring::{LowerWidget, LoweringContext};
 use fission_core::ui::Widget;
 use fission_core::{ActionEnvelope, WidgetId};
 use fission_ir::{ActionEntry, ActionSet, ActionTrigger, CanvasTarget, Op, Role, Semantics};
@@ -16,7 +16,7 @@ pub(crate) struct CanvasInteractionRegion {
 }
 
 impl LowerWidget for CanvasInteractionRegion {
-    fn lower_dyn(&self, cx: &mut LoweringCx) -> WidgetId {
+    fn lower_dyn(&self, cx: &mut LoweringContext) -> WidgetId {
         cx.push_scope(self.id);
         let child = fission_core::internal::lower_widget(&self.child, cx);
         cx.pop_scope();

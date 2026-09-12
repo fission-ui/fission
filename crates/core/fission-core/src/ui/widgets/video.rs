@@ -1,5 +1,5 @@
 use crate::authoring::Lower;
-use crate::lowering::{IrBuilder, LoweringCx};
+use crate::lowering::{IrBuilder, LoweringContext};
 use fission_ir::{
     op::{EmbedKind, LayoutOp, Op},
     Role, Semantics, WidgetId,
@@ -412,7 +412,7 @@ pub enum IosAudioSessionCategoryOption {
 }
 
 impl Lower for Video {
-    fn lower(&self, cx: &mut LoweringCx) -> WidgetId {
+    fn lower(&self, cx: &mut LoweringContext) -> WidgetId {
         let widget_id = self
             .id
             .unwrap_or_else(|| WidgetId::explicit(&self.source.key()));

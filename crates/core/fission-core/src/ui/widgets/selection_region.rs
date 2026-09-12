@@ -1,6 +1,6 @@
 use crate::authoring::Lower;
 use crate::env::TextSelectionHandleKind;
-use crate::lowering::{IrBuilder, LoweringCx};
+use crate::lowering::{IrBuilder, LoweringContext};
 use crate::selection::{selectable_members_in_subtree, SelectionRegionController};
 use crate::ui::widgets::context_menu::{
     anchor_to_local, text_context_menu_item_widget, text_context_menu_overlay_widget,
@@ -181,7 +181,7 @@ pub(crate) fn selection_region_handle_position_id(
 }
 
 fn build_selection_handle(
-    cx: &mut LoweringCx,
+    cx: &mut LoweringContext,
     region_id: WidgetId,
     controls: &TextSelectionControls,
     kind: TextSelectionHandleKind,
@@ -250,7 +250,7 @@ fn magnifier_snippet(text: &str, offset: usize) -> String {
 }
 
 fn build_magnifier(
-    cx: &mut LoweringCx,
+    cx: &mut LoweringContext,
     region_id: WidgetId,
     config: &TextMagnifierConfiguration,
     anchor: fission_layout::LayoutPoint,
@@ -349,7 +349,7 @@ fn build_mobile_toolbar(
 }
 
 pub(crate) fn wrap_implicit_selection_affordances(
-    cx: &mut LoweringCx<'_>,
+    cx: &mut LoweringContext<'_>,
     owner: WidgetId,
     visual_id: WidgetId,
     context_menu: &TextContextMenuConfig,
@@ -450,7 +450,7 @@ pub(crate) fn wrap_implicit_selection_affordances(
 }
 
 impl Lower for SelectionRegion {
-    fn lower(&self, cx: &mut LoweringCx) -> WidgetId {
+    fn lower(&self, cx: &mut LoweringContext) -> WidgetId {
         let owner = self.id.unwrap_or_else(|| cx.next_node_id());
         cx.push_scope(owner);
         let child_id = self.child.lower(cx);

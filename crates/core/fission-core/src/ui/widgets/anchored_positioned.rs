@@ -1,4 +1,4 @@
-use crate::authoring::{LowerWidget, LoweringCx};
+use crate::authoring::{LowerWidget, LoweringContext};
 use crate::lowering::IrBuilder;
 use crate::ui::Widget;
 use fission_ir::{LayoutOp, Op, WidgetId};
@@ -36,7 +36,7 @@ impl AnchoredPositioned {
 }
 
 impl LowerWidget for AnchoredPositioned {
-    fn lower_dyn(&self, cx: &mut LoweringCx) -> WidgetId {
+    fn lower_dyn(&self, cx: &mut LoweringContext) -> WidgetId {
         let id = self.id.unwrap_or_else(|| cx.next_node_id());
         cx.push_scope(id);
         let child = crate::internal::lower_widget(&self.child, cx);

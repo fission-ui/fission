@@ -1,5 +1,5 @@
 use crate::env::{Env, RuntimeState};
-use crate::lowering::{build_layout_tree, LoweringCx};
+use crate::lowering::{build_layout_tree, LoweringContext};
 use fission_ir::{FlexDirection, LayoutOp, Op, WidgetId};
 use fission_layout::{LayoutEngine, LayoutSize};
 
@@ -7,7 +7,7 @@ use fission_layout::{LayoutEngine, LayoutSize};
 fn test_absolute_fill_inside_grown_container() {
     let env = Env::default();
     let runtime_state = RuntimeState::default();
-    let mut cx = LoweringCx::new(&env, &runtime_state, None, None);
+    let mut cx = LoweringContext::new(&env, &runtime_state, None, None);
 
     let root_base = WidgetId::derived(0xDEF, &[0]);
     cx.push_scope(root_base);

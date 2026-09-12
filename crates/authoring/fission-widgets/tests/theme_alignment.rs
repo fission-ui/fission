@@ -1,6 +1,6 @@
 use fission_core::action::GlobalState;
 use fission_core::authoring::BuildCtx;
-use fission_core::authoring::LoweringCx;
+use fission_core::authoring::LoweringContext;
 use fission_core::env::{Env, RuntimeState};
 use fission_core::internal::build_layout_tree;
 use fission_core::ui::{Row, Spacer};
@@ -71,7 +71,7 @@ fn build_widget_ir_with(env: &Env, build: impl FnOnce() -> Widget) -> (CoreIR, W
 
     let measurer: Arc<dyn TextMeasurer> = Arc::new(SimpleMeasurer);
     let measurer_ref = measurer.clone();
-    let mut lower = LoweringCx::new(env, &runtime_state, Some(&measurer_ref), None);
+    let mut lower = LoweringContext::new(env, &runtime_state, Some(&measurer_ref), None);
     let root_id = fission_core::internal::lower_widget(&node, &mut lower);
     lower.ir.root = Some(root_id);
     (lower.ir, root_id)

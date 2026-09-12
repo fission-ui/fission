@@ -7,7 +7,7 @@ use fission_layout::{LayoutInputNode, LayoutSnapshot, TextMeasurer};
 use std::collections::HashMap;
 use std::sync::Arc;
 
-pub struct LoweringCx<'a> {
+pub struct LoweringContext<'a> {
     pub env: &'a Env,
     pub runtime_state: &'a RuntimeState,
     pub ir: CoreIR,
@@ -29,7 +29,7 @@ pub(crate) struct FormFieldContext {
     pub invalid_message: Option<String>,
 }
 
-impl<'a> LoweringCx<'a> {
+impl<'a> LoweringContext<'a> {
     pub fn new(
         env: &'a Env,
         runtime_state: &'a RuntimeState,
@@ -170,13 +170,13 @@ impl IrBuilder {
         self.children.extend(children);
     }
 
-    pub fn build(self, cx: &mut LoweringCx) -> WidgetId {
+    pub fn build(self, cx: &mut LoweringContext) -> WidgetId {
         cx.insert_node_with_composite(self.node_id, self.op, self.composite, self.children);
         self.node_id
     }
 }
 
-pub fn wrap_zstack_child(cx: &mut LoweringCx, child_id: WidgetId) -> WidgetId {
+pub fn wrap_zstack_child(cx: &mut LoweringContext, child_id: WidgetId) -> WidgetId {
     let mut item = IrBuilder::new(
         cx.next_node_id(),
         Op::Layout(LayoutOp::GridItem {

@@ -1,7 +1,7 @@
 use crate::authoring::Lower;
 use crate::authoring::LowerWidget;
 use crate::env::{Env, RuntimeState};
-use crate::lowering::{build_layout_tree, IrBuilder, LoweringCx};
+use crate::lowering::{build_layout_tree, IrBuilder, LoweringContext};
 use crate::ui::Widget;
 use fission_ir::{Op, Semantics};
 use fission_layout::{LayoutEngine, LayoutSize};
@@ -12,7 +12,7 @@ struct MockHero {
 }
 
 impl LowerWidget for MockHero {
-    fn lower_dyn(&self, cx: &mut LoweringCx) -> fission_ir::WidgetId {
+    fn lower_dyn(&self, cx: &mut LoweringContext) -> fission_ir::WidgetId {
         let child_id = self.child.lower(cx);
         let id = cx.next_node_id();
 
@@ -35,7 +35,7 @@ impl LowerWidget for MockHero {
 fn test_hero_text_layout_height() {
     let env = Env::default();
     let runtime_state = RuntimeState::default();
-    let mut cx = LoweringCx::new(&env, &runtime_state, None, None);
+    let mut cx = LoweringContext::new(&env, &runtime_state, None, None);
 
     // Construct Hero with Text that needs wrapping
     let text = crate::ui::Text::new("Long Subject That Wraps").into();

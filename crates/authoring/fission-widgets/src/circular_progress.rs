@@ -1,5 +1,5 @@
 use crate::motion_support::{slot_id, SLOT_INDICATOR};
-use fission_core::authoring::{IrBuilder, LowerWidget, LoweringCx};
+use fission_core::authoring::{IrBuilder, LowerWidget, LoweringContext};
 use fission_core::motion::{
     deg, MotionDeclaration, MotionDeclarationKind, MotionEasing, MotionPhase, MotionPropertyId,
     MotionStartValue, MotionTrack, MotionTransition,
@@ -176,7 +176,7 @@ struct CircularProgressLowerer {
 }
 
 impl LowerWidget for CircularProgressLowerer {
-    fn lower_dyn(&self, cx: &mut LoweringCx) -> WidgetId {
+    fn lower_dyn(&self, cx: &mut LoweringContext) -> WidgetId {
         let id = cx.next_node_id();
 
         // Track Circle

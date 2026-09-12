@@ -1,6 +1,6 @@
 use std::hash::{Hash, Hasher};
 
-use fission_core::authoring::{IrBuilder, LowerWidget, LoweringCx};
+use fission_core::authoring::{IrBuilder, LowerWidget, LoweringContext};
 use fission_core::ui::Widget;
 use fission_core::{LayoutOp, Op, WidgetId};
 use fission_ir::op::{BoxStyle, Fill, Length, PaintOp, Stroke};
@@ -27,7 +27,7 @@ impl std::fmt::Debug for CanvasVectorLayer {
 }
 
 impl LowerWidget for CanvasVectorLayer {
-    fn lower_dyn(&self, cx: &mut LoweringCx) -> WidgetId {
+    fn lower_dyn(&self, cx: &mut LoweringContext) -> WidgetId {
         let paint = IrBuilder::new(
             WidgetId::derived(self.id.as_u128(), &[1]),
             Op::Paint(PaintOp::DrawPath {
@@ -102,7 +102,7 @@ mod tests {
         .into();
         let env = Env::default();
         let runtime = RuntimeState::default();
-        let mut cx = LoweringCx::new(&env, &runtime, None, None);
+        let mut cx = LoweringContext::new(&env, &runtime, None, None);
         let root = fission_core::internal::lower_widget(&widget, &mut cx);
 
         assert_eq!(root, id);
@@ -140,7 +140,7 @@ mod tests {
         .into();
         let env = Env::default();
         let runtime = RuntimeState::default();
-        let mut cx = LoweringCx::new(&env, &runtime, None, None);
+        let mut cx = LoweringContext::new(&env, &runtime, None, None);
         let root = fission_core::internal::lower_widget(&widget, &mut cx);
         let nodes = fission_core::internal::build_layout_tree(&cx.ir, &env);
         let snapshot = LayoutEngine::new()

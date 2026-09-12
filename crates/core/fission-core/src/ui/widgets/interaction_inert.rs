@@ -1,4 +1,4 @@
-use crate::authoring::{LowerWidget, LoweringCx};
+use crate::authoring::{LowerWidget, LoweringContext};
 use crate::lowering::IrBuilder;
 use crate::ui::Widget;
 use fission_ir::{Op, StructuralOp, WidgetId};
@@ -15,7 +15,7 @@ pub(crate) struct InteractionInert {
 }
 
 impl LowerWidget for InteractionInert {
-    fn lower_dyn(&self, cx: &mut LoweringCx) -> WidgetId {
+    fn lower_dyn(&self, cx: &mut LoweringContext) -> WidgetId {
         let id = self.id;
         cx.push_scope(id);
         let child = crate::internal::lower_widget(&self.child, cx);

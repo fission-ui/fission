@@ -6,14 +6,14 @@
 //! target does not already understand. That invariant is what lets the same
 //! widget tree render to desktop, web, mobile, terminal, static site, and SSR.
 
-use crate::lowering::LoweringCx;
+use crate::lowering::LoweringContext;
 use fission_ir::WidgetId;
 use std::fmt::Debug;
 
 /// Converts a widget struct into `fission-ir` nodes.
 ///
 /// Every built-in widget implements `Lower`. The method receives a
-/// [`LoweringCx`] and returns the root [`WidgetId`] of the emitted IR
+/// [`LoweringContext`] and returns the root [`WidgetId`] of the emitted IR
 /// subgraph.
 ///
 /// This trait is not object-safe. Implement [`LowerWidget`] instead when the
@@ -21,7 +21,7 @@ use std::fmt::Debug;
 /// for every widget built outside `fission-core`.
 pub trait Lower {
     /// Lower this widget into the IR, returning the root node id.
-    fn lower(&self, cx: &mut LoweringCx) -> WidgetId;
+    fn lower(&self, cx: &mut LoweringContext) -> WidgetId;
 }
 
 /// Object-safe lowering for widgets defined outside `fission-core`.
@@ -36,7 +36,7 @@ pub trait Lower {
 /// A widget that constrains its child to a fixed aspect ratio:
 ///
 /// ```rust,ignore
-/// use fission_core::authoring::{custom_widget, IrBuilder, LowerWidget, LoweringCx};
+/// use fission_core::authoring::{custom_widget, IrBuilder, LowerWidget, LoweringContext};
 /// use fission_core::ui::Widget;
 /// use fission_ir::{LayoutOp, Op, WidgetId};
 ///
@@ -47,7 +47,7 @@ pub trait Lower {
 /// }
 ///
 /// impl LowerWidget for AspectRatioLowerer {
-///     fn lower_dyn(&self, cx: &mut LoweringCx) -> WidgetId {
+///     fn lower_dyn(&self, cx: &mut LoweringContext) -> WidgetId {
 ///         let child_id = fission_core::authoring::lower_widget(&self.child, cx);
 ///         let id = cx.next_node_id();
 ///         let mut builder = IrBuilder::new(
@@ -70,7 +70,7 @@ pub trait Lower {
 /// ```
 pub trait LowerWidget: Send + Sync + Debug {
     /// Lower this widget into the IR, returning the root node id.
-    fn lower_dyn(&self, cx: &mut LoweringCx) -> WidgetId;
+    fn lower_dyn(&self, cx: &mut LoweringContext) -> WidgetId;
     /// Stable identity for the custom widget wrapper.
     ///
     /// Interactive widgets should return an identity that

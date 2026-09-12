@@ -329,7 +329,7 @@ pub use infinite_canvas::{
 };
 
 use fission_core::{
-    internal::{IrBuilder, LowerWidget, LoweringCx},
+    internal::{IrBuilder, LowerWidget, LoweringContext},
     op::StructuralOp,
     Op,
 };
@@ -347,7 +347,7 @@ pub struct CanvasLowerer {
     pub height: Option<f32>,
     /// Painter invoked during lowering to append renderer-independent child
     /// nodes and return their stable IDs.
-    pub painter: Arc<dyn Fn(&mut LoweringCx) -> Vec<WidgetId> + Send + Sync>,
+    pub painter: Arc<dyn Fn(&mut LoweringContext) -> Vec<WidgetId> + Send + Sync>,
 }
 
 impl std::fmt::Debug for CanvasLowerer {
@@ -360,7 +360,7 @@ impl std::fmt::Debug for CanvasLowerer {
 }
 
 impl LowerWidget for CanvasLowerer {
-    fn lower_dyn(&self, cx: &mut LoweringCx) -> WidgetId {
+    fn lower_dyn(&self, cx: &mut LoweringContext) -> WidgetId {
         let child_ids = (self.painter)(cx);
         let group_id = cx.next_node_id();
         let mut group = IrBuilder::new(
@@ -394,12 +394,12 @@ impl LowerWidget for CanvasLowerer {
 
 /// Creates a custom paint node from a closure.
 ///
-/// The `painter` closure receives an [`LoweringCx`] and returns a list
+/// The `painter` closure receives an [`LoweringContext`] and returns a list
 /// of child node IDs. These are grouped inside a fixed-size box with the given
 /// `width` and `height` (both optional).
 pub fn canvas<F>(width: Option<f32>, height: Option<f32>, painter: F) -> Widget
 where
-    F: Fn(&mut LoweringCx) -> Vec<WidgetId> + Send + Sync + 'static,
+    F: Fn(&mut LoweringContext) -> Vec<WidgetId> + Send + Sync + 'static,
 {
     fission_core::authoring::custom_widget(
         "Canvas",
@@ -418,7 +418,7 @@ struct AbsoluteFillLowerer {
 }
 
 impl LowerWidget for AbsoluteFillLowerer {
-    fn lower_dyn(&self, cx: &mut LoweringCx) -> WidgetId {
+    fn lower_dyn(&self, cx: &mut LoweringContext) -> WidgetId {
         let child_id = fission_core::internal::lower_widget(&self.child, cx);
         let mut builder = IrBuilder::new(
             cx.next_node_id(),
@@ -452,7 +452,7 @@ struct FlyoutLowerer {
 }
 
 impl LowerWidget for FlyoutLowerer {
-    fn lower_dyn(&self, cx: &mut LoweringCx) -> WidgetId {
+    fn lower_dyn(&self, cx: &mut LoweringContext) -> WidgetId {
         let content_id = fission_core::internal::lower_widget(&self.content, cx);
         let mut flyout = IrBuilder::new(
             cx.next_node_id(),

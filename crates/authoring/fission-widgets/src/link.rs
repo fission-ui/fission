@@ -78,7 +78,7 @@ impl From<Link> for Widget {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use fission_core::authoring::{BuildCtx, LoweringCx};
+    use fission_core::authoring::{BuildCtx, LoweringContext};
     use fission_core::{build, Env, LinkTarget, RuntimeState, View};
     use fission_ir::Op;
 
@@ -99,7 +99,7 @@ mod tests {
             )
             .into()
         });
-        let mut lowering = LoweringCx::new(&env, &runtime, None, None);
+        let mut lowering = LoweringContext::new(&env, &runtime, None, None);
         fission_core::internal::lower_widget(&widget, &mut lowering);
 
         let link = lowering

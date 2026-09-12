@@ -1,5 +1,5 @@
 use crate::authoring::Lower;
-use crate::lowering::{IrBuilder, LoweringCx};
+use crate::lowering::{IrBuilder, LoweringContext};
 use crate::ui::widgets::context_menu::TextContextMenuConfig;
 use crate::ui::widgets::selection_region::wrap_implicit_selection_affordances;
 use crate::ActionEnvelope;
@@ -1060,11 +1060,11 @@ impl Text {
         self
     }
 
-    fn resolve_text(&self, cx: &LoweringCx<'_>) -> String {
+    fn resolve_text(&self, cx: &LoweringContext<'_>) -> String {
         self.content.resolve(cx.env)
     }
 
-    fn resolved_style(&self, cx: &LoweringCx<'_>) -> fission_ir::op::TextStyle {
+    fn resolved_style(&self, cx: &LoweringContext<'_>) -> fission_ir::op::TextStyle {
         let base_font_size = self
             .font_size
             .unwrap_or(cx.env.theme.tokens.typography.body_medium_size);
@@ -1404,7 +1404,7 @@ impl RichText {
         self
     }
 
-    fn lower_runs(&self, cx: &LoweringCx<'_>) -> Vec<IrTextRun> {
+    fn lower_runs(&self, cx: &LoweringContext<'_>) -> Vec<IrTextRun> {
         self.runs
             .iter()
             .map(|run| run.lower_with_theme(&cx.env.theme, None, None, &cx.env.text_scaler))
@@ -1538,7 +1538,7 @@ fn upsert_action_entry(
 }
 
 fn wrap_paint_in_layout(
-    cx: &mut LoweringCx<'_>,
+    cx: &mut LoweringContext<'_>,
     layout_node_id: WidgetId,
     paint_node_id: WidgetId,
     width: Option<f32>,
@@ -1648,7 +1648,7 @@ fn rich_text_line_height(
 }
 
 fn maybe_wrap_semantics(
-    cx: &mut LoweringCx<'_>,
+    cx: &mut LoweringContext<'_>,
     layout_node_id: WidgetId,
     semantics: Option<Semantics>,
     multiline: bool,
@@ -1693,7 +1693,7 @@ fn selectable_text_semantics(
 }
 
 fn wrap_selectable_context_menu(
-    cx: &mut LoweringCx<'_>,
+    cx: &mut LoweringContext<'_>,
     owner: WidgetId,
     visual_id: WidgetId,
     config: &TextContextMenuConfig,
@@ -1704,7 +1704,7 @@ fn wrap_selectable_context_menu(
 }
 
 impl Lower for Text {
-    fn lower(&self, cx: &mut LoweringCx) -> WidgetId {
+    fn lower(&self, cx: &mut LoweringContext) -> WidgetId {
         let owner_id = self.id.map(Into::into).unwrap_or_else(|| cx.next_node_id());
         let layout_node_id = if self.selectable {
             cx.next_node_id()
@@ -1812,7 +1812,7 @@ impl Lower for Text {
 }
 
 impl Lower for RichText {
-    fn lower(&self, cx: &mut LoweringCx) -> WidgetId {
+    fn lower(&self, cx: &mut LoweringContext) -> WidgetId {
         let owner_id = self.id.map(Into::into).unwrap_or_else(|| cx.next_node_id());
         let layout_node_id = if self.selectable {
             cx.next_node_id()

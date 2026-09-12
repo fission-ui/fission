@@ -1,4 +1,4 @@
-use fission_core::authoring::LoweringCx;
+use fission_core::authoring::LoweringContext;
 use fission_core::env::{Env, LayoutDirection, RuntimeState};
 use fission_core::internal::build_layout_tree;
 use fission_core::ui::{Container, Positioned, Row, SemanticsRegion, Widget, ZStack};
@@ -10,7 +10,7 @@ fn lower_and_layout(
     widget: Widget,
 ) -> (fission_ir::CoreIR, fission_layout::LayoutSnapshot) {
     let runtime = RuntimeState::default();
-    let mut lowering = LoweringCx::new(env, &runtime, None, None);
+    let mut lowering = LoweringContext::new(env, &runtime, None, None);
     let root = fission_core::internal::lower_widget(&widget, &mut lowering);
     lowering.ir.set_root(root);
 

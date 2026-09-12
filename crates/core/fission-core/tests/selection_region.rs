@@ -1,4 +1,4 @@
-use fission_core::authoring::{lower_widget, LoweringCx};
+use fission_core::authoring::{lower_widget, LoweringContext};
 use fission_core::env::{
     Clipboard, ContextMenuState, Env, GestureState, InteractionStateMap, RuntimeState,
     ScrollStateMap, SelectableTextStateMap, TextEditStateMap,
@@ -256,7 +256,7 @@ fn region_lowering_preserves_document_order_and_excludes_nested_subtrees() {
 
     let env = Env::default();
     let runtime = RuntimeState::default();
-    let mut cx = LoweringCx::new(&env, &runtime, None, None);
+    let mut cx = LoweringContext::new(&env, &runtime, None, None);
     let root = lower_widget(&Widget::from(tree), &mut cx);
     cx.ir.set_root(root);
     let semantics = match &cx.ir.nodes[&region_id].op {
@@ -489,7 +489,7 @@ fn rebuilt_region_exposes_one_directional_accessibility_selection() {
     .controller(SelectionRegionController::new(region_id));
     let env = Env::default();
     let mut runtime = RuntimeState::default();
-    let mut first_lower = LoweringCx::new(&env, &runtime, None, None);
+    let mut first_lower = LoweringContext::new(&env, &runtime, None, None);
     let root = lower_widget(&Widget::from(tree.clone()), &mut first_lower);
     first_lower.ir.set_root(root);
     let first_ir = first_lower.ir.clone();
@@ -506,7 +506,7 @@ fn rebuilt_region_exposes_one_directional_accessibility_selection() {
         )
         .unwrap();
 
-    let mut rebuilt = LoweringCx::new(&env, &runtime, None, None);
+    let mut rebuilt = LoweringContext::new(&env, &runtime, None, None);
     let root = lower_widget(&Widget::from(tree), &mut rebuilt);
     rebuilt.ir.set_root(root);
     let semantics = match &rebuilt.ir.nodes[&region_id].op {
@@ -667,7 +667,7 @@ fn adaptive_touch_affordances_observe_slop_and_render_handles_and_magnifier() {
         ..RuntimeState::default()
     };
     let env = Env::default();
-    let mut cx = LoweringCx::new(&env, &runtime, None, Some(&layout));
+    let mut cx = LoweringContext::new(&env, &runtime, None, Some(&layout));
     lower_widget(
         &region_widget(region, first, second, SelectionPlatformStyle::Adaptive),
         &mut cx,
@@ -701,7 +701,7 @@ fn adaptive_touch_affordances_observe_slop_and_render_handles_and_magnifier() {
         }) if (*left - 23.0).abs() < 0.01 && (*top - 33.0).abs() < 0.01
     ));
 
-    let mut desktop_cx = LoweringCx::new(&env, &runtime, None, Some(&layout));
+    let mut desktop_cx = LoweringContext::new(&env, &runtime, None, Some(&layout));
     lower_widget(
         &region_widget(region, first, second, SelectionPlatformStyle::Desktop),
         &mut desktop_cx,

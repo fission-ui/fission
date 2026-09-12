@@ -1,5 +1,5 @@
 use fission_core::authoring::LowerWidget;
-use fission_core::authoring::{IrBuilder, LoweringCx};
+use fission_core::authoring::{IrBuilder, LoweringContext};
 use fission_core::ui::{Column, Container, Row, Text, Widget};
 use fission_core::GlobalState;
 use fission_ir::{Op, Semantics};
@@ -15,7 +15,7 @@ struct MockHero {
 }
 
 impl LowerWidget for MockHero {
-    fn lower_dyn(&self, cx: &mut LoweringCx) -> fission_ir::WidgetId {
+    fn lower_dyn(&self, cx: &mut LoweringContext) -> fission_ir::WidgetId {
         let child_id = fission_core::internal::lower_widget(&self.child, cx);
         let id = cx.next_node_id();
         let semantics = Semantics {

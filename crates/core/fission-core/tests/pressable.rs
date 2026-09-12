@@ -233,7 +233,7 @@ fn pressable_paint_style_interpolates_through_runtime_motion() {
     runtime.tick(50).expect("advance pressable transition");
     let (widget, _) = build_once(&runtime.runtime_state);
     let mut lowering =
-        fission_core::internal::LoweringCx::new(&env, &runtime.runtime_state, None, None);
+        fission_core::internal::LoweringContext::new(&env, &runtime.runtime_state, None, None);
     let root = fission_core::internal::lower_widget(&widget, &mut lowering);
     lowering.ir.root = Some(root);
     let ir = lowering.ir;

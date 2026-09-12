@@ -324,7 +324,7 @@ impl Default for SemanticsRegion {
 }
 
 impl Lower for SemanticsRegion {
-    fn lower(&self, cx: &mut crate::lowering::LoweringCx) -> WidgetId {
+    fn lower(&self, cx: &mut crate::lowering::LoweringContext) -> WidgetId {
         let id = self.id.map(Into::into).unwrap_or_else(|| cx.next_node_id());
         cx.push_scope(id);
         let semantics = Semantics {

@@ -1,5 +1,5 @@
 use crate::authoring::Lower;
-use crate::lowering::{IrBuilder, LoweringCx};
+use crate::lowering::{IrBuilder, LoweringContext};
 use crate::ui::{Button, ButtonVariant, Column, Container, Positioned, Text, TextContent, Widget};
 use crate::ActionEnvelope;
 use fission_ir::{
@@ -370,7 +370,7 @@ impl ContextMenuRegion {
 }
 
 impl Lower for ContextMenuRegion {
-    fn lower(&self, cx: &mut LoweringCx<'_>) -> WidgetId {
+    fn lower(&self, cx: &mut LoweringContext<'_>) -> WidgetId {
         let owner = self.id.unwrap_or_else(|| cx.next_node_id());
         cx.push_scope(owner);
 
@@ -542,7 +542,7 @@ pub(crate) fn text_context_menu_button_id(
 }
 
 pub(crate) fn anchor_to_local(
-    cx: &LoweringCx<'_>,
+    cx: &LoweringContext<'_>,
     owner: WidgetId,
     screen_anchor: fission_layout::LayoutPoint,
 ) -> fission_layout::LayoutPoint {

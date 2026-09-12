@@ -1,7 +1,7 @@
 use std::fmt;
 use std::sync::Arc;
 
-use fission_core::authoring::{LowerWidget, LoweringCx};
+use fission_core::authoring::{LowerWidget, LoweringContext};
 use fission_core::internal::CustomRender;
 use fission_core::{Widget, WidgetId};
 
@@ -50,7 +50,7 @@ impl fmt::Debug for RemoteIrLowerer {
 }
 
 impl LowerWidget for RemoteIrLowerer {
-    fn lower_dyn(&self, cx: &mut LoweringCx) -> WidgetId {
+    fn lower_dyn(&self, cx: &mut LoweringContext) -> WidgetId {
         let root = self
             .frame
             .ir

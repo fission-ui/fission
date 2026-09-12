@@ -1,5 +1,5 @@
 use crate::authoring::Lower;
-use crate::lowering::{IrBuilder, LoweringCx};
+use crate::lowering::{IrBuilder, LoweringContext};
 use crate::ui::Widget;
 use crate::ActionEnvelope;
 use fission_ir::{semantics::ActionTrigger, ActionEntry, LayoutOp, Op, WidgetId};
@@ -68,7 +68,7 @@ impl Default for InteractiveViewer {
 }
 
 impl Lower for InteractiveViewer {
-    fn lower(&self, cx: &mut LoweringCx) -> WidgetId {
+    fn lower(&self, cx: &mut LoweringContext) -> WidgetId {
         let id = self.id.unwrap_or_else(|| cx.next_node_id());
         let (min_scale, max_scale) = normalized_scale_bounds(self.min_scale, self.max_scale);
 
@@ -154,7 +154,7 @@ mod tests {
     use super::*;
     use crate::action::ActionId;
     use crate::env::{Env, RuntimeState};
-    use crate::lowering::LoweringCx;
+    use crate::lowering::LoweringContext;
     use crate::ui::Container;
 
     #[test]
@@ -218,7 +218,7 @@ mod tests {
 
         let env = Env::default();
         let runtime_state = RuntimeState::default();
-        let mut cx = LoweringCx::new(&env, &runtime_state, None, None);
+        let mut cx = LoweringContext::new(&env, &runtime_state, None, None);
         let root_id = viewer.lower(&mut cx);
         let node = cx.ir.nodes.get(&root_id).expect("viewer node");
 

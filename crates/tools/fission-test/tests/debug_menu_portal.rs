@@ -1,6 +1,6 @@
 use anyhow::Result;
 use fission_core::authoring::BuildCtx;
-use fission_core::authoring::LoweringCx;
+use fission_core::authoring::LoweringContext;
 use fission_core::build;
 use fission_core::env::Env;
 use fission_core::ui::{Grid, GridItem, TextInput, Widget};
@@ -156,7 +156,7 @@ fn menu_portal_position_near_anchor() -> Result<()> {
     };
 
     // Lower + layout
-    let mut cx = LoweringCx::new(
+    let mut cx = LoweringContext::new(
         &env,
         &runtime.runtime_state,
         None,
@@ -232,7 +232,7 @@ fn menu_portal_position_near_anchor() -> Result<()> {
             .into()
         };
 
-        let mut cx = LoweringCx::new(
+        let mut cx = LoweringContext::new(
             &env,
             &runtime.runtime_state,
             None,

@@ -1,4 +1,4 @@
-use fission_core::authoring::{IrBuilder, LowerWidget, LoweringCx};
+use fission_core::authoring::{IrBuilder, LowerWidget, LoweringContext};
 use fission_core::Widget;
 use fission_ir::WidgetId;
 use fission_ir::{semantics::Role, Op, Semantics};
@@ -43,7 +43,7 @@ struct HeroLowerer {
 }
 
 impl LowerWidget for HeroLowerer {
-    fn lower_dyn(&self, cx: &mut LoweringCx) -> WidgetId {
+    fn lower_dyn(&self, cx: &mut LoweringContext) -> WidgetId {
         let child_id = fission_core::internal::lower_widget(&self.child, cx);
         let id = cx.next_node_id();
 

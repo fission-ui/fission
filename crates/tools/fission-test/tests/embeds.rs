@@ -125,7 +125,7 @@ impl From<CustomEmbedApp> for Widget {
 struct CustomEmbedInternalLowerer;
 
 impl LowerWidget for CustomEmbedInternalLowerer {
-    fn lower_dyn(&self, cx: &mut fission_core::internal::LoweringCx) -> WidgetId {
+    fn lower_dyn(&self, cx: &mut fission_core::internal::LoweringContext) -> WidgetId {
         let node_id = cx.next_node_id();
         cx.insert_node(
             node_id,

@@ -4653,7 +4653,7 @@ mod tests {
         let widget = widget.into();
         let env = Env::default();
         let runtime = RuntimeState::default();
-        let mut lowering = fission_core::internal::LoweringCx::new(&env, &runtime, None, None);
+        let mut lowering = fission_core::internal::LoweringContext::new(&env, &runtime, None, None);
         let root = fission_core::internal::lower_widget(&widget, &mut lowering);
         lowering.ir.set_root(root);
         render_ir_to_html(&lowering.ir, &HtmlRenderOptions::default()).unwrap()

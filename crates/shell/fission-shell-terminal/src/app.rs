@@ -15,7 +15,7 @@ use crossterm::style::{
 use crossterm::terminal::{self, Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen};
 use crossterm::{execute, queue};
 use fission_core::authoring::BuildCtx;
-use fission_core::authoring::LoweringCx;
+use fission_core::authoring::LoweringContext;
 use fission_core::event::ImeEvent;
 use fission_core::internal::build_layout_tree;
 use fission_core::ui::{Container, Overlay, Widget, ZStack};
@@ -395,7 +395,7 @@ where
             node_tree = self.build_widget_tree(viewport)?;
         }
         let (ir, root_id) = {
-            let mut cx = LoweringCx::new(
+            let mut cx = LoweringContext::new(
                 &self.env,
                 &self.runtime.runtime_state,
                 Some(&self.measurer),

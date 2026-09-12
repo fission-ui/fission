@@ -1,5 +1,5 @@
 use crate::authoring::Lower;
-use crate::lowering::{IrBuilder, LoweringCx};
+use crate::lowering::{IrBuilder, LoweringContext};
 use crate::ui::Widget;
 use crate::ActionScopeId;
 use fission_ir::{Op, Semantics, WidgetId};
@@ -26,7 +26,7 @@ impl ActionScope {
 }
 
 impl Lower for ActionScope {
-    fn lower(&self, cx: &mut LoweringCx) -> WidgetId {
+    fn lower(&self, cx: &mut LoweringContext) -> WidgetId {
         let wrapper_id = cx.next_node_id();
         cx.push_scope(wrapper_id);
         let child_id = self.child.lower(cx);

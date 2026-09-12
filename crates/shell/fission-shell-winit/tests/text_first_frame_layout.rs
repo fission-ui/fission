@@ -1,4 +1,4 @@
-use fission_core::authoring::{lower_widget, LoweringCx};
+use fission_core::authoring::{lower_widget, LoweringContext};
 use fission_core::env::{Env, RuntimeState, VideoStateMap, WebStateMap};
 use fission_core::ui::{Column, Container, Text, Widget};
 use fission_core::ScrollStateMap;
@@ -25,7 +25,7 @@ impl Renderer for CapturingRenderer {
 fn first_frame_pipeline_measures_and_paints_descendant_max_width_identically() {
     let env = Env::default();
     let runtime = RuntimeState::default();
-    let mut cx = LoweringCx::new(&env, &runtime, None, None);
+    let mut cx = LoweringContext::new(&env, &runtime, None, None);
     let heading = "A deliberately long heading that wraps at the capped width";
     let sibling = "This sibling begins below every heading line.";
     let widget: Widget = Column {

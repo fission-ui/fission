@@ -55,7 +55,7 @@ use winit::{
     window::{CursorIcon, Theme as WindowTheme, Window, WindowAttributes, WindowId},
 };
 
-use fission_core::authoring::LoweringCx;
+use fission_core::authoring::LoweringContext;
 use fission_core::env::{VideoStatus, WindowInsets};
 use fission_core::internal::downcast_render_object;
 use fission_core::ui::VideoAudioOptions;
@@ -8451,7 +8451,7 @@ where
                                 .into();
 
                                 let ir = {
-                                    let mut lower_cx = LoweringCx::new(
+                                    let mut lower_cx = LoweringContext::new(
                                         &env,
                                         &runtime.runtime_state,
                                         runtime.measurer.as_ref(),

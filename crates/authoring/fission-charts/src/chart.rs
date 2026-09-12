@@ -635,7 +635,7 @@ mod chart_theme_tests {
 }
 
 impl fission_core::internal::LowerWidget for ChartInternalLowerer {
-    fn lower_dyn(&self, cx: &mut fission_core::internal::LoweringCx) -> fission_ir::WidgetId {
+    fn lower_dyn(&self, cx: &mut fission_core::internal::LoweringContext) -> fission_ir::WidgetId {
         let model = ChartModel::from_chart(&self.chart);
         let theme = self
             .chart
@@ -675,7 +675,7 @@ impl fission_core::internal::LowerWidget for ChartInternalLowerer {
     }
 }
 
-fn chart_area(chart: &Chart, cx: &fission_core::internal::LoweringCx) -> ChartArea {
+fn chart_area(chart: &Chart, cx: &fission_core::internal::LoweringContext) -> ChartArea {
     let outer_w = chart.width.unwrap_or_else(|| {
         let available_w = cx.env.viewport_size.width;
         (available_w - 380.0).max(260.0)
@@ -752,7 +752,7 @@ struct ChartAnimationFrame {
 }
 
 impl ChartAnimationFrame {
-    fn from_chart(chart: &Chart, cx: &fission_core::internal::LoweringCx) -> Self {
+    fn from_chart(chart: &Chart, cx: &fission_core::internal::LoweringContext) -> Self {
         if !chart.animation.enabled {
             return Self::complete();
         }
@@ -813,7 +813,7 @@ impl ChartAnimationFrame {
 }
 
 fn render_series(
-    cx: &mut fission_core::internal::LoweringCx,
+    cx: &mut fission_core::internal::LoweringContext,
     root: &mut fission_core::internal::IrBuilder,
     model: &ChartModel,
     chart: &Chart,
@@ -1223,7 +1223,7 @@ fn hit_test_chart(model: &ChartModel, area: &ChartArea, point: LayoutPoint) -> O
 }
 
 fn draw_background(
-    cx: &mut fission_core::internal::LoweringCx,
+    cx: &mut fission_core::internal::LoweringContext,
     root: &mut fission_core::internal::IrBuilder,
     area: &ChartArea,
     theme: &ChartTheme,
@@ -1247,7 +1247,7 @@ fn draw_background(
 }
 
 fn draw_title(
-    cx: &mut fission_core::internal::LoweringCx,
+    cx: &mut fission_core::internal::LoweringContext,
     root: &mut fission_core::internal::IrBuilder,
     model: &ChartModel,
     area: &ChartArea,
@@ -1269,7 +1269,7 @@ fn draw_title(
 }
 
 fn draw_cartesian_axes(
-    cx: &mut fission_core::internal::LoweringCx,
+    cx: &mut fission_core::internal::LoweringContext,
     root: &mut fission_core::internal::IrBuilder,
     model: &ChartModel,
     area: &ChartArea,
@@ -1394,7 +1394,7 @@ fn draw_cartesian_axes(
 }
 
 fn render_bar(
-    cx: &mut fission_core::internal::LoweringCx,
+    cx: &mut fission_core::internal::LoweringContext,
     root: &mut fission_core::internal::IrBuilder,
     bar: &ResolvedBarSeries,
     stacks: &mut HashMap<(String, usize), f32>,
@@ -1477,7 +1477,7 @@ fn render_bar(
 
 #[allow(clippy::too_many_arguments)]
 fn render_horizontal_bar(
-    cx: &mut fission_core::internal::LoweringCx,
+    cx: &mut fission_core::internal::LoweringContext,
     root: &mut fission_core::internal::IrBuilder,
     bar: &ResolvedBarSeries,
     stacks: &mut HashMap<(String, usize), f32>,
@@ -1542,7 +1542,7 @@ fn render_horizontal_bar(
 }
 
 fn render_line(
-    cx: &mut fission_core::internal::LoweringCx,
+    cx: &mut fission_core::internal::LoweringContext,
     root: &mut fission_core::internal::IrBuilder,
     line: &ResolvedLineSeries,
     stacks: &mut HashMap<(String, usize), f32>,
@@ -1629,7 +1629,7 @@ fn render_line(
 }
 
 fn render_scatter(
-    cx: &mut fission_core::internal::LoweringCx,
+    cx: &mut fission_core::internal::LoweringContext,
     root: &mut fission_core::internal::IrBuilder,
     data: &[(f32, f32)],
     color: Color,
@@ -1684,7 +1684,7 @@ fn render_scatter(
 }
 
 fn render_bubble(
-    cx: &mut fission_core::internal::LoweringCx,
+    cx: &mut fission_core::internal::LoweringContext,
     root: &mut fission_core::internal::IrBuilder,
     bubble: &crate::series::bubble::BubbleSeries,
     visual_map: Option<&VisualMap>,
@@ -1742,7 +1742,7 @@ fn render_bubble(
 }
 
 fn render_pie(
-    cx: &mut fission_core::internal::LoweringCx,
+    cx: &mut fission_core::internal::LoweringContext,
     root: &mut fission_core::internal::IrBuilder,
     pie: &crate::series::pie::PieSeries,
     area: &ChartArea,
@@ -1814,7 +1814,7 @@ fn render_pie(
 }
 
 fn render_boxplot(
-    cx: &mut fission_core::internal::LoweringCx,
+    cx: &mut fission_core::internal::LoweringContext,
     root: &mut fission_core::internal::IrBuilder,
     boxplot: &crate::series::boxplot::BoxplotSeries,
     model: &ChartModel,
@@ -1900,7 +1900,7 @@ fn render_boxplot(
 }
 
 fn render_candlestick(
-    cx: &mut fission_core::internal::LoweringCx,
+    cx: &mut fission_core::internal::LoweringContext,
     root: &mut fission_core::internal::IrBuilder,
     candle: &crate::series::candlestick::CandlestickSeries,
     model: &ChartModel,
@@ -1963,7 +1963,7 @@ fn render_candlestick(
 }
 
 fn render_heatmap(
-    cx: &mut fission_core::internal::LoweringCx,
+    cx: &mut fission_core::internal::LoweringContext,
     root: &mut fission_core::internal::IrBuilder,
     heatmap: &crate::series::heatmap::HeatmapSeries,
     model: &ChartModel,
@@ -2023,7 +2023,7 @@ fn render_heatmap(
 }
 
 fn render_calendar_heatmap(
-    cx: &mut fission_core::internal::LoweringCx,
+    cx: &mut fission_core::internal::LoweringContext,
     root: &mut fission_core::internal::IrBuilder,
     calendar: &crate::series::calendar_heatmap::CalendarHeatmapSeries,
     visual_map: Option<&VisualMap>,
@@ -2135,7 +2135,7 @@ fn render_calendar_heatmap(
 }
 
 fn render_graph(
-    cx: &mut fission_core::internal::LoweringCx,
+    cx: &mut fission_core::internal::LoweringContext,
     root: &mut fission_core::internal::IrBuilder,
     graph: &crate::series::graph::GraphSeries,
     area: &ChartArea,
@@ -2199,7 +2199,7 @@ fn render_graph(
 }
 
 fn render_lines(
-    cx: &mut fission_core::internal::LoweringCx,
+    cx: &mut fission_core::internal::LoweringContext,
     root: &mut fission_core::internal::IrBuilder,
     lines: &crate::series::lines::LinesSeries,
     area: &ChartArea,
@@ -2290,7 +2290,7 @@ fn render_lines(
 }
 
 fn render_tree(
-    cx: &mut fission_core::internal::LoweringCx,
+    cx: &mut fission_core::internal::LoweringContext,
     root: &mut fission_core::internal::IrBuilder,
     tree: &crate::series::tree::TreeSeries,
     area: &ChartArea,
@@ -2403,7 +2403,7 @@ fn render_tree(
 }
 
 fn render_treemap(
-    cx: &mut fission_core::internal::LoweringCx,
+    cx: &mut fission_core::internal::LoweringContext,
     root: &mut fission_core::internal::IrBuilder,
     treemap: &crate::series::treemap::TreemapSeries,
     area: &ChartArea,
@@ -2447,7 +2447,7 @@ fn render_treemap(
 }
 
 fn render_radar(
-    cx: &mut fission_core::internal::LoweringCx,
+    cx: &mut fission_core::internal::LoweringContext,
     root: &mut fission_core::internal::IrBuilder,
     radar: &crate::series::radar::RadarSeries,
     area: &ChartArea,
@@ -2530,7 +2530,7 @@ fn render_radar(
 }
 
 fn render_polar_bar(
-    cx: &mut fission_core::internal::LoweringCx,
+    cx: &mut fission_core::internal::LoweringContext,
     root: &mut fission_core::internal::IrBuilder,
     polar: &crate::series::polar::PolarBarSeries,
     area: &ChartArea,
@@ -2608,7 +2608,7 @@ fn render_polar_bar(
 }
 
 fn render_polar_line(
-    cx: &mut fission_core::internal::LoweringCx,
+    cx: &mut fission_core::internal::LoweringContext,
     root: &mut fission_core::internal::IrBuilder,
     polar: &crate::series::polar::PolarLineSeries,
     area: &ChartArea,
@@ -2696,7 +2696,7 @@ fn render_polar_line(
 }
 
 fn render_single_axis(
-    cx: &mut fission_core::internal::LoweringCx,
+    cx: &mut fission_core::internal::LoweringContext,
     root: &mut fission_core::internal::IrBuilder,
     single_axis: &crate::series::single_axis::SingleAxisSeries,
     area: &ChartArea,
@@ -2784,7 +2784,7 @@ fn render_single_axis(
 }
 
 fn render_funnel(
-    cx: &mut fission_core::internal::LoweringCx,
+    cx: &mut fission_core::internal::LoweringContext,
     root: &mut fission_core::internal::IrBuilder,
     funnel: &crate::series::funnel::FunnelSeries,
     area: &ChartArea,
@@ -2852,7 +2852,7 @@ fn render_funnel(
 }
 
 fn render_gauge(
-    cx: &mut fission_core::internal::LoweringCx,
+    cx: &mut fission_core::internal::LoweringContext,
     root: &mut fission_core::internal::IrBuilder,
     gauge: &crate::series::gauge::GaugeSeries,
     area: &ChartArea,
@@ -2928,7 +2928,7 @@ fn render_gauge(
 }
 
 fn render_map(
-    cx: &mut fission_core::internal::LoweringCx,
+    cx: &mut fission_core::internal::LoweringContext,
     root: &mut fission_core::internal::IrBuilder,
     map: &crate::series::map::MapSeries,
     visual_map: Option<&VisualMap>,
@@ -2996,7 +2996,7 @@ fn render_map(
 }
 
 fn render_sankey(
-    cx: &mut fission_core::internal::LoweringCx,
+    cx: &mut fission_core::internal::LoweringContext,
     root: &mut fission_core::internal::IrBuilder,
     sankey: &crate::series::sankey::SankeySeries,
     area: &ChartArea,
@@ -3071,7 +3071,7 @@ fn render_sankey(
 }
 
 fn render_sunburst(
-    cx: &mut fission_core::internal::LoweringCx,
+    cx: &mut fission_core::internal::LoweringContext,
     root: &mut fission_core::internal::IrBuilder,
     sunburst: &crate::series::sunburst::SunburstSeries,
     area: &ChartArea,
@@ -3127,7 +3127,7 @@ fn render_sunburst(
 
 #[allow(clippy::too_many_arguments)]
 fn render_sunburst_node(
-    cx: &mut fission_core::internal::LoweringCx,
+    cx: &mut fission_core::internal::LoweringContext,
     root: &mut fission_core::internal::IrBuilder,
     node: &crate::series::treemap::TreemapNode,
     center: (f32, f32),
@@ -3204,7 +3204,7 @@ fn render_sunburst_node(
 }
 
 fn render_parallel(
-    cx: &mut fission_core::internal::LoweringCx,
+    cx: &mut fission_core::internal::LoweringContext,
     root: &mut fission_core::internal::IrBuilder,
     parallel: &crate::series::parallel::ParallelSeries,
     area: &ChartArea,
@@ -3263,7 +3263,7 @@ fn render_parallel(
 }
 
 fn render_theme_river(
-    cx: &mut fission_core::internal::LoweringCx,
+    cx: &mut fission_core::internal::LoweringContext,
     root: &mut fission_core::internal::IrBuilder,
     river: &crate::series::theme_river::ThemeRiverSeries,
     area: &ChartArea,
@@ -3376,7 +3376,7 @@ fn render_theme_river(
 }
 
 fn render_pictorial_bar(
-    cx: &mut fission_core::internal::LoweringCx,
+    cx: &mut fission_core::internal::LoweringContext,
     root: &mut fission_core::internal::IrBuilder,
     pic: &crate::series::pictorial_bar::PictorialBarSeries,
     model: &ChartModel,
@@ -3445,7 +3445,7 @@ fn render_pictorial_bar(
 }
 
 fn render_liquidfill(
-    cx: &mut fission_core::internal::LoweringCx,
+    cx: &mut fission_core::internal::LoweringContext,
     root: &mut fission_core::internal::IrBuilder,
     liquid: &crate::series::liquidfill::LiquidfillSeries,
     area: &ChartArea,
@@ -3508,7 +3508,7 @@ fn render_liquidfill(
 }
 
 fn render_wordcloud(
-    cx: &mut fission_core::internal::LoweringCx,
+    cx: &mut fission_core::internal::LoweringContext,
     root: &mut fission_core::internal::IrBuilder,
     wordcloud: &crate::series::wordcloud::WordcloudSeries,
     area: &ChartArea,
@@ -3545,7 +3545,7 @@ fn render_wordcloud(
 }
 
 fn draw_legend(
-    cx: &mut fission_core::internal::LoweringCx,
+    cx: &mut fission_core::internal::LoweringContext,
     root: &mut fission_core::internal::IrBuilder,
     model: &ChartModel,
     chart: &Chart,
@@ -3604,7 +3604,7 @@ fn draw_legend(
 }
 
 fn draw_mark_areas(
-    cx: &mut fission_core::internal::LoweringCx,
+    cx: &mut fission_core::internal::LoweringContext,
     root: &mut fission_core::internal::IrBuilder,
     model: &ChartModel,
     chart: &Chart,
@@ -3634,7 +3634,7 @@ fn draw_mark_areas(
 }
 
 fn draw_mark_lines(
-    cx: &mut fission_core::internal::LoweringCx,
+    cx: &mut fission_core::internal::LoweringContext,
     root: &mut fission_core::internal::IrBuilder,
     model: &ChartModel,
     chart: &Chart,
@@ -3669,7 +3669,7 @@ fn draw_mark_lines(
 }
 
 fn draw_mark_points(
-    cx: &mut fission_core::internal::LoweringCx,
+    cx: &mut fission_core::internal::LoweringContext,
     root: &mut fission_core::internal::IrBuilder,
     model: &ChartModel,
     chart: &Chart,
@@ -3713,7 +3713,7 @@ fn draw_mark_points(
 }
 
 fn draw_visual_map(
-    cx: &mut fission_core::internal::LoweringCx,
+    cx: &mut fission_core::internal::LoweringContext,
     root: &mut fission_core::internal::IrBuilder,
     chart: &Chart,
     area: &ChartArea,
@@ -3774,7 +3774,7 @@ fn draw_visual_map(
 }
 
 fn draw_data_zoom(
-    cx: &mut fission_core::internal::LoweringCx,
+    cx: &mut fission_core::internal::LoweringContext,
     root: &mut fission_core::internal::IrBuilder,
     chart: &Chart,
     area: &ChartArea,
@@ -3807,7 +3807,7 @@ fn draw_data_zoom(
 }
 
 fn draw_brush(
-    cx: &mut fission_core::internal::LoweringCx,
+    cx: &mut fission_core::internal::LoweringContext,
     root: &mut fission_core::internal::IrBuilder,
     chart: &Chart,
     area: &ChartArea,
@@ -3836,7 +3836,7 @@ fn draw_brush(
 }
 
 fn draw_graphics(
-    cx: &mut fission_core::internal::LoweringCx,
+    cx: &mut fission_core::internal::LoweringContext,
     root: &mut fission_core::internal::IrBuilder,
     chart: &Chart,
     area: &ChartArea,
@@ -3897,7 +3897,7 @@ fn draw_graphics(
 }
 
 fn draw_timeline(
-    cx: &mut fission_core::internal::LoweringCx,
+    cx: &mut fission_core::internal::LoweringContext,
     root: &mut fission_core::internal::IrBuilder,
     chart: &Chart,
     area: &ChartArea,
@@ -3952,7 +3952,7 @@ fn draw_timeline(
 }
 
 fn draw_toolbox(
-    cx: &mut fission_core::internal::LoweringCx,
+    cx: &mut fission_core::internal::LoweringContext,
     root: &mut fission_core::internal::IrBuilder,
     chart: &Chart,
     area: &ChartArea,
@@ -3995,7 +3995,7 @@ fn draw_toolbox(
 }
 
 fn draw_diagnostics(
-    cx: &mut fission_core::internal::LoweringCx,
+    cx: &mut fission_core::internal::LoweringContext,
     root: &mut fission_core::internal::IrBuilder,
     model: &ChartModel,
     area: &ChartArea,
@@ -4369,7 +4369,7 @@ fn series_names(model: &ChartModel) -> Vec<String> {
 }
 
 fn render_edges(
-    cx: &mut fission_core::internal::LoweringCx,
+    cx: &mut fission_core::internal::LoweringContext,
     root: &mut fission_core::internal::IrBuilder,
     edges: &[GraphEdge],
     positions: &HashMap<String, (f32, f32)>,
@@ -4720,7 +4720,7 @@ fn quadratic_midpoint(from: (f32, f32), control: (f32, f32), to: (f32, f32)) -> 
 }
 
 fn draw_arrow_head(
-    cx: &mut fission_core::internal::LoweringCx,
+    cx: &mut fission_core::internal::LoweringContext,
     root: &mut fission_core::internal::IrBuilder,
     from: (f32, f32),
     to: (f32, f32),
@@ -4755,7 +4755,7 @@ fn normalize_bounds(min: f32, max: f32) -> (f32, f32) {
 }
 
 fn add_rect(
-    cx: &mut fission_core::internal::LoweringCx,
+    cx: &mut fission_core::internal::LoweringContext,
     root: &mut fission_core::internal::IrBuilder,
     rect: LayoutRect,
     fill: Color,
@@ -4778,7 +4778,7 @@ fn add_rect(
 }
 
 fn add_text(
-    cx: &mut fission_core::internal::LoweringCx,
+    cx: &mut fission_core::internal::LoweringContext,
     root: &mut fission_core::internal::IrBuilder,
     text: &str,
     size: f32,
@@ -4810,7 +4810,7 @@ fn add_text(
 }
 
 fn add_positioned_paint(
-    cx: &mut fission_core::internal::LoweringCx,
+    cx: &mut fission_core::internal::LoweringContext,
     root: &mut fission_core::internal::IrBuilder,
     rect: LayoutRect,
     op: fission_ir::Op,
@@ -4832,7 +4832,7 @@ fn add_positioned_paint(
 }
 
 fn add_path(
-    cx: &mut fission_core::internal::LoweringCx,
+    cx: &mut fission_core::internal::LoweringContext,
     root: &mut fission_core::internal::IrBuilder,
     path: &str,
     fill: Option<Fill>,

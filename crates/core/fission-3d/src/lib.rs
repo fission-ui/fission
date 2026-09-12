@@ -1,5 +1,5 @@
 pub mod render;
-use fission_core::authoring::{LowerWidget, LoweringCx};
+use fission_core::authoring::{LowerWidget, LoweringContext};
 use fission_core::op::Color;
 use fission_core::ui::{Container, Widget};
 
@@ -101,7 +101,7 @@ pub struct Scene3DInternalLowerer {
 }
 
 impl LowerWidget for Scene3DInternalLowerer {
-    fn lower_dyn(&self, cx: &mut LoweringCx) -> fission_ir::WidgetId {
+    fn lower_dyn(&self, cx: &mut LoweringContext) -> fission_ir::WidgetId {
         let node_id = cx.next_node_id();
 
         let w = self

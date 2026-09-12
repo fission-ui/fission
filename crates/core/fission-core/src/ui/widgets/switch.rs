@@ -1,5 +1,5 @@
 use crate::authoring::Lower;
-use crate::lowering::{wrap_zstack_child, IrBuilder, LoweringCx};
+use crate::lowering::{wrap_zstack_child, IrBuilder, LoweringContext};
 use crate::ActionEnvelope;
 use fission_ir::{
     op::{Color, LayoutOp, Op, PaintOp},
@@ -54,7 +54,7 @@ impl Switch {
 }
 
 impl Lower for Switch {
-    fn lower(&self, cx: &mut LoweringCx) -> WidgetId {
+    fn lower(&self, cx: &mut LoweringContext) -> WidgetId {
         let id = self.id.map(Into::into).unwrap_or_else(|| cx.next_node_id());
         cx.push_scope(id);
 

@@ -1,4 +1,4 @@
-use crate::lowering::{IrBuilder, LoweringCx};
+use crate::lowering::{IrBuilder, LoweringContext};
 use crate::ui::{traits::Lower, Widget};
 use fission_ir::{
     op::{FlexDirection, LayoutOp, Op},
@@ -73,7 +73,7 @@ impl Default for Scroll {
 }
 
 impl Lower for Scroll {
-    fn lower(&self, cx: &mut LoweringCx) -> WidgetId {
+    fn lower(&self, cx: &mut LoweringContext) -> WidgetId {
         let layout_id = self.id.map(Into::into).unwrap_or_else(|| cx.next_node_id());
 
         cx.push_scope(layout_id);

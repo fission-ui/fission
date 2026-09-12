@@ -1,6 +1,6 @@
 use anyhow::Result;
 use fission_core::authoring::BuildCtx;
-use fission_core::authoring::LoweringCx;
+use fission_core::authoring::LoweringContext;
 use fission_core::internal::build_layout_tree;
 use fission_core::{
     Action, ActionEnvelope, ActionId, AdvanceTo, Clock, CurrentTime, Env, GlobalState, InputEvent,
@@ -484,7 +484,7 @@ impl<S: GlobalState> TestHarness<S> {
                 eprintln!("[test-trace] lower start");
             }
             let (ir, root_id) = {
-                let mut cx = LoweringCx::new(
+                let mut cx = LoweringContext::new(
                     &self.env,
                     &self.runtime.runtime_state,
                     Some(&self.measurer),

@@ -1,7 +1,7 @@
 use crate::popover::{popover_with_options, Popover};
 use crate::stack::{HStack, VStack};
 use crate::{FlyoutAlignment, FlyoutOptions, Icon};
-use fission_core::authoring::{IrBuilder, LowerWidget, LoweringCx};
+use fission_core::authoring::{IrBuilder, LowerWidget, LoweringContext};
 use fission_core::op::{
     AlignItems, BoxAlignment, BoxStyle, Fill, FlexDirection, FlexWrap, JustifyContent, LayoutOp,
     Length, Op, PaintOp, Stroke,
@@ -1000,7 +1000,7 @@ impl From<MenuSeparator> for Widget {
 }
 
 impl LowerWidget for MenuSeparatorLowerer {
-    fn lower_dyn(&self, cx: &mut LoweringCx) -> WidgetId {
+    fn lower_dyn(&self, cx: &mut LoweringContext) -> WidgetId {
         let border = self.style.border.clone();
         let line_height = border.as_ref().map(|border| border.width).unwrap_or(1.0);
         let line_fill = border.map(|border| border.fill);
@@ -1185,7 +1185,7 @@ impl From<MenuActionItem> for Widget {
 }
 
 impl LowerWidget for MenuActionItemLowerer {
-    fn lower_dyn(&self, cx: &mut LoweringCx) -> WidgetId {
+    fn lower_dyn(&self, cx: &mut LoweringContext) -> WidgetId {
         cx.push_scope(self.id);
         let layout_id = cx.next_node_id();
         cx.push_scope(layout_id);
@@ -1418,7 +1418,7 @@ impl LowerWidget for MenuActionItemLowerer {
 
 fn append_recipe_paint(
     layout: &mut IrBuilder,
-    cx: &mut LoweringCx,
+    cx: &mut LoweringContext,
     style: &ResolvedComponentStyle,
 ) {
     let radius = style.radius.unwrap_or(0.0);

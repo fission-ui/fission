@@ -1,7 +1,7 @@
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
-use fission_core::authoring::{wrap_zstack_child, IrBuilder, LowerWidget, LoweringCx};
+use fission_core::authoring::{wrap_zstack_child, IrBuilder, LowerWidget, LoweringContext};
 use fission_core::input::range_slider::RangeSliderRuntimeConfig;
 use fission_core::ui::Widget;
 use fission_core::ActionEnvelope;
@@ -118,7 +118,7 @@ struct RangeSliderLowerer {
 }
 
 impl LowerWidget for RangeSliderLowerer {
-    fn lower_dyn(&self, cx: &mut LoweringCx) -> WidgetId {
+    fn lower_dyn(&self, cx: &mut LoweringContext) -> WidgetId {
         let control_id = WidgetId::derived(self.node_id.as_u128(), &[CONTROL_PATH]);
         cx.push_scope(control_id);
 
@@ -252,7 +252,7 @@ impl LowerWidget for RangeSliderLowerer {
 }
 
 fn track_layer(
-    cx: &mut LoweringCx,
+    cx: &mut LoweringContext,
     control_height: f32,
     track_height: f32,
     color: Color,
@@ -293,7 +293,7 @@ fn track_layer(
 }
 
 fn selected_track_layer(
-    cx: &mut LoweringCx,
+    cx: &mut LoweringContext,
     start_pct: f32,
     end_pct: f32,
     control_height: f32,
@@ -360,7 +360,7 @@ fn selected_track_layer(
 
 #[allow(clippy::too_many_arguments)]
 fn thumb_layer(
-    cx: &mut LoweringCx,
+    cx: &mut LoweringContext,
     semantics_id: WidgetId,
     pct: f32,
     thumb_size: f32,

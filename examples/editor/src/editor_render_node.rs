@@ -19,7 +19,7 @@ use crate::model::{
 use crate::syntax;
 use fission::core::action::ActionEnvelope;
 use fission::core::event::{InputEvent, KeyCode, KeyEvent, PointerEvent};
-use fission::core::lowering::{LoweringCx, NodeBuilder};
+use fission::core::lowering::{LoweringContext, NodeBuilder};
 use fission::core::ui::custom_render::{CustomEventResult, CustomHitResult, CustomRenderObject};
 use fission::core::ui::traits::LowerDyn;
 use fission::core::{LayoutPoint, LayoutRect};
@@ -228,7 +228,7 @@ impl EditorRenderNode {
 // ---------------------------------------------------------------------------
 
 impl LowerDyn for EditorRenderNode {
-    fn lower_dyn(&self, cx: &mut LoweringCx) -> WidgetId {
+    fn lower_dyn(&self, cx: &mut LoweringContext) -> WidgetId {
         let visual_lines = self.visual_lines();
         let total_visual_lines = visual_lines.len().max(1);
         let total_lines = self.logical_line_count();

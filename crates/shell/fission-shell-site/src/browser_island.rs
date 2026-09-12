@@ -1,7 +1,7 @@
 use crate::{render_ir_to_html_with_styles, CssVariableMap, HtmlRenderOptions, StyleRegistry};
 use anyhow::{anyhow, Context, Result};
 use fission_core::authoring::BuildCtx;
-use fission_core::authoring::LoweringCx;
+use fission_core::authoring::LoweringContext;
 use fission_core::registry::{VideoRegistration, WebRegistration};
 use fission_core::ui::{Overlay, ZStack};
 use fission_core::{
@@ -364,7 +364,7 @@ fn lower_browser_island_widget(
     runtime: &RuntimeState,
 ) -> CoreIR {
     let node = compose_browser_island_portals(node, portals);
-    let mut lowering = LoweringCx::new(env, runtime, None, None);
+    let mut lowering = LoweringContext::new(env, runtime, None, None);
     let root = fission_core::internal::lower_widget(&node, &mut lowering);
     lowering.ir.set_root(root);
     lowering.ir

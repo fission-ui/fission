@@ -1,7 +1,7 @@
 use crate::authoring::Lower;
 use crate::env::{Env, RuntimeState};
 use crate::hit_test::find_next_focus_node;
-use crate::lowering::LoweringCx;
+use crate::lowering::LoweringContext;
 use crate::ui::Widget;
 use crate::{InputEvent, KeyCode, KeyEvent, Runtime};
 use fission_core::Op;
@@ -30,7 +30,7 @@ fn test_explicit_focus_order() {
     impl fission_core::internal::LowerWidget for FocusButtonInternalLowerer {
         fn lower_dyn(
             &self,
-            cx: &mut fission_core::internal::LoweringCx,
+            cx: &mut fission_core::internal::LoweringContext,
         ) -> fission_ir::WidgetId {
             let id = cx.next_node_id();
             let s = Semantics {
@@ -69,7 +69,7 @@ fn test_explicit_focus_order() {
         ..Default::default()
     };
 
-    let mut cx = LoweringCx::new(&env, &runtime_state, None, None);
+    let mut cx = LoweringContext::new(&env, &runtime_state, None, None);
     let root_id = root.lower(&mut cx);
     cx.ir.root = Some(root_id);
 
@@ -130,7 +130,7 @@ fn arrow_keys_enter_and_traverse_focus_order_without_prior_focus() {
     impl fission_core::internal::LowerWidget for FocusButtonInternalLowerer {
         fn lower_dyn(
             &self,
-            cx: &mut fission_core::internal::LoweringCx,
+            cx: &mut fission_core::internal::LoweringContext,
         ) -> fission_ir::WidgetId {
             let id = cx.next_node_id();
             let semantics = Semantics {
@@ -162,7 +162,7 @@ fn arrow_keys_enter_and_traverse_focus_order_without_prior_focus() {
         ],
         ..Default::default()
     };
-    let mut cx = LoweringCx::new(&env, &runtime_state, None, None);
+    let mut cx = LoweringContext::new(&env, &runtime_state, None, None);
     let root_id = root.lower(&mut cx);
     cx.ir.root = Some(root_id);
     let layout = LayoutSnapshot::new(LayoutSize::new(100.0, 50.0));
@@ -242,7 +242,7 @@ fn test_autofocus_assigns_initial_focus() {
     impl fission_core::internal::LowerWidget for AutofocusTextInput {
         fn lower_dyn(
             &self,
-            cx: &mut fission_core::internal::LoweringCx,
+            cx: &mut fission_core::internal::LoweringContext,
         ) -> fission_ir::WidgetId {
             let id = cx.next_node_id();
             let semantics = Semantics {
@@ -261,7 +261,7 @@ fn test_autofocus_assigns_initial_focus() {
 
     let root = fission_core::authoring::custom_widget("AutofocusTextInput", AutofocusTextInput);
 
-    let mut cx = LoweringCx::new(&env, &runtime_state, None, None);
+    let mut cx = LoweringContext::new(&env, &runtime_state, None, None);
     let root_id = root.lower(&mut cx);
     cx.ir.root = Some(root_id);
     let layout = LayoutSnapshot::new(LayoutSize::new(100.0, 50.0));

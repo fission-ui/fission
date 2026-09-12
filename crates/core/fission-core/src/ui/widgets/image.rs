@@ -1,5 +1,5 @@
 use crate::authoring::Lower;
-use crate::lowering::{IrBuilder, LoweringCx};
+use crate::lowering::{IrBuilder, LoweringContext};
 use fission_ir::{
     op::{ImageFit, LayoutOp, Op, PaintOp},
     Role, Semantics, WidgetId,
@@ -155,7 +155,7 @@ impl Image {
 }
 
 impl Lower for Image {
-    fn lower(&self, cx: &mut LoweringCx) -> WidgetId {
+    fn lower(&self, cx: &mut LoweringContext) -> WidgetId {
         let layout_id = self.id.map(Into::into).unwrap_or_else(|| cx.next_node_id());
         let paint_op = match &self.request.source {
             ImageSource::SvgText { content } => PaintOp::DrawSvg {

@@ -4,7 +4,7 @@
 //! a scroll view cannot: if they do not declare what they are, assistive
 //! technology has nothing at all to work with.
 
-use fission_core::authoring::LoweringCx;
+use fission_core::authoring::LoweringContext;
 use fission_core::env::{Env, RuntimeState};
 use fission_core::ui::{Icon, Image, Scroll, Text, TextContent, Video};
 use fission_core::Widget;
@@ -13,7 +13,7 @@ use fission_ir::{op::FlexDirection, Op, Role, Semantics};
 fn semantics_of(widget: Widget) -> Vec<Semantics> {
     let env = Env::default();
     let runtime = RuntimeState::default();
-    let mut cx = LoweringCx::new(&env, &runtime, None, None);
+    let mut cx = LoweringContext::new(&env, &runtime, None, None);
     let root = fission_core::internal::lower_widget(&widget, &mut cx);
     cx.ir.root = Some(root);
     cx.ir

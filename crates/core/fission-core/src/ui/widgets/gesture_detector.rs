@@ -1,5 +1,5 @@
 use crate::authoring::Lower;
-use crate::lowering::{IrBuilder, LoweringCx};
+use crate::lowering::{IrBuilder, LoweringContext};
 use crate::ui::Widget;
 use crate::ActionEnvelope;
 use fission_ir::{semantics::ActionTrigger, ActionEntry, Op, Semantics, WidgetId};
@@ -107,7 +107,7 @@ impl GestureDetector {
 }
 
 impl Lower for GestureDetector {
-    fn lower(&self, cx: &mut LoweringCx) -> WidgetId {
+    fn lower(&self, cx: &mut LoweringContext) -> WidgetId {
         let id = self.id.map(Into::into).unwrap_or_else(|| cx.next_node_id());
 
         // Lower child

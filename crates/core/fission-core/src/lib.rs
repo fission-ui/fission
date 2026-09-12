@@ -119,7 +119,7 @@ pub mod view;
 /// # Example
 ///
 /// ```rust,ignore
-/// use fission_core::authoring::{custom_widget, IrBuilder, LowerWidget, LoweringCx};
+/// use fission_core::authoring::{custom_widget, IrBuilder, LowerWidget, LoweringContext};
 /// use fission_core::ui::Widget;
 /// use fission_ir::{LayoutOp, Op, WidgetId};
 ///
@@ -129,7 +129,7 @@ pub mod view;
 /// }
 ///
 /// impl LowerWidget for Banner {
-///     fn lower_dyn(&self, cx: &mut LoweringCx) -> WidgetId {
+///     fn lower_dyn(&self, cx: &mut LoweringContext) -> WidgetId {
 ///         let child_id = fission_core::authoring::lower_widget(&self.child, cx);
 ///         let id = cx.next_node_id();
 ///         let mut builder = IrBuilder::new(id, Op::Layout(LayoutOp::AbsoluteFill));
@@ -147,7 +147,7 @@ pub mod authoring {
     use std::sync::Arc;
 
     pub use crate::build_context::BuildCtx;
-    pub use crate::lowering::{wrap_zstack_child, IrBuilder, LoweringCx};
+    pub use crate::lowering::{wrap_zstack_child, IrBuilder, LoweringContext};
     pub use crate::ui::traits::{Lower, LowerWidget};
 
     /// Wraps a [`LowerWidget`] implementation as an ordinary [`Widget`].
@@ -169,7 +169,7 @@ pub mod authoring {
     ///
     /// Call this for every child before emitting the parent node, and pass the
     /// returned ids to [`IrBuilder::add_child`].
-    pub fn lower_widget(widget: &Widget, cx: &mut LoweringCx) -> WidgetId {
+    pub fn lower_widget(widget: &Widget, cx: &mut LoweringContext) -> WidgetId {
         crate::internal::lower_widget(widget, cx)
     }
 
@@ -179,7 +179,7 @@ pub mod authoring {
     /// under a caller-chosen identity rather than the ambient one.
     pub fn lower_widget_with_root(
         widget: &Widget,
-        cx: &mut LoweringCx,
+        cx: &mut LoweringContext,
         root: WidgetId,
     ) -> WidgetId {
         crate::internal::lower_widget_with_root(widget, cx, root)
@@ -220,7 +220,7 @@ pub mod authoring {
 /// widget-authoring contract is re-exported from there.
 pub mod internal {
     pub use crate::build_context::BuildCtx;
-    pub use crate::lowering::{build_layout_tree, wrap_zstack_child, IrBuilder, LoweringCx};
+    pub use crate::lowering::{build_layout_tree, wrap_zstack_child, IrBuilder, LoweringContext};
     use crate::Widget;
     use fission_ir::WidgetId;
 
@@ -228,14 +228,14 @@ pub mod internal {
         Widget::custom(node)
     }
 
-    pub fn lower_widget(widget: &Widget, cx: &mut LoweringCx) -> WidgetId {
+    pub fn lower_widget(widget: &Widget, cx: &mut LoweringContext) -> WidgetId {
         let root = cx.next_widget_root();
         lower_widget_with_root(widget, cx, root)
     }
 
     pub fn lower_widget_with_root(
         widget: &Widget,
-        cx: &mut LoweringCx,
+        cx: &mut LoweringContext,
         root: WidgetId,
     ) -> WidgetId {
         widget.clone().resolve_identities(root).lower(cx)
@@ -255,7 +255,7 @@ pub mod internal {
         root: WidgetId,
     ) -> fission_ir::CoreIR {
         let runtime_state = crate::RuntimeState::default();
-        let mut cx = LoweringCx::new(env, &runtime_state, None, None);
+        let mut cx = LoweringContext::new(env, &runtime_state, None, None);
         let root_id = widget.clone().resolve_identities(root).lower(&mut cx);
         cx.ir.root = Some(root_id);
         cx.ir

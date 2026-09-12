@@ -1,7 +1,7 @@
 use crate::authoring::Lower;
 use crate::env::{Env, RuntimeState};
 use crate::hit_test::find_next_focus_node;
-use crate::lowering::LoweringCx;
+use crate::lowering::LoweringContext;
 use crate::ui::widgets::button::Button;
 use crate::ui::widgets::focus_scope::FocusScope;
 use crate::ui::Widget;
@@ -33,7 +33,7 @@ fn focus_button(id: &str, autofocus: bool) -> Widget {
 fn lower(root: Widget) -> CoreIR {
     let env = Env::default();
     let runtime_state = RuntimeState::default();
-    let mut cx = LoweringCx::new(&env, &runtime_state, None, None);
+    let mut cx = LoweringContext::new(&env, &runtime_state, None, None);
     let root_id = root.lower(&mut cx);
     cx.ir.root = Some(root_id);
     cx.ir
@@ -85,7 +85,7 @@ fn test_focus_scope_traversal() {
         ..Default::default()
     };
 
-    let mut cx = LoweringCx::new(&env, &runtime_state, None, None);
+    let mut cx = LoweringContext::new(&env, &runtime_state, None, None);
     let root_id = root.lower(&mut cx);
     cx.ir.root = Some(root_id);
 

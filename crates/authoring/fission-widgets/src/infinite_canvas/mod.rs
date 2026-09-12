@@ -17,7 +17,7 @@ mod vector_layer;
 use std::collections::BTreeSet;
 use std::hash::{Hash, Hasher};
 
-use fission_core::authoring::{LowerWidget, LoweringCx};
+use fission_core::authoring::{LowerWidget, LoweringContext};
 use fission_core::ui::{
     IgnorePointer, InteractiveViewer, ViewportBoundary, ViewportClip, ViewportPanAxis,
     ViewportTransform, ViewportZoomPolicy,
@@ -124,7 +124,7 @@ impl From<InfiniteCanvas> for Widget {
 }
 
 impl LowerWidget for InfiniteCanvas {
-    fn lower_dyn(&self, cx: &mut LoweringCx) -> WidgetId {
+    fn lower_dyn(&self, cx: &mut LoweringContext) -> WidgetId {
         let canvas_id = self.id.unwrap_or_else(|| cx.next_node_id());
         let resolved = self.resolved_widget(cx, canvas_id);
         fission_core::internal::lower_widget(&resolved, cx)
@@ -143,7 +143,7 @@ impl LowerWidget for InfiniteCanvas {
 }
 
 impl InfiniteCanvas {
-    fn resolved_widget(&self, cx: &LoweringCx<'_>, canvas_id: WidgetId) -> Widget {
+    fn resolved_widget(&self, cx: &LoweringContext<'_>, canvas_id: WidgetId) -> Widget {
         let transform = self
             .transform
             .or_else(|| cx.runtime_state.viewport.transform(canvas_id))
@@ -373,7 +373,7 @@ mod tests {
         .into();
         let env = Env::default();
         let runtime = RuntimeState::default();
-        let mut cx = fission_core::internal::LoweringCx::new(&env, &runtime, None, None);
+        let mut cx = fission_core::internal::LoweringContext::new(&env, &runtime, None, None);
 
         let root = fission_core::internal::lower_widget(&widget, &mut cx);
 
@@ -396,7 +396,7 @@ mod tests {
         .into();
         let env = Env::default();
         let runtime = RuntimeState::default();
-        let mut cx = fission_core::internal::LoweringCx::new(&env, &runtime, None, None);
+        let mut cx = fission_core::internal::LoweringContext::new(&env, &runtime, None, None);
 
         let root = fission_core::internal::lower_widget(&widget, &mut cx);
         let stack = cx.ir.nodes.get(&root).expect("canvas stack");

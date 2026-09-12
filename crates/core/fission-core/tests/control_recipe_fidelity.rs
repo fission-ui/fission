@@ -1,4 +1,4 @@
-use fission_core::authoring::LoweringCx;
+use fission_core::authoring::LoweringContext;
 use fission_core::ui::widgets::button::{ButtonContent, ButtonIconContent};
 use fission_core::ui::{Button, ButtonStyleOverride, ButtonVariant, Icon, Text, TextInput};
 use fission_core::{Env, LayoutSize, RuntimeState, Widget, WidgetId};
@@ -19,7 +19,7 @@ struct RectPaint {
 }
 
 fn lower(widget: Widget, env: &Env, runtime: &RuntimeState) -> CoreIR {
-    let mut cx = LoweringCx::new(env, runtime, None, None);
+    let mut cx = LoweringContext::new(env, runtime, None, None);
     let root = fission_core::internal::lower_widget(&widget, &mut cx);
     cx.ir.root = Some(root);
     cx.ir

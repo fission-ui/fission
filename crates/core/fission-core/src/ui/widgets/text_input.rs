@@ -1,5 +1,5 @@
 use crate::env::TextSelectionHandleKind;
-use crate::lowering::{IrBuilder, LoweringCx};
+use crate::lowering::{IrBuilder, LoweringContext};
 use crate::ui::{
     traits::Lower,
     widgets::context_menu::{TextContextMenuAction, TextContextMenuConfig},
@@ -841,7 +841,7 @@ impl Default for TextInput {
 }
 
 impl Lower for TextInput {
-    fn lower(&self, cx: &mut LoweringCx) -> WidgetId {
+    fn lower(&self, cx: &mut LoweringContext) -> WidgetId {
         let input_id = self.id.map(Into::into).unwrap_or_else(|| cx.next_node_id());
         let is_focused = cx.runtime_state.interaction.is_focused(input_id);
         let is_hovered = cx.runtime_state.interaction.is_hovered(input_id);

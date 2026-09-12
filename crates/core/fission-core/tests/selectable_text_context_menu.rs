@@ -1,4 +1,4 @@
-use fission_core::authoring::{lower_widget, LoweringCx};
+use fission_core::authoring::{lower_widget, LoweringContext};
 use fission_core::env::{Env, RuntimeState, SelectableTextState};
 use fission_core::ui::{
     ContextMenu, ContextMenuEntry, ContextMenuItem, ContextMenuRegion, Text, TextContent,
@@ -27,7 +27,7 @@ fn selectable_text_lowers_semantics_and_runtime_selection() {
         ..Default::default()
     };
 
-    let mut cx = LoweringCx::new(&env, &runtime, None, None);
+    let mut cx = LoweringContext::new(&env, &runtime, None, None);
     let root_id = lower_widget(&text.into(), &mut cx);
     cx.ir.root = Some(root_id);
 
@@ -78,7 +78,7 @@ fn context_menu_region_accepts_widget_children_and_fallback_i18n_text() {
     ))]);
     let region = ContextMenuRegion::new(Text::new("target"), menu).id(menu_id);
 
-    let mut cx = LoweringCx::new(&env, &runtime, None, None);
+    let mut cx = LoweringContext::new(&env, &runtime, None, None);
     let root_id = lower_widget(&region.into(), &mut cx);
     cx.ir.root = Some(root_id);
 

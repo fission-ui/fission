@@ -1,5 +1,5 @@
 use crate::authoring::Lower;
-use crate::lowering::{IrBuilder, LoweringCx};
+use crate::lowering::{IrBuilder, LoweringContext};
 use crate::motion::{
     color, fill as motion_fill, px, scalar, shadows as motion_shadows, Motion, MotionExpr,
     MotionPredicate, MotionPropertyId, MotionStartValue, MotionTrack, MotionTransition,
@@ -269,7 +269,7 @@ impl Pressable {
         self
     }
 
-    fn resolved_style(&self, cx: &LoweringCx<'_>, id: WidgetId) -> PressableStyle {
+    fn resolved_style(&self, cx: &LoweringContext<'_>, id: WidgetId) -> PressableStyle {
         if self.disabled {
             return self.style.merged(self.disabled_style.as_ref());
         }
@@ -472,7 +472,7 @@ impl Pressable {
 
     fn animated_style(
         &self,
-        cx: &LoweringCx<'_>,
+        cx: &LoweringContext<'_>,
         id: WidgetId,
         mut style: PressableStyle,
     ) -> PressableStyle {
@@ -783,7 +783,7 @@ impl Default for Pressable {
 }
 
 impl Lower for Pressable {
-    fn lower(&self, cx: &mut LoweringCx) -> WidgetId {
+    fn lower(&self, cx: &mut LoweringContext) -> WidgetId {
         let id = self.id.unwrap_or_else(|| cx.next_node_id());
         let layout_id = cx.next_node_id();
         let style = self.animated_style(cx, id, self.resolved_style(cx, id));
