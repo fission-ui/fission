@@ -1,5 +1,5 @@
-use crate::internal::InternalLower;
-use crate::lowering::{InternalIrBuilder, InternalLoweringCx};
+use crate::authoring::Lower;
+use crate::lowering::{IrBuilder, LoweringContext};
 use crate::ui::Widget;
 use fission_ir::{
     op::{GridPlacement, GridTrack, LayoutOp, Op},
@@ -50,12 +50,12 @@ pub struct Grid {
 
 impl Grid {}
 
-impl InternalLower for Grid {
-    fn lower(&self, cx: &mut InternalLoweringCx) -> WidgetId {
+impl Lower for Grid {
+    fn lower(&self, cx: &mut LoweringContext) -> WidgetId {
         let id = self.id.map(Into::into).unwrap_or_else(|| cx.next_node_id());
         cx.push_scope(id);
 
-        let mut builder = InternalIrBuilder::new(
+        let mut builder = IrBuilder::new(
             id,
             Op::Layout(LayoutOp::Grid {
                 columns: self.columns.clone(),
@@ -138,8 +138,8 @@ impl GridItem {
     }
 }
 
-impl InternalLower for GridItem {
-    fn lower(&self, cx: &mut InternalLoweringCx) -> WidgetId {
+impl Lower for GridItem {
+    fn lower(&self, cx: &mut LoweringContext) -> WidgetId {
         let id = self.id.map(Into::into).unwrap_or_else(|| cx.next_node_id());
         cx.push_scope(id);
 
@@ -147,7 +147,7 @@ impl InternalLower for GridItem {
 
         cx.pop_scope();
 
-        let mut builder = InternalIrBuilder::new(
+        let mut builder = IrBuilder::new(
             id,
             Op::Layout(LayoutOp::GridItem {
                 row_start: self.row_start,

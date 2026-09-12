@@ -1,4 +1,4 @@
-use fission_core::internal::BuildCtx;
+use fission_core::authoring::BuildCtx;
 use fission_core::{build, GlobalState, View};
 use fission_widgets::NumberInput;
 
@@ -25,9 +25,17 @@ fn test_number_input_structure() {
         ..Default::default()
     };
 
-    let node = build::enter(&mut ctx, &view, || input.into());
+    let node: fission_core::Widget = build::enter(&mut ctx, &view, || input.into());
 
-    let container = fission_core::internal::widget_as_container(&node)
+    // The field is wrapped in a spin-button semantics region reporting the
+    // value and its bounds, so unwrap that first.
+    let surface = match node.kind() {
+        fission_core::ui::WidgetKind::SemanticsRegion(region) => {
+            region.child.as_ref().expect("number input surface")
+        }
+        _ => &node,
+    };
+    let container = fission_core::internal::widget_as_container(surface)
         .expect("NumberInput should return a field container");
     let child = container
         .child

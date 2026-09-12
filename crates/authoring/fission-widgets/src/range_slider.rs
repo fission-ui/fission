@@ -1,10 +1,9 @@
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
+use fission_core::authoring::{IrBuilder, LowerWidget, LoweringContext};
 use fission_core::input::range_slider::RangeSliderRuntimeConfig;
-use fission_core::internal::{
-    wrap_zstack_child, InternalIrBuilder, InternalLowerer, InternalLoweringCx,
-};
+use fission_core::internal::wrap_zstack_child;
 use fission_core::ui::Widget;
 use fission_core::ActionEnvelope;
 use fission_ir::op::{Color, Fill, GridPlacement, GridTrack, LayoutOp, Op, PaintOp};
@@ -103,8 +102,9 @@ impl From<RangeSlider> for Widget {
                 node_id,
                 start_thumb_id,
                 end_thumb_id,
+                config,
             })),
-            render_object: Some(Arc::new(config)),
+            render_object: None,
         })
     }
 }
@@ -115,14 +115,15 @@ struct RangeSliderLowerer {
     node_id: WidgetId,
     start_thumb_id: WidgetId,
     end_thumb_id: WidgetId,
+    config: RangeSliderRuntimeConfig,
 }
 
-impl InternalLowerer for RangeSliderLowerer {
-    fn lower_dyn(&self, cx: &mut InternalLoweringCx) -> WidgetId {
+impl LowerWidget for RangeSliderLowerer {
+    fn lower_dyn(&self, cx: &mut LoweringContext) -> WidgetId {
         let control_id = WidgetId::derived(self.node_id.as_u128(), &[CONTROL_PATH]);
         cx.push_scope(control_id);
 
-        let tokens = &cx.env.theme.tokens;
+        let tokens = &cx.env().theme.tokens;
         let thumb_size = 16.0;
         let track_height = 4.0;
         let (min, max, start, end) = normalized_values(&self.component);
@@ -178,7 +179,7 @@ impl InternalLowerer for RangeSliderLowerer {
         let start_wrapped = wrap_zstack_child(cx, start_thumb);
         let end_wrapped = wrap_zstack_child(cx, end_thumb);
         cx.pop_scope();
-        let mut stack = InternalIrBuilder::new(stack_id, Op::Layout(LayoutOp::ZStack));
+        let mut stack = IrBuilder::new(stack_id, Op::Layout(LayoutOp::ZStack));
         stack.add_child(track_wrapped);
         stack.add_child(selected_wrapped);
         stack.add_child(start_wrapped);
@@ -186,7 +187,7 @@ impl InternalLowerer for RangeSliderLowerer {
         stack.build(cx);
 
         let layout_id = cx.next_node_id();
-        let mut layout = InternalIrBuilder::new(
+        let mut layout = IrBuilder::new(
             layout_id,
             Op::Layout(LayoutOp::Box {
                 width: None,
@@ -205,15 +206,27 @@ impl InternalLowerer for RangeSliderLowerer {
         layout.build(cx);
 
         cx.pop_scope();
+        // A two-thumb range is a group containing two sliders, and the whole
+        // track accepts drag, so a press beside a thumb moves the nearer one.
+        // Marking it draggable is what makes the track hit-testable, the same
+        // way the single Slider does it; the thumbs stay the focus targets so
+        // the control keeps one tab stop per value.
         let semantics = Semantics {
-            role: Role::Generic,
+            role: Role::Group,
             identifier: self.component.semantics_identifier.clone(),
             value: Some(format!("{start}–{end}")),
+            draggable: true,
             ..Semantics::default()
         };
-        let mut control = InternalIrBuilder::new(control_id, Op::Semantics(semantics));
+        let mut control = IrBuilder::new(control_id, Op::Semantics(semantics));
         control.add_child(layout_id);
-        control.build(cx)
+        control.build(cx);
+
+        // Controller config rides on the widget's own node, which is the parent
+        // of everything lowered here, so walking up from a hit thumb or the
+        // track finds it and geometry resolves against the whole control.
+        cx.set_render_object(self.node_id, std::sync::Arc::new(self.config.clone()));
+        control_id
     }
 
     fn stable_key(&self) -> u64 {
@@ -238,26 +251,28 @@ impl InternalLowerer for RangeSliderLowerer {
 }
 
 fn track_layer(
-    cx: &mut InternalLoweringCx,
+    cx: &mut LoweringContext,
     control_height: f32,
     track_height: f32,
     color: Color,
 ) -> WidgetId {
-    let paint = InternalIrBuilder::new(
+    let paint = IrBuilder::new(
         cx.next_node_id(),
         Op::Paint(PaintOp::DrawRect {
             fill: Some(Fill::Solid(color)),
             stroke: None,
             corner_radius: track_height / 2.0,
             shadow: None,
+            corner_radii: None,
+            border_sides: None,
         }),
     )
     .build(cx);
-    let mut fill = InternalIrBuilder::new(cx.next_node_id(), Op::Layout(LayoutOp::AbsoluteFill));
+    let mut fill = IrBuilder::new(cx.next_node_id(), Op::Layout(LayoutOp::AbsoluteFill));
     fill.add_child(paint);
     let fill = fill.build(cx);
     let vertical = (control_height - track_height) / 2.0;
-    let mut container = InternalIrBuilder::new(
+    let mut container = IrBuilder::new(
         cx.next_node_id(),
         Op::Layout(LayoutOp::Box {
             width: None,
@@ -277,25 +292,27 @@ fn track_layer(
 }
 
 fn selected_track_layer(
-    cx: &mut InternalLoweringCx,
+    cx: &mut LoweringContext,
     start_pct: f32,
     end_pct: f32,
     control_height: f32,
     track_height: f32,
     color: Color,
 ) -> WidgetId {
-    let paint = InternalIrBuilder::new(
+    let paint = IrBuilder::new(
         cx.next_node_id(),
         Op::Paint(PaintOp::DrawRect {
             fill: Some(Fill::Solid(color)),
             stroke: None,
             corner_radius: track_height / 2.0,
             shadow: None,
+            corner_radii: None,
+            border_sides: None,
         }),
     )
     .build(cx);
     let vertical = (control_height - track_height) / 2.0;
-    let mut segment = InternalIrBuilder::new(
+    let mut segment = IrBuilder::new(
         cx.next_node_id(),
         Op::Layout(LayoutOp::Box {
             width: None,
@@ -312,7 +329,7 @@ fn selected_track_layer(
     );
     segment.add_child(paint);
     let segment = segment.build(cx);
-    let mut grid = InternalIrBuilder::new(
+    let mut grid = IrBuilder::new(
         cx.next_node_id(),
         Op::Layout(LayoutOp::Grid {
             columns: vec![
@@ -326,7 +343,7 @@ fn selected_track_layer(
             padding: [0.0; 4],
         }),
     );
-    let mut item = InternalIrBuilder::new(
+    let mut item = IrBuilder::new(
         cx.next_node_id(),
         Op::Layout(LayoutOp::GridItem {
             row_start: GridPlacement::Line(1),
@@ -342,7 +359,7 @@ fn selected_track_layer(
 
 #[allow(clippy::too_many_arguments)]
 fn thumb_layer(
-    cx: &mut InternalLoweringCx,
+    cx: &mut LoweringContext,
     semantics_id: WidgetId,
     pct: f32,
     thumb_size: f32,
@@ -353,7 +370,7 @@ fn thumb_layer(
     current: f32,
     action: Option<&ActionEnvelope>,
 ) -> WidgetId {
-    let paint = InternalIrBuilder::new(
+    let paint = IrBuilder::new(
         cx.next_node_id(),
         Op::Paint(PaintOp::DrawRect {
             fill: Some(Fill::Solid(color)),
@@ -371,10 +388,12 @@ fn thumb_layer(
                 blur_radius: 2.0,
                 offset: (0.0, 1.0),
             }),
+            corner_radii: None,
+            border_sides: None,
         }),
     )
     .build(cx);
-    let mut thumb_box = InternalIrBuilder::new(
+    let mut thumb_box = IrBuilder::new(
         cx.next_node_id(),
         Op::Layout(LayoutOp::Box {
             width: Some(thumb_size),
@@ -410,11 +429,11 @@ fn thumb_layer(
             payload_data: Some(action.payload.clone()),
         });
     }
-    let mut semantic_thumb = InternalIrBuilder::new(semantics_id, Op::Semantics(semantics));
+    let mut semantic_thumb = IrBuilder::new(semantics_id, Op::Semantics(semantics));
     semantic_thumb.add_child(thumb_box);
     let semantic_thumb = semantic_thumb.build(cx);
 
-    let mut translated = InternalIrBuilder::new(
+    let mut translated = IrBuilder::new(
         cx.next_node_id(),
         Op::Layout(LayoutOp::Transform {
             transform: [
@@ -439,7 +458,7 @@ fn thumb_layer(
     );
     translated.add_child(semantic_thumb);
     let translated = translated.build(cx);
-    let mut grid = InternalIrBuilder::new(
+    let mut grid = IrBuilder::new(
         cx.next_node_id(),
         Op::Layout(LayoutOp::Grid {
             columns: vec![
@@ -453,7 +472,7 @@ fn thumb_layer(
             padding: [0.0; 4],
         }),
     );
-    let mut item = InternalIrBuilder::new(
+    let mut item = IrBuilder::new(
         cx.next_node_id(),
         Op::Layout(LayoutOp::GridItem {
             row_start: GridPlacement::Line(1),

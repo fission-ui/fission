@@ -1,5 +1,5 @@
+use fission_core::authoring::{lower_widget, LoweringContext};
 use fission_core::env::{Env, RuntimeState, VideoStateMap, WebStateMap};
-use fission_core::internal::{lower_widget, InternalLoweringCx};
 use fission_core::ui::{Column, Container, Text, Widget};
 use fission_core::ScrollStateMap;
 use fission_ir::op::Length;
@@ -25,7 +25,7 @@ impl Renderer for CapturingRenderer {
 fn first_frame_pipeline_measures_and_paints_descendant_max_width_identically() {
     let env = Env::default();
     let runtime = RuntimeState::default();
-    let mut cx = InternalLoweringCx::new(&env, &runtime, None, None);
+    let mut cx = LoweringContext::new(&env, &runtime, None, None);
     let heading = "A deliberately long heading that wraps at the capped width";
     let sibling = "This sibling begins below every heading line.";
     let widget: Widget = Column {
@@ -41,7 +41,7 @@ fn first_frame_pipeline_measures_and_paints_descendant_max_width_identically() {
     }
     .into();
     let root = lower_widget(&widget, &mut cx);
-    cx.ir.root = Some(root);
+    cx.set_root(root);
 
     let measurer = Arc::new(VelloTextMeasurer::new(Arc::new(Mutex::new(
         FontContext::new(),
@@ -51,7 +51,7 @@ fn first_frame_pipeline_measures_and_paints_descendant_max_width_identically() {
     let mut pipeline = Pipeline::new();
     pipeline
         .render(
-            cx.ir,
+            cx.into_ir(),
             LayoutSize::new(1000.0, 800.0),
             &mut layout_engine,
             &ScrollStateMap::default(),

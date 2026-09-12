@@ -1,4 +1,4 @@
-use fission_core::internal::{InternalLower, InternalLoweringCx};
+use fission_core::authoring::{Lower, LoweringContext};
 use fission_core::ui::{Checkbox, Radio, Switch};
 use fission_core::{ActionEnvelope, ActionId, Env, RuntimeState};
 use fission_ir::op::{Fill, Op, PaintOp};
@@ -18,13 +18,13 @@ fn control_semantics(ir: &CoreIR, id: WidgetId) -> &Semantics {
     }
 }
 
-fn lowered(control: &impl InternalLower) -> (Env, CoreIR, WidgetId) {
+fn lowered(control: &impl Lower) -> (Env, CoreIR, WidgetId) {
     let env = Env::default();
     let runtime = RuntimeState::default();
     let (ir, id) = {
-        let mut cx = InternalLoweringCx::new(&env, &runtime, None, None);
+        let mut cx = LoweringContext::new(&env, &runtime, None, None);
         let id = control.lower(&mut cx);
-        (cx.ir, id)
+        (cx.into_ir(), id)
     };
     (env, ir, id)
 }

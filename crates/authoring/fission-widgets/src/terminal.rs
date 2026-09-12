@@ -1,11 +1,12 @@
 use anyhow::{Context, Result};
 use arboard::Clipboard;
+use fission_core::authoring::{IrBuilder, LowerWidget, LoweringContext};
 use fission_core::event::{ImeEvent, InputEvent, KeyCode, KeyEvent, PointerEvent};
 use fission_core::internal::{
-    CustomEventResult, CustomHitResult, CustomRenderObject, InternalIrBuilder, InternalLowerer,
-    InternalLoweringCx, InternalRenderNode,
+    CustomEventResult, CustomHitResult, CustomRenderObject, InternalRenderNode,
 };
 use fission_core::op::Color;
+use fission_core::ui::SemanticsRegion;
 use fission_core::ui::Widget;
 use fission_core::FlexDirection;
 use fission_ir::op::{AlignItems, Fill, LayoutOp, PaintOp, TextRun, TextStyle};
@@ -193,13 +194,22 @@ impl From<TerminalView> for Widget {
             this.padding_x,
             this.padding_y,
         ));
-        let lowerer: Arc<dyn InternalLowerer> = render_node.clone();
+        let lowerer: Arc<dyn LowerWidget> = render_node.clone();
         let render_object: Arc<dyn CustomRenderObject> = render_node;
-        fission_core::internal::custom_render_widget(InternalRenderNode {
-            debug_tag: format!("TerminalView({})", this.session.id()),
-            lowerer: Some(lowerer),
-            render_object: Some(render_object),
-        })
+        // The terminal owns raw keys and IME, so it has to be reachable by
+        // keyboard and announced as an editable surface rather than an opaque
+        // painted region.
+        SemanticsRegion::new(fission_core::internal::custom_render_widget(
+            InternalRenderNode {
+                debug_tag: format!("TerminalView({})", this.session.id()),
+                lowerer: Some(lowerer),
+                render_object: Some(render_object),
+            },
+        ))
+        .role(fission_ir::Role::TextInput)
+        .label("Terminal")
+        .focusable(true)
+        .into()
     }
 }
 
@@ -469,8 +479,8 @@ impl TerminalRenderNode {
     }
 }
 
-impl InternalLowerer for TerminalRenderNode {
-    fn lower_dyn(&self, cx: &mut InternalLoweringCx) -> WidgetId {
+impl LowerWidget for TerminalRenderNode {
+    fn lower_dyn(&self, cx: &mut LoweringContext) -> WidgetId {
         let outer_height = self
             .viewport_height
             .max(self.line_height * self.snapshot.rows as f32 + self.padding_y * 2.0);
@@ -478,13 +488,15 @@ impl InternalLowerer for TerminalRenderNode {
             .viewport_width
             .max(self.char_width * self.snapshot.cols as f32 + self.padding_x * 2.0);
 
-        let bg_paint = InternalIrBuilder::new(
+        let bg_paint = IrBuilder::new(
             cx.next_node_id(),
             Op::Paint(PaintOp::DrawRect {
                 fill: Some(Fill::Solid(to_ir_color(self.snapshot.palette.background))),
                 stroke: None,
                 corner_radius: 0.0,
                 shadow: None,
+                corner_radii: None,
+                border_sides: None,
             }),
         )
         .build(cx);
@@ -492,7 +504,7 @@ impl InternalLowerer for TerminalRenderNode {
         let mut row_ids = Vec::with_capacity(self.snapshot.lines.len());
         let text_width = outer_width - self.padding_x * 2.0;
         for (row_idx, line) in self.snapshot.lines.iter().enumerate() {
-            let row_paint = InternalIrBuilder::new(
+            let row_paint = IrBuilder::new(
                 cx.next_node_id(),
                 Op::Paint(PaintOp::DrawRichText {
                     runs: self.row_runs(line),
@@ -510,19 +522,20 @@ impl InternalLowerer for TerminalRenderNode {
             let row_layer = if let Some((sel_start, sel_end)) =
                 self.selection_range_for_row(row_idx)
             {
-                let mut builder =
-                    InternalIrBuilder::new(cx.next_node_id(), Op::Layout(LayoutOp::ZStack));
-                let rect = InternalIrBuilder::new(
+                let mut builder = IrBuilder::new(cx.next_node_id(), Op::Layout(LayoutOp::ZStack));
+                let rect = IrBuilder::new(
                     cx.next_node_id(),
                     Op::Paint(PaintOp::DrawRect {
                         fill: Some(Fill::Solid(to_ir_color(self.snapshot.palette.selection_bg))),
                         stroke: None,
                         corner_radius: 0.0,
                         shadow: None,
+                        corner_radii: None,
+                        border_sides: None,
                     }),
                 )
                 .build(cx);
-                let mut positioned = InternalIrBuilder::new(
+                let mut positioned = IrBuilder::new(
                     cx.next_node_id(),
                     Op::Layout(LayoutOp::Positioned {
                         left: Some(sel_start as f32 * self.char_width),
@@ -543,7 +556,7 @@ impl InternalLowerer for TerminalRenderNode {
 
             let row_box = {
                 let id = cx.next_node_id();
-                let mut builder = InternalIrBuilder::new(
+                let mut builder = IrBuilder::new(
                     id,
                     Op::Layout(LayoutOp::Box {
                         width: Some(text_width),
@@ -566,7 +579,7 @@ impl InternalLowerer for TerminalRenderNode {
 
         let content_column = {
             let id = cx.next_node_id();
-            let mut builder = InternalIrBuilder::new(
+            let mut builder = IrBuilder::new(
                 id,
                 Op::Layout(LayoutOp::Flex {
                     direction: FlexDirection::Column,
@@ -592,18 +605,20 @@ impl InternalLowerer for TerminalRenderNode {
         let cursor_box = self
             .cursor_rect(LayoutRect::new(0.0, 0.0, outer_width, outer_height))
             .map(|rect| {
-                let cursor_paint = InternalIrBuilder::new(
+                let cursor_paint = IrBuilder::new(
                     cx.next_node_id(),
                     Op::Paint(PaintOp::DrawRect {
                         fill: Some(Fill::Solid(to_ir_color(self.snapshot.palette.cursor_bg))),
                         stroke: None,
                         corner_radius: 0.0,
                         shadow: None,
+                        corner_radii: None,
+                        border_sides: None,
                     }),
                 )
                 .build(cx);
                 let id = cx.next_node_id();
-                let mut builder = InternalIrBuilder::new(
+                let mut builder = IrBuilder::new(
                     id,
                     Op::Layout(LayoutOp::Positioned {
                         left: Some(rect.origin.x),
@@ -620,7 +635,7 @@ impl InternalLowerer for TerminalRenderNode {
 
         let layered = {
             let id = cx.next_node_id();
-            let mut builder = InternalIrBuilder::new(id, Op::Layout(LayoutOp::ZStack));
+            let mut builder = IrBuilder::new(id, Op::Layout(LayoutOp::ZStack));
             builder.add_child(bg_paint);
             builder.add_child(content_column);
             if let Some(cursor_box) = cursor_box {
@@ -631,7 +646,7 @@ impl InternalLowerer for TerminalRenderNode {
 
         let outer = {
             let id = cx.next_node_id();
-            let mut builder = InternalIrBuilder::new(
+            let mut builder = IrBuilder::new(
                 id,
                 Op::Layout(LayoutOp::Box {
                     width: Some(outer_width),

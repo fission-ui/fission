@@ -1,5 +1,9 @@
+pub mod cpu;
+pub mod gpu;
+pub mod painter;
 pub mod text;
 mod text_effects;
+pub use painter::{CpuPainter, GpuImageCache, GpuPainter, GpuUploader, Painter};
 pub use parley;
 pub use text::VelloTextMeasurer;
 
@@ -12,11 +16,11 @@ use fission_render::{
     surface_placeholder_color, Color as RenderColor, DisplayList, DisplayOp, LayerClip,
     RenderLayer, RenderNode, RenderScene, Renderer, TextStyle as RenderTextStyle,
 };
-use vello::kurbo::{Affine, BezPath, Circle, Point, Rect, RoundedRect, Shape, Vec2};
-// Minimal imports from peniko
-use vello::peniko::{
-    Blob, Brush, Color, Fill, ImageAlphaType, ImageBrush, ImageData, ImageFormat, ImageSampler, Mix,
+use vello_cpu::kurbo::{
+    Affine, BezPath, Circle, Point, Rect, RoundedRect, RoundedRectRadii, Shape, Stroke, Vec2,
 };
+use vello_cpu::peniko::{BlendMode, Color, ImageAlphaType, ImageSampler};
+use vello_cpu::{Glyph, Image, PaintType, PixelMetadata, Pixmap};
 
 fn text_style_requires_rich_layout(style: &RenderTextStyle) -> bool {
     text::text_style_requires_rich_layout(style)
@@ -33,103 +37,157 @@ fn normalized_point(bounds: Rect, point: (f32, f32)) -> Point {
     )
 }
 
-fn map_fill_to_brush(f: &fission_render::Fill, bounds: Rect) -> Brush {
+/// Maps the IR's extend mode onto peniko's.
+///
+/// Vello implements all three, so nothing is lost here.
+/// Maps the IR's per-corner radii onto kurbo's.
+fn kurbo_radii(radii: fission_ir::CornerRadii) -> RoundedRectRadii {
+    RoundedRectRadii::new(
+        radii.top_left as f64,
+        radii.top_right as f64,
+        radii.bottom_right as f64,
+        radii.bottom_left as f64,
+    )
+}
+
+fn map_extend(extend: fission_ir::GradientExtend) -> vello_cpu::peniko::Extend {
+    match extend {
+        fission_ir::GradientExtend::Pad => vello_cpu::peniko::Extend::Pad,
+        fission_ir::GradientExtend::Repeat => vello_cpu::peniko::Extend::Repeat,
+        fission_ir::GradientExtend::Reflect => vello_cpu::peniko::Extend::Reflect,
+    }
+}
+
+fn map_fill_to_brush(f: &fission_render::Fill, bounds: Rect) -> PaintType {
+    fn gradient_stops<C: Copy>(
+        stops: &[(f32, C)],
+        to_color: impl Fn(&C) -> Color,
+    ) -> Vec<vello_cpu::peniko::ColorStop> {
+        stops
+            .iter()
+            .map(|(offset, color)| vello_cpu::peniko::ColorStop {
+                offset: *offset,
+                color: to_color(color).into(),
+            })
+            .collect()
+    }
+
     match f {
-        fission_render::Fill::Solid(c) => Brush::Solid(map_color(c)),
-        fission_render::Fill::LinearGradient { start, end, stops } => {
-            let vello_stops: Vec<_> = stops
-                .iter()
-                .map(|(o, c)| vello::peniko::ColorStop {
-                    offset: *o,
-                    color: map_color(c).into(),
-                })
-                .collect();
-            Brush::Gradient(
-                vello::peniko::Gradient::new_linear(
-                    normalized_point(bounds, *start),
-                    normalized_point(bounds, *end),
-                )
-                .with_stops(vello_stops.as_slice()),
+        fission_render::Fill::Solid(c) => PaintType::from(map_color(c)),
+        fission_render::Fill::LinearGradient {
+            start,
+            end,
+            stops,
+            extend,
+        } => PaintType::from(
+            vello_cpu::peniko::Gradient::new_linear(
+                normalized_point(bounds, *start),
+                normalized_point(bounds, *end),
             )
-        }
+            .with_extend(map_extend(*extend))
+            .with_stops(gradient_stops(stops, map_color).as_slice()),
+        ),
         fission_render::Fill::RadialGradient {
             center,
             radius,
             stops,
-        } => {
-            let vello_stops: Vec<_> = stops
-                .iter()
-                .map(|(o, c)| vello::peniko::ColorStop {
-                    offset: *o,
-                    color: map_color(c).into(),
-                })
-                .collect();
-            Brush::Gradient(
-                vello::peniko::Gradient::new_radial(
-                    normalized_point(bounds, *center),
-                    radius * bounds.width().max(bounds.height()) as f32,
-                )
-                .with_stops(vello_stops.as_slice()),
+            extend,
+        } => PaintType::from(
+            vello_cpu::peniko::Gradient::new_radial(
+                normalized_point(bounds, *center),
+                radius * bounds.width().max(bounds.height()) as f32,
             )
-        }
+            .with_extend(map_extend(*extend))
+            .with_stops(gradient_stops(stops, map_color).as_slice()),
+        ),
+        fission_render::Fill::SweepGradient {
+            center,
+            start_angle,
+            end_angle,
+            stops,
+            extend,
+        } => PaintType::from(
+            vello_cpu::peniko::Gradient::new_sweep(
+                normalized_point(bounds, *center),
+                *start_angle,
+                *end_angle,
+            )
+            .with_extend(map_extend(*extend))
+            .with_stops(gradient_stops(stops, map_color).as_slice()),
+        ),
     }
 }
 
-fn map_text_fill_to_brush(f: &fission_ir::op::Fill, bounds: Rect) -> Brush {
+fn map_text_fill_to_brush(f: &fission_ir::op::Fill, bounds: Rect) -> PaintType {
+    fn ir_stops(stops: &[(f32, fission_ir::op::Color)]) -> Vec<vello_cpu::peniko::ColorStop> {
+        stops
+            .iter()
+            .map(|(offset, color)| vello_cpu::peniko::ColorStop {
+                offset: *offset,
+                color: Color::from_rgba8(color.r, color.g, color.b, color.a).into(),
+            })
+            .collect()
+    }
+
     match f {
-        fission_ir::op::Fill::Solid(c) => Brush::Solid(Color::from_rgba8(c.r, c.g, c.b, c.a)),
-        fission_ir::op::Fill::LinearGradient { start, end, stops } => Brush::Gradient(
-            vello::peniko::Gradient::new_linear(
+        fission_ir::op::Fill::Solid(c) => PaintType::from(Color::from_rgba8(c.r, c.g, c.b, c.a)),
+        fission_ir::op::Fill::LinearGradient {
+            start,
+            end,
+            stops,
+            extend,
+        } => PaintType::from(
+            vello_cpu::peniko::Gradient::new_linear(
                 normalized_point(bounds, *start),
                 normalized_point(bounds, *end),
             )
-            .with_stops(
-                stops
-                    .iter()
-                    .map(|(offset, color)| vello::peniko::ColorStop {
-                        offset: *offset,
-                        color: Color::from_rgba8(color.r, color.g, color.b, color.a).into(),
-                    })
-                    .collect::<Vec<_>>()
-                    .as_slice(),
-            ),
+            .with_extend(map_extend(*extend))
+            .with_stops(ir_stops(stops).as_slice()),
         ),
         fission_ir::op::Fill::RadialGradient {
             center,
             radius,
             stops,
-        } => Brush::Gradient(
-            vello::peniko::Gradient::new_radial(
+            extend,
+        } => PaintType::from(
+            vello_cpu::peniko::Gradient::new_radial(
                 normalized_point(bounds, *center),
                 radius * bounds.width().max(bounds.height()) as f32,
             )
-            .with_stops(
-                stops
-                    .iter()
-                    .map(|(offset, color)| vello::peniko::ColorStop {
-                        offset: *offset,
-                        color: Color::from_rgba8(color.r, color.g, color.b, color.a).into(),
-                    })
-                    .collect::<Vec<_>>()
-                    .as_slice(),
-            ),
+            .with_extend(map_extend(*extend))
+            .with_stops(ir_stops(stops).as_slice()),
+        ),
+        fission_ir::op::Fill::SweepGradient {
+            center,
+            start_angle,
+            end_angle,
+            stops,
+            extend,
+        } => PaintType::from(
+            vello_cpu::peniko::Gradient::new_sweep(
+                normalized_point(bounds, *center),
+                *start_angle,
+                *end_angle,
+            )
+            .with_extend(map_extend(*extend))
+            .with_stops(ir_stops(stops).as_slice()),
         ),
     }
 }
 
-fn map_stroke(s: &fission_render::Stroke, bounds: Rect) -> (vello::kurbo::Stroke, Brush) {
+fn map_stroke(s: &fission_render::Stroke, bounds: Rect) -> (vello_cpu::kurbo::Stroke, PaintType) {
     let cap = match s.line_cap {
-        fission_render::LineCap::Butt => vello::kurbo::Cap::Butt,
-        fission_render::LineCap::Round => vello::kurbo::Cap::Round,
-        fission_render::LineCap::Square => vello::kurbo::Cap::Square,
+        fission_render::LineCap::Butt => vello_cpu::kurbo::Cap::Butt,
+        fission_render::LineCap::Round => vello_cpu::kurbo::Cap::Round,
+        fission_render::LineCap::Square => vello_cpu::kurbo::Cap::Square,
     };
     let join = match s.line_join {
-        fission_render::LineJoin::Miter => vello::kurbo::Join::Miter,
-        fission_render::LineJoin::Round => vello::kurbo::Join::Round,
-        fission_render::LineJoin::Bevel => vello::kurbo::Join::Bevel,
+        fission_render::LineJoin::Miter => vello_cpu::kurbo::Join::Miter,
+        fission_render::LineJoin::Round => vello_cpu::kurbo::Join::Round,
+        fission_render::LineJoin::Bevel => vello_cpu::kurbo::Join::Bevel,
     };
 
-    let mut stroke = vello::kurbo::Stroke::new(s.width as f64)
+    let mut stroke = vello_cpu::kurbo::Stroke::new(s.width as f64)
         .with_caps(cap)
         .with_join(join);
     if let Some(dash) = &s.dash_array {
@@ -145,7 +203,7 @@ use fission_render::image_cache_store::ImageCacheStore;
 use lazy_static::lazy_static;
 use parley::layout::{Alignment as ParleyAlignment, AlignmentOptions, PositionedLayoutItem};
 use std::collections::hash_map::DefaultHasher;
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 #[cfg(not(target_arch = "wasm32"))]
 use std::io::Read;
@@ -153,7 +211,6 @@ use std::sync::{
     atomic::{AtomicU64, Ordering},
     Arc, Mutex,
 };
-use vello::{Glyph, Scene};
 
 const DEFAULT_IMAGE_CACHE_BYTES: u64 = 50 * 1024 * 1024;
 const PARAGRAPH_FADE_SLICE_COUNT: usize = 8;
@@ -161,328 +218,10 @@ const PARAGRAPH_FADE_MIN_SPAN: f32 = 8.0;
 const PARAGRAPH_FADE_RIGHT_MULTIPLIER: f32 = 1.5;
 const PARAGRAPH_FADE_BOTTOM_FRACTION: f32 = 0.5;
 const TEXT_CULL_PADDING: f32 = 8.0;
+/// Slack added when re-breaking a paragraph for alignment, so rounding cannot wrap its widest line.
+const TEXT_ALIGNMENT_BREAK_EPSILON: f32 = 0.01;
 const LTR_DIRECTION_MARK: &str = "\u{200E}";
 const RTL_DIRECTION_MARK: &str = "\u{200F}";
-
-pub fn workload_profile_for_scene(
-    scene: &RenderScene,
-    width_px: u32,
-    height_px: u32,
-    scale_factor: f64,
-) -> vello::RenderWorkloadProfile {
-    let mut builder = WorkloadProfileBuilder::new(width_px, height_px, scale_factor);
-    for root in &scene.roots {
-        builder.visit_node(root);
-    }
-    builder.finish()
-}
-
-/// Build a workload profile using the encoded Vello scene for text complexity.
-///
-/// Fission display operations retain complete text values so editing, selection,
-/// and accessibility continue to work outside the visible viewport. The Vello
-/// encoder culls those values to the glyphs that can actually contribute to the
-/// frame. Using that encoded count prevents caller-sized GPU buffers from being
-/// based on an entire large document while preserving Fission's more precise
-/// coverage and composition context.
-pub fn workload_profile_for_encoded_scene(
-    scene: &RenderScene,
-    encoded_scene: &Scene,
-    width_px: u32,
-    height_px: u32,
-    scale_factor: f64,
-) -> vello::RenderWorkloadProfile {
-    let mut profile = workload_profile_for_scene(scene, width_px, height_px, scale_factor);
-    let encoding = encoded_scene.encoding();
-    profile.scene.glyphs = encoding.resources.glyphs.len().min(u32::MAX as usize) as u32;
-    profile.scene.glyph_runs = encoding.resources.glyph_runs.len().min(u32::MAX as usize) as u32;
-    profile
-}
-
-struct WorkloadProfileBuilder {
-    width_px: u32,
-    height_px: u32,
-    scale_factor: f64,
-    width_tiles: u32,
-    height_tiles: u32,
-    tile_ops: Vec<u16>,
-    scene: vello::SceneComplexityProfile,
-    total_draw_tile_coverage: u32,
-    total_path_tile_coverage: u32,
-    max_clip_depth: u32,
-    max_blend_depth: u32,
-    current_clip_depth: u32,
-    current_blend_depth: u32,
-}
-
-impl WorkloadProfileBuilder {
-    fn new(width_px: u32, height_px: u32, scale_factor: f64) -> Self {
-        let width_tiles = width_px.next_multiple_of(16) / 16;
-        let height_tiles = height_px.next_multiple_of(16) / 16;
-        let tile_count = width_tiles.saturating_mul(height_tiles) as usize;
-        Self {
-            width_px,
-            height_px,
-            scale_factor,
-            width_tiles,
-            height_tiles,
-            tile_ops: vec![0; tile_count],
-            scene: vello::SceneComplexityProfile::default(),
-            total_draw_tile_coverage: 0,
-            total_path_tile_coverage: 0,
-            max_clip_depth: 0,
-            max_blend_depth: 0,
-            current_clip_depth: 0,
-            current_blend_depth: 0,
-        }
-    }
-
-    fn finish(self) -> vello::RenderWorkloadProfile {
-        let target_tiles = self.width_tiles.saturating_mul(self.height_tiles);
-        let max_ops_per_tile = self.tile_ops.into_iter().max().unwrap_or(0) as u32;
-        vello::RenderWorkloadProfile {
-            target: vello::TargetProfile {
-                width_px: self.width_px,
-                height_px: self.height_px,
-                scale_factor: self.scale_factor as f32,
-                dirty_tiles: None,
-            },
-            coverage: vello::TileCoverageProfile {
-                tile_width: 16,
-                tile_height: 16,
-                target_tiles,
-                visible_tiles: target_tiles,
-                total_draw_tile_coverage: self.total_draw_tile_coverage,
-                total_path_tile_coverage: self.total_path_tile_coverage,
-                max_ops_per_tile,
-                max_blend_depth: self.max_blend_depth,
-            },
-            scene: vello::SceneComplexityProfile {
-                max_clip_depth: self.max_clip_depth,
-                ..self.scene
-            },
-            policy: vello::DynamicBufferPolicy {
-                sizing: vello::BufferSizingMode::CallerEstimate,
-                safety_margin_percent: 25,
-                allow_grow_retry: true,
-                max_dynamic_bytes: None,
-            },
-        }
-    }
-
-    fn visit_node(&mut self, node: &RenderNode) {
-        match node {
-            RenderNode::Paint(list) => self.visit_display_list(list),
-            RenderNode::Layer(layer) => self.visit_layer(layer),
-        }
-    }
-
-    fn visit_layer(&mut self, layer: &RenderLayer) {
-        let clip_added = layer.style.clip.is_some();
-        if clip_added {
-            self.scene.clip_ops = self.scene.clip_ops.saturating_add(1);
-            self.current_clip_depth = self.current_clip_depth.saturating_add(1);
-            self.max_clip_depth = self.max_clip_depth.max(self.current_clip_depth);
-        }
-        let blend_added = (layer.style.opacity - 1.0).abs() > 0.001;
-        if blend_added {
-            self.scene.blend_ops = self.scene.blend_ops.saturating_add(1);
-            self.current_blend_depth = self.current_blend_depth.saturating_add(1);
-            self.max_blend_depth = self.max_blend_depth.max(self.current_blend_depth);
-            self.add_coverage(layer.bounds, false);
-        }
-        for child in &layer.children {
-            self.visit_node(child);
-        }
-        if blend_added {
-            self.current_blend_depth = self.current_blend_depth.saturating_sub(1);
-        }
-        if clip_added {
-            self.current_clip_depth = self.current_clip_depth.saturating_sub(1);
-        }
-    }
-
-    fn visit_display_list(&mut self, list: &DisplayList) {
-        for op in &list.ops {
-            match op {
-                DisplayOp::Save
-                | DisplayOp::Restore
-                | DisplayOp::Translate(_)
-                | DisplayOp::Transform(_) => {}
-                DisplayOp::ClipRect(_) | DisplayOp::ClipRoundedRect { .. } => {
-                    self.scene.clip_ops = self.scene.clip_ops.saturating_add(1);
-                    self.max_clip_depth = self.max_clip_depth.max(self.current_clip_depth + 1);
-                }
-                DisplayOp::OpacityLayer { bounds, .. } => {
-                    self.scene.blend_ops = self.scene.blend_ops.saturating_add(1);
-                    self.max_blend_depth = self.max_blend_depth.max(self.current_blend_depth + 1);
-                    self.add_coverage(*bounds, false);
-                }
-                DisplayOp::CachedScene { list, bounds, .. } => {
-                    self.add_coverage(*bounds, false);
-                    self.visit_display_list(list);
-                }
-                DisplayOp::BackdropFilter { bounds, .. } => {
-                    self.scene.draw_ops = self.scene.draw_ops.saturating_add(1);
-                    self.scene.blend_ops = self.scene.blend_ops.saturating_add(1);
-                    self.add_coverage(*bounds, false);
-                }
-                DisplayOp::DrawRect {
-                    bounds,
-                    stroke,
-                    corner_radius,
-                    shadow,
-                    ..
-                } => {
-                    self.scene.draw_ops = self.scene.draw_ops.saturating_add(1);
-                    if stroke.is_some() || *corner_radius > 0.0 {
-                        self.scene.path_ops = self.scene.path_ops.saturating_add(1);
-                        self.scene.estimated_path_segments =
-                            self.scene.estimated_path_segments.saturating_add(8);
-                        self.add_coverage(*bounds, true);
-                    } else {
-                        self.add_coverage(*bounds, false);
-                    }
-                    if shadow.is_some() {
-                        self.scene.blend_ops = self.scene.blend_ops.saturating_add(1);
-                    }
-                }
-                DisplayOp::DrawText { text, bounds, .. } => {
-                    self.scene.draw_ops = self.scene.draw_ops.saturating_add(1);
-                    self.scene.glyph_runs = self.scene.glyph_runs.saturating_add(1);
-                    let glyphs = text.chars().count() as u32;
-                    self.scene.glyphs = self.scene.glyphs.saturating_add(glyphs);
-                    self.scene.path_ops = self.scene.path_ops.saturating_add(1);
-                    self.add_coverage(*bounds, true);
-                }
-                DisplayOp::DrawRichText { runs, bounds, .. } => {
-                    self.scene.draw_ops = self.scene.draw_ops.saturating_add(1);
-                    self.scene.glyph_runs = self.scene.glyph_runs.saturating_add(runs.len() as u32);
-                    let glyphs = runs
-                        .iter()
-                        .map(|run| run.text.chars().count() as u32)
-                        .fold(0_u32, u32::saturating_add);
-                    self.scene.glyphs = self.scene.glyphs.saturating_add(glyphs);
-                    self.scene.path_ops = self.scene.path_ops.saturating_add(1);
-                    self.add_coverage(*bounds, true);
-                }
-                DisplayOp::DrawImage { bounds, .. } => {
-                    self.scene.draw_ops = self.scene.draw_ops.saturating_add(1);
-                    self.scene.images = self.scene.images.saturating_add(1);
-                    self.add_coverage(*bounds, false);
-                }
-                DisplayOp::DrawPath { path, bounds, .. } => {
-                    self.scene.draw_ops = self.scene.draw_ops.saturating_add(1);
-                    self.scene.path_ops = self.scene.path_ops.saturating_add(1);
-                    self.scene.path_points = self
-                        .scene
-                        .path_points
-                        .saturating_add(estimate_svg_path_points(path));
-                    self.add_coverage(*bounds, true);
-                }
-                DisplayOp::DrawSvg {
-                    content, bounds, ..
-                } => {
-                    self.scene.draw_ops = self.scene.draw_ops.saturating_add(1);
-                    self.scene.path_ops = self
-                        .scene
-                        .path_ops
-                        .saturating_add(estimate_svg_shape_count(content));
-                    self.scene.path_points = self
-                        .scene
-                        .path_points
-                        .saturating_add((content.len() as u32 / 8).max(1));
-                    self.add_coverage(*bounds, true);
-                }
-                DisplayOp::DrawSurface { bounds, .. } => {
-                    self.scene.draw_ops = self.scene.draw_ops.saturating_add(1);
-                    self.add_coverage(*bounds, false);
-                }
-            }
-        }
-    }
-
-    fn add_coverage(&mut self, rect: fission_render::LayoutRect, path_like: bool) {
-        let Some((x0, y0, x1, y1)) = self.tile_range(rect) else {
-            return;
-        };
-        let covered = x1.saturating_sub(x0).saturating_mul(y1.saturating_sub(y0));
-        self.total_draw_tile_coverage = self.total_draw_tile_coverage.saturating_add(covered);
-        if path_like {
-            self.total_path_tile_coverage = self.total_path_tile_coverage.saturating_add(covered);
-        }
-        for y in y0..y1 {
-            for x in x0..x1 {
-                let idx = y.saturating_mul(self.width_tiles).saturating_add(x) as usize;
-                if let Some(count) = self.tile_ops.get_mut(idx) {
-                    *count = count.saturating_add(1);
-                }
-            }
-        }
-    }
-
-    fn tile_range(&self, rect: fission_render::LayoutRect) -> Option<(u32, u32, u32, u32)> {
-        if rect.size.width <= 0.0 || rect.size.height <= 0.0 {
-            return None;
-        }
-        let scale = self.scale_factor.max(0.0001);
-        let x0 =
-            ((rect.origin.x as f64 * scale).floor().max(0.0) as u32 / 16).min(self.width_tiles);
-        let y0 =
-            ((rect.origin.y as f64 * scale).floor().max(0.0) as u32 / 16).min(self.height_tiles);
-        let x1_px = ((rect.origin.x + rect.size.width) as f64 * scale)
-            .ceil()
-            .clamp(0.0, self.width_px as f64) as u32;
-        let y1_px = ((rect.origin.y + rect.size.height) as f64 * scale)
-            .ceil()
-            .clamp(0.0, self.height_px as f64) as u32;
-        let x1 = x1_px.div_ceil(16).min(self.width_tiles);
-        let y1 = y1_px.div_ceil(16).min(self.height_tiles);
-        if x1 <= x0 || y1 <= y0 {
-            None
-        } else {
-            Some((x0, y0, x1, y1))
-        }
-    }
-}
-
-fn estimate_svg_path_points(path: &str) -> u32 {
-    let commands = path
-        .bytes()
-        .filter(|b| {
-            matches!(
-                b,
-                b'M' | b'm'
-                    | b'L'
-                    | b'l'
-                    | b'H'
-                    | b'h'
-                    | b'V'
-                    | b'v'
-                    | b'C'
-                    | b'c'
-                    | b'S'
-                    | b's'
-                    | b'Q'
-                    | b'q'
-                    | b'T'
-                    | b't'
-                    | b'A'
-                    | b'a'
-                    | b'Z'
-                    | b'z'
-            )
-        })
-        .count() as u32;
-    commands.max(path.len() as u32 / 24).max(1)
-}
-
-fn estimate_svg_shape_count(content: &str) -> u32 {
-    let paths = content.matches("<path").count() as u32;
-    let rects = content.matches("<rect").count() as u32;
-    let circles = content.matches("<circle").count() as u32;
-    paths.saturating_add(rects).saturating_add(circles).max(1)
-}
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct ParagraphLineVisualBounds {
@@ -796,7 +535,7 @@ static IMAGE_OFFSCREEN_SKIPS: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Clone)]
 enum ImageCacheEntry {
-    Ready(Arc<ImageData>),
+    Ready(Arc<Pixmap>),
     Loading,
     Failed,
 }
@@ -846,9 +585,9 @@ fn configured_image_cache_bytes() -> u64 {
         .unwrap_or(DEFAULT_IMAGE_CACHE_BYTES)
 }
 
-fn image_byte_len(image: &ImageData) -> u64 {
-    u64::from(image.width)
-        .saturating_mul(u64::from(image.height))
+fn image_byte_len(image: &Pixmap) -> u64 {
+    u64::from(image.width())
+        .saturating_mul(u64::from(image.height()))
         .saturating_mul(4)
 }
 
@@ -916,7 +655,7 @@ fn decode_image_from_path(
     path: &str,
     cache_width: Option<u32>,
     cache_height: Option<u32>,
-) -> Option<Arc<ImageData>> {
+) -> Option<Arc<Pixmap>> {
     let img = image::open(path).ok()?;
     decode_dynamic_image(img, cache_width, cache_height)
 }
@@ -925,7 +664,7 @@ fn decode_image_from_bytes(
     bytes: &[u8],
     cache_width: Option<u32>,
     cache_height: Option<u32>,
-) -> Option<Arc<ImageData>> {
+) -> Option<Arc<Pixmap>> {
     let img = image::load_from_memory(bytes).ok()?;
     decode_dynamic_image(img, cache_width, cache_height)
 }
@@ -934,7 +673,7 @@ fn decode_dynamic_image(
     mut img: image::DynamicImage,
     cache_width: Option<u32>,
     cache_height: Option<u32>,
-) -> Option<Arc<ImageData>> {
+) -> Option<Arc<Pixmap>> {
     if let (Some(width), Some(height)) = (cache_width, cache_height) {
         if width > 0 && height > 0 {
             img = img.resize(width, height, image::imageops::FilterType::Triangle);
@@ -942,17 +681,19 @@ fn decode_dynamic_image(
     }
     let img = img.to_rgba8();
     let (width, height) = img.dimensions();
-    let data = img.into_raw();
-    Some(Arc::new(ImageData {
-        data: Blob::new(Arc::new(data)),
-        format: ImageFormat::Rgba8,
-        alpha_type: ImageAlphaType::Alpha,
+    // The renderers address pixmaps with 16-bit dimensions.
+    let (Ok(width), Ok(height)) = (u16::try_from(width), u16::try_from(height)) else {
+        return None;
+    };
+    Some(Arc::new(Pixmap::from_parts(
+        img.into_raw(),
         width,
         height,
-    }))
+        PixelMetadata::new(ImageAlphaType::Alpha, true),
+    )))
 }
 
-fn complete_image_load(key: String, image: Option<Arc<ImageData>>) {
+fn complete_image_load(key: String, image: Option<Arc<Pixmap>>) {
     if image.is_some() {
         IMAGE_LOADS_COMPLETED.fetch_add(1, Ordering::AcqRel);
     } else {
@@ -1075,7 +816,7 @@ fn fetch_network_image(
     headers: Vec<HttpHeader>,
     cache_width: Option<u32>,
     cache_height: Option<u32>,
-) -> Option<Arc<ImageData>> {
+) -> Option<Arc<Pixmap>> {
     let mut request = ureq::get(url).set("User-Agent", "FissionImageLoader/0.2");
     for header in headers {
         request = request.set(&header.name, &header.value);
@@ -1149,8 +890,8 @@ mod image_tests {
         let Some(ImageCacheEntry::Ready(image)) = IMAGE_CACHE.get(&key) else {
             panic!("expected decoded image in cache");
         };
-        assert_eq!(image.width, 1);
-        assert_eq!(image.height, 1);
+        assert_eq!(image.width(), 1);
+        assert_eq!(image.height(), 1);
     }
 
     #[test]
@@ -1201,8 +942,8 @@ mod image_tests {
         let image = fetch_network_image(&url, Vec::new(), Some(1), Some(1))
             .expect("fetch and decode test image");
 
-        assert_eq!(image.width, 1);
-        assert_eq!(image.height, 1);
+        assert_eq!(image.width(), 1);
+        assert_eq!(image.height(), 1);
     }
 }
 
@@ -1330,8 +1071,7 @@ mod tests {
     use super::{
         map_fill_to_brush, paragraph_alignment, paragraph_fade, paragraph_line_trim,
         paragraph_line_visual_bounds, paragraph_y_offset, parse_svg_entry,
-        text_background_segments_for_cluster_ranges, workload_profile_for_encoded_scene,
-        workload_profile_for_scene, ParagraphFade, RetainedSceneCache, SvgShape,
+        text_background_segments_for_cluster_ranges, Painter, ParagraphFade, SvgShape,
         TextBackgroundSegment, TextClip, VelloRenderer, VelloTextMeasurer,
     };
     use fission_ir::op::{
@@ -1346,9 +1086,68 @@ mod tests {
     };
     use parley::FontContext;
     use std::sync::{Arc, Mutex};
-    use vello::kurbo::{Point, Rect};
-    use vello::peniko::{Brush, GradientKind, Mix};
-    use vello::Scene;
+    use vello_cpu::filter_effects::Filter;
+    use vello_cpu::kurbo::{Affine, BezPath, Point, Rect, Shape, Stroke};
+    use vello_cpu::peniko::{BlendMode, Color, Compose, FontData, GradientKind};
+    use vello_cpu::{Glyph, ImageSource, PaintType, Pixmap};
+
+    /// A painter that records what the encoder asked for instead of drawing it.
+    #[derive(Default)]
+    struct RecordingPainter {
+        glyphs: usize,
+        paths: usize,
+        rects: usize,
+        clip_layers: usize,
+        layers: Vec<(Option<Rect>, BlendMode, f32)>,
+        blurred_rects: Vec<(Rect, bool)>,
+        backdrop_filters: Vec<Rect>,
+    }
+
+    impl Painter for RecordingPainter {
+        fn fill_path(&mut self, _: Affine, _: PaintType, _: &BezPath) {
+            self.paths += 1;
+        }
+        fn fill_rect(&mut self, _: Affine, _: PaintType, _: &Rect) {
+            self.rects += 1;
+        }
+        fn stroke_path(&mut self, _: Affine, _: &Stroke, _: PaintType, _: &BezPath) {
+            self.paths += 1;
+        }
+        fn fill_blurred_rounded_rect(
+            &mut self,
+            _: Affine,
+            _: Color,
+            rect: &Rect,
+            _: f32,
+            _: f32,
+            invert: bool,
+        ) {
+            self.blurred_rects.push((*rect, invert));
+        }
+        fn push_layer(
+            &mut self,
+            _: Affine,
+            clip: Option<&BezPath>,
+            blend: BlendMode,
+            opacity: f32,
+        ) {
+            if clip.is_some() {
+                self.clip_layers += 1;
+            }
+            self.layers
+                .push((clip.map(|clip| clip.bounding_box()), blend, opacity));
+        }
+        fn pop_layer(&mut self) {}
+        fn apply_backdrop_filter(&mut self, _: Affine, clip: &BezPath, _: Filter) {
+            self.backdrop_filters.push(clip.bounding_box());
+        }
+        fn fill_glyphs(&mut self, _: Affine, _: PaintType, _: &FontData, _: f32, glyphs: &[Glyph]) {
+            self.glyphs += glyphs.len();
+        }
+        fn image_source(&mut self, image: &Arc<Pixmap>) -> ImageSource {
+            ImageSource::Pixmap(Arc::clone(image))
+        }
+    }
 
     #[test]
     fn normalized_gradient_geometry_maps_to_painted_bounds() {
@@ -1376,11 +1175,12 @@ mod tests {
                         },
                     ),
                 ],
+                extend: Default::default(),
             },
             Rect::new(20.0, 40.0, 220.0, 140.0),
         );
 
-        let Brush::Gradient(gradient) = brush else {
+        let PaintType::Gradient(gradient) = brush else {
             panic!("expected gradient brush");
         };
         let GradientKind::Linear(position) = gradient.kind else {
@@ -1425,14 +1225,11 @@ mod tests {
         );
     }
 
-    fn test_renderer<'a>(
-        scene: &'a mut Scene,
-        cache: &'a mut RetainedSceneCache,
-    ) -> VelloRenderer<'a> {
+    fn test_renderer(painter: &mut RecordingPainter) -> VelloRenderer<'_> {
         let measurer = Arc::new(VelloTextMeasurer::new(Arc::new(Mutex::new(
             FontContext::new(),
         ))));
-        VelloRenderer::new(scene, measurer, cache, 1.0)
+        VelloRenderer::new(painter, measurer, 1.0)
     }
 
     fn test_style() -> RenderTextStyle {
@@ -1507,9 +1304,8 @@ mod tests {
 
     #[test]
     fn selected_character_background_does_not_span_full_line() {
-        let mut scene = Scene::new();
-        let mut cache = RetainedSceneCache::default();
-        let renderer = test_renderer(&mut scene, &mut cache);
+        let mut painter = RecordingPainter::default();
+        let renderer = test_renderer(&mut painter);
         let base_style = test_style();
         let mut selected_style = test_style();
         selected_style.background_color = Some(RenderColor {
@@ -1555,9 +1351,8 @@ mod tests {
 
     #[test]
     fn justify_alignment_stretches_non_terminal_lines() {
-        let mut scene = Scene::new();
-        let mut cache = RetainedSceneCache::default();
-        let renderer = test_renderer(&mut scene, &mut cache);
+        let mut painter = RecordingPainter::default();
+        let renderer = test_renderer(&mut painter);
         let style = test_style();
         let text = "one two three four five six seven eight";
         let bounds = LayoutRect::new(0.0, 0.0, 90.0, 200.0);
@@ -1613,9 +1408,8 @@ mod tests {
 
     #[test]
     fn longest_line_width_basis_aligns_against_content_width() {
-        let mut scene = Scene::new();
-        let mut cache = RetainedSceneCache::default();
-        let renderer = test_renderer(&mut scene, &mut cache);
+        let mut painter = RecordingPainter::default();
+        let renderer = test_renderer(&mut painter);
         let style = test_style();
         let text = "paragraph width\nshort";
         let bounds = LayoutRect::new(0.0, 0.0, 220.0, 80.0);
@@ -1662,9 +1456,8 @@ mod tests {
 
     #[test]
     fn fade_overflow_adds_renderer_side_clips() {
-        let mut scene = Scene::new();
-        let mut cache = RetainedSceneCache::default();
-        let mut renderer = test_renderer(&mut scene, &mut cache);
+        let mut painter = RecordingPainter::default();
+        let mut renderer = test_renderer(&mut painter);
         let style = test_style();
         let text = "this line should visibly fade instead of only clipping";
 
@@ -1692,16 +1485,15 @@ mod tests {
         drop(renderer);
 
         assert!(
-            scene.encoding().n_clips > 0,
+            painter.clip_layers > 0,
             "fade overflow should add internal clip layers"
         );
     }
 
     #[test]
     fn simple_text_rendering_culls_glyphs_outside_bounds() {
-        let mut scene = Scene::new();
-        let mut cache = RetainedSceneCache::default();
-        let mut renderer = test_renderer(&mut scene, &mut cache);
+        let mut painter = RecordingPainter::default();
+        let mut renderer = test_renderer(&mut painter);
         let text = "M".repeat(20_000);
 
         renderer.render_text(
@@ -1729,63 +1521,11 @@ mod tests {
         );
         drop(renderer);
 
-        let glyphs = scene.encoding().resources.glyphs.len();
+        let glyphs = painter.glyphs;
         assert!(glyphs > 0, "visible glyphs should still be encoded");
         assert!(
             glyphs < 256,
             "renderer should not encode the full off-bounds text run; glyphs={glyphs}"
-        );
-    }
-
-    #[test]
-    fn encoded_workload_profile_counts_only_glyphs_contributing_to_the_frame() {
-        let text = "M".repeat(20_000);
-        let bounds = LayoutRect::new(0.0, 0.0, 120.0, 32.0);
-        let mut list = DisplayList::new(bounds);
-        list.push(DisplayOp::DrawText {
-            text,
-            position: LayoutPoint::new(0.0, 0.0),
-            size: 16.0,
-            color: RenderColor {
-                r: 0,
-                g: 0,
-                b: 0,
-                a: 255,
-            },
-            bounds,
-            node_id: None,
-            underline: false,
-            wrap: false,
-            caret_index: None,
-            caret_color: None,
-            caret_width: None,
-            caret_height: None,
-            caret_radius: None,
-            paragraph_style: None,
-            resolved_layout: None,
-        });
-        let retained = RenderScene::from_display_list(list);
-        let raw_profile = workload_profile_for_scene(&retained, 120, 32, 1.0);
-        assert_eq!(raw_profile.scene.glyphs, 20_000);
-
-        let mut encoded = Scene::new();
-        let mut cache = RetainedSceneCache::default();
-        let mut renderer = test_renderer(&mut encoded, &mut cache);
-        renderer.render_scene(&retained).expect("encode test scene");
-        drop(renderer);
-
-        let profile = workload_profile_for_encoded_scene(&retained, &encoded, 120, 32, 1.0);
-        assert_eq!(
-            profile.scene.glyphs as usize,
-            encoded.encoding().resources.glyphs.len()
-        );
-        assert_eq!(
-            profile.scene.glyph_runs as usize,
-            encoded.encoding().resources.glyph_runs.len()
-        );
-        assert!(
-            profile.scene.glyphs < 256,
-            "workload sizing should use the encoder's culled glyphs, not the retained document"
         );
     }
 
@@ -1806,9 +1546,8 @@ mod tests {
         style.typography.decoration.lines.underline = true;
         style.typography.decoration.style = fission_ir::op::TextDecorationStyle::Wavy;
         let styles = vec![(0..text.len(), style.clone())];
-        let mut scene = Scene::new();
-        let mut cache = RetainedSceneCache::default();
-        let mut renderer = test_renderer(&mut scene, &mut cache);
+        let mut painter = RecordingPainter::default();
+        let mut renderer = test_renderer(&mut painter);
 
         renderer.render_text(
             text,
@@ -1831,11 +1570,11 @@ mod tests {
         drop(renderer);
 
         assert!(
-            scene.encoding().resources.glyphs.len() > text.chars().count(),
+            painter.glyphs > text.chars().count(),
             "blurred shadow samples must encode additional glyph draws"
         );
         assert!(
-            scene.encoding().n_paths > 0,
+            painter.paths > 0,
             "wavy decoration must contribute path geometry"
         );
     }
@@ -1845,13 +1584,16 @@ mod tests {
         let text = "version = 4\n".repeat(10_000);
         let style = test_style();
         let styles = vec![(0..text.len(), style.clone())];
-        let mut scene = Scene::new();
-        let mut cache = RetainedSceneCache::default();
-        let mut renderer = test_renderer(&mut scene, &mut cache);
+        let mut painter = RecordingPainter::default();
+        let mut renderer = test_renderer(&mut painter);
         let viewport = Rect::new(0.0, 0.0, 400.0, 80.0);
-        renderer
-            .scene
-            .push_layer(Mix::Normal, 1.0, renderer.current_transform, &viewport);
+        let transform = renderer.current_transform;
+        renderer.painter.push_layer(
+            transform,
+            Some(&viewport.to_path(0.1)),
+            BlendMode::default(),
+            1.0,
+        );
         renderer.push_clip_bounds(viewport);
 
         renderer.render_text(
@@ -1872,10 +1614,10 @@ mod tests {
             &[],
             &styles,
         );
-        renderer.scene.pop_layer();
+        renderer.painter.pop_layer();
         drop(renderer);
 
-        let glyphs = scene.encoding().resources.glyphs.len();
+        let glyphs = painter.glyphs;
         assert!(
             glyphs < 256,
             "renderer should not encode offscreen rich-text lines; glyphs={glyphs}"
@@ -1884,9 +1626,8 @@ mod tests {
 
     #[test]
     fn explicit_text_direction_realigns_neutral_content() {
-        let mut scene = Scene::new();
-        let mut cache = RetainedSceneCache::default();
-        let renderer = test_renderer(&mut scene, &mut cache);
+        let mut painter = RecordingPainter::default();
+        let renderer = test_renderer(&mut painter);
         let style = test_style();
         let text = "12345";
         let bounds = LayoutRect::new(0.0, 0.0, 120.0, 40.0);
@@ -1927,9 +1668,8 @@ mod tests {
 
     #[test]
     fn paragraph_strut_height_raises_line_metrics() {
-        let mut scene = Scene::new();
-        let mut cache = RetainedSceneCache::default();
-        let renderer = test_renderer(&mut scene, &mut cache);
+        let mut painter = RecordingPainter::default();
+        let renderer = test_renderer(&mut painter);
         let style = test_style();
         let text = "line";
         let styles = vec![(0..text.len(), style.clone())];
@@ -1964,9 +1704,8 @@ mod tests {
 
     #[test]
     fn text_height_behavior_can_trim_first_line_leading() {
-        let mut scene = Scene::new();
-        let mut cache = RetainedSceneCache::default();
-        let renderer = test_renderer(&mut scene, &mut cache);
+        let mut painter = RecordingPainter::default();
+        let renderer = test_renderer(&mut painter);
         let mut style = test_style();
         style.line_height = Some(30.0);
         let text = "trimmed";
@@ -1997,9 +1736,8 @@ mod tests {
 
     #[test]
     fn rich_text_annotation_hit_testing_prefers_nested_span_metadata() {
-        let mut scene = Scene::new();
-        let mut cache = RetainedSceneCache::default();
-        let renderer = test_renderer(&mut scene, &mut cache);
+        let mut painter = RecordingPainter::default();
+        let renderer = test_renderer(&mut painter);
         let style = test_style();
         let text = "Read docs now";
         let styles = vec![(0..text.len(), style.clone())];
@@ -2077,6 +1815,140 @@ mod tests {
             action.trigger == ActionTrigger::HoverEnter && action.action_id == 2
         }));
     }
+
+    fn black() -> RenderColor {
+        RenderColor {
+            r: 0,
+            g: 0,
+            b: 0,
+            a: 255,
+        }
+    }
+
+    fn solid_stroke(width: f32) -> fission_render::Stroke {
+        fission_render::Stroke {
+            fill: RenderFill::Solid(black()),
+            width,
+            dash_array: None,
+            line_cap: fission_render::LineCap::Butt,
+            line_join: fission_render::LineJoin::Miter,
+        }
+    }
+
+    fn render_ops(ops: Vec<DisplayOp>) -> RecordingPainter {
+        let bounds = LayoutRect::new(0.0, 0.0, 200.0, 200.0);
+        let mut list = DisplayList::new(bounds);
+        for op in ops {
+            list.push(op);
+        }
+        let mut painter = RecordingPainter::default();
+        test_renderer(&mut painter)
+            .render_scene(&RenderScene::from_display_list(list))
+            .expect("render test scene");
+        painter
+    }
+
+    fn draw_rect(
+        stroke: Option<fission_render::Stroke>,
+        border_sides: Option<fission_render::BorderSides>,
+        shadow: Option<fission_render::BoxShadow>,
+    ) -> DisplayOp {
+        let rect = LayoutRect::new(10.0, 10.0, 100.0, 60.0);
+        DisplayOp::DrawRect {
+            rect,
+            fill: Some(RenderFill::Solid(black())),
+            stroke,
+            corner_radius: 8.0,
+            shadow,
+            bounds: rect,
+            node_id: None,
+            corner_radii: None,
+            border_sides,
+        }
+    }
+
+    #[test]
+    fn backdrop_filters_reach_the_painter_clipped_to_the_rounded_box() {
+        let rect = LayoutRect::new(20.0, 30.0, 80.0, 40.0);
+        let painter = render_ops(vec![DisplayOp::BackdropFilter {
+            rect,
+            filter: fission_ir::op::BackdropFilter::Chain(vec![
+                fission_ir::op::BackdropFilter::Blur(12.0),
+                fission_ir::op::BackdropFilter::Saturate(1.8),
+            ]),
+            corner_radius: 10.0,
+            bounds: rect,
+            node_id: None,
+            corner_radii: None,
+        }]);
+        assert_eq!(painter.backdrop_filters.len(), 1);
+        let clip = painter.backdrop_filters[0];
+        assert!((clip.x0 - 20.0).abs() < 0.01 && (clip.x1 - 100.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn a_no_op_backdrop_filter_does_not_cost_a_layer() {
+        let rect = LayoutRect::new(20.0, 30.0, 80.0, 40.0);
+        let painter = render_ops(vec![DisplayOp::BackdropFilter {
+            rect,
+            filter: fission_ir::op::BackdropFilter::Blur(0.0),
+            corner_radius: 0.0,
+            bounds: rect,
+            node_id: None,
+            corner_radii: None,
+        }]);
+        assert!(painter.backdrop_filters.is_empty());
+    }
+
+    #[test]
+    fn a_uniform_border_fills_a_single_ring_without_wedges() {
+        let painter = render_ops(vec![draw_rect(Some(solid_stroke(2.0)), None, None)]);
+        // Background plus one ring; no per-edge clip layers.
+        assert_eq!(painter.paths, 2);
+        assert_eq!(painter.clip_layers, 0);
+    }
+
+    #[test]
+    fn differing_edges_are_painted_through_corner_wedges() {
+        let sides = fission_render::BorderSides {
+            top: Some(solid_stroke(1.0)),
+            right: None,
+            bottom: Some(solid_stroke(4.0)),
+            left: None,
+        };
+        let painter = render_ops(vec![draw_rect(None, Some(sides), None)]);
+        assert_eq!(
+            painter.clip_layers, 2,
+            "each stroked edge is clipped to its own wedge"
+        );
+        assert_eq!(painter.paths, 3, "background plus one ring fill per edge");
+    }
+
+    #[test]
+    fn inset_shadows_paint_an_inverted_blur_inside_the_box() {
+        let shadow = fission_render::BoxShadow {
+            color: black(),
+            blur_radius: 6.0,
+            spread_radius: 2.0,
+            offset: (0.0, 0.0),
+            inset: true,
+        };
+        let painter = render_ops(vec![draw_rect(None, None, Some(shadow))]);
+        assert_eq!(painter.blurred_rects.len(), 1);
+        let (rect, invert) = painter.blurred_rects[0];
+        assert!(
+            invert,
+            "an inset shadow is the inverse of a blurred rectangle"
+        );
+        assert!(rect.x0 > 10.0 && rect.x1 < 110.0, "shrunk by the spread");
+        assert_eq!(painter.clip_layers, 1, "and confined to the box");
+    }
+
+    #[test]
+    fn additive_blend_maps_to_a_real_compose_mode() {
+        let blend = super::painter::blend_mode(fission_ir::BlendMode::Plus);
+        assert_eq!(blend.compose, Compose::Plus);
+    }
 }
 
 fn svg_cache_entry(content: &str) -> Arc<SvgCacheEntry> {
@@ -2091,10 +1963,13 @@ fn svg_cache_entry(content: &str) -> Arc<SvgCacheEntry> {
     parsed
 }
 
+/// Encodes a Fission render scene through a [`Painter`].
+///
+/// The same encoder drives the GPU and the CPU renderers, so both draw text, borders, images,
+/// gradients and filters from one implementation.
 pub struct VelloRenderer<'a> {
-    scene: &'a mut Scene,
+    painter: &'a mut dyn Painter,
     measurer: Arc<VelloTextMeasurer>,
-    scene_cache: &'a mut RetainedSceneCache,
     transform_stack: Vec<Affine>,
     current_transform: Affine,
     layer_count_stack: Vec<usize>,
@@ -2102,82 +1977,15 @@ pub struct VelloRenderer<'a> {
     clip_stack: Vec<Rect>,
 }
 
-pub struct RetainedSceneCache {
-    entries: HashMap<u64, Scene>,
-    order: VecDeque<u64>,
-    max_entries: usize,
-}
-
-impl Default for RetainedSceneCache {
-    fn default() -> Self {
-        Self::new(256)
-    }
-}
-
-impl RetainedSceneCache {
-    pub fn new(max_entries: usize) -> Self {
-        Self {
-            entries: HashMap::new(),
-            order: VecDeque::new(),
-            max_entries: max_entries.max(1),
-        }
-    }
-
-    pub fn clear(&mut self) {
-        self.entries.clear();
-        self.order.clear();
-    }
-
-    pub fn contains(&self, key: u64) -> bool {
-        self.entries.contains_key(&key)
-    }
-
-    pub fn get(&self, key: u64) -> Option<&Scene> {
-        self.entries.get(&key)
-    }
-
-    pub fn insert(&mut self, key: u64, scene: Scene) {
-        if self.entries.contains_key(&key) {
-            self.entries.insert(key, scene);
-            return;
-        }
-        while self.entries.len() >= self.max_entries {
-            if let Some(oldest) = self.order.pop_front() {
-                self.entries.remove(&oldest);
-            } else {
-                break;
-            }
-        }
-        self.order.push_back(key);
-        self.entries.insert(key, scene);
-    }
-
-    pub fn get_or_insert_with<F>(&mut self, key: u64, build: F) -> anyhow::Result<&Scene>
-    where
-        F: FnOnce(&mut RetainedSceneCache) -> anyhow::Result<Scene>,
-    {
-        if !self.entries.contains_key(&key) {
-            let scene = build(self)?;
-            self.insert(key, scene);
-        }
-        Ok(self
-            .entries
-            .get(&key)
-            .expect("scene cache entry missing after insertion"))
-    }
-}
-
 impl<'a> VelloRenderer<'a> {
     pub fn new(
-        scene: &'a mut Scene,
+        painter: &'a mut dyn Painter,
         measurer: Arc<VelloTextMeasurer>,
-        scene_cache: &'a mut RetainedSceneCache,
         scale_factor: f64,
     ) -> Self {
         Self {
-            scene,
+            painter,
             measurer,
-            scene_cache,
             transform_stack: Vec::new(),
             current_transform: Affine::scale(scale_factor),
             layer_count_stack: Vec::new(),
@@ -2295,7 +2103,7 @@ impl<'a> VelloRenderer<'a> {
         })
     }
 
-    fn get_image(&self, request: &ImageRequest) -> Option<Arc<ImageData>> {
+    fn get_image(&self, request: &ImageRequest) -> Option<Arc<Pixmap>> {
         let key = request.stable_cache_key();
         if let Some(entry) = IMAGE_CACHE.get(&key) {
             return match entry {
@@ -2332,10 +2140,14 @@ impl<'a> VelloRenderer<'a> {
             return;
         }
 
-        self.scene
-            .push_layer(Mix::Normal, 1.0, self.current_transform, &rect);
+        self.painter.push_layer(
+            self.current_transform,
+            Some(&rect.to_path(0.1)),
+            BlendMode::default(),
+            1.0,
+        );
         draw(self);
-        self.scene.pop_layer();
+        self.painter.pop_layer();
     }
 
     fn with_alpha_clip_rect<F>(&mut self, rect: Rect, alpha: f32, draw: F)
@@ -2346,10 +2158,14 @@ impl<'a> VelloRenderer<'a> {
             return;
         }
 
-        self.scene
-            .push_layer(Mix::Normal, alpha, self.current_transform, &rect);
+        self.painter.push_layer(
+            self.current_transform,
+            Some(&rect.to_path(0.1)),
+            BlendMode::default(),
+            alpha,
+        );
         draw(self);
-        self.scene.pop_layer();
+        self.painter.pop_layer();
     }
 
     fn paragraph_base_style(
@@ -2456,8 +2272,15 @@ impl<'a> VelloRenderer<'a> {
         .clone();
 
         if let Some(alignment_width) = paragraph_alignment_width(&layout, bounds, paragraph) {
+            // parley aligns lines against the width they were broken at. Break again at the
+            // alignment width when no line is wider than it: the lines come out the same, and
+            // alignment then happens against the parent or longest-line width the paragraph asked
+            // for rather than whatever width layout happened to use. A small allowance keeps a
+            // line exactly as wide as the longest line from wrapping on rounding.
+            if layout.width() <= alignment_width + TEXT_ALIGNMENT_BREAK_EPSILON {
+                layout.break_all_lines(Some(alignment_width + TEXT_ALIGNMENT_BREAK_EPSILON));
+            }
             layout.align(
-                Some(alignment_width),
                 paragraph_alignment(paragraph.text_align),
                 paragraph_alignment_options(paragraph.text_align),
             );
@@ -2520,20 +2343,20 @@ impl<'a> VelloRenderer<'a> {
     ) {
         for primitive in text_effects::decoration_primitives(style, x0, x1, y, thickness) {
             match primitive {
-                text_effects::DecorationPrimitive::Rect { x0, y0, x1, y1 } => self.scene.fill(
-                    Fill::NonZero,
-                    self.current_transform,
-                    color,
-                    None,
-                    &Rect::new(x0, y0, x1, y1),
-                ),
-                text_effects::DecorationPrimitive::Circle { x, y, radius } => self.scene.fill(
-                    Fill::NonZero,
-                    self.current_transform,
-                    color,
-                    None,
-                    &Circle::new((x, y), radius),
-                ),
+                text_effects::DecorationPrimitive::Rect { x0, y0, x1, y1 } => {
+                    self.painter.fill_rect(
+                        self.current_transform,
+                        PaintType::from(color),
+                        &Rect::new(x0, y0, x1, y1),
+                    )
+                }
+                text_effects::DecorationPrimitive::Circle { x, y, radius } => {
+                    self.painter.fill_path(
+                        self.current_transform,
+                        PaintType::from(color),
+                        &Circle::new((x, y), radius).to_path(0.1),
+                    )
+                }
                 text_effects::DecorationPrimitive::Wave { points, width } => {
                     let mut path = BezPath::new();
                     if let Some((first, rest)) = points.split_first() {
@@ -2541,11 +2364,10 @@ impl<'a> VelloRenderer<'a> {
                         for point in rest {
                             path.line_to(*point);
                         }
-                        self.scene.stroke(
-                            &vello::kurbo::Stroke::new(width),
+                        self.painter.stroke_path(
                             self.current_transform,
-                            color,
-                            None,
+                            &Stroke::new(width),
+                            PaintType::from(color),
                             &path,
                         );
                     }
@@ -2645,33 +2467,32 @@ impl<'a> VelloRenderer<'a> {
                 if let Some(rich_style) = rich_style {
                     for shadow in &rich_style.typography.shadows {
                         for (dx, dy, color) in text_effects::shadow_samples(*shadow) {
-                            self.scene
-                                .draw_glyphs(font)
-                                .font_size(font_size)
-                                .transform(
-                                    self.current_transform
-                                        * Affine::translate((
-                                            position.x as f64 + dx,
-                                            position.y as f64 + dy,
-                                        )),
-                                )
-                                .brush(Color::from_rgba8(color.r, color.g, color.b, color.a))
-                                .draw(Fill::NonZero, glyphs.iter().cloned());
+                            self.painter.fill_glyphs(
+                                self.current_transform
+                                    * Affine::translate((
+                                        position.x as f64 + dx,
+                                        position.y as f64 + dy,
+                                    )),
+                                PaintType::from(Color::from_rgba8(
+                                    color.r, color.g, color.b, color.a,
+                                )),
+                                font,
+                                font_size,
+                                &glyphs,
+                            );
                         }
                     }
                 }
 
-                let fallback_brush = Brush::Solid(color);
-                let brush = foreground.as_ref().unwrap_or(&fallback_brush);
-                self.scene
-                    .draw_glyphs(font)
-                    .font_size(font_size)
-                    .transform(
-                        self.current_transform
-                            * Affine::translate((position.x as f64, position.y as f64)),
-                    )
-                    .brush(brush)
-                    .draw(Fill::NonZero, glyphs.into_iter());
+                let paint = foreground.unwrap_or_else(|| PaintType::from(color));
+                self.painter.fill_glyphs(
+                    self.current_transform
+                        * Affine::translate((position.x as f64, position.y as f64)),
+                    paint,
+                    font,
+                    font_size,
+                    &glyphs,
+                );
 
                 if let Some(decoration) = &style.underline {
                     let offset = decoration.offset.unwrap_or(metrics.underline_offset);
@@ -2816,15 +2637,10 @@ impl<'a> VelloRenderer<'a> {
                         .map(|fill| map_text_fill_to_brush(fill, bg_rect))
                         .unwrap_or_else(|| {
                             let bg = style.background_color.expect("background checked above");
-                            Brush::Solid(Color::from_rgba8(bg.r, bg.g, bg.b, bg.a))
+                            PaintType::from(Color::from_rgba8(bg.r, bg.g, bg.b, bg.a))
                         });
-                    self.scene.fill(
-                        Fill::NonZero,
-                        self.current_transform,
-                        &brush,
-                        None,
-                        &bg_rect,
-                    );
+                    self.painter
+                        .fill_rect(self.current_transform, brush, &bg_rect);
                 }
             }
         }
@@ -3265,15 +3081,14 @@ impl<'a> VelloRenderer<'a> {
                             continue;
                         }
 
-                        self.scene
-                            .draw_glyphs(font)
-                            .font_size(font_size)
-                            .transform(
-                                self.current_transform
-                                    * Affine::translate((position.x as f64, position.y as f64)),
-                            )
-                            .brush(color)
-                            .draw(Fill::NonZero, glyphs.into_iter());
+                        self.painter.fill_glyphs(
+                            self.current_transform
+                                * Affine::translate((position.x as f64, position.y as f64)),
+                            PaintType::from(color),
+                            font,
+                            font_size,
+                            &glyphs,
+                        );
 
                         if underline {
                             let metrics = run.metrics();
@@ -3292,11 +3107,9 @@ impl<'a> VelloRenderer<'a> {
                             let x1 = position.x as f64 + x1 as f64;
                             let y0 = position.y as f64 + (glyph_run.baseline() + offset) as f64;
                             let rect = Rect::new(x0, y0, x1, y0 + size as f64);
-                            self.scene.fill(
-                                Fill::NonZero,
+                            self.painter.fill_rect(
                                 self.current_transform,
-                                color,
-                                None,
+                                PaintType::from(color),
                                 &rect,
                             );
                         }
@@ -3431,12 +3244,10 @@ impl<'a> VelloRenderer<'a> {
             ),
             radius.unwrap_or(0.0).max(0.0) as f64,
         );
-        self.scene.fill(
-            Fill::NonZero,
+        self.painter.fill_path(
             self.current_transform,
-            Color::from_rgba8(color.r, color.g, color.b, color.a),
-            None,
-            &shape,
+            PaintType::from(Color::from_rgba8(color.r, color.g, color.b, color.a)),
+            &shape.to_path(0.1),
         );
         true
     }
@@ -3537,12 +3348,15 @@ impl<'a> VelloRenderer<'a> {
                     caret_radius.unwrap_or(0.0).max(0.0) as f64,
                 );
 
-                self.scene.fill(
-                    Fill::NonZero,
+                self.painter.fill_path(
                     self.current_transform,
-                    Color::from_rgba8(caret_color.r, caret_color.g, caret_color.b, caret_color.a),
-                    None,
-                    &caret_shape,
+                    PaintType::from(Color::from_rgba8(
+                        caret_color.r,
+                        caret_color.g,
+                        caret_color.b,
+                        caret_color.a,
+                    )),
+                    &caret_shape.to_path(0.1),
                 );
                 caret_drawn = true;
                 break;
@@ -3577,12 +3391,15 @@ impl<'a> VelloRenderer<'a> {
                 ),
                 caret_radius.unwrap_or(0.0).max(0.0) as f64,
             );
-            self.scene.fill(
-                Fill::NonZero,
+            self.painter.fill_path(
                 self.current_transform,
-                Color::from_rgba8(caret_color.r, caret_color.g, caret_color.b, caret_color.a),
-                None,
-                &caret_shape,
+                PaintType::from(Color::from_rgba8(
+                    caret_color.r,
+                    caret_color.g,
+                    caret_color.b,
+                    caret_color.a,
+                )),
+                &caret_shape.to_path(0.1),
             );
         }
     }
@@ -3597,7 +3414,7 @@ impl<'a> VelloRenderer<'a> {
                 }
                 DisplayOp::Restore => {
                     for _ in 0..self.current_layer_count {
-                        self.scene.pop_layer();
+                        self.painter.pop_layer();
                         self.pop_clip_bounds();
                     }
                     if let Some(t) = self.transform_stack.pop() {
@@ -3615,60 +3432,39 @@ impl<'a> VelloRenderer<'a> {
                     let affine = Self::affine_from_mat4(matrix);
                     self.current_transform = self.current_transform * affine;
                 }
-                DisplayOp::CachedScene {
-                    cache_key, list, ..
-                } => {
-                    if !self.scene_cache.contains(*cache_key) {
-                        let mut cached_scene = Scene::new();
-                        {
-                            let mut cached_renderer = VelloRenderer::new(
-                                &mut cached_scene,
-                                Arc::clone(&self.measurer),
-                                self.scene_cache,
-                                1.0,
-                            );
-                            cached_renderer.render_paint_list(list)?;
-                        }
-                        self.scene_cache.insert(*cache_key, cached_scene);
-                    }
-                    if let Some(cached_scene) = self.scene_cache.get(*cache_key) {
-                        self.scene
-                            .append(cached_scene, Some(self.current_transform));
-                    }
-                }
+                // Classic Vello could append a previously encoded scene. Sparse strips bake the
+                // transform into strips as they are recorded, so a cached list is drawn like any
+                // other; the compositor's layer textures are what avoid redrawing unchanged content.
+                DisplayOp::CachedScene { list, .. } => self.render_paint_list(list)?,
                 DisplayOp::ClipRect(rect) => {
                     let r = Self::layout_rect_to_rect(*rect);
-                    self.scene
-                        .push_layer(Mix::Normal, 1.0, self.current_transform, &r);
-                    self.push_clip_bounds(r);
-                    self.current_layer_count += 1;
+                    self.push_layer_for(r.to_path(0.1), r, BlendMode::default(), 1.0);
                 }
                 DisplayOp::ClipRoundedRect { rect, radius } => {
                     let r = Self::layout_rect_to_rect(*rect);
                     let shape = RoundedRect::from_rect(r, *radius as f64);
-                    self.scene
-                        .push_layer(Mix::Normal, 1.0, self.current_transform, &shape);
-                    self.push_clip_bounds(r);
-                    self.current_layer_count += 1;
+                    self.push_layer_for(shape.to_path(0.1), r, BlendMode::default(), 1.0);
                 }
                 DisplayOp::OpacityLayer { alpha, bounds } => {
                     let r = Self::layout_rect_to_rect(*bounds);
-                    self.scene
-                        .push_layer(Mix::Normal, *alpha, self.current_transform, &r);
-                    self.push_clip_bounds(r);
-                    self.current_layer_count += 1;
+                    self.push_layer_for(r.to_path(0.1), r, BlendMode::default(), *alpha);
                 }
                 DisplayOp::BackdropFilter {
                     rect,
                     filter,
                     corner_radius,
+                    corner_radii,
                     ..
                 } => {
-                    // Vello does not yet expose a framebuffer backdrop filter.
-                    // Preserve the clipped filter primitive in the display list;
-                    // GPU hosts can promote it to a compositor pass, while the
-                    // software and site renderers execute the blur directly.
-                    let _ = (rect, filter, corner_radius);
+                    if let Some(filter) = painter::backdrop_filter(filter) {
+                        let r = Self::layout_rect_to_rect(*rect);
+                        let radii = corner_radii.map(kurbo_radii).unwrap_or_else(|| {
+                            RoundedRectRadii::from_single_radius(*corner_radius as f64)
+                        });
+                        let clip = RoundedRect::from_rect(r, radii).to_path(0.1);
+                        self.painter
+                            .apply_backdrop_filter(self.current_transform, &clip, filter);
+                    }
                 }
                 DisplayOp::DrawRect {
                     rect,
@@ -3676,92 +3472,19 @@ impl<'a> VelloRenderer<'a> {
                     stroke,
                     corner_radius,
                     shadow,
+                    corner_radii,
+                    border_sides,
                     ..
                 } => {
-                    let rect = Rect::new(
-                        rect.origin.x as f64,
-                        rect.origin.y as f64,
-                        (rect.origin.x + rect.size.width) as f64,
-                        (rect.origin.y + rect.size.height) as f64,
+                    self.draw_rect(
+                        Self::layout_rect_to_rect(*rect),
+                        fill.as_ref(),
+                        stroke.as_ref(),
+                        *corner_radius,
+                        shadow.as_ref(),
+                        *corner_radii,
+                        border_sides.as_ref(),
                     );
-
-                    let shape = RoundedRect::from_rect(rect, *corner_radius as f64);
-
-                    if let Some(shadow) = shadow.filter(|shadow| !shadow.inset) {
-                        let shadow_origin_x = rect.x0 + shadow.offset.0 as f64;
-                        let shadow_origin_y = rect.y0 + shadow.offset.1 as f64;
-                        let shadow_rect = Rect::new(
-                            shadow_origin_x,
-                            shadow_origin_y,
-                            shadow_origin_x + rect.width(),
-                            shadow_origin_y + rect.height(),
-                        )
-                        .inflate(shadow.spread_radius as f64, shadow.spread_radius as f64);
-                        let shadow_color = Color::from_rgba8(
-                            shadow.color.r,
-                            shadow.color.g,
-                            shadow.color.b,
-                            shadow.color.a,
-                        );
-
-                        self.scene.draw_blurred_rounded_rect(
-                            self.current_transform,
-                            shadow_rect,
-                            shadow_color,
-                            (*corner_radius + shadow.spread_radius).max(0.0) as f64,
-                            (shadow.blur_radius.max(0.0) * 0.5) as f64,
-                        );
-                    }
-
-                    if let Some(f) = fill {
-                        let brush = map_fill_to_brush(f, rect);
-                        self.scene.fill(
-                            Fill::NonZero,
-                            self.current_transform,
-                            &brush,
-                            None,
-                            &shape,
-                        );
-                    }
-                    if let Some(s) = stroke {
-                        let (stroke_style, brush) = map_stroke(s, rect);
-                        self.scene.stroke(
-                            &stroke_style,
-                            self.current_transform,
-                            &brush,
-                            None,
-                            &shape,
-                        );
-                    }
-
-                    if let Some(shadow) = shadow.filter(|shadow| shadow.inset) {
-                        let std_dev = (shadow.blur_radius.max(0.0) * 0.5) as f64;
-                        let band = (shadow.spread_radius.max(0.0) as f64 + 2.5 * std_dev).max(1.0);
-                        let inner = rect.inset(-band)
-                            + Vec2::new(shadow.offset.0 as f64, shadow.offset.1 as f64);
-                        let clip_shape = RoundedRect::from_rect(rect, *corner_radius as f64);
-                        let inner_shape =
-                            RoundedRect::from_rect(inner, (*corner_radius as f64 - band).max(0.0));
-                        let ring = BezPath::from_iter(
-                            clip_shape
-                                .path_elements(0.1)
-                                .chain(inner_shape.to_path(0.1).reverse_subpaths()),
-                        );
-                        let shadow_color = Color::from_rgba8(
-                            shadow.color.r,
-                            shadow.color.g,
-                            shadow.color.b,
-                            shadow.color.a,
-                        );
-                        self.scene.draw_blurred_rounded_rect_in(
-                            &ring,
-                            self.current_transform,
-                            rect,
-                            shadow_color,
-                            *corner_radius as f64,
-                            std_dev,
-                        );
-                    }
                 }
                 DisplayOp::DrawText {
                     text,
@@ -3879,71 +3602,73 @@ impl<'a> VelloRenderer<'a> {
                         continue;
                     }
                     let request = self.image_request_for_rect(request, *rect);
-                    if let Some(image_data) = self.get_image(&request) {
-                        let rect_w = rect.size.width as f64;
-                        let rect_h = rect.size.height as f64;
-                        let img_w = image_data.width as f64;
-                        let img_h = image_data.height as f64;
+                    let Some(image) = self.get_image(&request) else {
+                        continue;
+                    };
+                    let rect_w = rect.size.width as f64;
+                    let rect_h = rect.size.height as f64;
+                    let img_w = f64::from(image.width());
+                    let img_h = f64::from(image.height());
+                    if rect_w <= 0.0 || rect_h <= 0.0 || img_w <= 0.0 || img_h <= 0.0 {
+                        continue;
+                    }
 
-                        if rect_w <= 0.0 || rect_h <= 0.0 || img_w <= 0.0 || img_h <= 0.0 {
-                            continue;
-                        }
-
-                        let (scale_x, scale_y, dx, dy) = match fit {
-                            fission_render::ImageFit::Fill => (
-                                rect_w / img_w,
-                                rect_h / img_h,
-                                rect.origin.x as f64,
-                                rect.origin.y as f64,
-                            ),
-                            fission_render::ImageFit::Contain => {
-                                let scale = (rect_w / img_w).min(rect_h / img_h);
-                                let w = img_w * scale;
-                                let h = img_h * scale;
-                                let (offset_x, offset_y) =
-                                    aligned_offset(rect_w - w, rect_h - h, *alignment);
-                                (
-                                    scale,
-                                    scale,
-                                    rect.origin.x as f64 + offset_x,
-                                    rect.origin.y as f64 + offset_y,
-                                )
-                            }
-                            fission_render::ImageFit::Cover => {
-                                let scale = (rect_w / img_w).max(rect_h / img_h);
-                                let w = img_w * scale;
-                                let h = img_h * scale;
-                                let (offset_x, offset_y) =
-                                    aligned_offset(rect_w - w, rect_h - h, *alignment);
-                                (
-                                    scale,
-                                    scale,
-                                    rect.origin.x as f64 + offset_x,
-                                    rect.origin.y as f64 + offset_y,
-                                )
-                            }
-                            fission_render::ImageFit::None => {
-                                (1.0, 1.0, rect.origin.x as f64, rect.origin.y as f64)
-                            }
-                        };
-
-                        let transform = self.current_transform
-                            * Affine::translate((dx, dy))
-                            * Affine::scale_non_uniform(scale_x, scale_y);
-                        let brush = ImageBrush {
-                            image: &*image_data,
-                            sampler: ImageSampler::default(),
-                        };
-                        let clip_rect = Rect::new(
+                    let (scale_x, scale_y, dx, dy) = match fit {
+                        fission_render::ImageFit::Fill => (
+                            rect_w / img_w,
+                            rect_h / img_h,
                             rect.origin.x as f64,
                             rect.origin.y as f64,
-                            (rect.origin.x + rect.size.width) as f64,
-                            (rect.origin.y + rect.size.height) as f64,
+                        ),
+                        fission_render::ImageFit::Contain => {
+                            let scale = (rect_w / img_w).min(rect_h / img_h);
+                            let (offset_x, offset_y) = aligned_offset(
+                                rect_w - img_w * scale,
+                                rect_h - img_h * scale,
+                                *alignment,
+                            );
+                            (
+                                scale,
+                                scale,
+                                rect.origin.x as f64 + offset_x,
+                                rect.origin.y as f64 + offset_y,
+                            )
+                        }
+                        fission_render::ImageFit::Cover => {
+                            let scale = (rect_w / img_w).max(rect_h / img_h);
+                            let (offset_x, offset_y) = aligned_offset(
+                                rect_w - img_w * scale,
+                                rect_h - img_h * scale,
+                                *alignment,
+                            );
+                            (
+                                scale,
+                                scale,
+                                rect.origin.x as f64 + offset_x,
+                                rect.origin.y as f64 + offset_y,
+                            )
+                        }
+                        fission_render::ImageFit::None => {
+                            (1.0, 1.0, rect.origin.x as f64, rect.origin.y as f64)
+                        }
+                    };
+
+                    let transform = self.current_transform
+                        * Affine::translate((dx, dy))
+                        * Affine::scale_non_uniform(scale_x, scale_y);
+                    let source = self.painter.image_source(&image);
+                    let paint = PaintType::from(Image {
+                        image: source,
+                        sampler: ImageSampler::default(),
+                    });
+                    let clip_rect = Self::layout_rect_to_rect(*rect);
+                    self.with_clip_rect(clip_rect, |this| {
+                        this.painter.fill_rect(
+                            transform,
+                            paint,
+                            &Rect::new(0.0, 0.0, img_w, img_h),
                         );
-                        self.with_clip_rect(clip_rect, |this| {
-                            this.scene.draw_image(brush, transform);
-                        });
-                    }
+                    });
                 }
                 DisplayOp::DrawPath {
                     path,
@@ -3961,16 +3686,17 @@ impl<'a> VelloRenderer<'a> {
                             bounds.size.width as f64,
                             bounds.size.height as f64,
                         );
-
                         if let Some(f) = fill {
-                            let brush = map_fill_to_brush(f, paint_bounds);
-                            self.scene
-                                .fill(Fill::NonZero, transform, &brush, None, &bez_path);
+                            self.painter.fill_path(
+                                transform,
+                                map_fill_to_brush(f, paint_bounds),
+                                &bez_path,
+                            );
                         }
                         if let Some(s) = stroke {
-                            let (stroke_style, brush) = map_stroke(s, paint_bounds);
-                            self.scene
-                                .stroke(&stroke_style, transform, &brush, None, &bez_path);
+                            let (stroke_style, paint) = map_stroke(s, paint_bounds);
+                            self.painter
+                                .stroke_path(transform, &stroke_style, paint, &bez_path);
                         }
                     }
                 }
@@ -3993,12 +3719,12 @@ impl<'a> VelloRenderer<'a> {
                     let (scale, dx, dy) =
                         if vb_w > 0.0 && vb_h > 0.0 && rect_w > 0.0 && rect_h > 0.0 {
                             let scale = (rect_w / vb_w).min(rect_h / vb_h);
-                            let scaled_w = vb_w * scale;
-                            let scaled_h = vb_h * scale;
                             (
                                 scale,
-                                bounds.origin.x as f64 + (rect_w - scaled_w) / 2.0 - vb_x * scale,
-                                bounds.origin.y as f64 + (rect_h - scaled_h) / 2.0 - vb_y * scale,
+                                bounds.origin.x as f64 + (rect_w - vb_w * scale) / 2.0
+                                    - vb_x * scale,
+                                bounds.origin.y as f64 + (rect_h - vb_h * scale) / 2.0
+                                    - vb_y * scale,
                             )
                         } else {
                             (1.0, bounds.origin.x as f64, bounds.origin.y as f64)
@@ -4008,51 +3734,21 @@ impl<'a> VelloRenderer<'a> {
                     let paint_bounds = Rect::new(vb_x, vb_y, vb_x + vb_w, vb_y + vb_h);
 
                     for shape in &entry.shapes {
-                        match shape {
-                            SvgShape::Path(path) => {
-                                if let Some(f) = fill {
-                                    let brush = map_fill_to_brush(f, paint_bounds);
-                                    self.scene.fill(
-                                        Fill::NonZero,
-                                        svg_transform,
-                                        &brush,
-                                        None,
-                                        path,
-                                    );
-                                }
-                                if let Some(s) = stroke {
-                                    let (stroke_style, brush) = map_stroke(s, paint_bounds);
-                                    self.scene.stroke(
-                                        &stroke_style,
-                                        svg_transform,
-                                        &brush,
-                                        None,
-                                        path,
-                                    );
-                                }
-                            }
-                            SvgShape::Rect(rect) => {
-                                if let Some(f) = fill {
-                                    let brush = map_fill_to_brush(f, paint_bounds);
-                                    self.scene.fill(
-                                        Fill::NonZero,
-                                        svg_transform,
-                                        &brush,
-                                        None,
-                                        rect,
-                                    );
-                                }
-                                if let Some(s) = stroke {
-                                    let (stroke_style, brush) = map_stroke(s, paint_bounds);
-                                    self.scene.stroke(
-                                        &stroke_style,
-                                        svg_transform,
-                                        &brush,
-                                        None,
-                                        rect,
-                                    );
-                                }
-                            }
+                        let path = match shape {
+                            SvgShape::Path(path) => path.clone(),
+                            SvgShape::Rect(rect) => rect.to_path(0.1),
+                        };
+                        if let Some(f) = fill {
+                            self.painter.fill_path(
+                                svg_transform,
+                                map_fill_to_brush(f, paint_bounds),
+                                &path,
+                            );
+                        }
+                        if let Some(s) = stroke {
+                            let (stroke_style, paint) = map_stroke(s, paint_bounds);
+                            self.painter
+                                .stroke_path(svg_transform, &stroke_style, paint, &path);
                         }
                     }
                 }
@@ -4063,23 +3759,225 @@ impl<'a> VelloRenderer<'a> {
                     ..
                 } => {
                     let color = surface_placeholder_color(*surface_id, *position);
-                    let shape = Rect::new(
-                        rect.origin.x as f64,
-                        rect.origin.y as f64,
-                        (rect.origin.x + rect.size.width) as f64,
-                        (rect.origin.y + rect.size.height) as f64,
-                    );
-                    self.scene.fill(
-                        Fill::NonZero,
+                    self.painter.fill_rect(
                         self.current_transform,
-                        Color::from_rgba8(color.r, color.g, color.b, color.a),
-                        None,
-                        &shape,
+                        PaintType::from(Color::from_rgba8(color.r, color.g, color.b, color.a)),
+                        &Self::layout_rect_to_rect(*rect),
                     );
                 }
             }
         }
         Ok(())
+    }
+
+    fn push_layer_for(&mut self, clip: BezPath, bounds: Rect, blend: BlendMode, opacity: f32) {
+        self.painter
+            .push_layer(self.current_transform, Some(&clip), blend, opacity);
+        self.push_clip_bounds(bounds);
+        self.current_layer_count += 1;
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn draw_rect(
+        &mut self,
+        rect: Rect,
+        fill: Option<&fission_render::Fill>,
+        stroke: Option<&fission_render::Stroke>,
+        corner_radius: f32,
+        shadow: Option<&fission_render::BoxShadow>,
+        corner_radii: Option<fission_ir::CornerRadii>,
+        border_sides: Option<&fission_render::BorderSides>,
+    ) {
+        let radii = corner_radii
+            .map(kurbo_radii)
+            .unwrap_or_else(|| RoundedRectRadii::from_single_radius(corner_radius as f64));
+        let shape = RoundedRect::from_rect(rect, radii);
+        // A blurred rectangle takes one radius, so shadows use the largest corner.
+        let shadow_radius = radii
+            .top_left
+            .max(radii.top_right)
+            .max(radii.bottom_right)
+            .max(radii.bottom_left) as f32;
+
+        if let Some(shadow) = shadow.filter(|shadow| !shadow.inset) {
+            let shadow_rect = (rect + Vec2::new(shadow.offset.0 as f64, shadow.offset.1 as f64))
+                .inflate(shadow.spread_radius as f64, shadow.spread_radius as f64);
+            self.painter.fill_blurred_rounded_rect(
+                self.current_transform,
+                map_color(&shadow.color),
+                &shadow_rect,
+                (shadow_radius + shadow.spread_radius).max(0.0),
+                shadow.blur_radius.max(0.0) * 0.5,
+                false,
+            );
+        }
+
+        if let Some(fill) = fill {
+            self.painter.fill_path(
+                self.current_transform,
+                map_fill_to_brush(fill, rect),
+                &shape.to_path(0.1),
+            );
+        }
+
+        // Painted over the background and under the border, as CSS orders them. An inset shadow
+        // is the inverse of a blurred rectangle shrunk by the spread and moved by the offset,
+        // visible only inside the box.
+        if let Some(shadow) = shadow.filter(|shadow| shadow.inset) {
+            let inner = (rect + Vec2::new(shadow.offset.0 as f64, shadow.offset.1 as f64))
+                .inset(-(shadow.spread_radius as f64));
+            self.painter.push_layer(
+                self.current_transform,
+                Some(&shape.to_path(0.1)),
+                BlendMode::default(),
+                1.0,
+            );
+            self.painter.fill_blurred_rounded_rect(
+                self.current_transform,
+                map_color(&shadow.color),
+                &inner,
+                (shadow_radius - shadow.spread_radius).max(0.0),
+                shadow.blur_radius.max(0.0) * 0.5,
+                true,
+            );
+            self.painter.pop_layer();
+        }
+
+        let sides = match border_sides.filter(|sides| !sides.is_empty()) {
+            Some(sides) => sides.clone(),
+            None => match stroke {
+                Some(stroke) => fission_render::BorderSides::uniform(stroke.clone()),
+                None => return,
+            },
+        };
+        self.draw_border(rect, radii, &sides);
+    }
+
+    /// Paint a box's borders inside its edges, as CSS does.
+    ///
+    /// Borders sit inside the box so a bordered rectangle covers the same pixels on every
+    /// backend; the site shell renders them with `box-sizing: border-box`. Each edge paints the
+    /// part of the ring between the outer and inner rounded rectangles that falls in its wedge,
+    /// split at each corner along the line from the outer to the inner corner. Differing edges
+    /// therefore meet cleanly at rounded corners instead of overlapping or protruding. A dashed
+    /// edge strokes the ring's centre line inside its wedge.
+    fn draw_border(
+        &mut self,
+        rect: Rect,
+        radii: RoundedRectRadii,
+        sides: &fission_render::BorderSides,
+    ) {
+        let width = |side: &Option<fission_render::Stroke>| {
+            side.as_ref()
+                .map_or(0.0, |stroke| f64::from(stroke.width.max(0.0)))
+        };
+        let (top, right, bottom, left) = (
+            width(&sides.top),
+            width(&sides.right),
+            width(&sides.bottom),
+            width(&sides.left),
+        );
+        let inner_x0 = (rect.x0 + left).min(rect.x1);
+        let inner_y0 = (rect.y0 + top).min(rect.y1);
+        let inner_rect = Rect::new(
+            inner_x0,
+            inner_y0,
+            (rect.x1 - right).max(inner_x0),
+            (rect.y1 - bottom).max(inner_y0),
+        );
+        let inner_radii = RoundedRectRadii::new(
+            (radii.top_left - left.max(top)).max(0.0),
+            (radii.top_right - right.max(top)).max(0.0),
+            (radii.bottom_right - right.max(bottom)).max(0.0),
+            (radii.bottom_left - left.max(bottom)).max(0.0),
+        );
+        let outer = RoundedRect::from_rect(rect, radii);
+        let inner = RoundedRect::from_rect(inner_rect, inner_radii);
+        let ring = BezPath::from_iter(
+            outer
+                .path_elements(0.1)
+                .chain(inner.to_path(0.1).reverse_subpaths()),
+        );
+
+        if let Some(stroke) = sides
+            .as_uniform()
+            .filter(|stroke| stroke.dash_array.is_none())
+        {
+            self.painter.fill_path(
+                self.current_transform,
+                map_fill_to_brush(&stroke.fill, rect),
+                &ring,
+            );
+            return;
+        }
+
+        let centre = RoundedRect::from_rect(
+            Rect::new(
+                rect.x0 + left / 2.0,
+                rect.y0 + top / 2.0,
+                rect.x1 - right / 2.0,
+                rect.y1 - bottom / 2.0,
+            ),
+            RoundedRectRadii::new(
+                (radii.top_left - left.max(top) / 2.0).max(0.0),
+                (radii.top_right - right.max(top) / 2.0).max(0.0),
+                (radii.bottom_right - right.max(bottom) / 2.0).max(0.0),
+                (radii.bottom_left - left.max(bottom) / 2.0).max(0.0),
+            ),
+        )
+        .to_path(0.1);
+        let (o, i) = (rect, inner_rect);
+        let wedges = [
+            (
+                &sides.top,
+                [(o.x0, o.y0), (o.x1, o.y0), (i.x1, i.y0), (i.x0, i.y0)],
+            ),
+            (
+                &sides.right,
+                [(o.x1, o.y0), (o.x1, o.y1), (i.x1, i.y1), (i.x1, i.y0)],
+            ),
+            (
+                &sides.bottom,
+                [(o.x1, o.y1), (o.x0, o.y1), (i.x0, i.y1), (i.x1, i.y1)],
+            ),
+            (
+                &sides.left,
+                [(o.x0, o.y1), (o.x0, o.y0), (i.x0, i.y0), (i.x0, i.y1)],
+            ),
+        ];
+        for (side, corners) in wedges {
+            let Some(stroke) = side else {
+                continue;
+            };
+            if stroke.width <= 0.0 {
+                continue;
+            }
+            let mut wedge = BezPath::new();
+            wedge.move_to(corners[0]);
+            for corner in &corners[1..] {
+                wedge.line_to(*corner);
+            }
+            wedge.close_path();
+
+            self.painter.push_layer(
+                self.current_transform,
+                Some(&wedge),
+                BlendMode::default(),
+                1.0,
+            );
+            if stroke.dash_array.is_some() {
+                let (stroke_style, paint) = map_stroke(stroke, rect);
+                self.painter
+                    .stroke_path(self.current_transform, &stroke_style, paint, &centre);
+            } else {
+                self.painter.fill_path(
+                    self.current_transform,
+                    map_fill_to_brush(&stroke.fill, rect),
+                    &ring,
+                );
+            }
+            self.painter.pop_layer();
+        }
     }
 
     fn render_node(&mut self, node: &RenderNode) -> Result<()> {
@@ -4090,127 +3988,48 @@ impl<'a> VelloRenderer<'a> {
     }
 
     fn render_layer(&mut self, layer: &RenderLayer) -> Result<()> {
-        let enable_scene_cache = std::env::var("FISSION_ENABLE_VELLO_SCENE_CACHE")
-            .ok()
-            .as_deref()
-            == Some("1");
-        let can_cache_layer = enable_scene_cache
-            && layer.style.clip.is_none()
-            && layer.style.transform.is_none()
-            && (layer.style.opacity - 1.0).abs() <= 0.001;
-
-        if can_cache_layer {
-            if let Some(cache_key) = layer.style.cache_key {
-                if !self.scene_cache.contains(cache_key) {
-                    let mut cached_scene = Scene::new();
-                    {
-                        let mut cached_renderer = VelloRenderer::new(
-                            &mut cached_scene,
-                            Arc::clone(&self.measurer),
-                            self.scene_cache,
-                            1.0,
-                        );
-                        cached_renderer.render_layer_uncached(layer)?;
-                    }
-                    self.scene_cache.insert(cache_key, cached_scene);
-                }
-                if let Some(cached_scene) = self.scene_cache.get(cache_key) {
-                    self.scene
-                        .append(cached_scene, Some(self.current_transform));
-                }
-                return Ok(());
-            }
-        }
-
-        self.render_layer_uncached(layer)
-    }
-
-    fn render_layer_uncached(&mut self, layer: &RenderLayer) -> Result<()> {
         let saved_transform = self.current_transform;
         let saved_layer_count = self.current_layer_count;
         let saved_clip_count = self.clip_stack.len();
 
         if let Some(clip) = &layer.style.clip {
-            match clip {
+            let (path, bounds) = match clip {
                 LayerClip::Rect(rect) => {
                     let r = Self::layout_rect_to_rect(*rect);
-                    self.scene
-                        .push_layer(Mix::Normal, 1.0, self.current_transform, &r);
-                    self.push_clip_bounds(r);
-                    self.current_layer_count += 1;
+                    (r.to_path(0.1), r)
                 }
                 LayerClip::RoundedRect { rect, radius } => {
                     let r = Self::layout_rect_to_rect(*rect);
-                    let shape = RoundedRect::from_rect(r, *radius as f64);
-                    self.scene
-                        .push_layer(Mix::Normal, 1.0, self.current_transform, &shape);
-                    self.push_clip_bounds(r);
-                    self.current_layer_count += 1;
+                    (RoundedRect::from_rect(r, *radius as f64).to_path(0.1), r)
                 }
-            }
+            };
+            self.push_layer_for(path, bounds, BlendMode::default(), 1.0);
         }
 
-        if (layer.style.opacity - 1.0).abs() > 0.001 {
+        if (layer.style.opacity - 1.0).abs() > 0.001 || !layer.style.blend_mode.is_normal() {
             let r = Self::layout_rect_to_rect(layer.bounds);
-            self.scene
-                .push_layer(Mix::Normal, layer.style.opacity, self.current_transform, &r);
-            self.push_clip_bounds(r);
-            self.current_layer_count += 1;
+            self.push_layer_for(
+                r.to_path(0.1),
+                r,
+                painter::blend_mode(layer.style.blend_mode),
+                layer.style.opacity,
+            );
         }
 
         if let Some(transform) = layer.style.transform {
-            let affine = Self::affine_from_mat4(&transform);
-            self.current_transform = self.current_transform * affine;
+            self.current_transform *= Self::affine_from_mat4(&transform);
         }
 
-        let enable_scene_cache = std::env::var("FISSION_ENABLE_VELLO_SCENE_CACHE")
-            .ok()
-            .as_deref()
-            == Some("1");
-        let can_cache_contents = enable_scene_cache
-            && layer.style.clip.is_none()
-            && layer.style.transform.is_none()
-            && (layer.style.opacity - 1.0).abs() <= 0.001;
-
-        if can_cache_contents {
-            if let Some(cache_key) = layer.style.content_cache_key {
-                if !self.scene_cache.contains(cache_key) {
-                    let mut cached_scene = Scene::new();
-                    {
-                        let mut cached_renderer = VelloRenderer::new(
-                            &mut cached_scene,
-                            Arc::clone(&self.measurer),
-                            self.scene_cache,
-                            1.0,
-                        );
-                        cached_renderer.render_layer_contents(layer)?;
-                    }
-                    self.scene_cache.insert(cache_key, cached_scene);
-                }
-                if let Some(cached_scene) = self.scene_cache.get(cache_key) {
-                    self.scene
-                        .append(cached_scene, Some(self.current_transform));
-                }
-            } else {
-                self.render_layer_contents(layer)?;
-            }
-        } else {
-            self.render_layer_contents(layer)?;
+        for child in &layer.children {
+            self.render_node(child)?;
         }
 
         while self.current_layer_count > saved_layer_count {
-            self.scene.pop_layer();
+            self.painter.pop_layer();
             self.current_layer_count -= 1;
         }
         self.clip_stack.truncate(saved_clip_count);
         self.current_transform = saved_transform;
-        Ok(())
-    }
-
-    fn render_layer_contents(&mut self, layer: &RenderLayer) -> Result<()> {
-        for child in &layer.children {
-            self.render_node(child)?;
-        }
         Ok(())
     }
 }

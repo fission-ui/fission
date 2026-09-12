@@ -1,4 +1,4 @@
-use fission_core::internal::BuildCtx;
+use fission_core::authoring::BuildCtx;
 use fission_core::ui::{ComponentSize, Text, TextInput};
 use fission_core::{build, ActionEnvelope, ActionId, Env, GlobalState, View, Widget, WidgetId};
 use fission_ir::{
@@ -128,9 +128,14 @@ fn menu_button_layout_controls_rich_content_from_a_custom_sized_trigger() {
             .height
             .expect("menu trigger height")
     };
+    // The recipe height is the control's floor; taller content still has to
+    // fit, so it lands on min_height rather than pinning height.
     match &root.nodes[&root.nodes[&trigger_id].children[0]].op {
-        Op::Layout(LayoutOp::Box { height, .. }) => {
-            assert_eq!(*height, Some(expected_height));
+        Op::Layout(LayoutOp::Box {
+            height, min_height, ..
+        }) => {
+            assert_eq!(*height, None, "trigger height should not be pinned");
+            assert_eq!(*min_height, Some(expected_height));
         }
         op => panic!("expected sized menu trigger box, got {op:?}"),
     }

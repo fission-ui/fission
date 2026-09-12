@@ -5,9 +5,10 @@ use crate::stack::HStack;
 use crate::Icon;
 use fission_core::motion::{MotionTrack, Presence};
 use fission_core::op::Color;
-use fission_core::ui::{Button, ButtonVariant, Container, Text, Widget};
+use fission_core::ui::{Button, ButtonVariant, Container, SemanticsRegion, Text, Widget};
 use fission_core::{ActionEnvelope, WidgetId};
 use fission_icons::material;
+use fission_ir::Role;
 use serde::{Deserialize, Serialize};
 use std::ops::Add;
 
@@ -180,6 +181,7 @@ impl From<Toast> for Widget {
         let this = &component;
 
         let tokens = &view.env().theme.tokens;
+        let recipe = view.env().theme.recipe(fission_theme::recipe_names::TOAST);
 
         let (icon_path, icon_color) = match this.kind {
             ToastKind::Info => (material::action::info::regular(), tokens.colors.primary),
@@ -187,14 +189,11 @@ impl From<Toast> for Widget {
                 material::action::check_circle::regular(),
                 tokens.colors.on_background,
             ),
+            // Previously a literal orange, which ignored the design system and
+            // could not meet contrast on a surface the system chose.
             ToastKind::Warning => (
                 material::action::report_problem::regular(),
-                Color {
-                    r: 255,
-                    g: 152,
-                    b: 0,
-                    a: 255,
-                },
+                tokens.colors.warning,
             ),
             ToastKind::Error => (material::alert::error::regular(), tokens.colors.error),
         };
@@ -207,25 +206,43 @@ impl From<Toast> for Widget {
                     .color(tokens.colors.on_surface)
                     .flex_grow(1.0)
                     .into(),
-                Button {
+                SemanticsRegion::new(Button {
                     variant: ButtonVariant::Ghost,
                     child: Some(
                         Icon::svg(material::navigation::close::regular())
-                            .size(16.0)
+                            .size(tokens.spacing.m)
                             .into(),
                     ),
                     on_press: this.on_close.clone(),
                     ..Default::default()
-                }
+                })
+                .label("Dismiss notification")
                 .into(),
             ],
         }
         .into();
 
         let mut toast: Widget = Container::new(content)
-            .bg(tokens.colors.surface)
-            .border(tokens.colors.border, 1.0)
-            .border_radius(tokens.radii.medium)
+            .bg_fill(
+                recipe
+                    .base
+                    .background
+                    .clone()
+                    .unwrap_or(fission_core::op::Fill::Solid(tokens.colors.surface)),
+            )
+            .border(
+                recipe
+                    .base
+                    .border
+                    .as_ref()
+                    .and_then(|border| match border.fill {
+                        fission_core::op::Fill::Solid(color) => Some(color),
+                        _ => None,
+                    })
+                    .unwrap_or(tokens.colors.border),
+                recipe.base.border.as_ref().map_or(1.0, |b| b.width),
+            )
+            .border_radius(recipe.base.radius.unwrap_or(tokens.radii.medium))
             .shadow(
                 tokens
                     .elevations
@@ -243,7 +260,16 @@ impl From<Toast> for Widget {
                         offset: (0.0, 6.0),
                     }),
             )
-            .padding_all(12.0)
+            .padding_all(tokens.spacing.s)
+            .into();
+
+        // A toast appears without the reader asking for it, so it has to
+        // announce itself. Role::Alert is what carries that to AccessKit and to
+        // an ARIA live region; without it a toast is silent, which is the whole
+        // point of the widget lost.
+        toast = SemanticsRegion::new(toast)
+            .role(Role::Alert)
+            .label(this.message.clone())
             .into();
 
         if let Some(motion) = &this.motion {

@@ -219,19 +219,39 @@ fn resolve_box_style(
     style: &BoxStyle,
     constraints: BoxConstraints,
     viewport: LayoutSize,
+    direction: LayoutDirection,
 ) -> LayoutOp {
     let horizontal_reference = constraints.max_w;
     let vertical_reference = constraints.max_h;
+    let resolve_edges = |edges: &[Length; 4], directional: bool| {
+        let (inline_start, inline_end) = (
+            resolve_length(&edges[0], horizontal_reference, viewport).unwrap_or(0.0),
+            resolve_length(&edges[1], horizontal_reference, viewport).unwrap_or(0.0),
+        );
+        // Directional edges arrive as [start, end, ..]; map them onto physical
+        // left and right for the active reading order.
+        let (left, right) = match (directional, direction) {
+            (true, LayoutDirection::RightToLeft) => (inline_end, inline_start),
+            _ => (inline_start, inline_end),
+        };
+        [
+            left,
+            right,
+            resolve_length(&edges[2], vertical_reference, viewport).unwrap_or(0.0),
+            resolve_length(&edges[3], vertical_reference, viewport).unwrap_or(0.0),
+        ]
+    };
+    // Directional spacing replaces physical spacing rather than merging, so a
+    // box has exactly one source of inner spacing.
     let padding = style
-        .padding
+        .padding_directional
         .as_ref()
-        .map(|padding| {
-            [
-                resolve_length(&padding[0], horizontal_reference, viewport).unwrap_or(0.0),
-                resolve_length(&padding[1], horizontal_reference, viewport).unwrap_or(0.0),
-                resolve_length(&padding[2], vertical_reference, viewport).unwrap_or(0.0),
-                resolve_length(&padding[3], vertical_reference, viewport).unwrap_or(0.0),
-            ]
+        .map(|edges| resolve_edges(edges, true))
+        .or_else(|| {
+            style
+                .padding
+                .as_ref()
+                .map(|edges| resolve_edges(edges, false))
         })
         .unwrap_or([0.0; 4]);
     let fit_content_limit = |length: &Option<Length>, reference| match length {
@@ -2350,7 +2370,7 @@ impl LayoutEngine {
         Ok(snapshot)
     }
 
-    /// InternalLower-level layout that skips scroll diagnostics.
+    /// Lower-level layout that skips scroll diagnostics.
     ///
     /// Same as [`compute_layout`](LayoutEngine::compute_layout) but does not emit
     /// diagnostic events. Useful when you need the snapshot but not the debug output.
@@ -2655,8 +2675,12 @@ impl LayoutEngine {
                 let resolved_style;
                 let op = match &node.op {
                     LayoutOp::StyledBox { style, .. } => {
-                        resolved_style =
-                            resolve_box_style(style, constraints, snapshot.viewport_size);
+                        resolved_style = resolve_box_style(
+                            style,
+                            constraints,
+                            snapshot.viewport_size,
+                            self.layout_direction,
+                        );
                         &resolved_style
                     }
                     op => op,
@@ -2947,7 +2971,12 @@ impl LayoutEngine {
                 flex_grow,
                 flex_shrink,
             } => {
-                let mut op = resolve_box_style(style, constraints, self.active_viewport);
+                let mut op = resolve_box_style(
+                    style,
+                    constraints,
+                    self.active_viewport,
+                    self.layout_direction,
+                );
                 if let LayoutOp::Box {
                     flex_grow: resolved_grow,
                     flex_shrink: resolved_shrink,
@@ -3181,6 +3210,7 @@ impl LayoutEngine {
                                         style,
                                         base_child_constraints,
                                         self.active_viewport,
+                                        self.layout_direction,
                                     );
                                     match resolved {
                                         LayoutOp::Box {

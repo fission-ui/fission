@@ -18,6 +18,6 @@ readme = "README.md"
 fission-core = { path = "../fission-core", version = "0.14.1" }
 fission-ir = { path = "../fission-ir", version = "0.14.1" }
 serde = { version = "1.0", features = ["derive"] }
-wgpu = "26.0"
+wgpu = "29.0.3"
 bytemuck = { version = "1.18", features = ["derive"] }
 bincode = "1.3"

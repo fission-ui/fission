@@ -78,10 +78,11 @@ mod tests {
             panic!("build must return a frame");
         };
         assert_eq!(frame.generation, 2);
-        assert!(frame.ir.nodes.values().any(|node| matches!(
-            &node.op,
-            fission_ir::Op::Paint(fission_ir::PaintOp::DrawText { text, .. }) if text == "first"
-        )));
+        assert!(frame
+            .ir
+            .nodes
+            .values()
+            .any(|node| node.op.text().as_deref() == Some("first")));
 
         let response = WorkerResponse {
             request_id: 7,

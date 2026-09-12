@@ -17,6 +17,16 @@ tree.
 
 ## Widget Structure
 
+- Keep Rust source files below 2,000 lines, in the framework and in examples
+  alike. Split a file into focused modules before it grows past that limit
+  rather than after. `crates/tools/fission-test/tests/source_file_limits.rs`
+  enforces it.
+- Examples are the reference users copy. Hold every example to these guidelines
+  and to the conventions below; an example that needs an exception is a sign
+  the framework is missing an API.
+- Keep a widget's `From` conversion short enough to read at a glance. When one
+  grows past roughly a screen, the fragments inside it are widgets waiting to be
+  named.
 - Prefer one reusable widget per file when introducing app UI.
 - Model widgets as concrete structs and implement `From<YourWidget> for Widget`.
 - Use `#[fission_component]` for components that own retained local widget
@@ -154,12 +164,14 @@ fn main() {
     let manifest_dir = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
     let dsp_path = manifest_dir.join("design/dsp.json");
 
-    fission_design_system_codegen::generate(fission_design_system_codegen::Config {
-        dsp_path,
-        out_file: "app_design_system.rs".into(),
-        type_name: "AppDesignSystem".into(),
-        crate_path: "fission::theme".into(),
-    })
+    // An application design system customizes the components it cares about;
+    // any recipe it leaves out is inherited from Fission's default system.
+    fission_design_system_codegen::generate(
+        fission_design_system_codegen::Config::new(dsp_path)
+            .out_file("app_design_system.rs")
+            .type_name("AppDesignSystem")
+            .crate_path("fission::theme"),
+    )
     .expect("failed to generate AppDesignSystem from design/dsp.json");
 }
 ```

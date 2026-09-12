@@ -11,7 +11,7 @@ fn text_rect(h: &TestHarness<State>, needle: &str) -> LayoutRect {
     let snap = h.last_snapshot.as_ref().unwrap();
     let ir = h.last_ir.as_ref().unwrap();
     for (id, node) in &ir.nodes {
-        if let fission_ir::Op::Paint(fission_ir::PaintOp::DrawText { text, .. }) = &node.op {
+        if let Some(text) = node.op.text() {
             if text == needle {
                 return snap.get_node_geometry(*id).unwrap().rect;
             }

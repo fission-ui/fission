@@ -329,12 +329,16 @@ pub use infinite_canvas::{
 };
 
 use fission_core::{
-    internal::{InternalIrBuilder, InternalLowerer, InternalLoweringCx},
+    internal::{IrBuilder, LowerWidget, LoweringContext},
     op::StructuralOp,
     Op,
 };
 use fission_ir::WidgetId;
 use std::sync::Arc;
+
+/// Appends renderer-independent child nodes during lowering and returns their
+/// stable IDs.
+pub type CanvasPainter = Arc<dyn Fn(&mut LoweringContext) -> Vec<WidgetId> + Send + Sync>;
 
 /// Internal lowerer for the [`canvas()`] free function.
 ///
@@ -347,7 +351,7 @@ pub struct CanvasLowerer {
     pub height: Option<f32>,
     /// Painter invoked during lowering to append renderer-independent child
     /// nodes and return their stable IDs.
-    pub painter: Arc<dyn Fn(&mut InternalLoweringCx) -> Vec<WidgetId> + Send + Sync>,
+    pub painter: CanvasPainter,
 }
 
 impl std::fmt::Debug for CanvasLowerer {
@@ -359,11 +363,11 @@ impl std::fmt::Debug for CanvasLowerer {
     }
 }
 
-impl InternalLowerer for CanvasLowerer {
-    fn lower_dyn(&self, cx: &mut InternalLoweringCx) -> WidgetId {
+impl LowerWidget for CanvasLowerer {
+    fn lower_dyn(&self, cx: &mut LoweringContext) -> WidgetId {
         let child_ids = (self.painter)(cx);
         let group_id = cx.next_node_id();
-        let mut group = InternalIrBuilder::new(
+        let mut group = IrBuilder::new(
             group_id,
             Op::Structural(StructuralOp::Group { stable_hash: 0 }),
         );
@@ -372,7 +376,7 @@ impl InternalLowerer for CanvasLowerer {
         }
         let group_node = group.build(cx);
 
-        let mut root = InternalIrBuilder::new(
+        let mut root = IrBuilder::new(
             cx.next_node_id(),
             Op::Layout(fission_core::LayoutOp::Box {
                 width: self.width,
@@ -394,22 +398,21 @@ impl InternalLowerer for CanvasLowerer {
 
 /// Creates a custom paint node from a closure.
 ///
-/// The `painter` closure receives an [`InternalLoweringCx`] and returns a list
+/// The `painter` closure receives an [`LoweringContext`] and returns a list
 /// of child node IDs. These are grouped inside a fixed-size box with the given
 /// `width` and `height` (both optional).
 pub fn canvas<F>(width: Option<f32>, height: Option<f32>, painter: F) -> Widget
 where
-    F: Fn(&mut InternalLoweringCx) -> Vec<WidgetId> + Send + Sync + 'static,
+    F: Fn(&mut LoweringContext) -> Vec<WidgetId> + Send + Sync + 'static,
 {
-    fission_core::internal::custom_render_widget(fission_core::CustomWidget {
-        debug_tag: "Canvas".into(),
-        lowerer: Some(Arc::new(CanvasLowerer {
+    fission_core::authoring::custom_widget(
+        "Canvas",
+        CanvasLowerer {
             width,
             height,
             painter: Arc::new(painter),
-        })),
-        render_object: None,
-    })
+        },
+    )
 }
 
 // AbsoluteFill convenience
@@ -418,10 +421,10 @@ struct AbsoluteFillLowerer {
     child: Widget,
 }
 
-impl InternalLowerer for AbsoluteFillLowerer {
-    fn lower_dyn(&self, cx: &mut InternalLoweringCx) -> WidgetId {
+impl LowerWidget for AbsoluteFillLowerer {
+    fn lower_dyn(&self, cx: &mut LoweringContext) -> WidgetId {
         let child_id = fission_core::internal::lower_widget(&self.child, cx);
-        let mut builder = InternalIrBuilder::new(
+        let mut builder = IrBuilder::new(
             cx.next_node_id(),
             Op::Layout(fission_core::LayoutOp::AbsoluteFill),
         );
@@ -436,13 +439,12 @@ impl InternalLowerer for AbsoluteFillLowerer {
 /// Wraps a child node in an `AbsoluteFill` layout node, causing it to stretch
 /// to fill its parent's bounds.
 pub fn absolute_fill(child: impl Into<Widget>) -> Widget {
-    fission_core::internal::custom_render_widget(fission_core::internal::InternalRenderNode {
-        debug_tag: "AbsoluteFill".into(),
-        lowerer: Some(Arc::new(AbsoluteFillLowerer {
+    fission_core::authoring::custom_widget(
+        "AbsoluteFill",
+        AbsoluteFillLowerer {
             child: child.into(),
-        })),
-        render_object: None,
-    })
+        },
+    )
 }
 
 // Flyout (anchor-relative absolute positioning) convenience
@@ -453,10 +455,10 @@ struct FlyoutLowerer {
     options: FlyoutOptions,
 }
 
-impl InternalLowerer for FlyoutLowerer {
-    fn lower_dyn(&self, cx: &mut InternalLoweringCx) -> WidgetId {
+impl LowerWidget for FlyoutLowerer {
+    fn lower_dyn(&self, cx: &mut LoweringContext) -> WidgetId {
         let content_id = fission_core::internal::lower_widget(&self.content, cx);
-        let mut flyout = InternalIrBuilder::new(
+        let mut flyout = IrBuilder::new(
             cx.next_node_id(),
             Op::Layout(fission_core::LayoutOp::Flyout {
                 anchor: self.anchor,
@@ -493,15 +495,14 @@ pub fn flyout(anchor: WidgetId, content: Widget) -> Widget {
 /// popovers should use [`Popover`], which preserves the default start/auto/
 /// intrinsic-width behavior.
 pub fn flyout_with_options(anchor: WidgetId, content: Widget, options: FlyoutOptions) -> Widget {
-    fission_core::internal::custom_render_widget(fission_core::CustomWidget {
-        debug_tag: "Flyout".into(),
-        lowerer: Some(Arc::new(FlyoutLowerer {
+    fission_core::authoring::custom_widget(
+        "Flyout",
+        FlyoutLowerer {
             anchor,
             content,
             options,
-        })),
-        render_object: None,
-    })
+        },
+    )
 }
 
 /// Renders its child into the overlay layer, outside the normal layout tree.

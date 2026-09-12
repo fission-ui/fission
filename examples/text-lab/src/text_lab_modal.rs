@@ -55,6 +55,7 @@ impl From<TextLabModal> for Widget {
                             helper: None,
                             child: Combobox {
                                 id: WidgetId::explicit("text_lab_modal_to"),
+                                semantics_identifier: Some("text-lab.modal.to".into()),
                                 value: view.state().modal_to.clone(),
                                 items: modal_items,
                                 is_open: !view.state().modal_to.trim().is_empty()

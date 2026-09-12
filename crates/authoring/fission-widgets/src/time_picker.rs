@@ -1,7 +1,9 @@
 use crate::number_input::NumberInput;
 use crate::stack::HStack;
+use fission_core::ui::SemanticsRegion;
 use fission_core::ui::{Text, Widget};
 use fission_core::ActionEnvelope;
+use fission_ir::Role;
 use std::sync::Arc;
 
 /// Controlled 24-hour time picker with increment and decrement controls.
@@ -43,7 +45,7 @@ impl From<TimePicker> for Widget {
         let m_inc = cb.map(|f| f(h, (m + 1) % 60));
         let m_dec = cb.map(|f| f(h, if m == 0 { 59 } else { m - 1 }));
 
-        HStack {
+        SemanticsRegion::new(HStack {
             spacing: Some(8.0),
             children: vec![
                 NumberInput {
@@ -76,7 +78,12 @@ impl From<TimePicker> for Widget {
                 }
                 .into(),
             ],
-        }
+        })
+        // The hour and minute steppers are one time, and the group reports it
+        // so a reader hears the value rather than two loose numbers.
+        .role(Role::Group)
+        .label("Time")
+        .value(format!("{:02}:{:02}", this.hour, this.minute))
         .into()
     }
 }

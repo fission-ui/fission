@@ -45,7 +45,7 @@ fn drawer_renders_content_and_backdrop_dismisses() -> Result<()> {
     let snap = h.last_snapshot.as_ref().unwrap();
     let mut found = false;
     for (id, node) in &ir.nodes {
-        if let fission_ir::Op::Paint(fission_ir::PaintOp::DrawText { text, .. }) = &node.op {
+        if let Some(text) = node.op.text() {
             if text == "Drawer content" {
                 let r = snap.get_node_rect(*id).unwrap();
                 assert!(

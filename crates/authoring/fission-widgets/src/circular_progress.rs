@@ -1,11 +1,12 @@
 use crate::motion_support::{slot_id, SLOT_INDICATOR};
-use fission_core::internal::{InternalIrBuilder, InternalLowerer, InternalLoweringCx};
+use fission_core::authoring::{IrBuilder, LowerWidget, LoweringContext};
 use fission_core::motion::{
     deg, MotionDeclaration, MotionDeclarationKind, MotionEasing, MotionPhase, MotionPropertyId,
     MotionStartValue, MotionTrack, MotionTransition,
 };
-use fission_core::ui::{Composite, Widget};
+use fission_core::ui::{Composite, SemanticsRegion, Widget};
 use fission_core::WidgetId;
+use fission_ir::Role;
 use fission_ir::{op::Color, LayoutOp, Op, PaintOp};
 use serde::{Deserialize, Serialize};
 use std::f32::consts::PI;
@@ -35,6 +36,9 @@ pub struct CircularProgress {
     /// Optional explicit progress motion. `None` emits no progress-owned motion declarations.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub motion: Option<CircularProgressMotion>,
+    /// What is progressing or loading, announced to assistive technology.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -82,6 +86,7 @@ impl Default for CircularProgress {
             track_color: None,
             thickness: 4.0,
             motion: None,
+            label: None,
         }
     }
 }
@@ -99,38 +104,55 @@ impl From<CircularProgress> for Widget {
         let color = this.color.unwrap_or(tokens.colors.primary);
         let track_color = this.track_color.unwrap_or(tokens.colors.border);
 
-        let node = fission_core::internal::custom_render_widget(
-            fission_core::internal::InternalRenderNode {
-                debug_tag: "CircularProgress".into(),
-                lowerer: Some(std::sync::Arc::new(CircularProgressLowerer {
-                    value: this.value,
-                    size: this.size,
-                    color,
-                    track_color,
-                    thickness: this.thickness,
-                })),
-                render_object: None,
+        let node = fission_core::authoring::custom_widget(
+            "CircularProgress",
+            CircularProgressLowerer {
+                value: this.value,
+                size: this.size,
+                color,
+                track_color,
+                thickness: this.thickness,
             },
         );
 
-        if this.value.is_none() {
-            let Some(motion) = &this.motion else {
-                return node;
-            };
-            let motion_id = slot_id(this.id, SLOT_INDICATOR);
-            ctx.register_motion(MotionDeclaration {
-                id: motion_id,
-                kind: MotionDeclarationKind::Tracks {
-                    tracks: motion.tracks(),
-                },
-            });
-            Composite::new(node)
-                .repaint_boundary(true)
-                .motion_rotation(motion_id, 0.0)
-                .into()
+        let painted: Widget = if this.value.is_none() {
+            match &this.motion {
+                Some(motion) => {
+                    let motion_id = slot_id(this.id, SLOT_INDICATOR);
+                    ctx.register_motion(MotionDeclaration {
+                        id: motion_id,
+                        kind: MotionDeclarationKind::Tracks {
+                            tracks: motion.tracks(),
+                        },
+                    });
+                    Composite::new(node)
+                        .repaint_boundary(true)
+                        .motion_rotation(motion_id, 0.0)
+                        .into()
+                }
+                None => node,
+            }
         } else {
             node
-        }
+        };
+
+        // A ring that paints an arc reports nothing on its own. A determinate
+        // ring is a progress measure; an indeterminate one is a busy status,
+        // because there is no position to announce.
+        let mut semantics = SemanticsRegion::new(painted);
+        semantics = match this.value {
+            Some(value) => {
+                let percent = (value * 100.0).clamp(0.0, 100.0);
+                semantics
+                    .role(Role::ProgressBar)
+                    .value(format!("{}%", percent.round() as i32))
+                    .range(0.0, 100.0, percent)
+            }
+            None => semantics.role(Role::Status),
+        };
+        semantics
+            .label(this.label.clone().unwrap_or_else(|| "Loading".to_string()))
+            .into()
     }
 }
 
@@ -153,8 +175,8 @@ struct CircularProgressLowerer {
     thickness: f32,
 }
 
-impl InternalLowerer for CircularProgressLowerer {
-    fn lower_dyn(&self, cx: &mut InternalLoweringCx) -> WidgetId {
+impl LowerWidget for CircularProgressLowerer {
+    fn lower_dyn(&self, cx: &mut LoweringContext) -> WidgetId {
         let id = cx.next_node_id();
 
         // Track Circle
@@ -173,7 +195,7 @@ impl InternalLowerer for CircularProgressLowerer {
             d = r * 2.0
         );
 
-        let track = InternalIrBuilder::new(
+        let track = IrBuilder::new(
             cx.next_node_id(),
             Op::Paint(PaintOp::DrawPath {
                 path: track_path,
@@ -220,7 +242,7 @@ impl InternalLowerer for CircularProgressLowerer {
             y2 = y2
         );
 
-        let indicator = InternalIrBuilder::new(
+        let indicator = IrBuilder::new(
             cx.next_node_id(),
             Op::Paint(PaintOp::DrawPath {
                 path: arc_path,
@@ -236,7 +258,7 @@ impl InternalLowerer for CircularProgressLowerer {
         )
         .build(cx);
 
-        let mut layout = InternalIrBuilder::new(
+        let mut layout = IrBuilder::new(
             id,
             Op::Layout(LayoutOp::Box {
                 width: Some(self.size),

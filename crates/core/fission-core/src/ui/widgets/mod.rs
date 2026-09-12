@@ -119,7 +119,14 @@ pub(super) fn split_box_margin(
 ) -> Option<fission_ir::op::BoxStyle> {
     use fission_ir::op::{BoxAlignment, BoxStyle, Length};
 
-    let margin = style.margin.take()?;
+    // Directional margin becomes directional padding on the wrapper, so the
+    // start/end edges are still resolved against reading order. Axis inflation
+    // below is unaffected: start + end sums to the same width either way.
+    let directional = style.margin_directional.is_some();
+    let margin = style
+        .margin_directional
+        .take()
+        .or_else(|| style.margin.take())?;
     let [left, right, top, bottom] = margin.clone();
     let had_width = style.width.is_some();
     let had_height = style.height.is_some();
@@ -148,7 +155,8 @@ pub(super) fn split_box_margin(
             .max_height
             .take()
             .map(|value| add_axis_edges(value, &top, &bottom)),
-        padding: Some(margin),
+        padding: (!directional).then(|| margin.clone()),
+        padding_directional: directional.then_some(margin),
         alignment: BoxAlignment::Stretch,
         ..Default::default()
     };

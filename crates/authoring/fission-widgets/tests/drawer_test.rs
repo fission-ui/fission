@@ -1,4 +1,4 @@
-use fission_core::internal::BuildCtx;
+use fission_core::authoring::BuildCtx;
 use fission_core::ui::{Text, Widget};
 use fission_core::{build, GlobalState, View, WidgetId, WidgetIdExt};
 use fission_widgets::{Drawer, DrawerSide};

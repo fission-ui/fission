@@ -1,5 +1,6 @@
-use fission_core::ui::{Container, Widget};
+use fission_core::ui::{Container, SemanticsRegion, Widget};
 use fission_ir::op::Color;
+use fission_ir::{Role, SemanticOrientation};
 use serde::{Deserialize, Serialize};
 
 /// The direction of a [`Divider`] line.
@@ -41,8 +42,22 @@ impl From<Divider> for Widget {
 
         let tokens = &view.env().theme.tokens;
 
-        let thickness = this.thickness.unwrap_or(1.0).max(0.0);
-        let color = this.color.unwrap_or(tokens.colors.border);
+        let recipe = view
+            .env()
+            .theme
+            .recipe(fission_theme::recipe_names::DIVIDER);
+        let thickness = this
+            .thickness
+            .or(recipe.base.height)
+            .unwrap_or(1.0)
+            .max(0.0);
+        let color = this
+            .color
+            .or(match recipe.base.background {
+                Some(fission_core::op::Fill::Solid(color)) => Some(color),
+                _ => None,
+            })
+            .unwrap_or(tokens.colors.divider);
         let mut c = Container::new(fission_core::ui::Row::default()); // Empty
         if let Some(pattern) = &this.dash_pattern {
             c = c
@@ -58,6 +73,14 @@ impl From<Divider> for Widget {
         };
         c = c.flex_grow(0.0).flex_shrink(0.0);
 
-        c.into()
+        // A separator carries structure, not just paint: it tells a reader that
+        // the groups either side of it are distinct.
+        SemanticsRegion::new(c)
+            .role(Role::Separator)
+            .orientation(match this.orientation {
+                Orientation::Horizontal => SemanticOrientation::Horizontal,
+                Orientation::Vertical => SemanticOrientation::Vertical,
+            })
+            .into()
     }
 }

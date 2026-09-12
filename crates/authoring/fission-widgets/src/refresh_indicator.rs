@@ -1,9 +1,11 @@
 use crate::CircularProgress;
 use fission_core::op::Color;
 use fission_core::ui::{
-    Align, Composite, Container, GestureDetector, Positioned, Spacer, Widget, ZStack,
+    Align, Composite, Container, GestureDetector, Positioned, SemanticsRegion, Spacer, Widget,
+    ZStack,
 };
 use fission_core::{ActionEnvelope, WidgetId};
+use fission_ir::Role;
 use serde::{Deserialize, Serialize};
 
 /// Visual state for a pull-to-refresh interaction.
@@ -234,6 +236,7 @@ impl From<RefreshIndicator> for Widget {
         if this.is_indicator_visible() {
             let progress: Widget = CircularProgress {
                 id: this.progress_id(),
+                label: None,
                 value: this.indicator_progress(),
                 size: this.indicator_size,
                 color: Some(this.color.unwrap_or(tokens.colors.primary)),
@@ -264,7 +267,9 @@ impl From<RefreshIndicator> for Widget {
             );
         }
 
-        GestureDetector {
+        // Pull-to-refresh is invisible to anyone not dragging it, so the state
+        // has to be announced as it changes.
+        SemanticsRegion::new(GestureDetector {
             child: ZStack { id: None, children }.into(),
             on_drag_start: this.on_pull_start.clone(),
             on_drag_update: this.on_pull_update.clone(),
@@ -274,7 +279,15 @@ impl From<RefreshIndicator> for Widget {
                 this.on_pull_cancel.clone()
             },
             ..Default::default()
-        }
+        })
+        .role(Role::Status)
+        .label(match this.status {
+            RefreshIndicatorStatus::Inactive => "Pull to refresh",
+            RefreshIndicatorStatus::Drag => "Keep pulling to refresh",
+            RefreshIndicatorStatus::Armed => "Release to refresh",
+            RefreshIndicatorStatus::Refreshing => "Refreshing",
+            RefreshIndicatorStatus::Done => "Refreshed",
+        })
         .into()
     }
 }

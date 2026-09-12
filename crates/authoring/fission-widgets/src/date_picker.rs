@@ -3,6 +3,7 @@ use crate::popover::Popover;
 use chrono::{Datelike, NaiveDate};
 use fission_core::ui::{TextInput, Widget};
 use fission_core::{ActionEnvelope, WidgetId};
+use fission_ir::{PopupKind, Role, Semantics};
 use std::sync::Arc;
 
 /// Controlled date field with an anchored calendar popup.
@@ -77,21 +78,30 @@ impl From<DatePicker> for Widget {
         // Wrap trigger in GestureDetector to handle click if TextInput consumes it?
         // Actually, let's use a Button for the trigger to ensure click works.
         use fission_core::ui::{Button, ButtonContentAlign, ButtonVariant, Text};
+        let label_text = if text.is_empty() {
+            "Select Date".to_string()
+        } else {
+            text
+        };
         let trigger_btn = Button {
             variant: ButtonVariant::Outline,
-            child: Some(
-                Text::new(if text.is_empty() {
-                    "Select Date".to_string()
-                } else {
-                    text
-                })
-                .into(),
-            ),
+            child: Some(Text::new(label_text.clone()).into()),
             on_press: this.on_toggle.clone(),
             width: Some(clamped_width),
             height: Some(36.0),
             padding: Some([12.0, 12.0, 8.0, 8.0]),
             content_align: ButtonContentAlign::Start,
+            // A trigger that opens a calendar has to say so, and whether it is
+            // currently open, or pressing it appears to do nothing.
+            semantics: Some(Semantics {
+                role: Role::ComboBox,
+                label: Some("Select date".into()),
+                value: Some(label_text.clone()),
+                has_popup: Some(PopupKind::Dialog),
+                expanded: Some(this.is_open),
+                focusable: true,
+                ..Default::default()
+            }),
             ..Default::default()
         }
         .into();

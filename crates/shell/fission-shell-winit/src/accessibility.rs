@@ -592,6 +592,7 @@ mod imp {
                         | Role::Link
                         | Role::MenuItem
                         | Role::Image
+                        | Role::Video
                         | Role::TextInput
                         | Role::Checkbox
                         | Role::Radio
@@ -974,6 +975,19 @@ mod imp {
             Role::Alert => AccessRole::Alert,
             Role::Group => AccessRole::Group,
             Role::Separator => AccessRole::Splitter,
+            Role::Tree => AccessRole::Tree,
+            Role::TreeItem => AccessRole::TreeItem,
+            Role::Toolbar => AccessRole::Toolbar,
+            Role::RadioGroup => AccessRole::RadioGroup,
+            Role::Table => AccessRole::Table,
+            Role::TableRow => AccessRole::Row,
+            Role::TableCell => AccessRole::Cell,
+            Role::ColumnHeader => AccessRole::ColumnHeader,
+            Role::ProgressBar => AccessRole::ProgressIndicator,
+            Role::Tooltip => AccessRole::Tooltip,
+            Role::Status => AccessRole::Status,
+            Role::SpinButton => AccessRole::SpinButton,
+            Role::Video => AccessRole::Video,
             Role::Generic => AccessRole::GenericContainer,
         }
     }

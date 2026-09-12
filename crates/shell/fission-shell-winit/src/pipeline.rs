@@ -1691,6 +1691,10 @@ fn generate_render_layer_recursive(
     if emit_opacity_layer {
         layer.style.opacity = composite_opacity.unwrap_or(1.0);
     }
+    // Carried down unconditionally. A blend mode is meaningful even on a layer
+    // that is fully opaque and unclipped, which is exactly the case the opacity
+    // and clip checks above skip.
+    layer.style.blend_mode = node.composite.blend_mode;
 
     if let Some(transform) = compose_dynamic_layer_transform(
         &TransformBinding {
@@ -2300,11 +2304,13 @@ fn build_local_paint_list(
         Op::Paint(fission_ir::PaintOp::BackdropFilter {
             filter,
             corner_radius,
+            corner_radii,
         }) => {
             list.push(DisplayOp::BackdropFilter {
                 rect,
-                filter: *filter,
+                filter: filter.clone(),
                 corner_radius: *corner_radius,
+                corner_radii: *corner_radii,
                 bounds: rect,
                 node_id: Some(node_id),
             });
@@ -2314,6 +2320,8 @@ fn build_local_paint_list(
             stroke,
             corner_radius,
             shadow,
+            corner_radii,
+            border_sides,
         }) => {
             let bounds = shadow
                 .as_ref()
@@ -2340,6 +2348,8 @@ fn build_local_paint_list(
                 }),
                 bounds,
                 node_id: Some(node_id),
+                corner_radii: *corner_radii,
+                border_sides: border_sides.as_ref().map(map_border_sides),
             });
         }
         Op::Paint(fission_ir::PaintOp::DrawText {
@@ -2557,6 +2567,8 @@ fn build_scrollbar_paint(
         shadow: None,
         bounds: geometry.rail_rect,
         node_id: Some(node_id),
+        corner_radii: None,
+        border_sides: None,
     });
     list.push(DisplayOp::DrawRect {
         rect: geometry.thumb_rect,
@@ -2566,6 +2578,8 @@ fn build_scrollbar_paint(
         shadow: None,
         bounds: geometry.thumb_rect,
         node_id: Some(node_id),
+        corner_radii: None,
+        border_sides: None,
     });
 
     Some(list)
@@ -2690,53 +2704,64 @@ impl SnapshotProvider for Pipeline {
     }
 }
 
+fn map_border_sides(sides: &fission_ir::BorderSides) -> fission_render::BorderSides {
+    fission_render::BorderSides {
+        top: sides.top.as_ref().map(map_stroke),
+        right: sides.right.as_ref().map(map_stroke),
+        bottom: sides.bottom.as_ref().map(map_stroke),
+        left: sides.left.as_ref().map(map_stroke),
+    }
+}
+
 fn map_fill(f: &fission_ir::op::Fill) -> Fill {
-    match f {
-        fission_ir::op::Fill::Solid(c) => Fill::Solid(RenderColor {
+    fn color(c: &fission_ir::op::Color) -> RenderColor {
+        RenderColor {
             r: c.r,
             g: c.g,
             b: c.b,
             a: c.a,
-        }),
-        fission_ir::op::Fill::LinearGradient { start, end, stops } => Fill::LinearGradient {
+        }
+    }
+    fn stops(src: &[(f32, fission_ir::op::Color)]) -> Vec<(f32, RenderColor)> {
+        src.iter().map(|(o, c)| (*o, color(c))).collect()
+    }
+
+    match f {
+        fission_ir::op::Fill::Solid(c) => Fill::Solid(color(c)),
+        fission_ir::op::Fill::LinearGradient {
+            start,
+            end,
+            stops: s,
+            extend,
+        } => Fill::LinearGradient {
             start: *start,
             end: *end,
-            stops: stops
-                .iter()
-                .map(|(o, c)| {
-                    (
-                        *o,
-                        RenderColor {
-                            r: c.r,
-                            g: c.g,
-                            b: c.b,
-                            a: c.a,
-                        },
-                    )
-                })
-                .collect(),
+            stops: stops(s),
+            extend: *extend,
         },
         fission_ir::op::Fill::RadialGradient {
             center,
             radius,
-            stops,
+            stops: s,
+            extend,
         } => Fill::RadialGradient {
             center: *center,
             radius: *radius,
-            stops: stops
-                .iter()
-                .map(|(o, c)| {
-                    (
-                        *o,
-                        RenderColor {
-                            r: c.r,
-                            g: c.g,
-                            b: c.b,
-                            a: c.a,
-                        },
-                    )
-                })
-                .collect(),
+            stops: stops(s),
+            extend: *extend,
+        },
+        fission_ir::op::Fill::SweepGradient {
+            center,
+            start_angle,
+            end_angle,
+            stops: s,
+            extend,
+        } => Fill::SweepGradient {
+            center: *center,
+            start_angle: *start_angle,
+            end_angle: *end_angle,
+            stops: stops(s),
+            extend: *extend,
         },
     }
 }
@@ -3298,6 +3323,8 @@ mod tests {
                 stroke: None,
                 corner_radius: 0.0,
                 shadow: None,
+                corner_radii: None,
+                border_sides: None,
             }),
             vec![],
         );
@@ -3357,6 +3384,8 @@ mod tests {
                 stroke: None,
                 corner_radius: 8.0,
                 shadow: None,
+                corner_radii: None,
+                border_sides: None,
             }),
             vec![],
         );
@@ -3452,6 +3481,8 @@ mod tests {
                 stroke: None,
                 corner_radius: 0.0,
                 shadow: None,
+                corner_radii: None,
+                border_sides: None,
             }),
             vec![],
         );
@@ -3467,6 +3498,8 @@ mod tests {
                 stroke: None,
                 corner_radius: 0.0,
                 shadow: None,
+                corner_radii: None,
+                border_sides: None,
             }),
             vec![],
         );
@@ -3502,6 +3535,8 @@ mod tests {
                 stroke: None,
                 corner_radius: 8.0,
                 shadow: None,
+                corner_radii: None,
+                border_sides: None,
             }),
             vec![],
         );
@@ -3595,6 +3630,8 @@ mod tests {
                 stroke: None,
                 corner_radius: 0.0,
                 shadow: None,
+                corner_radii: None,
+                border_sides: None,
             }),
             vec![],
         );
@@ -3610,6 +3647,8 @@ mod tests {
                 stroke: None,
                 corner_radius: 0.0,
                 shadow: None,
+                corner_radii: None,
+                border_sides: None,
             }),
             vec![],
         );
@@ -3683,6 +3722,8 @@ mod tests {
                 stroke: None,
                 corner_radius: 0.0,
                 shadow: None,
+                corner_radii: None,
+                border_sides: None,
             }),
             vec![],
         );
@@ -3838,6 +3879,8 @@ mod tests {
                 stroke: None,
                 corner_radius: 0.0,
                 shadow: None,
+                corner_radii: None,
+                border_sides: None,
             }),
             vec![],
         );
@@ -3981,6 +4024,8 @@ mod tests {
                 stroke: None,
                 corner_radius: 0.0,
                 shadow: None,
+                corner_radii: None,
+                border_sides: None,
             }),
             vec![],
         );

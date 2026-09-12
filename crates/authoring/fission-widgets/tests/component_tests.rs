@@ -1,5 +1,5 @@
+use fission_core::authoring::{lower_widget, BuildCtx, LoweringContext};
 use fission_core::env::Env;
-use fission_core::internal::{lower_widget, BuildCtx, InternalLoweringCx};
 use fission_core::motion::{MotionDeclarationKind, MotionPropertyId};
 use fission_core::ui::{Button, ButtonMotion, Text, Widget};
 use fission_core::{build, GlobalState, RuntimeState, View, WidgetId};
@@ -29,10 +29,10 @@ fn test_view<'a>(
 fn assert_widget_has_no_self_child_edges(label: &str, widget: &Widget) {
     let env = Env::default();
     let runtime_state = RuntimeState::default();
-    let mut cx = InternalLoweringCx::new(&env, &runtime_state, None, None);
+    let mut cx = LoweringContext::new(&env, &runtime_state, None, None);
     lower_widget(widget, &mut cx);
 
-    for (id, node) in &cx.ir.nodes {
+    for (id, node) in &cx.ir().nodes {
         assert!(
             !node.children.contains(id),
             "{label}: node {id} contains itself as a child; motion wrappers must use an id distinct from the wrapped widget"
@@ -251,6 +251,7 @@ fn motion_enabled_widgets_do_not_reuse_wrapper_id_for_wrapped_widget() {
     assert_motion_widget_ids_are_not_self_referential("circular_progress", || {
         CircularProgress {
             id: WidgetId::explicit("motion_id.circular_progress"),
+            label: None,
             motion: Some(CircularProgressMotion::Default),
             ..Default::default()
         }
@@ -260,6 +261,7 @@ fn motion_enabled_widgets_do_not_reuse_wrapper_id_for_wrapped_widget() {
     assert_motion_widget_ids_are_not_self_referential("spinner", || {
         Spinner {
             id: WidgetId::explicit("motion_id.spinner"),
+            label: None,
             color: None,
             motion: Some(SpinnerMotion::Default),
         }
@@ -337,7 +339,12 @@ fn test_toast_renders_content() {
 
     let node = build::enter(&mut ctx, &view, || toast.into());
 
-    assert_eq!(fission_core::internal::widget_kind_name(&node), "Container");
+    // A toast announces itself, so it lowers through a semantics region
+    // carrying Role::Alert rather than a bare container.
+    assert_eq!(
+        fission_core::internal::widget_kind_name(&node),
+        "SemanticsRegion"
+    );
 }
 
 #[test]

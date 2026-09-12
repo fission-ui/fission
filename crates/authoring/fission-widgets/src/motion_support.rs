@@ -5,11 +5,12 @@ use fission_core::motion::{
 use fission_core::WidgetId;
 
 pub(crate) const SLOT_BACKDROP: u32 = 0xBACC_DA7A;
-pub(crate) const SLOT_SURFACE: u32 = 0x5AFA_CE;
-pub(crate) const SLOT_PANEL: u32 = 0xCAFE_2A1;
+pub(crate) const SLOT_SURFACE: u32 = 0x005A_FACE;
+pub(crate) const SLOT_PANEL: u32 = 0x0CAF_E2A1;
+pub(crate) const SLOT_HEADER: u32 = 0x0CAF_E2A2;
 pub(crate) const SLOT_FOCUS_SCOPE: u32 = 0xF0C0_5C0E;
-pub(crate) const SLOT_INDICATOR: u32 = 0x1D1_CA70;
-pub(crate) const SLOT_CONTENT: u32 = 0xC017_E17;
+pub(crate) const SLOT_INDICATOR: u32 = 0x01D1_CA70;
+pub(crate) const SLOT_CONTENT: u32 = 0x0C01_7E17;
 
 pub(crate) fn slot_id(parent: WidgetId, slot: u32) -> WidgetId {
     WidgetId::derived(parent.as_u128(), &[slot])

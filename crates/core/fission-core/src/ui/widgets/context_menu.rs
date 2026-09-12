@@ -1,5 +1,5 @@
-use crate::internal::InternalLower;
-use crate::lowering::{InternalIrBuilder, InternalLoweringCx};
+use crate::authoring::Lower;
+use crate::lowering::{IrBuilder, LoweringContext};
 use crate::ui::{Button, ButtonVariant, Column, Container, Positioned, Text, TextContent, Widget};
 use crate::ActionEnvelope;
 use fission_ir::{
@@ -369,8 +369,8 @@ impl ContextMenuRegion {
     }
 }
 
-impl InternalLower for ContextMenuRegion {
-    fn lower(&self, cx: &mut InternalLoweringCx<'_>) -> WidgetId {
+impl Lower for ContextMenuRegion {
+    fn lower(&self, cx: &mut LoweringContext<'_>) -> WidgetId {
         let owner = self.id.unwrap_or_else(|| cx.next_node_id());
         cx.push_scope(owner);
 
@@ -383,7 +383,7 @@ impl InternalLower for ContextMenuRegion {
                 .map(|screen_anchor| anchor_to_local(cx, owner, screen_anchor))
                 .unwrap_or_else(|| fission_layout::LayoutPoint::new(0.0, 0.0));
             let menu_id = self.menu.overlay_widget(owner, anchor).lower(cx);
-            let mut stack = InternalIrBuilder::new(cx.next_node_id(), Op::Layout(LayoutOp::ZStack));
+            let mut stack = IrBuilder::new(cx.next_node_id(), Op::Layout(LayoutOp::ZStack));
             stack.add_child(child_id);
             stack.add_child(menu_id);
             stack.build(cx)
@@ -393,7 +393,7 @@ impl InternalLower for ContextMenuRegion {
 
         let mut semantics = self.semantics.clone().unwrap_or_default();
         semantics.context_menu = self.enabled;
-        let mut builder = InternalIrBuilder::new(owner, Op::Semantics(semantics));
+        let mut builder = IrBuilder::new(owner, Op::Semantics(semantics));
         builder.add_child(visual_id);
         cx.pop_scope();
         builder.build(cx)
@@ -542,7 +542,7 @@ pub(crate) fn text_context_menu_button_id(
 }
 
 pub(crate) fn anchor_to_local(
-    cx: &InternalLoweringCx<'_>,
+    cx: &LoweringContext<'_>,
     owner: WidgetId,
     screen_anchor: fission_layout::LayoutPoint,
 ) -> fission_layout::LayoutPoint {

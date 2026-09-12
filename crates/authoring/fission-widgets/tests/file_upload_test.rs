@@ -1,4 +1,4 @@
-use fission_core::internal::BuildCtx;
+use fission_core::authoring::BuildCtx;
 use fission_core::{build, GlobalState, View};
 use fission_widgets::file_upload::FileUpload;
 use serde::{Deserialize, Serialize};
@@ -23,5 +23,10 @@ fn test_file_upload_structure() {
     };
 
     let node = build::enter(&mut ctx, &view, || upload.into());
-    assert_eq!(fission_core::internal::widget_kind_name(&node), "Row");
+    // The browse control and the selected filename are one group, so the
+    // widget lowers through a semantics region rather than a bare row.
+    assert_eq!(
+        fission_core::internal::widget_kind_name(&node),
+        "SemanticsRegion"
+    );
 }

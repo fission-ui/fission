@@ -106,6 +106,7 @@ impl From<TextLabContent> for Widget {
                     helper: Some("Type to open suggestions and pick via mouse/keyboard.".to_string()),
                     child: Combobox {
                         id: WidgetId::explicit("text_lab_inline_combobox"),
+                        semantics_identifier: Some("text-lab.inline-combobox".into()),
                         value: view.state().inline_combobox.clone(),
                         items: inline_items,
                         is_open: !view.state().inline_combobox.trim().is_empty()

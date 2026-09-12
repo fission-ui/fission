@@ -404,7 +404,7 @@ fn take_local_state_default(attrs: &mut Vec<Attribute>) -> syn::Result<Option<Ex
 
     let attr = attrs.remove(index);
     let metas = attr.parse_args_with(Punctuated::<Meta, Token![,]>::parse_terminated)?;
-    for meta in metas {
+    if let Some(meta) = metas.into_iter().next() {
         match meta {
             Meta::NameValue(name_value) if name_value.path.is_ident("default") => {
                 return Ok(Some(name_value.value));

@@ -1,4 +1,4 @@
-use fission_core::internal::InternalLoweringCx;
+use fission_core::authoring::LoweringContext;
 use fission_core::ui::widgets::button::{ButtonContent, ButtonIconContent};
 use fission_core::ui::{Button, ButtonStyleOverride, ButtonVariant, Icon, Text, TextInput};
 use fission_core::{Env, LayoutSize, RuntimeState, Widget, WidgetId};
@@ -19,10 +19,10 @@ struct RectPaint {
 }
 
 fn lower(widget: Widget, env: &Env, runtime: &RuntimeState) -> CoreIR {
-    let mut cx = InternalLoweringCx::new(env, runtime, None, None);
+    let mut cx = LoweringContext::new(env, runtime, None, None);
     let root = fission_core::internal::lower_widget(&widget, &mut cx);
-    cx.ir.root = Some(root);
-    cx.ir
+    cx.set_root(root);
+    cx.into_ir()
 }
 
 fn box_geometry(ir: &CoreIR, id: WidgetId) -> (Option<f32>, Option<f32>, Option<f32>, [f32; 4]) {
@@ -58,6 +58,8 @@ fn direct_rects(ir: &CoreIR, layout_id: WidgetId) -> Vec<RectPaint> {
                 stroke,
                 corner_radius,
                 shadow,
+                corner_radii: None,
+                border_sides: None,
             }) => Some(RectPaint {
                 fill: fill.clone(),
                 stroke: stroke.clone(),
@@ -353,7 +355,7 @@ fn icon_only_button_preserves_explicit_icon_style_and_semantics_label() {
 fn custom_button_recipe_overrides_legacy_geometry_and_typography_fallbacks() {
     let id = WidgetId::explicit("quality.button.custom-recipe");
     let mut env = Env::default();
-    let button_theme = &mut env.theme.components.button;
+    let button_theme = &mut env.theme.components_mut().button;
     button_theme.height = 88.0;
     button_theme.padding_horizontal = 88.0;
     button_theme.padding_vertical = 88.0;
@@ -472,9 +474,9 @@ fn button_style_override_is_a_real_last_mile_override() {
 fn replacement_component_recipe_composes_selected_hover_and_focus_without_button_leakage() {
     let id = WidgetId::explicit("quality.button.replacement-recipe");
     let mut env = Env::default();
-    env.theme.components.button.height = 99.0;
-    env.theme.components.button.radius = 29.0;
-    env.theme.components.button.elevation_rest = Some(BoxShadow {
+    env.theme.components_mut().button.height = 99.0;
+    env.theme.components_mut().button.radius = 29.0;
+    env.theme.components_mut().button.elevation_rest = Some(BoxShadow {
         color: Color::BLACK,
         offset: (0.0, 12.0),
         blur_radius: 24.0,
@@ -560,7 +562,7 @@ fn button_layers_focus_recipe_over_pressed_state_without_layout_shift() {
     let mut env = Env::default();
     let (_, states) = env
         .theme
-        .components
+        .components_mut()
         .button
         .hierarchies
         .iter_mut()
@@ -640,7 +642,7 @@ fn button_layers_focus_recipe_over_pressed_state_without_layout_shift() {
 fn disabled_button_recipe_wins_over_all_runtime_interaction() {
     let id = WidgetId::explicit("quality.button.disabled");
     let mut env = Env::default();
-    env.theme.components.button.elevation_rest =
+    env.theme.components_mut().button.elevation_rest =
         Some(shadow(Color::RED, 2.0, false).to_box_shadow());
     let mut runtime = RuntimeState::default();
     runtime.interaction.set_hovered(id, true);
@@ -1043,7 +1045,7 @@ fn dark_text_input_uses_recipe_fill_and_error_ring() {
 fn custom_text_input_recipe_overrides_legacy_geometry_and_typography_fallbacks() {
     let id = WidgetId::explicit("quality.input.custom-recipe");
     let mut env = Env::default();
-    let input_theme = &mut env.theme.components.text_input;
+    let input_theme = &mut env.theme.components_mut().text_input;
     input_theme.height = 88.0;
     input_theme.padding_h = 88.0;
     input_theme.radius = 88.0;
@@ -1106,7 +1108,7 @@ fn custom_text_input_recipe_overrides_legacy_geometry_and_typography_fallbacks()
 fn text_input_preserves_every_focus_shadow_layer_without_layout_shift() {
     let id = WidgetId::explicit("quality.input.focus");
     let mut env = Env::default();
-    env.theme.components.text_input.states.focus = Some(ResolvedComponentStyle {
+    env.theme.components_mut().text_input.states.focus = Some(ResolvedComponentStyle {
         border: Some(ComponentBorder {
             fill: Fill::Solid(Color::RED),
             width: 1.0,
@@ -1155,11 +1157,11 @@ fn text_input_preserves_every_focus_shadow_layer_without_layout_shift() {
 fn text_input_resolves_hover_invalid_and_disabled_recipes_in_priority_order() {
     let id = WidgetId::explicit("quality.input.states");
     let mut env = Env::default();
-    env.theme.components.text_input.states.hover = Some(ResolvedComponentStyle {
+    env.theme.components_mut().text_input.states.hover = Some(ResolvedComponentStyle {
         background: Some(Fill::Solid(Color::BLUE)),
         ..ResolvedComponentStyle::default()
     });
-    env.theme.components.text_input.states.error = Some(ResolvedComponentStyle {
+    env.theme.components_mut().text_input.states.error = Some(ResolvedComponentStyle {
         border: Some(ComponentBorder {
             fill: Fill::Solid(Color::RED),
             width: 1.0,
@@ -1167,7 +1169,7 @@ fn text_input_resolves_hover_invalid_and_disabled_recipes_in_priority_order() {
         shadows: vec![shadow(Color::RED, 3.0, false)],
         ..ResolvedComponentStyle::default()
     });
-    env.theme.components.text_input.states.disabled = Some(ResolvedComponentStyle {
+    env.theme.components_mut().text_input.states.disabled = Some(ResolvedComponentStyle {
         background: Some(Fill::Solid(Color::BLACK)),
         border: Some(ComponentBorder {
             fill: Fill::Solid(Color::GREEN),

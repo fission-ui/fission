@@ -44,6 +44,7 @@ impl From<FieldInspectorCompact> for Widget {
                 (0.55, tokens.colors.surface),
                 (1.0, tokens.colors.background),
             ],
+            extend: Default::default(),
         })
         .into()
     }

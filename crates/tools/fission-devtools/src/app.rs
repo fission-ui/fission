@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
-use fission_core::internal::{BuildCtx, InternalLoweringCx};
+use fission_core::authoring::{BuildCtx, LoweringContext};
 use fission_core::ui::{Container, Overlay, ZStack};
 use fission_core::{
     ActionRegistry, Env, GlobalState, Runtime, View, Widget, WidgetId, WidgetIdExt,
@@ -248,10 +248,10 @@ where
             }
         };
         let runtime_state = &self.runtime.runtime_state;
-        let mut cx = InternalLoweringCx::new(&self.config.env, runtime_state, None, None);
+        let mut cx = LoweringContext::new(&self.config.env, runtime_state, None, None);
         let root = fission_core::internal::lower_widget(&tree, &mut cx);
-        cx.ir.root = Some(root);
-        let unsupported_render_objects = cx.ir.custom_render_objects.len();
+        cx.set_root(root);
+        let unsupported_render_objects = cx.ir().custom_render_objects.len();
         if unsupported_render_objects > 0 {
             if !self.warned_custom_render_objects {
                 eprintln!(
@@ -259,13 +259,15 @@ where
                 );
                 self.warned_custom_render_objects = true;
             }
-            cx.ir.custom_render_objects.clear();
+            fission_core::internal::lowering_ir_mut(&mut cx)
+                .custom_render_objects
+                .clear();
         }
         Ok(AppFrame {
             application_name: self.config.application_name.clone(),
             route,
             generation: self.generation,
-            ir: cx.ir,
+            ir: cx.into_ir(),
         })
     }
 

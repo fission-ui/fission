@@ -1,5 +1,5 @@
-use fission_core::internal::InternalLowerer;
-use fission_core::internal::{InternalIrBuilder, InternalLoweringCx};
+use fission_core::authoring::LowerWidget;
+use fission_core::authoring::{IrBuilder, LoweringContext};
 use fission_core::ui::{Column, Container, Row, Text, Widget};
 use fission_core::GlobalState;
 use fission_ir::{Op, Semantics};
@@ -14,15 +14,15 @@ struct MockHero {
     child: Widget,
 }
 
-impl InternalLowerer for MockHero {
-    fn lower_dyn(&self, cx: &mut InternalLoweringCx) -> fission_ir::WidgetId {
+impl LowerWidget for MockHero {
+    fn lower_dyn(&self, cx: &mut LoweringContext) -> fission_ir::WidgetId {
         let child_id = fission_core::internal::lower_widget(&self.child, cx);
         let id = cx.next_node_id();
         let semantics = Semantics {
             hero_tag: Some("t".into()),
             ..Default::default()
         };
-        let mut builder = InternalIrBuilder::new(id, Op::Semantics(semantics));
+        let mut builder = IrBuilder::new(id, Op::Semantics(semantics));
         builder.add_child(child_id);
         builder.build(cx)
     }
@@ -47,17 +47,11 @@ fn test_email_list_overlap_regression() {
                     Container::new(
                         Column::default().children(vec![
                             // Hero Subject
-                            fission_core::internal::custom_render_widget(
-                                fission_core::internal::InternalRenderNode {
-                                    debug_tag: "Hero".into(),
-                                    lowerer: Some(std::sync::Arc::new(MockHero {
+                            fission_core::authoring::custom_widget("Hero", MockHero {
                                         child: Text::new("Subject 10 Subject 10 Subject 10")
                                             .min_width(0.0) // Ensure it can shrink
                                             .into(),
-                                    })),
-                                    render_object: None,
-                                },
-                            ),
+                                    }),
                             // Preview
                             Text::new("Short preview...").min_width(0.0).into(),
                         ]),
@@ -82,7 +76,7 @@ fn test_email_list_overlap_regression() {
     let mut subject_rect = None;
 
     for (id, node) in &ir.nodes {
-        if let fission_ir::Op::Paint(fission_ir::PaintOp::DrawText { text, .. }) = &node.op {
+        if let Some(text) = node.op.text() {
             let geom = snap.get_node_geometry(*id).unwrap();
             if text.contains("preview") {
                 preview_rect = Some(geom.rect);

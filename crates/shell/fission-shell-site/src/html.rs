@@ -6,10 +6,11 @@ use fission_core::{
     MotionPropertyId, MotionStartValue, MotionTrack, MotionTransition, MotionValue,
 };
 use fission_ir::op::{
-    decode_inline_widget_marker, AlignItems, BoxShadow, Color, CompositeScalar, EmbedKind, Fill,
-    FlexDirection, FlexWrap, FontStyle, GridPlacement, GridTrack, ImageAlignment, ImageFit,
-    ImageSource, JustifyContent, LayoutOp, Length, LineCap, LineJoin, Op, Overflow, PaintOp,
-    RichTextAnnotation, Stroke, TextAlign, TextOverflow, TextRun,
+    decode_inline_widget_marker, AlignItems, BorderSides, BoxShadow, Color, CompositeScalar,
+    CornerRadii, EmbedKind, Fill, FlexDirection, FlexWrap, FontStyle, GradientExtend,
+    GridPlacement, GridTrack, ImageAlignment, ImageFit, ImageSource, JustifyContent, LayoutOp,
+    Length, LineCap, LineJoin, Op, Overflow, PaintOp, RichTextAnnotation, Stroke, TextAlign,
+    TextOverflow, TextRun,
 };
 use fission_ir::{
     semantics::ActionTrigger, CoreIR, CoreNode, PopupKind, Role, SemanticOrientation, Semantics,
@@ -1901,16 +1902,46 @@ impl HtmlRenderer<'_> {
             PaintOp::BackdropFilter {
                 filter,
                 corner_radius,
+                corner_radii,
             } => {
-                let mut style = match filter {
-                    fission_ir::op::BackdropFilter::Blur(sigma) => vec![
-                        format!("backdrop-filter:blur({}px)", px(*sigma)),
-                        format!("-webkit-backdrop-filter:blur({}px)", px(*sigma)),
-                    ],
-                };
-                if *corner_radius > 0.0 {
-                    style.push(format!("border-radius:{}px", px(*corner_radius)));
-                    style.push("overflow:hidden".into());
+                let functions = filter
+                    .flatten()
+                    .into_iter()
+                    .filter_map(|leaf| match leaf {
+                        fission_ir::op::BackdropFilter::Blur(sigma) => {
+                            Some(format!("blur({}px)", px(*sigma)))
+                        }
+                        fission_ir::op::BackdropFilter::Saturate(amount) => {
+                            Some(format!("saturate({amount})"))
+                        }
+                        fission_ir::op::BackdropFilter::Brightness(amount) => {
+                            Some(format!("brightness({amount})"))
+                        }
+                        fission_ir::op::BackdropFilter::Chain(_) => None,
+                    })
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                let mut style = vec![
+                    format!("backdrop-filter:{functions}"),
+                    format!("-webkit-backdrop-filter:{functions}"),
+                ];
+                match corner_radii {
+                    Some(radii) if !radii.is_square() => {
+                        style.push(format!(
+                            "border-radius:{}px {}px {}px {}px",
+                            px(radii.top_left),
+                            px(radii.top_right),
+                            px(radii.bottom_right),
+                            px(radii.bottom_left)
+                        ));
+                        style.push("overflow:hidden".into());
+                    }
+                    Some(_) => {}
+                    None if *corner_radius > 0.0 => {
+                        style.push(format!("border-radius:{}px", px(*corner_radius)));
+                        style.push("overflow:hidden".into());
+                    }
+                    None => {}
                 }
                 style.push("min-height:1px".into());
                 self.render_element(
@@ -1925,12 +1956,16 @@ impl HtmlRenderer<'_> {
                 stroke,
                 corner_radius,
                 shadow,
+                corner_radii,
+                border_sides,
             } => {
                 let mut style = self.draw_rect_style(
                     fill.as_ref(),
                     stroke.as_ref(),
                     *corner_radius,
                     shadow.as_ref(),
+                    *corner_radii,
+                    border_sides.as_ref(),
                 );
                 style.push("min-height:1px".to_string());
                 self.render_element("div", node, "fission-site-node fission-site-rect", style)
@@ -2191,6 +2226,7 @@ impl HtmlRenderer<'_> {
             Role::MenuItem => "button",
             Role::Option | Role::Tab => "button",
             Role::Image => "figure",
+            Role::Video => "div",
             Role::List => "ul",
             Role::ListItem => "li",
             Role::Dialog | Role::TabPanel => "section",
@@ -2202,7 +2238,19 @@ impl HtmlRenderer<'_> {
             | Role::TabList
             | Role::Alert
             | Role::Group
-            | Role::Separator => "div",
+            | Role::Separator
+            | Role::Tree
+            | Role::TreeItem
+            | Role::Toolbar
+            | Role::RadioGroup
+            | Role::Table
+            | Role::TableRow
+            | Role::TableCell
+            | Role::ColumnHeader
+            | Role::ProgressBar
+            | Role::Tooltip
+            | Role::Status
+            | Role::SpinButton => "div",
             Role::TextInput
             | Role::Checkbox
             | Role::Radio
@@ -2882,6 +2930,8 @@ impl HtmlRenderer<'_> {
                 stroke,
                 corner_radius,
                 shadow,
+                corner_radii,
+                border_sides,
             }) = &child.op
             else {
                 unreachable!("coalesced site paint children are rectangles");
@@ -2894,6 +2944,8 @@ impl HtmlRenderer<'_> {
                 stroke.as_ref(),
                 *corner_radius,
                 None,
+                *corner_radii,
+                border_sides.as_ref(),
             ));
             skip.insert(*child_id);
         }
@@ -2909,20 +2961,69 @@ impl HtmlRenderer<'_> {
         stroke: Option<&Stroke>,
         corner_radius: f32,
         shadow: Option<&BoxShadow>,
+        corner_radii: Option<CornerRadii>,
+        border_sides: Option<&BorderSides>,
     ) -> Vec<String> {
         let mut style = Vec::new();
         if let Some(fill) = fill {
             style.push(format!("background:{}", self.fill_css(fill)));
         }
-        if let Some(stroke) = stroke {
-            style.push(format!(
-                "border:{}px solid {}",
-                px(stroke.width),
-                self.stroke_css(stroke)
-            ));
+        // Per-edge strokes take precedence, matching the IR's replacement rule.
+        // CSS expresses each edge natively, so nothing is approximated here.
+        match border_sides {
+            Some(sides) if !sides.is_empty() => match sides.as_uniform() {
+                Some(stroke) => style.push(format!(
+                    "border:{}px {} {}",
+                    px(stroke.width),
+                    border_line_style(stroke),
+                    self.stroke_css(stroke)
+                )),
+                None => {
+                    for (property, side) in [
+                        ("border-top", &sides.top),
+                        ("border-right", &sides.right),
+                        ("border-bottom", &sides.bottom),
+                        ("border-left", &sides.left),
+                    ] {
+                        if let Some(stroke) = side {
+                            style.push(format!(
+                                "{property}:{}px {} {}",
+                                px(stroke.width),
+                                border_line_style(stroke),
+                                self.stroke_css(stroke)
+                            ));
+                        }
+                    }
+                }
+            },
+            _ => {
+                if let Some(stroke) = stroke {
+                    style.push(format!(
+                        "border:{}px {} {}",
+                        px(stroke.width),
+                        border_line_style(stroke),
+                        self.stroke_css(stroke)
+                    ));
+                }
+            }
         }
-        if corner_radius > 0.0 {
-            style.push(format!("border-radius:{}px", px(corner_radius)));
+        match corner_radii {
+            Some(radii) if !radii.is_uniform() => style.push(format!(
+                "border-radius:{}px {}px {}px {}px",
+                px(radii.top_left),
+                px(radii.top_right),
+                px(radii.bottom_right),
+                px(radii.bottom_left)
+            )),
+            Some(radii) if radii.top_left > 0.0 => {
+                style.push(format!("border-radius:{}px", px(radii.top_left)))
+            }
+            Some(_) => {}
+            None => {
+                if corner_radius > 0.0 {
+                    style.push(format!("border-radius:{}px", px(corner_radius)));
+                }
+            }
         }
         if let Some(shadow) = shadow {
             style.push(format!("box-shadow:{}", self.box_shadow_css(shadow)));
@@ -3220,36 +3321,85 @@ impl HtmlRenderer<'_> {
     }
 
     fn fill_css(&self, fill: &Fill) -> String {
+        // CSS has no reflect mode, but reflect is exactly a repeat over a stop
+        // list mirrored about its midpoint, so it is emulated rather than
+        // approximated. The mirrored list spans two periods of the original.
+        let (prefix, reflect) = match fill.extend() {
+            GradientExtend::Pad => ("", false),
+            GradientExtend::Repeat => ("repeating-", false),
+            GradientExtend::Reflect => ("repeating-", true),
+        };
+        let resolved = |stops: &[(f32, Color)]| -> (Vec<(f32, Color)>, f32) {
+            if reflect {
+                let mut out: Vec<(f32, Color)> = stops.iter().map(|(o, c)| (o * 0.5, *c)).collect();
+                out.extend(stops.iter().rev().map(|(o, c)| (1.0 - o * 0.5, *c)));
+                (out, 2.0)
+            } else {
+                (stops.to_vec(), 1.0)
+            }
+        };
+        let stop_list = |stops: &[(f32, Color)], position: &dyn Fn(f32) -> String| {
+            stops
+                .iter()
+                .map(|(offset, color)| format!("{} {}", self.color_css(*color), position(*offset)))
+                .collect::<Vec<_>>()
+                .join(",")
+        };
+
         match fill {
             Fill::Solid(color) => self.color_css(*color),
             Fill::LinearGradient {
-                start: _,
-                end,
-                stops,
+                start, end, stops, ..
             } => {
-                let angle = if end.0.abs() >= end.1.abs() {
-                    "90deg"
-                } else {
-                    "180deg"
-                };
-                let stops = stops
-                    .iter()
-                    .map(|(offset, color)| {
-                        format!("{} {}%", self.color_css(*color), (offset * 100.0).round())
-                    })
-                    .collect::<Vec<_>>()
-                    .join(",");
-                format!("linear-gradient({angle},{stops})")
+                let line = CssLinearGradientLine::new(*start, *end);
+                let (stops, period) = resolved(stops);
+                let stops = stop_list(&stops, &|offset| {
+                    format!("{}%", px(line.css_position(offset * period) * 100.0))
+                });
+                format!(
+                    "{prefix}linear-gradient({}deg,{stops})",
+                    px(line.angle_degrees)
+                )
             }
-            Fill::RadialGradient { stops, .. } => {
-                let stops = stops
-                    .iter()
-                    .map(|(offset, color)| {
-                        format!("{} {}%", self.color_css(*color), (offset * 100.0).round())
-                    })
-                    .collect::<Vec<_>>()
-                    .join(",");
-                format!("radial-gradient(circle,{stops})")
+            Fill::RadialGradient {
+                center,
+                radius,
+                stops,
+                ..
+            } => {
+                // The IR radius is a fraction of the larger side and CSS offers
+                // no length that tracks it, so the radius is written as a
+                // percentage of each side. That is exact for a square box and
+                // stretches into an ellipse otherwise.
+                let (stops, period) = resolved(stops);
+                let stops = stop_list(&stops, &|offset| {
+                    format!("{}%", px(offset * period * 100.0))
+                });
+                format!(
+                    "{prefix}radial-gradient({r}% {r}% at {}% {}%,{stops})",
+                    px(center.0 * 100.0),
+                    px(center.1 * 100.0),
+                    r = px(radius * 100.0),
+                )
+            }
+            Fill::SweepGradient {
+                center,
+                start_angle,
+                end_angle,
+                stops,
+                ..
+            } => {
+                let sweep = css_sweep(*start_angle, *end_angle);
+                let (stops, period) = resolved(stops);
+                let stops = stop_list(&stops, &|offset| {
+                    format!("{}deg", px(offset * period * sweep.span_degrees))
+                });
+                format!(
+                    "{prefix}conic-gradient(from {}deg at {}% {}%,{stops})",
+                    px(sweep.from_degrees),
+                    px(center.0 * 100.0),
+                    px(center.1 * 100.0)
+                )
             }
         }
     }
@@ -4184,6 +4334,9 @@ fn semantic_html_role(role: Role) -> Option<&'static str> {
     match role {
         Role::MenuItem => Some("menuitem"),
         Role::Image => Some("img"),
+        // ARIA has no video role; a labelled group is what screen readers
+        // actually announce usefully for a media surface.
+        Role::Video => Some("group"),
         Role::Dialog => Some("dialog"),
         Role::Menu => Some("menu"),
         Role::ListBox => Some("listbox"),
@@ -4195,6 +4348,18 @@ fn semantic_html_role(role: Role) -> Option<&'static str> {
         Role::Alert => Some("alert"),
         Role::Group => Some("group"),
         Role::Separator => Some("separator"),
+        Role::Tree => Some("tree"),
+        Role::TreeItem => Some("treeitem"),
+        Role::Toolbar => Some("toolbar"),
+        Role::RadioGroup => Some("radiogroup"),
+        Role::Table => Some("table"),
+        Role::TableRow => Some("row"),
+        Role::TableCell => Some("cell"),
+        Role::ColumnHeader => Some("columnheader"),
+        Role::ProgressBar => Some("progressbar"),
+        Role::Tooltip => Some("tooltip"),
+        Role::Status => Some("status"),
+        Role::SpinButton => Some("spinbutton"),
         Role::Button
         | Role::Link
         | Role::Text
@@ -4285,6 +4450,17 @@ fn semantic_html_attrs(ir: &CoreIR, node_id: WidgetId, semantics: &Semantics) ->
         attrs.push_str(" aria-invalid=\"true\"");
     }
 
+    // A range is unreadable without its bounds, so report them wherever a role
+    // carries one rather than only on a native range input.
+    if let Some(value) = semantics.min_value {
+        attrs.push_str(&format!(" aria-valuemin=\"{value}\""));
+    }
+    if let Some(value) = semantics.max_value {
+        attrs.push_str(&format!(" aria-valuemax=\"{value}\""));
+    }
+    if let Some(value) = semantics.current_value {
+        attrs.push_str(&format!(" aria-valuenow=\"{value}\""));
+    }
     let mut relation = |name: &str, ids: &[WidgetId]| {
         if ids.is_empty() {
             return;
@@ -4424,6 +4600,17 @@ fn css_string(value: &str) -> String {
     format!("'{}'", value.replace('\\', "\\\\").replace('\'', "\\'"))
 }
 
+/// The CSS line style for a border stroke.
+///
+/// CSS cannot take an arbitrary dash pattern for a border, so any dashed stroke
+/// is written as `dashed` and the browser chooses the dash length.
+fn border_line_style(stroke: &Stroke) -> &'static str {
+    match &stroke.dash_array {
+        Some(dashes) if !dashes.is_empty() => "dashed",
+        _ => "solid",
+    }
+}
+
 fn px(value: f32) -> String {
     if (value.fract()).abs() < 0.001 {
         format!("{}", value.round() as i32)
@@ -4460,10 +4647,75 @@ fn escape_attr(value: &str) -> String {
     out
 }
 
+/// A linear gradient's IR geometry expressed as CSS's angle and gradient line.
+///
+/// The IR places the gradient between two points normalized to the painted
+/// bounds; CSS instead takes an angle and runs the gradient line through the
+/// box centre, long enough that its ends touch the far corners. Each IR stop
+/// offset is re-projected onto that line so a gradient that starts or ends
+/// inside the box keeps its extent. The normalized points are treated as
+/// square, so the result is exact for square boxes and for axis-aligned
+/// gradients in any box; a diagonal gradient in a non-square box keeps its
+/// normalized angle.
+struct CssLinearGradientLine {
+    angle_degrees: f32,
+    /// CSS position of IR offset 0.
+    origin: f32,
+    /// CSS positions advanced per unit of IR offset.
+    scale: f32,
+}
+
+impl CssLinearGradientLine {
+    fn new(start: (f32, f32), end: (f32, f32)) -> Self {
+        let (vx, vy) = (end.0 - start.0, end.1 - start.1);
+        let length = (vx * vx + vy * vy).sqrt();
+        if length <= f32::EPSILON {
+            return Self {
+                angle_degrees: 180.0,
+                origin: 0.0,
+                scale: 1.0,
+            };
+        }
+        // CSS measures from "up", clockwise; the IR's y grows downward.
+        let angle = vx.atan2(-vy);
+        let (dx, dy) = (vx / length, vy / length);
+        let line_length = dx.abs() + dy.abs();
+        // Distance along the direction from the box centre to the start point.
+        let start_from_centre = (start.0 - 0.5) * dx + (start.1 - 0.5) * dy;
+        Self {
+            angle_degrees: angle.to_degrees().rem_euclid(360.0),
+            origin: 0.5 + start_from_centre / line_length,
+            scale: length / line_length,
+        }
+    }
+
+    fn css_position(&self, offset: f32) -> f32 {
+        self.origin + offset * self.scale
+    }
+}
+
+/// A sweep gradient's IR angles expressed as CSS conic-gradient terms.
+struct CssSweep {
+    from_degrees: f32,
+    span_degrees: f32,
+}
+
+/// Converts IR sweep angles, clockwise from the positive x axis in radians, to
+/// CSS's `from` angle, clockwise from "up", and the swept span that stop
+/// offsets are laid along. Both are in screen space, so this is exact for any
+/// box. A zero or negative span sweeps the full circle.
+fn css_sweep(start_angle: f32, end_angle: f32) -> CssSweep {
+    let span = (end_angle - start_angle).to_degrees();
+    CssSweep {
+        from_degrees: (start_angle.to_degrees() + 90.0).rem_euclid(360.0),
+        span_degrees: if span > 0.0 { span } else { 360.0 },
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use fission_core::internal::BuildCtx;
+    use fission_core::authoring::BuildCtx;
     use fission_core::ui::widgets::text::{RichTextChild, RichTextSpan, WidgetSpan};
     use fission_core::ui::{
         Checkbox, Column, Grid, Radio, RichText, SemanticsRegion, Switch, Text, Widget,
@@ -4491,11 +4743,10 @@ mod tests {
         let widget = widget.into();
         let env = Env::default();
         let runtime = RuntimeState::default();
-        let mut lowering =
-            fission_core::internal::InternalLoweringCx::new(&env, &runtime, None, None);
+        let mut lowering = fission_core::internal::LoweringContext::new(&env, &runtime, None, None);
         let root = fission_core::internal::lower_widget(&widget, &mut lowering);
-        lowering.ir.set_root(root);
-        render_ir_to_html(&lowering.ir, &HtmlRenderOptions::default()).unwrap()
+        lowering.set_root(root);
+        render_ir_to_html(lowering.ir(), &HtmlRenderOptions::default()).unwrap()
     }
 
     fn render_test_component(build_widget: impl FnOnce() -> Widget) -> RenderedHtml {
@@ -4745,6 +4996,7 @@ mod tests {
                                             start: (0.0, 0.0),
                                             end: (1.0, 0.0),
                                             stops: vec![(0.0, Color::BLACK), (1.0, Color::WHITE)],
+                                            extend: Default::default(),
                                         },
                                     ))),
                                     else_expr: Box::new(MotionExpr::Value(MotionValue::Fill(
@@ -4828,6 +5080,8 @@ mod tests {
                     stroke: None,
                     corner_radius: 8.0,
                     shadow: Some(shadow),
+                    corner_radii: None,
+                    border_sides: None,
                 }),
                 Vec::new(),
             );
@@ -6338,6 +6592,8 @@ mod tests {
                 stroke: None,
                 corner_radius: 0.0,
                 shadow: None,
+                corner_radii: None,
+                border_sides: None,
             }),
             Vec::new(),
         );
@@ -6433,6 +6689,8 @@ mod tests {
                 stroke: None,
                 corner_radius: 0.0,
                 shadow: None,
+                corner_radii: None,
+                border_sides: None,
             }),
             Vec::new(),
         );
@@ -6616,5 +6874,57 @@ mod tests {
         assert!(rendered.html.contains("href=\"#details\""));
         assert!(rendered.html.contains("aria-label=\"View details\""));
         assert!(!rendered.html.contains("<form"));
+    }
+}
+
+#[cfg(test)]
+mod gradient_geometry_tests {
+    use super::{css_sweep, CssLinearGradientLine};
+
+    fn close(a: f32, b: f32) -> bool {
+        (a - b).abs() < 1e-4
+    }
+
+    #[test]
+    fn a_full_width_horizontal_gradient_spans_the_css_line() {
+        let line = CssLinearGradientLine::new((0.0, 0.5), (1.0, 0.5));
+        assert!(close(line.angle_degrees, 90.0));
+        assert!(close(line.css_position(0.0), 0.0));
+        assert!(close(line.css_position(1.0), 1.0));
+    }
+
+    #[test]
+    fn an_inset_gradient_keeps_its_extent() {
+        let line = CssLinearGradientLine::new((0.25, 0.5), (0.75, 0.5));
+        assert!(close(line.css_position(0.0), 0.25));
+        assert!(close(line.css_position(1.0), 0.75));
+    }
+
+    #[test]
+    fn a_reversed_vertical_gradient_points_up() {
+        let line = CssLinearGradientLine::new((0.5, 1.0), (0.5, 0.0));
+        assert!(close(line.angle_degrees, 0.0));
+        assert!(close(line.css_position(0.0), 0.0));
+        assert!(close(line.css_position(1.0), 1.0));
+    }
+
+    #[test]
+    fn a_corner_to_corner_diagonal_reaches_both_corners() {
+        let line = CssLinearGradientLine::new((0.0, 0.0), (1.0, 1.0));
+        assert!(close(line.angle_degrees, 135.0));
+        assert!(close(line.css_position(0.0), 0.0));
+        assert!(close(line.css_position(1.0), 1.0));
+    }
+
+    #[test]
+    fn a_sweep_starting_at_positive_x_starts_css_at_three_o_clock() {
+        let sweep = css_sweep(0.0, std::f32::consts::PI);
+        assert!(close(sweep.from_degrees, 90.0));
+        assert!(close(sweep.span_degrees, 180.0));
+    }
+
+    #[test]
+    fn a_degenerate_sweep_covers_the_full_circle() {
+        assert!(close(css_sweep(1.0, 1.0).span_degrees, 360.0));
     }
 }

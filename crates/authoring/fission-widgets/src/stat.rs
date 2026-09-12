@@ -1,5 +1,6 @@
 use crate::stack::VStack;
-use fission_core::ui::{Container, Text, Widget};
+use fission_core::ui::{Container, SemanticsRegion, Text, Widget};
+use fission_ir::Role;
 use serde::{Deserialize, Serialize};
 
 /// Compact themed presentation of one labelled metric.
@@ -22,6 +23,7 @@ impl From<Stat> for Widget {
         let this = &component;
 
         let tokens = &view.env().theme.tokens;
+        let recipe = view.env().theme.recipe(fission_theme::recipe_names::STAT);
 
         let mut children = vec![
             Text::new(this.label.clone())
@@ -44,13 +46,19 @@ impl From<Stat> for Widget {
             );
         }
 
-        Container::new(VStack {
-            spacing: Some(4.0),
-            children,
-        })
-        .padding_all(18.0)
-        .border(tokens.colors.border, 1.0)
-        .border_radius(8.0)
+        // A caption and its figure are one reading, not two stray strings.
+        SemanticsRegion::new(
+            Container::new(VStack {
+                spacing: Some(recipe.base.gap.unwrap_or(tokens.spacing.xs)),
+                children,
+            })
+            .padding(recipe.base.padding_box(tokens.spacing.m, tokens.spacing.m))
+            .border(tokens.colors.border, 1.0)
+            .border_radius(recipe.base.radius.unwrap_or(tokens.radii.medium)),
+        )
+        .role(Role::Group)
+        .label(this.label.clone())
+        .value(this.value.clone())
         .into()
     }
 }

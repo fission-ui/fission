@@ -7,12 +7,12 @@ use fission_layout::{LayoutInputNode, LayoutSnapshot, TextMeasurer};
 use std::collections::HashMap;
 use std::sync::Arc;
 
-pub struct InternalLoweringCx<'a> {
-    pub env: &'a Env,
-    pub runtime_state: &'a RuntimeState,
-    pub ir: CoreIR,
-    pub measurer: Option<&'a Arc<dyn TextMeasurer>>,
-    pub layout: Option<&'a LayoutSnapshot>,
+pub struct LoweringContext<'a> {
+    pub(crate) env: &'a Env,
+    pub(crate) runtime_state: &'a RuntimeState,
+    pub(crate) ir: CoreIR,
+    pub(crate) measurer: Option<&'a Arc<dyn TextMeasurer>>,
+    pub(crate) layout: Option<&'a LayoutSnapshot>,
     id_stack: Vec<(WidgetId, u32)>,
     form_field_stack: Vec<FormFieldContext>,
     global_seq: u32,
@@ -29,7 +29,7 @@ pub(crate) struct FormFieldContext {
     pub invalid_message: Option<String>,
 }
 
-impl<'a> InternalLoweringCx<'a> {
+impl<'a> LoweringContext<'a> {
     pub fn new(
         env: &'a Env,
         runtime_state: &'a RuntimeState,
@@ -48,6 +48,61 @@ impl<'a> InternalLoweringCx<'a> {
             form_field_stack: Vec::new(),
             global_seq: 0,
         }
+    }
+
+    /// The environment the tree is lowered against: theme, locale, viewport
+    /// and layout direction.
+    pub fn env(&self) -> &'a Env {
+        self.env
+    }
+
+    /// Runtime state such as scroll offsets and viewport transforms.
+    pub fn runtime_state(&self) -> &'a RuntimeState {
+        self.runtime_state
+    }
+
+    /// The text measurer, when the host supplies one, for widgets that size
+    /// themselves around text.
+    pub fn measurer(&self) -> Option<&'a Arc<dyn TextMeasurer>> {
+        self.measurer
+    }
+
+    /// The layout from the previous frame, when the host supplies one.
+    pub fn layout(&self) -> Option<&'a LayoutSnapshot> {
+        self.layout
+    }
+
+    /// The IR lowered so far, for reading back what children emitted.
+    ///
+    /// Nodes are added through [`IrBuilder`], never by editing this directly,
+    /// so every node gets the structural hash diffing relies on.
+    pub fn ir(&self) -> &CoreIR {
+        &self.ir
+    }
+
+    /// Attaches a render object to `node` for the controller or renderer that
+    /// reads it.
+    pub fn set_render_object(&mut self, node: WidgetId, object: fission_ir::AnyRenderObject) {
+        self.ir.custom_render_objects.insert(node, object);
+    }
+
+    /// Marks `root` as the root of the lowered tree.
+    pub fn set_root(&mut self, root: WidgetId) {
+        self.ir.set_root(root);
+    }
+
+    /// Finishes lowering and returns the IR.
+    pub fn into_ir(self) -> CoreIR {
+        self.ir
+    }
+
+    /// Runs `lower` with node identities derived from `node_id`, so ids
+    /// allocated inside stay stable however the surrounding tree changes.
+    pub fn with_scope<R>(&mut self, node_id: WidgetId, lower: impl FnOnce(&mut Self) -> R) -> R {
+        self.push_scope(node_id);
+        let result = lower(self);
+        self.pop_scope();
+        result
     }
 
     pub fn next_node_id(&mut self) -> WidgetId {
@@ -70,10 +125,13 @@ impl<'a> InternalLoweringCx<'a> {
         }
     }
 
+    /// Starts an identity scope rooted at `node_id`. Pair with
+    /// [`pop_scope`](Self::pop_scope), or prefer [`with_scope`](Self::with_scope).
     pub fn push_scope(&mut self, node_id: WidgetId) {
         self.id_stack.push((node_id, 0));
     }
 
+    /// Ends the identity scope started by the matching [`push_scope`](Self::push_scope).
     pub fn pop_scope(&mut self) {
         self.id_stack
             .pop()
@@ -98,11 +156,7 @@ impl<'a> InternalLoweringCx<'a> {
         widget_id.into()
     }
 
-    pub fn insert_node(&mut self, node_id: WidgetId, op: Op, children: Vec<WidgetId>) -> WidgetId {
-        self.insert_node_with_composite(node_id, op, CompositeStyle::default(), children)
-    }
-
-    pub fn insert_node_with_composite(
+    pub(crate) fn insert_node_with_composite(
         &mut self,
         node_id: WidgetId,
         op: Op,
@@ -137,14 +191,14 @@ impl<'a> InternalLoweringCx<'a> {
     }
 }
 
-pub struct InternalIrBuilder {
+pub struct IrBuilder {
     node_id: WidgetId,
     op: Op,
     composite: CompositeStyle,
     children: Vec<WidgetId>,
 }
 
-impl InternalIrBuilder {
+impl IrBuilder {
     pub fn new(node_id: WidgetId, op: Op) -> Self {
         Self {
             node_id,
@@ -170,14 +224,14 @@ impl InternalIrBuilder {
         self.children.extend(children);
     }
 
-    pub fn build(self, cx: &mut InternalLoweringCx) -> WidgetId {
+    pub fn build(self, cx: &mut LoweringContext) -> WidgetId {
         cx.insert_node_with_composite(self.node_id, self.op, self.composite, self.children);
         self.node_id
     }
 }
 
-pub fn wrap_zstack_child(cx: &mut InternalLoweringCx, child_id: WidgetId) -> WidgetId {
-    let mut item = InternalIrBuilder::new(
+pub fn wrap_zstack_child(cx: &mut LoweringContext, child_id: WidgetId) -> WidgetId {
+    let mut item = IrBuilder::new(
         cx.next_node_id(),
         Op::Layout(LayoutOp::GridItem {
             row_start: GridPlacement::Line(1),

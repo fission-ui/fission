@@ -1,7 +1,7 @@
 use anyhow::Result;
+use fission_core::authoring::BuildCtx;
+use fission_core::authoring::LoweringContext;
 use fission_core::internal::build_layout_tree;
-use fission_core::internal::BuildCtx;
-use fission_core::internal::InternalLoweringCx;
 use fission_core::{
     Action, ActionEnvelope, ActionId, AdvanceTo, Clock, CurrentTime, Env, GlobalState, InputEvent,
     LayoutPoint, Runtime, ScrollStateMap, View, Widget, WidgetIdExt,
@@ -23,6 +23,54 @@ use std::sync::{Arc, Mutex};
 
 pub fn layout_input_nodes(ir: &CoreIR, env: &Env) -> Vec<LayoutInputNode> {
     build_layout_tree(ir, env)
+}
+
+/// Returns the visible text an IR op carries, if any.
+///
+/// Delegates to [`fission_ir::PaintOp::text`], which reads either text paint
+/// op. Assertions about *what the user reads* should not encode which
+/// primitive a widget happens to emit.
+pub fn op_text(op: &fission_ir::Op) -> Option<String> {
+    match op {
+        fission_ir::Op::Paint(paint) => paint.text().map(|text| text.into_owned()),
+        _ => None,
+    }
+}
+
+/// Collects the visible text of every text node in an IR tree, in node order.
+pub fn ir_texts(ir: &CoreIR) -> Vec<String> {
+    ir.nodes
+        .values()
+        .filter_map(|node| op_text(&node.op))
+        .collect()
+}
+
+/// Returns whether any text node in the IR renders exactly `expected`.
+pub fn ir_has_text(ir: &CoreIR, expected: &str) -> bool {
+    ir_texts(ir).iter().any(|text| text == expected)
+}
+
+/// Returns the visible text a display-list op carries, if any.
+///
+/// The display-list counterpart of [`op_text`], with the same rationale.
+pub fn display_op_text(op: &DisplayOp) -> Option<String> {
+    match op {
+        DisplayOp::DrawText { text, .. } => Some(text.clone()),
+        DisplayOp::DrawRichText { runs, .. } => {
+            Some(runs.iter().map(|run| run.text.as_str()).collect())
+        }
+        _ => None,
+    }
+}
+
+/// Collects the visible text of every text op in a display list, in paint order.
+pub fn display_texts(list: &DisplayList) -> Vec<String> {
+    list.ops.iter().filter_map(display_op_text).collect()
+}
+
+/// Returns whether any text op in the display list renders exactly `expected`.
+pub fn display_has_text(list: &DisplayList, expected: &str) -> bool {
+    display_texts(list).iter().any(|text| text == expected)
 }
 
 // A mock renderer that captures the display list for inspection.
@@ -356,7 +404,7 @@ impl<S: GlobalState> TestHarness<S> {
         } else {
             self.env.viewport_size = viewport;
         }
-        // 1. Build & InternalLower
+        // 1. Build & Lower
         if let Some(root) = self.root_widget.as_ref() {
             // Build
             if trace {
@@ -431,20 +479,20 @@ impl<S: GlobalState> TestHarness<S> {
                 eprintln!("[test-trace] build done");
             }
 
-            // InternalLower
+            // Lower
             if trace {
                 eprintln!("[test-trace] lower start");
             }
             let (ir, root_id) = {
-                let mut cx = InternalLoweringCx::new(
+                let mut cx = LoweringContext::new(
                     &self.env,
                     &self.runtime.runtime_state,
                     Some(&self.measurer),
                     self.last_snapshot.as_ref(),
                 );
                 let root_id = fission_core::internal::lower_widget(&node_tree, &mut cx);
-                cx.ir.root = Some(root_id);
-                (cx.ir, root_id)
+                cx.set_root(root_id);
+                (cx.into_ir(), root_id)
             };
             self.runtime.reconcile_focus(&ir)?;
 
@@ -556,54 +604,54 @@ pub fn detect_ir_cycle(ir: &CoreIR) -> Option<Vec<WidgetId>> {
 }
 
 fn map_fill(f: &fission_ir::op::Fill) -> fission_render::Fill {
-    match f {
-        fission_ir::op::Fill::Solid(c) => fission_render::Fill::Solid(fission_render::Color {
+    fn color(c: &fission_ir::op::Color) -> fission_render::Color {
+        fission_render::Color {
             r: c.r,
             g: c.g,
             b: c.b,
             a: c.a,
-        }),
-        fission_ir::op::Fill::LinearGradient { start, end, stops } => {
-            fission_render::Fill::LinearGradient {
-                start: *start,
-                end: *end,
-                stops: stops
-                    .iter()
-                    .map(|(o, c)| {
-                        (
-                            *o,
-                            fission_render::Color {
-                                r: c.r,
-                                g: c.g,
-                                b: c.b,
-                                a: c.a,
-                            },
-                        )
-                    })
-                    .collect(),
-            }
         }
+    }
+    fn stops(src: &[(f32, fission_ir::op::Color)]) -> Vec<(f32, fission_render::Color)> {
+        src.iter().map(|(o, c)| (*o, color(c))).collect()
+    }
+
+    match f {
+        fission_ir::op::Fill::Solid(c) => fission_render::Fill::Solid(color(c)),
+        fission_ir::op::Fill::LinearGradient {
+            start,
+            end,
+            stops: s,
+            extend,
+        } => fission_render::Fill::LinearGradient {
+            start: *start,
+            end: *end,
+            stops: stops(s),
+            extend: *extend,
+        },
         fission_ir::op::Fill::RadialGradient {
             center,
             radius,
-            stops,
+            stops: s,
+            extend,
         } => fission_render::Fill::RadialGradient {
             center: *center,
             radius: *radius,
-            stops: stops
-                .iter()
-                .map(|(o, c)| {
-                    (
-                        *o,
-                        fission_render::Color {
-                            r: c.r,
-                            g: c.g,
-                            b: c.b,
-                            a: c.a,
-                        },
-                    )
-                })
-                .collect(),
+            stops: stops(s),
+            extend: *extend,
+        },
+        fission_ir::op::Fill::SweepGradient {
+            center,
+            start_angle,
+            end_angle,
+            stops: s,
+            extend,
+        } => fission_render::Fill::SweepGradient {
+            center: *center,
+            start_angle: *start_angle,
+            end_angle: *end_angle,
+            stops: stops(s),
+            extend: *extend,
         },
     }
 }
@@ -764,11 +812,13 @@ fn generate_display_list_with_visited(
                 fission_ir::Op::Paint(fission_ir::PaintOp::BackdropFilter {
                     filter,
                     corner_radius,
+                    corner_radii,
                 }) => {
                     list.push(DisplayOp::BackdropFilter {
                         rect: geom.rect,
-                        filter: *filter,
+                        filter: filter.clone(),
                         corner_radius: *corner_radius,
+                        corner_radii: *corner_radii,
                         bounds: geom.rect,
                         node_id: Some(node_id),
                     });
@@ -778,6 +828,8 @@ fn generate_display_list_with_visited(
                     stroke,
                     corner_radius,
                     shadow,
+                    corner_radii,
+                    border_sides,
                 }) => {
                     list.push(DisplayOp::DrawRect {
                         rect: geom.rect,
@@ -795,6 +847,15 @@ fn generate_display_list_with_visited(
                             spread_radius: s.spread_radius,
                             offset: s.offset,
                             inset: s.inset,
+                        }),
+                        corner_radii: *corner_radii,
+                        border_sides: border_sides.as_ref().map(|sides| {
+                            fission_render::BorderSides {
+                                top: sides.top.as_ref().map(map_stroke),
+                                right: sides.right.as_ref().map(map_stroke),
+                                bottom: sides.bottom.as_ref().map(map_stroke),
+                                left: sides.left.as_ref().map(map_stroke),
+                            }
                         }),
                         bounds: geom.rect,
                         node_id: Some(node_id),

@@ -387,7 +387,7 @@ impl From<ArchitectureSection> for Widget {
                                 .weight(tokens.typography.font_weight_bold)
                                 .color(tokens.colors.text_muted)
                                 .into(),
-                            Text::new("Build -> InternalLower -> Layout -> Paint -> Render")
+                            Text::new("Build -> Lower -> Layout -> Paint -> Render")
                                 .size(tokens.typography.font_size_sm)
                                 .family(tokens.typography.font_family_mono.clone())
                                 .color(tokens.colors.text_primary)
@@ -679,6 +679,7 @@ impl From<FinalCta> for Widget {
                 (0.0, tokens.colors.surface_sunken),
                 (1.0, tokens.colors.background),
             ],
+            extend: Default::default(),
         })
         .into()
     }

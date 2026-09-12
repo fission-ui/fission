@@ -24,6 +24,7 @@ impl From<ProductResults> for Widget {
                     children: vec![
                         CircularProgress {
                             id: WidgetId::explicit(&format!("product-browser.loading.{instance}")),
+                            label: None,
                             ..Default::default()
                         }
                         .into(),

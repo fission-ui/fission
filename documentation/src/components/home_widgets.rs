@@ -942,6 +942,7 @@ pub(super) fn page_fill(tokens: &Tokens) -> Fill {
             (0.6, tokens.colors.surface_sunken),
             (1.0, tokens.colors.surface),
         ],
+        extend: Default::default(),
     }
 }
 

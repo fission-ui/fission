@@ -1,3 +1,4 @@
+use fission_core::authoring::{lower_widget, LoweringContext};
 use fission_core::env::{
     Clipboard, ContextMenuState, Env, GestureState, InteractionStateMap, RuntimeState,
     ScrollStateMap, SelectableTextStateMap, TextEditStateMap,
@@ -8,7 +9,6 @@ use fission_core::event::{
 };
 use fission_core::input::selectable_text::SelectableTextController;
 use fission_core::input::{ControllerContext, InputController, TextEditingConvention};
-use fission_core::internal::{lower_widget, InternalLoweringCx};
 use fission_core::ui::{
     Column, SelectionPlatformStyle, SelectionRegion, SelectionRegionControls, Text, TextContent,
     Widget,
@@ -256,10 +256,10 @@ fn region_lowering_preserves_document_order_and_excludes_nested_subtrees() {
 
     let env = Env::default();
     let runtime = RuntimeState::default();
-    let mut cx = InternalLoweringCx::new(&env, &runtime, None, None);
+    let mut cx = LoweringContext::new(&env, &runtime, None, None);
     let root = lower_widget(&Widget::from(tree), &mut cx);
-    cx.ir.set_root(root);
-    let semantics = match &cx.ir.nodes[&region_id].op {
+    cx.set_root(root);
+    let semantics = match &cx.ir().nodes[&region_id].op {
         Op::Semantics(semantics) => semantics,
         _ => panic!("selection region must lower to semantics"),
     };
@@ -489,10 +489,10 @@ fn rebuilt_region_exposes_one_directional_accessibility_selection() {
     .controller(SelectionRegionController::new(region_id));
     let env = Env::default();
     let mut runtime = RuntimeState::default();
-    let mut first_lower = InternalLoweringCx::new(&env, &runtime, None, None);
+    let mut first_lower = LoweringContext::new(&env, &runtime, None, None);
     let root = lower_widget(&Widget::from(tree.clone()), &mut first_lower);
-    first_lower.ir.set_root(root);
-    let first_ir = first_lower.ir.clone();
+    first_lower.set_root(root);
+    let first_ir = first_lower.ir().clone();
     drop(first_lower);
     SelectionRegionController::new(region_id)
         .apply(
@@ -506,10 +506,10 @@ fn rebuilt_region_exposes_one_directional_accessibility_selection() {
         )
         .unwrap();
 
-    let mut rebuilt = InternalLoweringCx::new(&env, &runtime, None, None);
+    let mut rebuilt = LoweringContext::new(&env, &runtime, None, None);
     let root = lower_widget(&Widget::from(tree), &mut rebuilt);
-    rebuilt.ir.set_root(root);
-    let semantics = match &rebuilt.ir.nodes[&region_id].op {
+    rebuilt.set_root(root);
+    let semantics = match &rebuilt.ir().nodes[&region_id].op {
         Op::Semantics(semantics) => semantics,
         _ => panic!("selection region must lower to semantics"),
     };
@@ -667,25 +667,25 @@ fn adaptive_touch_affordances_observe_slop_and_render_handles_and_magnifier() {
         ..RuntimeState::default()
     };
     let env = Env::default();
-    let mut cx = InternalLoweringCx::new(&env, &runtime, None, Some(&layout));
+    let mut cx = LoweringContext::new(&env, &runtime, None, Some(&layout));
     lower_widget(
         &region_widget(region, first, second, SelectionPlatformStyle::Adaptive),
         &mut cx,
     );
     assert!(cx
-        .ir
+        .ir()
         .nodes
         .contains_key(&WidgetId::derived(region.as_u128(), &[0x5E1E, 1])));
     assert!(cx
-        .ir
+        .ir()
         .nodes
         .contains_key(&WidgetId::derived(region.as_u128(), &[0x5E1E, 2])));
     assert!(cx
-        .ir
+        .ir()
         .nodes
         .contains_key(&WidgetId::derived(region.as_u128(), &[0x5E1E, 3])));
     assert!(matches!(
-        &cx.ir.nodes[&WidgetId::derived(region.as_u128(), &[0x5E1E, 11])].op,
+        &cx.ir().nodes[&WidgetId::derived(region.as_u128(), &[0x5E1E, 11])].op,
         Op::Layout(LayoutOp::Positioned {
             left: Some(left),
             top: Some(top),
@@ -693,7 +693,7 @@ fn adaptive_touch_affordances_observe_slop_and_render_handles_and_magnifier() {
         }) if (*left - 3.0).abs() < 0.01 && (*top - 13.0).abs() < 0.01
     ));
     assert!(matches!(
-        &cx.ir.nodes[&WidgetId::derived(region.as_u128(), &[0x5E1E, 12])].op,
+        &cx.ir().nodes[&WidgetId::derived(region.as_u128(), &[0x5E1E, 12])].op,
         Op::Layout(LayoutOp::Positioned {
             left: Some(left),
             top: Some(top),
@@ -701,17 +701,17 @@ fn adaptive_touch_affordances_observe_slop_and_render_handles_and_magnifier() {
         }) if (*left - 23.0).abs() < 0.01 && (*top - 33.0).abs() < 0.01
     ));
 
-    let mut desktop_cx = InternalLoweringCx::new(&env, &runtime, None, Some(&layout));
+    let mut desktop_cx = LoweringContext::new(&env, &runtime, None, Some(&layout));
     lower_widget(
         &region_widget(region, first, second, SelectionPlatformStyle::Desktop),
         &mut desktop_cx,
     );
     assert!(!desktop_cx
-        .ir
+        .ir()
         .nodes
         .contains_key(&WidgetId::derived(region.as_u128(), &[0x5E1E, 1])));
     assert!(!desktop_cx
-        .ir
+        .ir()
         .nodes
         .contains_key(&WidgetId::derived(region.as_u128(), &[0x5E1E, 3])));
 }

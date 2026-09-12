@@ -1,7 +1,8 @@
 use std::fmt;
 use std::sync::Arc;
 
-use fission_core::internal::{CustomRender, InternalLowerer, InternalLoweringCx};
+use fission_core::authoring::{LowerWidget, LoweringContext};
+use fission_core::internal::CustomRender;
 use fission_core::{Widget, WidgetId};
 
 use crate::AppFrame;
@@ -48,8 +49,8 @@ impl fmt::Debug for RemoteIrLowerer {
     }
 }
 
-impl InternalLowerer for RemoteIrLowerer {
-    fn lower_dyn(&self, cx: &mut InternalLoweringCx) -> WidgetId {
+impl LowerWidget for RemoteIrLowerer {
+    fn lower_dyn(&self, cx: &mut LoweringContext) -> WidgetId {
         let root = self
             .frame
             .ir
@@ -57,10 +58,12 @@ impl InternalLowerer for RemoteIrLowerer {
             .expect("validated Fission Developer frame must contain a root");
         for (id, node) in &self.frame.ir.nodes {
             assert!(
-                !cx.ir.nodes.contains_key(id),
+                !cx.ir().nodes.contains_key(id),
                 "Fission Developer host/app WidgetId collision for {id}"
             );
-            cx.ir.nodes.insert(*id, node.clone());
+            fission_core::internal::lowering_ir_mut(cx)
+                .nodes
+                .insert(*id, node.clone());
         }
         root
     }

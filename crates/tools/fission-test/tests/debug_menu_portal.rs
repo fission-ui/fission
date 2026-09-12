@@ -1,8 +1,8 @@
 use anyhow::Result;
+use fission_core::authoring::BuildCtx;
+use fission_core::authoring::LoweringContext;
 use fission_core::build;
 use fission_core::env::Env;
-use fission_core::internal::BuildCtx;
-use fission_core::internal::InternalLoweringCx;
 use fission_core::ui::{Grid, GridItem, TextInput, Widget};
 use fission_core::Runtime;
 use fission_core::{op::GridTrack, View, WidgetId, WidgetIdExt};
@@ -155,16 +155,16 @@ fn menu_portal_position_near_anchor() -> Result<()> {
         .into()
     };
 
-    // InternalLower + layout
-    let mut cx = InternalLoweringCx::new(
+    // Lower + layout
+    let mut cx = LoweringContext::new(
         &env,
         &runtime.runtime_state,
         None,
         pipe.last_snapshot.as_ref(),
     );
     let root_id = fission_core::internal::lower_widget(&final_root, &mut cx);
-    cx.ir.root = Some(root_id);
-    let ir = cx.ir;
+    cx.set_root(root_id);
+    let ir = cx.into_ir();
 
     // Layout
     let viewport = fission_layout::LayoutSize {
@@ -232,15 +232,15 @@ fn menu_portal_position_near_anchor() -> Result<()> {
             .into()
         };
 
-        let mut cx = InternalLoweringCx::new(
+        let mut cx = LoweringContext::new(
             &env,
             &runtime.runtime_state,
             None,
             pipe.last_snapshot.as_ref(),
         );
         let root_id = fission_core::internal::lower_widget(&final_root, &mut cx);
-        cx.ir.root = Some(root_id);
-        let ir2 = cx.ir;
+        cx.set_root(root_id);
+        let ir2 = cx.into_ir();
 
         let env = fission_core::env::Env::default();
         let _ = pipe.render(
@@ -256,8 +256,19 @@ fn menu_portal_position_near_anchor() -> Result<()> {
 
         let snap2 = pipe.last_snapshot.clone().expect("snapshot2");
 
-        let widget_id = WidgetId::explicit("test_menu");
-        let anchor_node = WidgetId::derived(widget_id.as_u128(), &[]);
+        // Take the anchor from the flyout itself rather than re-deriving an id
+        // from the widget's identity, which couples the test to whichever path
+        // salt the composite happens to use for its trigger.
+        let anchor_node = ir2
+            .nodes
+            .values()
+            .find_map(|node| match &node.op {
+                fission_ir::Op::Layout(fission_ir::LayoutOp::Flyout { anchor, .. }) => {
+                    Some(*anchor)
+                }
+                _ => None,
+            })
+            .expect("flyout anchor");
         let anchor_rect = snap2.get_node_rect(anchor_node).expect("anchor rect");
 
         // Find Flyout op and check its content's geometry

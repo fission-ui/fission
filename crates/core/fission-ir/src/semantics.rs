@@ -11,6 +11,70 @@
 use crate::WidgetId;
 use serde::{Deserialize, Serialize};
 
+/// A keyboard key, independent of layout and platform.
+///
+/// This lives in the IR rather than in the runtime because a semantic node can
+/// declare that it responds to a key. Without that, only the runtime's built-in
+/// contracts could handle keys, and no application or third-party widget could
+/// author a keyboard-driven control of its own.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum KeyCode {
+    Space,
+    Enter,
+    Escape,
+    Backspace,
+    Delete,
+    Tab,
+    Left,
+    Right,
+    Up,
+    Down,
+    Home,
+    End,
+    PageUp,
+    PageDown,
+    /// A printable character.
+    Char(char),
+}
+
+/// Shift modifier bit.
+pub const MOD_SHIFT: u8 = 1;
+/// Alt/Option modifier bit.
+pub const MOD_ALT: u8 = 2;
+/// Control modifier bit.
+pub const MOD_CTRL: u8 = 4;
+/// Super/Meta/Command modifier bit.
+pub const MOD_SUPER: u8 = 8;
+
+/// A key plus the modifiers that must be held with it.
+///
+/// `modifiers` is an exact match, so a binding for Enter does not fire for
+/// Ctrl+Enter. Use [`MOD_SHIFT`] and friends to build the mask.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct KeyBinding {
+    /// The key that triggers this action.
+    pub key: KeyCode,
+    /// Exact modifier bitmask required alongside the key.
+    pub modifiers: u8,
+}
+
+impl KeyBinding {
+    /// A binding with no modifiers held.
+    pub fn new(key: KeyCode) -> Self {
+        Self { key, modifiers: 0 }
+    }
+
+    /// A binding requiring an exact modifier mask.
+    pub fn with_modifiers(key: KeyCode, modifiers: u8) -> Self {
+        Self { key, modifiers }
+    }
+
+    /// Whether a key press matches this binding.
+    pub fn matches(&self, key: &KeyCode, modifiers: u8) -> bool {
+        self.key == *key && self.modifiers == modifiers
+    }
+}
+
 /// The accessibility role of a node.
 ///
 /// Roles tell screen readers and other assistive technology what kind of control a
@@ -67,6 +131,36 @@ pub enum Role {
     Group,
     /// A visual or structural separator between adjacent groups or items.
     Separator,
+    /// A hierarchical list of expandable items.
+    Tree,
+    /// One item in a [`Tree`](Role::Tree), which may own child items.
+    TreeItem,
+    /// A grouped set of controls sharing one tab stop, such as a formatting bar.
+    Toolbar,
+    /// A set of radios where exactly one is selected at a time.
+    RadioGroup,
+    /// A grid of data arranged in rows and columns.
+    Table,
+    /// One row of a [`Table`](Role::Table).
+    TableRow,
+    /// One data cell inside a [`TableRow`](Role::TableRow).
+    TableCell,
+    /// A header cell naming a column.
+    ColumnHeader,
+    /// A determinate or indeterminate measure of progress.
+    ProgressBar,
+    /// Supplementary text describing the control it is attached to.
+    Tooltip,
+    /// A region whose updates are announced without taking focus.
+    Status,
+    /// A numeric field adjusted by stepping controls.
+    SpinButton,
+    /// A playable video surface.
+    ///
+    /// Distinct from [`Image`](Self::Image) because assistive technology
+    /// announces time-based media differently and offers transport controls
+    /// for it.
+    Video,
 }
 
 /// The kind of popup controlled by a semantic node.
@@ -309,6 +403,13 @@ pub enum ActionTrigger {
     Validation,
     /// A dismissible surface was asked to close, normally via Escape.
     Dismiss,
+    /// A declared key was pressed while this node held focus.
+    ///
+    /// The binding travels on the [`ActionEntry`], so a node can declare several
+    /// keys with different actions. Unlike [`Default`](Self::Default), which
+    /// means "activate", this says nothing about what the key does — that is
+    /// the application's to decide.
+    Key,
 }
 
 #[cfg(test)]
@@ -345,6 +446,7 @@ mod tests {
         assert_eq!(ActionTrigger::ViewportInteractionEnd as u8, 22);
         assert_eq!(ActionTrigger::Validation as u8, 23);
         assert_eq!(ActionTrigger::Dismiss as u8, 24);
+        assert_eq!(ActionTrigger::Key as u8, 25);
     }
 
     #[test]
@@ -360,6 +462,19 @@ mod tests {
         assert_eq!(Role::Alert as u8, 22);
         assert_eq!(Role::Group as u8, 23);
         assert_eq!(Role::Separator as u8, 24);
+        assert_eq!(Role::Tree as u8, 25);
+        assert_eq!(Role::TreeItem as u8, 26);
+        assert_eq!(Role::Toolbar as u8, 27);
+        assert_eq!(Role::RadioGroup as u8, 28);
+        assert_eq!(Role::Table as u8, 29);
+        assert_eq!(Role::TableRow as u8, 30);
+        assert_eq!(Role::TableCell as u8, 31);
+        assert_eq!(Role::ColumnHeader as u8, 32);
+        assert_eq!(Role::ProgressBar as u8, 33);
+        assert_eq!(Role::Tooltip as u8, 34);
+        assert_eq!(Role::Status as u8, 35);
+        assert_eq!(Role::SpinButton as u8, 36);
+        assert_eq!(Role::Video as u8, 37);
     }
 
     #[test]
@@ -630,6 +745,72 @@ pub struct ActionEntry {
     pub payload_data: Option<Vec<u8>>,
 }
 
+/// A key press a node declares it responds to.
+///
+/// Fission's built-in keyboard contracts cover the keys a role implies — Space
+/// and Enter activate, arrows move within a composite, Escape dismisses. They
+/// cannot cover a key whose meaning only the application knows. Without a way
+/// to declare one, an application that wants `Ctrl+K` to open a command palette
+/// has to reach around the framework for raw key events, losing focus scoping
+/// and the shell's own key routing along with it.
+///
+/// A declared binding is scoped to focus: it fires when its node, or a
+/// descendant of it, holds focus. That makes the enclosing node the scope, so a
+/// dialog can bind a key for its whole subtree without every child knowing.
+///
+/// # Example
+///
+/// ```rust
+/// use fission_ir::semantics::{ActionEntry, ActionTrigger, KeyAction, KeyBinding};
+/// use fission_ir::{KeyCode, MOD_CTRL};
+///
+/// let palette = KeyAction {
+///     binding: KeyBinding::with_modifiers(KeyCode::Char('k'), MOD_CTRL),
+///     action: ActionEntry {
+///         trigger: ActionTrigger::Key,
+///         action_id: 7,
+///         payload_data: None,
+///     },
+/// };
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct KeyAction {
+    /// The key and exact modifier mask that fire this action.
+    pub binding: KeyBinding,
+    /// The action dispatched on a match. Its trigger is [`ActionTrigger::Key`].
+    pub action: ActionEntry,
+}
+
+impl KeyAction {
+    /// Binds a key with no modifiers to an action ID.
+    pub fn new(key: KeyCode, action_id: u128) -> Self {
+        Self::with_modifiers(key, 0, action_id)
+    }
+
+    /// Binds a key with an exact modifier mask to an action ID.
+    pub fn with_modifiers(key: KeyCode, modifiers: u8, action_id: u128) -> Self {
+        Self {
+            binding: KeyBinding::with_modifiers(key, modifiers),
+            action: ActionEntry {
+                trigger: ActionTrigger::Key,
+                action_id,
+                payload_data: None,
+            },
+        }
+    }
+
+    /// Attaches a serialized payload to the dispatched action.
+    pub fn payload(mut self, payload: Vec<u8>) -> Self {
+        self.action.payload_data = Some(payload);
+        self
+    }
+
+    /// Whether a key press matches this binding.
+    pub fn matches(&self, key: &KeyCode, modifiers: u8) -> bool {
+        self.binding.matches(key, modifiers)
+    }
+}
+
 /// Canvas-specific semantic target used by the shared gesture controller.
 ///
 /// This keeps stable document identity and geometry in backend-neutral IR while
@@ -815,6 +996,14 @@ pub struct Semantics {
     pub popover_target: Option<PopoverTarget>,
     /// The set of actions this node responds to.
     pub actions: ActionSet,
+    /// Keys this node declares, dispatched while it or a descendant has focus.
+    ///
+    /// Checked before the framework's own handling for that key, so a node that
+    /// explicitly asks for Enter gets Enter rather than default activation.
+    /// Tab is the exception: focus traversal belongs to the framework and is
+    /// never overridden, or a single widget could trap focus for the whole app.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub key_actions: Vec<KeyAction>,
     /// Structured InfiniteCanvas target metadata for contextual gesture input.
     #[serde(default)]
     pub canvas_target: Option<CanvasTarget>,
@@ -926,7 +1115,7 @@ pub struct Semantics {
     pub drag_payload: Option<Vec<u8>>,
     /// An identifier for hero/shared-element transitions.
     pub hero_tag: Option<String>,
-    /// Explicit tab order index. InternalLower values receive focus first. `None` means
+    /// Explicit tab order index. Lower values receive focus first. `None` means
     /// the node follows document order.
     pub focus_index: Option<i32>,
     /// Preferred keyboard/input modality for text entry.
@@ -1072,6 +1261,7 @@ impl Default for Semantics {
             hyperlink: None,
             popover_target: None,
             actions: ActionSet::default(),
+            key_actions: Vec::new(),
             canvas_target: None,
             action_scope_id: None,
             focusable: false,

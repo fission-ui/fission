@@ -218,6 +218,7 @@ impl From<ComposeModal> for Widget {
 
                         Combobox {
                             id: WidgetId::explicit("compose_to"),
+                            semantics_identifier: Some("compose.to".into()),
                             value: view.state().compose_to.clone(),
                             items: suggestions,
                             is_open: !query.is_empty() && !has_exact_match,

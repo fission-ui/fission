@@ -1,4 +1,4 @@
-use fission_core::internal::BuildCtx;
+use fission_core::authoring::BuildCtx;
 use fission_core::ui::{Column, TextInput};
 use fission_core::{build, ActionEnvelope, ActionId, Env, GlobalState, View, WidgetId};
 use fission_ir::{
@@ -84,12 +84,28 @@ fn subtree_has_stroke_color(ir: &CoreIR, root: WidgetId, expected: fission_ir::o
 fn form_control_uses_compact_theme_anatomy_and_stable_relations() {
     let mut env = Env::default();
     env.theme.tokens.spacing.s = 9.0;
-    env.theme.components.text_input.label_style.font_size = Some(17.0);
-    env.theme.components.text_input.label_style.font_weight = Some(600);
-    env.theme.components.text_input.label_style.line_height = Some(17.0);
-    env.theme.components.text_input.helper_style.font_size = Some(13.0);
-    env.theme.components.text_input.helper_style.font_weight = Some(400);
-    env.theme.components.text_input.helper_style.line_height = Some(19.0);
+    env.theme.components_mut().text_input.label_style.font_size = Some(17.0);
+    env.theme
+        .components_mut()
+        .text_input
+        .label_style
+        .font_weight = Some(600);
+    env.theme
+        .components_mut()
+        .text_input
+        .label_style
+        .line_height = Some(17.0);
+    env.theme.components_mut().text_input.helper_style.font_size = Some(13.0);
+    env.theme
+        .components_mut()
+        .text_input
+        .helper_style
+        .font_weight = Some(400);
+    env.theme
+        .components_mut()
+        .text_input
+        .helper_style
+        .line_height = Some(19.0);
 
     let control_id = WidgetId::explicit("recovery-email.field");
     let input_id = WidgetId::explicit("recovery-email.input");
@@ -313,6 +329,7 @@ fn form_control_relates_the_actual_editable_combobox_input() {
             label: Some("Assignee".into()),
             child: Combobox {
                 id: combobox_id,
+                semantics_identifier: None,
                 value: "Av".into(),
                 items: vec!["Avery".into()],
                 is_open: false,

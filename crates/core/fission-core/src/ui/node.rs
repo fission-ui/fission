@@ -1,5 +1,5 @@
 use super::custom_render::CustomRenderObject;
-use super::traits::{InternalLower, InternalLowerer};
+use super::traits::{Lower, LowerWidget};
 #[cfg(feature = "interactive-canvas")]
 use super::widgets::InteractiveViewer;
 use super::widgets::{
@@ -9,7 +9,7 @@ use super::widgets::{
     SelectionRegion, SemanticsRegion, Slider, Spacer, Switch, Text, TextInput, Transform, Video,
     ZStack,
 };
-use crate::lowering::{FormFieldContext, InternalLoweringCx};
+use crate::lowering::{FormFieldContext, LoweringContext};
 use fission_ir::{CoreIR, Op, Role, StructuralOp, TextFieldValidationState, WidgetId};
 use serde::{Deserialize, Serialize};
 use std::hash::{Hash, Hasher};
@@ -865,7 +865,7 @@ pub trait WidgetIdExt: Into<Widget> + Sized {
 impl<T> WidgetIdExt for T where T: Into<Widget> {}
 
 impl Widget {
-    pub(crate) fn lower(&self, cx: &mut InternalLoweringCx) -> WidgetId {
+    pub(crate) fn lower(&self, cx: &mut LoweringContext) -> WidgetId {
         let has_form_field_context =
             self.form_field_relationships.is_some() && retained_form_control_count(self) == 1;
         if let Some(relationships) = self
@@ -883,7 +883,7 @@ impl Widget {
                 cx.push_scope(*id);
                 let child_id = child.lower(cx);
                 cx.pop_scope();
-                let mut builder = crate::lowering::InternalIrBuilder::new(
+                let mut builder = crate::lowering::IrBuilder::new(
                     (*id).into(),
                     Op::Structural(StructuralOp::Group {
                         stable_hash: id.as_u128() as u64,
@@ -938,7 +938,7 @@ impl Widget {
                 cx.push_scope(wrapper);
                 let child_id = lowerer.lower_dyn(cx);
                 cx.pop_scope();
-                let mut builder = crate::lowering::InternalIrBuilder::new(
+                let mut builder = crate::lowering::IrBuilder::new(
                     wrapper,
                     Op::Structural(StructuralOp::Group {
                         stable_hash: lowerer.stable_key(),
@@ -1175,10 +1175,10 @@ impl From<Icon> for Widget {
 pub struct InternalRenderNode {
     pub debug_tag: String,
     #[serde(skip)]
-    pub lowerer: Option<Arc<dyn InternalLowerer>>,
+    pub lowerer: Option<Arc<dyn LowerWidget>>,
     /// Optional render object that participates in hit-testing, event handling,
     /// and painting.  When `None`, the node behaves exactly as before (lowering
-    /// only via `InternalLowerer`).
+    /// only via `LowerWidget`).
     #[serde(skip)]
     pub render_object: Option<Arc<dyn CustomRenderObject>>,
 }

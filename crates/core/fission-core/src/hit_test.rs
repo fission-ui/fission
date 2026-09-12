@@ -3,7 +3,7 @@ use crate::input::viewport::ViewportStateMap;
 use crate::ui::custom_render::downcast_render_object;
 use fission_diagnostics::prelude as diag;
 use fission_ir::{
-    ActionEntry, ActionTrigger, CoreIR, LayoutOp, Op, PaintOp, PopupKind, Role,
+    ActionEntry, ActionTrigger, CoreIR, KeyCode, LayoutOp, Op, PaintOp, PopupKind, Role,
     SemanticOrientation, StructuralOp, WidgetId,
 };
 use fission_layout::{LayoutPoint, LayoutSnapshot};
@@ -368,8 +368,17 @@ fn paint_op_blocks_hit_testing(op: &Op) -> bool {
             fill,
             stroke,
             shadow,
+            border_sides,
             ..
-        }) => fill.is_some() || stroke.is_some() || shadow.is_some(),
+        }) => {
+            fill.is_some()
+                || stroke.is_some()
+                || shadow.is_some()
+                // A rectangle whose only paint is one edge -- a text field's
+                // underline, a table's cell grid -- is still painted content,
+                // and blocks hit testing exactly as a full border would.
+                || border_sides.as_ref().is_some_and(|sides| !sides.is_empty())
+        }
         Op::Paint(PaintOp::DrawText { text, .. }) => !text.is_empty(),
         Op::Paint(PaintOp::DrawRichText { runs, .. }) => {
             runs.iter().any(|run| !run.text.is_empty())
@@ -574,6 +583,53 @@ pub fn is_interaction_inert(ir: &CoreIR, node_id: WidgetId) -> bool {
     false
 }
 
+/// Finds the key binding that should handle a press, given the focused node.
+///
+/// The walk goes from the focused node outward through its ancestors, so the
+/// innermost declaration wins. That is what makes a binding on a container
+/// behave as a scope: a dialog can bind Enter for everything inside it, and a
+/// text field within that dialog can still bind Enter for itself and take
+/// precedence.
+///
+/// Nodes marked disabled are skipped, matching every other interaction path —
+/// a disabled control must not respond to a key any more than to a click.
+/// Inert subtrees are not consulted, because a node exiting a transition is
+/// still painted but is no longer logically present.
+pub fn declared_key_action(
+    ir: &CoreIR,
+    focused: Option<WidgetId>,
+    key: &KeyCode,
+    modifiers: u8,
+) -> Option<(WidgetId, ActionEntry)> {
+    // Checked against the whole ancestor chain before any binding is resolved.
+    // Doing it inside the walk below would be too late: a focused descendant of
+    // an inert subtree matches on the way up and returns before the walk ever
+    // reaches the inert ancestor, so hidden or exiting UI could still dispatch
+    // an application command.
+    let focused_id = focused?;
+    if is_interaction_inert(ir, focused_id) {
+        return None;
+    }
+
+    let mut current = Some(focused_id);
+    while let Some(node_id) = current {
+        let node = ir.nodes.get(&node_id)?;
+        if let Op::Semantics(semantics) = &node.op {
+            if !semantics.disabled {
+                if let Some(action) = semantics
+                    .key_actions
+                    .iter()
+                    .find(|binding| binding.matches(key, modifiers))
+                {
+                    return Some((node_id, action.action.clone()));
+                }
+            }
+        }
+        current = node.parent;
+    }
+    None
+}
+
 /// Returns the last active semantic action with `trigger` in paint/tree order.
 ///
 /// Overlay portals lower after their underlying content, so the last matching
@@ -755,13 +811,75 @@ fn semantics(ir: &CoreIR, node_id: WidgetId) -> Option<&fission_ir::Semantics> {
     }
 }
 
-fn composite_contract(role: Role) -> Option<(Role, SemanticOrientation, bool)> {
-    match role {
-        Role::Menu => Some((Role::MenuItem, SemanticOrientation::Vertical, true)),
-        Role::ListBox => Some((Role::Option, SemanticOrientation::Vertical, true)),
-        Role::TabList => Some((Role::Tab, SemanticOrientation::Horizontal, false)),
-        _ => None,
+/// How a composite role moves keyboard focus between its items.
+///
+/// A composite owns one tab stop and moves an inner cursor with the arrow keys,
+/// the way a menu, a list box or a tab strip does. Adding a role here is all it
+/// takes to give a new composite the shared navigation contract: wrapping,
+/// Home and End, disabled skipping, and typeahead where it applies.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct CompositeContract {
+    /// The role its focusable items carry.
+    pub item_role: Role,
+    /// Axis used when the composite does not declare one itself.
+    pub default_orientation: SemanticOrientation,
+    /// Whether typing a character jumps to the next item starting with it.
+    ///
+    /// Right for menus and lists of names; wrong for a tab strip, where typing
+    /// belongs to the panel rather than the strip.
+    pub supports_typeahead: bool,
+}
+
+impl CompositeContract {
+    const fn new(
+        item_role: Role,
+        default_orientation: SemanticOrientation,
+        supports_typeahead: bool,
+    ) -> Self {
+        Self {
+            item_role,
+            default_orientation,
+            supports_typeahead,
+        }
     }
+}
+
+/// Every composite whose items share one tab stop.
+///
+/// Keep this as the single place the contract is declared. A composite absent
+/// from this table falls back to plain Tab traversal, which is why TreeView and
+/// DataTable had no keyboard model before their roles were listed.
+const COMPOSITE_CONTRACTS: &[(Role, CompositeContract)] = &[
+    (
+        Role::Menu,
+        CompositeContract::new(Role::MenuItem, SemanticOrientation::Vertical, true),
+    ),
+    (
+        Role::ListBox,
+        CompositeContract::new(Role::Option, SemanticOrientation::Vertical, true),
+    ),
+    (
+        Role::TabList,
+        CompositeContract::new(Role::Tab, SemanticOrientation::Horizontal, false),
+    ),
+    (
+        Role::Tree,
+        CompositeContract::new(Role::TreeItem, SemanticOrientation::Vertical, true),
+    ),
+    (
+        Role::Toolbar,
+        CompositeContract::new(Role::Button, SemanticOrientation::Horizontal, false),
+    ),
+    (
+        Role::RadioGroup,
+        CompositeContract::new(Role::Radio, SemanticOrientation::Vertical, false),
+    ),
+];
+
+fn composite_contract(role: Role) -> Option<CompositeContract> {
+    COMPOSITE_CONTRACTS
+        .iter()
+        .find_map(|(candidate, contract)| (*candidate == role).then_some(*contract))
 }
 
 fn containing_composite(
@@ -772,14 +890,12 @@ fn containing_composite(
     while let Some(node_id) = current {
         let node = ir.nodes.get(&node_id)?;
         if let Op::Semantics(value) = &node.op {
-            if let Some((item_role, default_orientation, supports_typeahead)) =
-                composite_contract(value.role)
-            {
+            if let Some(contract) = composite_contract(value.role) {
                 return Some((
                     node_id,
-                    item_role,
-                    value.orientation.unwrap_or(default_orientation),
-                    supports_typeahead,
+                    contract.item_role,
+                    value.orientation.unwrap_or(contract.default_orientation),
+                    contract.supports_typeahead,
                 ));
             }
         }
@@ -964,7 +1080,7 @@ fn controlled_popup(ir: &CoreIR, controller: WidgetId) -> Option<(WidgetId, Role
         if popup_semantics.role != popup_role || is_interaction_inert(ir, *popup_id) {
             continue;
         }
-        let (item_role, _, _) = composite_contract(popup_role)?;
+        let item_role = composite_contract(popup_role)?.item_role;
         let items = composite_items(ir, *popup_id, item_role);
         return Some((*popup_id, item_role, items));
     }

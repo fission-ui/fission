@@ -1,6 +1,5 @@
 use anyhow::Result;
 use fission_core::ui::{Row, Text, TextContent, Widget};
-use fission_render::DisplayOp;
 use fission_test::TestHarness;
 
 #[derive(Debug, Default, Clone)]
@@ -44,13 +43,7 @@ fn row_children_order_preserved_in_display_list() -> Result<()> {
     let texts: Vec<String> = dl
         .ops
         .iter()
-        .filter_map(|op| {
-            if let DisplayOp::DrawText { text, .. } = op {
-                Some(text.clone())
-            } else {
-                None
-            }
-        })
+        .filter_map(|op| op.text().map(|t| t.into_owned()))
         .collect();
     // We expect the first three DrawText ops to be A, B, C in order
     let prefix: Vec<String> = texts.into_iter().take(3).collect();

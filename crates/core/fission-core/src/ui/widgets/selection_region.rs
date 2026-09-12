@@ -1,6 +1,6 @@
+use crate::authoring::Lower;
 use crate::env::TextSelectionHandleKind;
-use crate::internal::InternalLower;
-use crate::lowering::{InternalIrBuilder, InternalLoweringCx};
+use crate::lowering::{IrBuilder, LoweringContext};
 use crate::selection::{selectable_members_in_subtree, SelectionRegionController};
 use crate::ui::widgets::context_menu::{
     anchor_to_local, text_context_menu_item_widget, text_context_menu_overlay_widget,
@@ -181,7 +181,7 @@ pub(crate) fn selection_region_handle_position_id(
 }
 
 fn build_selection_handle(
-    cx: &mut InternalLoweringCx,
+    cx: &mut LoweringContext,
     region_id: WidgetId,
     controls: &TextSelectionControls,
     kind: TextSelectionHandleKind,
@@ -250,7 +250,7 @@ fn magnifier_snippet(text: &str, offset: usize) -> String {
 }
 
 fn build_magnifier(
-    cx: &mut InternalLoweringCx,
+    cx: &mut LoweringContext,
     region_id: WidgetId,
     config: &TextMagnifierConfiguration,
     anchor: fission_layout::LayoutPoint,
@@ -349,7 +349,7 @@ fn build_mobile_toolbar(
 }
 
 pub(crate) fn wrap_implicit_selection_affordances(
-    cx: &mut InternalLoweringCx<'_>,
+    cx: &mut LoweringContext<'_>,
     owner: WidgetId,
     visual_id: WidgetId,
     context_menu: &TextContextMenuConfig,
@@ -440,7 +440,7 @@ pub(crate) fn wrap_implicit_selection_affordances(
     if overlays.is_empty() {
         visual_id
     } else {
-        let mut stack = InternalIrBuilder::new(cx.next_node_id(), Op::Layout(LayoutOp::ZStack));
+        let mut stack = IrBuilder::new(cx.next_node_id(), Op::Layout(LayoutOp::ZStack));
         stack.add_child(visual_id);
         for overlay in overlays {
             stack.add_child(overlay);
@@ -449,8 +449,8 @@ pub(crate) fn wrap_implicit_selection_affordances(
     }
 }
 
-impl InternalLower for SelectionRegion {
-    fn lower(&self, cx: &mut InternalLoweringCx) -> WidgetId {
+impl Lower for SelectionRegion {
+    fn lower(&self, cx: &mut LoweringContext) -> WidgetId {
         let owner = self.id.unwrap_or_else(|| cx.next_node_id());
         cx.push_scope(owner);
         let child_id = self.child.lower(cx);
@@ -603,7 +603,7 @@ impl InternalLower for SelectionRegion {
         let visual_id = if overlays.is_empty() {
             child_id
         } else {
-            let mut stack = InternalIrBuilder::new(cx.next_node_id(), Op::Layout(LayoutOp::ZStack));
+            let mut stack = IrBuilder::new(cx.next_node_id(), Op::Layout(LayoutOp::ZStack));
             stack.add_child(child_id);
             for overlay in overlays {
                 stack.add_child(overlay);
@@ -629,7 +629,7 @@ impl InternalLower for SelectionRegion {
             }),
             ..Semantics::default()
         };
-        let mut builder = InternalIrBuilder::new(owner, Op::Semantics(semantics));
+        let mut builder = IrBuilder::new(owner, Op::Semantics(semantics));
         builder.add_child(visual_id);
         let owner = builder.build(cx);
         cx.ir.custom_render_objects.insert(

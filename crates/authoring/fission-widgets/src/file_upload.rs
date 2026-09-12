@@ -1,8 +1,9 @@
 use crate::stack::HStack;
 use crate::Icon;
-use fission_core::ui::{Button, ButtonVariant, Text, Widget};
+use fission_core::ui::{Button, ButtonVariant, SemanticsRegion, Text, Widget};
 use fission_core::ActionEnvelope;
 use fission_icons::material;
+use fission_ir::Role;
 use serde::{Deserialize, Serialize};
 
 /// File-selection row containing a browse action and the selected file label.
@@ -29,6 +30,10 @@ impl From<FileUpload> for Widget {
         let this = &component;
 
         let tokens = &view.env().theme.tokens;
+        let recipe = view
+            .env()
+            .theme
+            .recipe(fission_theme::recipe_names::FILE_UPLOAD);
 
         let mut browse_button = Button {
             variant: ButtonVariant::Outline,
@@ -51,8 +56,8 @@ impl From<FileUpload> for Widget {
             browse_button = browse_button.semantics_identifier(identifier.clone());
         }
 
-        HStack {
-            spacing: Some(8.0),
+        SemanticsRegion::new(HStack {
+            spacing: Some(recipe.base.gap.unwrap_or(tokens.spacing.s)),
             children: vec![
                 browse_button.into(),
                 Text::new(
@@ -68,7 +73,17 @@ impl From<FileUpload> for Widget {
                 .flex_grow(1.0)
                 .into(),
             ],
-        }
+        })
+        // The button and the filename beside it are one control; grouping them
+        // means the selection is announced with the control rather than as
+        // stray text somewhere after it.
+        .role(Role::Group)
+        .label("File upload")
+        .value(
+            this.selected_file
+                .clone()
+                .unwrap_or_else(|| "No file selected".to_string()),
+        )
         .into()
     }
 }

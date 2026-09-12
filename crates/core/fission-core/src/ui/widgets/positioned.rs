@@ -1,5 +1,5 @@
-use crate::internal::InternalLower;
-use crate::lowering::{InternalIrBuilder, InternalLoweringCx};
+use crate::authoring::Lower;
+use crate::lowering::{IrBuilder, LoweringContext};
 use crate::ui::Widget;
 use fission_ir::{
     op::{LayoutOp, Op},
@@ -36,6 +36,17 @@ pub struct Positioned {
     pub right: Option<f32>,
     /// Distance from the bottom edge of the parent.
     pub bottom: Option<f32>,
+    /// Distance from the inline start edge, following reading order.
+    ///
+    /// Resolves to `left` in a left-to-right layout and `right` in a
+    /// right-to-left one. Prefer this over `left`/`right` for anything that
+    /// should follow the text direction; a value set here wins over the
+    /// physical field for the same edge.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub start: Option<f32>,
+    /// Distance from the inline end edge, following reading order.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub end: Option<f32>,
     /// Explicit width override.
     pub width: Option<f32>,
     /// Explicit height override.
@@ -46,8 +57,8 @@ pub struct Positioned {
 
 impl Positioned {}
 
-impl InternalLower for Positioned {
-    fn lower(&self, cx: &mut InternalLoweringCx) -> WidgetId {
+impl Lower for Positioned {
+    fn lower(&self, cx: &mut LoweringContext) -> WidgetId {
         let id = self.id.map(Into::into).unwrap_or_else(|| cx.next_node_id());
         cx.push_scope(id);
 
@@ -57,12 +68,18 @@ impl InternalLower for Positioned {
             None
         };
 
-        let mut builder = InternalIrBuilder::new(
+        // Map the inline edges onto physical ones once, here, so no widget has
+        // to branch on reading order to place an overlay.
+        let (start_edge, end_edge) = match cx.env.layout_direction {
+            fission_ir::LayoutDirection::LeftToRight => (self.start, self.end),
+            fission_ir::LayoutDirection::RightToLeft => (self.end, self.start),
+        };
+        let mut builder = IrBuilder::new(
             id,
             Op::Layout(LayoutOp::Positioned {
-                left: self.left,
+                left: start_edge.or(self.left),
                 top: self.top,
-                right: self.right,
+                right: end_edge.or(self.right),
                 bottom: self.bottom,
                 width: self.width,
                 height: self.height,

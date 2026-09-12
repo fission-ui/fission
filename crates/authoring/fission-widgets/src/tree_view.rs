@@ -1,10 +1,13 @@
 use crate::stack::{HStack, VStack};
 use crate::Icon;
-use fission_core::ui::{Button, ButtonContentAlign, ButtonVariant, Container, Text, Widget};
+use fission_core::ui::{
+    Button, ButtonContentAlign, ButtonVariant, Container, SemanticsRegion, Text, Widget,
+};
 use fission_core::{
     build::{BuildCtxHandle, ViewHandle},
     ActionEnvelope,
 };
+use fission_ir::{Role, SemanticOrientation, Semantics};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
@@ -46,10 +49,14 @@ impl From<TreeView> for Widget {
             this.build_recursive(item, 0, &mut nodes, &ctx, view);
         }
 
-        VStack {
+        // The tree owns one tab stop and moves an inner cursor, so the runtime's
+        // composite navigation takes over arrow keys, Home/End and typeahead.
+        SemanticsRegion::new(VStack {
             spacing: Some(0.0),
             children: nodes,
-        }
+        })
+        .role(Role::Tree)
+        .orientation(SemanticOrientation::Vertical)
         .into()
     }
 }
@@ -130,6 +137,7 @@ impl TreeView {
         .flex_grow(1.0)
         .into();
 
+        let has_children = !item.children.is_empty();
         nodes.push(
             Button {
                 variant: ButtonVariant::Ghost,
@@ -138,6 +146,16 @@ impl TreeView {
                 on_press: item.on_select.clone(),
                 padding: Some([0.0; 4]),
                 height: Some(40.0), // Force button height
+                semantics: Some(Semantics {
+                    role: Role::TreeItem,
+                    label: Some(item.label.clone()),
+                    selected: Some(is_selected),
+                    // Only a row that owns children has an expanded state;
+                    // announcing one on a leaf implies it can be opened.
+                    expanded: has_children.then_some(is_expanded),
+                    focusable: true,
+                    ..Default::default()
+                }),
                 ..Default::default()
             }
             .into(),

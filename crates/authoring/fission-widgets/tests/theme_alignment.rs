@@ -1,7 +1,8 @@
 use fission_core::action::GlobalState;
+use fission_core::authoring::BuildCtx;
+use fission_core::authoring::LoweringContext;
 use fission_core::env::{Env, RuntimeState};
-use fission_core::internal::BuildCtx;
-use fission_core::internal::{build_layout_tree, InternalLoweringCx};
+use fission_core::internal::build_layout_tree;
 use fission_core::ui::{Row, Spacer};
 use fission_core::{View, Widget};
 use fission_ir::op::Color;
@@ -70,10 +71,10 @@ fn build_widget_ir_with(env: &Env, build: impl FnOnce() -> Widget) -> (CoreIR, W
 
     let measurer: Arc<dyn TextMeasurer> = Arc::new(SimpleMeasurer);
     let measurer_ref = measurer.clone();
-    let mut lower = InternalLoweringCx::new(env, &runtime_state, Some(&measurer_ref), None);
+    let mut lower = LoweringContext::new(env, &runtime_state, Some(&measurer_ref), None);
     let root_id = fission_core::internal::lower_widget(&node, &mut lower);
-    lower.ir.root = Some(root_id);
-    (lower.ir, root_id)
+    lower.set_root(root_id);
+    (lower.into_ir(), root_id)
 }
 
 fn layout_widget(
@@ -142,10 +143,11 @@ fn code_uses_the_active_component_recipe_and_monospace_family() {
         b: 43,
         a: 255,
     };
-    env.theme.components.code.style.background = Some(fission_ir::op::Fill::Solid(background));
-    env.theme.components.code.style.font_family = Some("Fixture Mono".into());
-    env.theme.components.code.style.font_size = Some(13.0);
-    env.theme.components.code.style.padding = Some([7.0, 9.0, 3.0, 5.0]);
+    env.theme.components_mut().code.style.background =
+        Some(fission_ir::op::Fill::Solid(background));
+    env.theme.components_mut().code.style.font_family = Some("Fixture Mono".into());
+    env.theme.components_mut().code.style.font_size = Some(13.0);
+    env.theme.components_mut().code.style.padding = Some([7.0, 9.0, 3.0, 5.0]);
 
     let (ir, _) = build_widget_ir(
         Code {

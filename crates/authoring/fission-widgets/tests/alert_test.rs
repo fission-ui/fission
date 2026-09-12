@@ -1,4 +1,4 @@
-use fission_core::internal::BuildCtx;
+use fission_core::authoring::BuildCtx;
 use fission_core::op::AlignItems;
 use fission_core::ui::{Column, Container, Row, Text, WidgetKind};
 use fission_core::{build, Env, GlobalState, RuntimeState, View, Widget};
@@ -203,7 +203,10 @@ fn alert_layout_exposes_retained_content_and_action_regions() {
         _ => panic!("alert action should be positioned independently of message flow"),
     };
     assert_eq!(positioned.top, Some(8.0));
-    assert_eq!(positioned.right, Some(8.0));
+    // The trailing action is inset from the end edge, so it follows reading
+    // order instead of pinning itself to the right in every locale.
+    assert_eq!(positioned.end, Some(8.0));
+    assert_eq!(positioned.right, None);
     assert_eq!(positioned.width, Some(64.0));
 }
 
@@ -222,12 +225,12 @@ fn alert_surface_and_tone_resolve_from_component_recipe() {
         b: 214,
         a: 255,
     };
-    env.theme.components.alert.surface_style.background = Some(Fill::Solid(surface));
-    env.theme.components.alert.surface_style.padding = Some([3.0, 5.0, 7.0, 11.0]);
-    env.theme.components.alert.surface_style.min_height = Some(47.0);
-    env.theme.components.alert.info_style.background = Some(Fill::Solid(surface));
-    env.theme.components.alert.info_style.text_color = Some(tone);
-    env.theme.components.alert.icon_style.translate_y = Some(-3.5);
+    env.theme.components_mut().alert.surface_style.background = Some(Fill::Solid(surface));
+    env.theme.components_mut().alert.surface_style.padding = Some([3.0, 5.0, 7.0, 11.0]);
+    env.theme.components_mut().alert.surface_style.min_height = Some(47.0);
+    env.theme.components_mut().alert.info_style.background = Some(Fill::Solid(surface));
+    env.theme.components_mut().alert.info_style.text_color = Some(tone);
+    env.theme.components_mut().alert.icon_style.translate_y = Some(-3.5);
 
     let widget = build_alert(&env, AlertKind::Info, Some("Supporting detail"));
     let container = root_container(&widget);

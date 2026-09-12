@@ -1,5 +1,5 @@
-use crate::internal::InternalLower;
-use crate::lowering::{InternalIrBuilder, InternalLoweringCx};
+use crate::authoring::Lower;
+use crate::lowering::{IrBuilder, LoweringContext};
 use crate::ui::widgets::context_menu::TextContextMenuConfig;
 use crate::ui::widgets::selection_region::wrap_implicit_selection_affordances;
 use crate::ActionEnvelope;
@@ -1060,11 +1060,11 @@ impl Text {
         self
     }
 
-    fn resolve_text(&self, cx: &InternalLoweringCx<'_>) -> String {
+    fn resolve_text(&self, cx: &LoweringContext<'_>) -> String {
         self.content.resolve(cx.env)
     }
 
-    fn resolved_style(&self, cx: &InternalLoweringCx<'_>) -> fission_ir::op::TextStyle {
+    fn resolved_style(&self, cx: &LoweringContext<'_>) -> fission_ir::op::TextStyle {
         let base_font_size = self
             .font_size
             .unwrap_or(cx.env.theme.tokens.typography.body_medium_size);
@@ -1101,19 +1101,6 @@ impl Text {
             background_color: None,
             typography: self.typography.clone(),
         }
-    }
-
-    fn needs_rich_text(&self) -> bool {
-        self.font_family.is_some()
-            || self.locale.is_some()
-            || self.font_weight.is_some()
-            || self.font_style != TextFontStyle::Normal
-            || self.line_height.is_some()
-            || self.letter_spacing.unwrap_or(0.0) != 0.0
-            || self.text_scale.unwrap_or(1.0) != 1.0
-            || self.text_scaler.is_some()
-            || self.typography != TextTypography::default()
-            || self.selection_range.is_some()
     }
 }
 
@@ -1417,7 +1404,7 @@ impl RichText {
         self
     }
 
-    fn lower_runs(&self, cx: &InternalLoweringCx<'_>) -> Vec<IrTextRun> {
+    fn lower_runs(&self, cx: &LoweringContext<'_>) -> Vec<IrTextRun> {
         self.runs
             .iter()
             .map(|run| run.lower_with_theme(&cx.env.theme, None, None, &cx.env.text_scaler))
@@ -1551,7 +1538,7 @@ fn upsert_action_entry(
 }
 
 fn wrap_paint_in_layout(
-    cx: &mut InternalLoweringCx<'_>,
+    cx: &mut LoweringContext<'_>,
     layout_node_id: WidgetId,
     paint_node_id: WidgetId,
     width: Option<f32>,
@@ -1564,7 +1551,7 @@ fn wrap_paint_in_layout(
     flex_grow: f32,
     flex_shrink: f32,
 ) -> WidgetId {
-    let mut layout_builder = InternalIrBuilder::new(
+    let mut layout_builder = IrBuilder::new(
         layout_node_id,
         Op::Layout(LayoutOp::Box {
             width,
@@ -1661,7 +1648,7 @@ fn rich_text_line_height(
 }
 
 fn maybe_wrap_semantics(
-    cx: &mut InternalLoweringCx<'_>,
+    cx: &mut LoweringContext<'_>,
     layout_node_id: WidgetId,
     semantics: Option<Semantics>,
     multiline: bool,
@@ -1676,7 +1663,7 @@ fn maybe_wrap_semantics(
             .entries
             .iter()
             .any(|entry| entry.trigger == ActionTrigger::Default);
-        let mut semantics_builder = InternalIrBuilder::new(cx.next_node_id(), Op::Semantics(s));
+        let mut semantics_builder = IrBuilder::new(cx.next_node_id(), Op::Semantics(s));
         semantics_builder.add_child(layout_node_id);
         semantics_builder.build(cx)
     } else {
@@ -1706,7 +1693,7 @@ fn selectable_text_semantics(
 }
 
 fn wrap_selectable_context_menu(
-    cx: &mut InternalLoweringCx<'_>,
+    cx: &mut LoweringContext<'_>,
     owner: WidgetId,
     visual_id: WidgetId,
     config: &TextContextMenuConfig,
@@ -1716,8 +1703,8 @@ fn wrap_selectable_context_menu(
     wrap_implicit_selection_affordances(cx, owner, visual_id, config, selection, text)
 }
 
-impl InternalLower for Text {
-    fn lower(&self, cx: &mut InternalLoweringCx) -> WidgetId {
+impl Lower for Text {
+    fn lower(&self, cx: &mut LoweringContext) -> WidgetId {
         let owner_id = self.id.map(Into::into).unwrap_or_else(|| cx.next_node_id());
         let layout_node_id = if self.selectable {
             cx.next_node_id()
@@ -1751,55 +1738,38 @@ impl InternalLower for Text {
         };
         let selection_range = runtime_selection.or(self.selection_range);
 
-        // A simple `DrawText` operation deliberately relies on the host's
-        // emergency fallback face. Once a design system supplies typography,
-        // retain the resolved family in rich-text IR so every renderer uses
-        // that design authority instead of silently choosing a host default.
-        let paint_node_id =
-            if style.font_family.is_some() || self.needs_rich_text() || selection_range.is_some() {
-                let runs = apply_selection_to_runs(
-                    vec![IrTextRun {
-                        text: resolved_text.clone(),
-                        style: style.clone(),
-                    }],
-                    selection_range,
-                    self.selection_color,
-                    self.selection_text_color,
-                );
-                InternalIrBuilder::new(
-                    cx.next_node_id(),
-                    Op::Paint(PaintOp::DrawRichText {
-                        runs,
-                        wrap: self.wrap,
-                        caret_index: None,
-                        caret_color: None,
-                        caret_width: None,
-                        caret_height: None,
-                        caret_radius: None,
-                        paragraph_style,
-                    }),
-                )
-                .build(cx)
-            } else {
-                InternalIrBuilder::new(
-                    cx.next_node_id(),
-                    Op::Paint(PaintOp::DrawText {
-                        text: resolved_text.clone(),
-                        size: style.font_size,
-                        color: style.color,
-                        underline: style.underline,
-                        locale: style.locale.clone(),
-                        wrap: self.wrap,
-                        caret_index: None,
-                        caret_color: None,
-                        caret_width: None,
-                        caret_height: None,
-                        caret_radius: None,
-                        paragraph_style,
-                    }),
-                )
-                .build(cx)
-            };
+        // `Text` always paints through rich-text IR, the way Flutter routes
+        // every `Text` through a single `Paragraph`.
+        //
+        // Style resolution falls back to the theme's sans family, so a resolved
+        // style always carries a font family. Emitting a bare `DrawText` here
+        // would drop that family and leave the renderer on the host's emergency
+        // fallback face, which is exactly the design-authority leak this node is
+        // meant to prevent. One paint primitive also means one shaping path per
+        // shell rather than two that can disagree about wrapping and metrics.
+        let runs = apply_selection_to_runs(
+            vec![IrTextRun {
+                text: resolved_text.clone(),
+                style: style.clone(),
+            }],
+            selection_range,
+            self.selection_color,
+            self.selection_text_color,
+        );
+        let paint_node_id = IrBuilder::new(
+            cx.next_node_id(),
+            Op::Paint(PaintOp::DrawRichText {
+                runs,
+                wrap: self.wrap,
+                caret_index: None,
+                caret_color: None,
+                caret_width: None,
+                caret_height: None,
+                caret_radius: None,
+                paragraph_style,
+            }),
+        )
+        .build(cx);
 
         let layout_node_id = wrap_paint_in_layout(
             cx,
@@ -1832,7 +1802,7 @@ impl InternalLower for Text {
                 runtime_selection,
                 self.context_menu.enabled,
             );
-            let mut builder = InternalIrBuilder::new(owner_id, Op::Semantics(semantics));
+            let mut builder = IrBuilder::new(owner_id, Op::Semantics(semantics));
             builder.add_child(visual_id);
             builder.build(cx)
         } else {
@@ -1841,8 +1811,8 @@ impl InternalLower for Text {
     }
 }
 
-impl InternalLower for RichText {
-    fn lower(&self, cx: &mut InternalLoweringCx) -> WidgetId {
+impl Lower for RichText {
+    fn lower(&self, cx: &mut LoweringContext) -> WidgetId {
         let owner_id = self.id.map(Into::into).unwrap_or_else(|| cx.next_node_id());
         let layout_node_id = if self.selectable {
             cx.next_node_id()
@@ -1882,7 +1852,7 @@ impl InternalLower for RichText {
             ),
         );
         let clip_to_bounds = should_clip_paragraph(self.max_lines, self.overflow);
-        let mut paint_builder = InternalIrBuilder::new(
+        let mut paint_builder = IrBuilder::new(
             cx.next_node_id(),
             Op::Paint(PaintOp::DrawRichText {
                 runs,
@@ -1937,7 +1907,7 @@ impl InternalLower for RichText {
                 runtime_selection,
                 self.context_menu.enabled,
             );
-            let mut builder = InternalIrBuilder::new(owner_id, Op::Semantics(semantics));
+            let mut builder = IrBuilder::new(owner_id, Op::Semantics(semantics));
             builder.add_child(visual_id);
             builder.build(cx)
         } else {

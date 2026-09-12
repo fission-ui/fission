@@ -50,16 +50,14 @@ winit = { package = "fission-winit", version = "0.30.13-fission.3" }
 fission-diagnostics = { path = "../../tools/fission-diagnostics", version = "0.14.1" }
 fission-test-driver = { path = "../../tools/fission-test-driver", version = "0.14.1" }
 image = "0.25"
-tiny-skia = "0.11.4"
-fontdue = "0.9.3"
 anyhow = "1.0"
 raw-window-handle = "0.6"
 bytemuck = "1.16"
 serde_json = "1"
-vello = { package = "fission-vello", version = "0.6.0-fission.3" }
+wgpu = "29.0.3"
 pollster = "0.3"
-fontique = "0.7"
-read-fonts = "0.35"
+fontique = "0.11.1"
+read-fonts = "0.41"
 serde = { version = "1.0", features = ["derive"] }
 bincode = "1.3"
 base64 = "0.22"

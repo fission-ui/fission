@@ -1,5 +1,5 @@
-use crate::internal::InternalLower;
-use crate::lowering::{InternalIrBuilder, InternalLoweringCx};
+use crate::authoring::Lower;
+use crate::lowering::{IrBuilder, LoweringContext};
 use fission_ir::{
     op::{LayoutOp, Op},
     WidgetId,
@@ -36,11 +36,11 @@ pub struct Spacer {
     pub flex_grow: f32,
 }
 
-impl InternalLower for Spacer {
-    fn lower(&self, cx: &mut InternalLoweringCx) -> WidgetId {
+impl Lower for Spacer {
+    fn lower(&self, cx: &mut LoweringContext) -> WidgetId {
         let id = self.id.map(Into::into).unwrap_or_else(|| cx.next_node_id());
 
-        InternalIrBuilder::new(
+        IrBuilder::new(
             id,
             Op::Layout(LayoutOp::Box {
                 width: self.width,

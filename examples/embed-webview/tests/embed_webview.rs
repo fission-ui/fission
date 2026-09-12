@@ -20,10 +20,10 @@ fn webview_example_renders_a_surface_embed_and_syncs_web_state() {
     assert_eq!(web_state.url, WEBVIEW_DEMO_URL);
 
     let display_list = harness.get_last_display_list().expect("display list");
-    assert!(display_list.ops.iter().any(|op| matches!(
-        op,
-        DisplayOp::DrawText { text, .. } if text == "WebView embed"
-    )));
+    assert!(display_list
+        .ops
+        .iter()
+        .any(|op| op.text().as_deref() == Some("WebView embed")));
     assert!(display_list.ops.iter().any(|op| matches!(
         op,
         DisplayOp::DrawSurface { rect, .. }

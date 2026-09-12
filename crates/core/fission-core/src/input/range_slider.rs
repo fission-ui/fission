@@ -4,7 +4,6 @@ use serde::{Deserialize, Serialize};
 
 use crate::event::{InputEvent, KeyCode, KeyEvent, PointerButton, PointerEvent, PointerId};
 use crate::input::scoped_action_input;
-use crate::ui::custom_render::{downcast_render_object, CustomRenderObject};
 use crate::{ActionEnvelope, ActionInput, InteractionStateMap, ScrollStateMap};
 use fission_ir::{CoreIR, WidgetId};
 use fission_layout::{LayoutPoint, LayoutRect, LayoutSnapshot};
@@ -61,9 +60,14 @@ pub struct RangeSliderRuntimeConfig {
     pub on_change: Option<ActionEnvelope>,
 }
 
-impl CustomRenderObject for RangeSliderRuntimeConfig {
-    fn range_slider_config(&self) -> Option<&RangeSliderRuntimeConfig> {
-        Some(self)
+impl RangeSliderRuntimeConfig {
+    /// Recovers this config from the typed sidecar stored on an IR node.
+    ///
+    /// Controller config travels beside the node as a plain `Any`, the same way
+    /// `TextInputRuntimeConfig` and `SelectionRegionRuntimeConfig` do. It is
+    /// data the input pipeline reads, not a render object.
+    pub fn from_sidecar(any: &fission_ir::AnyRenderObject) -> Option<&Self> {
+        any.downcast_ref::<Self>()
     }
 }
 
@@ -79,11 +83,7 @@ impl RangeSliderStateMap {
         let active = ir
             .custom_render_objects
             .iter()
-            .filter_map(|(id, object)| {
-                downcast_render_object(object)
-                    .and_then(|object| object.range_slider_config())
-                    .map(|_| *id)
-            })
+            .filter_map(|(id, object)| RangeSliderRuntimeConfig::from_sidecar(object).map(|_| *id))
             .collect::<HashSet<_>>();
         self.captures
             .retain(|_, (node_id, _)| active.contains(node_id));
@@ -451,6 +451,5 @@ pub fn range_slider_config_for_node(
 fn range_slider_config(ir: &CoreIR, id: WidgetId) -> Option<&RangeSliderRuntimeConfig> {
     ir.custom_render_objects
         .get(&id)
-        .and_then(downcast_render_object)
-        .and_then(|object| object.range_slider_config())
+        .and_then(RangeSliderRuntimeConfig::from_sidecar)
 }

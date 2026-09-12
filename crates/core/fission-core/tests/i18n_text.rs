@@ -1,8 +1,8 @@
+use fission_core::authoring::LoweringContext;
 use fission_core::env::Env;
-use fission_core::internal::InternalLoweringCx;
 use fission_core::ui::{Text, TextContent};
 use fission_i18n::{Locale, TranslationBundle};
-use fission_ir::{Op, PaintOp};
+use fission_ir::Op;
 use std::collections::HashMap;
 
 #[test]
@@ -23,19 +23,14 @@ fn text_key_resolves_from_i18n_registry() {
     };
 
     let runtime = fission_core::env::RuntimeState::default();
-    let mut cx = InternalLoweringCx::new(&env, &runtime, None, None);
+    let mut cx = LoweringContext::new(&env, &runtime, None, None);
     let root_id = fission_core::internal::lower_widget(&text.into(), &mut cx);
-    cx.ir.root = Some(root_id);
+    cx.set_root(root_id);
 
-    let mut found = false;
-    for (_id, node) in &cx.ir.nodes {
-        if let Op::Paint(PaintOp::DrawText { text, .. }) = &node.op {
-            if text == "Hola" {
-                found = true;
-                break;
-            }
-        }
-    }
+    let found = cx.ir().nodes.values().any(|node| match &node.op {
+        Op::Paint(paint) => paint.text().as_deref() == Some("Hola"),
+        _ => false,
+    });
 
     assert!(found, "expected translated text 'Hola' to be emitted");
 }

@@ -1,8 +1,8 @@
-use crate::lowering::{InternalIrBuilder, InternalLoweringCx};
-use crate::ui::{traits::InternalLower, Widget};
+use crate::lowering::{IrBuilder, LoweringContext};
+use crate::ui::{traits::Lower, Widget};
 use fission_ir::{
     op::{FlexDirection, LayoutOp, Op},
-    WidgetId,
+    Role, Semantics, WidgetId,
 };
 use serde::{Deserialize, Serialize};
 
@@ -41,9 +41,20 @@ pub struct Scroll {
     pub flex_grow: f32,
     /// Flex shrink factor.
     pub flex_shrink: f32,
+    /// Accessible name for the scroll region.
+    ///
+    /// Optional. A scroll view is usually named by what it contains, but a page
+    /// with several independent scroll regions needs them told apart.
+    pub semantic_label: Option<String>,
 }
 
-impl Scroll {}
+impl Scroll {
+    /// Names this scroll region for assistive technology.
+    pub fn semantic_label(mut self, label: impl Into<String>) -> Self {
+        self.semantic_label = Some(label.into());
+        self
+    }
+}
 
 impl Default for Scroll {
     fn default() -> Self {
@@ -56,17 +67,18 @@ impl Default for Scroll {
             show_scrollbar: true,
             flex_grow: 0.0,
             flex_shrink: 0.0,
+            semantic_label: None,
         }
     }
 }
 
-impl InternalLower for Scroll {
-    fn lower(&self, cx: &mut InternalLoweringCx) -> WidgetId {
+impl Lower for Scroll {
+    fn lower(&self, cx: &mut LoweringContext) -> WidgetId {
         let layout_id = self.id.map(Into::into).unwrap_or_else(|| cx.next_node_id());
 
         cx.push_scope(layout_id);
 
-        let mut builder = InternalIrBuilder::new(
+        let mut builder = IrBuilder::new(
             layout_id,
             Op::Layout(LayoutOp::Scroll {
                 direction: self.direction,
@@ -86,7 +98,7 @@ impl InternalLower for Scroll {
             // Wrap content in a non-shrinking Box to ensure it overflows the viewport
             // allowing scrolling to work.
             let content_id = cx.next_node_id();
-            let mut content_box = InternalIrBuilder::new(
+            let mut content_box = IrBuilder::new(
                 content_id,
                 Op::Layout(LayoutOp::Box {
                     width: None,
@@ -107,6 +119,30 @@ impl InternalLower for Scroll {
 
         cx.pop_scope();
 
-        builder.build(cx)
+        let scroll_id = builder.build(cx);
+
+        // A scroll view that does not declare its axis is unreachable by
+        // assistive technology: the shells can already report offsets and
+        // accept scroll actions, but they key that off `scrollable_x` and
+        // `scrollable_y`, which nothing was setting. Without this a screen
+        // reader user cannot move a Fission scroll view at all.
+        let horizontal = self.direction == FlexDirection::Row;
+        let semantics = IrBuilder::new(
+            cx.next_node_id(),
+            Op::Semantics(Semantics {
+                // Generic, not Group: a scroll viewport is not a group of
+                // related items, and calling it one would put it alongside the
+                // real groups a menu or listbox declares. The shells keep a
+                // generic node precisely when it is scrollable.
+                role: Role::Generic,
+                label: self.semantic_label.clone(),
+                scrollable_x: horizontal,
+                scrollable_y: !horizontal,
+                ..Default::default()
+            }),
+        );
+        let mut semantics = semantics;
+        semantics.add_child(scroll_id);
+        semantics.build(cx)
     }
 }

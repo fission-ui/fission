@@ -1,5 +1,5 @@
-use crate::internal::InternalLower;
-use crate::lowering::{InternalIrBuilder, InternalLoweringCx};
+use crate::authoring::Lower;
+use crate::lowering::{IrBuilder, LoweringContext};
 use crate::motion::{
     color, fill as motion_fill, px, scalar, shadows as motion_shadows, Motion, MotionExpr,
     MotionPredicate, MotionPropertyId, MotionStartValue, MotionTrack, MotionTransition,
@@ -269,7 +269,7 @@ impl Pressable {
         self
     }
 
-    fn resolved_style(&self, cx: &InternalLoweringCx<'_>, id: WidgetId) -> PressableStyle {
+    fn resolved_style(&self, cx: &LoweringContext<'_>, id: WidgetId) -> PressableStyle {
         if self.disabled {
             return self.style.merged(self.disabled_style.as_ref());
         }
@@ -472,7 +472,7 @@ impl Pressable {
 
     fn animated_style(
         &self,
-        cx: &InternalLoweringCx<'_>,
+        cx: &LoweringContext<'_>,
         id: WidgetId,
         mut style: PressableStyle,
     ) -> PressableStyle {
@@ -782,8 +782,8 @@ impl Default for Pressable {
     }
 }
 
-impl InternalLower for Pressable {
-    fn lower(&self, cx: &mut InternalLoweringCx) -> WidgetId {
+impl Lower for Pressable {
+    fn lower(&self, cx: &mut LoweringContext) -> WidgetId {
         let id = self.id.unwrap_or_else(|| cx.next_node_id());
         let layout_id = cx.next_node_id();
         let style = self.animated_style(cx, id, self.resolved_style(cx, id));
@@ -802,7 +802,7 @@ impl InternalLower for Pressable {
             .flex_shrink
             .map(|value| value.0)
             .unwrap_or(self.flex_shrink);
-        let mut layout = InternalIrBuilder::new(
+        let mut layout = IrBuilder::new(
             layout_id,
             Op::Layout(LayoutOp::StyledBox {
                 style: layout_style,
@@ -826,13 +826,15 @@ impl InternalLower for Pressable {
 
         for shadow in style.shadows.as_deref().unwrap_or_default() {
             layout.add_child(
-                InternalIrBuilder::new(
+                IrBuilder::new(
                     cx.next_node_id(),
                     Op::Paint(PaintOp::DrawRect {
                         fill: None,
                         stroke: None,
                         corner_radius: style.corner_radius.unwrap_or(0.0),
                         shadow: Some(*shadow),
+                        corner_radii: None,
+                        border_sides: None,
                     }),
                 )
                 .build(cx),
@@ -840,13 +842,15 @@ impl InternalLower for Pressable {
         }
         if style.background.is_some() || style.border.is_some() {
             layout.add_child(
-                InternalIrBuilder::new(
+                IrBuilder::new(
                     cx.next_node_id(),
                     Op::Paint(PaintOp::DrawRect {
                         fill: style.background,
                         stroke: style.border,
                         corner_radius: style.corner_radius.unwrap_or(0.0),
                         shadow: None,
+                        corner_radii: None,
+                        border_sides: None,
                     }),
                 )
                 .build(cx),
@@ -876,12 +880,12 @@ impl InternalLower for Pressable {
                 });
             }
         }
-        let mut semantics_node = InternalIrBuilder::new(id, Op::Semantics(semantics));
+        let mut semantics_node = IrBuilder::new(id, Op::Semantics(semantics));
         semantics_node.add_child(layout_id);
         let mut content_id = semantics_node.build(cx);
 
         if let Some(margin_style) = margin_style {
-            let mut outer = InternalIrBuilder::new(
+            let mut outer = IrBuilder::new(
                 cx.next_node_id(),
                 Op::Layout(LayoutOp::StyledBox {
                     style: margin_style,
@@ -893,7 +897,7 @@ impl InternalLower for Pressable {
             content_id = outer.build(cx);
         }
         if let Some(position) = position {
-            let mut outer = InternalIrBuilder::new(
+            let mut outer = IrBuilder::new(
                 cx.next_node_id(),
                 Op::Layout(LayoutOp::PositionedLengths {
                     left: position.left,
@@ -908,7 +912,7 @@ impl InternalLower for Pressable {
             content_id = outer.build(cx);
         }
         if let Some(grid) = grid {
-            let mut outer = InternalIrBuilder::new(
+            let mut outer = IrBuilder::new(
                 cx.next_node_id(),
                 Op::Layout(LayoutOp::GridItem {
                     row_start: grid.row_start,

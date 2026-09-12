@@ -4,8 +4,9 @@ use fission_core::motion::{
     scalar, MotionDeclaration, MotionDeclarationKind, MotionEasing, MotionPhase, MotionPropertyId,
     MotionStartValue, MotionTrack, MotionTransition,
 };
-use fission_core::ui::{Composite, Container, Widget};
+use fission_core::ui::{Composite, Container, SemanticsRegion, Widget};
 use fission_core::WidgetId;
+use fission_ir::Role;
 use serde::{Deserialize, Serialize};
 
 const LOW_PRIORITY_REPEAT_FRAME_MS: u64 = 166;
@@ -29,6 +30,12 @@ pub struct Spinner {
     /// Optional explicit spinner motion. `None` emits no spinner-owned motion declarations.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub motion: Option<SpinnerMotion>,
+    /// What is loading, announced to assistive technology.
+    ///
+    /// Defaults to "Loading" when absent. Name the thing where you can: "Loading
+    /// messages" tells a reader more than a bare spinner ever does.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -79,6 +86,10 @@ impl From<Spinner> for Widget {
         let this = &component;
 
         let tokens = &view.env().theme.tokens;
+        let recipe = view
+            .env()
+            .theme
+            .recipe(fission_theme::recipe_names::SPINNER);
         let color = this.color.unwrap_or(tokens.colors.primary);
         let dot_size = 10.0;
 
@@ -111,10 +122,14 @@ impl From<Spinner> for Widget {
             dots.push(node);
         }
 
-        HStack {
-            spacing: Some(6.0),
+        // A spinner says "still working" to a sighted user and nothing to
+        // anyone else. Role::Status announces that without stealing focus.
+        SemanticsRegion::new(HStack {
+            spacing: Some(recipe.base.gap.unwrap_or(6.0)),
             children: dots,
-        }
+        })
+        .role(Role::Status)
+        .label(this.label.clone().unwrap_or_else(|| "Loading".to_string()))
         .into()
     }
 }

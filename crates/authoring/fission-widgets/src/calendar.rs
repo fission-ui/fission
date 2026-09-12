@@ -1,7 +1,8 @@
 use crate::stack::{HStack, VStack};
 use chrono::{Datelike, Local, NaiveDate};
-use fission_core::ui::{Button, ButtonVariant, Container, Text, Widget};
+use fission_core::ui::{Button, ButtonVariant, Container, SemanticsRegion, Text, Widget};
 use fission_core::ActionEnvelope;
+use fission_ir::Role;
 use std::sync::Arc;
 
 /// Controlled month calendar with navigation and day-selection actions.
@@ -202,6 +203,11 @@ impl From<Calendar> for Widget {
             c = c.shadow(s);
         }
 
-        c.into()
+        // A month view is a grid of dates. Without the role a reader meets an
+        // undifferentiated run of numbers with no way to tell rows from columns.
+        SemanticsRegion::new(c)
+            .role(Role::Table)
+            .label("Calendar")
+            .into()
     }
 }

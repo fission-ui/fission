@@ -1,4 +1,4 @@
-use fission_core::internal::{InternalIrBuilder, InternalLowerer, InternalLoweringCx};
+use fission_core::authoring::{IrBuilder, LowerWidget, LoweringContext};
 use fission_core::Widget;
 use fission_ir::WidgetId;
 use fission_ir::{semantics::Role, Op, Semantics};
@@ -26,14 +26,13 @@ impl From<Hero> for Widget {
     fn from(component: Hero) -> Self {
         let this = &component;
 
-        fission_core::internal::custom_render_widget(fission_core::internal::InternalRenderNode {
-            debug_tag: format!("Hero({})", this.tag),
-            lowerer: Some(std::sync::Arc::new(HeroLowerer {
+        fission_core::authoring::custom_widget(
+            format!("Hero({})", this.tag),
+            HeroLowerer {
                 tag: this.tag.clone(),
                 child: this.child.clone(),
-            })),
-            render_object: None,
-        })
+            },
+        )
     }
 }
 
@@ -43,8 +42,8 @@ struct HeroLowerer {
     child: Widget,
 }
 
-impl InternalLowerer for HeroLowerer {
-    fn lower_dyn(&self, cx: &mut InternalLoweringCx) -> WidgetId {
+impl LowerWidget for HeroLowerer {
+    fn lower_dyn(&self, cx: &mut LoweringContext) -> WidgetId {
         let child_id = fission_core::internal::lower_widget(&self.child, cx);
         let id = cx.next_node_id();
 
@@ -54,7 +53,7 @@ impl InternalLowerer for HeroLowerer {
             ..Semantics::default()
         };
 
-        let mut builder = InternalIrBuilder::new(id, Op::Semantics(semantics));
+        let mut builder = IrBuilder::new(id, Op::Semantics(semantics));
         builder.add_child(child_id);
         builder.build(cx)
     }

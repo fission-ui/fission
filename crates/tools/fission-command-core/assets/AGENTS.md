@@ -232,12 +232,14 @@ fn main() {
     let manifest_dir = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
     let dsp_path = manifest_dir.join("design/dsp.json");
 
-    fission_design_system_codegen::generate(fission_design_system_codegen::Config {
-        dsp_path,
-        out_file: "app_design_system.rs".into(),
-        type_name: "AppDesignSystem".into(),
-        crate_path: "fission::theme".into(),
-    })
+    // An application design system customizes the components it cares about;
+    // any recipe it leaves out is inherited from Fission's default system.
+    fission_design_system_codegen::generate(
+        fission_design_system_codegen::Config::new(dsp_path)
+            .out_file("app_design_system.rs")
+            .type_name("AppDesignSystem")
+            .crate_path("fission::theme"),
+    )
     .expect("failed to generate AppDesignSystem from design/dsp.json");
 }
 ```

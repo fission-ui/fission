@@ -1,10 +1,9 @@
-use crate::internal::{InternalLowerer, InternalLoweringCx, InternalRenderNode};
-use crate::lowering::InternalIrBuilder;
+use crate::authoring::{LowerWidget, LoweringContext};
+use crate::lowering::IrBuilder;
 use crate::ui::Widget;
 use fission_ir::{Op, StructuralOp, WidgetId};
 use serde::{Deserialize, Serialize};
 use std::hash::{Hash, Hasher};
-use std::sync::Arc;
 
 /// Paints and lays out a retained subtree without allowing it to receive pointer input.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -22,8 +21,8 @@ impl IgnorePointer {
     }
 }
 
-impl InternalLowerer for IgnorePointer {
-    fn lower_dyn(&self, cx: &mut InternalLoweringCx) -> WidgetId {
+impl LowerWidget for IgnorePointer {
+    fn lower_dyn(&self, cx: &mut LoweringContext) -> WidgetId {
         let id = self.id.unwrap_or_else(|| cx.next_node_id());
         cx.push_scope(id);
         let child = crate::internal::lower_widget(&self.child, cx);
@@ -33,7 +32,7 @@ impl InternalLowerer for IgnorePointer {
         id.hash(&mut hasher);
         child.hash(&mut hasher);
         let stable_hash = hasher.finish();
-        let mut builder = InternalIrBuilder::new(
+        let mut builder = IrBuilder::new(
             id,
             Op::Structural(StructuralOp::PointerTransparent { stable_hash }),
         );
@@ -56,10 +55,6 @@ impl InternalLowerer for IgnorePointer {
 
 impl From<IgnorePointer> for Widget {
     fn from(value: IgnorePointer) -> Self {
-        crate::internal::custom_render_widget(InternalRenderNode {
-            debug_tag: "IgnorePointer".into(),
-            lowerer: Some(Arc::new(value)),
-            render_object: None,
-        })
+        crate::authoring::custom_widget("IgnorePointer", value)
     }
 }

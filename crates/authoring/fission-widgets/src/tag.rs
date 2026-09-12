@@ -1,6 +1,8 @@
 use crate::stack::HStack;
 use fission_core::action::ActionEnvelope;
-use fission_core::ui::{Button, ButtonVariant, Container, Text, TextContent, Widget};
+use fission_core::ui::{
+    Button, ButtonVariant, Container, SemanticsRegion, Text, TextContent, Widget,
+};
 use serde::{Deserialize, Serialize};
 
 /// A pill-shaped label with an optional close button.
@@ -21,6 +23,7 @@ impl From<Tag> for Widget {
         let this = &component;
 
         let tokens = &view.env().theme.tokens;
+        let recipe = view.env().theme.recipe(fission_theme::recipe_names::TAG);
 
         let mut children = vec![Text {
             content: TextContent::Literal(this.label.clone()),
@@ -32,7 +35,7 @@ impl From<Tag> for Widget {
 
         if let Some(action) = &this.on_close {
             children.push(
-                Button {
+                SemanticsRegion::new(Button {
                     variant: ButtonVariant::Ghost,
                     child: Some(
                         Text {
@@ -48,7 +51,10 @@ impl From<Tag> for Widget {
                     width: Some(20.0),
                     height: Some(20.0),
                     ..Default::default()
-                }
+                })
+                // A bare multiplication sign announces nothing. Name the action
+                // and what it removes.
+                .label(format!("Remove {}", this.label))
                 .into(),
             );
         }
@@ -57,11 +63,21 @@ impl From<Tag> for Widget {
             spacing: Some(4.0),
             children,
         })
-        .bg(tokens.colors.surface) // or slightly darker
+        .bg_fill(
+            recipe
+                .base
+                .background
+                .clone()
+                .unwrap_or(fission_core::op::Fill::Solid(tokens.colors.surface)),
+        )
         .border(tokens.colors.border, 1.0)
-        .border_radius(16.0)
-        .padding_all(6.0)
-        .height(30.0)
+        .border_radius(recipe.base.radius.unwrap_or(tokens.radii.full))
+        .padding(
+            recipe
+                .base
+                .padding_box(tokens.spacing.xs, tokens.spacing.xs / 2.0),
+        )
+        .height(recipe.base.height.unwrap_or(24.0))
         .into()
     }
 }

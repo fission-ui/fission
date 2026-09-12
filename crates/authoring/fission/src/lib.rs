@@ -525,8 +525,9 @@ pub mod prelude {
     pub use fission_3d::*;
     #[cfg(feature = "charts")]
     pub use fission_charts::*;
-    #[cfg(feature = "store")]
-    pub use fission_store::*;
+
+    // Store items reach the prelude through `fission_core::public`, which
+    // re-exports `fission_store` whenever the `store` feature is on.
     #[cfg(any(feature = "store-sqlite-native", feature = "store-sqlite-web"))]
     pub use fission_store_sqlite::*;
 

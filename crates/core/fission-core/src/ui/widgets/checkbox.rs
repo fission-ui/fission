@@ -1,5 +1,5 @@
-use crate::internal::InternalLower;
-use crate::lowering::{InternalIrBuilder, InternalLoweringCx};
+use crate::authoring::Lower;
+use crate::lowering::{IrBuilder, LoweringContext};
 use crate::ActionEnvelope;
 use fission_ir::{
     op::{LayoutOp, Op, PaintOp},
@@ -75,8 +75,8 @@ impl Checkbox {
     }
 }
 
-impl InternalLower for Checkbox {
-    fn lower(&self, cx: &mut InternalLoweringCx) -> WidgetId {
+impl Lower for Checkbox {
+    fn lower(&self, cx: &mut LoweringContext) -> WidgetId {
         let id = self.id.map(Into::into).unwrap_or_else(|| cx.next_node_id());
         cx.push_scope(id);
 
@@ -113,6 +113,8 @@ impl InternalLower for Checkbox {
                 stroke: None,
                 corner_radius: radius,
                 shadow: None,
+                corner_radii: None,
+                border_sides: None,
             })
         } else {
             Op::Paint(PaintOp::DrawRect {
@@ -126,23 +128,27 @@ impl InternalLower for Checkbox {
                 }),
                 corner_radius: radius,
                 shadow: None,
+                corner_radii: None,
+                border_sides: None,
             })
         };
-        let bg_node = InternalIrBuilder::new(cx.next_node_id(), bg_paint).build(cx);
+        let bg_node = IrBuilder::new(cx.next_node_id(), bg_paint).build(cx);
 
         // Checkmark
         let check_node = if self.checked {
-            let check = InternalIrBuilder::new(
+            let check = IrBuilder::new(
                 cx.next_node_id(),
                 Op::Paint(PaintOp::DrawRect {
                     fill: Some(fission_ir::op::Fill::Solid(indicator_color)),
                     stroke: None,
                     corner_radius: 1.0,
                     shadow: None,
+                    corner_radii: None,
+                    border_sides: None,
                 }),
             )
             .build(cx);
-            let mut check_box = InternalIrBuilder::new(
+            let mut check_box = IrBuilder::new(
                 cx.next_node_id(),
                 Op::Layout(LayoutOp::Box {
                     width: Some(10.0),
@@ -159,14 +165,14 @@ impl InternalLower for Checkbox {
             );
             check_box.add_child(check);
             let check_box_id = check_box.build(cx);
-            let mut align = InternalIrBuilder::new(cx.next_node_id(), Op::Layout(LayoutOp::Align));
+            let mut align = IrBuilder::new(cx.next_node_id(), Op::Layout(LayoutOp::Align));
             align.add_child(check_box_id);
             Some(align.build(cx))
         } else {
             None
         };
 
-        let mut square_box = InternalIrBuilder::new(
+        let mut square_box = IrBuilder::new(
             square_id,
             Op::Layout(LayoutOp::Box {
                 width: Some(size),
@@ -189,7 +195,7 @@ impl InternalLower for Checkbox {
 
         // Label
         let label_id = if let Some(text) = &self.label {
-            let text_id = InternalIrBuilder::new(
+            let text_id = IrBuilder::new(
                 cx.next_node_id(),
                 Op::Paint(PaintOp::DrawText {
                     text: text.clone(),
@@ -207,7 +213,7 @@ impl InternalLower for Checkbox {
                 }),
             )
             .build(cx);
-            let mut layout = InternalIrBuilder::new(
+            let mut layout = IrBuilder::new(
                 cx.next_node_id(),
                 Op::Layout(LayoutOp::Box {
                     width: None,
@@ -229,7 +235,7 @@ impl InternalLower for Checkbox {
         };
 
         let layout_id = cx.next_node_id();
-        let mut row = InternalIrBuilder::new(
+        let mut row = IrBuilder::new(
             layout_id,
             Op::Layout(LayoutOp::Flex {
                 direction: fission_ir::FlexDirection::Row,
@@ -277,7 +283,7 @@ impl InternalLower for Checkbox {
             }
         }
 
-        let mut sem_node = InternalIrBuilder::new(id, Op::Semantics(semantics));
+        let mut sem_node = IrBuilder::new(id, Op::Semantics(semantics));
         sem_node.add_child(layout_id);
         sem_node.build(cx)
     }

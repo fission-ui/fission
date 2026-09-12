@@ -1,10 +1,9 @@
-use crate::internal::{InternalLowerer, InternalLoweringCx, InternalRenderNode};
-use crate::lowering::InternalIrBuilder;
+use crate::authoring::{LowerWidget, LoweringContext};
+use crate::lowering::IrBuilder;
 use crate::ui::Widget;
 use fission_ir::{LayoutOp, Op, WidgetId};
 use serde::{Deserialize, Serialize};
 use std::hash::{Hash, Hasher};
-use std::sync::Arc;
 
 /// Positions an intrinsically sized retained child around a point in its parent.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -36,13 +35,13 @@ impl AnchoredPositioned {
     }
 }
 
-impl InternalLowerer for AnchoredPositioned {
-    fn lower_dyn(&self, cx: &mut InternalLoweringCx) -> WidgetId {
+impl LowerWidget for AnchoredPositioned {
+    fn lower_dyn(&self, cx: &mut LoweringContext) -> WidgetId {
         let id = self.id.unwrap_or_else(|| cx.next_node_id());
         cx.push_scope(id);
         let child = crate::internal::lower_widget(&self.child, cx);
         cx.pop_scope();
-        let mut builder = InternalIrBuilder::new(
+        let mut builder = IrBuilder::new(
             id,
             Op::Layout(LayoutOp::AnchoredPositioned {
                 x: self.x,
@@ -74,10 +73,6 @@ impl InternalLowerer for AnchoredPositioned {
 
 impl From<AnchoredPositioned> for Widget {
     fn from(value: AnchoredPositioned) -> Self {
-        crate::internal::custom_render_widget(InternalRenderNode {
-            debug_tag: "AnchoredPositioned".into(),
-            lowerer: Some(Arc::new(value)),
-            render_object: None,
-        })
+        crate::authoring::custom_widget("AnchoredPositioned", value)
     }
 }

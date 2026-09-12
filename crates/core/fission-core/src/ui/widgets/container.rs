@@ -1,10 +1,11 @@
-use crate::internal::InternalLower;
-use crate::lowering::{InternalIrBuilder, InternalLoweringCx};
+use crate::authoring::Lower;
+use crate::lowering::{IrBuilder, LoweringContext};
 use crate::ui::Widget;
 use fission_ir::{
     op::{
-        BackdropFilter, BoxAlignment, BoxGridPlacement, BoxPosition, BoxShadow, BoxStyle, Color,
-        Fill, GridPlacement, LayoutOp, Length, Op, OrderedLayoutUnit, Overflow, PaintOp, Stroke,
+        BackdropFilter, BorderSides, BoxAlignment, BoxGridPlacement, BoxPosition, BoxShadow,
+        BoxStyle, Color, CornerRadii, Fill, GridPlacement, LayoutOp, Length, Op, OrderedLayoutUnit,
+        Overflow, PaintOp, Stroke,
     },
     CompositeStyle, WidgetId,
 };
@@ -90,6 +91,17 @@ pub struct Container {
     pub shadows: Vec<BoxShadow>,
     /// Filter applied to content painted behind this container.
     pub backdrop_filter: Option<BackdropFilter>,
+    /// How this container's subtree composites with the content beneath it.
+    pub blend_mode: fission_ir::BlendMode,
+    /// Per-corner radii. Replaces [`border_radius`](Self::border_radius) when set.
+    ///
+    /// Corners are logical: `start` is the left pair in a left-to-right layout
+    /// and the right pair in a right-to-left one, mirrored while lowering.
+    pub border_radii: Option<CornerRadii>,
+    /// Per-edge strokes. Replaces the uniform border when set.
+    ///
+    /// Like the radii, the inline edges are logical and mirrored while lowering.
+    pub border_sides: Option<BorderSides>,
 }
 
 impl Default for Container {
@@ -117,6 +129,9 @@ impl Default for Container {
             shadow: None,
             shadows: Vec::new(),
             backdrop_filter: None,
+            blend_mode: fission_ir::BlendMode::Normal,
+            border_radii: None,
+            border_sides: None,
         }
     }
 }
@@ -215,6 +230,44 @@ impl Container {
     /// Sets typed `[left, right, top, bottom]` padding.
     pub fn padding_lengths(mut self, padding: [Length; 4]) -> Self {
         self.box_style.padding = Some(padding);
+        self
+    }
+
+    /// Sets `[start, end, top, bottom]` padding that follows reading order.
+    ///
+    /// `start` is the left edge in a left-to-right layout and the right edge in
+    /// a right-to-left one, so a widget written once is correct in both. Prefer
+    /// this over [`padding`](Self::padding) for anything asymmetric.
+    ///
+    /// Replaces any physical padding already set on this container.
+    pub fn padding_directional(mut self, padding: [f32; 4]) -> Self {
+        self.box_style.padding_directional = Some(padding.map(Length::Points));
+        self.box_style.padding = None;
+        self.padding = [0.0; 4];
+        self
+    }
+
+    /// Sets typed `[start, end, top, bottom]` padding that follows reading order.
+    pub fn padding_directional_lengths(mut self, padding: [Length; 4]) -> Self {
+        self.box_style.padding_directional = Some(padding);
+        self.box_style.padding = None;
+        self.padding = [0.0; 4];
+        self
+    }
+
+    /// Sets `[start, end, top, bottom]` margin that follows reading order.
+    pub fn margin_directional(mut self, margin: [f32; 4]) -> Self {
+        self.box_style.margin_directional = Some(margin.map(Length::Points));
+        self.box_style.margin = None;
+        self.margin = [0.0; 4];
+        self
+    }
+
+    /// Sets typed `[start, end, top, bottom]` margin that follows reading order.
+    pub fn margin_directional_lengths(mut self, margin: [Length; 4]) -> Self {
+        self.box_style.margin_directional = Some(margin);
+        self.box_style.margin = None;
+        self.margin = [0.0; 4];
         self
     }
 
@@ -349,6 +402,72 @@ impl Container {
         self
     }
 
+    /// Sets every corner independently.
+    ///
+    /// The pairs are logical: in a right-to-left layout they are mirrored while
+    /// lowering, so a sheet rounded along its leading edge stays correct
+    /// without the caller branching on direction.
+    pub fn border_radii(mut self, radii: CornerRadii) -> Self {
+        self.border_radii = Some(radii);
+        self
+    }
+
+    /// Rounds the top corners and leaves the bottom square.
+    ///
+    /// The shape a bottom sheet, a drawer and a tab all need, and the one a
+    /// single radius cannot express.
+    pub fn border_radius_top(self, radius: f32) -> Self {
+        self.border_radii(CornerRadii::top(radius))
+    }
+
+    /// Rounds the bottom corners and leaves the top square.
+    pub fn border_radius_bottom(self, radius: f32) -> Self {
+        self.border_radii(CornerRadii::bottom(radius))
+    }
+
+    /// Rounds the leading corners and leaves the trailing ones square.
+    pub fn border_radius_start(self, radius: f32) -> Self {
+        self.border_radii(CornerRadii::left(radius))
+    }
+
+    /// Rounds the trailing corners and leaves the leading ones square.
+    pub fn border_radius_end(self, radius: f32) -> Self {
+        self.border_radii(CornerRadii::right(radius))
+    }
+
+    /// Sets each edge's stroke independently.
+    pub fn border_sides(mut self, sides: BorderSides) -> Self {
+        self.border_sides = Some(sides);
+        self
+    }
+
+    /// Strokes the bottom edge only.
+    ///
+    /// What a filled text field's underline and a tab's active indicator are.
+    pub fn border_bottom(self, color: Color, width: f32) -> Self {
+        self.border_sides(BorderSides::bottom_only(Stroke {
+            fill: Fill::Solid(color),
+            width,
+            dash_array: None,
+            line_cap: fission_ir::op::LineCap::Butt,
+            line_join: fission_ir::op::LineJoin::Miter,
+        }))
+    }
+
+    /// Strokes the leading edge only, as a card's accent bar does.
+    pub fn border_start(self, color: Color, width: f32) -> Self {
+        self.border_sides(BorderSides {
+            left: Some(Stroke {
+                fill: Fill::Solid(color),
+                width,
+                dash_array: None,
+                line_cap: fission_ir::op::LineCap::Butt,
+                line_join: fission_ir::op::LineJoin::Miter,
+            }),
+            ..Default::default()
+        })
+    }
+
     pub fn border_radius(mut self, radius: f32) -> Self {
         self.border_radius = radius;
         self
@@ -369,21 +488,56 @@ impl Container {
         self.backdrop_filter = Some(BackdropFilter::Blur(sigma.max(0.0)));
         self
     }
+
+    /// Filters content behind this container, clipped to its rounded bounds.
+    ///
+    /// Use this over [`backdrop_blur`](Self::backdrop_blur) for a glass surface:
+    /// blur on its own desaturates whatever is behind it, which is why every
+    /// platform's real glass material pairs a blur with a saturation boost.
+    ///
+    /// ```rust,ignore
+    /// Container::new().backdrop(BackdropFilter::Chain(vec![
+    ///     BackdropFilter::Blur(24.0),
+    ///     BackdropFilter::Saturate(1.8),
+    /// ]))
+    /// ```
+    pub fn backdrop(mut self, filter: BackdropFilter) -> Self {
+        self.backdrop_filter = Some(filter);
+        self
+    }
+
+    /// Sets the layer blend mode used to composite this container's subtree.
+    pub fn blend_mode(mut self, mode: fission_ir::BlendMode) -> Self {
+        self.blend_mode = mode;
+        self
+    }
 }
 
-impl InternalLower for Container {
-    fn lower(&self, cx: &mut InternalLoweringCx) -> WidgetId {
+impl Lower for Container {
+    fn lower(&self, cx: &mut LoweringContext) -> WidgetId {
         let id = self.id.map(Into::into).unwrap_or_else(|| cx.next_node_id());
         cx.push_scope(id);
 
+        // Reading order is resolved once here rather than in each paint op, the
+        // same way directional padding is resolved once during layout.
+        let mirror = cx.env.layout_direction == fission_ir::LayoutDirection::RightToLeft;
+        let corner_radii = self
+            .border_radii
+            .map(|radii| if mirror { radii.mirrored() } else { radii });
+        let border_sides =
+            self.border_sides
+                .clone()
+                .map(|sides| if mirror { sides.mirrored() } else { sides });
+
         let mut children_ids = Vec::new();
 
-        if let Some(filter) = self.backdrop_filter {
-            let paint = InternalIrBuilder::new(
+        if let Some(filter) = self.backdrop_filter.clone() {
+            let paint = IrBuilder::new(
                 cx.next_node_id(),
                 Op::Paint(PaintOp::BackdropFilter {
                     filter,
                     corner_radius: self.border_radius,
+                    corner_radii,
                 }),
             )
             .build(cx);
@@ -394,23 +548,26 @@ impl InternalLower for Container {
         if self.background_fill.is_some()
             || self.background_color.is_some()
             || self.border_color.is_some()
+            || border_sides.is_some()
             || self.shadow.is_some()
             || !self.shadows.is_empty()
         {
             for shadow in &self.shadows {
-                let paint = InternalIrBuilder::new(
+                let paint = IrBuilder::new(
                     cx.next_node_id(),
                     Op::Paint(PaintOp::DrawRect {
                         fill: None,
                         stroke: None,
                         corner_radius: self.border_radius,
                         shadow: Some(*shadow),
+                        corner_radii,
+                        border_sides: None,
                     }),
                 )
                 .build(cx);
                 children_ids.push(paint);
             }
-            let paint = InternalIrBuilder::new(
+            let paint = IrBuilder::new(
                 cx.next_node_id(),
                 Op::Paint(PaintOp::DrawRect {
                     fill: self
@@ -426,6 +583,8 @@ impl InternalLower for Container {
                     }),
                     corner_radius: self.border_radius,
                     shadow: self.shadow,
+                    corner_radii,
+                    border_sides: border_sides.clone(),
                 }),
             )
             .build(cx);
@@ -464,7 +623,7 @@ impl InternalLower for Container {
             .map(|value| value.0)
             .unwrap_or(self.flex_shrink);
 
-        let mut layout = InternalIrBuilder::new(
+        let mut layout = IrBuilder::new(
             id,
             Op::Layout(LayoutOp::StyledBox {
                 style: style.clone(),
@@ -474,6 +633,7 @@ impl InternalLower for Container {
         )
         .composite(CompositeStyle {
             clip_to_bounds: style.overflow == Overflow::Clip,
+            blend_mode: self.blend_mode,
             ..Default::default()
         });
 
@@ -483,7 +643,7 @@ impl InternalLower for Container {
 
         let mut result = layout.build(cx);
         if let Some(margin_style) = margin_style {
-            let mut outer = InternalIrBuilder::new(
+            let mut outer = IrBuilder::new(
                 cx.next_node_id(),
                 Op::Layout(LayoutOp::StyledBox {
                     style: margin_style,
@@ -495,7 +655,7 @@ impl InternalLower for Container {
             result = outer.build(cx);
         }
         if let Some(position) = position {
-            let mut outer = InternalIrBuilder::new(
+            let mut outer = IrBuilder::new(
                 cx.next_node_id(),
                 Op::Layout(LayoutOp::PositionedLengths {
                     left: position.left,
@@ -510,7 +670,7 @@ impl InternalLower for Container {
             result = outer.build(cx);
         }
         if let Some(grid) = grid {
-            let mut outer = InternalIrBuilder::new(
+            let mut outer = IrBuilder::new(
                 cx.next_node_id(),
                 Op::Layout(LayoutOp::GridItem {
                     row_start: grid.row_start,

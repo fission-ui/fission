@@ -60,12 +60,14 @@ impl From<ContactsModal> for Widget {
                         title: "Name".into(),
                         width: 150.0,
                         sortable: true,
+                        ..Default::default()
                     },
                     TableColumn {
                         id: "email".into(),
                         title: "Email".into(),
                         width: 250.0,
                         sortable: true,
+                        ..Default::default()
                     },
                 ],
                 rows: data,
@@ -74,6 +76,8 @@ impl From<ContactsModal> for Widget {
                     id: toggle_id,
                     payload: serde_json::to_vec(&ToggleContactSelection(row_id)).unwrap(),
                 })),
+                label: Some("Contacts".into()),
+                ..Default::default()
             }
             .into(),
             actions: vec![ModalAction {

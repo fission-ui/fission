@@ -40,6 +40,7 @@ impl From<BrowserModal> for Widget {
                                 .into(),
                             Container::new(WebView {
                                 id: WidgetId::explicit("demo_webview"),
+                                label: None,
                                 url: view.state().browser_url.clone(),
                                 user_agent: None,
                                 width: Some(webview_width),

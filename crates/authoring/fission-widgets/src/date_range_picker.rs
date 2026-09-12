@@ -1,8 +1,10 @@
 use crate::date_picker::DatePicker;
 use crate::stack::HStack;
 use chrono::NaiveDate;
+use fission_core::ui::SemanticsRegion;
 use fission_core::ui::{Text, Widget};
 use fission_core::{ActionEnvelope, WidgetId};
+use fission_ir::Role;
 use std::sync::Arc;
 
 /// Controlled inclusive start/end date range composed from two date pickers.
@@ -49,7 +51,7 @@ impl From<DateRangePicker> for Widget {
         let s = this.start;
         let e = this.end;
 
-        HStack {
+        SemanticsRegion::new(HStack {
             spacing: Some(8.0),
             children: vec![
                 DatePicker {
@@ -86,7 +88,10 @@ impl From<DateRangePicker> for Widget {
                 }
                 .into(),
             ],
-        }
+        })
+        // The start and end fields are one range, not two unrelated pickers.
+        .role(Role::Group)
+        .label("Date range")
         .into()
     }
 }

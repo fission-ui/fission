@@ -10,7 +10,7 @@ use fission_core::ui::{
     Align, Button, ButtonContent, ButtonVariant, Container, Row, Scroll, SemanticsRegion, Text,
     TextContent, Widget, ZStack,
 };
-use fission_core::{ActionEnvelope, LayoutDirection, WidgetId};
+use fission_core::{ActionEnvelope, WidgetId};
 use fission_ir::{FlexDirection, Role};
 use fission_theme::{ButtonHierarchy, ComponentSize, ComponentState};
 use serde::{Deserialize, Serialize};
@@ -1158,17 +1158,12 @@ impl From<ModalRecipe> for Widget {
             let close_style = &theme.close_button_style;
             let inset_top = close_style.inset_top.unwrap_or(tokens.spacing.s);
             let inset_end = close_style.inset_end.unwrap_or(tokens.spacing.s);
-            let (left, right) = if view.env().layout_direction == LayoutDirection::RightToLeft {
-                (Some(inset_end), None)
-            } else {
-                (None, Some(inset_end))
-            };
+
             ZStack {
                 children: vec![
                     flow,
                     fission_core::ui::Positioned {
-                        left,
-                        right,
+                        end: Some(inset_end),
                         top: Some(inset_top),
                         child: Some(close_control),
                         ..Default::default()

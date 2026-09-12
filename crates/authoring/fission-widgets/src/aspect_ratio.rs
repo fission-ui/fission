@@ -1,4 +1,4 @@
-use fission_core::internal::{InternalIrBuilder, InternalLowerer, InternalLoweringCx};
+use fission_core::authoring::{IrBuilder, LowerWidget, LoweringContext};
 use fission_core::ui::Widget;
 use fission_ir::{LayoutOp, Op, WidgetId};
 use serde::{Deserialize, Serialize};
@@ -19,14 +19,13 @@ impl From<AspectRatio> for Widget {
     fn from(component: AspectRatio) -> Self {
         let this = &component;
 
-        fission_core::internal::custom_render_widget(fission_core::internal::InternalRenderNode {
-            debug_tag: "AspectRatio".into(),
-            lowerer: Some(std::sync::Arc::new(AspectRatioLowerer {
+        fission_core::authoring::custom_widget(
+            "AspectRatio",
+            AspectRatioLowerer {
                 ratio: this.ratio,
                 child: this.child.clone(),
-            })),
-            render_object: None,
-        })
+            },
+        )
     }
 }
 
@@ -36,12 +35,12 @@ struct AspectRatioLowerer {
     child: Widget,
 }
 
-impl InternalLowerer for AspectRatioLowerer {
-    fn lower_dyn(&self, cx: &mut InternalLoweringCx) -> WidgetId {
+impl LowerWidget for AspectRatioLowerer {
+    fn lower_dyn(&self, cx: &mut LoweringContext) -> WidgetId {
         let child_id = fission_core::internal::lower_widget(&self.child, cx);
         let id = cx.next_node_id();
 
-        let mut builder = InternalIrBuilder::new(
+        let mut builder = IrBuilder::new(
             id,
             Op::Layout(LayoutOp::Box {
                 width: None,

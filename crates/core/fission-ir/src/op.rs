@@ -19,6 +19,19 @@ pub enum Op {
     Semantics(Semantics),
 }
 
+impl Op {
+    /// Returns the text this node renders, if it renders any.
+    ///
+    /// See [`PaintOp::text`] for why callers should prefer this over matching
+    /// a single text paint op.
+    pub fn text(&self) -> Option<std::borrow::Cow<'_, str>> {
+        match self {
+            Self::Paint(paint) => paint.text(),
+            _ => None,
+        }
+    }
+}
+
 impl std::hash::Hash for Op {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         match self {
@@ -89,6 +102,53 @@ impl std::hash::Hash for CompositeScalar {
     }
 }
 
+/// How a composited layer's pixels combine with what is already painted beneath.
+///
+/// This is deliberately the CSS `mix-blend-mode` set, which is also exactly
+/// Skia's separable and non-separable mix modes, plus [`Plus`](Self::Plus) for
+/// additive glow. Authoring against a fixed vocabulary keeps the IR closed: a
+/// new backend implements sixteen known modes rather than an open-ended filter
+/// language it has to interpret.
+///
+/// Backends that cannot express a mode must fall back to
+/// [`Normal`](Self::Normal) rather than dropping the layer. A blend mode is a
+/// refinement of how content appears, never a condition for it appearing, so
+/// losing it degrades fidelity and never correctness.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+pub enum BlendMode {
+    /// Source-over. The default, and the only mode every backend supports.
+    #[default]
+    Normal,
+    Multiply,
+    Screen,
+    Overlay,
+    Darken,
+    Lighten,
+    ColorDodge,
+    ColorBurn,
+    HardLight,
+    SoftLight,
+    Difference,
+    Exclusion,
+    Hue,
+    Saturation,
+    Color,
+    Luminosity,
+    /// Additive (Porter-Duff `plus`/`lighter`). Not part of `mix-blend-mode`,
+    /// but needed for glows and light accumulation, and supported by Skia,
+    /// Core Graphics and Direct2D alike.
+    Plus,
+}
+
+impl BlendMode {
+    /// Whether this mode composites as plain source-over.
+    ///
+    /// Backends use this to skip allocating a blend layer for the common case.
+    pub fn is_normal(self) -> bool {
+        matches!(self, Self::Normal)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Hash, Default)]
 pub struct CompositeStyle {
     pub opacity: Option<CompositeScalar>,
@@ -98,6 +158,13 @@ pub struct CompositeStyle {
     pub rotation: Option<CompositeScalar>,
     pub clip_to_bounds: bool,
     pub repaint_boundary: bool,
+    /// How this layer combines with the content already painted beneath it.
+    ///
+    /// A non-[`Normal`](BlendMode::Normal) mode makes the subtree a composited
+    /// layer whether or not `repaint_boundary` is set, because the blend needs
+    /// the subtree's pixels isolated before they are mixed down.
+    #[serde(default)]
+    pub blend_mode: BlendMode,
 }
 
 pub type LayoutUnit = f32;
@@ -404,9 +471,32 @@ pub struct BoxStyle {
     /// Maximum height constraint.
     pub max_height: Option<Length>,
     /// Inner spacing in `[left, right, top, bottom]` order.
+    ///
+    /// Physical edges. Prefer [`padding_directional`](Self::padding_directional)
+    /// for anything that should follow reading order.
     pub padding: Option<[Length; 4]>,
     /// Outer spacing in `[left, right, top, bottom]` order.
+    ///
+    /// Physical edges. Prefer [`margin_directional`](Self::margin_directional)
+    /// for anything that should follow reading order.
     pub margin: Option<[Length; 4]>,
+    /// Inner spacing in `[start, end, top, bottom]` order.
+    ///
+    /// The inline edges follow the layout direction: `start` is the left edge
+    /// in a left-to-right layout and the right edge in a right-to-left one.
+    /// This is the directional counterpart of [`padding`](Self::padding), the
+    /// way Flutter pairs `EdgeInsetsDirectional` with `EdgeInsets`.
+    ///
+    /// When present this replaces `padding` rather than merging with it, so a
+    /// box has exactly one source of inner spacing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub padding_directional: Option<[Length; 4]>,
+    /// Outer spacing in `[start, end, top, bottom]` order.
+    ///
+    /// The directional counterpart of [`margin`](Self::margin), with the same
+    /// replacement rule.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub margin_directional: Option<[Length; 4]>,
     /// Width-to-height ratio.
     pub aspect_ratio: Option<OrderedLayoutUnit>,
     /// Whether content can paint outside this box.
@@ -1421,13 +1511,62 @@ pub enum Fill {
         start: (f32, f32),
         end: (f32, f32),
         stops: Vec<(f32, Color)>,
+        /// How colour continues outside the stop range.
+        #[serde(default)]
+        extend: GradientExtend,
     },
     /// A gradient whose center and radius are normalized to the painted bounds.
     RadialGradient {
         center: (f32, f32),
         radius: f32,
         stops: Vec<(f32, Color)>,
+        /// How colour continues outside the stop range.
+        #[serde(default)]
+        extend: GradientExtend,
     },
+    /// A gradient sweeping around a center point, normalized to the painted
+    /// bounds.
+    ///
+    /// Angles are in radians, measured clockwise from the positive x axis. This
+    /// is CSS's `conic-gradient` and Skia's sweep gradient; it is what a
+    /// circular progress track, a colour wheel and a rotating shimmer all need,
+    /// and none of them can be built from linear and radial alone.
+    SweepGradient {
+        center: (f32, f32),
+        start_angle: f32,
+        end_angle: f32,
+        stops: Vec<(f32, Color)>,
+        /// How colour continues outside the swept range.
+        #[serde(default)]
+        extend: GradientExtend,
+    },
+}
+
+/// How a gradient continues beyond its first and last stop.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+pub enum GradientExtend {
+    /// Holds the end colours. The default, and CSS's behaviour.
+    #[default]
+    Pad,
+    /// Tiles the stop range, as CSS `repeating-*-gradient` does.
+    Repeat,
+    /// Tiles the stop range, mirroring every other repetition.
+    Reflect,
+}
+
+impl Fill {
+    /// How this fill continues beyond its stops.
+    ///
+    /// A solid fill has no stops to extend, and reports [`GradientExtend::Pad`]
+    /// so callers need no special case for it.
+    pub fn extend(&self) -> GradientExtend {
+        match self {
+            Self::Solid(_) => GradientExtend::Pad,
+            Self::LinearGradient { extend, .. }
+            | Self::RadialGradient { extend, .. }
+            | Self::SweepGradient { extend, .. } => *extend,
+        }
+    }
 }
 
 impl std::hash::Hash for Fill {
@@ -1437,7 +1576,12 @@ impl std::hash::Hash for Fill {
                 0.hash(state);
                 c.hash(state);
             }
-            Self::LinearGradient { start, end, stops } => {
+            Self::LinearGradient {
+                start,
+                end,
+                stops,
+                extend,
+            } => {
                 1.hash(state);
                 start.0.to_bits().hash(state);
                 start.1.to_bits().hash(state);
@@ -1447,16 +1591,37 @@ impl std::hash::Hash for Fill {
                     off.to_bits().hash(state);
                     c.hash(state);
                 }
+                extend.hash(state);
             }
             Self::RadialGradient {
                 center,
                 radius,
                 stops,
+                extend,
             } => {
                 2.hash(state);
                 center.0.to_bits().hash(state);
                 center.1.to_bits().hash(state);
                 radius.to_bits().hash(state);
+                extend.hash(state);
+                for (off, c) in stops {
+                    off.to_bits().hash(state);
+                    c.hash(state);
+                }
+            }
+            Self::SweepGradient {
+                center,
+                start_angle,
+                end_angle,
+                stops,
+                extend,
+            } => {
+                3.hash(state);
+                center.0.to_bits().hash(state);
+                center.1.to_bits().hash(state);
+                start_angle.to_bits().hash(state);
+                end_angle.to_bits().hash(state);
+                extend.hash(state);
                 for (off, c) in stops {
                     off.to_bits().hash(state);
                     c.hash(state);
@@ -1742,11 +1907,252 @@ const fn text_wrap_default() -> bool {
     true
 }
 
+/// Per-corner radii in `[top_left, top_right, bottom_right, bottom_left]` order.
+///
+/// The scalar `corner_radius` on a paint op covers the uniform case, which is
+/// most of them. This covers the shapes it cannot express at all: a sheet or
+/// drawer rounded only along its leading edge, a tab, the first and last rows
+/// of a grouped list, the end caps of a segmented control, a bubble with one
+/// square corner.
+///
+/// Read it through [`PaintOp::corner_radii`] rather than directly, so a backend
+/// handles the uniform and per-corner cases through one path.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Default)]
+pub struct CornerRadii {
+    pub top_left: LayoutUnit,
+    pub top_right: LayoutUnit,
+    pub bottom_right: LayoutUnit,
+    pub bottom_left: LayoutUnit,
+}
+
+impl CornerRadii {
+    /// The same radius on every corner.
+    pub const fn uniform(radius: LayoutUnit) -> Self {
+        Self {
+            top_left: radius,
+            top_right: radius,
+            bottom_right: radius,
+            bottom_left: radius,
+        }
+    }
+
+    /// Rounds the two top corners and leaves the bottom square.
+    pub const fn top(radius: LayoutUnit) -> Self {
+        Self {
+            top_left: radius,
+            top_right: radius,
+            bottom_right: 0.0,
+            bottom_left: 0.0,
+        }
+    }
+
+    /// Rounds the two bottom corners and leaves the top square.
+    pub const fn bottom(radius: LayoutUnit) -> Self {
+        Self {
+            top_left: 0.0,
+            top_right: 0.0,
+            bottom_right: radius,
+            bottom_left: radius,
+        }
+    }
+
+    /// Rounds the two left corners and leaves the right square.
+    pub const fn left(radius: LayoutUnit) -> Self {
+        Self {
+            top_left: radius,
+            top_right: 0.0,
+            bottom_right: 0.0,
+            bottom_left: radius,
+        }
+    }
+
+    /// Rounds the two right corners and leaves the left square.
+    pub const fn right(radius: LayoutUnit) -> Self {
+        Self {
+            top_left: 0.0,
+            top_right: radius,
+            bottom_right: radius,
+            bottom_left: 0.0,
+        }
+    }
+
+    /// Mirrors the left and right corners, for a right-to-left layout.
+    pub const fn mirrored(self) -> Self {
+        Self {
+            top_left: self.top_right,
+            top_right: self.top_left,
+            bottom_right: self.bottom_left,
+            bottom_left: self.bottom_right,
+        }
+    }
+
+    /// Whether every corner shares one radius.
+    ///
+    /// Backends that can only draw a uniform rounded rectangle use this to tell
+    /// the cases apart rather than guessing from the values.
+    pub fn is_uniform(self) -> bool {
+        self.top_left == self.top_right
+            && self.top_right == self.bottom_right
+            && self.bottom_right == self.bottom_left
+    }
+
+    /// Whether every corner is square.
+    pub fn is_square(self) -> bool {
+        self.top_left == 0.0
+            && self.top_right == 0.0
+            && self.bottom_right == 0.0
+            && self.bottom_left == 0.0
+    }
+
+    /// The corners in `[top_left, top_right, bottom_right, bottom_left]` order.
+    pub fn to_array(self) -> [LayoutUnit; 4] {
+        [
+            self.top_left,
+            self.top_right,
+            self.bottom_right,
+            self.bottom_left,
+        ]
+    }
+}
+
+impl From<LayoutUnit> for CornerRadii {
+    fn from(radius: LayoutUnit) -> Self {
+        Self::uniform(radius)
+    }
+}
+
+impl std::hash::Hash for CornerRadii {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        for corner in self.to_array() {
+            corner.to_bits().hash(state);
+        }
+    }
+}
+
+/// Strokes for the four edges of a box, in physical order.
+///
+/// The uniform `stroke` on a paint op cannot express an edge on its own, which
+/// rules out a filled text field's underline, a table's cell grid, a card with
+/// a coloured leading accent, and a tab indicator drawn as a bottom edge.
+///
+/// Sides are physical rather than logical because they are resolved at paint
+/// time, after layout has already resolved reading order. Widgets that want
+/// leading and trailing edges mirror them while lowering, the same way
+/// directional padding is resolved.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default, Hash)]
+pub struct BorderSides {
+    pub top: Option<Stroke>,
+    pub right: Option<Stroke>,
+    pub bottom: Option<Stroke>,
+    pub left: Option<Stroke>,
+}
+
+impl BorderSides {
+    /// The same stroke on every edge.
+    pub fn uniform(stroke: Stroke) -> Self {
+        Self {
+            top: Some(stroke.clone()),
+            right: Some(stroke.clone()),
+            bottom: Some(stroke.clone()),
+            left: Some(stroke),
+        }
+    }
+
+    /// A stroke on the bottom edge only, as a filled text field uses.
+    pub fn bottom_only(stroke: Stroke) -> Self {
+        Self {
+            bottom: Some(stroke),
+            ..Default::default()
+        }
+    }
+
+    /// Mirrors the left and right edges, for a right-to-left layout.
+    pub fn mirrored(self) -> Self {
+        Self {
+            top: self.top,
+            right: self.left,
+            bottom: self.bottom,
+            left: self.right,
+        }
+    }
+
+    /// Whether no edge carries a stroke.
+    pub fn is_empty(&self) -> bool {
+        self.top.is_none() && self.right.is_none() && self.bottom.is_none() && self.left.is_none()
+    }
+
+    /// The single stroke shared by all four edges, if there is one.
+    ///
+    /// Lets a backend fall back to its uniform stroke path when the sides
+    /// happen to agree, rather than always drawing four separate edges.
+    pub fn as_uniform(&self) -> Option<&Stroke> {
+        let top = self.top.as_ref()?;
+        (self.right.as_ref() == Some(top)
+            && self.bottom.as_ref() == Some(top)
+            && self.left.as_ref() == Some(top))
+        .then_some(top)
+    }
+}
+
 /// A filter applied to content already painted behind a widget.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum BackdropFilter {
     /// Applies a Gaussian blur using the supplied standard deviation.
     Blur(LayoutUnit),
+    /// Scales backdrop saturation. `1.0` leaves it unchanged, `0.0` is greyscale,
+    /// values above `1.0` oversaturate.
+    ///
+    /// Frosted-glass surfaces need this as much as they need blur: blurring
+    /// alone washes a backdrop out, and real glass materials on every platform
+    /// pair a blur with a saturation boost.
+    Saturate(f32),
+    /// Scales backdrop luminance. `1.0` leaves it unchanged.
+    Brightness(f32),
+    /// Applies the listed filters in order.
+    ///
+    /// The common case — blur plus saturation — is a chain, so the IR has to be
+    /// able to express one rather than forcing a widget to stack nested
+    /// backdrop layers and pay for a full backdrop read per filter.
+    Chain(Vec<BackdropFilter>),
+}
+
+impl BackdropFilter {
+    /// Appends this filter's leaves to `out` in application order.
+    ///
+    /// Backends match on leaves rather than on [`Chain`](Self::Chain), so adding
+    /// a filter to the vocabulary does not force every backend to re-handle
+    /// nesting.
+    pub fn flatten_into<'a>(&'a self, out: &mut Vec<&'a BackdropFilter>) {
+        match self {
+            Self::Chain(filters) => {
+                for filter in filters {
+                    filter.flatten_into(out);
+                }
+            }
+            leaf => out.push(leaf),
+        }
+    }
+
+    /// This filter's leaves in application order.
+    pub fn flatten(&self) -> Vec<&BackdropFilter> {
+        let mut out = Vec::new();
+        self.flatten_into(&mut out);
+        out
+    }
+
+    /// The total Gaussian blur this filter applies.
+    ///
+    /// Backends that can blur the backdrop but cannot adjust its colour use
+    /// this to render the part they support instead of dropping the surface.
+    pub fn blur_sigma(&self) -> LayoutUnit {
+        self.flatten()
+            .into_iter()
+            .filter_map(|filter| match filter {
+                Self::Blur(sigma) => Some(*sigma),
+                _ => None,
+            })
+            .fold(0.0, f32::max)
+    }
 }
 
 impl std::hash::Hash for BackdropFilter {
@@ -1755,6 +2161,18 @@ impl std::hash::Hash for BackdropFilter {
             Self::Blur(sigma) => {
                 0_u8.hash(state);
                 sigma.to_bits().hash(state);
+            }
+            Self::Saturate(amount) => {
+                1_u8.hash(state);
+                amount.to_bits().hash(state);
+            }
+            Self::Brightness(amount) => {
+                2_u8.hash(state);
+                amount.to_bits().hash(state);
+            }
+            Self::Chain(filters) => {
+                3_u8.hash(state);
+                filters.hash(state);
             }
         }
     }
@@ -1765,12 +2183,26 @@ pub enum PaintOp {
     BackdropFilter {
         filter: BackdropFilter,
         corner_radius: LayoutUnit,
+        /// Per-corner override. Replaces `corner_radius` when present.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        corner_radii: Option<CornerRadii>,
     },
     DrawRect {
         fill: Option<Fill>,
         stroke: Option<Stroke>,
         corner_radius: LayoutUnit,
         shadow: Option<BoxShadow>,
+        /// Per-corner override. Replaces `corner_radius` when present.
+        ///
+        /// Read through [`PaintOp::corner_radii`] so the uniform and per-corner
+        /// cases reach a backend by one path.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        corner_radii: Option<CornerRadii>,
+        /// Per-edge strokes. Replaces `stroke` when present.
+        ///
+        /// Read through [`PaintOp::border_sides`].
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        border_sides: Option<BorderSides>,
     },
     DrawText {
         text: String,
@@ -1827,28 +2259,116 @@ pub enum PaintOp {
     },
 }
 
+impl PaintOp {
+    /// The corner radii this op paints with, uniform or per-corner.
+    ///
+    /// Backends must go through this rather than reading `corner_radius`, or a
+    /// per-corner shape silently renders as a uniform one.
+    pub fn corner_radii(&self) -> Option<CornerRadii> {
+        match self {
+            Self::DrawRect {
+                corner_radius,
+                corner_radii,
+                ..
+            }
+            | Self::BackdropFilter {
+                corner_radius,
+                corner_radii,
+                ..
+            } => Some(corner_radii.unwrap_or(CornerRadii::uniform(*corner_radius))),
+            _ => None,
+        }
+    }
+
+    /// The per-edge strokes this op paints with.
+    ///
+    /// Returns the uniform `stroke` expanded to four edges when no per-edge
+    /// override is set, so a backend has one path for both.
+    pub fn border_sides(&self) -> Option<BorderSides> {
+        match self {
+            Self::DrawRect {
+                stroke,
+                border_sides,
+                ..
+            } => match border_sides {
+                Some(sides) => Some(sides.clone()),
+                None => stroke.clone().map(BorderSides::uniform),
+            },
+            _ => None,
+        }
+    }
+
+    /// Returns the text this op renders, if it renders any.
+    ///
+    /// Fission has two text paint ops: [`DrawText`](Self::DrawText) carries one
+    /// unstyled string, [`DrawRichText`](Self::DrawRichText) carries styled
+    /// runs. Which one a widget emits is an implementation detail of that
+    /// widget, so anything asking "what does the user read here" — semantic
+    /// tooling, devtools, search indexing, tests — should go through this
+    /// rather than matching a single variant and silently missing the other.
+    ///
+    /// Rich text is joined across runs without separators, because runs split
+    /// on styling rather than on word boundaries.
+    pub fn text(&self) -> Option<std::borrow::Cow<'_, str>> {
+        match self {
+            Self::DrawText { text, .. } => Some(std::borrow::Cow::Borrowed(text.as_str())),
+            Self::DrawRichText { runs, .. } => match runs.as_slice() {
+                [] => None,
+                [run] => Some(std::borrow::Cow::Borrowed(run.text.as_str())),
+                runs => Some(std::borrow::Cow::Owned(
+                    runs.iter().map(|run| run.text.as_str()).collect(),
+                )),
+            },
+            _ => None,
+        }
+    }
+
+    /// Returns the paragraph controls this text op carries, if it is a text op.
+    ///
+    /// Alignment, line limits, overflow, direction, width basis, strut and
+    /// height behaviour are identical on both text paint ops, so callers should
+    /// not have to know which one a widget emitted.
+    pub fn paragraph_style(&self) -> Option<&TextParagraphStyle> {
+        match self {
+            Self::DrawText {
+                paragraph_style, ..
+            }
+            | Self::DrawRichText {
+                paragraph_style, ..
+            } => paragraph_style.as_ref(),
+            _ => None,
+        }
+    }
+}
+
 impl std::hash::Hash for PaintOp {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         match self {
             Self::BackdropFilter {
                 filter,
                 corner_radius,
+                corner_radii,
             } => {
                 0_u8.hash(state);
                 filter.hash(state);
                 corner_radius.to_bits().hash(state);
+                corner_radii.hash(state);
             }
             Self::DrawRect {
                 fill,
                 stroke,
                 corner_radius,
                 shadow,
+                corner_radii,
+                border_sides,
             } => {
                 1_u8.hash(state);
                 fill.hash(state);
                 stroke.hash(state);
                 corner_radius.to_bits().hash(state);
                 shadow.hash(state);
+                corner_radii.hash(state);
+                border_sides.hash(state);
             }
             Self::DrawText {
                 text,
