@@ -259,6 +259,97 @@ fn a_disabled_node_ignores_its_declared_keys() {
 }
 
 #[test]
+fn a_focused_descendant_of_an_inert_subtree_dispatches_nothing() {
+    // A node exiting a transition is still painted but is no longer logically
+    // present. Resolving the binding during the ancestor walk was too late: the
+    // focused leaf matched and returned before the walk reached the inert
+    // ancestor, so hidden or exiting UI could still fire an application command.
+    let leaf_id = WidgetId::explicit("leaf");
+    let inert_id = WidgetId::explicit("inert");
+    let root_id = WidgetId::explicit("root");
+    let mut ir = CoreIR::default();
+
+    node(
+        &mut ir,
+        leaf_id,
+        Op::Semantics(Semantics {
+            role: Role::Button,
+            focusable: true,
+            key_actions: vec![KeyAction::new(KeyCode::Char('s'), palette_id().as_u128())],
+            ..Default::default()
+        }),
+        Vec::new(),
+        None,
+    );
+    node(
+        &mut ir,
+        inert_id,
+        Op::Structural(StructuralOp::InteractionInert { stable_hash: 2 }),
+        vec![leaf_id],
+        None,
+    );
+    node(
+        &mut ir,
+        root_id,
+        Op::Structural(StructuralOp::Group { stable_hash: 1 }),
+        vec![inert_id],
+        None,
+    );
+    ir.root = Some(root_id);
+
+    let mut runtime = Runtime::default();
+    runtime.add_app_state(Box::new(Log::default())).unwrap();
+    runtime
+        .register_reducer::<Log>(
+            palette_id(),
+            |state: &mut Log, _: &ActionEnvelope, _: WidgetId| {
+                state.palette += 1;
+                Ok(())
+            },
+        )
+        .unwrap();
+    runtime.runtime_state.interaction.set_focused(Some(leaf_id));
+
+    press(&mut runtime, &ir, KeyCode::Char('s'), 0);
+    assert_eq!(
+        log(&runtime).palette,
+        0,
+        "a binding beneath an inert ancestor must not dispatch"
+    );
+}
+
+#[test]
+fn a_binding_on_an_inert_node_itself_dispatches_nothing() {
+    let (mut runtime, ir) = tree(
+        Semantics {
+            role: Role::Button,
+            focusable: true,
+            ..Default::default()
+        },
+        Some(Semantics {
+            role: Role::Dialog,
+            key_actions: vec![KeyAction::new(KeyCode::Char('s'), scoped_id().as_u128())],
+            ..Default::default()
+        }),
+    );
+    // Re-parent the scope under an inert boundary.
+    let inert_id = WidgetId::explicit("inert");
+    let container_id = WidgetId::explicit("container");
+    let mut ir = ir;
+    node(
+        &mut ir,
+        inert_id,
+        Op::Structural(StructuralOp::InteractionInert { stable_hash: 3 }),
+        vec![container_id],
+        None,
+    );
+    ir.root = Some(inert_id);
+
+    press(&mut runtime, &ir, KeyCode::Char('s'), 0);
+    assert_eq!(log(&runtime).scoped, 0);
+}
+
+#[test]
 fn tab_stays_with_focus_traversal() {
     let (mut runtime, ir) = tree(
         Semantics {

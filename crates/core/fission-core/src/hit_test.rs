@@ -601,15 +601,19 @@ pub fn declared_key_action(
     key: &KeyCode,
     modifiers: u8,
 ) -> Option<(WidgetId, ActionEntry)> {
-    let mut current = focused;
+    // Checked against the whole ancestor chain before any binding is resolved.
+    // Doing it inside the walk below would be too late: a focused descendant of
+    // an inert subtree matches on the way up and returns before the walk ever
+    // reaches the inert ancestor, so hidden or exiting UI could still dispatch
+    // an application command.
+    let focused_id = focused?;
+    if is_interaction_inert(ir, focused_id) {
+        return None;
+    }
+
+    let mut current = Some(focused_id);
     while let Some(node_id) = current {
         let node = ir.nodes.get(&node_id)?;
-        if matches!(
-            node.op,
-            Op::Structural(StructuralOp::InteractionInert { .. })
-        ) {
-            return None;
-        }
         if let Op::Semantics(semantics) = &node.op {
             if !semantics.disabled {
                 if let Some(action) = semantics
