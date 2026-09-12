@@ -147,7 +147,7 @@ pub mod authoring {
     use std::sync::Arc;
 
     pub use crate::build_context::BuildCtx;
-    pub use crate::lowering::{wrap_zstack_child, IrBuilder, LoweringContext};
+    pub use crate::lowering::{IrBuilder, LoweringContext};
     pub use crate::ui::traits::{Lower, LowerWidget};
 
     /// Wraps a [`LowerWidget`] implementation as an ordinary [`Widget`].
@@ -221,6 +221,15 @@ pub mod authoring {
 pub mod internal {
     pub use crate::build_context::BuildCtx;
     pub use crate::lowering::{build_layout_tree, wrap_zstack_child, IrBuilder, LoweringContext};
+
+    /// Mutable access to the IR a context is lowering into.
+    ///
+    /// For hosts that splice in IR produced elsewhere, such as a remote app
+    /// frame, or that strip render objects a transport cannot carry. Widgets
+    /// build nodes with [`IrBuilder`] instead.
+    pub fn lowering_ir_mut<'c>(cx: &'c mut LoweringContext<'_>) -> &'c mut fission_ir::CoreIR {
+        &mut cx.ir
+    }
     use crate::Widget;
     use fission_ir::WidgetId;
 

@@ -19,7 +19,7 @@ fn test_slider_lowering() {
     let mut cx = LoweringContext::new(&env, &runtime, None, None);
     let id = slider.lower(&mut cx);
 
-    let node = cx.ir.nodes.get(&id).unwrap();
+    let node = cx.ir().nodes.get(&id).unwrap();
     // Slider.lower wraps in Semantics
     if let Op::Semantics(s) = &node.op {
         assert_eq!(s.role, Role::Slider);
@@ -46,7 +46,7 @@ fn test_checkbox_lowering() {
     let mut cx = LoweringContext::new(&env, &runtime, None, None);
     let id = cb.lower(&mut cx);
 
-    let node = cx.ir.nodes.get(&id).unwrap();
+    let node = cx.ir().nodes.get(&id).unwrap();
     if let Op::Semantics(s) = &node.op {
         assert_eq!(s.role, Role::Checkbox);
         assert_eq!(s.identifier.as_deref(), Some("settings.enabled"));
@@ -76,7 +76,7 @@ fn test_radio_lowering_preserves_semantics_identifier() {
     let mut cx = LoweringContext::new(&env, &runtime, None, None);
     let id = radio.lower(&mut cx);
 
-    let node = cx.ir.nodes.get(&id).unwrap();
+    let node = cx.ir().nodes.get(&id).unwrap();
     if let Op::Semantics(s) = &node.op {
         assert_eq!(s.role, Role::Radio);
         assert_eq!(s.identifier.as_deref(), Some("choices.primary"));
@@ -104,7 +104,7 @@ fn test_switch_lowering_preserves_semantics_identifier() {
     let mut cx = LoweringContext::new(&env, &runtime, None, None);
     let id = switch.lower(&mut cx);
 
-    let node = cx.ir.nodes.get(&id).unwrap();
+    let node = cx.ir().nodes.get(&id).unwrap();
     if let Op::Semantics(s) = &node.op {
         assert_eq!(s.role, Role::Switch);
         assert_eq!(s.identifier.as_deref(), Some("settings.dark_mode"));
@@ -129,7 +129,7 @@ fn test_gesture_detector_lowering_preserves_semantics_identifier() {
     let mut cx = LoweringContext::new(&env, &runtime, None, None);
     let id = detector.lower(&mut cx);
 
-    let node = cx.ir.nodes.get(&id).unwrap();
+    let node = cx.ir().nodes.get(&id).unwrap();
     if let Op::Semantics(s) = &node.op {
         assert_eq!(s.identifier.as_deref(), Some("canvas.drag_handle"));
         assert!(s.draggable);

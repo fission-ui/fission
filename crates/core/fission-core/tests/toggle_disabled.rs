@@ -24,7 +24,7 @@ fn lowered(control: &impl Lower) -> (Env, CoreIR, WidgetId) {
     let (ir, id) = {
         let mut cx = LoweringContext::new(&env, &runtime, None, None);
         let id = control.lower(&mut cx);
-        (cx.ir, id)
+        (cx.into_ir(), id)
     };
     (env, ir, id)
 }

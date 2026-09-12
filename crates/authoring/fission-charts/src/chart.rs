@@ -641,7 +641,7 @@ impl fission_core::internal::LowerWidget for ChartInternalLowerer {
             .chart
             .theme
             .clone()
-            .unwrap_or_else(|| ChartTheme::from_env(cx.env));
+            .unwrap_or_else(|| ChartTheme::from_env(cx.env()));
         let area = chart_area(&self.chart, cx);
         let mut root = fission_core::internal::IrBuilder::new(
             cx.next_node_id(),
@@ -677,11 +677,11 @@ impl fission_core::internal::LowerWidget for ChartInternalLowerer {
 
 fn chart_area(chart: &Chart, cx: &fission_core::internal::LoweringContext) -> ChartArea {
     let outer_w = chart.width.unwrap_or_else(|| {
-        let available_w = cx.env.viewport_size.width;
+        let available_w = cx.env().viewport_size.width;
         (available_w - 380.0).max(260.0)
     });
     let outer_h = chart.height.unwrap_or_else(|| {
-        let available_h = cx.env.viewport_size.height;
+        let available_h = cx.env().viewport_size.height;
         (available_h - 200.0).max(320.0)
     });
     chart_area_for_size(chart, outer_w, outer_h)
@@ -758,7 +758,7 @@ impl ChartAnimationFrame {
         }
 
         let progress = cx
-            .runtime_state
+            .runtime_state()
             .motion
             .values
             .get(&(chart.animation_id(), chart_animation_property()))
@@ -4827,7 +4827,7 @@ fn add_positioned_paint(
             height: Some(rect.height()),
         }),
     );
-    pos.add_child(cx.insert_node(paint_id, op, vec![]));
+    pos.add_child(fission_core::internal::IrBuilder::new(paint_id, op).build(cx));
     root.add_child(pos.build(cx));
 }
 
@@ -4839,15 +4839,17 @@ fn add_path(
     stroke_value: Option<Stroke>,
 ) {
     let id = cx.next_node_id();
-    root.add_child(cx.insert_node(
-        id,
-        fission_ir::Op::Paint(PaintOp::DrawPath {
-            path: path.to_string(),
-            fill,
-            stroke: stroke_value,
-        }),
-        vec![],
-    ));
+    root.add_child(
+        fission_core::internal::IrBuilder::new(
+            id,
+            fission_ir::Op::Paint(PaintOp::DrawPath {
+                path: path.to_string(),
+                fill,
+                stroke: stroke_value,
+            }),
+        )
+        .build(cx),
+    );
 }
 
 fn stroke(color: Color, width: f32) -> Stroke {

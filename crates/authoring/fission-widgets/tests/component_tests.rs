@@ -32,7 +32,7 @@ fn assert_widget_has_no_self_child_edges(label: &str, widget: &Widget) {
     let mut cx = LoweringContext::new(&env, &runtime_state, None, None);
     lower_widget(widget, &mut cx);
 
-    for (id, node) in &cx.ir.nodes {
+    for (id, node) in &cx.ir().nodes {
         assert!(
             !node.children.contains(id),
             "{label}: node {id} contains itself as a child; motion wrappers must use an id distinct from the wrapped widget"

@@ -1193,7 +1193,7 @@ impl LowerWidget for MenuActionItemLowerer {
         let text_color = self
             .style
             .text_color
-            .unwrap_or(cx.env.theme.tokens.colors.text_primary);
+            .unwrap_or(cx.env().theme.tokens.colors.text_primary);
         let icon_size = self.style.icon_size.unwrap_or(16.0);
         let mut row = IrBuilder::new(
             cx.next_node_id(),
@@ -1271,7 +1271,7 @@ impl LowerWidget for MenuActionItemLowerer {
             } else {
                 self.description_style
                     .text_color
-                    .unwrap_or(cx.env.theme.tokens.colors.text_muted)
+                    .unwrap_or(cx.env().theme.tokens.colors.text_muted)
             };
             let mut description_text = Text::new(description.clone())
                 .size(self.description_style.font_size.unwrap_or(13.0))
@@ -1306,7 +1306,7 @@ impl LowerWidget for MenuActionItemLowerer {
             } else {
                 style
                     .text_color
-                    .unwrap_or(cx.env.theme.tokens.colors.text_muted)
+                    .unwrap_or(cx.env().theme.tokens.colors.text_muted)
             };
             let mut trailing_text = Text::new(value.clone())
                 .size(style.font_size.unwrap_or(12.0))

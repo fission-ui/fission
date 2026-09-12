@@ -150,15 +150,15 @@ fn layout_from_widget_at_size(
 
     let mut cx = LoweringContext::new(&env, &runtime_state, Some(&measurer_ref), None);
     let root_id = fission_core::internal::lower_widget(&node, &mut cx);
-    cx.ir.root = Some(root_id);
-    let input_nodes = build_layout_tree(&cx.ir, &env);
+    cx.set_root(root_id);
+    let input_nodes = build_layout_tree(cx.ir(), &env);
 
     let mut engine = LayoutEngine::new().with_measurer(measurer);
     engine.rebuild(&input_nodes).unwrap();
     let snapshot = engine
         .compute_layout(&input_nodes, root_id, viewport, &|_| 0.0)
         .unwrap();
-    (cx.ir, snapshot)
+    (cx.into_ir(), snapshot)
 }
 
 fn rect_center(rect: fission_layout::LayoutRect) -> (f32, f32) {

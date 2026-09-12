@@ -184,8 +184,8 @@ fn reduced_presence_hides_immediately_or_retains_an_inert_child() {
     });
     let mut lowering = LoweringContext::new(&env, &runtime.runtime_state, None, None);
     let hidden_root = fission_core::internal::lower_widget(&hidden, &mut lowering);
-    lowering.ir.set_root(hidden_root);
-    assert!(!lowering.ir.nodes.values().any(|node| {
+    lowering.set_root(hidden_root);
+    assert!(!lowering.ir().nodes.values().any(|node| {
         matches!(&node.op, Op::Semantics(semantics) if semantics.role == fission_ir::Role::Button)
     }));
 
@@ -209,12 +209,12 @@ fn reduced_presence_hides_immediately_or_retains_an_inert_child() {
     });
     let mut lowering = LoweringContext::new(&env, &runtime.runtime_state, None, None);
     let retained_root = fission_core::internal::lower_widget(&retained, &mut lowering);
-    lowering.ir.set_root(retained_root);
+    lowering.set_root(retained_root);
     assert_ne!(
         retained_root, id,
         "custom wrapper and inert boundary differ"
     );
-    let wrapper = lowering.ir.nodes.get(&retained_root).unwrap();
+    let wrapper = lowering.ir().nodes.get(&retained_root).unwrap();
     assert!(matches!(
         wrapper.op,
         Op::Structural(StructuralOp::Group { .. })
@@ -227,7 +227,7 @@ fn reduced_presence_hides_immediately_or_retains_an_inert_child() {
         "retained presence should wrap exactly one boundary"
     );
     let inert_id = wrapper.children[0];
-    let inert = lowering.ir.nodes.get(&inert_id).unwrap();
+    let inert = lowering.ir().nodes.get(&inert_id).unwrap();
     assert!(matches!(
         inert.op,
         Op::Structural(StructuralOp::InteractionInert { .. })
@@ -236,7 +236,7 @@ fn reduced_presence_hides_immediately_or_retains_an_inert_child() {
     let mut descendants = inert.children.clone();
     let mut retained_text_paints = 0;
     while let Some(descendant) = descendants.pop() {
-        let node = lowering.ir.nodes.get(&descendant).unwrap();
+        let node = lowering.ir().nodes.get(&descendant).unwrap();
         descendants.extend(node.children.iter().copied());
         retained_text_paints += match &node.op {
             Op::Paint(PaintOp::DrawText { text, .. }) if text == "Retained content" => 1,

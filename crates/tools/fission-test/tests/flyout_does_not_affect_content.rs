@@ -139,8 +139,8 @@ fn flyout_does_not_shift_content() -> Result<()> {
 
     let mut cx = LoweringContext::new(&env, &runtime.runtime_state, None, None);
     let root_id = fission_core::internal::lower_widget(&node_tree, &mut cx);
-    cx.ir.root = Some(root_id);
-    let ir1 = cx.ir;
+    cx.set_root(root_id);
+    let ir1 = cx.into_ir();
 
     let viewport = fission_layout::LayoutSize {
         width: 1024.0,
@@ -211,8 +211,8 @@ fn flyout_does_not_shift_content() -> Result<()> {
             pipe.last_snapshot.as_ref(),
         );
         let root_id = fission_core::internal::lower_widget(&final_root, &mut cx);
-        cx.ir.root = Some(root_id);
-        let ir2 = cx.ir;
+        cx.set_root(root_id);
+        let ir2 = cx.into_ir();
 
         let _ = pipe.render(
             ir2.clone(),

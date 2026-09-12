@@ -73,8 +73,8 @@ fn build_widget_ir_with(env: &Env, build: impl FnOnce() -> Widget) -> (CoreIR, W
     let measurer_ref = measurer.clone();
     let mut lower = LoweringContext::new(env, &runtime_state, Some(&measurer_ref), None);
     let root_id = fission_core::internal::lower_widget(&node, &mut lower);
-    lower.ir.root = Some(root_id);
-    (lower.ir, root_id)
+    lower.set_root(root_id);
+    (lower.into_ir(), root_id)
 }
 
 fn layout_widget(

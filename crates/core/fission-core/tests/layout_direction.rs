@@ -12,14 +12,14 @@ fn lower_and_layout(
     let runtime = RuntimeState::default();
     let mut lowering = LoweringContext::new(env, &runtime, None, None);
     let root = fission_core::internal::lower_widget(&widget, &mut lowering);
-    lowering.ir.set_root(root);
+    lowering.set_root(root);
 
-    let input = build_layout_tree(&lowering.ir, env);
-    let mut engine = LayoutEngine::new().with_layout_direction(lowering.ir.layout_direction);
+    let input = build_layout_tree(lowering.ir(), env);
+    let mut engine = LayoutEngine::new().with_layout_direction(lowering.ir().layout_direction);
     let snapshot = engine
         .compute_layout(&input, root, LayoutSize::new(100.0, 40.0), &|_| 0.0)
         .expect("directional row layout");
-    (lowering.ir, snapshot)
+    (lowering.into_ir(), snapshot)
 }
 
 fn focusable_cell(id: WidgetId) -> SemanticsRegion {

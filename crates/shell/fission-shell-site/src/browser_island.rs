@@ -366,8 +366,8 @@ fn lower_browser_island_widget(
     let node = compose_browser_island_portals(node, portals);
     let mut lowering = LoweringContext::new(env, runtime, None, None);
     let root = fission_core::internal::lower_widget(&node, &mut lowering);
-    lowering.ir.set_root(root);
-    lowering.ir
+    lowering.set_root(root);
+    lowering.into_ir()
 }
 
 fn bridge_text_offset(message: &Value, field: &str, text: &str) -> Result<usize> {

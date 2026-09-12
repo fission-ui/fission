@@ -127,7 +127,7 @@ struct CustomEmbedInternalLowerer;
 impl LowerWidget for CustomEmbedInternalLowerer {
     fn lower_dyn(&self, cx: &mut fission_core::internal::LoweringContext) -> WidgetId {
         let node_id = cx.next_node_id();
-        cx.insert_node(
+        fission_core::authoring::IrBuilder::new(
             node_id,
             Op::Layout(LayoutOp::Embed {
                 kind: EmbedKind::Custom(vec![1, 2, 3]),
@@ -135,8 +135,8 @@ impl LowerWidget for CustomEmbedInternalLowerer {
                 width: Some(240.0),
                 height: Some(120.0),
             }),
-            vec![],
         )
+        .build(cx)
     }
 
     fn stable_key(&self) -> u64 {

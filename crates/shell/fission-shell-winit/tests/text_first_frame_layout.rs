@@ -41,7 +41,7 @@ fn first_frame_pipeline_measures_and_paints_descendant_max_width_identically() {
     }
     .into();
     let root = lower_widget(&widget, &mut cx);
-    cx.ir.root = Some(root);
+    cx.set_root(root);
 
     let measurer = Arc::new(VelloTextMeasurer::new(Arc::new(Mutex::new(
         FontContext::new(),
@@ -51,7 +51,7 @@ fn first_frame_pipeline_measures_and_paints_descendant_max_width_identically() {
     let mut pipeline = Pipeline::new();
     pipeline
         .render(
-            cx.ir,
+            cx.into_ir(),
             LayoutSize::new(1000.0, 800.0),
             &mut layout_engine,
             &ScrollStateMap::default(),

@@ -406,8 +406,8 @@ fn accessible_range_slider() -> (CoreIR, LayoutSnapshot, WidgetId, WidgetId) {
     let runtime = fission_core::RuntimeState::default();
     let mut lowering = fission_core::internal::LoweringContext::new(&env, &runtime, None, None);
     let root = fission_core::internal::lower_widget(&widget, &mut lowering);
-    lowering.ir.root = Some(root);
-    let input = fission_core::internal::build_layout_tree(&lowering.ir, &env);
+    lowering.set_root(root);
+    let input = fission_core::internal::build_layout_tree(lowering.ir(), &env);
     let mut engine = fission_layout::LayoutEngine::new();
     engine.rebuild(&input).unwrap();
     let layout = engine
@@ -415,7 +415,7 @@ fn accessible_range_slider() -> (CoreIR, LayoutSnapshot, WidgetId, WidgetId) {
         .unwrap();
     let find = |identifier: &str| {
         lowering
-            .ir
+            .ir()
             .nodes
             .iter()
             .find_map(|(id, node)| match &node.op {
@@ -428,7 +428,7 @@ fn accessible_range_slider() -> (CoreIR, LayoutSnapshot, WidgetId, WidgetId) {
     };
     let start = find("filters.price.start");
     let end = find("filters.price.end");
-    (lowering.ir, layout, start, end)
+    (lowering.into_ir(), layout, start, end)
 }
 
 fn range_dispatch_runtime() -> Runtime {

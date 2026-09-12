@@ -19,8 +19,8 @@ fn paint_ops(widget: Widget, direction: LayoutDirection) -> Vec<PaintOp> {
     let runtime = RuntimeState::default();
     let mut cx = LoweringContext::new(&env, &runtime, None, None);
     let root = fission_core::internal::lower_widget(&widget, &mut cx);
-    cx.ir.root = Some(root);
-    cx.ir
+    cx.set_root(root);
+    cx.into_ir()
         .nodes
         .values()
         .filter_map(|node| match &node.op {

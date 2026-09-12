@@ -25,9 +25,9 @@ fn text_key_resolves_from_i18n_registry() {
     let runtime = fission_core::env::RuntimeState::default();
     let mut cx = LoweringContext::new(&env, &runtime, None, None);
     let root_id = fission_core::internal::lower_widget(&text.into(), &mut cx);
-    cx.ir.root = Some(root_id);
+    cx.set_root(root_id);
 
-    let found = cx.ir.nodes.values().any(|node| match &node.op {
+    let found = cx.ir().nodes.values().any(|node| match &node.op {
         Op::Paint(paint) => paint.text().as_deref() == Some("Hola"),
         _ => false,
     });

@@ -146,14 +146,14 @@ impl InfiniteCanvas {
     fn resolved_widget(&self, cx: &LoweringContext<'_>, canvas_id: WidgetId) -> Widget {
         let transform = self
             .transform
-            .or_else(|| cx.runtime_state.viewport.transform(canvas_id))
+            .or_else(|| cx.runtime_state().viewport.transform(canvas_id))
             .unwrap_or(self.initial_transform)
             .normalized();
         let viewport = cx
-            .layout
+            .layout()
             .and_then(|layout| layout.get_node_rect(canvas_id))
             .map(|rect| rect.size)
-            .unwrap_or(cx.env.viewport_size);
+            .unwrap_or(cx.env().viewport_size);
         let visible_world = visible_world_rect(
             viewport.width,
             viewport.height,
@@ -162,7 +162,7 @@ impl InfiniteCanvas {
             transform.scale,
             self.render_overscan.max(0.0),
         );
-        let selection_color = cx.env.theme.tokens.colors.primary;
+        let selection_color = cx.env().theme.tokens.colors.primary;
 
         let mut world_children = Vec::new();
         if let Some(layer) = &self.world_background {
@@ -378,10 +378,10 @@ mod tests {
         let root = fission_core::internal::lower_widget(&widget, &mut cx);
 
         assert_eq!(root, WidgetId::derived(canvas_id.as_u128(), &[0xCA4A5]));
-        let wrapper = cx.ir.nodes.get(&root).expect("canvas wrapper");
+        let wrapper = cx.ir().nodes.get(&root).expect("canvas wrapper");
         assert_eq!(wrapper.children.len(), 1);
         assert_ne!(wrapper.children[0], root);
-        assert!(cx.ir.nodes.contains_key(&canvas_id));
+        assert!(cx.ir().nodes.contains_key(&canvas_id));
     }
 
     #[test]
@@ -399,7 +399,7 @@ mod tests {
         let mut cx = fission_core::internal::LoweringContext::new(&env, &runtime, None, None);
 
         let root = fission_core::internal::lower_widget(&widget, &mut cx);
-        let stack = cx.ir.nodes.get(&root).expect("canvas stack");
+        let stack = cx.ir().nodes.get(&root).expect("canvas stack");
         assert_eq!(stack.children.len(), 2);
         assert_ne!(stack.children[0], stack.children[1]);
     }

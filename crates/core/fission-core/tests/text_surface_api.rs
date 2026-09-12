@@ -23,24 +23,24 @@ fn lower_node(node: Widget) -> CoreIR {
     let runtime = RuntimeState::default();
     let mut cx = LoweringContext::new(&env, &runtime, None, None);
     let root = fission_core::internal::lower_widget(&node, &mut cx);
-    cx.ir.root = Some(root);
-    cx.ir
+    cx.set_root(root);
+    cx.into_ir()
 }
 
 fn lower_node_with_env(node: Widget, env: Env) -> CoreIR {
     let runtime = RuntimeState::default();
     let mut cx = LoweringContext::new(&env, &runtime, None, None);
     let root = fission_core::internal::lower_widget(&node, &mut cx);
-    cx.ir.root = Some(root);
-    cx.ir
+    cx.set_root(root);
+    cx.into_ir()
 }
 
 fn lower_node_with_runtime(node: Widget, runtime: RuntimeState) -> CoreIR {
     let env = Env::default();
     let mut cx = LoweringContext::new(&env, &runtime, None, None);
     let root = fission_core::internal::lower_widget(&node, &mut cx);
-    cx.ir.root = Some(root);
-    cx.ir
+    cx.set_root(root);
+    cx.into_ir()
 }
 
 fn test_text_input_selection_handle_id(

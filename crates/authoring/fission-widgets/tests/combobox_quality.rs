@@ -64,8 +64,8 @@ fn build_runtime_widget(runtime: &Runtime, build: impl FnOnce() -> Widget) -> Co
     .into();
     let mut lower = LoweringContext::new(&env, &runtime.runtime_state, None, None);
     let root_id = fission_core::internal::lower_widget(&root, &mut lower);
-    lower.ir.root = Some(root_id);
-    lower.ir
+    lower.set_root(root_id);
+    lower.into_ir()
 }
 
 fn runtime_combobox(combobox_id: WidgetId) -> ComboboxLayout {

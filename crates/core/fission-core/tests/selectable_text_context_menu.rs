@@ -29,7 +29,7 @@ fn selectable_text_lowers_semantics_and_runtime_selection() {
 
     let mut cx = LoweringContext::new(&env, &runtime, None, None);
     let root_id = lower_widget(&text.into(), &mut cx);
-    cx.ir.root = Some(root_id);
+    cx.set_root(root_id);
 
     let semantics = cx
         .ir
@@ -48,7 +48,7 @@ fn selectable_text_lowers_semantics_and_runtime_selection() {
     assert_eq!(semantics.value.as_deref(), Some("hello world"));
     assert_eq!(semantics.text_selection, Some((0, 5)));
 
-    let has_selection_paint = cx.ir.nodes.values().any(|node| match &node.op {
+    let has_selection_paint = cx.ir().nodes.values().any(|node| match &node.op {
         Op::Paint(PaintOp::DrawRichText { runs, .. }) => runs
             .iter()
             .any(|run| !run.text.is_empty() && run.style.background_color.is_some()),
@@ -80,7 +80,7 @@ fn context_menu_region_accepts_widget_children_and_fallback_i18n_text() {
 
     let mut cx = LoweringContext::new(&env, &runtime, None, None);
     let root_id = lower_widget(&region.into(), &mut cx);
-    cx.ir.root = Some(root_id);
+    cx.set_root(root_id);
 
     let semantics = cx
         .ir
@@ -93,7 +93,7 @@ fn context_menu_region_accepts_widget_children_and_fallback_i18n_text() {
         .expect("context menu region should lower to semantics");
     assert!(semantics.context_menu);
 
-    let rendered_fallback = cx.ir.nodes.values().any(|node| match &node.op {
+    let rendered_fallback = cx.ir().nodes.values().any(|node| match &node.op {
         Op::Paint(PaintOp::DrawText { text, .. }) => text == "Copy",
         Op::Paint(PaintOp::DrawRichText { runs, .. }) => runs.iter().any(|run| run.text == "Copy"),
         _ => false,

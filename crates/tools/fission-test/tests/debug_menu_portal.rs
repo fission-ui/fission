@@ -163,8 +163,8 @@ fn menu_portal_position_near_anchor() -> Result<()> {
         pipe.last_snapshot.as_ref(),
     );
     let root_id = fission_core::internal::lower_widget(&final_root, &mut cx);
-    cx.ir.root = Some(root_id);
-    let ir = cx.ir;
+    cx.set_root(root_id);
+    let ir = cx.into_ir();
 
     // Layout
     let viewport = fission_layout::LayoutSize {
@@ -239,8 +239,8 @@ fn menu_portal_position_near_anchor() -> Result<()> {
             pipe.last_snapshot.as_ref(),
         );
         let root_id = fission_core::internal::lower_widget(&final_root, &mut cx);
-        cx.ir.root = Some(root_id);
-        let ir2 = cx.ir;
+        cx.set_root(root_id);
+        let ir2 = cx.into_ir();
 
         let env = fission_core::env::Env::default();
         let _ = pipe.render(

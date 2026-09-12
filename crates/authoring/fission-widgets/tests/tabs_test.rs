@@ -59,8 +59,8 @@ fn implicit_tabs_ids_are_unique_across_sibling_instances() {
     });
     let mut lowering = LoweringContext::new(&env, &runtime, None, None);
     let root = fission_core::internal::lower_widget(&node, &mut lowering);
-    lowering.ir.root = Some(root);
-    let ir = lowering.ir;
+    lowering.set_root(root);
+    let ir = lowering.into_ir();
 
     let first = semantics_for_identifier(&ir, "implicit.first").0;
     let second = semantics_for_identifier(&ir, "implicit.second").0;
@@ -751,8 +751,8 @@ fn lower_widget(
     let node = build::enter(&mut ctx, &view, build_widget);
     let mut lowering = LoweringContext::new(env, runtime, None, None);
     let root = fission_core::internal::lower_widget(&node, &mut lowering);
-    lowering.ir.root = Some(root);
-    lowering.ir
+    lowering.set_root(root);
+    lowering.into_ir()
 }
 
 fn lower_tabs(tabs: Tabs, env: &Env, runtime: &RuntimeState, id: Option<WidgetId>) -> CoreIR {
@@ -765,8 +765,8 @@ fn lower_tabs(tabs: Tabs, env: &Env, runtime: &RuntimeState, id: Option<WidgetId
     });
     let mut lowering = LoweringContext::new(env, runtime, None, None);
     let root = fission_core::internal::lower_widget(&node, &mut lowering);
-    lowering.ir.root = Some(root);
-    lowering.ir
+    lowering.set_root(root);
+    lowering.into_ir()
 }
 
 fn tab(title: &str) -> TabItem {

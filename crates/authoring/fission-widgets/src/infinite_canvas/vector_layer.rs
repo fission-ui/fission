@@ -106,13 +106,13 @@ mod tests {
         let root = fission_core::internal::lower_widget(&widget, &mut cx);
 
         assert_eq!(root, id);
-        let wrapper = cx.ir.nodes.get(&root).expect("wrapper");
+        let wrapper = cx.ir().nodes.get(&root).expect("wrapper");
         assert_eq!(wrapper.children.len(), 1);
         assert_ne!(wrapper.children[0], root);
-        let layout = cx.ir.nodes.get(&wrapper.children[0]).expect("layout");
+        let layout = cx.ir().nodes.get(&wrapper.children[0]).expect("layout");
         assert_eq!(layout.children.len(), 1);
         assert!(matches!(
-            cx.ir.nodes[&layout.children[0]].op,
+            cx.ir().nodes[&layout.children[0]].op,
             Op::Paint(PaintOp::DrawPath { .. })
         ));
     }
@@ -142,7 +142,7 @@ mod tests {
         let runtime = RuntimeState::default();
         let mut cx = LoweringContext::new(&env, &runtime, None, None);
         let root = fission_core::internal::lower_widget(&widget, &mut cx);
-        let nodes = fission_core::internal::build_layout_tree(&cx.ir, &env);
+        let nodes = fission_core::internal::build_layout_tree(cx.ir(), &env);
         let snapshot = LayoutEngine::new()
             .compute_layout(&nodes, root, LayoutSize::new(800.0, 600.0), &|_| 0.0)
             .expect("positioned vector layout");

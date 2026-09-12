@@ -91,7 +91,7 @@ fn test_internal_drag_drop_flow() {
     let mut cx =
         fission_core::internal::LoweringContext::new(&env, &runtime.runtime_state, None, None);
     let root_id = fission_core::internal::lower_widget(&root, &mut cx);
-    let mut ir = cx.ir;
+    let mut ir = cx.into_ir();
     ir.root = Some(root_id);
 
     let env = fission_core::Env::default();

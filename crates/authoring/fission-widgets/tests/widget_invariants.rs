@@ -32,8 +32,8 @@ fn test_text_widget_default_and_lower() {
     let mut cx = LoweringContext::new(&env, &runtime_state, None, None);
     let node_id = text_widget.lower(&mut cx);
 
-    assert!(cx.ir.nodes.contains_key(&node_id));
-    let node = cx.ir.nodes.get(&node_id).unwrap();
+    assert!(cx.ir().nodes.contains_key(&node_id));
+    let node = cx.ir().nodes.get(&node_id).unwrap();
     // Default Text maps to LayoutOp::Box
     assert!(matches!(node.op, Op::Layout(LayoutOp::Box { .. })));
 }
@@ -63,8 +63,8 @@ fn test_row_widget_children_lower() {
     let mut cx = LoweringContext::new(&env, &runtime_state, None, None);
     let row_node_id = row_widget.lower(&mut cx);
 
-    assert!(cx.ir.nodes.contains_key(&row_node_id));
-    let row_node = cx.ir.nodes.get(&row_node_id).unwrap();
+    assert!(cx.ir().nodes.contains_key(&row_node_id));
+    let row_node = cx.ir().nodes.get(&row_node_id).unwrap();
     assert!(matches!(row_node.op, Op::Layout(LayoutOp::Flex { .. })));
     assert_eq!(row_node.children.len(), 2);
 }
@@ -140,12 +140,12 @@ fn test_button_widget_lower_with_child_and_semantics() {
     let mut cx = LoweringContext::new(&env, &runtime_state, None, None);
     let button_node_id = button_widget.lower(&mut cx);
 
-    assert!(cx.ir.nodes.contains_key(&button_node_id));
+    assert!(cx.ir().nodes.contains_key(&button_node_id));
 
     // In new model, Button.lower returns button_layout_id.
     // If semantics are present, it wraps it.
     // So the returned ID should be the semantics node.
-    let semantics_node = cx.ir.nodes.get(&button_node_id).unwrap();
+    let semantics_node = cx.ir().nodes.get(&button_node_id).unwrap();
     assert!(matches!(semantics_node.op, Op::Semantics(_)));
 
     if let Op::Semantics(s_op) = &semantics_node.op {
@@ -167,5 +167,5 @@ fn test_node_enum_lower() {
     let runtime_state = RuntimeState::default();
     let mut cx = LoweringContext::new(&env, &runtime_state, None, None);
     fission_core::internal::lower_widget(&node, &mut cx);
-    assert!(!cx.ir.nodes.is_empty());
+    assert!(!cx.ir().nodes.is_empty());
 }

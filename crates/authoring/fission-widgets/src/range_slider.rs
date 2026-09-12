@@ -1,8 +1,9 @@
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
-use fission_core::authoring::{wrap_zstack_child, IrBuilder, LowerWidget, LoweringContext};
+use fission_core::authoring::{IrBuilder, LowerWidget, LoweringContext};
 use fission_core::input::range_slider::RangeSliderRuntimeConfig;
+use fission_core::internal::wrap_zstack_child;
 use fission_core::ui::Widget;
 use fission_core::ActionEnvelope;
 use fission_ir::op::{Color, Fill, GridPlacement, GridTrack, LayoutOp, Op, PaintOp};
@@ -122,7 +123,7 @@ impl LowerWidget for RangeSliderLowerer {
         let control_id = WidgetId::derived(self.node_id.as_u128(), &[CONTROL_PATH]);
         cx.push_scope(control_id);
 
-        let tokens = &cx.env.theme.tokens;
+        let tokens = &cx.env().theme.tokens;
         let thumb_size = 16.0;
         let track_height = 4.0;
         let (min, max, start, end) = normalized_values(&self.component);
@@ -224,9 +225,7 @@ impl LowerWidget for RangeSliderLowerer {
         // Controller config rides on the widget's own node, which is the parent
         // of everything lowered here, so walking up from a hit thumb or the
         // track finds it and geometry resolves against the whole control.
-        cx.ir
-            .custom_render_objects
-            .insert(self.node_id, std::sync::Arc::new(self.config.clone()));
+        cx.set_render_object(self.node_id, std::sync::Arc::new(self.config.clone()));
         control_id
     }
 

@@ -9,8 +9,8 @@ fn lower_image(image: Image) -> CoreIR {
     let runtime = RuntimeState::default();
     let mut cx = LoweringContext::new(&env, &runtime, None, None);
     let root = fission_core::internal::lower_widget(&image.into(), &mut cx);
-    cx.ir.root = Some(root);
-    cx.ir
+    cx.set_root(root);
+    cx.into_ir()
 }
 
 fn draw_image_op(ir: &CoreIR) -> Option<&PaintOp> {

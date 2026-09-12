@@ -43,7 +43,7 @@ fn test_scene3d_lowering() {
 
     let generated_id = lowerer.lower_dyn(&mut cx);
 
-    let ir = cx.ir;
+    let ir = cx.into_ir();
     let node = ir.nodes.get(&generated_id).expect("Node should exist");
 
     match &node.op {

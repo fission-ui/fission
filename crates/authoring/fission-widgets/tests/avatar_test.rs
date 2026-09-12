@@ -78,16 +78,20 @@ fn avatar_uses_the_active_fallback_colors() {
     let runtime = RuntimeState::default();
     let mut lowering = LoweringContext::new(&env, &runtime, None, None);
     let root = fission_core::internal::lower_widget(&widget, &mut lowering);
-    lowering.ir.set_root(root);
-    let rendered_foreground = lowering.ir.nodes.values().find_map(|node| match &node.op {
-        Op::Paint(PaintOp::DrawText { text, color, .. }) if text == "?" => Some(*color),
-        Op::Paint(PaintOp::DrawRichText { runs, .. })
-            if runs.iter().map(|run| run.text.as_str()).collect::<String>() == "?" =>
-        {
-            runs.first().map(|run| run.style.color)
-        }
-        _ => None,
-    });
+    lowering.set_root(root);
+    let rendered_foreground = lowering
+        .ir()
+        .nodes
+        .values()
+        .find_map(|node| match &node.op {
+            Op::Paint(PaintOp::DrawText { text, color, .. }) if text == "?" => Some(*color),
+            Op::Paint(PaintOp::DrawRichText { runs, .. })
+                if runs.iter().map(|run| run.text.as_str()).collect::<String>() == "?" =>
+            {
+                runs.first().map(|run| run.style.color)
+            }
+            _ => None,
+        });
     assert_eq!(rendered_foreground, Some(foreground));
 }
 
@@ -102,7 +106,7 @@ fn named_avatar_is_one_non_focusable_accessible_image() {
     let runtime = RuntimeState::default();
     let mut lowering = LoweringContext::new(&env, &runtime, None, None);
     let root = fission_core::internal::lower_widget(&widget, &mut lowering);
-    lowering.ir.set_root(root);
+    lowering.set_root(root);
     let images = lowering
         .ir
         .nodes
@@ -129,7 +133,7 @@ fn unnamed_avatar_remains_decorative() {
     let runtime = RuntimeState::default();
     let mut lowering = LoweringContext::new(&env, &runtime, None, None);
     let root = fission_core::internal::lower_widget(&widget, &mut lowering);
-    lowering.ir.set_root(root);
+    lowering.set_root(root);
 
     assert!(!lowering
         .ir
@@ -173,9 +177,9 @@ fn avatar_group_preserves_item_identity_and_exposes_one_semantic_group() {
     let runtime = RuntimeState::default();
     let mut lowering = LoweringContext::new(&env, &runtime, None, None);
     let root = fission_core::internal::lower_widget(&widget, &mut lowering);
-    lowering.ir.set_root(root);
-    assert!(lowering.ir.nodes.contains_key(&ada));
-    assert!(lowering.ir.nodes.contains_key(&grace));
+    lowering.set_root(root);
+    assert!(lowering.ir().nodes.contains_key(&ada));
+    assert!(lowering.ir().nodes.contains_key(&grace));
 }
 
 #[test]
@@ -219,13 +223,13 @@ fn avatar_group_applies_overlap_and_adds_a_stable_overflow_surface() {
     let runtime = RuntimeState::default();
     let mut first_lowering = LoweringContext::new(&env, &runtime, None, None);
     let first_root = fission_core::internal::lower_widget(&widget, &mut first_lowering);
-    first_lowering.ir.set_root(first_root);
+    first_lowering.set_root(first_root);
     let mut rebuilt_lowering = LoweringContext::new(&env, &runtime, None, None);
     let rebuilt_root = fission_core::internal::lower_widget(&rebuilt, &mut rebuilt_lowering);
-    rebuilt_lowering.ir.set_root(rebuilt_root);
+    rebuilt_lowering.set_root(rebuilt_root);
     let overflow_id = WidgetId::derived(group_id.as_u128(), &[0x4f56_464c]);
-    assert!(first_lowering.ir.nodes.contains_key(&overflow_id));
-    assert!(rebuilt_lowering.ir.nodes.contains_key(&overflow_id));
+    assert!(first_lowering.ir().nodes.contains_key(&overflow_id));
+    assert!(rebuilt_lowering.ir().nodes.contains_key(&overflow_id));
 }
 
 #[test]
@@ -250,8 +254,8 @@ fn avatar_group_overlap_is_reflected_in_ltr_and_rtl_layout() {
         let runtime = RuntimeState::default();
         let mut lowering = LoweringContext::new(&env, &runtime, None, None);
         let root = fission_core::internal::lower_widget(&widget, &mut lowering);
-        lowering.ir.set_root(root);
-        let input = build_layout_tree(&lowering.ir, &env);
+        lowering.set_root(root);
+        let input = build_layout_tree(lowering.ir(), &env);
         let mut engine = LayoutEngine::new().with_layout_direction(direction);
         let layout = engine
             .compute_layout(&input, root, LayoutSize::new(200.0, 80.0), &|_| 0.0)

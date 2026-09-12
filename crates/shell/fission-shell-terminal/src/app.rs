@@ -404,8 +404,8 @@ where
             let shell_root_id = fission_core::internal::shell_root_id(self.root_id);
             let root_id =
                 fission_core::internal::lower_widget_with_root(&node_tree, &mut cx, shell_root_id);
-            cx.ir.root = Some(root_id);
-            (cx.ir, root_id)
+            cx.set_root(root_id);
+            (cx.into_ir(), root_id)
         };
         verify_terminal_ir(&ir).context("terminal shell support check failed")?;
         self.runtime.reconcile_focus(&ir)?;

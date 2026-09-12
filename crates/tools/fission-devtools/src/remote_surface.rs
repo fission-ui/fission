@@ -58,10 +58,12 @@ impl LowerWidget for RemoteIrLowerer {
             .expect("validated Fission Developer frame must contain a root");
         for (id, node) in &self.frame.ir.nodes {
             assert!(
-                !cx.ir.nodes.contains_key(id),
+                !cx.ir().nodes.contains_key(id),
                 "Fission Developer host/app WidgetId collision for {id}"
             );
-            cx.ir.nodes.insert(*id, node.clone());
+            fission_core::internal::lowering_ir_mut(cx)
+                .nodes
+                .insert(*id, node.clone());
         }
         root
     }

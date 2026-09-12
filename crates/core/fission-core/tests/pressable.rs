@@ -235,8 +235,8 @@ fn pressable_paint_style_interpolates_through_runtime_motion() {
     let mut lowering =
         fission_core::internal::LoweringContext::new(&env, &runtime.runtime_state, None, None);
     let root = fission_core::internal::lower_widget(&widget, &mut lowering);
-    lowering.ir.root = Some(root);
-    let ir = lowering.ir;
+    lowering.set_root(root);
+    let ir = lowering.into_ir();
     let color = ir.nodes.values().find_map(|node| match &node.op {
         Op::Paint(fission_ir::PaintOp::DrawRect {
             fill: Some(Fill::Solid(color)),

@@ -336,6 +336,10 @@ use fission_core::{
 use fission_ir::WidgetId;
 use std::sync::Arc;
 
+/// Appends renderer-independent child nodes during lowering and returns their
+/// stable IDs.
+pub type CanvasPainter = Arc<dyn Fn(&mut LoweringContext) -> Vec<WidgetId> + Send + Sync>;
+
 /// Internal lowerer for the [`canvas()`] free function.
 ///
 /// Wraps a painter closure that produces child node IDs within a `Group` node,
@@ -347,7 +351,7 @@ pub struct CanvasLowerer {
     pub height: Option<f32>,
     /// Painter invoked during lowering to append renderer-independent child
     /// nodes and return their stable IDs.
-    pub painter: Arc<dyn Fn(&mut LoweringContext) -> Vec<WidgetId> + Send + Sync>,
+    pub painter: CanvasPainter,
 }
 
 impl std::fmt::Debug for CanvasLowerer {

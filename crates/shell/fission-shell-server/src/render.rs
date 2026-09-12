@@ -654,7 +654,7 @@ impl ServerRenderer {
         let runtime = RuntimeState::default();
         let mut lowering = LoweringContext::new(&env, &runtime, None, None);
         let root = fission_core::internal::lower_widget(&node, &mut lowering);
-        lowering.ir.set_root(root);
+        lowering.set_root(root);
 
         let mut styles = StyleRegistry::default();
         let head_start_html = server_page_elements_for_route(
@@ -686,7 +686,7 @@ impl ServerRenderer {
             body_end_html.push(server_browser_runtime_script());
         }
         let action_tokens = collect_server_action_tokens(
-            &lowering.ir,
+            lowering.ir(),
             &route_path,
             &self.action_signer,
             Duration::from_secs(10 * 60),
@@ -737,7 +737,7 @@ impl ServerRenderer {
             body_end_html,
             ..Default::default()
         };
-        let rendered = render_ir_to_html_with_styles(&lowering.ir, &render_options, &mut styles)?;
+        let rendered = render_ir_to_html_with_styles(lowering.ir(), &render_options, &mut styles)?;
         let css = rendered.css.clone();
         self.remember_route_css(&route_path, &css)?;
         Ok(RenderedServerRoute {

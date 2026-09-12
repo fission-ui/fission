@@ -58,7 +58,7 @@ fn lower_chart_with_animation_progress(
     let root_id = cx.next_node_id();
     cx.push_scope(root_id);
     lowerer.lower_dyn(&mut cx);
-    cx.ir
+    cx.into_ir()
 }
 
 fn max_rect_height_for_fill(ir: &fission_ir::CoreIR, target: Color) -> f32 {
@@ -484,7 +484,7 @@ fn chart_theme_follows_dark_fission_env() {
     cx.push_scope(root_id);
     lowerer.lower_dyn(&mut cx);
 
-    let has_dark_surface = cx.ir.nodes.values().any(|node| {
+    let has_dark_surface = cx.ir().nodes.values().any(|node| {
         matches!(
             &node.op,
             fission_ir::Op::Paint(PaintOp::DrawRect {
@@ -572,7 +572,7 @@ fn map_lines_tree_sunburst_and_theme_river_lower_to_paths() {
     lowerer.lower_dyn(&mut cx);
 
     let path_count = cx
-        .ir
+        .ir()
         .nodes
         .values()
         .filter(|node| matches!(node.op, fission_ir::Op::Paint(PaintOp::DrawPath { .. })))
@@ -612,13 +612,13 @@ fn mark_components_lower_to_paint_nodes() {
     lowerer.lower_dyn(&mut cx);
 
     let path_count = cx
-        .ir
+        .ir()
         .nodes
         .values()
         .filter(|node| matches!(node.op, fission_ir::Op::Paint(PaintOp::DrawPath { .. })))
         .count();
     let rect_count = cx
-        .ir
+        .ir()
         .nodes
         .values()
         .filter(|node| matches!(node.op, fission_ir::Op::Paint(PaintOp::DrawRect { .. })))
@@ -651,7 +651,7 @@ fn test_chart_lowering() {
 
     let generated_id = lowerer.lower_dyn(&mut cx);
 
-    let ir = cx.ir;
+    let ir = cx.into_ir();
     let root_node = ir.nodes.get(&generated_id).expect("Root node should exist");
 
     // Root should be a ZStack

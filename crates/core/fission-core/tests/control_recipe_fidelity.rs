@@ -21,8 +21,8 @@ struct RectPaint {
 fn lower(widget: Widget, env: &Env, runtime: &RuntimeState) -> CoreIR {
     let mut cx = LoweringContext::new(env, runtime, None, None);
     let root = fission_core::internal::lower_widget(&widget, &mut cx);
-    cx.ir.root = Some(root);
-    cx.ir
+    cx.set_root(root);
+    cx.into_ir()
 }
 
 fn box_geometry(ir: &CoreIR, id: WidgetId) -> (Option<f32>, Option<f32>, Option<f32>, [f32; 4]) {

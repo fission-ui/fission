@@ -1,5 +1,5 @@
 pub mod render;
-use fission_core::authoring::{LowerWidget, LoweringContext};
+use fission_core::authoring::{IrBuilder, LowerWidget, LoweringContext};
 use fission_core::op::Color;
 use fission_core::ui::{Container, Widget};
 
@@ -107,11 +107,11 @@ impl LowerWidget for Scene3DInternalLowerer {
         let w = self
             .scene
             .width
-            .unwrap_or_else(|| (cx.env.viewport_size.width - 264.0).max(400.0));
+            .unwrap_or_else(|| (cx.env().viewport_size.width - 264.0).max(400.0));
         let h = self
             .scene
             .height
-            .unwrap_or_else(|| (cx.env.viewport_size.height - 200.0).max(300.0));
+            .unwrap_or_else(|| (cx.env().viewport_size.height - 200.0).max(300.0));
 
         // In a real implementation, this would emit an EmbedKind::Surface3D
         // and fission-shell-desktop would intercept it to render a wgpu scene
@@ -125,6 +125,6 @@ impl LowerWidget for Scene3DInternalLowerer {
             height: Some(h),
         });
 
-        cx.insert_node(node_id, op, vec![])
+        IrBuilder::new(node_id, op).build(cx)
     }
 }

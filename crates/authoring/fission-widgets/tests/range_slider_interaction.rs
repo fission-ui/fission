@@ -27,15 +27,15 @@ fn lower(range: RangeSlider) -> (fission_ir::CoreIR, fission_layout::LayoutSnaps
     let runtime = RuntimeState::default();
     let mut cx = fission_core::internal::LoweringContext::new(&env, &runtime, None, None);
     let root = lower_widget(&widget, &mut cx);
-    cx.ir.root = Some(root);
-    let input = build_layout_tree(&cx.ir, &env);
+    cx.set_root(root);
+    let input = build_layout_tree(cx.ir(), &env);
     let mut engine = LayoutEngine::new();
     engine.rebuild(&input).unwrap();
     let snapshot = engine
         .compute_layout(&input, root, LayoutSize::new(400.0, 80.0), &|_| 0.0)
         .unwrap();
     assert_eq!(root, expected_root);
-    (cx.ir, snapshot, root)
+    (cx.into_ir(), snapshot, root)
 }
 
 fn range() -> RangeSlider {

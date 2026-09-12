@@ -33,8 +33,8 @@ fn build_button(env: &Env, runtime: &RuntimeState, button: Button) -> (Widget, B
 fn lower(widget: &Widget, env: &Env, runtime: &RuntimeState) -> fission_ir::CoreIR {
     let mut cx = LoweringContext::new(env, runtime, None, None);
     let root = fission_core::internal::lower_widget(widget, &mut cx);
-    cx.ir.set_root(root);
-    cx.ir
+    cx.set_root(root);
+    cx.into_ir()
 }
 
 fn primary_states(env: &mut Env) -> &mut fission_theme::ComponentStateStyles {
