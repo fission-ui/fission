@@ -2973,8 +2973,9 @@ impl HtmlRenderer<'_> {
         match border_sides {
             Some(sides) if !sides.is_empty() => match sides.as_uniform() {
                 Some(stroke) => style.push(format!(
-                    "border:{}px solid {}",
+                    "border:{}px {} {}",
                     px(stroke.width),
+                    border_line_style(stroke),
                     self.stroke_css(stroke)
                 )),
                 None => {
@@ -2986,8 +2987,9 @@ impl HtmlRenderer<'_> {
                     ] {
                         if let Some(stroke) = side {
                             style.push(format!(
-                                "{property}:{}px solid {}",
+                                "{property}:{}px {} {}",
                                 px(stroke.width),
+                                border_line_style(stroke),
                                 self.stroke_css(stroke)
                             ));
                         }
@@ -2997,8 +2999,9 @@ impl HtmlRenderer<'_> {
             _ => {
                 if let Some(stroke) = stroke {
                     style.push(format!(
-                        "border:{}px solid {}",
+                        "border:{}px {} {}",
                         px(stroke.width),
+                        border_line_style(stroke),
                         self.stroke_css(stroke)
                     ));
                 }
@@ -3318,27 +3321,29 @@ impl HtmlRenderer<'_> {
     }
 
     fn fill_css(&self, fill: &Fill) -> String {
-        let stop_list = |stops: &[(f32, Color)]| {
-            stops
-                .iter()
-                .map(|(offset, color)| {
-                    format!("{} {}%", self.color_css(*color), (offset * 100.0).round())
-                })
-                .collect::<Vec<_>>()
-                .join(",")
-        };
         // CSS has no reflect mode, but reflect is exactly a repeat over a stop
         // list mirrored about its midpoint, so it is emulated rather than
-        // approximated.
-        let reflected = |stops: &[(f32, Color)]| {
-            let mut out: Vec<(f32, Color)> = stops.iter().map(|(o, c)| (o * 0.5, *c)).collect();
-            out.extend(stops.iter().rev().map(|(o, c)| (1.0 - o * 0.5, *c)));
-            out
-        };
-        let (prefix, resolve) = match fill.extend() {
+        // approximated. The mirrored list spans two periods of the original.
+        let (prefix, reflect) = match fill.extend() {
             GradientExtend::Pad => ("", false),
             GradientExtend::Repeat => ("repeating-", false),
             GradientExtend::Reflect => ("repeating-", true),
+        };
+        let resolved = |stops: &[(f32, Color)]| -> (Vec<(f32, Color)>, f32) {
+            if reflect {
+                let mut out: Vec<(f32, Color)> = stops.iter().map(|(o, c)| (o * 0.5, *c)).collect();
+                out.extend(stops.iter().rev().map(|(o, c)| (1.0 - o * 0.5, *c)));
+                (out, 2.0)
+            } else {
+                (stops.to_vec(), 1.0)
+            }
+        };
+        let stop_list = |stops: &[(f32, Color)], position: &dyn Fn(f32) -> String| {
+            stops
+                .iter()
+                .map(|(offset, color)| format!("{} {}", self.color_css(*color), position(*offset)))
+                .collect::<Vec<_>>()
+                .join(",")
         };
 
         match fill {
@@ -3346,45 +3351,54 @@ impl HtmlRenderer<'_> {
             Fill::LinearGradient {
                 start, end, stops, ..
             } => {
-                // CSS measures from "up", clockwise; the IR's normalized points
-                // are in screen space with y increasing downward. Snapping this
-                // to the nearest axis, as this used to, silently squared off
-                // every diagonal gradient.
-                let angle = (end.0 - start.0)
-                    .atan2(start.1 - end.1)
-                    .to_degrees()
-                    .rem_euclid(360.0);
-                let stops = if resolve {
-                    stop_list(&reflected(stops))
-                } else {
-                    stop_list(stops)
-                };
-                format!("{prefix}linear-gradient({:.2}deg,{stops})", angle)
+                let line = CssLinearGradientLine::new(*start, *end);
+                let (stops, period) = resolved(stops);
+                let stops = stop_list(&stops, &|offset| {
+                    format!("{}%", px(line.css_position(offset * period) * 100.0))
+                });
+                format!(
+                    "{prefix}linear-gradient({}deg,{stops})",
+                    px(line.angle_degrees)
+                )
             }
-            Fill::RadialGradient { stops, .. } => {
-                let stops = if resolve {
-                    stop_list(&reflected(stops))
-                } else {
-                    stop_list(stops)
-                };
-                format!("{prefix}radial-gradient(circle,{stops})")
+            Fill::RadialGradient {
+                center,
+                radius,
+                stops,
+                ..
+            } => {
+                // The IR radius is a fraction of the larger side and CSS offers
+                // no length that tracks it, so the radius is written as a
+                // percentage of each side. That is exact for a square box and
+                // stretches into an ellipse otherwise.
+                let (stops, period) = resolved(stops);
+                let stops = stop_list(&stops, &|offset| {
+                    format!("{}%", px(offset * period * 100.0))
+                });
+                format!(
+                    "{prefix}radial-gradient({r}% {r}% at {}% {}%,{stops})",
+                    px(center.0 * 100.0),
+                    px(center.1 * 100.0),
+                    r = px(radius * 100.0),
+                )
             }
             Fill::SweepGradient {
                 center,
                 start_angle,
+                end_angle,
                 stops,
                 ..
             } => {
-                let stops = if resolve {
-                    stop_list(&reflected(stops))
-                } else {
-                    stop_list(stops)
-                };
+                let sweep = css_sweep(*start_angle, *end_angle);
+                let (stops, period) = resolved(stops);
+                let stops = stop_list(&stops, &|offset| {
+                    format!("{}deg", px(offset * period * sweep.span_degrees))
+                });
                 format!(
-                    "{prefix}conic-gradient(from {:.2}deg at {}% {}%,{stops})",
-                    start_angle.to_degrees(),
-                    (center.0 * 100.0).round(),
-                    (center.1 * 100.0).round()
+                    "{prefix}conic-gradient(from {}deg at {}% {}%,{stops})",
+                    px(sweep.from_degrees),
+                    px(center.0 * 100.0),
+                    px(center.1 * 100.0)
                 )
             }
         }
@@ -4586,6 +4600,17 @@ fn css_string(value: &str) -> String {
     format!("'{}'", value.replace('\\', "\\\\").replace('\'', "\\'"))
 }
 
+/// The CSS line style for a border stroke.
+///
+/// CSS cannot take an arbitrary dash pattern for a border, so any dashed stroke
+/// is written as `dashed` and the browser chooses the dash length.
+fn border_line_style(stroke: &Stroke) -> &'static str {
+    match &stroke.dash_array {
+        Some(dashes) if !dashes.is_empty() => "dashed",
+        _ => "solid",
+    }
+}
+
 fn px(value: f32) -> String {
     if (value.fract()).abs() < 0.001 {
         format!("{}", value.round() as i32)
@@ -4622,6 +4647,71 @@ fn escape_attr(value: &str) -> String {
     out
 }
 
+/// A linear gradient's IR geometry expressed as CSS's angle and gradient line.
+///
+/// The IR places the gradient between two points normalized to the painted
+/// bounds; CSS instead takes an angle and runs the gradient line through the
+/// box centre, long enough that its ends touch the far corners. Each IR stop
+/// offset is re-projected onto that line so a gradient that starts or ends
+/// inside the box keeps its extent. The normalized points are treated as
+/// square, so the result is exact for square boxes and for axis-aligned
+/// gradients in any box; a diagonal gradient in a non-square box keeps its
+/// normalized angle.
+struct CssLinearGradientLine {
+    angle_degrees: f32,
+    /// CSS position of IR offset 0.
+    origin: f32,
+    /// CSS positions advanced per unit of IR offset.
+    scale: f32,
+}
+
+impl CssLinearGradientLine {
+    fn new(start: (f32, f32), end: (f32, f32)) -> Self {
+        let (vx, vy) = (end.0 - start.0, end.1 - start.1);
+        let length = (vx * vx + vy * vy).sqrt();
+        if length <= f32::EPSILON {
+            return Self {
+                angle_degrees: 180.0,
+                origin: 0.0,
+                scale: 1.0,
+            };
+        }
+        // CSS measures from "up", clockwise; the IR's y grows downward.
+        let angle = vx.atan2(-vy);
+        let (dx, dy) = (vx / length, vy / length);
+        let line_length = dx.abs() + dy.abs();
+        // Distance along the direction from the box centre to the start point.
+        let start_from_centre = (start.0 - 0.5) * dx + (start.1 - 0.5) * dy;
+        Self {
+            angle_degrees: angle.to_degrees().rem_euclid(360.0),
+            origin: 0.5 + start_from_centre / line_length,
+            scale: length / line_length,
+        }
+    }
+
+    fn css_position(&self, offset: f32) -> f32 {
+        self.origin + offset * self.scale
+    }
+}
+
+/// A sweep gradient's IR angles expressed as CSS conic-gradient terms.
+struct CssSweep {
+    from_degrees: f32,
+    span_degrees: f32,
+}
+
+/// Converts IR sweep angles, clockwise from the positive x axis in radians, to
+/// CSS's `from` angle, clockwise from "up", and the swept span that stop
+/// offsets are laid along. Both are in screen space, so this is exact for any
+/// box. A zero or negative span sweeps the full circle.
+fn css_sweep(start_angle: f32, end_angle: f32) -> CssSweep {
+    let span = (end_angle - start_angle).to_degrees();
+    CssSweep {
+        from_degrees: (start_angle.to_degrees() + 90.0).rem_euclid(360.0),
+        span_degrees: if span > 0.0 { span } else { 360.0 },
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -4655,8 +4745,8 @@ mod tests {
         let runtime = RuntimeState::default();
         let mut lowering = fission_core::internal::LoweringContext::new(&env, &runtime, None, None);
         let root = fission_core::internal::lower_widget(&widget, &mut lowering);
-        lowering.ir.set_root(root);
-        render_ir_to_html(&lowering.ir, &HtmlRenderOptions::default()).unwrap()
+        lowering.set_root(root);
+        render_ir_to_html(lowering.ir(), &HtmlRenderOptions::default()).unwrap()
     }
 
     fn render_test_component(build_widget: impl FnOnce() -> Widget) -> RenderedHtml {
@@ -6784,5 +6874,57 @@ mod tests {
         assert!(rendered.html.contains("href=\"#details\""));
         assert!(rendered.html.contains("aria-label=\"View details\""));
         assert!(!rendered.html.contains("<form"));
+    }
+}
+
+#[cfg(test)]
+mod gradient_geometry_tests {
+    use super::{css_sweep, CssLinearGradientLine};
+
+    fn close(a: f32, b: f32) -> bool {
+        (a - b).abs() < 1e-4
+    }
+
+    #[test]
+    fn a_full_width_horizontal_gradient_spans_the_css_line() {
+        let line = CssLinearGradientLine::new((0.0, 0.5), (1.0, 0.5));
+        assert!(close(line.angle_degrees, 90.0));
+        assert!(close(line.css_position(0.0), 0.0));
+        assert!(close(line.css_position(1.0), 1.0));
+    }
+
+    #[test]
+    fn an_inset_gradient_keeps_its_extent() {
+        let line = CssLinearGradientLine::new((0.25, 0.5), (0.75, 0.5));
+        assert!(close(line.css_position(0.0), 0.25));
+        assert!(close(line.css_position(1.0), 0.75));
+    }
+
+    #[test]
+    fn a_reversed_vertical_gradient_points_up() {
+        let line = CssLinearGradientLine::new((0.5, 1.0), (0.5, 0.0));
+        assert!(close(line.angle_degrees, 0.0));
+        assert!(close(line.css_position(0.0), 0.0));
+        assert!(close(line.css_position(1.0), 1.0));
+    }
+
+    #[test]
+    fn a_corner_to_corner_diagonal_reaches_both_corners() {
+        let line = CssLinearGradientLine::new((0.0, 0.0), (1.0, 1.0));
+        assert!(close(line.angle_degrees, 135.0));
+        assert!(close(line.css_position(0.0), 0.0));
+        assert!(close(line.css_position(1.0), 1.0));
+    }
+
+    #[test]
+    fn a_sweep_starting_at_positive_x_starts_css_at_three_o_clock() {
+        let sweep = css_sweep(0.0, std::f32::consts::PI);
+        assert!(close(sweep.from_degrees, 90.0));
+        assert!(close(sweep.span_degrees, 180.0));
+    }
+
+    #[test]
+    fn a_degenerate_sweep_covers_the_full_circle() {
+        assert!(close(css_sweep(1.0, 1.0).span_degrees, 360.0));
     }
 }
