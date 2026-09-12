@@ -90,6 +90,8 @@ pub struct Container {
     pub shadows: Vec<BoxShadow>,
     /// Filter applied to content painted behind this container.
     pub backdrop_filter: Option<BackdropFilter>,
+    /// How this container's subtree composites with the content beneath it.
+    pub blend_mode: fission_ir::BlendMode,
 }
 
 impl Default for Container {
@@ -117,6 +119,7 @@ impl Default for Container {
             shadow: None,
             shadows: Vec::new(),
             backdrop_filter: None,
+            blend_mode: fission_ir::BlendMode::Normal,
         }
     }
 }
@@ -407,6 +410,29 @@ impl Container {
         self.backdrop_filter = Some(BackdropFilter::Blur(sigma.max(0.0)));
         self
     }
+
+    /// Filters content behind this container, clipped to its rounded bounds.
+    ///
+    /// Use this over [`backdrop_blur`](Self::backdrop_blur) for a glass surface:
+    /// blur on its own desaturates whatever is behind it, which is why every
+    /// platform's real glass material pairs a blur with a saturation boost.
+    ///
+    /// ```rust,ignore
+    /// Container::new().backdrop(BackdropFilter::Chain(vec![
+    ///     BackdropFilter::Blur(24.0),
+    ///     BackdropFilter::Saturate(1.8),
+    /// ]))
+    /// ```
+    pub fn backdrop(mut self, filter: BackdropFilter) -> Self {
+        self.backdrop_filter = Some(filter);
+        self
+    }
+
+    /// Sets the layer blend mode used to composite this container's subtree.
+    pub fn blend_mode(mut self, mode: fission_ir::BlendMode) -> Self {
+        self.blend_mode = mode;
+        self
+    }
 }
 
 impl Lower for Container {
@@ -416,7 +442,7 @@ impl Lower for Container {
 
         let mut children_ids = Vec::new();
 
-        if let Some(filter) = self.backdrop_filter {
+        if let Some(filter) = self.backdrop_filter.clone() {
             let paint = IrBuilder::new(
                 cx.next_node_id(),
                 Op::Paint(PaintOp::BackdropFilter {
@@ -512,6 +538,7 @@ impl Lower for Container {
         )
         .composite(CompositeStyle {
             clip_to_bounds: style.overflow == Overflow::Clip,
+            blend_mode: self.blend_mode,
             ..Default::default()
         });
 

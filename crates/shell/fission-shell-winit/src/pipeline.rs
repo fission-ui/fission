@@ -1691,6 +1691,10 @@ fn generate_render_layer_recursive(
     if emit_opacity_layer {
         layer.style.opacity = composite_opacity.unwrap_or(1.0);
     }
+    // Carried down unconditionally. A blend mode is meaningful even on a layer
+    // that is fully opaque and unclipped, which is exactly the case the opacity
+    // and clip checks above skip.
+    layer.style.blend_mode = node.composite.blend_mode;
 
     if let Some(transform) = compose_dynamic_layer_transform(
         &TransformBinding {
@@ -2303,7 +2307,7 @@ fn build_local_paint_list(
         }) => {
             list.push(DisplayOp::BackdropFilter {
                 rect,
-                filter: *filter,
+                filter: filter.clone(),
                 corner_radius: *corner_radius,
                 bounds: rect,
                 node_id: Some(node_id),

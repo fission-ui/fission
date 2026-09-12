@@ -1536,7 +1536,7 @@ impl SoftwareRenderer {
                     filter,
                     corner_radius,
                     ..
-                } => self.draw_backdrop_filter(*rect, *filter, *corner_radius)?,
+                } => self.draw_backdrop_filter(*rect, filter, *corner_radius)?,
                 DisplayOp::Translate(point) => {
                     let state = self.current_state_mut();
                     state.transform = state.transform.pre_translate(point.x, point.y);
@@ -1658,12 +1658,13 @@ impl SoftwareRenderer {
     fn draw_backdrop_filter(
         &mut self,
         rect: fission_render::LayoutRect,
-        filter: fission_ir::op::BackdropFilter,
+        filter: &fission_ir::op::BackdropFilter,
         corner_radius: f32,
     ) -> Result<()> {
-        let sigma = match filter {
-            fission_ir::op::BackdropFilter::Blur(sigma) => sigma,
-        };
+        // The software path can blur the backdrop but not recolour it, so it
+        // renders the blur and ignores the colour adjustments rather than
+        // dropping the surface entirely.
+        let sigma = filter.blur_sigma();
         if sigma <= 0.0 {
             return Ok(());
         }

@@ -280,6 +280,14 @@ pub enum LayerClip {
 pub struct LayerStyle {
     pub clip: Option<LayerClip>,
     pub opacity: f32,
+    /// How this layer's pixels combine with what is already painted beneath it.
+    ///
+    /// Carried through to the backend even when the active backend cannot honour
+    /// it. A backend that only does source-over renders the layer normally; the
+    /// information is not discarded on the way down, so a backend that can blend
+    /// gets it without another pass through the pipeline.
+    #[serde(default)]
+    pub blend_mode: fission_ir::BlendMode,
     pub transform: Option<[LayoutUnit; 16]>,
     pub transform_clip: bool,
     pub cache_key: Option<u64>,
@@ -291,6 +299,7 @@ impl Default for LayerStyle {
         Self {
             clip: None,
             opacity: 1.0,
+            blend_mode: fission_ir::BlendMode::Normal,
             transform: None,
             transform_clip: true,
             cache_key: None,

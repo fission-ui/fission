@@ -2114,6 +2114,35 @@ impl Default for RetainedSceneCache {
     }
 }
 
+/// Maps an IR blend mode onto vello's mix modes.
+///
+/// Vello implements the CSS separable and non-separable mix modes, so all but
+/// [`BlendMode::Plus`] map straight across. `Plus` is additive compositing
+/// rather than a mix mode; vello has no equivalent, so it falls back to normal
+/// compositing. The mode still reaches this backend rather than being dropped
+/// higher up, so a backend that can express it needs no pipeline change.
+fn mix_for(mode: fission_ir::BlendMode) -> Mix {
+    use fission_ir::BlendMode as B;
+    match mode {
+        B::Normal | B::Plus => Mix::Normal,
+        B::Multiply => Mix::Multiply,
+        B::Screen => Mix::Screen,
+        B::Overlay => Mix::Overlay,
+        B::Darken => Mix::Darken,
+        B::Lighten => Mix::Lighten,
+        B::ColorDodge => Mix::ColorDodge,
+        B::ColorBurn => Mix::ColorBurn,
+        B::HardLight => Mix::HardLight,
+        B::SoftLight => Mix::SoftLight,
+        B::Difference => Mix::Difference,
+        B::Exclusion => Mix::Exclusion,
+        B::Hue => Mix::Hue,
+        B::Saturation => Mix::Saturation,
+        B::Color => Mix::Color,
+        B::Luminosity => Mix::Luminosity,
+    }
+}
+
 impl RetainedSceneCache {
     pub fn new(max_entries: usize) -> Self {
         Self {
@@ -4150,10 +4179,11 @@ impl<'a> VelloRenderer<'a> {
             }
         }
 
-        if (layer.style.opacity - 1.0).abs() > 0.001 {
+        let mix = mix_for(layer.style.blend_mode);
+        if (layer.style.opacity - 1.0).abs() > 0.001 || !matches!(mix, Mix::Normal) {
             let r = Self::layout_rect_to_rect(layer.bounds);
             self.scene
-                .push_layer(Mix::Normal, layer.style.opacity, self.current_transform, &r);
+                .push_layer(mix, layer.style.opacity, self.current_transform, &r);
             self.push_clip_bounds(r);
             self.current_layer_count += 1;
         }

@@ -14,10 +14,11 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 pub use op::{
-    AlignItems, CompositeScalar, CompositeStyle, EmbedKind, FlexDirection, FlexWrap,
-    FlyoutAlignment, FlyoutOptions, FlyoutPlacement, FlyoutWidth, GridPlacement, GridTrack,
-    JustifyContent, LayoutDirection, LayoutOp, Op, PaintOp, StructuralOp, ViewportBoundary,
-    ViewportClip, ViewportMargin, ViewportPanAxis, ViewportTransform, ViewportZoomPolicy,
+    AlignItems, BackdropFilter, BlendMode, CompositeScalar, CompositeStyle, EmbedKind,
+    FlexDirection, FlexWrap, FlyoutAlignment, FlyoutOptions, FlyoutPlacement, FlyoutWidth,
+    GridPlacement, GridTrack, JustifyContent, LayoutDirection, LayoutOp, Op, PaintOp, StructuralOp,
+    ViewportBoundary, ViewportClip, ViewportMargin, ViewportPanAxis, ViewportTransform,
+    ViewportZoomPolicy,
 };
 pub use semantics::{
     ActionEntry, ActionSet, ActionTrigger, CanvasNodeMoveTarget, CanvasSelectionPolicy,

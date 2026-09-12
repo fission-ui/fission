@@ -102,6 +102,53 @@ impl std::hash::Hash for CompositeScalar {
     }
 }
 
+/// How a composited layer's pixels combine with what is already painted beneath.
+///
+/// This is deliberately the CSS `mix-blend-mode` set, which is also exactly
+/// Skia's separable and non-separable mix modes, plus [`Plus`](Self::Plus) for
+/// additive glow. Authoring against a fixed vocabulary keeps the IR closed: a
+/// new backend implements sixteen known modes rather than an open-ended filter
+/// language it has to interpret.
+///
+/// Backends that cannot express a mode must fall back to
+/// [`Normal`](Self::Normal) rather than dropping the layer. A blend mode is a
+/// refinement of how content appears, never a condition for it appearing, so
+/// losing it degrades fidelity and never correctness.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+pub enum BlendMode {
+    /// Source-over. The default, and the only mode every backend supports.
+    #[default]
+    Normal,
+    Multiply,
+    Screen,
+    Overlay,
+    Darken,
+    Lighten,
+    ColorDodge,
+    ColorBurn,
+    HardLight,
+    SoftLight,
+    Difference,
+    Exclusion,
+    Hue,
+    Saturation,
+    Color,
+    Luminosity,
+    /// Additive (Porter-Duff `plus`/`lighter`). Not part of `mix-blend-mode`,
+    /// but needed for glows and light accumulation, and supported by Skia,
+    /// Core Graphics and Direct2D alike.
+    Plus,
+}
+
+impl BlendMode {
+    /// Whether this mode composites as plain source-over.
+    ///
+    /// Backends use this to skip allocating a blend layer for the common case.
+    pub fn is_normal(self) -> bool {
+        matches!(self, Self::Normal)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Hash, Default)]
 pub struct CompositeStyle {
     pub opacity: Option<CompositeScalar>,
@@ -111,6 +158,13 @@ pub struct CompositeStyle {
     pub rotation: Option<CompositeScalar>,
     pub clip_to_bounds: bool,
     pub repaint_boundary: bool,
+    /// How this layer combines with the content already painted beneath it.
+    ///
+    /// A non-[`Normal`](BlendMode::Normal) mode makes the subtree a composited
+    /// layer whether or not `repaint_boundary` is set, because the blend needs
+    /// the subtree's pixels isolated before they are mixed down.
+    #[serde(default)]
+    pub blend_mode: BlendMode,
 }
 
 pub type LayoutUnit = f32;
@@ -1779,10 +1833,64 @@ const fn text_wrap_default() -> bool {
 }
 
 /// A filter applied to content already painted behind a widget.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum BackdropFilter {
     /// Applies a Gaussian blur using the supplied standard deviation.
     Blur(LayoutUnit),
+    /// Scales backdrop saturation. `1.0` leaves it unchanged, `0.0` is greyscale,
+    /// values above `1.0` oversaturate.
+    ///
+    /// Frosted-glass surfaces need this as much as they need blur: blurring
+    /// alone washes a backdrop out, and real glass materials on every platform
+    /// pair a blur with a saturation boost.
+    Saturate(f32),
+    /// Scales backdrop luminance. `1.0` leaves it unchanged.
+    Brightness(f32),
+    /// Applies the listed filters in order.
+    ///
+    /// The common case — blur plus saturation — is a chain, so the IR has to be
+    /// able to express one rather than forcing a widget to stack nested
+    /// backdrop layers and pay for a full backdrop read per filter.
+    Chain(Vec<BackdropFilter>),
+}
+
+impl BackdropFilter {
+    /// Appends this filter's leaves to `out` in application order.
+    ///
+    /// Backends match on leaves rather than on [`Chain`](Self::Chain), so adding
+    /// a filter to the vocabulary does not force every backend to re-handle
+    /// nesting.
+    pub fn flatten_into<'a>(&'a self, out: &mut Vec<&'a BackdropFilter>) {
+        match self {
+            Self::Chain(filters) => {
+                for filter in filters {
+                    filter.flatten_into(out);
+                }
+            }
+            leaf => out.push(leaf),
+        }
+    }
+
+    /// This filter's leaves in application order.
+    pub fn flatten(&self) -> Vec<&BackdropFilter> {
+        let mut out = Vec::new();
+        self.flatten_into(&mut out);
+        out
+    }
+
+    /// The total Gaussian blur this filter applies.
+    ///
+    /// Backends that can blur the backdrop but cannot adjust its colour use
+    /// this to render the part they support instead of dropping the surface.
+    pub fn blur_sigma(&self) -> LayoutUnit {
+        self.flatten()
+            .into_iter()
+            .filter_map(|filter| match filter {
+                Self::Blur(sigma) => Some(*sigma),
+                _ => None,
+            })
+            .fold(0.0, f32::max)
+    }
 }
 
 impl std::hash::Hash for BackdropFilter {
@@ -1791,6 +1899,18 @@ impl std::hash::Hash for BackdropFilter {
             Self::Blur(sigma) => {
                 0_u8.hash(state);
                 sigma.to_bits().hash(state);
+            }
+            Self::Saturate(amount) => {
+                1_u8.hash(state);
+                amount.to_bits().hash(state);
+            }
+            Self::Brightness(amount) => {
+                2_u8.hash(state);
+                amount.to_bits().hash(state);
+            }
+            Self::Chain(filters) => {
+                3_u8.hash(state);
+                filters.hash(state);
             }
         }
     }

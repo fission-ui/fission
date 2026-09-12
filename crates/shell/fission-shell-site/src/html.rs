@@ -1902,12 +1902,27 @@ impl HtmlRenderer<'_> {
                 filter,
                 corner_radius,
             } => {
-                let mut style = match filter {
-                    fission_ir::op::BackdropFilter::Blur(sigma) => vec![
-                        format!("backdrop-filter:blur({}px)", px(*sigma)),
-                        format!("-webkit-backdrop-filter:blur({}px)", px(*sigma)),
-                    ],
-                };
+                let functions = filter
+                    .flatten()
+                    .into_iter()
+                    .filter_map(|leaf| match leaf {
+                        fission_ir::op::BackdropFilter::Blur(sigma) => {
+                            Some(format!("blur({}px)", px(*sigma)))
+                        }
+                        fission_ir::op::BackdropFilter::Saturate(amount) => {
+                            Some(format!("saturate({amount})"))
+                        }
+                        fission_ir::op::BackdropFilter::Brightness(amount) => {
+                            Some(format!("brightness({amount})"))
+                        }
+                        fission_ir::op::BackdropFilter::Chain(_) => None,
+                    })
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                let mut style = vec![
+                    format!("backdrop-filter:{functions}"),
+                    format!("-webkit-backdrop-filter:{functions}"),
+                ];
                 if *corner_radius > 0.0 {
                     style.push(format!("border-radius:{}px", px(*corner_radius)));
                     style.push("overflow:hidden".into());

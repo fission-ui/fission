@@ -815,7 +815,7 @@ fn generate_display_list_with_visited(
                 }) => {
                     list.push(DisplayOp::BackdropFilter {
                         rect: geom.rect,
-                        filter: *filter,
+                        filter: filter.clone(),
                         corner_radius: *corner_radius,
                         bounds: geom.rect,
                         node_id: Some(node_id),
