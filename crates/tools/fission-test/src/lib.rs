@@ -604,54 +604,54 @@ pub fn detect_ir_cycle(ir: &CoreIR) -> Option<Vec<WidgetId>> {
 }
 
 fn map_fill(f: &fission_ir::op::Fill) -> fission_render::Fill {
-    match f {
-        fission_ir::op::Fill::Solid(c) => fission_render::Fill::Solid(fission_render::Color {
+    fn color(c: &fission_ir::op::Color) -> fission_render::Color {
+        fission_render::Color {
             r: c.r,
             g: c.g,
             b: c.b,
             a: c.a,
-        }),
-        fission_ir::op::Fill::LinearGradient { start, end, stops } => {
-            fission_render::Fill::LinearGradient {
-                start: *start,
-                end: *end,
-                stops: stops
-                    .iter()
-                    .map(|(o, c)| {
-                        (
-                            *o,
-                            fission_render::Color {
-                                r: c.r,
-                                g: c.g,
-                                b: c.b,
-                                a: c.a,
-                            },
-                        )
-                    })
-                    .collect(),
-            }
         }
+    }
+    fn stops(src: &[(f32, fission_ir::op::Color)]) -> Vec<(f32, fission_render::Color)> {
+        src.iter().map(|(o, c)| (*o, color(c))).collect()
+    }
+
+    match f {
+        fission_ir::op::Fill::Solid(c) => fission_render::Fill::Solid(color(c)),
+        fission_ir::op::Fill::LinearGradient {
+            start,
+            end,
+            stops: s,
+            extend,
+        } => fission_render::Fill::LinearGradient {
+            start: *start,
+            end: *end,
+            stops: stops(s),
+            extend: *extend,
+        },
         fission_ir::op::Fill::RadialGradient {
             center,
             radius,
-            stops,
+            stops: s,
+            extend,
         } => fission_render::Fill::RadialGradient {
             center: *center,
             radius: *radius,
-            stops: stops
-                .iter()
-                .map(|(o, c)| {
-                    (
-                        *o,
-                        fission_render::Color {
-                            r: c.r,
-                            g: c.g,
-                            b: c.b,
-                            a: c.a,
-                        },
-                    )
-                })
-                .collect(),
+            stops: stops(s),
+            extend: *extend,
+        },
+        fission_ir::op::Fill::SweepGradient {
+            center,
+            start_angle,
+            end_angle,
+            stops: s,
+            extend,
+        } => fission_render::Fill::SweepGradient {
+            center: *center,
+            start_angle: *start_angle,
+            end_angle: *end_angle,
+            stops: stops(s),
+            extend: *extend,
         },
     }
 }
@@ -812,11 +812,13 @@ fn generate_display_list_with_visited(
                 fission_ir::Op::Paint(fission_ir::PaintOp::BackdropFilter {
                     filter,
                     corner_radius,
+                    corner_radii,
                 }) => {
                     list.push(DisplayOp::BackdropFilter {
                         rect: geom.rect,
                         filter: filter.clone(),
                         corner_radius: *corner_radius,
+                        corner_radii: *corner_radii,
                         bounds: geom.rect,
                         node_id: Some(node_id),
                     });
@@ -826,6 +828,8 @@ fn generate_display_list_with_visited(
                     stroke,
                     corner_radius,
                     shadow,
+                    corner_radii,
+                    border_sides,
                 }) => {
                     list.push(DisplayOp::DrawRect {
                         rect: geom.rect,
@@ -843,6 +847,15 @@ fn generate_display_list_with_visited(
                             spread_radius: s.spread_radius,
                             offset: s.offset,
                             inset: s.inset,
+                        }),
+                        corner_radii: *corner_radii,
+                        border_sides: border_sides.as_ref().map(|sides| {
+                            fission_render::BorderSides {
+                                top: sides.top.as_ref().map(map_stroke),
+                                right: sides.right.as_ref().map(map_stroke),
+                                bottom: sides.bottom.as_ref().map(map_stroke),
+                                left: sides.left.as_ref().map(map_stroke),
+                            }
                         }),
                         bounds: geom.rect,
                         node_id: Some(node_id),

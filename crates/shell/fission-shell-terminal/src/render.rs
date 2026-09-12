@@ -340,7 +340,9 @@ fn translate_rect(rect: LayoutRect, offset: LayoutPoint) -> LayoutRect {
 fn fill_color(fill: &Fill) -> Option<Color> {
     match fill {
         Fill::Solid(color) => Some(*color),
-        Fill::LinearGradient { .. } | Fill::RadialGradient { .. } => None,
+        Fill::LinearGradient { .. } | Fill::RadialGradient { .. } | Fill::SweepGradient { .. } => {
+            None
+        }
     }
 }
 

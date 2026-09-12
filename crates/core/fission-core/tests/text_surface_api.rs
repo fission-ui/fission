@@ -277,6 +277,7 @@ fn container_background_fill_accepts_gradients() {
         start: (0.0, 0.0),
         end: (1.0, 0.0),
         stops: vec![(0.0, Color::BLACK), (1.0, Color::WHITE)],
+        extend: Default::default(),
     };
 
     let ir = lower_node(
@@ -324,6 +325,7 @@ fn button_background_fill_and_text_override_lower() {
                 },
             ),
         ],
+        extend: Default::default(),
     };
 
     let ir = lower_node(

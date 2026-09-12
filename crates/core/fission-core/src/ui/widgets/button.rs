@@ -1604,6 +1604,8 @@ impl Lower for Button {
                     stroke: None,
                     corner_radius: resolved_style.corner_radius,
                     shadow: Some(*shadow),
+                    corner_radii: None,
+                    border_sides: None,
                 }),
             )
             .build(cx);
@@ -1617,6 +1619,8 @@ impl Lower for Button {
                 stroke: resolved_style.stroke.clone(),
                 corner_radius: resolved_style.corner_radius,
                 shadow: None,
+                corner_radii: None,
+                border_sides: None,
             }),
         )
         .build(cx);
@@ -1630,6 +1634,8 @@ impl Lower for Button {
                     stroke: None,
                     corner_radius: resolved_style.corner_radius,
                     shadow: Some(*shadow),
+                    corner_radii: None,
+                    border_sides: None,
                 }),
             )
             .build(cx);
@@ -1644,6 +1650,8 @@ impl Lower for Button {
                     stroke: Some(focus_ring),
                     corner_radius: resolved_style.corner_radius,
                     shadow: None,
+                    corner_radii: None,
+                    border_sides: None,
                 }),
             )
             .build(cx);

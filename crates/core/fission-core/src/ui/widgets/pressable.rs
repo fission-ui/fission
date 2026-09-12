@@ -833,6 +833,8 @@ impl Lower for Pressable {
                         stroke: None,
                         corner_radius: style.corner_radius.unwrap_or(0.0),
                         shadow: Some(*shadow),
+                        corner_radii: None,
+                        border_sides: None,
                     }),
                 )
                 .build(cx),
@@ -847,6 +849,8 @@ impl Lower for Pressable {
                         stroke: style.border,
                         corner_radius: style.corner_radius.unwrap_or(0.0),
                         shadow: None,
+                        corner_radii: None,
+                        border_sides: None,
                     }),
                 )
                 .build(cx),

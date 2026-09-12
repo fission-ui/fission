@@ -3,7 +3,7 @@ use crate::motion_support::{
     SLOT_BACKDROP, SLOT_FOCUS_SCOPE, SLOT_PANEL,
 };
 use fission_core::motion::{MotionTrack, Presence};
-use fission_core::op::{BoxShadow, Color};
+use fission_core::op::{BoxShadow, Color, CornerRadii};
 use fission_core::ui::{Container, SemanticsRegion, Widget, ZStack};
 use fission_core::{ActionEnvelope, WidgetId};
 use serde::{Deserialize, Serialize};
@@ -285,8 +285,17 @@ impl From<Drawer> for Widget {
         }
 
         // Drawer Content
+        // Rounded along the edge the drawer slides away from, square against the
+        // one it is docked to -- the shape every platform's drawer uses, and one
+        // a single corner radius could not express until the IR grew per-corner
+        // radii.
+        let panel_radii = match this.side {
+            DrawerSide::Left => CornerRadii::right(tokens.radii.large),
+            DrawerSide::Right => CornerRadii::left(tokens.radii.large),
+        };
         let panel_surface: Widget = Container::new(this.content.clone())
             .bg(tokens.colors.surface)
+            .border_radii(panel_radii)
             .width(width)
             // Height fills parent (Positioned top/bottom 0)
             .shadow(tokens.elevations.level3.unwrap_or(BoxShadow {

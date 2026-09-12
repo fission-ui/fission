@@ -21,7 +21,7 @@ use tiny_skia::{
     LineJoin as TinyLineJoin, Mask, Paint, Path, PathBuilder, Pixmap, PixmapPaint, Point,
     PremultipliedColorU8, Shader, SpreadMode, Stroke as TinyStroke, Transform,
 };
-use vello::kurbo::{BezPath, PathEl, Rect as KurboRect, RoundedRect, Shape};
+use vello::kurbo::{BezPath, PathEl, Rect as KurboRect, RoundedRect, RoundedRectRadii, Shape};
 
 use crate::software_fonts::{default_font, packaged_font};
 
@@ -205,40 +205,61 @@ fn normalized_fill_point(bounds: fission_render::LayoutRect, point: (f32, f32)) 
     )
 }
 
+/// Maps the IR's extend mode onto tiny-skia's spread mode.
+fn spread_mode(extend: fission_ir::GradientExtend) -> SpreadMode {
+    match extend {
+        fission_ir::GradientExtend::Pad => SpreadMode::Pad,
+        fission_ir::GradientExtend::Repeat => SpreadMode::Repeat,
+        fission_ir::GradientExtend::Reflect => SpreadMode::Reflect,
+    }
+}
+
 fn fill_shader(fill: &Fill, bounds: fission_render::LayoutRect) -> Option<Shader<'static>> {
+    let gradient_stops = |stops: &[(f32, fission_render::Color)]| {
+        stops
+            .iter()
+            .map(|(offset, color)| GradientStop::new(*offset, tiny_color(*color)))
+            .collect::<Vec<_>>()
+    };
     match fill {
         Fill::Solid(color) => Some(Shader::SolidColor(tiny_color(*color))),
-        Fill::LinearGradient { start, end, stops } => {
-            let stops = stops
-                .iter()
-                .map(|(offset, color)| GradientStop::new(*offset, tiny_color(*color)))
-                .collect::<Vec<_>>();
-            tiny_skia::LinearGradient::new(
-                normalized_fill_point(bounds, *start),
-                normalized_fill_point(bounds, *end),
-                stops,
-                SpreadMode::Pad,
-                Transform::identity(),
-            )
-        }
+        Fill::LinearGradient {
+            start,
+            end,
+            stops,
+            extend,
+        } => tiny_skia::LinearGradient::new(
+            normalized_fill_point(bounds, *start),
+            normalized_fill_point(bounds, *end),
+            gradient_stops(stops),
+            spread_mode(*extend),
+            Transform::identity(),
+        ),
         Fill::RadialGradient {
             center,
             radius,
             stops,
-        } => {
-            let stops = stops
-                .iter()
-                .map(|(offset, color)| GradientStop::new(*offset, tiny_color(*color)))
-                .collect::<Vec<_>>();
-            tiny_skia::RadialGradient::new(
-                normalized_fill_point(bounds, *center),
-                normalized_fill_point(bounds, *center),
-                radius * bounds.width().max(bounds.height()),
-                stops,
-                SpreadMode::Pad,
-                Transform::identity(),
-            )
-        }
+            extend,
+        } => tiny_skia::RadialGradient::new(
+            normalized_fill_point(bounds, *center),
+            normalized_fill_point(bounds, *center),
+            radius * bounds.width().max(bounds.height()),
+            gradient_stops(stops),
+            spread_mode(*extend),
+            Transform::identity(),
+        ),
+        // tiny-skia has no sweep gradient. Falling back to the stop nearest the
+        // middle of the sweep keeps the surface visible and roughly the right
+        // colour, which is better than dropping the fill and painting nothing.
+        Fill::SweepGradient { stops, .. } => stops
+            .iter()
+            .min_by(|(a, _), (b, _)| {
+                (a - 0.5)
+                    .abs()
+                    .partial_cmp(&(b - 0.5).abs())
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+            .map(|(_, color)| Shader::SolidColor(tiny_color(*color))),
     }
 }
 
@@ -287,6 +308,25 @@ fn rounded_rect_path(rect: fission_render::LayoutRect, radius: f32) -> Option<Pa
             rect.bottom() as f64,
         ),
         radius as f64,
+    );
+    bez_to_tiny_path(&rounded.to_path(0.1))
+}
+
+fn rounded_rect_path_radii(
+    rect: fission_render::LayoutRect,
+    radii: fission_ir::CornerRadii,
+) -> Option<Path> {
+    let rounded = RoundedRect::new(
+        rect.origin.x as f64,
+        rect.origin.y as f64,
+        rect.right() as f64,
+        rect.bottom() as f64,
+        RoundedRectRadii::new(
+            radii.top_left as f64,
+            radii.top_right as f64,
+            radii.bottom_right as f64,
+            radii.bottom_left as f64,
+        ),
     );
     bez_to_tiny_path(&rounded.to_path(0.1))
 }
@@ -1074,6 +1114,8 @@ mod image_tests {
             shadow: None,
             bounds: rect,
             node_id: None,
+            corner_radii: None,
+            border_sides: None,
         });
         let scene = RenderScene::from_display_list(display_list);
         let transparent = RenderColor {
@@ -1238,6 +1280,8 @@ mod image_tests {
             }),
             bounds: rect,
             node_id: None,
+            corner_radii: None,
+            border_sides: None,
         });
         let pixels = SoftwareRenderer::render(
             &RenderScene::from_display_list(display_list),
@@ -1282,6 +1326,8 @@ mod image_tests {
             }),
             bounds: rect,
             node_id: None,
+            corner_radii: None,
+            border_sides: None,
         });
         let pixels = SoftwareRenderer::render(
             &RenderScene::from_display_list(display_list),
@@ -1555,6 +1601,8 @@ impl SoftwareRenderer {
                     stroke,
                     corner_radius,
                     shadow,
+                    corner_radii,
+                    border_sides,
                     ..
                 } => {
                     self.draw_rect(
@@ -1563,6 +1611,8 @@ impl SoftwareRenderer {
                         stroke.as_ref(),
                         *corner_radius,
                         shadow.as_ref(),
+                        *corner_radii,
+                        border_sides.as_ref(),
                     )?;
                 }
                 DisplayOp::DrawText {
@@ -1648,7 +1698,15 @@ impl SoftwareRenderer {
                     ..
                 } => {
                     let color = surface_placeholder_color(*surface_id, *position);
-                    self.draw_rect(*rect, Some(&Fill::Solid(color)), None, 0.0, None)?;
+                    self.draw_rect(
+                        *rect,
+                        Some(&Fill::Solid(color)),
+                        None,
+                        0.0,
+                        None,
+                        None,
+                        None,
+                    )?;
                 }
             }
         }
@@ -1720,11 +1778,14 @@ impl SoftwareRenderer {
         stroke: Option<&Stroke>,
         corner_radius: f32,
         shadow: Option<&fission_render::BoxShadow>,
+        corner_radii: Option<fission_ir::CornerRadii>,
+        border_sides: Option<&fission_render::BorderSides>,
     ) -> Result<()> {
-        let path = if corner_radius > 0.0 {
-            rounded_rect_path(rect, corner_radius)
-        } else {
-            rect_path(rect)
+        let path = match corner_radii {
+            Some(radii) if !radii.is_square() => rounded_rect_path_radii(rect, radii),
+            Some(_) => rect_path(rect),
+            None if corner_radius > 0.0 => rounded_rect_path(rect, corner_radius),
+            None => rect_path(rect),
         }
         .ok_or_else(|| anyhow!("failed to build rectangle path"))?;
 
@@ -1755,10 +1816,63 @@ impl SoftwareRenderer {
                 clip.as_ref(),
             );
         }
-        if let Some(stroke) = stroke {
-            let paint = fill_paint(&stroke.fill, rect);
-            let style = stroke_style(stroke);
-            surface.stroke_path(&path, &paint, &style, transform, clip.as_ref());
+        // Per-edge strokes replace the uniform one. Edges that agree take the
+        // whole-outline path, so the common case draws exactly as before.
+        match border_sides.filter(|sides| !sides.is_empty()) {
+            Some(sides) => match sides.as_uniform() {
+                Some(stroke) => {
+                    let paint = fill_paint(&stroke.fill, rect);
+                    let style = stroke_style(stroke);
+                    surface.stroke_path(&path, &paint, &style, transform, clip.as_ref());
+                }
+                None => {
+                    for (side, (from, to)) in [
+                        (
+                            &sides.top,
+                            (
+                                (rect.origin.x, rect.origin.y),
+                                (rect.right(), rect.origin.y),
+                            ),
+                        ),
+                        (
+                            &sides.right,
+                            ((rect.right(), rect.origin.y), (rect.right(), rect.bottom())),
+                        ),
+                        (
+                            &sides.bottom,
+                            (
+                                (rect.origin.x, rect.bottom()),
+                                (rect.right(), rect.bottom()),
+                            ),
+                        ),
+                        (
+                            &sides.left,
+                            (
+                                (rect.origin.x, rect.origin.y),
+                                (rect.origin.x, rect.bottom()),
+                            ),
+                        ),
+                    ] {
+                        let Some(stroke) = side else { continue };
+                        let mut builder = PathBuilder::new();
+                        builder.move_to(from.0, from.1);
+                        builder.line_to(to.0, to.1);
+                        let Some(edge) = builder.finish() else {
+                            continue;
+                        };
+                        let paint = fill_paint(&stroke.fill, rect);
+                        let style = stroke_style(stroke);
+                        surface.stroke_path(&edge, &paint, &style, transform, clip.as_ref());
+                    }
+                }
+            },
+            None => {
+                if let Some(stroke) = stroke {
+                    let paint = fill_paint(&stroke.fill, rect);
+                    let style = stroke_style(stroke);
+                    surface.stroke_path(&path, &paint, &style, transform, clip.as_ref());
+                }
+            }
         }
         Ok(())
     }
@@ -1902,7 +2016,15 @@ impl SoftwareRenderer {
                             glyph.width as f32,
                             (glyph.key.px / 14.0).max(1.0),
                         );
-                        self.draw_rect(underline_rect, Some(&Fill::Solid(color)), None, 0.0, None)?;
+                        self.draw_rect(
+                            underline_rect,
+                            Some(&Fill::Solid(color)),
+                            None,
+                            0.0,
+                            None,
+                            None,
+                            None,
+                        )?;
                     }
                 }
             }
@@ -1929,7 +2051,15 @@ impl SoftwareRenderer {
                     (last.x + last.width as f32 - first.x).max(1.0),
                     (size / 14.0).max(1.0),
                 );
-                self.draw_rect(underline_rect, Some(&Fill::Solid(color)), None, 0.0, None)?;
+                self.draw_rect(
+                    underline_rect,
+                    Some(&Fill::Solid(color)),
+                    None,
+                    0.0,
+                    None,
+                    None,
+                    None,
+                )?;
             }
         }
         Ok(())

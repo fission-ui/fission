@@ -395,6 +395,8 @@ fn modal_footer_recipe_renders_one_full_width_top_boundary_without_a_box_border(
                 stroke: None,
                 corner_radius,
                 shadow: None,
+                corner_radii: None,
+                border_sides: None,
             }) => *color == boundary_tint && *corner_radius == 0.0,
             _ => false,
         })

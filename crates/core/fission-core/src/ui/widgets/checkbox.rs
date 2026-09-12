@@ -113,6 +113,8 @@ impl Lower for Checkbox {
                 stroke: None,
                 corner_radius: radius,
                 shadow: None,
+                corner_radii: None,
+                border_sides: None,
             })
         } else {
             Op::Paint(PaintOp::DrawRect {
@@ -126,6 +128,8 @@ impl Lower for Checkbox {
                 }),
                 corner_radius: radius,
                 shadow: None,
+                corner_radii: None,
+                border_sides: None,
             })
         };
         let bg_node = IrBuilder::new(cx.next_node_id(), bg_paint).build(cx);
@@ -139,6 +143,8 @@ impl Lower for Checkbox {
                     stroke: None,
                     corner_radius: 1.0,
                     shadow: None,
+                    corner_radii: None,
+                    border_sides: None,
                 }),
             )
             .build(cx);

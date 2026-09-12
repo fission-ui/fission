@@ -1592,6 +1592,7 @@ fn render_line(
                 start: (0.0, 0.0),
                 end: (0.0, 1.0),
                 stops: vec![(0.0, area_color), (1.0, area_color.with_alpha(16))],
+                extend: Default::default(),
             };
             add_path(cx, root, &area_path, Some(fill), None);
         }
@@ -4455,27 +4456,48 @@ fn fade_color(color: Color, progress: f32) -> Color {
 }
 
 fn fade_fill(fill: Fill, progress: f32) -> Fill {
+    fn faded(stops: Vec<(f32, Color)>, progress: f32) -> Vec<(f32, Color)> {
+        stops
+            .into_iter()
+            .map(|(offset, color)| (offset, fade_color(color, progress)))
+            .collect()
+    }
     match fill {
         Fill::Solid(color) => Fill::Solid(fade_color(color, progress)),
-        Fill::LinearGradient { start, end, stops } => Fill::LinearGradient {
+        Fill::LinearGradient {
             start,
             end,
-            stops: stops
-                .into_iter()
-                .map(|(offset, color)| (offset, fade_color(color, progress)))
-                .collect(),
+            stops,
+            extend,
+        } => Fill::LinearGradient {
+            start,
+            end,
+            stops: faded(stops, progress),
+            extend,
         },
         Fill::RadialGradient {
             center,
             radius,
             stops,
+            extend,
         } => Fill::RadialGradient {
             center,
             radius,
-            stops: stops
-                .into_iter()
-                .map(|(offset, color)| (offset, fade_color(color, progress)))
-                .collect(),
+            stops: faded(stops, progress),
+            extend,
+        },
+        Fill::SweepGradient {
+            center,
+            start_angle,
+            end_angle,
+            stops,
+            extend,
+        } => Fill::SweepGradient {
+            center,
+            start_angle,
+            end_angle,
+            stops: faded(stops, progress),
+            extend,
         },
     }
 }
@@ -4749,6 +4771,8 @@ fn add_rect(
             stroke: stroke_value,
             corner_radius: radius,
             shadow: None,
+            corner_radii: None,
+            border_sides: None,
         }),
     );
 }

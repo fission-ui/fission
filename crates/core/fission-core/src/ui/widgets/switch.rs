@@ -83,6 +83,8 @@ impl Lower for Switch {
             stroke: None,
             corner_radius: height / 2.0,
             shadow: None,
+            corner_radii: None,
+            border_sides: None,
         });
         let track_node = IrBuilder::new(cx.next_node_id(), track_paint).build(cx);
 
@@ -103,6 +105,8 @@ impl Lower for Switch {
                 blur_radius: 2.0,
                 offset: (0.0, 1.0),
             }),
+            corner_radii: None,
+            border_sides: None,
         });
         let thumb_paint_node = IrBuilder::new(cx.next_node_id(), thumb_paint).build(cx);
 

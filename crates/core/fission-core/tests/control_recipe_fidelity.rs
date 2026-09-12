@@ -58,6 +58,8 @@ fn direct_rects(ir: &CoreIR, layout_id: WidgetId) -> Vec<RectPaint> {
                 stroke,
                 corner_radius,
                 shadow,
+                corner_radii: None,
+                border_sides: None,
             }) => Some(RectPaint {
                 fill: fill.clone(),
                 stroke: stroke.clone(),

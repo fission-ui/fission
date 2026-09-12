@@ -1511,13 +1511,62 @@ pub enum Fill {
         start: (f32, f32),
         end: (f32, f32),
         stops: Vec<(f32, Color)>,
+        /// How colour continues outside the stop range.
+        #[serde(default)]
+        extend: GradientExtend,
     },
     /// A gradient whose center and radius are normalized to the painted bounds.
     RadialGradient {
         center: (f32, f32),
         radius: f32,
         stops: Vec<(f32, Color)>,
+        /// How colour continues outside the stop range.
+        #[serde(default)]
+        extend: GradientExtend,
     },
+    /// A gradient sweeping around a center point, normalized to the painted
+    /// bounds.
+    ///
+    /// Angles are in radians, measured clockwise from the positive x axis. This
+    /// is CSS's `conic-gradient` and Skia's sweep gradient; it is what a
+    /// circular progress track, a colour wheel and a rotating shimmer all need,
+    /// and none of them can be built from linear and radial alone.
+    SweepGradient {
+        center: (f32, f32),
+        start_angle: f32,
+        end_angle: f32,
+        stops: Vec<(f32, Color)>,
+        /// How colour continues outside the swept range.
+        #[serde(default)]
+        extend: GradientExtend,
+    },
+}
+
+/// How a gradient continues beyond its first and last stop.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+pub enum GradientExtend {
+    /// Holds the end colours. The default, and CSS's behaviour.
+    #[default]
+    Pad,
+    /// Tiles the stop range, as CSS `repeating-*-gradient` does.
+    Repeat,
+    /// Tiles the stop range, mirroring every other repetition.
+    Reflect,
+}
+
+impl Fill {
+    /// How this fill continues beyond its stops.
+    ///
+    /// A solid fill has no stops to extend, and reports [`GradientExtend::Pad`]
+    /// so callers need no special case for it.
+    pub fn extend(&self) -> GradientExtend {
+        match self {
+            Self::Solid(_) => GradientExtend::Pad,
+            Self::LinearGradient { extend, .. }
+            | Self::RadialGradient { extend, .. }
+            | Self::SweepGradient { extend, .. } => *extend,
+        }
+    }
 }
 
 impl std::hash::Hash for Fill {
@@ -1527,7 +1576,12 @@ impl std::hash::Hash for Fill {
                 0.hash(state);
                 c.hash(state);
             }
-            Self::LinearGradient { start, end, stops } => {
+            Self::LinearGradient {
+                start,
+                end,
+                stops,
+                extend,
+            } => {
                 1.hash(state);
                 start.0.to_bits().hash(state);
                 start.1.to_bits().hash(state);
@@ -1537,16 +1591,37 @@ impl std::hash::Hash for Fill {
                     off.to_bits().hash(state);
                     c.hash(state);
                 }
+                extend.hash(state);
             }
             Self::RadialGradient {
                 center,
                 radius,
                 stops,
+                extend,
             } => {
                 2.hash(state);
                 center.0.to_bits().hash(state);
                 center.1.to_bits().hash(state);
                 radius.to_bits().hash(state);
+                extend.hash(state);
+                for (off, c) in stops {
+                    off.to_bits().hash(state);
+                    c.hash(state);
+                }
+            }
+            Self::SweepGradient {
+                center,
+                start_angle,
+                end_angle,
+                stops,
+                extend,
+            } => {
+                3.hash(state);
+                center.0.to_bits().hash(state);
+                center.1.to_bits().hash(state);
+                start_angle.to_bits().hash(state);
+                end_angle.to_bits().hash(state);
+                extend.hash(state);
                 for (off, c) in stops {
                     off.to_bits().hash(state);
                     c.hash(state);
@@ -1832,6 +1907,193 @@ const fn text_wrap_default() -> bool {
     true
 }
 
+/// Per-corner radii in `[top_left, top_right, bottom_right, bottom_left]` order.
+///
+/// The scalar `corner_radius` on a paint op covers the uniform case, which is
+/// most of them. This covers the shapes it cannot express at all: a sheet or
+/// drawer rounded only along its leading edge, a tab, the first and last rows
+/// of a grouped list, the end caps of a segmented control, a bubble with one
+/// square corner.
+///
+/// Read it through [`PaintOp::corner_radii`] rather than directly, so a backend
+/// handles the uniform and per-corner cases through one path.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Default)]
+pub struct CornerRadii {
+    pub top_left: LayoutUnit,
+    pub top_right: LayoutUnit,
+    pub bottom_right: LayoutUnit,
+    pub bottom_left: LayoutUnit,
+}
+
+impl CornerRadii {
+    /// The same radius on every corner.
+    pub const fn uniform(radius: LayoutUnit) -> Self {
+        Self {
+            top_left: radius,
+            top_right: radius,
+            bottom_right: radius,
+            bottom_left: radius,
+        }
+    }
+
+    /// Rounds the two top corners and leaves the bottom square.
+    pub const fn top(radius: LayoutUnit) -> Self {
+        Self {
+            top_left: radius,
+            top_right: radius,
+            bottom_right: 0.0,
+            bottom_left: 0.0,
+        }
+    }
+
+    /// Rounds the two bottom corners and leaves the top square.
+    pub const fn bottom(radius: LayoutUnit) -> Self {
+        Self {
+            top_left: 0.0,
+            top_right: 0.0,
+            bottom_right: radius,
+            bottom_left: radius,
+        }
+    }
+
+    /// Rounds the two left corners and leaves the right square.
+    pub const fn left(radius: LayoutUnit) -> Self {
+        Self {
+            top_left: radius,
+            top_right: 0.0,
+            bottom_right: 0.0,
+            bottom_left: radius,
+        }
+    }
+
+    /// Rounds the two right corners and leaves the left square.
+    pub const fn right(radius: LayoutUnit) -> Self {
+        Self {
+            top_left: 0.0,
+            top_right: radius,
+            bottom_right: radius,
+            bottom_left: 0.0,
+        }
+    }
+
+    /// Mirrors the left and right corners, for a right-to-left layout.
+    pub const fn mirrored(self) -> Self {
+        Self {
+            top_left: self.top_right,
+            top_right: self.top_left,
+            bottom_right: self.bottom_left,
+            bottom_left: self.bottom_right,
+        }
+    }
+
+    /// Whether every corner shares one radius.
+    ///
+    /// Backends that can only draw a uniform rounded rectangle use this to tell
+    /// the cases apart rather than guessing from the values.
+    pub fn is_uniform(self) -> bool {
+        self.top_left == self.top_right
+            && self.top_right == self.bottom_right
+            && self.bottom_right == self.bottom_left
+    }
+
+    /// Whether every corner is square.
+    pub fn is_square(self) -> bool {
+        self.top_left == 0.0
+            && self.top_right == 0.0
+            && self.bottom_right == 0.0
+            && self.bottom_left == 0.0
+    }
+
+    /// The corners in `[top_left, top_right, bottom_right, bottom_left]` order.
+    pub fn to_array(self) -> [LayoutUnit; 4] {
+        [
+            self.top_left,
+            self.top_right,
+            self.bottom_right,
+            self.bottom_left,
+        ]
+    }
+}
+
+impl From<LayoutUnit> for CornerRadii {
+    fn from(radius: LayoutUnit) -> Self {
+        Self::uniform(radius)
+    }
+}
+
+impl std::hash::Hash for CornerRadii {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        for corner in self.to_array() {
+            corner.to_bits().hash(state);
+        }
+    }
+}
+
+/// Strokes for the four edges of a box, in physical order.
+///
+/// The uniform `stroke` on a paint op cannot express an edge on its own, which
+/// rules out a filled text field's underline, a table's cell grid, a card with
+/// a coloured leading accent, and a tab indicator drawn as a bottom edge.
+///
+/// Sides are physical rather than logical because they are resolved at paint
+/// time, after layout has already resolved reading order. Widgets that want
+/// leading and trailing edges mirror them while lowering, the same way
+/// directional padding is resolved.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default, Hash)]
+pub struct BorderSides {
+    pub top: Option<Stroke>,
+    pub right: Option<Stroke>,
+    pub bottom: Option<Stroke>,
+    pub left: Option<Stroke>,
+}
+
+impl BorderSides {
+    /// The same stroke on every edge.
+    pub fn uniform(stroke: Stroke) -> Self {
+        Self {
+            top: Some(stroke.clone()),
+            right: Some(stroke.clone()),
+            bottom: Some(stroke.clone()),
+            left: Some(stroke),
+        }
+    }
+
+    /// A stroke on the bottom edge only, as a filled text field uses.
+    pub fn bottom_only(stroke: Stroke) -> Self {
+        Self {
+            bottom: Some(stroke),
+            ..Default::default()
+        }
+    }
+
+    /// Mirrors the left and right edges, for a right-to-left layout.
+    pub fn mirrored(self) -> Self {
+        Self {
+            top: self.top,
+            right: self.left,
+            bottom: self.bottom,
+            left: self.right,
+        }
+    }
+
+    /// Whether no edge carries a stroke.
+    pub fn is_empty(&self) -> bool {
+        self.top.is_none() && self.right.is_none() && self.bottom.is_none() && self.left.is_none()
+    }
+
+    /// The single stroke shared by all four edges, if there is one.
+    ///
+    /// Lets a backend fall back to its uniform stroke path when the sides
+    /// happen to agree, rather than always drawing four separate edges.
+    pub fn as_uniform(&self) -> Option<&Stroke> {
+        let top = self.top.as_ref()?;
+        (self.right.as_ref() == Some(top)
+            && self.bottom.as_ref() == Some(top)
+            && self.left.as_ref() == Some(top))
+        .then_some(top)
+    }
+}
+
 /// A filter applied to content already painted behind a widget.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum BackdropFilter {
@@ -1921,12 +2183,26 @@ pub enum PaintOp {
     BackdropFilter {
         filter: BackdropFilter,
         corner_radius: LayoutUnit,
+        /// Per-corner override. Replaces `corner_radius` when present.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        corner_radii: Option<CornerRadii>,
     },
     DrawRect {
         fill: Option<Fill>,
         stroke: Option<Stroke>,
         corner_radius: LayoutUnit,
         shadow: Option<BoxShadow>,
+        /// Per-corner override. Replaces `corner_radius` when present.
+        ///
+        /// Read through [`PaintOp::corner_radii`] so the uniform and per-corner
+        /// cases reach a backend by one path.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        corner_radii: Option<CornerRadii>,
+        /// Per-edge strokes. Replaces `stroke` when present.
+        ///
+        /// Read through [`PaintOp::border_sides`].
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        border_sides: Option<BorderSides>,
     },
     DrawText {
         text: String,
@@ -1984,6 +2260,44 @@ pub enum PaintOp {
 }
 
 impl PaintOp {
+    /// The corner radii this op paints with, uniform or per-corner.
+    ///
+    /// Backends must go through this rather than reading `corner_radius`, or a
+    /// per-corner shape silently renders as a uniform one.
+    pub fn corner_radii(&self) -> Option<CornerRadii> {
+        match self {
+            Self::DrawRect {
+                corner_radius,
+                corner_radii,
+                ..
+            }
+            | Self::BackdropFilter {
+                corner_radius,
+                corner_radii,
+                ..
+            } => Some(corner_radii.unwrap_or(CornerRadii::uniform(*corner_radius))),
+            _ => None,
+        }
+    }
+
+    /// The per-edge strokes this op paints with.
+    ///
+    /// Returns the uniform `stroke` expanded to four edges when no per-edge
+    /// override is set, so a backend has one path for both.
+    pub fn border_sides(&self) -> Option<BorderSides> {
+        match self {
+            Self::DrawRect {
+                stroke,
+                border_sides,
+                ..
+            } => match border_sides {
+                Some(sides) => Some(sides.clone()),
+                None => stroke.clone().map(BorderSides::uniform),
+            },
+            _ => None,
+        }
+    }
+
     /// Returns the text this op renders, if it renders any.
     ///
     /// Fission has two text paint ops: [`DrawText`](Self::DrawText) carries one
@@ -2033,22 +2347,28 @@ impl std::hash::Hash for PaintOp {
             Self::BackdropFilter {
                 filter,
                 corner_radius,
+                corner_radii,
             } => {
                 0_u8.hash(state);
                 filter.hash(state);
                 corner_radius.to_bits().hash(state);
+                corner_radii.hash(state);
             }
             Self::DrawRect {
                 fill,
                 stroke,
                 corner_radius,
                 shadow,
+                corner_radii,
+                border_sides,
             } => {
                 1_u8.hash(state);
                 fill.hash(state);
                 stroke.hash(state);
                 corner_radius.to_bits().hash(state);
                 shadow.hash(state);
+                corner_radii.hash(state);
+                border_sides.hash(state);
             }
             Self::DrawText {
                 text,

@@ -3,8 +3,9 @@ use crate::lowering::{IrBuilder, LoweringCx};
 use crate::ui::Widget;
 use fission_ir::{
     op::{
-        BackdropFilter, BoxAlignment, BoxGridPlacement, BoxPosition, BoxShadow, BoxStyle, Color,
-        Fill, GridPlacement, LayoutOp, Length, Op, OrderedLayoutUnit, Overflow, PaintOp, Stroke,
+        BackdropFilter, BorderSides, BoxAlignment, BoxGridPlacement, BoxPosition, BoxShadow,
+        BoxStyle, Color, CornerRadii, Fill, GridPlacement, LayoutOp, Length, Op, OrderedLayoutUnit,
+        Overflow, PaintOp, Stroke,
     },
     CompositeStyle, WidgetId,
 };
@@ -92,6 +93,15 @@ pub struct Container {
     pub backdrop_filter: Option<BackdropFilter>,
     /// How this container's subtree composites with the content beneath it.
     pub blend_mode: fission_ir::BlendMode,
+    /// Per-corner radii. Replaces [`border_radius`](Self::border_radius) when set.
+    ///
+    /// Corners are logical: `start` is the left pair in a left-to-right layout
+    /// and the right pair in a right-to-left one, mirrored while lowering.
+    pub border_radii: Option<CornerRadii>,
+    /// Per-edge strokes. Replaces the uniform border when set.
+    ///
+    /// Like the radii, the inline edges are logical and mirrored while lowering.
+    pub border_sides: Option<BorderSides>,
 }
 
 impl Default for Container {
@@ -120,6 +130,8 @@ impl Default for Container {
             shadows: Vec::new(),
             backdrop_filter: None,
             blend_mode: fission_ir::BlendMode::Normal,
+            border_radii: None,
+            border_sides: None,
         }
     }
 }
@@ -390,6 +402,72 @@ impl Container {
         self
     }
 
+    /// Sets every corner independently.
+    ///
+    /// The pairs are logical: in a right-to-left layout they are mirrored while
+    /// lowering, so a sheet rounded along its leading edge stays correct
+    /// without the caller branching on direction.
+    pub fn border_radii(mut self, radii: CornerRadii) -> Self {
+        self.border_radii = Some(radii);
+        self
+    }
+
+    /// Rounds the top corners and leaves the bottom square.
+    ///
+    /// The shape a bottom sheet, a drawer and a tab all need, and the one a
+    /// single radius cannot express.
+    pub fn border_radius_top(self, radius: f32) -> Self {
+        self.border_radii(CornerRadii::top(radius))
+    }
+
+    /// Rounds the bottom corners and leaves the top square.
+    pub fn border_radius_bottom(self, radius: f32) -> Self {
+        self.border_radii(CornerRadii::bottom(radius))
+    }
+
+    /// Rounds the leading corners and leaves the trailing ones square.
+    pub fn border_radius_start(self, radius: f32) -> Self {
+        self.border_radii(CornerRadii::left(radius))
+    }
+
+    /// Rounds the trailing corners and leaves the leading ones square.
+    pub fn border_radius_end(self, radius: f32) -> Self {
+        self.border_radii(CornerRadii::right(radius))
+    }
+
+    /// Sets each edge's stroke independently.
+    pub fn border_sides(mut self, sides: BorderSides) -> Self {
+        self.border_sides = Some(sides);
+        self
+    }
+
+    /// Strokes the bottom edge only.
+    ///
+    /// What a filled text field's underline and a tab's active indicator are.
+    pub fn border_bottom(self, color: Color, width: f32) -> Self {
+        self.border_sides(BorderSides::bottom_only(Stroke {
+            fill: Fill::Solid(color),
+            width,
+            dash_array: None,
+            line_cap: fission_ir::op::LineCap::Butt,
+            line_join: fission_ir::op::LineJoin::Miter,
+        }))
+    }
+
+    /// Strokes the leading edge only, as a card's accent bar does.
+    pub fn border_start(self, color: Color, width: f32) -> Self {
+        self.border_sides(BorderSides {
+            left: Some(Stroke {
+                fill: Fill::Solid(color),
+                width,
+                dash_array: None,
+                line_cap: fission_ir::op::LineCap::Butt,
+                line_join: fission_ir::op::LineJoin::Miter,
+            }),
+            ..Default::default()
+        })
+    }
+
     pub fn border_radius(mut self, radius: f32) -> Self {
         self.border_radius = radius;
         self
@@ -440,6 +518,17 @@ impl Lower for Container {
         let id = self.id.map(Into::into).unwrap_or_else(|| cx.next_node_id());
         cx.push_scope(id);
 
+        // Reading order is resolved once here rather than in each paint op, the
+        // same way directional padding is resolved once during layout.
+        let mirror = cx.env.layout_direction == fission_ir::LayoutDirection::RightToLeft;
+        let corner_radii = self
+            .border_radii
+            .map(|radii| if mirror { radii.mirrored() } else { radii });
+        let border_sides =
+            self.border_sides
+                .clone()
+                .map(|sides| if mirror { sides.mirrored() } else { sides });
+
         let mut children_ids = Vec::new();
 
         if let Some(filter) = self.backdrop_filter.clone() {
@@ -448,6 +537,7 @@ impl Lower for Container {
                 Op::Paint(PaintOp::BackdropFilter {
                     filter,
                     corner_radius: self.border_radius,
+                    corner_radii,
                 }),
             )
             .build(cx);
@@ -458,6 +548,7 @@ impl Lower for Container {
         if self.background_fill.is_some()
             || self.background_color.is_some()
             || self.border_color.is_some()
+            || border_sides.is_some()
             || self.shadow.is_some()
             || !self.shadows.is_empty()
         {
@@ -469,6 +560,8 @@ impl Lower for Container {
                         stroke: None,
                         corner_radius: self.border_radius,
                         shadow: Some(*shadow),
+                        corner_radii,
+                        border_sides: None,
                     }),
                 )
                 .build(cx);
@@ -490,6 +583,8 @@ impl Lower for Container {
                     }),
                     corner_radius: self.border_radius,
                     shadow: self.shadow,
+                    corner_radii,
+                    border_sides: border_sides.clone(),
                 }),
             )
             .build(cx);

@@ -107,6 +107,8 @@ fn sectioned_card_uses_edge_to_edge_separators_and_region_padding() {
                 stroke: None,
                 corner_radius,
                 shadow: None,
+                corner_radii: None,
+                border_sides: None,
             }) => *color == env.theme.tokens.colors.border && *corner_radius == 0.0,
             _ => false,
         })
@@ -250,6 +252,8 @@ fn section_separators_are_optional_without_changing_region_spacing() {
                 stroke: None,
                 corner_radius,
                 shadow: None,
+                corner_radii: None,
+                border_sides: None,
             }) => *color == env.theme.tokens.colors.border && *corner_radius == 0.0,
             _ => false,
         })
@@ -395,6 +399,8 @@ fn footer_uses_theme_tint_gap_and_full_width_separator() {
                 stroke: None,
                 corner_radius,
                 shadow: None,
+                corner_radii: None,
+                border_sides: None,
             }) => *color == separator_tint && *corner_radius == 0.0,
             _ => false,
         })
@@ -450,6 +456,8 @@ fn separated_footer_falls_back_to_the_shared_section_boundary_recipe() {
                     stroke: None,
                     corner_radius,
                     shadow: None,
+                    corner_radii: None,
+                    border_sides: None,
                 }) => *color == fallback_tint && *corner_radius == 0.0,
                 _ => false,
             })

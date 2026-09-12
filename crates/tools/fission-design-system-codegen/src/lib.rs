@@ -2108,7 +2108,7 @@ impl {krate}::DesignSystem for {type_name} {{
                 })
                 .collect::<Result<Vec<_>>>()?;
             return Ok(Some(format!(
-                "{krate}::Fill::LinearGradient {{ start: (0.0, 0.0), end: (1.0, 1.0), stops: vec![{}] }}",
+                "{krate}::Fill::LinearGradient {{ start: (0.0, 0.0), end: (1.0, 1.0), stops: vec![{}], extend: {krate}::GradientExtend::Pad }}",
                 stops.join(",")
             )));
         }
@@ -2128,7 +2128,7 @@ impl {krate}::DesignSystem for {type_name} {{
                 ));
             }
             return Ok(Some(format!(
-                "{krate}::Fill::RadialGradient {{ center: (0.5, 0.5), radius: 1.0, stops: vec![{}] }}",
+                "{krate}::Fill::RadialGradient {{ center: (0.5, 0.5), radius: 1.0, stops: vec![{}], extend: {krate}::GradientExtend::Pad }}",
                 stops.join(",")
             )));
         }

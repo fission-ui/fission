@@ -679,6 +679,7 @@ impl From<FinalCta> for Widget {
                 (0.0, tokens.colors.surface_sunken),
                 (1.0, tokens.colors.background),
             ],
+            extend: Default::default(),
         })
         .into()
     }

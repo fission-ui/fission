@@ -611,6 +611,7 @@ fn saturation_panel(_picker: &ColourPicker, hsva: ColourHsva, width: f32) -> Wid
             start: (0.0, 0.0),
             end: (1.0, 0.0),
             stops: vec![(0.0, Color::WHITE), (1.0, base)],
+            extend: Default::default(),
         })
         .border(
             Color {
@@ -887,6 +888,7 @@ fn hue_fill() -> Fill {
             (0.83, rgb(255, 0, 255)),
             (1.0, rgb(255, 0, 0)),
         ],
+        extend: Default::default(),
     }
 }
 
@@ -912,6 +914,7 @@ fn saturation_fill(hsva: ColourHsva) -> Fill {
                 .to_color(),
             ),
         ],
+        extend: Default::default(),
     }
 }
 
@@ -923,6 +926,7 @@ fn value_fill(hsva: ColourHsva) -> Fill {
             (0.0, Color::BLACK),
             (1.0, ColourHsva { value: 1.0, ..hsva }.to_color()),
         ],
+        extend: Default::default(),
     }
 }
 
@@ -931,6 +935,7 @@ fn alpha_fill(color: Color) -> Fill {
         start: (0.0, 0.0),
         end: (1.0, 0.0),
         stops: vec![(0.0, color.with_alpha(0)), (1.0, color.with_alpha(255))],
+        extend: Default::default(),
     }
 }
 

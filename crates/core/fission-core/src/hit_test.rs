@@ -368,8 +368,17 @@ fn paint_op_blocks_hit_testing(op: &Op) -> bool {
             fill,
             stroke,
             shadow,
+            border_sides,
             ..
-        }) => fill.is_some() || stroke.is_some() || shadow.is_some(),
+        }) => {
+            fill.is_some()
+                || stroke.is_some()
+                || shadow.is_some()
+                // A rectangle whose only paint is one edge -- a text field's
+                // underline, a table's cell grid -- is still painted content,
+                // and blocks hit testing exactly as a full border would.
+                || border_sides.as_ref().is_some_and(|sides| !sides.is_empty())
+        }
         Op::Paint(PaintOp::DrawText { text, .. }) => !text.is_empty(),
         Op::Paint(PaintOp::DrawRichText { runs, .. }) => {
             runs.iter().any(|run| !run.text.is_empty())

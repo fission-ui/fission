@@ -264,6 +264,8 @@ fn track_layer(
             stroke: None,
             corner_radius: track_height / 2.0,
             shadow: None,
+            corner_radii: None,
+            border_sides: None,
         }),
     )
     .build(cx);
@@ -305,6 +307,8 @@ fn selected_track_layer(
             stroke: None,
             corner_radius: track_height / 2.0,
             shadow: None,
+            corner_radii: None,
+            border_sides: None,
         }),
     )
     .build(cx);
@@ -385,6 +389,8 @@ fn thumb_layer(
                 blur_radius: 2.0,
                 offset: (0.0, 1.0),
             }),
+            corner_radii: None,
+            border_sides: None,
         }),
     )
     .build(cx);

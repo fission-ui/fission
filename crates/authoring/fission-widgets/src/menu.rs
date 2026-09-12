@@ -1030,6 +1030,8 @@ impl LowerWidget for MenuSeparatorLowerer {
                         stroke: None,
                         corner_radius: 0.0,
                         shadow: None,
+                        corner_radii: None,
+                        border_sides: None,
                     }),
                 )
                 .build(cx),
@@ -1429,6 +1431,8 @@ fn append_recipe_paint(
                     stroke: None,
                     corner_radius: radius,
                     shadow: Some(shadow.to_box_shadow()),
+                    corner_radii: None,
+                    border_sides: None,
                 }),
             )
             .build(cx),
@@ -1450,6 +1454,8 @@ fn append_recipe_paint(
                     stroke,
                     corner_radius: radius,
                     shadow: None,
+                    corner_radii: None,
+                    border_sides: None,
                 }),
             )
             .build(cx),

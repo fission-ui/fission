@@ -1,4 +1,5 @@
 use crate::stack::HStack;
+use fission_core::op::CornerRadii;
 use fission_core::ui::{Button, ButtonVariant, Container, SemanticsRegion, Text, Widget};
 use fission_core::ActionEnvelope;
 use fission_ir::{Role, SemanticOrientation};
@@ -75,7 +76,24 @@ impl From<SegmentedControl> for Widget {
             .selected(is_selected)
             .into();
 
-            children.push(Container::new(button).flex_grow(1.0).into());
+            // End caps follow the track's own radius, so the first and last
+            // segments sit flush inside it instead of being square against a
+            // rounded track. Until the IR carried per-corner radii this was
+            // simply not expressible, which is why every segment looked the
+            // same regardless of position.
+            let inner_radius = (theme.radius - 1.0).max(0.0);
+            let segment_radii = match (i == 0, i + 1 == this.options.len()) {
+                (true, true) => CornerRadii::uniform(inner_radius),
+                (true, false) => CornerRadii::left(inner_radius),
+                (false, true) => CornerRadii::right(inner_radius),
+                (false, false) => CornerRadii::uniform(0.0),
+            };
+            children.push(
+                Container::new(button)
+                    .flex_grow(1.0)
+                    .border_radii(segment_radii)
+                    .into(),
+            );
         }
 
         SemanticsRegion::new(

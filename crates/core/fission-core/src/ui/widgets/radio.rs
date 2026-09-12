@@ -100,6 +100,8 @@ impl Lower for Radio {
                 }),
                 corner_radius: size / 2.0,
                 shadow: None,
+                corner_radii: None,
+                border_sides: None,
             })
         } else {
             Op::Paint(PaintOp::DrawRect {
@@ -113,6 +115,8 @@ impl Lower for Radio {
                 }),
                 corner_radius: size / 2.0,
                 shadow: None,
+                corner_radii: None,
+                border_sides: None,
             })
         };
         let outer_node = IrBuilder::new(cx.next_node_id(), bg_paint).build(cx);
@@ -126,6 +130,8 @@ impl Lower for Radio {
                     stroke: None,
                     corner_radius: dot_size / 2.0,
                     shadow: None,
+                    corner_radii: None,
+                    border_sides: None,
                 }),
             )
             .build(cx);

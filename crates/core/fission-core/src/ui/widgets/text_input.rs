@@ -1140,6 +1140,8 @@ impl Lower for TextInput {
                             stroke: None,
                             corner_radius: border_radius,
                             shadow: Some(shadow.to_box_shadow()),
+                            corner_radii: None,
+                            border_sides: None,
                         }),
                     )
                     .build(cx),
@@ -1164,6 +1166,8 @@ impl Lower for TextInput {
                         }),
                         corner_radius: border_radius,
                         shadow: None,
+                        corner_radii: None,
+                        border_sides: None,
                     }),
                 )
                 .build(cx),
@@ -1177,6 +1181,8 @@ impl Lower for TextInput {
                             stroke: None,
                             corner_radius: border_radius,
                             shadow: Some(shadow.to_box_shadow()),
+                            corner_radii: None,
+                            border_sides: None,
                         }),
                     )
                     .build(cx),

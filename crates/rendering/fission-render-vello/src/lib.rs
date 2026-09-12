@@ -12,7 +12,9 @@ use fission_render::{
     surface_placeholder_color, Color as RenderColor, DisplayList, DisplayOp, LayerClip,
     RenderLayer, RenderNode, RenderScene, Renderer, TextStyle as RenderTextStyle,
 };
-use vello::kurbo::{Affine, BezPath, Circle, Point, Rect, RoundedRect, Shape, Vec2};
+use vello::kurbo::{
+    Affine, BezPath, Circle, Line, Point, Rect, RoundedRect, RoundedRectRadii, Shape, Vec2,
+};
 // Minimal imports from peniko
 use vello::peniko::{
     Blob, Brush, Color, Fill, ImageAlphaType, ImageBrush, ImageData, ImageFormat, ImageSampler, Mix,
@@ -33,86 +35,140 @@ fn normalized_point(bounds: Rect, point: (f32, f32)) -> Point {
     )
 }
 
-fn map_fill_to_brush(f: &fission_render::Fill, bounds: Rect) -> Brush {
-    match f {
-        fission_render::Fill::Solid(c) => Brush::Solid(map_color(c)),
-        fission_render::Fill::LinearGradient { start, end, stops } => {
-            let vello_stops: Vec<_> = stops
-                .iter()
-                .map(|(o, c)| vello::peniko::ColorStop {
-                    offset: *o,
-                    color: map_color(c).into(),
-                })
-                .collect();
-            Brush::Gradient(
-                vello::peniko::Gradient::new_linear(
-                    normalized_point(bounds, *start),
-                    normalized_point(bounds, *end),
-                )
-                .with_stops(vello_stops.as_slice()),
-            )
-        }
-        fission_render::Fill::RadialGradient {
-            center,
-            radius,
-            stops,
-        } => {
-            let vello_stops: Vec<_> = stops
-                .iter()
-                .map(|(o, c)| vello::peniko::ColorStop {
-                    offset: *o,
-                    color: map_color(c).into(),
-                })
-                .collect();
-            Brush::Gradient(
-                vello::peniko::Gradient::new_radial(
-                    normalized_point(bounds, *center),
-                    radius * bounds.width().max(bounds.height()) as f32,
-                )
-                .with_stops(vello_stops.as_slice()),
-            )
-        }
+/// Maps the IR's extend mode onto peniko's.
+///
+/// Vello implements all three, so nothing is lost here.
+/// Maps the IR's per-corner radii onto kurbo's.
+fn kurbo_radii(radii: fission_ir::CornerRadii) -> RoundedRectRadii {
+    RoundedRectRadii::new(
+        radii.top_left as f64,
+        radii.top_right as f64,
+        radii.bottom_right as f64,
+        radii.bottom_left as f64,
+    )
+}
+
+fn map_extend(extend: fission_ir::GradientExtend) -> vello::peniko::Extend {
+    match extend {
+        fission_ir::GradientExtend::Pad => vello::peniko::Extend::Pad,
+        fission_ir::GradientExtend::Repeat => vello::peniko::Extend::Repeat,
+        fission_ir::GradientExtend::Reflect => vello::peniko::Extend::Reflect,
     }
 }
 
-fn map_text_fill_to_brush(f: &fission_ir::op::Fill, bounds: Rect) -> Brush {
+fn map_fill_to_brush(f: &fission_render::Fill, bounds: Rect) -> Brush {
+    fn gradient_stops<C: Copy>(
+        stops: &[(f32, C)],
+        to_color: impl Fn(&C) -> Color,
+    ) -> Vec<vello::peniko::ColorStop> {
+        stops
+            .iter()
+            .map(|(offset, color)| vello::peniko::ColorStop {
+                offset: *offset,
+                color: to_color(color).into(),
+            })
+            .collect()
+    }
+
     match f {
-        fission_ir::op::Fill::Solid(c) => Brush::Solid(Color::from_rgba8(c.r, c.g, c.b, c.a)),
-        fission_ir::op::Fill::LinearGradient { start, end, stops } => Brush::Gradient(
+        fission_render::Fill::Solid(c) => Brush::Solid(map_color(c)),
+        fission_render::Fill::LinearGradient {
+            start,
+            end,
+            stops,
+            extend,
+        } => Brush::Gradient(
             vello::peniko::Gradient::new_linear(
                 normalized_point(bounds, *start),
                 normalized_point(bounds, *end),
             )
-            .with_stops(
-                stops
-                    .iter()
-                    .map(|(offset, color)| vello::peniko::ColorStop {
-                        offset: *offset,
-                        color: Color::from_rgba8(color.r, color.g, color.b, color.a).into(),
-                    })
-                    .collect::<Vec<_>>()
-                    .as_slice(),
-            ),
+            .with_extend(map_extend(*extend))
+            .with_stops(gradient_stops(stops, map_color).as_slice()),
         ),
-        fission_ir::op::Fill::RadialGradient {
+        fission_render::Fill::RadialGradient {
             center,
             radius,
             stops,
+            extend,
         } => Brush::Gradient(
             vello::peniko::Gradient::new_radial(
                 normalized_point(bounds, *center),
                 radius * bounds.width().max(bounds.height()) as f32,
             )
-            .with_stops(
-                stops
-                    .iter()
-                    .map(|(offset, color)| vello::peniko::ColorStop {
-                        offset: *offset,
-                        color: Color::from_rgba8(color.r, color.g, color.b, color.a).into(),
-                    })
-                    .collect::<Vec<_>>()
-                    .as_slice(),
-            ),
+            .with_extend(map_extend(*extend))
+            .with_stops(gradient_stops(stops, map_color).as_slice()),
+        ),
+        fission_render::Fill::SweepGradient {
+            center,
+            start_angle,
+            end_angle,
+            stops,
+            extend,
+        } => Brush::Gradient(
+            vello::peniko::Gradient::new_sweep(
+                normalized_point(bounds, *center),
+                *start_angle,
+                *end_angle,
+            )
+            .with_extend(map_extend(*extend))
+            .with_stops(gradient_stops(stops, map_color).as_slice()),
+        ),
+    }
+}
+
+fn map_text_fill_to_brush(f: &fission_ir::op::Fill, bounds: Rect) -> Brush {
+    fn ir_stops(stops: &[(f32, fission_ir::op::Color)]) -> Vec<vello::peniko::ColorStop> {
+        stops
+            .iter()
+            .map(|(offset, color)| vello::peniko::ColorStop {
+                offset: *offset,
+                color: Color::from_rgba8(color.r, color.g, color.b, color.a).into(),
+            })
+            .collect()
+    }
+
+    match f {
+        fission_ir::op::Fill::Solid(c) => Brush::Solid(Color::from_rgba8(c.r, c.g, c.b, c.a)),
+        fission_ir::op::Fill::LinearGradient {
+            start,
+            end,
+            stops,
+            extend,
+        } => Brush::Gradient(
+            vello::peniko::Gradient::new_linear(
+                normalized_point(bounds, *start),
+                normalized_point(bounds, *end),
+            )
+            .with_extend(map_extend(*extend))
+            .with_stops(ir_stops(stops).as_slice()),
+        ),
+        fission_ir::op::Fill::RadialGradient {
+            center,
+            radius,
+            stops,
+            extend,
+        } => Brush::Gradient(
+            vello::peniko::Gradient::new_radial(
+                normalized_point(bounds, *center),
+                radius * bounds.width().max(bounds.height()) as f32,
+            )
+            .with_extend(map_extend(*extend))
+            .with_stops(ir_stops(stops).as_slice()),
+        ),
+        fission_ir::op::Fill::SweepGradient {
+            center,
+            start_angle,
+            end_angle,
+            stops,
+            extend,
+        } => Brush::Gradient(
+            vello::peniko::Gradient::new_sweep(
+                normalized_point(bounds, *center),
+                *start_angle,
+                *end_angle,
+            )
+            .with_extend(map_extend(*extend))
+            .with_stops(ir_stops(stops).as_slice()),
         ),
     }
 }
@@ -1376,6 +1432,7 @@ mod tests {
                         },
                     ),
                 ],
+                extend: Default::default(),
             },
             Rect::new(20.0, 40.0, 220.0, 140.0),
         );
@@ -3705,6 +3762,8 @@ impl<'a> VelloRenderer<'a> {
                     stroke,
                     corner_radius,
                     shadow,
+                    corner_radii,
+                    border_sides,
                     ..
                 } => {
                     let rect = Rect::new(
@@ -3714,7 +3773,10 @@ impl<'a> VelloRenderer<'a> {
                         (rect.origin.y + rect.size.height) as f64,
                     );
 
-                    let shape = RoundedRect::from_rect(rect, *corner_radius as f64);
+                    let radii = corner_radii.map(kurbo_radii).unwrap_or_else(|| {
+                        RoundedRectRadii::from_single_radius(*corner_radius as f64)
+                    });
+                    let shape = RoundedRect::from_rect(rect, radii);
 
                     if let Some(shadow) = shadow.filter(|shadow| !shadow.inset) {
                         let shadow_origin_x = rect.x0 + shadow.offset.0 as f64;
@@ -3752,15 +3814,64 @@ impl<'a> VelloRenderer<'a> {
                             &shape,
                         );
                     }
-                    if let Some(s) = stroke {
-                        let (stroke_style, brush) = map_stroke(s, rect);
-                        self.scene.stroke(
-                            &stroke_style,
-                            self.current_transform,
-                            &brush,
-                            None,
-                            &shape,
-                        );
+                    // Per-edge strokes replace the uniform one, matching the
+                    // IR's replacement rule. Edges that agree still take the
+                    // rounded-rectangle path so the common case is unchanged.
+                    match border_sides.as_ref().filter(|sides| !sides.is_empty()) {
+                        Some(sides) => match sides.as_uniform() {
+                            Some(s) => {
+                                let (stroke_style, brush) = map_stroke(s, rect);
+                                self.scene.stroke(
+                                    &stroke_style,
+                                    self.current_transform,
+                                    &brush,
+                                    None,
+                                    &shape,
+                                );
+                            }
+                            None => {
+                                for (side, line) in [
+                                    (
+                                        &sides.top,
+                                        Line::new((rect.x0, rect.y0), (rect.x1, rect.y0)),
+                                    ),
+                                    (
+                                        &sides.right,
+                                        Line::new((rect.x1, rect.y0), (rect.x1, rect.y1)),
+                                    ),
+                                    (
+                                        &sides.bottom,
+                                        Line::new((rect.x0, rect.y1), (rect.x1, rect.y1)),
+                                    ),
+                                    (
+                                        &sides.left,
+                                        Line::new((rect.x0, rect.y0), (rect.x0, rect.y1)),
+                                    ),
+                                ] {
+                                    let Some(s) = side else { continue };
+                                    let (stroke_style, brush) = map_stroke(s, rect);
+                                    self.scene.stroke(
+                                        &stroke_style,
+                                        self.current_transform,
+                                        &brush,
+                                        None,
+                                        &line,
+                                    );
+                                }
+                            }
+                        },
+                        None => {
+                            if let Some(s) = stroke {
+                                let (stroke_style, brush) = map_stroke(s, rect);
+                                self.scene.stroke(
+                                    &stroke_style,
+                                    self.current_transform,
+                                    &brush,
+                                    None,
+                                    &shape,
+                                );
+                            }
+                        }
                     }
 
                     if let Some(shadow) = shadow.filter(|shadow| shadow.inset) {

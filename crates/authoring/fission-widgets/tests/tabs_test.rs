@@ -881,6 +881,7 @@ fn gradient(start: Color, end: Color) -> Fill {
         start: (0.0, 0.0),
         end: (1.0, 1.0),
         stops: vec![(0.0, start), (1.0, end)],
+        extend: Default::default(),
     }
 }
 

@@ -178,6 +178,8 @@ fn button_recipe_registers_and_consumes_paint_state_transitions() {
                 stroke: Some(stroke),
                 corner_radius,
                 shadow: None,
+                corner_radii: None,
+                border_sides: None,
             }) => Some((*color, stroke.width, *corner_radius)),
             _ => None,
         })

@@ -28,7 +28,10 @@ fn test_explicit_focus_order() {
         index: i32,
     }
     impl fission_core::internal::LowerWidget for FocusButtonInternalLowerer {
-        fn lower_dyn(&self, cx: &mut fission_core::internal::LoweringCx) -> fission_ir::WidgetId {
+        fn lower_dyn(
+            &self,
+            cx: &mut fission_core::internal::LoweringCx,
+        ) -> fission_ir::WidgetId {
             let id = cx.next_node_id();
             let s = Semantics {
                 role: Role::Button,
@@ -125,7 +128,10 @@ fn arrow_keys_enter_and_traverse_focus_order_without_prior_focus() {
     }
 
     impl fission_core::internal::LowerWidget for FocusButtonInternalLowerer {
-        fn lower_dyn(&self, cx: &mut fission_core::internal::LoweringCx) -> fission_ir::WidgetId {
+        fn lower_dyn(
+            &self,
+            cx: &mut fission_core::internal::LoweringCx,
+        ) -> fission_ir::WidgetId {
             let id = cx.next_node_id();
             let semantics = Semantics {
                 role: Role::Button,
@@ -234,7 +240,10 @@ fn test_autofocus_assigns_initial_focus() {
     struct AutofocusTextInput;
 
     impl fission_core::internal::LowerWidget for AutofocusTextInput {
-        fn lower_dyn(&self, cx: &mut fission_core::internal::LoweringCx) -> fission_ir::WidgetId {
+        fn lower_dyn(
+            &self,
+            cx: &mut fission_core::internal::LoweringCx,
+        ) -> fission_ir::WidgetId {
             let id = cx.next_node_id();
             let semantics = Semantics {
                 role: Role::TextInput,
