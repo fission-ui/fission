@@ -282,9 +282,14 @@ impl {krate}::DesignSystem for {type_name} {{
         let motion = self.motion_tokens_expr(krate)?;
         let data_visualization = self.data_visualization_tokens_expr(krate, mode)?;
         let components = self.component_theme_expr(krate, mode)?;
+        // Built as a block with successive field assignments rather than one
+        // nested literal. ComponentTheme is around 40 KB, so materialising the
+        // whole thing as a single temporary overflows a 2 MB thread stack in a
+        // debug build; assigning field by field bounds each temporary to one
+        // component's theme.
         Ok(format!(
-            r#"{krate}::Theme {{
-                tokens: {krate}::Tokens {{
+            r#"{{
+                let tokens = {krate}::Tokens {{
                     colors: {colors},
                     spacing: {spacing},
                     typography: {typography},
@@ -292,16 +297,21 @@ impl {krate}::DesignSystem for {type_name} {{
                     elevations: {elevations},
                     motion: {motion},
                     data_visualization: {data_visualization},
-                }},
-                components: {components},
-                design_system: {krate}::ResolvedDesignSystem {{
+                }};
+                let components = {components};
+                let design_system = {krate}::ResolvedDesignSystem {{
                     mode: {krate}::DesignMode::{mode_name},
                     info: <{type_placeholder} as {krate}::DesignSystem>::info().clone(),
                     tokens: <{type_placeholder} as {krate}::DesignSystem>::tokens().clone(),
                     components: <{type_placeholder} as {krate}::DesignSystem>::components().to_vec(),
                     patterns: <{type_placeholder} as {krate}::DesignSystem>::patterns().to_vec(),
                     assets: <{type_placeholder} as {krate}::DesignSystem>::assets().clone(),
-                }},
+                }};
+                {krate}::Theme {{
+                    tokens,
+                    components,
+                    design_system,
+                }}
             }}"#,
             type_placeholder = "Self"
         ))
