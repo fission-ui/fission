@@ -29,16 +29,16 @@ fn main() {
 fn generate(directory: &str, out_file: &str, type_name: &str) {
     println!("cargo:rerun-if-changed=design/{directory}/dsp.json");
     println!("cargo:rerun-if-changed=design/{directory}/tokens.json");
-    fission_design_system_codegen::generate(fission_design_system_codegen::Config {
-        dsp_path: format!("design/{directory}/dsp.json").into(),
-        out_file: out_file.into(),
-        type_name: type_name.into(),
-        crate_path: "crate".into(),
-        // Fission supplies these, so they are the complete authority for any
-        // application that selects one. An omitted recipe must fail the build
-        // rather than fall back to the codegen's own geometry.
-        require_complete_components: true,
-    })
+    fission_design_system_codegen::generate(
+        fission_design_system_codegen::Config::new(format!("design/{directory}/dsp.json"))
+            .out_file(out_file)
+            .type_name(type_name)
+            .crate_path("crate")
+            // Fission supplies these, so they are the complete authority for any
+            // application that selects one. An omitted recipe must fail the build
+            // rather than be inherited or fall back to the codegen's own geometry.
+            .require_complete_components(),
+    )
     .unwrap_or_else(|error| {
         panic!("failed to generate {directory} Fission design system: {error}")
     });

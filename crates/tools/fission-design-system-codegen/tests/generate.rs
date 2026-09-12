@@ -14,13 +14,12 @@ fn generates_rust_for_fission_dsp_package() {
         .to_path_buf();
     let dsp_path = repo.join("crates/core/fission-theme/design/default/dsp.json");
 
-    let out = fission_design_system_codegen::generate(fission_design_system_codegen::Config {
-        dsp_path,
-        out_file: "generated.rs".into(),
-        type_name: "GeneratedDesignSystem".into(),
-        crate_path: "fission_theme".into(),
-        require_complete_components: false,
-    })
+    let out = fission_design_system_codegen::generate(
+        fission_design_system_codegen::Config::new(dsp_path)
+            .out_file("generated.rs")
+            .type_name("GeneratedDesignSystem")
+            .crate_path("fission_theme"),
+    )
     .unwrap();
     let generated = std::fs::read_to_string(out).unwrap();
 

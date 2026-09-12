@@ -4,7 +4,12 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
+/// Options for generating a design system.
+///
+/// Built with [`Config::new`] and the methods below rather than a struct
+/// literal, so options can be added without breaking a `build.rs`.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct Config {
     pub dsp_path: PathBuf,
     pub out_file: String,
@@ -14,9 +19,15 @@ pub struct Config {
     ///
     /// True for the design systems Fission ships, which are the complete
     /// authority for an application that selects one. False for an application
-    /// design system, which customizes the components it cares about and is
-    /// meant to inherit the rest.
+    /// design system, which customizes the components it cares about and
+    /// inherits the rest from [`inherit_from`](Config::inherit_from).
     pub require_complete_components: bool,
+    /// Path to the design system whose component recipes fill in the ones this
+    /// design system omits, or `None` for `{crate_path}::FissionDefaultDesignSystem`.
+    ///
+    /// Ignored when [`require_complete_components`](Config::require_complete_components)
+    /// is set: a complete design system has nothing to inherit.
+    pub inherit_from: Option<String>,
 }
 
 impl Config {
@@ -27,14 +38,52 @@ impl Config {
             type_name: "AppDesignSystem".into(),
             crate_path: "fission_theme".into(),
             require_complete_components: false,
+            inherit_from: None,
         }
     }
 
+    /// Names the file written under `OUT_DIR`.
+    pub fn out_file(mut self, out_file: impl Into<String>) -> Self {
+        self.out_file = out_file.into();
+        self
+    }
+
+    /// Names the generated design system type.
+    pub fn type_name(mut self, type_name: impl Into<String>) -> Self {
+        self.type_name = type_name.into();
+        self
+    }
+
+    /// Sets the path generated code uses to reach the theme crate, such as
+    /// `fission::theme` through the `fission` facade.
+    pub fn crate_path(mut self, crate_path: impl Into<String>) -> Self {
+        self.crate_path = crate_path.into();
+        self
+    }
+
+    /// Names the design system whose recipes fill in any this one omits.
+    pub fn inherit_from(mut self, design_system_path: impl Into<String>) -> Self {
+        self.inherit_from = Some(design_system_path.into());
+        self
+    }
+
     /// Marks this as a design system Fission supplies, so an omitted recipe
-    /// fails the build instead of silently falling back to inlined geometry.
+    /// fails the build instead of being inherited.
     pub fn require_complete_components(mut self) -> Self {
         self.require_complete_components = true;
         self
+    }
+
+    /// The design system recipes are inherited from, if any.
+    fn recipe_base(&self) -> Option<String> {
+        if self.require_complete_components {
+            return None;
+        }
+        Some(
+            self.inherit_from
+                .clone()
+                .unwrap_or_else(|| format!("{}::FissionDefaultDesignSystem", self.crate_path)),
+        )
     }
 }
 
@@ -62,7 +111,7 @@ pub fn generate(config: Config) -> Result<PathBuf> {
 /// read. Adding a generator that consults a new recipe means adding the recipe
 /// to every design system under `crates/core/fission-theme/design/`, and adding
 /// the name here so the next one cannot be forgotten.
-const REQUIRED_COMPONENT_RECIPES: &[&str] = &[
+pub const REQUIRED_COMPONENT_RECIPES: &[&str] = &[
     "accordion",
     "breadcrumb",
     "circular_progress",
@@ -190,8 +239,9 @@ impl Package {
         let krate = &config.crate_path;
         let type_name = &config.type_name;
         let info = self.info(krate);
-        let light = self.theme_expr(krate, Mode::Light)?;
-        let dark = self.theme_expr(krate, Mode::Dark)?;
+        let base = config.recipe_base();
+        let light = self.theme_expr(krate, Mode::Light, base.as_deref())?;
+        let dark = self.theme_expr(krate, Mode::Dark, base.as_deref())?;
         let design_tokens = self.design_tokens_expr(krate)?;
         let components = self.components_expr(krate)?;
         let patterns = self.patterns_expr(krate)?;
@@ -272,7 +322,7 @@ impl {krate}::DesignSystem for {type_name} {{
         )
     }
 
-    fn theme_expr(&self, krate: &str, mode: Mode) -> Result<String> {
+    fn theme_expr(&self, krate: &str, mode: Mode, base: Option<&str>) -> Result<String> {
         let mode_name = mode.as_str();
         let colors = self.color_tokens_expr(krate, mode)?;
         let spacing = self.spacing_tokens_expr(krate)?;
@@ -281,7 +331,7 @@ impl {krate}::DesignSystem for {type_name} {{
         let elevations = self.elevation_tokens_expr(krate)?;
         let motion = self.motion_tokens_expr(krate)?;
         let data_visualization = self.data_visualization_tokens_expr(krate, mode)?;
-        let components = self.component_theme_expr(krate, mode)?;
+        let components = self.component_theme_expr(krate, mode, base)?;
         // Built as a block with successive field assignments rather than one
         // nested literal. ComponentTheme is around 40 KB, so materialising the
         // whole thing as a single temporary overflows a 2 MB thread stack in a
@@ -555,7 +605,7 @@ impl {krate}::DesignSystem for {type_name} {{
         ))
     }
 
-    fn component_theme_expr(&self, krate: &str, mode: Mode) -> Result<String> {
+    fn component_theme_expr(&self, krate: &str, mode: Mode, base: Option<&str>) -> Result<String> {
         let button = self.button_theme_expr(krate, mode)?;
         let text_input = self.text_input_theme_expr(krate, mode)?;
         let select = self.select_theme_expr(krate, mode)?;
@@ -573,7 +623,7 @@ impl {krate}::DesignSystem for {type_name} {{
         let code = self.code_theme_expr(krate, mode)?;
         let empty_state = self.empty_state_theme_expr(krate, mode)?;
         let feature_icon = self.feature_icon_theme_expr(krate, mode)?;
-        let recipes = self.component_recipes_expr(krate, mode)?;
+        let recipes = self.component_recipes_expr(krate, mode, base)?;
         let colors_prefix = match mode {
             Mode::Light => "color.light",
             Mode::Dark => "color.dark",
@@ -2394,9 +2444,28 @@ impl {krate}::DesignSystem for {type_name} {{
     ///
     /// Sub-objects become named parts, `sizes` and `states` become density and
     /// interaction variants, and plain numbers become scalars.
-    fn component_recipes_expr(&self, krate: &str, mode: Mode) -> Result<String> {
+    fn component_recipes_expr(
+        &self,
+        krate: &str,
+        mode: Mode,
+        base: Option<&str>,
+    ) -> Result<String> {
+        // An inheriting design system starts from its base's recipes, so every
+        // component it does not declare still has one.
+        let initial = match base {
+            Some(base) => {
+                let mode = match mode {
+                    Mode::Light => "Light",
+                    Mode::Dark => "Dark",
+                };
+                format!(
+                    "(*<{base} as {krate}::DesignSystem>::theme_ref({krate}::DesignMode::{mode}).components.recipes).clone()"
+                )
+            }
+            None => "std::collections::BTreeMap::new()".into(),
+        };
         let Some(obj) = self.dsp.get("components").and_then(Value::as_object) else {
-            return Ok("Default::default()".into());
+            return Ok(format!("std::sync::Arc::new({initial})"));
         };
         let mut entries = Vec::new();
         for (name, value) in obj {
@@ -2416,7 +2485,7 @@ impl {krate}::DesignSystem for {type_name} {{
         // literal holding every recipe is a single enormous temporary, and
         // materialising it overflows the stack on a normal thread.
         Ok(format!(
-            "std::sync::Arc::new({{ let mut recipes = std::collections::BTreeMap::new(); {} recipes }})",
+            "std::sync::Arc::new({{ let mut recipes = {initial}; {} recipes }})",
             entries.join(" ")
         ))
     }
