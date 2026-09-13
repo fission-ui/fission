@@ -106,35 +106,43 @@ impl Lower for Checkbox {
             // Square indicator
             let square_id = cx.next_node_id();
 
-            let bg_paint = if self.checked {
-                Op::Paint(PaintOp::DrawRect {
-                    fill: Some(fission_ir::op::Fill::Solid(active_color)),
-                    stroke: None,
-                    corner_radius: radius,
-                    shadow: None,
-                    corner_radii: None,
-                    border_sides: None,
-                })
-            } else {
-                Op::Paint(PaintOp::DrawRect {
-                    fill: None,
-                    stroke: Some(fission_ir::op::Stroke {
-                        fill: fission_ir::op::Fill::Solid(border_color),
-                        width: 1.5,
-                        dash_array: None,
-                        line_cap: fission_ir::op::LineCap::Butt,
-                        line_join: fission_ir::op::LineJoin::Miter,
-                    }),
-                    corner_radius: radius,
-                    shadow: None,
-                    corner_radii: None,
-                    border_sides: None,
-                })
+            // The box fill and border ease between states when widget motion is on.
+            let animated = |property| match cx.runtime_state.motion.values.get(&(id, property)) {
+                Some(crate::motion::MotionValue::Color(color)) => Some(*color),
+                _ => None,
             };
+            let fill_color = animated(crate::motion::MotionPropertyId::BackgroundColor).unwrap_or(
+                if self.checked {
+                    active_color
+                } else {
+                    fission_ir::op::Color::TRANSPARENT
+                },
+            );
+            let stroke_color =
+                animated(crate::motion::MotionPropertyId::BorderColor).unwrap_or(if self.checked {
+                    active_color
+                } else {
+                    border_color
+                });
+            let bg_paint = Op::Paint(PaintOp::DrawRect {
+                fill: Some(fission_ir::op::Fill::Solid(fill_color)),
+                stroke: Some(fission_ir::op::Stroke {
+                    fill: fission_ir::op::Fill::Solid(stroke_color),
+                    width: 1.5,
+                    dash_array: None,
+                    line_cap: fission_ir::op::LineCap::Butt,
+                    line_join: fission_ir::op::LineJoin::Miter,
+                }),
+                corner_radius: radius,
+                shadow: None,
+                corner_radii: None,
+                border_sides: None,
+            });
             let bg_node = IrBuilder::new(cx.next_node_id(), bg_paint).build(cx);
 
-            // Checkmark
-            let check_node = if self.checked {
+            // The check mark is always present so it can fade and grow in and out.
+            let check_motion = WidgetId::derived(id.as_u128(), &[CHECK_MOTION_PATH]);
+            let check_node = {
                 let check = IrBuilder::new(
                     cx.next_node_id(),
                     Op::Paint(PaintOp::DrawRect {
@@ -161,14 +169,27 @@ impl Lower for Checkbox {
                         flex_shrink: 0.0,
                         aspect_ratio: None,
                     }),
-                );
+                )
+                .composite(fission_ir::op::CompositeStyle {
+                    opacity: Some(
+                        fission_ir::op::CompositeScalar::new(if self.checked { 1.0 } else { 0.0 })
+                            .motion(check_motion),
+                    ),
+                    scale: Some(
+                        fission_ir::op::CompositeScalar::new(if self.checked {
+                            1.0
+                        } else {
+                            CHECK_HIDDEN_SCALE
+                        })
+                        .motion(check_motion),
+                    ),
+                    ..Default::default()
+                });
                 check_box.add_child(check);
                 let check_box_id = check_box.build(cx);
                 let mut align = IrBuilder::new(cx.next_node_id(), Op::Layout(LayoutOp::Align));
                 align.add_child(check_box_id);
-                Some(align.build(cx))
-            } else {
-                None
+                align.build(cx)
             };
 
             let mut square_box = IrBuilder::new(
@@ -187,9 +208,7 @@ impl Lower for Checkbox {
                 }),
             );
             square_box.add_child(bg_node);
-            if let Some(c) = check_node {
-                square_box.add_child(c);
-            }
+            square_box.add_child(check_node);
             let square_final = square_box.build(cx);
 
             // Label
@@ -287,4 +306,101 @@ impl Lower for Checkbox {
         sem_node.add_child(layout_id);
         sem_node.build(cx)
     }
+}
+
+/// Path from a checkbox's id to its check mark's motion identity.
+const CHECK_MOTION_PATH: u32 = 0xC4EC_0001;
+/// The scale a check mark grows from and shrinks to.
+const CHECK_HIDDEN_SCALE: f32 = 0.6;
+
+impl Checkbox {
+    /// Registers the tracks that ease the box and check mark between states.
+    pub(crate) fn register_motion_declarations(&self, id: WidgetId) {
+        let Some(env) = crate::build::try_current_env() else {
+            return;
+        };
+        let Some(transition) = toggle_transition(env) else {
+            return;
+        };
+        let colors = &env.theme.tokens.colors;
+        let active = if self.disabled {
+            colors.text_muted
+        } else {
+            colors.primary
+        };
+        let border = if self.disabled {
+            colors.text_muted
+        } else {
+            colors.text_secondary
+        };
+        let (fill, stroke) = if self.checked {
+            (active, active)
+        } else {
+            (fission_ir::op::Color::TRANSPARENT, border)
+        };
+        register_tracks(
+            id,
+            vec![
+                crate::motion::MotionTrack::paint(
+                    crate::motion::MotionPropertyId::BackgroundColor,
+                    crate::motion::MotionStartValue::Current,
+                    crate::motion::color(fill),
+                )
+                .transition(transition.clone()),
+                crate::motion::MotionTrack::paint(
+                    crate::motion::MotionPropertyId::BorderColor,
+                    crate::motion::MotionStartValue::Current,
+                    crate::motion::color(stroke),
+                )
+                .transition(transition.clone()),
+            ],
+        );
+        register_tracks(
+            WidgetId::derived(id.as_u128(), &[CHECK_MOTION_PATH]),
+            shown_tracks(self.checked, CHECK_HIDDEN_SCALE, transition),
+        );
+    }
+}
+
+/// The transition toggles ease between states with, or `None` when the app has
+/// turned built-in widget motion off.
+pub(crate) fn toggle_transition(env: &crate::Env) -> Option<crate::motion::MotionTransition> {
+    env.widget_motion.is_on().then(|| {
+        let motion = &env.theme.tokens.motion;
+        crate::ui::widgets::button::component_motion_transition(fission_theme::ComponentMotion {
+            duration_ms: motion.duration_fast_ms,
+            easing: motion.easing_standard.clone(),
+        })
+    })
+}
+
+/// Opacity and scale tracks that show an indicator when `shown` and hide it,
+/// shrunk to `hidden_scale`, otherwise.
+pub(crate) fn shown_tracks(
+    shown: bool,
+    hidden_scale: f32,
+    transition: crate::motion::MotionTransition,
+) -> Vec<crate::motion::MotionTrack> {
+    vec![
+        crate::motion::MotionTrack::composite(
+            crate::motion::MotionPropertyId::Opacity,
+            crate::motion::MotionStartValue::Current,
+            crate::motion::scalar(if shown { 1.0 } else { 0.0 }),
+        )
+        .transition(transition.clone()),
+        crate::motion::MotionTrack::composite(
+            crate::motion::MotionPropertyId::Scale,
+            crate::motion::MotionStartValue::Current,
+            crate::motion::scalar(if shown { 1.0 } else { hidden_scale }),
+        )
+        .transition(transition),
+    ]
+}
+
+/// Registers `tracks` for the motion identity `id`.
+pub(crate) fn register_tracks(id: WidgetId, tracks: Vec<crate::motion::MotionTrack>) {
+    crate::build::try_register_motion(crate::motion::MotionDeclaration {
+        id,
+        kind: crate::motion::MotionDeclarationKind::Tracks { tracks },
+    });
 }
