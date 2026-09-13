@@ -28,6 +28,8 @@ pub struct InboxState {
 
     // Compose State
     pub compose_to: String,
+    /// Why the last Send was refused, shown under the recipient field.
+    pub compose_to_error: Option<String>,
     pub compose_subject: String,
     pub compose_body: String,
     pub compose_attachments: Vec<String>,
@@ -121,6 +123,7 @@ impl Default for InboxState {
             filter_mode: 0,
 
             compose_to: "".into(),
+            compose_to_error: None,
             compose_subject: "".into(),
             compose_body: "".into(),
             compose_attachments: vec![],

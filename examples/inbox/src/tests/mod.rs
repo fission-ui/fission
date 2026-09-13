@@ -1664,3 +1664,28 @@ fn start_meeting_confirms_that_it_started() -> Result<()> {
     assert_eq!(state.toast_message.as_deref(), Some("Meeting started"));
     Ok(())
 }
+
+#[test]
+fn send_explains_an_invalid_recipient() -> Result<()> {
+    let mut state = InboxState::default();
+    state.show_compose = true;
+    state.compose_to = "dana".into();
+    let sent_before = state.emails.len();
+    let mut h = pump_state(state)?;
+    click_identifier(&mut h, "inbox.compose.send")?;
+    h.pump()?;
+    let state = h.runtime.get_app_state::<InboxState>().unwrap();
+    assert!(
+        state.show_compose,
+        "an invalid recipient keeps compose open"
+    );
+    assert_eq!(state.emails.len(), sent_before, "nothing is sent");
+    let texts = display_texts(&h);
+    assert!(
+        texts
+            .iter()
+            .any(|t| t.contains("Not a valid address: dana")),
+        "the reason is shown: {texts:?}"
+    );
+    Ok(())
+}

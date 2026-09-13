@@ -25,6 +25,21 @@ pub fn set_compose_open(state: &mut InboxState, action: SetComposeOpen, _: &mut 
 
 pub fn set_compose_to(state: &mut InboxState, action: SetComposeTo, cx: &mut Cx<'_, '_, '_>) {
     state.compose_to = edited_text(cx, action.0);
+    state.compose_to_error = None;
+}
+
+/// Whether a recipient looks like an address: a local part, an `@` and a dotted domain.
+fn is_address(recipient: &str) -> bool {
+    match recipient.split_once('@') {
+        Some((local, domain)) => {
+            !local.is_empty()
+                && !domain.starts_with('.')
+                && !domain.ends_with('.')
+                && domain.contains('.')
+                && !recipient.contains(char::is_whitespace)
+        }
+        None => false,
+    }
 }
 
 pub fn set_compose_subject(
@@ -66,6 +81,17 @@ pub fn add_dropped_files(state: &mut InboxState, _: FileSelected, cx: &mut Cx<'_
 /// Files the draft as a new sent thread, clears the draft, closes the modal and
 /// confirms with a toast.
 pub fn send_compose(state: &mut InboxState, _: SendCompose, _: &mut Cx<'_, '_, '_>) {
+    let invalid: Vec<&str> = state
+        .compose_to
+        .split(',')
+        .map(str::trim)
+        .filter(|recipient| !recipient.is_empty() && !is_address(recipient))
+        .collect();
+    if !invalid.is_empty() {
+        state.compose_to_error = Some(format!("Not a valid address: {}", invalid.join(", ")));
+        return;
+    }
+    state.compose_to_error = None;
     let subject = match state.compose_subject.trim() {
         "" => "(no subject)".to_string(),
         subject => subject.to_string(),
