@@ -513,3 +513,48 @@ fn series_color_slot(series: &mut ResolvedSeries) -> Option<&mut Option<Color>> 
 pub(super) fn filled(color: Option<Color>) -> Color {
     color.unwrap_or(Color::TRANSPARENT)
 }
+
+/// How much white an emphasised bar mixes into its colour.
+const EMPHASIS_LIGHTEN: f32 = 0.18;
+const EMPHASIS_SHADOW_ALPHA: u8 = 110;
+const EMPHASIS_SHADOW_BLUR: f32 = 8.0;
+const EMPHASIS_SHADOW_OFFSET: f32 = 2.0;
+
+/// A bar, lightened and lifted on a soft shadow of its own colour when it is
+/// the emphasised item.
+pub(super) fn add_bar_rect(
+    cx: &mut fission_core::internal::LoweringContext,
+    root: &mut fission_core::internal::IrBuilder,
+    rect: LayoutRect,
+    color: Color,
+    radius: f32,
+    emphasised: bool,
+) {
+    if !emphasised {
+        add_rect(cx, root, rect, color, None, radius);
+        return;
+    }
+    add_positioned_paint(
+        cx,
+        root,
+        rect,
+        fission_ir::Op::Paint(PaintOp::DrawRect {
+            fill: Some(Fill::Solid(mix_color(
+                color,
+                Color::WHITE,
+                EMPHASIS_LIGHTEN,
+            ))),
+            stroke: None,
+            corner_radius: radius,
+            shadow: Some(fission_ir::op::BoxShadow {
+                color: color.with_alpha(EMPHASIS_SHADOW_ALPHA),
+                blur_radius: EMPHASIS_SHADOW_BLUR,
+                spread_radius: 0.0,
+                offset: (0.0, EMPHASIS_SHADOW_OFFSET),
+                inset: false,
+            }),
+            corner_radii: None,
+            border_sides: None,
+        }),
+    );
+}

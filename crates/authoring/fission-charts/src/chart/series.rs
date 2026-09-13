@@ -45,6 +45,7 @@ pub(super) fn render_series(
                     bar_groups,
                     animation,
                     series_index,
+                    emphasised_item(chart, series_index),
                 );
             }
             ResolvedSeries::Line(line) => render_line(

@@ -16,6 +16,7 @@ pub(super) fn render_bar(
     group_count: usize,
     animation: ChartAnimationFrame,
     series_index: usize,
+    emphasised: Option<usize>,
 ) {
     let series_progress = animation.series_progress(series_index);
     if bar.source.orientation == crate::series::bar::BarOrientation::Horizontal {
@@ -31,6 +32,7 @@ pub(super) fn render_bar(
             group_count,
             animation,
             series_progress,
+            emphasised,
         );
         return;
     }
@@ -73,13 +75,13 @@ pub(super) fn render_bar(
                 bar.source.border_radius.unwrap_or(4.0),
             );
         }
-        add_rect(
+        add_bar_rect(
             cx,
             root,
             LayoutRect::new(x - bar_w / 2.0, top, bar_w, height),
             filled(bar.source.color),
-            None,
             bar.source.border_radius.unwrap_or(4.0),
+            emphasised == Some(idx),
         );
     }
 }
@@ -97,6 +99,7 @@ pub(super) fn render_horizontal_bar(
     group_count: usize,
     animation: ChartAnimationFrame,
     series_progress: f32,
+    emphasised: Option<usize>,
 ) {
     let band = category_band_width(
         model.y_categories.len().max(bar.values.len()),
@@ -139,13 +142,13 @@ pub(super) fn render_horizontal_bar(
                 bar.source.border_radius.unwrap_or(4.0),
             );
         }
-        add_rect(
+        add_bar_rect(
             cx,
             root,
             LayoutRect::new(left, y - bar_h / 2.0, width, bar_h),
             filled(bar.source.color),
-            None,
             bar.source.border_radius.unwrap_or(4.0),
+            emphasised == Some(idx),
         );
     }
 }
