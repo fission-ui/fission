@@ -3181,7 +3181,9 @@ impl LayoutEngine {
                     base_child_constraints.min_h = 0.0;
                 }
                 let mut max_child = LayoutSize::ZERO;
-                let mut measured_children: Vec<(WidgetId, BoxConstraints, LayoutSize)> = Vec::new();
+                let styled_box = matches!(node.op, LayoutOp::StyledBox { .. });
+                let mut measured_children: Vec<(WidgetId, BoxConstraints, LayoutSize, bool, bool)> =
+                    Vec::new();
                 if !rich_text_inline_children {
                     for child_id in &flow_children {
                         let (child_width, child_height, child_max_width, child_max_height) = self
@@ -3296,7 +3298,23 @@ impl LayoutEngine {
                         )?;
                         max_child.width = max_child.width.max(child_size.width);
                         max_child.height = max_child.height.max(child_size.height);
-                        measured_children.push((*child_id, child_constraints, child_size));
+                        // A container that stretches its content cannot stretch a child that
+                        // sets its own size, so it centres that child on that axis instead of
+                        // leaving it in the top-left corner. Low-level boxes keep start
+                        // placement because widgets position children in them with padding.
+                        let centre_width = styled_box
+                            && !stretch_width
+                            && (child_width.is_some() || child_max_width.is_some());
+                        let centre_height = styled_box
+                            && !stretch_height
+                            && (child_height.is_some() || child_max_height.is_some());
+                        measured_children.push((
+                            *child_id,
+                            child_constraints,
+                            child_size,
+                            centre_width,
+                            centre_height,
+                        ));
                     }
                 }
                 let padded = LayoutSize::new(
@@ -3333,10 +3351,16 @@ impl LayoutEngine {
                 }
                 let size = local.constrain(padded);
                 if record {
-                    for (child_id, child_constraints, child_size) in measured_children {
+                    for (child_id, child_constraints, child_size, centre_width, centre_height) in
+                        measured_children
+                    {
                         let inner_width = (size.width - padding[0] - padding[1]).max(0.0);
                         let inner_height = (size.height - padding[2] - padding[3]).max(0.0);
-                        let offset = |available: f32, child: f32| match box_alignment {
+                        let offset = |available: f32, child: f32, centre: bool| match box_alignment
+                        {
+                            fission_ir::op::BoxAlignment::Stretch if centre => {
+                                ((available - child) / 2.0).max(0.0)
+                            }
                             fission_ir::op::BoxAlignment::Start
                             | fission_ir::op::BoxAlignment::Stretch => 0.0,
                             fission_ir::op::BoxAlignment::Center => {
@@ -3348,8 +3372,12 @@ impl LayoutEngine {
                             child_id,
                             child_constraints,
                             LayoutPoint::new(
-                                origin.x + padding[0] + offset(inner_width, child_size.width),
-                                origin.y + padding[2] + offset(inner_height, child_size.height),
+                                origin.x
+                                    + padding[0]
+                                    + offset(inner_width, child_size.width, centre_width),
+                                origin.y
+                                    + padding[2]
+                                    + offset(inner_height, child_size.height, centre_height),
                             ),
                             out,
                             constraints_out,
