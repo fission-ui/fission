@@ -1,6 +1,5 @@
 #[cfg(not(target_arch = "wasm32"))]
 mod layout;
-mod palette;
 mod window_dot;
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -8,7 +7,6 @@ use crate::layout::{
     CHROME_VERTICAL_RESERVE, MIN_TERMINAL_HEIGHT, MIN_TERMINAL_WIDTH, TERMINAL_FONT_SIZE,
     TERMINAL_LINE_HEIGHT,
 };
-use crate::palette::{CHROME_BG, GREEN, MUTED, RED, TEXT, WINDOW_BG, YELLOW};
 use crate::window_dot::WindowDot;
 use fission::core::ui::{Container, Text, Widget};
 use fission::core::{Action, ActionId, GlobalState, ReducerContext, ResourceKey, TimerResource};
@@ -173,9 +171,18 @@ impl From<TerminalExampleApp> for Widget {
         let chrome = Container::new(HStack {
             spacing: Some(tokens.spacing.s),
             children: vec![
-                WindowDot { color: RED }.into(),
-                WindowDot { color: YELLOW }.into(),
-                WindowDot { color: GREEN }.into(),
+                WindowDot {
+                    color: tokens.colors.error,
+                }
+                .into(),
+                WindowDot {
+                    color: tokens.colors.warning,
+                }
+                .into(),
+                WindowDot {
+                    color: tokens.colors.success,
+                }
+                .into(),
                 Spacer {
                     width: Some(tokens.spacing.m),
                     ..Default::default()
@@ -186,11 +193,11 @@ impl From<TerminalExampleApp> for Widget {
                     children: vec![
                         Text::new(title)
                             .size(tokens.typography.font_size_sm)
-                            .color(TEXT)
+                            .color(tokens.colors.text_primary)
                             .into(),
                         Text::new(view.state().cwd.display().to_string())
                             .size(tokens.typography.font_size_xs)
-                            .color(MUTED)
+                            .color(tokens.colors.text_muted)
                             .into(),
                     ],
                 }
@@ -202,11 +209,11 @@ impl From<TerminalExampleApp> for Widget {
                 .into(),
                 Text::new("Fission Terminal")
                     .size(tokens.typography.font_size_xs)
-                    .color(MUTED)
+                    .color(tokens.colors.text_muted)
                     .into(),
             ],
         })
-        .bg(CHROME_BG)
+        .bg(tokens.colors.surface_raised)
         .padding_all(tokens.spacing.m)
         .into();
 
@@ -226,27 +233,27 @@ impl From<TerminalExampleApp> for Widget {
             Container::new(
                 Text::new("Failed to start shell")
                     .size(tokens.typography.body_medium_size)
-                    .color(TEXT),
+                    .color(tokens.colors.text_primary),
             )
             .padding_all(tokens.spacing.l)
-            .bg(WINDOW_BG)
+            .bg(tokens.colors.surface_sunken)
             .into()
         };
         #[cfg(target_arch = "wasm32")]
         let body = Container::new(
             Text::new("The terminal example requires native process access.")
                 .size(tokens.typography.body_medium_size)
-                .color(TEXT),
+                .color(tokens.colors.text_primary),
         )
         .padding_all(tokens.spacing.l)
-        .bg(WINDOW_BG)
+        .bg(tokens.colors.surface_sunken)
         .into();
 
         Container::new(VStack {
             spacing: Some(tokens.spacing.none),
             children: vec![chrome, body],
         })
-        .bg(WINDOW_BG)
+        .bg(tokens.colors.surface_sunken)
         .into()
     }
 }
