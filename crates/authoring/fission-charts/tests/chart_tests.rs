@@ -1028,3 +1028,56 @@ fn crowded_category_labels_are_thinned_but_keep_the_first() {
         "expected a readable number of labels, drew {drawn}"
     );
 }
+
+fn line_chart_with_points(count: usize, colour: Color) -> Chart {
+    let labels: Vec<String> = (0..count).map(|index| format!("{index}")).collect();
+    Chart::new()
+        .width(640.0)
+        .height(360.0)
+        .x_axis(Axis::category(labels.iter().map(String::as_str).collect()))
+        .y_axis(Axis::value())
+        .series(vec![LineSeries::new("Signal")
+            .data(
+                (0..count)
+                    .map(|index| ((index * 37) % 101) as f32)
+                    .collect(),
+            )
+            .color(colour)
+            .into()])
+}
+
+#[test]
+fn dense_lines_are_thinned_to_the_plot_width_without_symbols() {
+    let colour = Color {
+        r: 12,
+        g: 34,
+        b: 56,
+        a: 255,
+    };
+    let dense = lower_chart(line_chart_with_points(5000, colour));
+    let segments = longest_stroked_path_for_color(&dense, colour)
+        .matches(" L ")
+        .count();
+
+    assert!(
+        segments > 100,
+        "the line keeps its shape: {segments} segments"
+    );
+    assert!(
+        segments < 640,
+        "one point per pixel at most: {segments} segments"
+    );
+    assert_eq!(max_rect_height_for_fill(&dense, colour), 0.0, "no symbols");
+
+    let sparse = lower_chart(line_chart_with_points(12, colour));
+    assert_eq!(
+        longest_stroked_path_for_color(&sparse, colour)
+            .matches(" L ")
+            .count(),
+        11
+    );
+    assert!(
+        max_rect_height_for_fill(&sparse, colour) > 0.0,
+        "symbols shown"
+    );
+}

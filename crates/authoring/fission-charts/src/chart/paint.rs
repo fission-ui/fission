@@ -49,6 +49,47 @@ pub(super) fn path_for_line(points: &[(f32, f32)], smooth: bool, step: Option<&s
     path
 }
 
+/// The indices of at most `threshold` points that keep the line's visual shape,
+/// by largest-triangle-three-buckets: the first and last points always, and
+/// from each bucket between them the point enclosing the largest triangle with
+/// the previously kept point and the next bucket's average. Lines with no more
+/// than `threshold` points, or thresholds below three, keep every index.
+pub(super) fn lttb_indices(points: &[(f32, f32)], threshold: usize) -> Vec<usize> {
+    let len = points.len();
+    if threshold >= len || threshold < 3 {
+        return (0..len).collect();
+    }
+    let every = (len - 2) as f32 / (threshold - 2) as f32;
+    let bucket_start = |bucket: usize| ((bucket as f32 * every) as usize + 1).min(len - 1);
+    let mut kept = Vec::with_capacity(threshold);
+    kept.push(0);
+    let mut previous = points[0];
+    for bucket in 0..threshold - 2 {
+        let start = bucket_start(bucket);
+        let end = bucket_start(bucket + 1).max(start + 1);
+        let next = &points[end.min(len - 1)..bucket_start(bucket + 2).max(end + 1).min(len)];
+        let (sum_x, sum_y) = next
+            .iter()
+            .fold((0.0, 0.0), |(x, y), point| (x + point.0, y + point.1));
+        let average = (sum_x / next.len() as f32, sum_y / next.len() as f32);
+        let mut best = start;
+        let mut best_area = -1.0_f32;
+        for (index, point) in points.iter().enumerate().take(end).skip(start) {
+            let area = ((previous.0 - average.0) * (point.1 - previous.1)
+                - (previous.0 - point.0) * (average.1 - previous.1))
+                .abs();
+            if area > best_area {
+                best = index;
+                best_area = area;
+            }
+        }
+        kept.push(best);
+        previous = points[best];
+    }
+    kept.push(len - 1);
+    kept
+}
+
 pub(super) fn reveal_points(points: &[(f32, f32)], progress: f32) -> Vec<(f32, f32)> {
     if points.is_empty() || progress <= f32::EPSILON {
         return Vec::new();
@@ -557,4 +598,29 @@ pub(super) fn add_bar_rect(
             border_sides: None,
         }),
     );
+}
+
+#[cfg(test)]
+mod sampling_tests {
+    use super::lttb_indices;
+
+    #[test]
+    fn sparse_lines_keep_every_point() {
+        let points: Vec<(f32, f32)> = (0..10).map(|i| (i as f32, 0.0)).collect();
+        assert_eq!(lttb_indices(&points, 10), (0..10).collect::<Vec<_>>());
+        assert_eq!(lttb_indices(&points, 2), (0..10).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn dense_lines_keep_their_ends_and_spikes_in_order() {
+        let mut points: Vec<(f32, f32)> = (0..1000).map(|i| (i as f32, 100.0)).collect();
+        points[437].1 = 0.0;
+        let kept = lttb_indices(&points, 50);
+
+        assert_eq!(kept.len(), 50);
+        assert_eq!(kept[0], 0);
+        assert_eq!(kept[49], 999);
+        assert!(kept.windows(2).all(|pair| pair[0] < pair[1]));
+        assert!(kept.contains(&437), "the spike must survive sampling");
+    }
 }
