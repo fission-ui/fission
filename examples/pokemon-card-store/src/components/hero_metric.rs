@@ -1,5 +1,4 @@
 use crate::app::StoreState;
-use crate::components::palette::{BORDER, SURFACE, TEXT_MUTED, TEXT_PRIMARY};
 use fission::prelude::*;
 
 pub struct HeroMetric {
@@ -20,18 +19,18 @@ impl From<HeroMetric> for Widget {
                     .size(typography.font_size_xl)
                     .line_height(typography.font_size_xl * typography.line_height_heading)
                     .weight(typography.font_weight_bold)
-                    .color(TEXT_PRIMARY),
+                    .color(tokens.colors.text_primary),
                 Text::new(metric.label)
                     .size(typography.font_size_xs)
                     .line_height(typography.font_size_xs * typography.line_height_snug)
-                    .color(TEXT_MUTED),
+                    .color(tokens.colors.text_muted),
             ],
             ..Default::default()
         })
         .padding_all(tokens.spacing.s)
-        .border(BORDER, 1.0)
+        .border(tokens.colors.border, 1.0)
         .border_radius(tokens.radii.xl)
-        .bg(SURFACE)
+        .bg(tokens.colors.surface)
         .into()
     }
 }

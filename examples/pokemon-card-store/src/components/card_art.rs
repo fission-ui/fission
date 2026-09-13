@@ -1,6 +1,6 @@
 use crate::app::StoreState;
 use crate::components::layout::CARD_ART_HEIGHT;
-use crate::components::palette::{card_accent, SURFACE};
+use crate::components::palette::card_accent;
 use crate::data::Card;
 use fission::prelude::*;
 
@@ -21,7 +21,7 @@ impl From<CardArt> for Widget {
                     .size(typography.font_size_xs)
                     .line_height(typography.font_size_xs * typography.line_height_snug)
                     .weight(typography.font_weight_bold)
-                    .color(SURFACE),
+                    .color(tokens.colors.surface),
                 Spacer {
                     flex_grow: 1.0,
                     ..Default::default()
@@ -30,7 +30,7 @@ impl From<CardArt> for Widget {
                     .size(typography.font_size_lg)
                     .line_height(typography.font_size_lg * typography.line_height_heading)
                     .weight(typography.font_weight_bold)
-                    .color(SURFACE),
+                    .color(tokens.colors.surface),
             ],
             ..Default::default()
         })

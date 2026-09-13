@@ -1,7 +1,6 @@
 use crate::app::StoreState;
 use crate::components::browser_cart_island::BrowserCartIsland;
 use crate::components::layout::CARD_GRID_MIN_WIDTH;
-use crate::components::palette::{BORDER, SURFACE, TEXT_BODY, TEXT_MUTED, TEXT_PRIMARY};
 use crate::components::status_chip::StatusChip;
 use fission::prelude::*;
 
@@ -39,13 +38,13 @@ impl From<BrowserRuntimePanel> for Widget {
                         typography.font_size_lg * typography.line_height_heading
                     )
                     .weight(typography.font_weight_bold)
-                    .color(TEXT_PRIMARY),
+                    .color(tokens.colors.text_primary),
                 Text::new("The page is server rendered first. The worker and island artifacts then load as small WASM modules and update only the semantic targets they own.")
                     .size(typography.font_size_base)
                     .line_height(
                         typography.font_size_base * typography.line_height_normal
                     )
-                    .color(TEXT_MUTED),
+                    .color(tokens.colors.text_muted),
                 Grid {
                     columns: vec![GridTrack::auto_fit(GridTrack::minmax(
                         GridTrack::Points(CARD_GRID_MIN_WIDTH),
@@ -64,7 +63,7 @@ impl From<BrowserRuntimePanel> for Widget {
                                         typography.font_size_sm
                                             * typography.line_height_snug
                                     )
-                                    .color(TEXT_MUTED)
+                                    .color(tokens.colors.text_muted)
                                     .semantics_identifier("worker-filter-summary"),
                                 Text::new("This side represents progressive enhancement. The browser worker runs off the main thread and reports when route-local catalogue behaviour is ready.")
                                     .size(typography.font_size_base)
@@ -72,7 +71,7 @@ impl From<BrowserRuntimePanel> for Widget {
                                         typography.font_size_base
                                             * typography.line_height_normal
                                     )
-                                    .color(TEXT_BODY),
+                                    .color(tokens.colors.text_secondary),
                             ],
                             ..Default::default()
                         },
@@ -84,9 +83,9 @@ impl From<BrowserRuntimePanel> for Widget {
             ..Default::default()
         })
         .padding_all(tokens.spacing.m)
-        .border(BORDER, 1.0)
+        .border(tokens.colors.border, 1.0)
         .border_radius(tokens.radii.xxl)
-        .bg(SURFACE)
+        .bg(tokens.colors.surface)
         .into()
     }
 }

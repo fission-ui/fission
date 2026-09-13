@@ -1,5 +1,4 @@
 use crate::app::StoreState;
-use crate::components::palette::{TEXT_BODY, TEXT_MUTED};
 use fission::prelude::*;
 
 pub struct StatusChip {
@@ -21,12 +20,12 @@ impl From<StatusChip> for Widget {
                     .size(typography.font_size_xs)
                     .line_height(typography.font_size_xs * typography.line_height_snug)
                     .weight(typography.font_weight_bold)
-                    .color(TEXT_MUTED),
+                    .color(tokens.colors.text_muted),
                 Text::new(chip.status)
                     .size(typography.body_medium_size)
                     .line_height(typography.body_medium_size * typography.line_height_snug)
                     .weight(typography.font_weight_bold)
-                    .color(TEXT_BODY)
+                    .color(tokens.colors.text_secondary)
                     .semantics_identifier(chip.identifier),
             ],
             ..Default::default()

@@ -1,6 +1,5 @@
 use crate::app::StoreState;
 use crate::components::layout::STORE_MIN_HEIGHT;
-use crate::components::palette::CANVAS;
 use crate::components::store_footer::StoreFooter;
 use crate::components::store_nav::StoreNav;
 use fission::prelude::*;
@@ -29,7 +28,7 @@ impl From<StoreShell> for Widget {
             Length::points(tokens.spacing.l),
             Length::points(tokens.spacing.xl),
         ])
-        .bg(CANVAS)
+        .bg(tokens.colors.background)
         .into()
     }
 }

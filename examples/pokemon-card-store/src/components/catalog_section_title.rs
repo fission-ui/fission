@@ -1,5 +1,4 @@
 use crate::app::StoreState;
-use crate::components::palette::{GREEN, TEXT_MUTED, TEXT_PRIMARY};
 use fission::prelude::*;
 
 pub struct CatalogSectionTitle;
@@ -24,14 +23,14 @@ impl From<CatalogSectionTitle> for Widget {
                                 typography.heading_size * typography.line_height_heading
                             )
                             .weight(typography.font_weight_bold)
-                            .color(TEXT_PRIMARY),
+                            .color(tokens.colors.text_primary),
                         Text::new("Generated as normal Fission widgets, rendered to HTML by the server shell, and combined with session cart state.")
                             .size(typography.body_medium_size)
                             .line_height(
                                 typography.body_medium_size
                                     * typography.line_height_normal
                             )
-                            .color(TEXT_MUTED),
+                            .color(tokens.colors.text_muted),
                     ],
                     ..Default::default()
                 },
@@ -42,7 +41,7 @@ impl From<CatalogSectionTitle> for Widget {
                             typography.font_size_sm * typography.line_height_snug
                         )
                         .weight(typography.font_weight_semibold)
-                        .color(GREEN.with_alpha(230)),
+                        .color(tokens.colors.success.with_alpha(230)),
                 )
                 .padding([
                     tokens.spacing.s,
@@ -50,9 +49,9 @@ impl From<CatalogSectionTitle> for Widget {
                     tokens.spacing.xs,
                     tokens.spacing.xs,
                 ])
-                .border(GREEN.with_alpha(120), 1.0)
+                .border(tokens.colors.success.with_alpha(120), 1.0)
                 .border_radius(tokens.radii.full)
-                .bg(GREEN.with_alpha(34)),
+                .bg(tokens.colors.success.with_alpha(34)),
             ],
             align_items: ir_op::AlignItems::Center,
             ..Default::default()

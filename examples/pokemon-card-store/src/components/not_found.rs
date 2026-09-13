@@ -1,5 +1,4 @@
 use crate::app::StoreState;
-use crate::components::palette::{BLUE_TEXT, RED, SURFACE, TEXT_BODY, TEXT_PRIMARY};
 use fission::prelude::*;
 
 pub struct NotFound {
@@ -19,24 +18,24 @@ impl From<NotFound> for Widget {
                     .size(typography.heading_size)
                     .line_height(typography.heading_size * typography.line_height_heading)
                     .weight(typography.font_weight_bold)
-                    .color(TEXT_PRIMARY),
+                    .color(tokens.colors.text_primary),
                 Text::new(format!("No card route exists for `{}`.", missing.slug))
                     .size(typography.body_large_size)
                     .line_height(typography.body_large_size * typography.line_height_normal)
-                    .color(TEXT_BODY),
+                    .color(tokens.colors.text_secondary),
                 Text::new("Back to catalogue")
                     .size(typography.body_medium_size)
                     .line_height(typography.body_medium_size * typography.line_height_snug)
                     .weight(typography.font_weight_bold)
-                    .color(BLUE_TEXT)
+                    .color(tokens.colors.text_link)
                     .semantics_identifier("site-route:/"),
             ],
             ..Default::default()
         })
         .padding_all(tokens.spacing.l)
-        .border(RED.with_alpha(120), 1.0)
+        .border(tokens.colors.error.with_alpha(120), 1.0)
         .border_radius(tokens.radii.xxl)
-        .bg(SURFACE)
+        .bg(tokens.colors.surface)
         .into()
     }
 }

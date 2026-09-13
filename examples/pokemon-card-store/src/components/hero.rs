@@ -2,7 +2,6 @@ use crate::app::StoreState;
 use crate::components::hero_copy::HeroCopy;
 use crate::components::hero_spotlight::HeroSpotlight;
 use crate::components::layout::HERO_SPOTLIGHT_WIDTH;
-use crate::components::palette::{BLUE, HERO_SURFACE};
 use fission::prelude::*;
 
 #[derive(Clone)]
@@ -25,9 +24,9 @@ impl From<Hero> for Widget {
             ..Default::default()
         })
         .padding_all(tokens.spacing.xl)
-        .border(BLUE.with_alpha(80), 1.0)
+        .border(tokens.colors.primary.with_alpha(80), 1.0)
         .border_radius(tokens.radii.xxl)
-        .bg(HERO_SURFACE)
+        .bg(tokens.colors.surface_sunken)
         .into()
     }
 }

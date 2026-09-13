@@ -7,6 +7,8 @@ use fission::server::{
 
 pub fn pokemon_card_store_server() -> FissionServerApp {
     let mut app = FissionServerApp::new("Pokemon Card Store")
+        // The storefront is designed for the dark theme; colours come from its tokens.
+        .theme(fission::theme::Theme::dark())
         .jobs(
             ServerJobRegistry::new()
                 .register_job(CATALOG_JOB, |_request, _ctx| Ok(catalog_response())),

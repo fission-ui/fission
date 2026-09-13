@@ -1,5 +1,4 @@
 use crate::app::StoreState;
-use crate::components::palette::{BLUE, BLUE_TEXT, TEXT_PRIMARY};
 use crate::data;
 use fission::prelude::*;
 
@@ -32,7 +31,7 @@ impl From<CartSummary> for Widget {
                 .size(typography.body_large_size)
                 .line_height(typography.body_large_size * typography.line_height_snug)
                 .weight(typography.font_weight_bold)
-                .color(TEXT_PRIMARY),
+                .color(tokens.colors.text_primary),
                 Spacer {
                     flex_grow: 1.0,
                     ..Default::default()
@@ -40,14 +39,14 @@ impl From<CartSummary> for Widget {
                 Text::new(last)
                     .size(typography.font_size_sm)
                     .line_height(typography.font_size_sm * typography.line_height_snug)
-                    .color(BLUE_TEXT),
+                    .color(tokens.colors.text_link),
             ],
             ..Default::default()
         })
         .padding_all(tokens.spacing.s)
-        .border(BLUE.with_alpha(120), 1.0)
+        .border(tokens.colors.primary.with_alpha(120), 1.0)
         .border_radius(tokens.radii.xl)
-        .bg(BLUE.with_alpha(40))
+        .bg(tokens.colors.primary.with_alpha(40))
         .into()
     }
 }

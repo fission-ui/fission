@@ -1,5 +1,4 @@
 use crate::app::StoreState;
-use crate::components::palette::TEXT_BODY;
 use fission::prelude::*;
 
 pub struct FeaturePill {
@@ -18,7 +17,7 @@ impl From<FeaturePill> for Widget {
                 .size(typography.font_size_xs)
                 .line_height(typography.font_size_xs * typography.line_height_snug)
                 .weight(typography.font_weight_semibold)
-                .color(TEXT_BODY),
+                .color(tokens.colors.text_secondary),
         )
         .padding([
             tokens.spacing.s,
