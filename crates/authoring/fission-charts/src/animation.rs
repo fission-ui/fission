@@ -28,6 +28,11 @@ pub struct ChartAnimation {
     pub easing: ChartEasing,
     pub reduced_motion_safe: bool,
     pub repeat: bool,
+    /// Tweens series values from their previous data when the data changes.
+    /// Applies to line and bar series in charts of at most a few hundred
+    /// points; larger charts update immediately.
+    #[serde(default)]
+    pub animate_updates: bool,
 }
 
 impl Default for ChartAnimation {
@@ -41,6 +46,7 @@ impl Default for ChartAnimation {
             easing: ChartEasing::EaseOut,
             reduced_motion_safe: true,
             repeat: false,
+            animate_updates: false,
         }
     }
 }
@@ -89,6 +95,12 @@ impl ChartAnimation {
 
     pub fn repeat(mut self, repeat: bool) -> Self {
         self.repeat = repeat;
+        self
+    }
+
+    /// Tweens values from the previous data whenever the data changes.
+    pub fn updates(mut self, animate: bool) -> Self {
+        self.animate_updates = animate;
         self
     }
 
