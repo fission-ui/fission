@@ -1,3 +1,5 @@
+#[path = "runtime_hover.rs"]
+mod runtime_hover;
 #[path = "runtime_text_focus.rs"]
 mod text_focus;
 
@@ -21,7 +23,7 @@ use crate::{
 use anyhow::{anyhow, Context, Result};
 use fission_diagnostics::prelude as diag;
 use fission_ir::{CoreIR, FlexDirection, FocusPolicy, LayoutOp, Op, WidgetId};
-use fission_layout::{LayoutPoint, LayoutRect, LayoutSize, LayoutSnapshot, TextMeasurer};
+use fission_layout::{LayoutPoint, LayoutRect, LayoutSnapshot, TextMeasurer};
 use serde_json;
 use std::any::TypeId;
 use std::collections::{HashMap, HashSet};
@@ -1258,7 +1260,8 @@ impl Runtime {
         // yet adopted the pre-layout reconciliation hook. Production shells
         // call `reconcile_ir` before layout, making this pass idempotent.
         self.reconcile_ir(ir);
-        let mut needs_follow_up_frame = self.apply_pending_scroll_into_view(ir, layout);
+        let mut needs_follow_up_frame = self.refresh_hover_state(ir, layout);
+        needs_follow_up_frame |= self.apply_pending_scroll_into_view(ir, layout);
         needs_follow_up_frame |= self.reveal_new_active_descendants(ir, layout);
         needs_follow_up_frame |= self.apply_pending_selection_regions(ir);
         needs_follow_up_frame |= self.apply_pending_text_editing(ir, layout);
@@ -2638,36 +2641,6 @@ impl Runtime {
         }
         self.update_focused_ime_state(ir, layout);
         Ok(())
-    }
-
-    pub fn clear_hover_state(&mut self, ir: &CoreIR, point: Option<LayoutPoint>) -> Result<bool> {
-        use crate::input::hover::HoverController;
-        use crate::input::ControllerContext;
-
-        let input_time = self.clock().current_time();
-        let dispatched_actions = {
-            let layout = &LayoutSnapshot::new(LayoutSize::ZERO);
-            let mut ctx = ControllerContext {
-                ir,
-                layout,
-                text_edit: &mut self.runtime_state.text_edit,
-                selectable_text: &mut self.runtime_state.selectable_text,
-                context_menu: &mut self.runtime_state.context_menu,
-                interaction: &mut self.runtime_state.interaction,
-                scroll: &mut self.runtime_state.scroll,
-                viewport: &self.runtime_state.viewport,
-                gesture: &mut self.runtime_state.gesture,
-                editing_convention: self.editing_convention,
-                current_time: input_time,
-                clipboard: self.clipboard_backend.as_ref(),
-                measurer: self.measurer.as_ref(),
-                dispatched_actions: Vec::new(),
-            };
-            let changed = HoverController::clear(&mut ctx, point);
-            (changed, ctx.dispatched_actions)
-        };
-        self.dispatch_input_actions(dispatched_actions.1)?;
-        Ok(dispatched_actions.0)
     }
 
     fn dispatch_input_actions(

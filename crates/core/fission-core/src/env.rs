@@ -1025,6 +1025,9 @@ pub struct InteractionStateMap {
     pub hovered: HashMap<WidgetId, bool>,
     pub hover_path: Vec<WidgetId>,
     pub hover_rich_text_annotation: Option<HoveredRichTextAnnotation>,
+    /// Last mouse or stylus position over the window, used to refresh hover after the tree or
+    /// layout changes beneath a stationary pointer.
+    pub pointer_position: Option<LayoutPoint>,
     pub pressed: HashMap<WidgetId, bool>,
     pub focused: Option<WidgetId>,
     /// Whether focus should be drawn: true after keyboard focus movement, false after pointer
