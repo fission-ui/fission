@@ -352,6 +352,9 @@ pub struct Button {
     /// Flex shrink factor for parent flex layouts.
     pub flex_shrink: f32,
     /// Custom padding `[left, right, top, bottom]` (overrides theme defaults).
+    ///
+    /// This is the exact inset of the content: unlike theme padding it gains no extra room for
+    /// the border, so a button wrapping cells that pad themselves stays on its neighbours' grid.
     pub padding: Option<[f32; 4]>,
     /// Optional visual overrides applied after the active design-system recipe.
     pub style: Option<ButtonStyleOverride>,
@@ -1566,19 +1569,17 @@ impl Lower for Button {
         );
         // Recipe padding is logical [start, end, top, bottom]; mirror it once
         // here so no control has to branch on reading order itself.
-        let content_padding = self.padding.unwrap_or(match cx.env.layout_direction {
-            fission_ir::LayoutDirection::LeftToRight => resolved_style.padding,
-            fission_ir::LayoutDirection::RightToLeft => {
-                let [start, end, top, bottom] = resolved_style.padding;
-                [end, start, top, bottom]
-            }
+        // Theme padding also reserves room for the widest border any state draws; explicit padding
+        // is taken as the exact content inset.
+        let layout_padding = self.padding.unwrap_or_else(|| {
+            let [start, end, top, bottom] = resolved_style.padding;
+            let border = resolved_style.layout_border_width;
+            let (left, right) = match cx.env.layout_direction {
+                fission_ir::LayoutDirection::LeftToRight => (start, end),
+                fission_ir::LayoutDirection::RightToLeft => (end, start),
+            };
+            [left + border, right + border, top + border, bottom + border]
         });
-        let layout_padding = [
-            content_padding[0] + resolved_style.layout_border_width,
-            content_padding[1] + resolved_style.layout_border_width,
-            content_padding[2] + resolved_style.layout_border_width,
-            content_padding[3] + resolved_style.layout_border_width,
-        ];
 
         cx.with_scope(layout_node_id, |cx| {
             let mut button_builder = IrBuilder::new(
