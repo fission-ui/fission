@@ -250,8 +250,10 @@ impl From<TodoApp> for Widget {
     }
 }
 
-pub fn configure_embedded_env(state: &TodoState, env: &mut Env) {
-    env.theme = TodoDesignSystem::theme(state.theme_mode);
+/// When embedded, the todo app keeps its own design system, which is the point of
+/// the example, but follows the host's light or dark mode.
+pub fn configure_embedded_env(_state: &TodoState, env: &mut Env) {
+    env.theme = TodoDesignSystem::theme(env.theme.design_system.mode);
 }
 
 #[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
@@ -259,7 +261,7 @@ pub fn run_desktop() -> anyhow::Result<()> {
     DesktopApp::<TodoState, _>::new(TodoApp)
         .with_design_system::<TodoDesignSystem>(DesignMode::Light)
         .with_sync_env(|state: &TodoState, env: &mut Env| {
-            configure_embedded_env(state, env);
+            env.theme = TodoDesignSystem::theme(state.theme_mode);
             env.window.title = WindowTitle::plain("Fission Todo - Design System");
         })
         .run()

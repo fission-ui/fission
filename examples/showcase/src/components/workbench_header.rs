@@ -1,6 +1,5 @@
 use super::TargetChip;
 use crate::catalog::ExampleDefinition;
-use crate::i18n::message;
 use crate::semantics::ShowcaseSemantics;
 use crate::state::{on_open_source, OpenSource, ShowcaseState};
 use fission::icons::material;
@@ -83,7 +82,7 @@ impl From<WorkbenchHeader> for Widget {
                     ),
                     on_press: Some(source),
                     semantics: Some(
-                        Semantics::link(message(view.env(), "showcase.workbench.source"))
+                        Semantics::link(view.env().tr("showcase.workbench.source"))
                             .identifier(format!("showcase.source.{}", component.example.slug),),
                     ),
                     ..Default::default()

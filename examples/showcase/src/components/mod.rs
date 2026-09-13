@@ -2,6 +2,7 @@ mod app_header;
 mod brand;
 mod catalog_panel;
 mod catalog_section;
+mod design_system_picker;
 mod example_row;
 mod filter_bar;
 mod nav_item;

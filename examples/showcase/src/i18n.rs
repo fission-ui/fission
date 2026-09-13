@@ -21,7 +21,3 @@ pub(crate) fn create_env() -> anyhow::Result<Env> {
     env.locale = Locale::from("en-US");
     Ok(env)
 }
-
-pub(crate) fn message(env: &Env, key: &str) -> String {
-    env.i18n.get(&env.locale, key).unwrap_or(key).to_string()
-}

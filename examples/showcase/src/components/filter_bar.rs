@@ -1,5 +1,4 @@
 use crate::catalog::TargetFilter;
-use crate::i18n::message;
 use crate::state::{on_filter_changed, FilterChanged, ShowcaseState};
 use fission::op::{AlignItems, Fill, FlexWrap};
 use fission::prelude::*;
@@ -33,7 +32,7 @@ impl From<FilterBar> for Widget {
                 )
                 .id(WidgetId::explicit(&format!("showcase.filter.{:?}", filter)))
                 .on_press(select)
-                .label(message(view.env(), key))
+                .label(view.env().tr(key))
                 .semantics_identifier(format!(
                     "showcase.filter.{}",
                     key.trim_start_matches("showcase.catalog.filter.")

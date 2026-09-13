@@ -1,4 +1,4 @@
-use crate::i18n::message;
+use super::design_system_picker::DesignSystemPicker;
 use crate::semantics::ShowcaseSemantics;
 use crate::state::{
     on_reset_preview, on_set_locale, on_set_preview_viewport, on_set_theme, PreviewViewport,
@@ -50,7 +50,7 @@ impl From<PreviewToolbar> for Widget {
                     ),
                     on_press: Some(reset),
                     semantics: Some(
-                        Semantics::button(message(view.env(), "showcase.workbench.reset"))
+                        Semantics::button(view.env().tr("showcase.workbench.reset"))
                             .identifier("showcase.preview.reset"),
                     ),
                     ..Default::default()
@@ -69,11 +69,8 @@ impl From<PreviewToolbar> for Widget {
                     ),
                     on_press: Some(desktop),
                     semantics: Some(
-                        Semantics::button(message(
-                            view.env(),
-                            "showcase.workbench.viewport.desktop",
-                        ))
-                        .identifier("showcase.preview.viewport.desktop"),
+                        Semantics::button(view.env().tr("showcase.workbench.viewport.desktop",))
+                            .identifier("showcase.preview.viewport.desktop"),
                     ),
                     ..Default::default()
                 },
@@ -91,11 +88,8 @@ impl From<PreviewToolbar> for Widget {
                     ),
                     on_press: Some(mobile),
                     semantics: Some(
-                        Semantics::button(message(
-                            view.env(),
-                            "showcase.workbench.viewport.mobile",
-                        ))
-                        .identifier("showcase.preview.viewport.mobile"),
+                        Semantics::button(view.env().tr("showcase.workbench.viewport.mobile",))
+                            .identifier("showcase.preview.viewport.mobile"),
                     ),
                     ..Default::default()
                 },
@@ -127,6 +121,7 @@ impl From<PreviewToolbar> for Widget {
                     ),
                     ..Default::default()
                 },
+                DesignSystemPicker,
                 Button {
                     variant: if view.state().theme_mode == DesignMode::Light {
                         ButtonVariant::SecondaryColor
@@ -141,7 +136,7 @@ impl From<PreviewToolbar> for Widget {
                     ),
                     on_press: Some(light),
                     semantics: Some(
-                        Semantics::button(message(view.env(), "showcase.workbench.light"))
+                        Semantics::button(view.env().tr("showcase.workbench.light"))
                             .identifier("showcase.preview.theme.light"),
                     ),
                     ..Default::default()
@@ -160,7 +155,7 @@ impl From<PreviewToolbar> for Widget {
                     ),
                     on_press: Some(dark),
                     semantics: Some(
-                        Semantics::button(message(view.env(), "showcase.workbench.dark"))
+                        Semantics::button(view.env().tr("showcase.workbench.dark"))
                             .identifier("showcase.preview.theme.dark"),
                     ),
                     ..Default::default()
