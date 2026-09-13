@@ -428,6 +428,7 @@ impl From<SelectTriggerRegion> for Widget {
         padding[1] = padding[1].max(indicator_inset);
         style.padding = Some(padding);
         let resolved_value = region.trigger.value.resolve(view.env());
+        let has_width = region.width.is_some();
         let child = region.trigger.child.unwrap_or_else(|| {
             HStack {
                 spacing: Some(style.gap.unwrap_or(tokens.spacing.xs)),
@@ -446,8 +447,10 @@ impl From<SelectTriggerRegion> for Widget {
                         .line_height(value_style.line_height.unwrap_or(20.0))
                         .color(value_style.text_color.unwrap_or(tokens.colors.text_primary))
                         .into(),
+                    // Only a select given a width pushes its chevron to the end. Without one the
+                    // trigger hugs its value and chevron instead of filling its container.
                     Spacer {
-                        flex_grow: 1.0,
+                        flex_grow: if has_width { 1.0 } else { 0.0 },
                         ..Default::default()
                     }
                     .into(),
