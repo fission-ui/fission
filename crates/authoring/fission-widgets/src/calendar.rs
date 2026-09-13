@@ -190,10 +190,14 @@ impl From<Calendar> for Widget {
         }
         .into();
 
+        // The header spreads its navigation apart with growing spacers, so without a width the
+        // calendar grows to whatever is offered, such as a whole window inside a popover. It is as
+        // wide as its seven day columns.
         let mut c = Container::new(VStack {
             spacing: Some(8.0),
             children: vec![header, labels, day_grid],
         })
+        .width(cell_size * 7.0 + padding * 2.0)
         .padding_all(padding)
         .bg(theme.bg_color)
         .border(theme.border_color, 1.0)
