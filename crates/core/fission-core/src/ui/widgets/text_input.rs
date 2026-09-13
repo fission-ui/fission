@@ -1620,7 +1620,7 @@ impl Lower for TextInput {
                 let affordances = &session_state.affordances;
                 let mut overlay_children = Vec::new();
 
-                if self.selection_controls.enabled {
+                if self.selection_controls.enabled && affordances.touch_handles {
                     if caret == anchor {
                         if self.selection_controls.show_collapsed_handle {
                             if let Some(point) = affordances.caret_handle {

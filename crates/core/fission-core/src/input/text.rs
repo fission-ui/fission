@@ -56,6 +56,7 @@ impl InputController for TextInputController {
                     if let Some(node) = ctx.ir.nodes.get(&focused_id) {
                         if let Op::Semantics(sem) = &node.op {
                             if sem.supports_text_editing() {
+                                Self::note_pointer_kind(ctx, focused_id, *kind);
                                 if let Some(hit_node_id) = hit {
                                     if let Some(action) =
                                         Self::toolbar_action_hit(ctx.ir, focused_id, hit_node_id)
@@ -592,6 +593,7 @@ impl InputController for TextInputController {
                     if let Some(node) = ctx.ir.nodes.get(&focused_id) {
                         if let Op::Semantics(sem) = &node.op {
                             if sem.supports_text_editing() {
+                                Self::note_pointer_kind(ctx, focused_id, *kind);
                                 let value = sem.value.as_deref().unwrap_or("").to_string();
                                 let toolbar_anchor = Self::input_wrapper_geometry(ctx, focused_id)
                                     .map(|geom| {

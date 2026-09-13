@@ -581,6 +581,9 @@ pub enum TextSelectionHandleKind {
 
 #[derive(Clone, Debug, Default)]
 pub struct TextInputAffordanceState {
+    /// Whether selection handles are shown. Handles belong to touch and stylus input; a mouse or
+    /// keyboard selection shows only the highlight.
+    pub touch_handles: bool,
     pub toolbar_visible: bool,
     pub toolbar_anchor: Option<LayoutPoint>,
     pub caret_handle: Option<LayoutPoint>,
