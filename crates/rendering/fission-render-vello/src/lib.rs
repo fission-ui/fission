@@ -1,8 +1,12 @@
 pub mod cpu;
 pub mod gpu;
+mod image_decode;
 pub mod painter;
 pub mod text;
 mod text_effects;
+use image_decode::decode_dynamic_image;
+#[cfg(test)]
+use image_decode::MAX_DECODED_IMAGE_DIMENSION;
 pub use painter::{CpuPainter, GpuImageCache, GpuPainter, GpuUploader, Painter};
 pub use parley;
 pub use text::VelloTextMeasurer;
@@ -19,8 +23,8 @@ use fission_render::{
 use vello_cpu::kurbo::{
     Affine, BezPath, Circle, Point, Rect, RoundedRect, RoundedRectRadii, Shape, Stroke, Vec2,
 };
-use vello_cpu::peniko::{BlendMode, Color, ImageAlphaType, ImageSampler};
-use vello_cpu::{Glyph, Image, PaintType, PixelMetadata, Pixmap};
+use vello_cpu::peniko::{BlendMode, Color, ImageSampler};
+use vello_cpu::{Glyph, Image, PaintType, Pixmap};
 
 fn text_style_requires_rich_layout(style: &RenderTextStyle) -> bool {
     text::text_style_requires_rich_layout(style)
@@ -667,44 +671,6 @@ fn decode_image_from_bytes(
 ) -> Option<Arc<Pixmap>> {
     let img = image::load_from_memory(bytes).ok()?;
     decode_dynamic_image(img, cache_width, cache_height)
-}
-
-/// The largest side a decoded image keeps.
-///
-/// GPU renderers place images in atlas pages of at most this many pixels a side, and no screen
-/// needs more pixels than that for one image, so larger images are scaled down once while decoding
-/// instead of failing to upload on every frame.
-const MAX_DECODED_IMAGE_DIMENSION: u32 = 4096;
-
-fn decode_dynamic_image(
-    mut img: image::DynamicImage,
-    cache_width: Option<u32>,
-    cache_height: Option<u32>,
-) -> Option<Arc<Pixmap>> {
-    if let (Some(width), Some(height)) = (cache_width, cache_height) {
-        if width > 0 && height > 0 {
-            img = img.resize(width, height, image::imageops::FilterType::Triangle);
-        }
-    }
-    if img.width() > MAX_DECODED_IMAGE_DIMENSION || img.height() > MAX_DECODED_IMAGE_DIMENSION {
-        img = img.resize(
-            MAX_DECODED_IMAGE_DIMENSION,
-            MAX_DECODED_IMAGE_DIMENSION,
-            image::imageops::FilterType::Triangle,
-        );
-    }
-    let img = img.to_rgba8();
-    let (width, height) = img.dimensions();
-    // The renderers address pixmaps with 16-bit dimensions.
-    let (Ok(width), Ok(height)) = (u16::try_from(width), u16::try_from(height)) else {
-        return None;
-    };
-    Some(Arc::new(Pixmap::from_parts(
-        img.into_raw(),
-        width,
-        height,
-        PixelMetadata::new(ImageAlphaType::Alpha, true),
-    )))
 }
 
 fn complete_image_load(key: String, image: Option<Arc<Pixmap>>) {

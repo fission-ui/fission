@@ -1,3 +1,6 @@
+#[path = "runtime_text_focus.rs"]
+mod text_focus;
+
 use crate::action::{Action, ActionEnvelope, ActionId, GlobalState};
 use crate::async_runtime::ServiceStopPayload;
 use crate::effect::{
@@ -2792,40 +2795,6 @@ impl Runtime {
             walk = parent.parent;
         }
         Some(rect)
-    }
-
-    fn clear_text_pending_on_blur(
-        &mut self,
-        old_focus: Option<WidgetId>,
-        new_focus: Option<WidgetId>,
-    ) {
-        if old_focus == new_focus {
-            return;
-        }
-        if let Some(old_id) = old_focus {
-            if let Some(st) = self.runtime_state.text_edit.states.get_mut(&old_id) {
-                st.pending_model_sync = false;
-                st.clear_preedit();
-            }
-        }
-    }
-
-    fn text_input_value(&self, ir: &CoreIR, id: WidgetId) -> crate::TextEditingValue {
-        self.runtime_state
-            .text_edit
-            .get(id)
-            .map(|state| state.editing_value())
-            .unwrap_or_else(|| {
-                let text = ir
-                    .nodes
-                    .get(&id)
-                    .and_then(|node| match &node.op {
-                        Op::Semantics(semantics) => semantics.value.clone(),
-                        _ => None,
-                    })
-                    .unwrap_or_default();
-                crate::TextEditingValue::from_text(text)
-            })
     }
 
     fn dispatch_text_session_action(
