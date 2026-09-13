@@ -1142,3 +1142,49 @@ fn test_completion_kind_str() {
     assert_eq!(completion_kind_str(None), "unknown");
     assert_eq!(completion_kind_str(Some(999)), "unknown");
 }
+
+#[test]
+fn deleting_from_the_context_menu_removes_the_file_and_its_tab() {
+    let mut state = EditorState::default();
+    state.root_path = std::env::temp_dir();
+    let path = temp_file("test_delete_from_context_menu.txt", "bye");
+    state.open_file(path.clone());
+    run_pending_fs(&mut state);
+    assert!(state.open_tabs.iter().any(|tab| tab.path == path));
+
+    state.context_menu_visible = true;
+    state.context_menu_target = Some(path.clone());
+    state.run_command(EditorCommand::Delete);
+    run_pending_fs(&mut state);
+
+    assert!(!std::path::Path::new(&path).exists());
+    assert!(state.open_tabs.iter().all(|tab| tab.path != path));
+    assert!(!state.context_menu_visible);
+    assert!(state.context_menu_target.is_none());
+}
+
+#[test]
+fn running_a_command_closes_the_surface_that_offered_it() {
+    let mut state = EditorState {
+        active_menu: Some("View".into()),
+        ..EditorState::default()
+    };
+    let sidebar_was_visible = state.sidebar_visible;
+    state.run_command(EditorCommand::ToggleSidebar);
+    assert!(state.active_menu.is_none());
+    assert_ne!(state.sidebar_visible, sidebar_was_visible);
+
+    state.run_command(EditorCommand::CommandPalette);
+    assert!(state.show_command_palette);
+    state.command_query = "save".into();
+    state.run_command(EditorCommand::CommandPalette);
+    assert!(!state.show_command_palette);
+    assert!(state.command_query.is_empty());
+}
+
+#[test]
+fn every_palette_command_matches_an_empty_query() {
+    assert!(PALETTE_COMMANDS.iter().all(|command| command.matches("")));
+    assert!(EditorCommand::SaveAll.matches("all open"));
+    assert!(!EditorCommand::Save.matches("terminal"));
+}

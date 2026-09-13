@@ -1,6 +1,6 @@
 //! File operations run as a background job.
 //!
-//! Opening, saving, creating and renaming touch the disk, so reducers never do
+//! Opening, saving, creating, renaming and deleting touch the disk, so reducers never do
 //! it themselves. They queue an [`FsRequest`]; `EditorApp` runs each one through
 //! [`FS_JOB`], and the result is applied with
 //! [`EditorState::apply_fs_outcome`](crate::model::EditorState::apply_fs_outcome)
@@ -47,6 +47,8 @@ pub enum FsOp {
     CreateFolder { base: String },
     /// Rename `from` to `to`, refusing to overwrite an existing path.
     Rename { from: String, to: String },
+    /// Delete a file, or a folder and everything in it.
+    Delete { path: String },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -78,6 +80,9 @@ pub enum FsResult {
     Renamed {
         from: String,
         to: String,
+    },
+    Deleted {
+        path: String,
     },
 }
 
@@ -158,6 +163,16 @@ pub fn run_fs_job(request: FsRequest) -> Result<FsOutcome, FsFailure> {
             std::fs::rename(&from, PathBuf::from(&to))
                 .map_err(|error| fail(format!("Rename failed: {}", error)))?;
             FsResult::Renamed { from, to }
+        }
+        FsOp::Delete { path } => {
+            let target = Path::new(&path);
+            let removed = if target.is_dir() {
+                std::fs::remove_dir_all(target)
+            } else {
+                std::fs::remove_file(target)
+            };
+            removed.map_err(|error| fail(format!("Delete failed: {}", error)))?;
+            FsResult::Deleted { path }
         }
     };
     Ok(FsOutcome { id, result })

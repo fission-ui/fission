@@ -4,6 +4,7 @@ use std::path::PathBuf;
 
 mod activity_bar;
 mod breadcrumb;
+mod command_menu;
 mod command_palette;
 mod command_palette_item;
 mod compact_editor_layout;
@@ -27,6 +28,7 @@ mod editor_workspace;
 mod file_tree;
 mod file_tree_entry;
 mod find_replace_bar;
+mod flyout_overlay;
 mod git_panel;
 mod git_status_item;
 mod highlight;
