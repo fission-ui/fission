@@ -322,3 +322,40 @@ impl Action for ChartInteractionEvent {
         ActionId::from_name("fission_charts::ChartInteractionEvent")
     }
 }
+
+/// A pointer position over a chart, in the chart's local coordinates, and the
+/// series item under it if there is one.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ChartHover {
+    pub x: f32,
+    pub y: f32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hit: Option<ChartHit>,
+}
+
+impl ChartHover {
+    /// A hover at `x`, `y` with no item under it; axis tooltips still show.
+    pub fn at(x: f32, y: f32) -> Self {
+        Self { x, y, hit: None }
+    }
+}
+
+/// Records a pointer move over a chart in the chart's own hover state.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct ChartHoverChanged;
+
+impl Action for ChartHoverChanged {
+    fn static_id() -> ActionId {
+        ActionId::from_name("fission_charts::ChartHoverChanged")
+    }
+}
+
+/// Clears a chart's hover state when the pointer leaves it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct ChartHoverCleared;
+
+impl Action for ChartHoverCleared {
+    fn static_id() -> ActionId {
+        ActionId::from_name("fission_charts::ChartHoverCleared")
+    }
+}

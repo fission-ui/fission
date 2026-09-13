@@ -5,6 +5,7 @@ use crate::components::{
 };
 use crate::grid::Grid;
 use crate::interaction::{ChartHit, ChartInteraction, ChartInteractionEvent, ChartInteractionKind};
+use crate::interaction::{ChartHover, ChartHoverChanged, ChartHoverCleared};
 use crate::layout::math::{arc, catmull_rom_to_bezier, pie_slice};
 use crate::layout::scale::LinearScale;
 use crate::legend::Legend;
@@ -21,8 +22,9 @@ use fission_core::motion::{
     MotionStartValue, MotionTrack, MotionTransition,
 };
 use fission_core::op::Color;
+use fission_core::ui::GestureDetector;
 use fission_core::ui::{Container, Widget};
-use fission_core::{Action, ActionEnvelope, WidgetId};
+use fission_core::{reduce_with, Action, ActionEnvelope, StateField, WidgetId};
 use fission_ir::op::{Fill, LayoutOp, LineCap, LineJoin, PaintOp, Stroke};
 use fission_layout::{LayoutPoint, LayoutRect};
 use serde::{Deserialize, Serialize};
@@ -32,6 +34,7 @@ use std::sync::Arc;
 mod cartesian;
 mod frame;
 mod hit_test;
+mod hover;
 mod overlays;
 mod paint;
 mod radial;
@@ -42,6 +45,7 @@ mod specialty;
 use cartesian::*;
 use frame::*;
 use hit_test::*;
+use hover::*;
 use overlays::*;
 use paint::*;
 use radial::*;
@@ -79,6 +83,12 @@ pub struct Chart {
     /// [`ChartInteractionEvent::from_action_input`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub on_interaction: Option<ActionEnvelope>,
+    /// The pointer position the chart shows hover feedback for: its tooltip,
+    /// axis pointer and highlights. The chart tracks this itself when hover
+    /// feedback is enabled; set it to show feedback without a pointer, for
+    /// example to keep several charts in step.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hover: Option<ChartHover>,
     pub animation: crate::animation::ChartAnimation,
     pub animate: bool,
 }
@@ -114,6 +124,7 @@ impl Chart {
             theme: None,
             interaction: ChartInteraction::default(),
             on_interaction: None,
+            hover: None,
             animation: crate::animation::ChartAnimation::default(),
             animate: false,
         }
@@ -247,6 +258,12 @@ impl Chart {
         self
     }
 
+    /// Shows hover feedback for `hover` instead of the pointer's position.
+    pub fn hover(mut self, hover: ChartHover) -> Self {
+        self.hover = Some(hover);
+        self
+    }
+
     pub fn hit_test(&self, width: f32, height: f32, point: LayoutPoint) -> Option<ChartHit> {
         let model = ChartModel::from_chart(self);
         let area = chart_area_for_size(self, width, height);
@@ -260,6 +277,23 @@ impl From<Chart> for Widget {
         component.id = fission_core::build::current_widget_id()
             .or(component.id)
             .or_else(|| fission_core::build::next_implicit_widget_id(0xC4A7_0001));
+        let hover_actions = if tracks_hover(&component) {
+            let memory =
+                StateField::new_with("fission_charts::Chart", "hover", HoverMemory::default);
+            if component.hover.is_none() {
+                component.hover = memory.get().0;
+            }
+            Some((
+                ctx.bind_local(
+                    ChartHoverChanged,
+                    memory.clone(),
+                    reduce_with!(on_hover_changed),
+                ),
+                ctx.bind_local(ChartHoverCleared, memory, reduce_with!(on_hover_cleared)),
+            ))
+        } else {
+            None
+        };
         let this = &component;
         if this.animation.enabled {
             ctx.register_motion(MotionDeclaration {
@@ -282,22 +316,32 @@ impl From<Chart> for Widget {
             });
         }
 
-        let render_object = if this.interaction.enabled || this.on_interaction.is_some() {
-            Some(Arc::new(ChartRenderObject {
-                chart: this.clone(),
-            }) as Arc<dyn CustomRenderObject>)
-        } else {
-            None
-        };
-        let mut container = Container::new(fission_core::internal::custom_render_widget(
-            InternalRenderNode {
-                debug_tag: "fission_charts::Chart".into(),
-                lowerer: Some(Arc::new(ChartInternalLowerer {
+        let render_object =
+            if this.interaction.enabled || this.on_interaction.is_some() || hover_actions.is_some()
+            {
+                Some(Arc::new(ChartRenderObject {
                     chart: this.clone(),
-                })),
-                render_object,
-            },
-        ));
+                    hover_action: hover_actions.as_ref().map(|(changed, _)| changed.clone()),
+                }) as Arc<dyn CustomRenderObject>)
+            } else {
+                None
+            };
+        let node = InternalRenderNode {
+            debug_tag: "fission_charts::Chart".into(),
+            lowerer: Some(Arc::new(ChartInternalLowerer {
+                chart: this.clone(),
+            })),
+            render_object,
+        };
+        // The render object only hears events over the chart, so leaving it is
+        // observed by a hover-exit gesture that clears the stored hover.
+        let mut container = match hover_actions {
+            Some((_, cleared)) => Container::new(GestureDetector {
+                on_hover_exit: Some(cleared),
+                ..GestureDetector::new(fission_core::internal::custom_render_widget(node))
+            }),
+            None => Container::new(fission_core::internal::custom_render_widget(node)),
+        };
         if let Some(w) = this.width {
             container = container.width(w);
         } else {
@@ -346,6 +390,8 @@ pub struct ChartInternalLowerer {
 #[derive(Debug)]
 struct ChartRenderObject {
     chart: Chart,
+    /// Records pointer moves in the chart's hover state, when hover feedback is on.
+    hover_action: Option<ActionEnvelope>,
 }
 
 impl CustomRenderObject for ChartRenderObject {
@@ -367,13 +413,17 @@ impl CustomRenderObject for ChartRenderObject {
         event: &InputEvent,
         node_rect: LayoutRect,
     ) -> CustomEventResult {
-        if !self.chart.interaction.emit_events && self.chart.on_interaction.is_none() {
-            return CustomEventResult::ignored();
-        }
-
         let Some((kind, point, modifiers)) = chart_event_point(event) else {
             return CustomEventResult::ignored();
         };
+        let reports_events =
+            self.chart.interaction.emit_events || self.chart.on_interaction.is_some();
+        // Hover feedback only needs pointer moves, so scrolling over a chart that
+        // reports nothing else still scrolls the page.
+        let tracks_hover = self.hover_action.is_some() && kind == ChartInteractionKind::Hover;
+        if !reports_events && !tracks_hover {
+            return CustomEventResult::ignored();
+        }
         let local = LayoutPoint::new(point.x - node_rect.x(), point.y - node_rect.y());
         let hit = self
             .chart
@@ -400,6 +450,17 @@ impl CustomRenderObject for ChartRenderObject {
         }
         let mut input_actions = Vec::new();
         if let Some(action) = &self.chart.on_interaction {
+            input_actions.push((
+                node_id,
+                action.clone(),
+                fission_core::ActionInput::ComponentInteraction {
+                    source: node_id,
+                    event_type: ChartInteractionEvent::EVENT_TYPE.into(),
+                    payload: encoded_event.clone(),
+                },
+            ));
+        }
+        if let Some(action) = self.hover_action.as_ref().filter(|_| tracks_hover) {
             input_actions.push((
                 node_id,
                 action.clone(),
@@ -538,7 +599,10 @@ mod chart_theme_tests {
             payload: br#"{"panel":"revenue"}"#.to_vec(),
         };
         let chart = Chart::new().id(source).on_interaction(callback.clone());
-        let render = ChartRenderObject { chart };
+        let render = ChartRenderObject {
+            chart,
+            hover_action: None,
+        };
         let result = render.handle_event(
             source,
             &InputEvent::Pointer(PointerEvent::Down {
@@ -591,7 +655,11 @@ mod chart_theme_tests {
                 id: fission_core::ActionId::from_name("chart.callback"),
                 payload: Vec::new(),
             });
-        let result = ChartRenderObject { chart }.handle_event(
+        let result = ChartRenderObject {
+            chart,
+            hover_action: None,
+        }
+        .handle_event(
             source,
             &InputEvent::Pointer(PointerEvent::Down {
                 pointer_id: fission_core::event::PointerId::MOUSE,
@@ -686,6 +754,7 @@ impl fission_core::internal::LowerWidget for ChartInternalLowerer {
         draw_timeline(cx, &mut root, &self.chart, &area, &theme);
         draw_toolbox(cx, &mut root, &self.chart, &area, &theme);
         draw_diagnostics(cx, &mut root, &model, &area, &theme);
+        draw_hover(cx, &mut root, &model, &self.chart, &area, &theme);
 
         root.build(cx)
     }

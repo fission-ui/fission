@@ -22,8 +22,8 @@ pub use components::{
 };
 pub use interaction::{
     ChartBrush, ChartBrushType, ChartEmphasis, ChartEmphasisFocus, ChartHit, ChartHitKind,
-    ChartInteraction, ChartInteractionEvent, ChartInteractionKind, ChartLegendSelectionMode,
-    ChartSelectionMode, ChartToolAction, ChartTooltipTrigger,
+    ChartHover, ChartInteraction, ChartInteractionEvent, ChartInteractionKind,
+    ChartLegendSelectionMode, ChartSelectionMode, ChartToolAction, ChartTooltipTrigger,
 };
 pub use series::bar::{BarOrientation, BarSeries};
 pub use series::boxplot::BoxplotSeries;
