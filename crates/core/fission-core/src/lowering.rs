@@ -231,7 +231,8 @@ impl IrBuilder {
         self.children.extend(children);
     }
 
-    pub fn build(self, cx: &mut LoweringContext) -> WidgetId {
+    pub fn build(mut self, cx: &mut LoweringContext) -> WidgetId {
+        crate::accessible_names::name_from_content(&cx.ir, &mut self.op, &self.children);
         cx.insert_node_with_composite(self.node_id, self.op, self.composite, self.children);
         self.node_id
     }

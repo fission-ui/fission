@@ -42,6 +42,7 @@ use std::sync::{Arc, Mutex};
 
 extern crate self as fission_core;
 
+mod accessible_names;
 pub mod action;
 pub mod async_runtime;
 pub mod build;
