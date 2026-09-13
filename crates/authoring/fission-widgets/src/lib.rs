@@ -120,7 +120,7 @@ pub use menu::{
 
 /// Transient status notifications and their semantic tone.
 pub mod toast;
-pub use toast::{Toast, ToastKind, ToastMotion};
+pub use toast::{Toast, ToastDuration, ToastKind, ToastMotion};
 
 /// Modal dialog surface, actions, and entrance/exit motion.
 pub mod modal;

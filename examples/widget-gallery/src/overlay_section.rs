@@ -194,6 +194,7 @@ impl From<OverlaySection> for Widget {
                 kind: ToastKind::Success,
                 message: "Action completed!".into(),
                 on_close: Some(with_reducer!(ctx, DismissToast, dismiss_toast)),
+                duration: fission::widgets::ToastDuration::Default,
                 motion: None,
             }
             .into();

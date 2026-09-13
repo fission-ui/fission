@@ -17,6 +17,7 @@ impl From<PolicyPreview<'_>> for Widget {
                 kind: ToastKind::Success,
                 message: "Policy is evaluating the same ToastMotion source.".into(),
                 on_close: None,
+                duration: fission::widgets::ToastDuration::Default,
                 motion: policy_toast_motion(preview.state.policy),
             }
             .into()

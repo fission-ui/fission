@@ -22,6 +22,7 @@ impl From<OverlayRoot> for Widget {
             kind: ToastKind::Success,
             message: "Action completed".into(),
             on_close: None,
+            duration: fission_widgets::ToastDuration::Default,
             motion: None,
         }
         .into();
@@ -114,6 +115,7 @@ impl From<ToastInRoot> for Widget {
                         kind: ToastKind::Success,
                         message: "Action completed".into(),
                         on_close: None,
+                        duration: fission_widgets::ToastDuration::Default,
                         motion: None,
                     }
                     .into(),
@@ -208,6 +210,7 @@ impl From<ToastShapeRoot> for Widget {
                 kind: ToastKind::Success,
                 message: "Action completed".into(),
                 on_close: None,
+                duration: fission_widgets::ToastDuration::Default,
                 motion: Some(fission_widgets::ToastMotion::None),
             }
             .into(),
