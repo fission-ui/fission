@@ -1,12 +1,14 @@
 pub mod cpu;
 pub mod gpu;
 mod image_decode;
+mod paint_mapping;
 pub mod painter;
 pub mod text;
 mod text_effects;
 use image_decode::decode_dynamic_image;
 #[cfg(test)]
 use image_decode::MAX_DECODED_IMAGE_DIMENSION;
+use paint_mapping::*;
 pub use painter::{CpuPainter, GpuImageCache, GpuPainter, GpuUploader, Painter};
 pub use parley;
 pub use text::VelloTextMeasurer;
@@ -32,174 +34,6 @@ fn text_style_requires_rich_layout(style: &RenderTextStyle) -> bool {
 
 fn map_color(c: &fission_render::Color) -> Color {
     Color::from_rgba8(c.r, c.g, c.b, c.a).into()
-}
-
-fn normalized_point(bounds: Rect, point: (f32, f32)) -> Point {
-    Point::new(
-        bounds.x0 + bounds.width() * point.0 as f64,
-        bounds.y0 + bounds.height() * point.1 as f64,
-    )
-}
-
-/// Maps the IR's extend mode onto peniko's.
-///
-/// Vello implements all three, so nothing is lost here.
-/// Maps the IR's per-corner radii onto kurbo's.
-fn kurbo_radii(radii: fission_ir::CornerRadii) -> RoundedRectRadii {
-    RoundedRectRadii::new(
-        radii.top_left as f64,
-        radii.top_right as f64,
-        radii.bottom_right as f64,
-        radii.bottom_left as f64,
-    )
-}
-
-fn map_extend(extend: fission_ir::GradientExtend) -> vello_cpu::peniko::Extend {
-    match extend {
-        fission_ir::GradientExtend::Pad => vello_cpu::peniko::Extend::Pad,
-        fission_ir::GradientExtend::Repeat => vello_cpu::peniko::Extend::Repeat,
-        fission_ir::GradientExtend::Reflect => vello_cpu::peniko::Extend::Reflect,
-    }
-}
-
-fn map_fill_to_brush(f: &fission_render::Fill, bounds: Rect) -> PaintType {
-    fn gradient_stops<C: Copy>(
-        stops: &[(f32, C)],
-        to_color: impl Fn(&C) -> Color,
-    ) -> Vec<vello_cpu::peniko::ColorStop> {
-        stops
-            .iter()
-            .map(|(offset, color)| vello_cpu::peniko::ColorStop {
-                offset: *offset,
-                color: to_color(color).into(),
-            })
-            .collect()
-    }
-
-    match f {
-        fission_render::Fill::Solid(c) => PaintType::from(map_color(c)),
-        fission_render::Fill::LinearGradient {
-            start,
-            end,
-            stops,
-            extend,
-        } => PaintType::from(
-            vello_cpu::peniko::Gradient::new_linear(
-                normalized_point(bounds, *start),
-                normalized_point(bounds, *end),
-            )
-            .with_extend(map_extend(*extend))
-            .with_stops(gradient_stops(stops, map_color).as_slice()),
-        ),
-        fission_render::Fill::RadialGradient {
-            center,
-            radius,
-            stops,
-            extend,
-        } => PaintType::from(
-            vello_cpu::peniko::Gradient::new_radial(
-                normalized_point(bounds, *center),
-                radius * bounds.width().max(bounds.height()) as f32,
-            )
-            .with_extend(map_extend(*extend))
-            .with_stops(gradient_stops(stops, map_color).as_slice()),
-        ),
-        fission_render::Fill::SweepGradient {
-            center,
-            start_angle,
-            end_angle,
-            stops,
-            extend,
-        } => PaintType::from(
-            vello_cpu::peniko::Gradient::new_sweep(
-                normalized_point(bounds, *center),
-                *start_angle,
-                *end_angle,
-            )
-            .with_extend(map_extend(*extend))
-            .with_stops(gradient_stops(stops, map_color).as_slice()),
-        ),
-    }
-}
-
-fn map_text_fill_to_brush(f: &fission_ir::op::Fill, bounds: Rect) -> PaintType {
-    fn ir_stops(stops: &[(f32, fission_ir::op::Color)]) -> Vec<vello_cpu::peniko::ColorStop> {
-        stops
-            .iter()
-            .map(|(offset, color)| vello_cpu::peniko::ColorStop {
-                offset: *offset,
-                color: Color::from_rgba8(color.r, color.g, color.b, color.a).into(),
-            })
-            .collect()
-    }
-
-    match f {
-        fission_ir::op::Fill::Solid(c) => PaintType::from(Color::from_rgba8(c.r, c.g, c.b, c.a)),
-        fission_ir::op::Fill::LinearGradient {
-            start,
-            end,
-            stops,
-            extend,
-        } => PaintType::from(
-            vello_cpu::peniko::Gradient::new_linear(
-                normalized_point(bounds, *start),
-                normalized_point(bounds, *end),
-            )
-            .with_extend(map_extend(*extend))
-            .with_stops(ir_stops(stops).as_slice()),
-        ),
-        fission_ir::op::Fill::RadialGradient {
-            center,
-            radius,
-            stops,
-            extend,
-        } => PaintType::from(
-            vello_cpu::peniko::Gradient::new_radial(
-                normalized_point(bounds, *center),
-                radius * bounds.width().max(bounds.height()) as f32,
-            )
-            .with_extend(map_extend(*extend))
-            .with_stops(ir_stops(stops).as_slice()),
-        ),
-        fission_ir::op::Fill::SweepGradient {
-            center,
-            start_angle,
-            end_angle,
-            stops,
-            extend,
-        } => PaintType::from(
-            vello_cpu::peniko::Gradient::new_sweep(
-                normalized_point(bounds, *center),
-                *start_angle,
-                *end_angle,
-            )
-            .with_extend(map_extend(*extend))
-            .with_stops(ir_stops(stops).as_slice()),
-        ),
-    }
-}
-
-fn map_stroke(s: &fission_render::Stroke, bounds: Rect) -> (vello_cpu::kurbo::Stroke, PaintType) {
-    let cap = match s.line_cap {
-        fission_render::LineCap::Butt => vello_cpu::kurbo::Cap::Butt,
-        fission_render::LineCap::Round => vello_cpu::kurbo::Cap::Round,
-        fission_render::LineCap::Square => vello_cpu::kurbo::Cap::Square,
-    };
-    let join = match s.line_join {
-        fission_render::LineJoin::Miter => vello_cpu::kurbo::Join::Miter,
-        fission_render::LineJoin::Round => vello_cpu::kurbo::Join::Round,
-        fission_render::LineJoin::Bevel => vello_cpu::kurbo::Join::Bevel,
-    };
-
-    let mut stroke = vello_cpu::kurbo::Stroke::new(s.width as f64)
-        .with_caps(cap)
-        .with_join(join);
-    if let Some(dash) = &s.dash_array {
-        let dashes: Vec<f64> = dash.iter().map(|v| *v as f64).collect();
-        stroke = stroke.with_dashes(0.0, dashes);
-    }
-
-    (stroke, map_fill_to_brush(&s.fill, bounds))
 }
 
 use crate::text::ParleyBrush;
@@ -1920,6 +1754,23 @@ mod tests {
             "each stroked edge is clipped to its own wedge"
         );
         assert_eq!(painter.paths, 3, "background plus one ring fill per edge");
+    }
+
+    #[test]
+    fn outer_shadows_are_clipped_to_outside_the_box() {
+        let shadow = fission_render::BoxShadow {
+            color: black(),
+            blur_radius: 0.0,
+            spread_radius: 3.0,
+            offset: (0.0, 0.0),
+            inset: false,
+        };
+        let painter = render_ops(vec![draw_rect(None, None, Some(shadow))]);
+        assert_eq!(painter.blurred_rects.len(), 1);
+        assert_eq!(
+            painter.clip_layers, 1,
+            "an outer shadow is clipped so it does not fill the box it surrounds"
+        );
     }
 
     #[test]
@@ -3800,6 +3651,18 @@ impl<'a> VelloRenderer<'a> {
         if let Some(shadow) = shadow.filter(|shadow| !shadow.inset) {
             let shadow_rect = (rect + Vec2::new(shadow.offset.0 as f64, shadow.offset.1 as f64))
                 .inflate(shadow.spread_radius as f64, shadow.spread_radius as f64);
+            // An outer shadow shows only outside the box, as in CSS, so a control with a
+            // transparent background is not filled by its own shadow.
+            let reach = shadow_rect.union(rect).inflate(
+                shadow.blur_radius.max(0.0) as f64 * 1.5 + 1.0,
+                shadow.blur_radius.max(0.0) as f64 * 1.5 + 1.0,
+            );
+            self.painter.push_layer(
+                self.current_transform,
+                Some(&outside_of(&shape, reach)),
+                BlendMode::default(),
+                1.0,
+            );
             self.painter.fill_blurred_rounded_rect(
                 self.current_transform,
                 map_color(&shadow.color),
@@ -3808,6 +3671,7 @@ impl<'a> VelloRenderer<'a> {
                 shadow.blur_radius.max(0.0) * 0.5,
                 false,
             );
+            self.painter.pop_layer();
         }
 
         if let Some(fill) = fill {

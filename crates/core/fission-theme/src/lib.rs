@@ -1166,8 +1166,9 @@ impl Default for ElevationTokens {
             }),
             level4: None,
             level5: None,
+            // A ring around the focused control, like the error ring.
             focus: Some(BoxShadow {
-                spread_radius: 0.0,
+                spread_radius: 3.0,
                 inset: false,
                 color: Color {
                     r: 20,
