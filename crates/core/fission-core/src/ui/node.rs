@@ -993,13 +993,10 @@ impl From<FocusScope> for Widget {
     }
 }
 impl From<SelectionRegion> for Widget {
-    fn from(mut w: SelectionRegion) -> Self {
+    fn from(w: SelectionRegion) -> Self {
         // Like selectable text, an open desktop menu opens above all content at the pointer
         // instead of inside the region, where ancestors would clip it and later content cover it.
         if !w.excluded && w.controls.context_menu.enabled {
-            if w.id.is_none() {
-                w.id = crate::build::next_implicit_widget_id(0x5E1E);
-            }
             if let (Some(owner), Some(runtime)) = (w.id, crate::build::try_current_runtime_state())
             {
                 let pointer_kind = runtime
@@ -1033,11 +1030,10 @@ impl From<Clip> for Widget {
     }
 }
 impl From<Text> for Widget {
-    fn from(mut w: Text) -> Self {
+    fn from(w: Text) -> Self {
+        // As for text fields, only explicit identities lift the menu; text without one draws its
+        // menu in place.
         if w.selectable && w.context_menu.enabled {
-            if w.id.is_none() {
-                w.id = crate::build::next_implicit_widget_id(0x7E47);
-            }
             if let (Some(owner), Some(runtime)) = (w.id, crate::build::try_current_runtime_state())
             {
                 let touch = runtime.selectable_text.region(owner).is_some_and(|state| {
@@ -1094,11 +1090,12 @@ impl From<Button> for Widget {
     }
 }
 impl From<TextInput> for Widget {
-    fn from(mut w: TextInput) -> Self {
+    fn from(w: TextInput) -> Self {
+        // Only a field with an explicit identity can lift its menu while building. Allocating an
+        // implicit one here would take it from a sequence shared with every other implicit widget,
+        // so content appearing earlier in the build would change the field's identity and drop its
+        // focus. A field without an identity draws its menu in place when it is lowered.
         if w.context_menu.enabled {
-            if w.id.is_none() {
-                w.id = crate::build::next_implicit_widget_id(0x7E48);
-            }
             if let (Some(input_id), Some(runtime)) =
                 (w.id, crate::build::try_current_runtime_state())
             {

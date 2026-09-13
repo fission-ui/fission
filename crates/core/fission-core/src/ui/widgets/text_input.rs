@@ -1662,6 +1662,32 @@ impl Lower for TextInput {
                     }
                 }
 
+                // A field with an explicit identity lifts its open menu above all content while
+                // building. A field without one only has an identity once lowered, so its menu is
+                // drawn here, in place.
+                if self.id.is_none()
+                    && self.context_menu.enabled
+                    && !affordances.toolbar_visible
+                    && cx.runtime_state.context_menu.owner == Some(input_id)
+                {
+                    if let Some(menu_anchor) = cx.runtime_state.context_menu.anchor {
+                        let local = crate::ui::widgets::context_menu::anchor_to_local(
+                            cx,
+                            input_id,
+                            menu_anchor,
+                        );
+                        let menu = crate::ui::widgets::context_menu::text_input_menu(
+                            input_id,
+                            &self.context_menu,
+                            local,
+                            caret != anchor,
+                            !display_text.is_empty(),
+                            !self.read_only,
+                        );
+                        overlay_children.push(menu.lower(cx));
+                    }
+                }
+
                 if self.magnifier_configuration.enabled && affordances.magnifier_visible {
                     if let Some(anchor_point) = affordances.magnifier_anchor {
                         overlay_children.push(self.build_magnifier_overlay(

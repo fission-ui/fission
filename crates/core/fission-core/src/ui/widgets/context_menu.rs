@@ -657,6 +657,31 @@ pub(crate) fn take_lifted_text_menu(owner: WidgetId) -> bool {
 ///
 /// The rows carry the field's toolbar identities, so choosing one runs the editing command through
 /// the text field and closes the menu. Returns whether the menu was lifted.
+/// Builds a text field's context menu at `anchor`. Its rows carry the field's toolbar identities, so
+/// choosing one runs the editing command through the field and closes the menu.
+pub(crate) fn text_input_menu(
+    input_id: WidgetId,
+    config: &TextContextMenuConfig,
+    anchor: fission_layout::LayoutPoint,
+    selection_present: bool,
+    has_text: bool,
+    editable: bool,
+) -> Widget {
+    text_menu_overlay(config, input_id, anchor, |action| {
+        let enabled = match action {
+            TextContextMenuAction::Copy => selection_present,
+            TextContextMenuAction::Cut => selection_present && editable,
+            TextContextMenuAction::Paste => editable,
+            TextContextMenuAction::SelectAll => has_text,
+        };
+        text_menu_item(
+            crate::ui::widgets::text_input::text_input_toolbar_button_id(input_id, action),
+            action,
+            enabled,
+        )
+    })
+}
+
 pub(crate) fn lift_text_input_menu_into_portal(
     input_id: WidgetId,
     config: &TextContextMenuConfig,
@@ -673,19 +698,14 @@ pub(crate) fn lift_text_input_menu_into_portal(
     let Some(anchor) = runtime.context_menu.anchor else {
         return false;
     };
-    let menu = text_menu_overlay(config, input_id, anchor, |action| {
-        let enabled = match action {
-            TextContextMenuAction::Copy => selection_present,
-            TextContextMenuAction::Cut => selection_present && editable,
-            TextContextMenuAction::Paste => editable,
-            TextContextMenuAction::SelectAll => has_text,
-        };
-        text_menu_item(
-            crate::ui::widgets::text_input::text_input_toolbar_button_id(input_id, action),
-            action,
-            enabled,
-        )
-    });
+    let menu = text_input_menu(
+        input_id,
+        config,
+        anchor,
+        selection_present,
+        has_text,
+        editable,
+    );
     crate::build::try_register_portal(
         crate::PortalLayer::Flyout,
         Some(context_menu_popup_id(input_id)),
