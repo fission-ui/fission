@@ -1069,7 +1069,9 @@ impl From<TextInput> for Widget {
             if w.id.is_none() {
                 w.id = crate::build::next_implicit_widget_id(0x7E48);
             }
-            if let (Some(input_id), Some(runtime)) = (w.id, crate::build::try_current_runtime_state()) {
+            if let (Some(input_id), Some(runtime)) =
+                (w.id, crate::build::try_current_runtime_state())
+            {
                 let selection_present = runtime
                     .text_edit
                     .get(input_id)

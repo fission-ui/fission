@@ -583,7 +583,10 @@ impl InputController for TextInputController {
                 false
             }
             InputEvent::Pointer(PointerEvent::Up {
-                point, button, kind, ..
+                point,
+                button,
+                kind,
+                ..
             }) => {
                 if let Some(focused_id) = ctx.interaction.focused {
                     if let Some(node) = ctx.ir.nodes.get(&focused_id) {
