@@ -1692,11 +1692,26 @@ impl Lower for Button {
             if let Some(child_id) = content_id {
                 let aligned_id = match self.content_align {
                     ButtonContentAlign::Center => {
-                        // Center the content within the button's box (vertically + horizontally).
-                        let mut align_builder =
-                            IrBuilder::new(cx.next_node_id(), Op::Layout(LayoutOp::Align));
-                        align_builder.add_child(child_id);
-                        align_builder.build(cx)
+                        // Centre the content within the button's box. A centring column is at
+                        // least the button's minimum size and otherwise hugs its content; an
+                        // alignment node would grow to whatever height a parent offers, so a
+                        // button in a tall row or overlay became that tall.
+                        let mut centre_builder = IrBuilder::new(
+                            cx.next_node_id(),
+                            Op::Layout(LayoutOp::Flex {
+                                direction: fission_ir::FlexDirection::Column,
+                                wrap: fission_ir::FlexWrap::NoWrap,
+                                flex_grow: 0.0,
+                                flex_shrink: 1.0,
+                                padding: [0.0; 4],
+                                gap: None,
+                                line_gap: None,
+                                align_items: fission_ir::op::AlignItems::Center,
+                                justify_content: fission_ir::op::JustifyContent::Center,
+                            }),
+                        );
+                        centre_builder.add_child(child_id);
+                        centre_builder.build(cx)
                     }
                     ButtonContentAlign::Start | ButtonContentAlign::End => {
                         let justify = match self.content_align {

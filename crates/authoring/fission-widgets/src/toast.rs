@@ -208,7 +208,6 @@ impl From<Toast> for Widget {
                 Icon::svg(icon_path).color(icon_color).size(20.0).into(),
                 Text::new(this.message.clone())
                     .color(tokens.colors.on_surface)
-                    .flex_grow(1.0)
                     .into(),
                 SemanticsRegion::new(Button {
                     variant: ButtonVariant::Ghost,
@@ -265,6 +264,8 @@ impl From<Toast> for Widget {
                     }),
             )
             .padding_all(tokens.spacing.s)
+            // A toast hugs its message up to a readable width rather than spanning the window.
+            .max_width(420.0)
             .into();
 
         // A toast appears without the reader asking for it, so it has to
