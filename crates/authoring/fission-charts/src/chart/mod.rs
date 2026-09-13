@@ -90,6 +90,10 @@ pub struct Chart {
     /// [`ChartInteractionEvent::from_action_input`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub on_interaction: Option<ActionEnvelope>,
+    /// Application action dispatched when a brush drag ends. Read the brushed
+    /// items with [`ChartBrushSelection::from_action_input`](crate::ChartBrushSelection::from_action_input).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub on_brush: Option<ActionEnvelope>,
     /// The pointer position the chart shows hover feedback for: its tooltip,
     /// axis pointer and highlights. The chart tracks this itself when hover
     /// feedback is enabled; set it to show feedback without a pointer, for
@@ -147,6 +151,7 @@ impl Chart {
             theme: None,
             interaction: ChartInteraction::default(),
             on_interaction: None,
+            on_brush: None,
             hover: None,
             hidden_series: Vec::new(),
             zoom_drag: None,
@@ -283,6 +288,12 @@ impl Chart {
     /// Binds chart interactions to an application action.
     pub fn on_interaction(mut self, action: ActionEnvelope) -> Self {
         self.on_interaction = Some(action);
+        self
+    }
+
+    /// Binds the end of each brush drag to an application action.
+    pub fn on_brush(mut self, action: ActionEnvelope) -> Self {
+        self.on_brush = Some(action);
         self
     }
 
@@ -574,7 +585,7 @@ impl CustomRenderObject for ChartRenderObject {
                 return CustomEventResult {
                     handled: true,
                     actions: vec![(node_id, action.with_action(&brushed))],
-                    input_actions: Vec::new(),
+                    input_actions: self.brush_selection_input(node_id, &brushed, node_rect),
                 };
             }
         }
@@ -659,6 +670,8 @@ struct ChartArea {
     outer_w: f32,
     outer_h: f32,
     plot: LayoutRect,
+    /// The brushed region in the chart's pixels, when an enabled brush has one.
+    brush: Option<LayoutRect>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1030,15 +1043,17 @@ fn chart_area_for_size(chart: &Chart, outer_w: f32, outer_h: f32) -> ChartArea {
     } else {
         54.0
     });
+    let plot = LayoutRect::new(
+        left,
+        top,
+        (outer_w - left - right).max(1.0),
+        (outer_h - top - bottom).max(1.0),
+    );
     ChartArea {
         outer_w,
         outer_h,
-        plot: LayoutRect::new(
-            left,
-            top,
-            (outer_w - left - right).max(1.0),
-            (outer_h - top - bottom).max(1.0),
-        ),
+        plot,
+        brush: brushed_region(chart, plot),
     }
 }
 

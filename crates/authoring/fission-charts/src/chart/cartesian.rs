@@ -79,7 +79,11 @@ pub(super) fn render_bar(
             cx,
             root,
             LayoutRect::new(x - bar_w / 2.0, top, bar_w, height),
-            filled(bar.source.color),
+            brush_tint(
+                area,
+                LayoutRect::new(x, top, 0.0, height),
+                filled(bar.source.color),
+            ),
             bar.source.border_radius.unwrap_or(4.0),
             emphasised == Some(idx),
         );
@@ -146,7 +150,11 @@ pub(super) fn render_horizontal_bar(
             cx,
             root,
             LayoutRect::new(left, y - bar_h / 2.0, width, bar_h),
-            filled(bar.source.color),
+            brush_tint(
+                area,
+                LayoutRect::new(left, y, width, 0.0),
+                filled(bar.source.color),
+            ),
             bar.source.border_radius.unwrap_or(4.0),
             emphasised == Some(idx),
         );
@@ -247,7 +255,14 @@ pub(super) fn render_line(
             cx,
             root,
             LayoutRect::new(x - radius, y - radius, radius * 2.0, radius * 2.0),
-            fade_color(filled(line.source.color), item_progress),
+            fade_color(
+                brush_tint(
+                    area,
+                    LayoutRect::new(x, y, 0.0, 0.0),
+                    filled(line.source.color),
+                ),
+                item_progress,
+            ),
             Some(stroke(Color::WHITE, 1.0)),
             radius,
         );
@@ -283,6 +298,7 @@ pub(super) fn render_scatter(
         let fill = visual_map
             .map(|map| visual_color(map, *yv))
             .unwrap_or(color);
+        let fill = brush_tint(area, LayoutRect::new(x, y, 0.0, 0.0), fill);
         if effect {
             for (scale, alpha) in [(2.2, 45), (1.55, 72), (1.0, 220)] {
                 let r = 7.0 * scale * item_progress.sqrt();
