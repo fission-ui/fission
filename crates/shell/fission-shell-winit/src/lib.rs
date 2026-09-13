@@ -5268,6 +5268,20 @@ where
             #[cfg(target_arch = "wasm32")]
             let _keep_motion_preference_listener_alive = &web_motion_preference_listener;
             elwt.set_control_flow(ControlFlow::Wait);
+            // A covered window receives no redraws, so live test commands waiting on a frame run
+            // one through this event instead.
+            let event = match event {
+                Event::UserEvent(TestEvent::HeadlessFrame) => {
+                    let Some(window_id) = platform_window.active_window_id() else {
+                        return;
+                    };
+                    Event::WindowEvent {
+                        window_id,
+                        event: WindowEvent::RedrawRequested,
+                    }
+                }
+                other => other,
+            };
             let debug_android_events = cfg!(target_os = "android")
                 && std::env::var_os("FISSION_DEBUG_ANDROID_EVENTS").is_some();
 
@@ -6314,13 +6328,6 @@ where
                             });
                             return;
                         };
-                        if surface_occluded {
-                            let _ = response_tx.send(fission_test_driver::TestResponse::Error {
-                                message: "window is occluded; nothing can be captured until it is visible"
-                                    .into(),
-                            });
-                            return;
-                        }
                         pending_screenshot_path = Some(path);
                         pending_screenshot_response_tx = Some(response_tx);
                         pending_capture_settle = resize_is_unsettled(
@@ -6473,6 +6480,8 @@ where
                         );
                         window.request_redraw();
                     }
+                    // Mapped to a redraw before dispatch.
+                    TestEvent::HeadlessFrame => {}
                     TestEvent::Wake => {
                         #[cfg(target_arch = "wasm32")]
                         {
@@ -6785,6 +6794,9 @@ where
                         elwt.set_control_flow(ControlFlow::Wait);
                         return;
                     };
+                    if surface_occluded && pending_screenshot_response_tx.is_some() {
+                        let _ = event_proxy.send_event(TestEvent::HeadlessFrame);
+                    }
                     #[cfg(feature = "tray")]
                     if let Some(tray) = active_tray.as_ref() {
                         if tray.minimize_behavior() == tray::WindowMinimizeBehavior::HideToTray
@@ -8558,6 +8570,47 @@ where
                                                         "surface_acquire_recovery",
                                                     );
                                                 }
+                                                // A covered window cannot present, but live test commands
+                                                // waiting on this frame are still answered: a pump once the
+                                                // frame is built, a screenshot from a software rendering of it.
+                                                if surface_occluded {
+                                                    if let (Some(path), Some(tx)) = (
+                                                        pending_screenshot_path.take(),
+                                                        pending_screenshot_response_tx.take(),
+                                                    ) {
+                                                        pending_capture_settle = false;
+                                                        let response = if path == "__pump__" {
+                                                            fission_test_driver::TestResponse::Ok {}
+                                                        } else {
+                                                            let background =
+                                                                env.theme.tokens.colors.background;
+                                                            covered_window_screenshot(
+                                                                pipeline.retained_scene().map(|scene| {
+                                                                    fission_render_vello::cpu::render_to_rgba8(
+                                                                        scene,
+                                                                        render_target_size.0,
+                                                                        render_target_size.1,
+                                                                        fission_render::Color {
+                                                                            r: background.r,
+                                                                            g: background.g,
+                                                                            b: background.b,
+                                                                            a: background.a,
+                                                                        },
+                                                                        scale_factor,
+                                                                        measurer.clone(),
+                                                                    )
+                                                                }),
+                                                                render_target_size,
+                                                                layout_size_to_image_dimensions(
+                                                                    target_viewport,
+                                                                ),
+                                                                (path != "__capture__")
+                                                                    .then_some(path.as_str()),
+                                                            )
+                                                        };
+                                                        let _ = tx.send(response);
+                                                    }
+                                                }
                                                 diag::end_frame(diag::FrameStats::default());
                                                 return;
                                             }
@@ -9838,6 +9891,57 @@ fn gpu_screenshot(
     drop(data);
     staging.unmap();
 
+    rgba_screenshot_response(
+        rgba,
+        texture_width,
+        texture_height,
+        output_width,
+        output_height,
+        path,
+    )
+}
+
+/// Answers a screenshot of a covered window, which cannot present, from a software rendering of the
+/// retained scene.
+fn covered_window_screenshot<E: std::fmt::Display>(
+    rendered: Option<Result<Vec<u8>, E>>,
+    render_size: (u32, u32),
+    output_size: (u32, u32),
+    path: Option<&str>,
+) -> fission_test_driver::TestResponse {
+    match rendered {
+        None => fission_test_driver::TestResponse::Error {
+            message: "nothing has been rendered yet".into(),
+        },
+        Some(Err(error)) => fission_test_driver::TestResponse::Error {
+            message: format!("software screenshot failed: {error}"),
+        },
+        Some(Ok(_)) if output_size.0 == 0 || output_size.1 == 0 => {
+            fission_test_driver::TestResponse::Error {
+                message: "zero-size viewport".into(),
+            }
+        }
+        Some(Ok(rgba)) => rgba_screenshot_response(
+            rgba,
+            render_size.0,
+            render_size.1,
+            output_size.0,
+            output_size.1,
+            path,
+        ),
+    }
+}
+
+/// Scales captured RGBA pixels to the output size, then writes them to `path` as a PNG or returns
+/// them in the response.
+fn rgba_screenshot_response(
+    rgba: Vec<u8>,
+    texture_width: u32,
+    texture_height: u32,
+    output_width: u32,
+    output_height: u32,
+    path: Option<&str>,
+) -> fission_test_driver::TestResponse {
     let (rgba, width, height) = if texture_width == output_width && texture_height == output_height
     {
         (rgba, texture_width, texture_height)
