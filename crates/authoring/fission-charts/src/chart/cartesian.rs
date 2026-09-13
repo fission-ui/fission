@@ -153,6 +153,10 @@ pub(super) fn render_horizontal_bar(
     }
 }
 
+/// The horizontal room each point needs before line symbols are drawn; closer
+/// symbols merge into a blob that hides the line.
+const MIN_SYMBOL_SPACING: f32 = 6.0;
+
 pub(super) fn render_line(
     cx: &mut fission_core::internal::LoweringContext,
     root: &mut fission_core::internal::IrBuilder,
@@ -186,6 +190,13 @@ pub(super) fn render_line(
         base_points.push((x, map_y(base, area, y_scale)));
     }
 
+    // Past one point per pixel the extra points only overdraw, so dense lines
+    // are thinned to the plot's width, keeping their shape, and their symbols
+    // are left off once they would crowd together.
+    let show_symbols = points.len() as f32 * MIN_SYMBOL_SPACING <= area.plot.width();
+    let kept = lttb_indices(&points, area.plot.width().max(3.0) as usize);
+    let points: Vec<(f32, f32)> = kept.iter().map(|index| points[*index]).collect();
+    let base_points: Vec<(f32, f32)> = kept.iter().map(|index| base_points[*index]).collect();
     let revealed_points = reveal_points(&points, series_progress);
     let revealed_base_points = reveal_points(&base_points, series_progress);
 
@@ -222,6 +233,9 @@ pub(super) fn render_line(
             None,
             Some(stroke(filled(line.source.color), 2.4)),
         );
+    }
+    if !show_symbols {
+        return;
     }
     for (idx, (x, y)) in revealed_points.into_iter().enumerate() {
         let item_progress = animation.item_progress(series_progress, idx);
