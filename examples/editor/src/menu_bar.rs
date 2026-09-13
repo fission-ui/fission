@@ -5,7 +5,7 @@ use crate::layout::{
     OVERLAY_EDGE_GUTTER, OVERLAY_HORIZONTAL_RESERVE, OVERLAY_MIN_INSET,
 };
 use crate::model::*;
-use crate::palette::{FLYOUT_BG, FLYOUT_BORDER, INTERACTION_BACKDROP, MENU_BAR_BG};
+use crate::palette::EditorPalette;
 use fission::core::ui::{Column, Container, GestureDetector, Positioned, Row, Widget, ZStack};
 use fission::core::{reduce_with, WidgetId};
 use fission::widgets::Spacer;
@@ -15,6 +15,7 @@ pub(crate) struct MenuBar;
 impl From<MenuBar> for Widget {
     fn from(_component: MenuBar) -> Self {
         let (ctx, view) = fission::build::current::<EditorState>();
+        let palette = EditorPalette::from_theme(&view.env().theme);
         let tokens = &view.env().theme.tokens;
         let viewport = view.viewport_size();
         let flyout_width = (viewport.width - OVERLAY_HORIZONTAL_RESERVE)
@@ -249,7 +250,7 @@ impl From<MenuBar> for Widget {
             ..Default::default()
         })
         .height(MENU_BAR_HEIGHT)
-        .bg(MENU_BAR_BG)
+        .bg(palette.menu_bar_bg)
         .flex_shrink(0.0)
         .into();
 
@@ -305,8 +306,8 @@ impl From<MenuBar> for Widget {
                 ..Default::default()
             })
             .width(flyout_width)
-            .bg(FLYOUT_BG)
-            .border(FLYOUT_BORDER, 1.0)
+            .bg(palette.flyout_bg)
+            .border(palette.flyout_border, 1.0)
             .border_radius(tokens.radii.small)
             .into();
 
@@ -314,7 +315,7 @@ impl From<MenuBar> for Widget {
             let backdrop = GestureDetector {
                 on_tap: Some(dismiss_menu.clone()),
                 child: Container::new(Spacer::default())
-                    .bg(INTERACTION_BACKDROP)
+                    .bg(palette.interaction_backdrop)
                     .flex_grow(1.0)
                     .into(),
                 ..Default::default()

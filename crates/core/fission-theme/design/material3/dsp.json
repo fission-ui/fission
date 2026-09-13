@@ -121,6 +121,20 @@
     ]
   },
   "components": {
+    "code_syntax": {
+      "$description": "Token colours for syntax-highlighted source code, so code follows the active theme and mode.",
+      "keyword": { "color": "{color.light.primary}" },
+      "string": { "color": "{color.light.success}" },
+      "comment": { "color": "{color.light.text_muted}" },
+      "number": { "color": "{color.light.warning}" },
+      "type": { "color": "{color.light.secondary}" },
+      "function": { "color": "{color.light.text_link}" },
+      "variable": { "color": "{color.light.text_primary}" },
+      "constant": { "color": "{color.light.info}" },
+      "punctuation": { "color": "{color.light.text_secondary}" },
+      "inserted": { "color": "{color.light.success}" },
+      "deleted": { "color": "{color.light.error}" }
+    },
     "accordion": {
       "$description": "Stacked disclosure sections with a header and revealed panel.",
       "anatomy": ["header*", "indicator*", "panel*"],

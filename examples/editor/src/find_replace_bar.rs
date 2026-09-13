@@ -1,6 +1,6 @@
 use crate::layout::{FIND_BAR_HEIGHT, TOOLBAR_CONTROL_SIZE};
 use crate::model::*;
-use crate::palette::{BRIGHT_TEXT, DIM_TEXT, FIND_BAR_BG, FLYOUT_BORDER};
+use crate::palette::EditorPalette;
 use fission::core::ui::{Button, ButtonVariant, Container, Icon, Row, Text, TextInput, Widget};
 use fission::core::{reduce_with, ReducerContext};
 use fission::icons::material;
@@ -11,6 +11,7 @@ pub(crate) struct FindReplaceBar;
 impl From<FindReplaceBar> for Widget {
     fn from(_component: FindReplaceBar) -> Self {
         let (ctx, view) = fission::build::current::<EditorState>();
+        let palette = EditorPalette::from_theme(&view.env().theme);
         let tokens = &view.env().theme.tokens;
         if !view.state().show_find_replace {
             return Spacer {
@@ -130,7 +131,7 @@ impl From<FindReplaceBar> for Widget {
 
         let match_text: Widget = Text::new(match_label.clone())
             .size(tokens.typography.font_size_xs)
-            .color(DIM_TEXT)
+            .color(palette.dim_text)
             .into();
 
         let btn_prev = Button {
@@ -138,7 +139,7 @@ impl From<FindReplaceBar> for Widget {
             child: Some(
                 Icon::svg(material::navigation::chevron_left::round())
                     .size(tokens.typography.font_size_lg)
-                    .color(BRIGHT_TEXT)
+                    .color(palette.bright_text)
                     .into(),
             ),
             on_press: Some(find_prev),
@@ -154,7 +155,7 @@ impl From<FindReplaceBar> for Widget {
             child: Some(
                 Icon::svg(material::navigation::chevron_right::round())
                     .size(tokens.typography.font_size_lg)
-                    .color(BRIGHT_TEXT)
+                    .color(palette.bright_text)
                     .into(),
             ),
             on_press: Some(find_next),
@@ -170,7 +171,7 @@ impl From<FindReplaceBar> for Widget {
             child: Some(
                 Text::new("Replace")
                     .size(tokens.typography.font_size_xs)
-                    .color(BRIGHT_TEXT)
+                    .color(palette.bright_text)
                     .into(),
             ),
             on_press: Some(replace_one),
@@ -190,7 +191,7 @@ impl From<FindReplaceBar> for Widget {
             child: Some(
                 Text::new("Replace All")
                     .size(tokens.typography.font_size_xs)
-                    .color(BRIGHT_TEXT)
+                    .color(palette.bright_text)
                     .into(),
             ),
             on_press: Some(replace_all_action),
@@ -210,7 +211,7 @@ impl From<FindReplaceBar> for Widget {
             child: Some(
                 Icon::svg(material::navigation::close::round())
                     .size(tokens.typography.font_size_lg)
-                    .color(BRIGHT_TEXT)
+                    .color(palette.bright_text)
                     .into(),
             ),
             on_press: Some(close_find),
@@ -229,7 +230,7 @@ impl From<FindReplaceBar> for Widget {
                     flex_grow: 1.0,
                     ..Default::default()
                 })
-                .border(FLYOUT_BORDER, 1.0)
+                .border(palette.flyout_border, 1.0)
                 .border_radius(tokens.radii.small)
                 .flex_grow(1.0)
                 .into(),
@@ -246,7 +247,7 @@ impl From<FindReplaceBar> for Widget {
             ..Default::default()
         })
         .height(FIND_BAR_HEIGHT)
-        .bg(FIND_BAR_BG)
+        .bg(palette.find_bar_bg)
         .padding_all(tokens.spacing.xs)
         .flex_shrink(0.0)
         .into()

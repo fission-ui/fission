@@ -1086,8 +1086,12 @@ layout_test!(
 layout_test!(
     wrap_widget_present,
     state_default(),
-    |op| matches!(op, LayoutOp::Flex { wrap: FlexWrap::Wrap, gap: Some(g), .. } if approx_eq(*g, 6.0)),
-    "expected wrap layout with gap 6.0"
+    |op| {
+        // Email row labels wrap with the design system's extra-small spacing.
+        let gap = fission::theme::Theme::default().tokens.spacing.xs;
+        matches!(op, LayoutOp::Flex { wrap: FlexWrap::Wrap, gap: Some(g), .. } if approx_eq(*g, gap))
+    },
+    "expected email row labels to wrap with the extra-small spacing token as their gap"
 );
 
 layout_test!(

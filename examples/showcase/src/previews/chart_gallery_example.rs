@@ -14,7 +14,6 @@ impl From<ChartGalleryExample> for Widget {
             view.state().preview_generation,
             GalleryApp,
         )
-        .with_env(chart_gallery_example::configure_embedded_env)
         .into()
     }
 }

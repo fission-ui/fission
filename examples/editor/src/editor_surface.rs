@@ -7,7 +7,7 @@ use crate::layout::{
 };
 use crate::minimap::Minimap;
 use crate::model::{EditorState, UpdateCursorPosition, UpdateEditorDocument};
-use crate::palette::{BORDER_COLOR, BRIGHT_TEXT, EDITOR_SELECTION, WELCOME_BG};
+use crate::palette::EditorPalette;
 use fission::core::ui::{Container, Row, TextInput, Widget};
 use fission::core::{reduce_with, ReducerContext};
 use fission::widgets::{Spacer, VStack};
@@ -18,6 +18,7 @@ pub struct EditorSurface;
 impl From<EditorSurface> for Widget {
     fn from(_component: EditorSurface) -> Self {
         let (ctx, view) = fission::build::current::<EditorState>();
+        let palette = EditorPalette::from_theme(&view.env().theme);
         let tokens = &view.env().theme.tokens;
 
         let sidebar_width = view.state().sidebar_width.min(
@@ -119,9 +120,9 @@ impl From<EditorSurface> for Widget {
             line_height: Some(
                 tokens.typography.font_size_sm * tokens.typography.line_height_normal,
             ),
-            text_color: Some(BRIGHT_TEXT),
+            text_color: Some(palette.bright_text),
             cursor_color: Some(fission::op::Color::WHITE),
-            selection_color: Some(EDITOR_SELECTION),
+            selection_color: Some(palette.editor_selection),
             spell_check: false,
             smart_dashes: false,
             smart_quotes: false,
@@ -138,7 +139,7 @@ impl From<EditorSurface> for Widget {
 
         let minimap_separator = Container::new(Spacer::default())
             .width(DIVIDER_THICKNESS)
-            .bg(BORDER_COLOR)
+            .bg(palette.border_color)
             .flex_shrink(0.0)
             .into();
 
@@ -159,7 +160,7 @@ impl From<EditorSurface> for Widget {
         .into();
 
         Container::new(editor_column)
-            .bg(WELCOME_BG)
+            .bg(palette.welcome_bg)
             .flex_grow(1.0)
             .flex_shrink(1.0)
             .into()

@@ -26,18 +26,8 @@ impl From<CatalogPanel> for Widget {
                     if query.is_empty() {
                         return true;
                     }
-                    let title = view
-                        .env()
-                        .i18n
-                        .get(&view.env().locale, example.title_key)
-                        .unwrap_or(example.title_key)
-                        .to_lowercase();
-                    let summary = view
-                        .env()
-                        .i18n
-                        .get(&view.env().locale, example.summary_key)
-                        .unwrap_or(example.summary_key)
-                        .to_lowercase();
+                    let title = view.tr(example.title_key).to_lowercase();
+                    let summary = view.tr(example.summary_key).to_lowercase();
                     title.contains(&query) || summary.contains(&query)
                 })
                 .collect::<Vec<_>>();

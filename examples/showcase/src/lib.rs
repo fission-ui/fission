@@ -63,7 +63,7 @@ pub fn run_desktop() -> Result<()> {
         .with_async(|asyncs| register_example_jobs!(asyncs))
         .with_sync_env(|state: &ShowcaseState, env: &mut Env| {
             env.locale = state.locale.clone();
-            env.theme = ShowcaseDesignSystem::theme(state.theme_mode);
+            env.theme = state.design_system.theme(state.theme_mode);
         })
         .run()
 }
@@ -78,7 +78,7 @@ fn web_app() -> WebApp<ShowcaseState, ShowcaseApp> {
         .with_async(|asyncs| register_example_jobs!(asyncs))
         .with_sync_env(|state: &ShowcaseState, env: &mut Env| {
             env.locale = state.locale.clone();
-            env.theme = ShowcaseDesignSystem::theme(state.theme_mode);
+            env.theme = state.design_system.theme(state.theme_mode);
         })
 }
 

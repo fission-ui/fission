@@ -1,6 +1,6 @@
 use crate::layout::{ACTIVE_INDICATOR_THICKNESS, TAB_BAR_HEIGHT, TAB_CLOSE_SIZE};
 use crate::model::{CloseTab, EditorState, SelectTab, TabInfo};
-use crate::palette::{TAB_ACCENT, TAB_ACTIVE_BG, TAB_INACTIVE_BG, TAB_INACTIVE_TEXT, TRANSPARENT};
+use crate::palette::EditorPalette;
 use fission::prelude::*;
 use fission::widgets::{HStack, Spacer};
 
@@ -15,16 +15,17 @@ pub(crate) struct EditorTab {
 impl From<EditorTab> for Widget {
     fn from(tab: EditorTab) -> Self {
         let (_ctx, view) = fission::build::current::<EditorState>();
+        let palette = EditorPalette::from_theme(&view.env().theme);
         let tokens = &view.env().theme.tokens;
         let background = if tab.active {
-            TAB_ACTIVE_BG
+            palette.tab_active_bg
         } else {
-            TAB_INACTIVE_BG
+            palette.tab_inactive_bg
         };
         let text_color = if tab.active {
             tokens.colors.text_primary
         } else {
-            TAB_INACTIVE_TEXT
+            palette.tab_inactive_text
         };
         let title = if tab.tab.is_dirty {
             format!("* {}", tab.tab.title)
@@ -34,7 +35,11 @@ impl From<EditorTab> for Widget {
 
         let accent = Container::new(Spacer::default())
             .height(ACTIVE_INDICATOR_THICKNESS)
-            .bg(if tab.active { TAB_ACCENT } else { TRANSPARENT });
+            .bg(if tab.active {
+                palette.tab_accent
+            } else {
+                palette.transparent
+            });
 
         let content = HStack {
             spacing: Some(tokens.spacing.s),
@@ -47,7 +52,7 @@ impl From<EditorTab> for Widget {
                     child: Some(
                         Text::new("x")
                             .size(tokens.typography.body_medium_size)
-                            .color(TAB_INACTIVE_TEXT)
+                            .color(palette.tab_inactive_text)
                             .into(),
                     ),
                     on_press: Some(ActionEnvelope {

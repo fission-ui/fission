@@ -280,10 +280,6 @@ fn format_terminal_title(title: &str) -> String {
     }
 }
 
-pub fn configure_embedded_env(_state: &TerminalExampleState, env: &mut fission::core::Env) {
-    env.theme = fission::theme::Theme::dark();
-}
-
 #[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
 pub fn run_desktop() -> anyhow::Result<()> {
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
@@ -291,6 +287,10 @@ pub fn run_desktop() -> anyhow::Result<()> {
         .with_title("Fission Terminal")
         .with_state_init(move |state: &mut TerminalExampleState| state.cwd = cwd.clone())
         .with_startup_action(StartTerminal)
-        .with_sync_env(configure_embedded_env)
+        .with_sync_env(
+            |_state: &TerminalExampleState, env: &mut fission::core::Env| {
+                env.theme = fission::theme::Theme::dark();
+            },
+        )
         .run()
 }

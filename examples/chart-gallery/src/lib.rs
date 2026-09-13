@@ -22,7 +22,7 @@ pub use state::GalleryState;
 
 use fission::prelude::*;
 
-pub fn configure_embedded_env(state: &GalleryState, env: &mut Env) {
+fn sync_standalone_env(state: &GalleryState, env: &mut Env) {
     env.theme = if state.dark_theme {
         Theme::dark()
     } else {
@@ -35,7 +35,7 @@ pub fn run_desktop() -> anyhow::Result<()> {
     DesktopApp::<GalleryState, _>::new(GalleryApp)
         .with_title("Fission Chart Gallery")
         .with_sync_env(|state: &GalleryState, env: &mut Env| {
-            configure_embedded_env(state, env);
+            sync_standalone_env(state, env);
         })
         .run()
 }

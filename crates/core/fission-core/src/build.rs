@@ -773,6 +773,15 @@ impl<S: GlobalState> ViewHandle<S> {
         &self.env().i18n
     }
 
+    /// Returns the translation of `key` for the current locale, or `key` itself
+    /// when the active translations do not define it.
+    ///
+    /// Falling back to the key keeps a missing translation visible and
+    /// searchable instead of rendering an empty label.
+    pub fn tr(&self, key: &str) -> String {
+        self.env().tr(key)
+    }
+
     pub fn get_rect(&self, id: crate::WidgetId) -> Option<crate::LayoutRect> {
         let node_id: fission_ir::WidgetId = id.into();
         self.layout()

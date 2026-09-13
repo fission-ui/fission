@@ -15,7 +15,6 @@ impl From<TerminalExample> for Widget {
             TerminalExampleApp,
         )
         .with_state(terminal_example::embedded_state)
-        .with_env(terminal_example::configure_embedded_env)
         .into()
     }
 }

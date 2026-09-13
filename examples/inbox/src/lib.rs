@@ -90,6 +90,25 @@ pub fn translation_bundles() -> Vec<TranslationBundle> {
     en_messages.insert("header.filters".into(), "Filters".into());
     en_messages.insert("filter.date_range".into(), "Date range".into());
     en_messages.insert("filter.size_mb".into(), "Size (MB)".into());
+    en_messages.insert("compose.title".into(), "New Message".into());
+    en_messages.insert("compose.to_label".into(), "To".into());
+    en_messages.insert("compose.subject_label".into(), "Subject".into());
+    en_messages.insert("compose.subject_placeholder".into(), "Subject".into());
+    en_messages.insert("compose.message_label".into(), "Message".into());
+    en_messages.insert("compose.message_helper".into(), "Markdown supported".into());
+    en_messages.insert(
+        "compose.message_placeholder".into(),
+        "Type your message...".into(),
+    );
+    en_messages.insert("compose.attach_file".into(), "Attach File".into());
+    en_messages.insert("compose.cancel".into(), "Cancel".into());
+    en_messages.insert("compose.send".into(), "Send".into());
+    en_messages.insert("filter.all".into(), "All".into());
+    en_messages.insert("filter.unread".into(), "Unread".into());
+    en_messages.insert("filter.starred".into(), "Starred".into());
+    en_messages.insert("sort.newest".into(), "Newest".into());
+    en_messages.insert("sort.oldest".into(), "Oldest".into());
+    en_messages.insert("sort.unread".into(), "Unread first".into());
     en_messages.insert("tabs.primary".into(), "Primary".into());
     en_messages.insert("tabs.social".into(), "Social".into());
     en_messages.insert("tabs.promotions".into(), "Promotions".into());
@@ -119,6 +138,11 @@ pub fn translation_bundles() -> Vec<TranslationBundle> {
         "Scanning attachments...".into(),
     );
     en_messages.insert("email.power_tip".into(), "Power user tip".into());
+    en_messages.insert("email.detail.date".into(), "Date".into());
+    en_messages.insert("email.detail.to".into(), "To".into());
+    en_messages.insert("email.detail.cc".into(), "Cc".into());
+    en_messages.insert("email.from".into(), "From".into());
+    en_messages.insert("email.jump_to_inbox".into(), "to jump to Inbox".into());
     en_messages.insert("email.history".into(), "History".into());
     en_messages.insert(
         "email.no_history".into(),
@@ -212,6 +236,20 @@ pub fn translation_bundles() -> Vec<TranslationBundle> {
     en_messages.insert("settings.labs.offline".into(), "Offline mail".into());
     en_messages.insert("settings.labs.auto_advance".into(), "Auto-advance".into());
     en_messages.insert("settings.tips.show".into(), "Show quick tips".into());
+    en_messages.insert("settings.signature.label".into(), "Signature".into());
+    en_messages.insert(
+        "settings.signature.helper".into(),
+        "Added to the end of new emails".into(),
+    );
+    en_messages.insert(
+        "settings.signature.placeholder".into(),
+        "Add a signature".into(),
+    );
+    en_messages.insert("settings.labels.pinned".into(), "Pinned".into());
+    en_messages.insert("settings.beta".into(), "Beta".into());
+    en_messages.insert("settings.page_size.label".into(), "Page size".into());
+    en_messages.insert("settings.page_size.helper".into(), "Emails per page".into());
+    en_messages.insert("settings.modal.done_label".into(), "Done".into());
 
     bundles.push(TranslationBundle {
         locale: Locale("en-US".into()),
@@ -236,6 +274,25 @@ pub fn translation_bundles() -> Vec<TranslationBundle> {
     es_messages.insert("header.filters".into(), "Filtros".into());
     es_messages.insert("filter.date_range".into(), "Rango de fechas".into());
     es_messages.insert("filter.size_mb".into(), "Tamaño (MB)".into());
+    es_messages.insert("compose.title".into(), "Mensaje nuevo".into());
+    es_messages.insert("compose.to_label".into(), "Para".into());
+    es_messages.insert("compose.subject_label".into(), "Asunto".into());
+    es_messages.insert("compose.subject_placeholder".into(), "Asunto".into());
+    es_messages.insert("compose.message_label".into(), "Mensaje".into());
+    es_messages.insert("compose.message_helper".into(), "Admite Markdown".into());
+    es_messages.insert(
+        "compose.message_placeholder".into(),
+        "Escribe tu mensaje...".into(),
+    );
+    es_messages.insert("compose.attach_file".into(), "Adjuntar archivo".into());
+    es_messages.insert("compose.cancel".into(), "Cancelar".into());
+    es_messages.insert("compose.send".into(), "Enviar".into());
+    es_messages.insert("filter.all".into(), "Todos".into());
+    es_messages.insert("filter.unread".into(), "No leídos".into());
+    es_messages.insert("filter.starred".into(), "Destacados".into());
+    es_messages.insert("sort.newest".into(), "Más recientes".into());
+    es_messages.insert("sort.oldest".into(), "Más antiguos".into());
+    es_messages.insert("sort.unread".into(), "No leídos primero".into());
     es_messages.insert("tabs.primary".into(), "Principal".into());
     es_messages.insert("tabs.social".into(), "Social".into());
     es_messages.insert("tabs.promotions".into(), "Promociones".into());
@@ -265,6 +322,14 @@ pub fn translation_bundles() -> Vec<TranslationBundle> {
         "Escaneando adjuntos...".into(),
     );
     es_messages.insert("email.power_tip".into(), "Consejo avanzado".into());
+    es_messages.insert("email.detail.date".into(), "Fecha".into());
+    es_messages.insert("email.detail.to".into(), "Para".into());
+    es_messages.insert("email.detail.cc".into(), "Cc".into());
+    es_messages.insert("email.from".into(), "De".into());
+    es_messages.insert(
+        "email.jump_to_inbox".into(),
+        "para ir a la bandeja de entrada".into(),
+    );
     es_messages.insert("email.history".into(), "Historial".into());
     es_messages.insert(
         "email.no_history".into(),
@@ -391,6 +456,23 @@ pub fn translation_bundles() -> Vec<TranslationBundle> {
         "settings.tips.show".into(),
         "Mostrar consejos rápidos".into(),
     );
+    es_messages.insert("settings.signature.label".into(), "Firma".into());
+    es_messages.insert(
+        "settings.signature.helper".into(),
+        "Se añade al final de los correos nuevos".into(),
+    );
+    es_messages.insert(
+        "settings.signature.placeholder".into(),
+        "Añade una firma".into(),
+    );
+    es_messages.insert("settings.labels.pinned".into(), "Fijado".into());
+    es_messages.insert("settings.beta".into(), "Beta".into());
+    es_messages.insert("settings.page_size.label".into(), "Tamaño de página".into());
+    es_messages.insert(
+        "settings.page_size.helper".into(),
+        "Correos por página".into(),
+    );
+    es_messages.insert("settings.modal.done_label".into(), "Listo".into());
 
     bundles.push(TranslationBundle {
         locale: Locale("es-ES".into()),
@@ -400,8 +482,16 @@ pub fn translation_bundles() -> Vec<TranslationBundle> {
     bundles
 }
 
+/// When embedded in another app, such as the example showcase, the host's theme is
+/// kept so the example follows the host's light/dark mode and design system.
 pub fn configure_embedded_env(state: &InboxState, env: &mut Env) {
     env.locale = state.locale.clone();
+}
+
+/// Syncs locale and the Fluent 2 theme for the mode the reader picked, when the
+/// inbox runs as its own app.
+fn sync_standalone_env(state: &InboxState, env: &mut Env) {
+    configure_embedded_env(state, env);
     env.theme = FissionFluent2DesignSystem::theme(if state.theme_mode == "dark" {
         DesignMode::Dark
     } else {
@@ -426,7 +516,7 @@ pub fn devtools() -> fission_devtools::DevtoolsApp<InboxState, InboxApp> {
         InboxApp,
     )
     .with_env(env)
-    .with_sync_env(configure_embedded_env)
+    .with_sync_env(sync_standalone_env)
     .with_route(|state| Some(state.current_path.clone()))
     .with_runtime(|_, registry| {
         register_global_handlers(registry);
@@ -442,31 +532,8 @@ pub fn run_desktop() -> anyhow::Result<()> {
     let mut app = DesktopApp::<InboxState, _>::new(InboxApp)
         .with_title("Fission Inbox")
         .with_env(create_env())
-        // .with_sync_env(|state: &InboxState, env: &mut Env| {
-        //     env.locale = state.locale.clone();
-        //     env.theme = if state.theme_mode == "Dark" {
-        //         Theme::dark()
-        //     } else {
-        //         Theme::default()
-        //     };
-        // })
-        // .with_design_system::<FissionCupertinoDesignSystem>(DesignMode::Light)
-        // .with_sync_env(|state: &InboxState, env: &mut Env| {
-        //     env.locale = state.locale.clone();
-        //     env.theme = FissionCupertinoDesignSystem::theme(if state.theme_mode == "dark"{ DesignMode::Dark} else {DesignMode::Light});
-        // })
-        // .with_design_system::<FissionLiquidGlassDesignSystem>(DesignMode::Light)
-        // .with_sync_env(|state: &InboxState, env: &mut Env| {
-        //     env.locale = state.locale.clone();
-        //     env.theme = FissionLiquidGlassDesignSystem::theme(if state.theme_mode == "dark"{ DesignMode::Dark} else {DesignMode::Light});
-        // })
-        // .with_design_system::<FissionMaterialDesign3DesignSystem>(DesignMode::Light)
-        // .with_sync_env(|state: &InboxState, env: &mut Env| {
-        //     env.locale = state.locale.clone();
-        //     env.theme = FissionMaterialDesign3DesignSystem::theme(if state.theme_mode == "dark"{ DesignMode::Dark} else {DesignMode::Light});
-        // })
         .with_design_system::<FissionFluent2DesignSystem>(DesignMode::Light)
-        .with_sync_env(configure_embedded_env);
+        .with_sync_env(sync_standalone_env);
 
     // Register global handlers
     let mut registry = ActionRegistry::new();

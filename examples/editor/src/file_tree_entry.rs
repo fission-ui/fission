@@ -1,8 +1,5 @@
 use crate::model::{EditorState, FileEntry, OpenFile, ShowContextMenu, ToggleTreeNode};
-use crate::palette::{
-    FILE_CONFIG, FILE_DATA, FILE_FOLDER, FILE_GO, FILE_HTML, FILE_MARKUP, FILE_MUTED, FILE_NEUTRAL,
-    FILE_PYTHON, FILE_RUBY, FILE_RUST, FILE_SCRIPT, FILE_WEB_STYLE, FILE_YAML,
-};
+use crate::palette::EditorPalette;
 use fission::core::op::Color;
 use fission::core::ui::{
     Button, ButtonContentAlign, ButtonVariant, Container, GestureDetector, Text, TextInput, Widget,
@@ -31,6 +28,7 @@ pub(crate) struct FileTreeEntry {
 impl From<FileTreeEntry> for Widget {
     fn from(component: FileTreeEntry) -> Self {
         let (_, view) = fission::build::current::<EditorState>();
+        let palette = EditorPalette::from_theme(&view.env().theme);
         let tokens = &view.env().theme.tokens;
         let entry = component.entry;
         let is_expanded = view.state().tree_expanded.contains(&entry.path);
@@ -38,9 +36,9 @@ impl From<FileTreeEntry> for Widget {
         let is_renaming = view.state().renaming_path.as_deref() == Some(&entry.path);
 
         let icon_color = if entry.is_dir {
-            FILE_FOLDER
+            palette.file_folder
         } else {
-            file_icon_color(&entry.name)
+            file_icon_color(&entry.name, &palette)
         };
         let chevron = match (entry.is_dir, is_expanded) {
             (true, true) => "v",
@@ -166,21 +164,21 @@ impl From<FileTreeEntry> for Widget {
     }
 }
 
-fn file_icon_color(name: &str) -> Color {
+fn file_icon_color(name: &str, palette: &EditorPalette) -> Color {
     match name.rsplit('.').next().unwrap_or("") {
-        "rs" => FILE_RUST,
-        "toml" => FILE_CONFIG,
-        "md" | "css" | "scss" | "sass" | "less" => FILE_WEB_STYLE,
-        "json" => FILE_DATA,
-        "js" | "jsx" | "ts" | "tsx" | "mjs" => FILE_SCRIPT,
-        "lock" => FILE_MUTED,
-        "sh" | "bash" | "zsh" | "fish" => FILE_NEUTRAL,
-        "html" | "htm" => FILE_HTML,
-        "xml" | "svg" => FILE_MARKUP,
-        "py" | "pyi" => FILE_PYTHON,
-        "yaml" | "yml" => FILE_YAML,
-        "rb" => FILE_RUBY,
-        "go" => FILE_GO,
-        _ => FILE_NEUTRAL,
+        "rs" => palette.file_rust,
+        "toml" => palette.file_config,
+        "md" | "css" | "scss" | "sass" | "less" => palette.file_web_style,
+        "json" => palette.file_data,
+        "js" | "jsx" | "ts" | "tsx" | "mjs" => palette.file_script,
+        "lock" => palette.file_muted,
+        "sh" | "bash" | "zsh" | "fish" => palette.file_neutral,
+        "html" | "htm" => palette.file_html,
+        "xml" | "svg" => palette.file_markup,
+        "py" | "pyi" => palette.file_python,
+        "yaml" | "yml" => palette.file_yaml,
+        "rb" => palette.file_ruby,
+        "go" => palette.file_go,
+        _ => palette.file_neutral,
     }
 }

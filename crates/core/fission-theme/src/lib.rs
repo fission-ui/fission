@@ -3732,6 +3732,7 @@ pub mod recipe_names {
     pub const BUTTON: &str = "button";
     pub const CARD: &str = "card";
     pub const CODE: &str = "code";
+    pub const CODE_SYNTAX: &str = "code_syntax";
     pub const DIVIDER: &str = "divider";
     pub const EMPTY_STATE: &str = "empty_state";
     pub const FEATURE_ICON: &str = "feature_icon";
@@ -3777,6 +3778,7 @@ pub mod recipe_names {
         BUTTON,
         CARD,
         CODE,
+        CODE_SYNTAX,
         DIVIDER,
         EMPTY_STATE,
         FEATURE_ICON,

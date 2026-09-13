@@ -138,6 +138,7 @@ pub const REQUIRED_COMPONENT_RECIPES: &[&str] = &[
     "button",
     "card",
     "code",
+    "code_syntax",
     "divider",
     "empty_state",
     "feature_icon",

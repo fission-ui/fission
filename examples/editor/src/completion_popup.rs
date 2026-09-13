@@ -7,7 +7,7 @@ use crate::layout::{
     OVERLAY_HORIZONTAL_RESERVE, OVERLAY_MIN_INSET,
 };
 use crate::model::*;
-use crate::palette::{FLYOUT_BG, FLYOUT_BORDER, TRANSPARENT};
+use crate::palette::EditorPalette;
 use fission::core::ui::{Container, GestureDetector, Positioned, Scroll, Widget, ZStack};
 use fission::core::{reduce_with, FlexDirection, PortalLayer, WidgetId};
 use fission::widgets::{Spacer, VStack};
@@ -17,6 +17,7 @@ pub struct CompletionPopup;
 impl From<CompletionPopup> for Widget {
     fn from(_component: CompletionPopup) -> Self {
         let (ctx, view) = fission::build::current::<EditorState>();
+        let palette = EditorPalette::from_theme(&view.env().theme);
         let tokens = &view.env().theme.tokens;
         if !view.state().show_completions || view.state().completions.is_empty() {
             return Spacer {
@@ -112,8 +113,8 @@ impl From<CompletionPopup> for Widget {
             flex_shrink: 1.0,
             ..Default::default()
         })
-        .bg(FLYOUT_BG)
-        .border(FLYOUT_BORDER, 1.0)
+        .bg(palette.flyout_bg)
+        .border(palette.flyout_border, 1.0)
         .border_radius(tokens.radii.small)
         .max_height(popup_height)
         .width(popup_width)
@@ -131,7 +132,7 @@ impl From<CompletionPopup> for Widget {
         let backdrop = GestureDetector {
             on_tap: Some(dismiss.clone()),
             child: Container::new(Spacer::default())
-                .bg(TRANSPARENT)
+                .bg(palette.transparent)
                 .flex_grow(1.0)
                 .into(),
             ..Default::default()

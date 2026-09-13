@@ -245,6 +245,17 @@ impl std::fmt::Debug for Env {
 }
 
 impl Env {
+    /// Returns the translation of `key` for the current locale, or `key` itself
+    /// when the active translations do not define it.
+    ///
+    /// Falling back to the key keeps a missing translation visible and
+    /// searchable instead of rendering an empty label.
+    pub fn tr(&self, key: &str) -> String {
+        self.i18n
+            .get(&self.locale, key)
+            .map_or_else(|| key.to_string(), str::to_string)
+    }
+
     pub fn new(measurer: Arc<dyn fission_layout::TextMeasurer>) -> Self {
         Self {
             theme: Theme::default(),

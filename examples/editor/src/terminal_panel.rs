@@ -5,7 +5,7 @@ use crate::layout::{
 };
 use crate::layout::{MIN_TERMINAL_HEIGHT, PANEL_HEADER_HEIGHT, TERMINAL_HEIGHT_FRACTION};
 use crate::model::{BottomPanelTab, EditorState};
-use crate::palette::{BORDER_COLOR, DIM_TEXT, SURFACE_BG, TERMINAL_BG};
+use crate::palette::EditorPalette;
 use crate::terminal_panel_tab::TerminalPanelTab;
 use fission::core::reduce_with;
 use fission::core::ui::{Container, Text, Widget};
@@ -20,6 +20,7 @@ pub struct TerminalPanel;
 impl From<TerminalPanel> for Widget {
     fn from(_component: TerminalPanel) -> Self {
         let (ctx, view) = fission::build::current::<EditorState>();
+        let palette = EditorPalette::from_theme(&view.env().theme);
         let tokens = &view.env().theme.tokens;
         let is_terminal = view.state().bottom_panel_tab == BottomPanelTab::Terminal;
         let is_problems = view.state().bottom_panel_tab == BottomPanelTab::Problems;
@@ -76,15 +77,15 @@ impl From<TerminalPanel> for Widget {
                 Container::new(
                     Text::new(title)
                         .size(tokens.typography.font_size_xs)
-                        .color(DIM_TEXT),
+                        .color(palette.dim_text),
                 )
                 .padding_all(tokens.spacing.s)
                 .into(),
             ],
         })
-        .bg(SURFACE_BG)
+        .bg(palette.surface_bg)
         .height(PANEL_HEADER_HEIGHT)
-        .border(BORDER_COLOR, 1.0)
+        .border(palette.border_color, 1.0)
         .flex_shrink(0.0)
         .into();
 
@@ -122,10 +123,10 @@ impl From<TerminalPanel> for Widget {
                 Container::new(
                     Text::new("Terminal session unavailable")
                         .size(tokens.typography.font_size_sm)
-                        .color(DIM_TEXT),
+                        .color(palette.dim_text),
                 )
                 .padding_all(tokens.spacing.m)
-                .bg(TERMINAL_BG)
+                .bg(palette.terminal_bg)
                 .flex_grow(1.0)
                 .into()
             }
@@ -137,10 +138,10 @@ impl From<TerminalPanel> for Widget {
             Container::new(
                 Text::new("The integrated terminal requires native process access.")
                     .size(tokens.typography.font_size_sm)
-                    .color(DIM_TEXT),
+                    .color(palette.dim_text),
             )
             .padding_all(tokens.spacing.m)
-            .bg(TERMINAL_BG)
+            .bg(palette.terminal_bg)
             .flex_grow(1.0)
             .into()
         } else {
@@ -164,7 +165,7 @@ impl From<TerminalPanel> for Widget {
                 (view.viewport_size().height * TERMINAL_HEIGHT_FRACTION).max(MIN_TERMINAL_HEIGHT),
             ),
         )
-        .bg(TERMINAL_BG)
+        .bg(palette.terminal_bg)
         .flex_shrink(0.0)
         .into()
     }

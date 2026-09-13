@@ -4,9 +4,7 @@ use crate::layout::{
     MINIMAP_VISIBLE_LINE_COUNT, MINIMAP_WIDTH,
 };
 use crate::model::EditorState;
-use crate::palette::{
-    MINIMAP_BG, MINIMAP_CODE, MINIMAP_COMMENT, MINIMAP_EMPTY, MINIMAP_STRING, MINIMAP_VIEWPORT,
-};
+use crate::palette::EditorPalette;
 use fission::prelude::*;
 use fission::widgets::{Spacer, VStack};
 
@@ -18,21 +16,22 @@ use fission::widgets::{Spacer, VStack};
 pub struct Minimap;
 
 /// Classify a single trimmed source line into a colour.
-fn line_color(trimmed: &str) -> Color {
+fn line_color(trimmed: &str, palette: &EditorPalette) -> Color {
     if trimmed.is_empty() {
-        MINIMAP_EMPTY
+        palette.minimap_empty
     } else if trimmed.starts_with("//") || trimmed.starts_with("/*") || trimmed.starts_with('*') {
-        MINIMAP_COMMENT
+        palette.minimap_comment
     } else if trimmed.contains('"') {
-        MINIMAP_STRING
+        palette.minimap_string
     } else {
-        MINIMAP_CODE
+        palette.minimap_code
     }
 }
 
 impl From<Minimap> for Widget {
     fn from(_component: Minimap) -> Self {
         let (_ctx, view) = fission::build::current::<EditorState>();
+        let palette = EditorPalette::from_theme(&view.env().theme);
         let tokens = &view.env().theme.tokens;
         // If there is no active buffer we collapse to nothing.
         let Some((_tab, buffer)) = view.state().active_buffer() else {
@@ -69,7 +68,7 @@ impl From<Minimap> for Widget {
                 continue;
             }
             let trimmed = line.trim();
-            let color = line_color(trimmed);
+            let color = line_color(trimmed, &palette);
 
             let width = (trimmed.len() as f32 * MINIMAP_CHARACTER_WIDTH_FACTOR)
                 .clamp(MINIMAP_MIN_BAR_WIDTH, MINIMAP_MAX_BAR_WIDTH);
@@ -86,7 +85,7 @@ impl From<Minimap> for Widget {
                 bars.push(
                     Container::new(bar)
                         .height(scale)
-                        .bg(MINIMAP_VIEWPORT)
+                        .bg(palette.minimap_viewport)
                         .into(),
                 );
             } else {
@@ -99,7 +98,7 @@ impl From<Minimap> for Widget {
             children: bars,
         })
         .width(MINIMAP_WIDTH)
-        .bg(MINIMAP_BG)
+        .bg(palette.minimap_bg)
         .padding_all(tokens.spacing.xs)
         .flex_shrink(0.0)
         .into()
