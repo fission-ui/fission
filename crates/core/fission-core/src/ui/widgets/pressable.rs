@@ -787,78 +787,86 @@ impl Lower for Pressable {
         let id = self.id.unwrap_or_else(|| cx.next_node_id());
         let layout_id = cx.next_node_id();
         let style = self.animated_style(cx, id, self.resolved_style(cx, id));
-        cx.push_scope(layout_id);
-
-        let mut layout_style = self.layout.clone();
-        layout_style.padding = style.padding.clone().or(layout_style.padding);
-        let margin_style = split_box_margin(&mut layout_style);
-        let position = layout_style.position.take();
-        let grid = layout_style.grid.take();
-        let flex_grow = layout_style
-            .flex_grow
-            .map(|value| value.0)
-            .unwrap_or(self.flex_grow);
-        let flex_shrink = layout_style
-            .flex_shrink
-            .map(|value| value.0)
-            .unwrap_or(self.flex_shrink);
-        let mut layout = IrBuilder::new(
-            layout_id,
-            Op::Layout(LayoutOp::StyledBox {
-                style: layout_style,
-                flex_grow,
-                flex_shrink,
-            }),
-        )
-        .composite(CompositeStyle {
-            opacity: self
-                .transition
-                .is_none()
-                .then(|| style.opacity.map(CompositeScalar::new))
-                .flatten(),
-            scale: self
-                .transition
-                .is_none()
-                .then(|| style.scale.map(CompositeScalar::new))
-                .flatten(),
-            ..Default::default()
-        });
-
-        for shadow in style.shadows.as_deref().unwrap_or_default() {
-            layout.add_child(
-                IrBuilder::new(
-                    cx.next_node_id(),
-                    Op::Paint(PaintOp::DrawRect {
-                        fill: None,
-                        stroke: None,
-                        corner_radius: style.corner_radius.unwrap_or(0.0),
-                        shadow: Some(*shadow),
-                        corner_radii: None,
-                        border_sides: None,
+        let (margin_style, position, grid, flex_grow, flex_shrink, layout_id) =
+            cx.with_scope(layout_id, |cx| {
+                let mut layout_style = self.layout.clone();
+                layout_style.padding = style.padding.clone().or(layout_style.padding);
+                let margin_style = split_box_margin(&mut layout_style);
+                let position = layout_style.position.take();
+                let grid = layout_style.grid.take();
+                let flex_grow = layout_style
+                    .flex_grow
+                    .map(|value| value.0)
+                    .unwrap_or(self.flex_grow);
+                let flex_shrink = layout_style
+                    .flex_shrink
+                    .map(|value| value.0)
+                    .unwrap_or(self.flex_shrink);
+                let mut layout = IrBuilder::new(
+                    layout_id,
+                    Op::Layout(LayoutOp::StyledBox {
+                        style: layout_style,
+                        flex_grow,
+                        flex_shrink,
                     }),
                 )
-                .build(cx),
-            );
-        }
-        if style.background.is_some() || style.border.is_some() {
-            layout.add_child(
-                IrBuilder::new(
-                    cx.next_node_id(),
-                    Op::Paint(PaintOp::DrawRect {
-                        fill: style.background,
-                        stroke: style.border,
-                        corner_radius: style.corner_radius.unwrap_or(0.0),
-                        shadow: None,
-                        corner_radii: None,
-                        border_sides: None,
-                    }),
+                .composite(CompositeStyle {
+                    opacity: self
+                        .transition
+                        .is_none()
+                        .then(|| style.opacity.map(CompositeScalar::new))
+                        .flatten(),
+                    scale: self
+                        .transition
+                        .is_none()
+                        .then(|| style.scale.map(CompositeScalar::new))
+                        .flatten(),
+                    ..Default::default()
+                });
+
+                for shadow in style.shadows.as_deref().unwrap_or_default() {
+                    layout.add_child(
+                        IrBuilder::new(
+                            cx.next_node_id(),
+                            Op::Paint(PaintOp::DrawRect {
+                                fill: None,
+                                stroke: None,
+                                corner_radius: style.corner_radius.unwrap_or(0.0),
+                                shadow: Some(*shadow),
+                                corner_radii: None,
+                                border_sides: None,
+                            }),
+                        )
+                        .build(cx),
+                    );
+                }
+                if style.background.is_some() || style.border.is_some() {
+                    layout.add_child(
+                        IrBuilder::new(
+                            cx.next_node_id(),
+                            Op::Paint(PaintOp::DrawRect {
+                                fill: style.background,
+                                stroke: style.border,
+                                corner_radius: style.corner_radius.unwrap_or(0.0),
+                                shadow: None,
+                                corner_radii: None,
+                                border_sides: None,
+                            }),
+                        )
+                        .build(cx),
+                    );
+                }
+                layout.add_child(self.child.lower(cx));
+                let layout_id = layout.build(cx);
+                (
+                    margin_style,
+                    position,
+                    grid,
+                    flex_grow,
+                    flex_shrink,
+                    layout_id,
                 )
-                .build(cx),
-            );
-        }
-        layout.add_child(self.child.lower(cx));
-        let layout_id = layout.build(cx);
-        cx.pop_scope();
+            });
 
         let mut semantics = Semantics {
             role: self.role.semantics_role(),

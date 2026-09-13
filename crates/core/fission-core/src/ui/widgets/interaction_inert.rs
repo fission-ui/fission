@@ -17,9 +17,7 @@ pub(crate) struct InteractionInert {
 impl LowerWidget for InteractionInert {
     fn lower_dyn(&self, cx: &mut LoweringContext) -> WidgetId {
         let id = self.id;
-        cx.push_scope(id);
-        let child = crate::internal::lower_widget(&self.child, cx);
-        cx.pop_scope();
+        let child = cx.with_scope(id, |cx| crate::internal::lower_widget(&self.child, cx));
 
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
         id.hash(&mut hasher);

@@ -39,9 +39,7 @@ fn test_scene3d_lowering() {
 
     // Simulate lowering context initialization
     let root_id = cx.next_node_id();
-    cx.push_scope(root_id);
-
-    let generated_id = lowerer.lower_dyn(&mut cx);
+    let generated_id = cx.with_scope(root_id, |cx| lowerer.lower_dyn(cx));
 
     let ir = cx.into_ir();
     let node = ir.nodes.get(&generated_id).expect("Node should exist");

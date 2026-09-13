@@ -516,87 +516,87 @@ impl Container {
 impl Lower for Container {
     fn lower(&self, cx: &mut LoweringContext) -> WidgetId {
         let id = self.id.map(Into::into).unwrap_or_else(|| cx.next_node_id());
-        cx.push_scope(id);
+        let children_ids = cx.with_scope(id, |cx| {
+            // Reading order is resolved once here rather than in each paint op, the
+            // same way directional padding is resolved once during layout.
+            let mirror = cx.env.layout_direction == fission_ir::LayoutDirection::RightToLeft;
+            let corner_radii = self
+                .border_radii
+                .map(|radii| if mirror { radii.mirrored() } else { radii });
+            let border_sides =
+                self.border_sides
+                    .clone()
+                    .map(|sides| if mirror { sides.mirrored() } else { sides });
 
-        // Reading order is resolved once here rather than in each paint op, the
-        // same way directional padding is resolved once during layout.
-        let mirror = cx.env.layout_direction == fission_ir::LayoutDirection::RightToLeft;
-        let corner_radii = self
-            .border_radii
-            .map(|radii| if mirror { radii.mirrored() } else { radii });
-        let border_sides =
-            self.border_sides
-                .clone()
-                .map(|sides| if mirror { sides.mirrored() } else { sides });
+            let mut children_ids = Vec::new();
 
-        let mut children_ids = Vec::new();
-
-        if let Some(filter) = self.backdrop_filter.clone() {
-            let paint = IrBuilder::new(
-                cx.next_node_id(),
-                Op::Paint(PaintOp::BackdropFilter {
-                    filter,
-                    corner_radius: self.border_radius,
-                    corner_radii,
-                }),
-            )
-            .build(cx);
-            children_ids.push(paint);
-        }
-
-        // 1. Background Layer (PaintOp -> AbsoluteFill)
-        if self.background_fill.is_some()
-            || self.background_color.is_some()
-            || self.border_color.is_some()
-            || border_sides.is_some()
-            || self.shadow.is_some()
-            || !self.shadows.is_empty()
-        {
-            for shadow in &self.shadows {
+            if let Some(filter) = self.backdrop_filter.clone() {
                 let paint = IrBuilder::new(
                     cx.next_node_id(),
-                    Op::Paint(PaintOp::DrawRect {
-                        fill: None,
-                        stroke: None,
+                    Op::Paint(PaintOp::BackdropFilter {
+                        filter,
                         corner_radius: self.border_radius,
-                        shadow: Some(*shadow),
                         corner_radii,
-                        border_sides: None,
                     }),
                 )
                 .build(cx);
                 children_ids.push(paint);
             }
-            let paint = IrBuilder::new(
-                cx.next_node_id(),
-                Op::Paint(PaintOp::DrawRect {
-                    fill: self
-                        .background_fill
-                        .clone()
-                        .or_else(|| self.background_color.map(Fill::Solid)),
-                    stroke: self.border_color.map(|c| Stroke {
-                        fill: Fill::Solid(c),
-                        width: self.border_width,
-                        dash_array: self.border_dash.clone(),
-                        line_cap: fission_ir::op::LineCap::Butt,
-                        line_join: fission_ir::op::LineJoin::Miter,
+
+            // 1. Background Layer (PaintOp -> AbsoluteFill)
+            if self.background_fill.is_some()
+                || self.background_color.is_some()
+                || self.border_color.is_some()
+                || border_sides.is_some()
+                || self.shadow.is_some()
+                || !self.shadows.is_empty()
+            {
+                for shadow in &self.shadows {
+                    let paint = IrBuilder::new(
+                        cx.next_node_id(),
+                        Op::Paint(PaintOp::DrawRect {
+                            fill: None,
+                            stroke: None,
+                            corner_radius: self.border_radius,
+                            shadow: Some(*shadow),
+                            corner_radii,
+                            border_sides: None,
+                        }),
+                    )
+                    .build(cx);
+                    children_ids.push(paint);
+                }
+                let paint = IrBuilder::new(
+                    cx.next_node_id(),
+                    Op::Paint(PaintOp::DrawRect {
+                        fill: self
+                            .background_fill
+                            .clone()
+                            .or_else(|| self.background_color.map(Fill::Solid)),
+                        stroke: self.border_color.map(|c| Stroke {
+                            fill: Fill::Solid(c),
+                            width: self.border_width,
+                            dash_array: self.border_dash.clone(),
+                            line_cap: fission_ir::op::LineCap::Butt,
+                            line_join: fission_ir::op::LineJoin::Miter,
+                        }),
+                        corner_radius: self.border_radius,
+                        shadow: self.shadow,
+                        corner_radii,
+                        border_sides: border_sides.clone(),
                     }),
-                    corner_radius: self.border_radius,
-                    shadow: self.shadow,
-                    corner_radii,
-                    border_sides: border_sides.clone(),
-                }),
-            )
-            .build(cx);
-            children_ids.push(paint);
-        }
+                )
+                .build(cx);
+                children_ids.push(paint);
+            }
 
-        // 2. Content Layer
-        if let Some(child) = &self.child {
-            children_ids.push(child.lower(cx));
-        }
+            // 2. Content Layer
+            if let Some(child) = &self.child {
+                children_ids.push(child.lower(cx));
+            }
 
-        cx.pop_scope();
+            children_ids
+        });
 
         let mut style = self.box_style.clone();
         style.width = style.width.or(self.width.map(Length::Points));

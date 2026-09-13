@@ -27,21 +27,23 @@ impl Lower for FocusScope {
     fn lower(&self, cx: &mut LoweringContext) -> WidgetId {
         let id = self.id.map(Into::into).unwrap_or_else(|| cx.next_node_id());
 
-        cx.push_scope(id);
-        let mut child_ids = Vec::new();
-        for child in &self.children {
-            child_ids.push(child.lower(cx));
-        }
-        cx.pop_scope();
+        let child_ids = cx.with_scope(id, |cx| {
+            let mut child_ids = Vec::new();
+            for child in &self.children {
+                child_ids.push(child.lower(cx));
+            }
+            child_ids
+        });
 
         // Wrap children in a ZStack layout node
         let layout_id = cx.next_node_id();
-        cx.push_scope(layout_id);
-        let mut wrapped_children = Vec::with_capacity(child_ids.len());
-        for cid in child_ids {
-            wrapped_children.push(wrap_zstack_child(cx, cid));
-        }
-        cx.pop_scope();
+        let wrapped_children = cx.with_scope(layout_id, |cx| {
+            let mut wrapped_children = Vec::with_capacity(child_ids.len());
+            for cid in child_ids {
+                wrapped_children.push(wrap_zstack_child(cx, cid));
+            }
+            wrapped_children
+        });
 
         let mut layout_builder =
             IrBuilder::new(layout_id, Op::Layout(fission_ir::LayoutOp::ZStack));

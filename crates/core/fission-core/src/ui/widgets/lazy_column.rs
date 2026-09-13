@@ -49,9 +49,9 @@ impl Lower for LazyColumn {
             let mut column_children = Vec::new();
             for (i, child) in self.children.iter().enumerate() {
                 let child_scope = WidgetId::derived(col_id.as_u128(), &[i as u32]);
-                cx.push_scope(child_scope);
-                column_children.push(child.lower(cx));
-                cx.pop_scope();
+                cx.with_scope(child_scope, |cx| {
+                    column_children.push(child.lower(cx));
+                });
             }
 
             let mut col = IrBuilder::new(
@@ -209,9 +209,9 @@ impl Lower for LazyColumn {
             for (offset, child) in visible.iter().enumerate() {
                 let i = start_index + offset;
                 let child_scope = WidgetId::derived(col_id.as_u128(), &[i as u32]);
-                cx.push_scope(child_scope);
-                column_children.push(child.lower(cx));
-                cx.pop_scope();
+                cx.with_scope(child_scope, |cx| {
+                    column_children.push(child.lower(cx));
+                });
             }
         }
 

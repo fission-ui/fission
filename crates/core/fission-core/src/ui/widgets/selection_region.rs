@@ -452,193 +452,195 @@ pub(crate) fn wrap_implicit_selection_affordances(
 impl Lower for SelectionRegion {
     fn lower(&self, cx: &mut LoweringContext) -> WidgetId {
         let owner = self.id.unwrap_or_else(|| cx.next_node_id());
-        cx.push_scope(owner);
-        let child_id = self.child.lower(cx);
-        let member_ids = selectable_members_in_subtree(&cx.ir, child_id);
+        let owner = cx.with_scope(owner, |cx| {
+            let child_id = self.child.lower(cx);
+            let member_ids = selectable_members_in_subtree(&cx.ir, child_id);
 
-        let document = member_ids
-            .iter()
-            .filter_map(|id| {
-                cx.ir.nodes.get(id).and_then(|node| match &node.op {
-                    Op::Semantics(semantics) => semantics.value.as_deref(),
-                    _ => None,
-                })
-            })
-            .collect::<Vec<_>>()
-            .join(&self.separator);
-        let runtime_selection = cx.runtime_state.selectable_text.region_selection(owner);
-        let accessibility_selection = runtime_selection.and_then(|selection| {
-            let mut offset = 0;
-            let mut base = None;
-            let mut extent = None;
-            for (index, member_id) in member_ids.iter().enumerate() {
-                if index > 0 {
-                    offset += self.separator.len();
-                }
-                let value_len = cx
-                    .ir
-                    .nodes
-                    .get(member_id)
-                    .and_then(|node| match &node.op {
-                        Op::Semantics(semantics) => semantics.value.as_ref(),
-                        _ => None,
-                    })
-                    .map_or(0, String::len);
-                if selection.base.node_id == *member_id {
-                    base = Some(offset + selection.base.offset.utf8_offset().min(value_len));
-                }
-                if selection.extent.node_id == *member_id {
-                    extent = Some(offset + selection.extent.offset.utf8_offset().min(value_len));
-                }
-                offset += value_len;
-            }
-            Some((base?, extent?))
-        });
-
-        let selection_present =
-            runtime_selection.is_some_and(|selection| !selection.is_collapsed());
-        let region_state = cx
-            .runtime_state
-            .selectable_text
-            .region(owner)
-            .cloned()
-            .unwrap_or_default();
-        let touch_affordances = self
-            .controls
-            .platform_style
-            .uses_touch_affordances(region_state.pointer_kind);
-        let mut overlays = Vec::new();
-        if !self.excluded && touch_affordances && self.controls.selection_controls.enabled {
-            if selection_present {
-                if let Some(point) = region_state.selection_start_handle {
-                    overlays.push(build_selection_handle(
-                        cx,
-                        owner,
-                        &self.controls.selection_controls,
-                        TextSelectionHandleKind::Start,
-                        point,
-                    ));
-                }
-                if let Some(point) = region_state.selection_end_handle {
-                    overlays.push(build_selection_handle(
-                        cx,
-                        owner,
-                        &self.controls.selection_controls,
-                        TextSelectionHandleKind::End,
-                        point,
-                    ));
-                }
-            } else if self.controls.selection_controls.show_collapsed_handle {
-                if let Some(point) = region_state.caret_handle {
-                    overlays.push(build_selection_handle(
-                        cx,
-                        owner,
-                        &self.controls.selection_controls,
-                        TextSelectionHandleKind::Caret,
-                        point,
-                    ));
-                }
-            }
-        }
-        if !self.excluded
-            && touch_affordances
-            && self.controls.magnifier_configuration.enabled
-            && region_state.magnifier_visible
-        {
-            if let (Some(anchor), Some(selection)) =
-                (region_state.magnifier_anchor, runtime_selection)
-            {
-                let member_text = cx
-                    .ir
-                    .nodes
-                    .get(&selection.extent.node_id)
-                    .and_then(|node| match &node.op {
+            let document = member_ids
+                .iter()
+                .filter_map(|id| {
+                    cx.ir.nodes.get(id).and_then(|node| match &node.op {
                         Op::Semantics(semantics) => semantics.value.as_deref(),
                         _ => None,
                     })
-                    .unwrap_or_default()
-                    .to_owned();
-                overlays.push(build_magnifier(
-                    cx,
-                    owner,
-                    &self.controls.magnifier_configuration,
-                    anchor,
-                    &member_text,
-                    selection.extent.offset.utf8_offset(),
-                ));
-            }
-        }
-        if !self.excluded
-            && self.controls.context_menu.enabled
-            && cx.runtime_state.context_menu.owner == Some(owner)
-        {
-            let anchor = cx
-                .runtime_state
-                .context_menu
-                .anchor
-                .map(|point| anchor_to_local(cx, owner, point))
-                .unwrap_or_default();
-            let menu = if touch_affordances {
-                build_mobile_toolbar(
-                    &self.controls.context_menu,
-                    owner,
-                    anchor,
-                    selection_present,
-                    !document.is_empty(),
-                )
-            } else {
-                text_context_menu_overlay_widget(
-                    &self.controls.context_menu,
-                    owner,
-                    anchor,
-                    |action| match action {
-                        TextContextMenuAction::Copy => selection_present,
-                        TextContextMenuAction::SelectAll => !document.is_empty(),
-                        TextContextMenuAction::Cut | TextContextMenuAction::Paste => false,
-                    },
-                )
-            };
-            overlays.push(menu.lower(cx));
-        }
-        let visual_id = if overlays.is_empty() {
-            child_id
-        } else {
-            let mut stack = IrBuilder::new(cx.next_node_id(), Op::Layout(LayoutOp::ZStack));
-            stack.add_child(child_id);
-            for overlay in overlays {
-                stack.add_child(overlay);
-            }
-            stack.build(cx)
-        };
+                })
+                .collect::<Vec<_>>()
+                .join(&self.separator);
+            let runtime_selection = cx.runtime_state.selectable_text.region_selection(owner);
+            let accessibility_selection = runtime_selection.and_then(|selection| {
+                let mut offset = 0;
+                let mut base = None;
+                let mut extent = None;
+                for (index, member_id) in member_ids.iter().enumerate() {
+                    if index > 0 {
+                        offset += self.separator.len();
+                    }
+                    let value_len = cx
+                        .ir
+                        .nodes
+                        .get(member_id)
+                        .and_then(|node| match &node.op {
+                            Op::Semantics(semantics) => semantics.value.as_ref(),
+                            _ => None,
+                        })
+                        .map_or(0, String::len);
+                    if selection.base.node_id == *member_id {
+                        base = Some(offset + selection.base.offset.utf8_offset().min(value_len));
+                    }
+                    if selection.extent.node_id == *member_id {
+                        extent =
+                            Some(offset + selection.extent.offset.utf8_offset().min(value_len));
+                    }
+                    offset += value_len;
+                }
+                Some((base?, extent?))
+            });
 
-        let semantics = Semantics {
-            role: if self.excluded {
-                Role::Generic
+            let selection_present =
+                runtime_selection.is_some_and(|selection| !selection.is_collapsed());
+            let region_state = cx
+                .runtime_state
+                .selectable_text
+                .region(owner)
+                .cloned()
+                .unwrap_or_default();
+            let touch_affordances = self
+                .controls
+                .platform_style
+                .uses_touch_affordances(region_state.pointer_kind);
+            let mut overlays = Vec::new();
+            if !self.excluded && touch_affordances && self.controls.selection_controls.enabled {
+                if selection_present {
+                    if let Some(point) = region_state.selection_start_handle {
+                        overlays.push(build_selection_handle(
+                            cx,
+                            owner,
+                            &self.controls.selection_controls,
+                            TextSelectionHandleKind::Start,
+                            point,
+                        ));
+                    }
+                    if let Some(point) = region_state.selection_end_handle {
+                        overlays.push(build_selection_handle(
+                            cx,
+                            owner,
+                            &self.controls.selection_controls,
+                            TextSelectionHandleKind::End,
+                            point,
+                        ));
+                    }
+                } else if self.controls.selection_controls.show_collapsed_handle {
+                    if let Some(point) = region_state.caret_handle {
+                        overlays.push(build_selection_handle(
+                            cx,
+                            owner,
+                            &self.controls.selection_controls,
+                            TextSelectionHandleKind::Caret,
+                            point,
+                        ));
+                    }
+                }
+            }
+            if !self.excluded
+                && touch_affordances
+                && self.controls.magnifier_configuration.enabled
+                && region_state.magnifier_visible
+            {
+                if let (Some(anchor), Some(selection)) =
+                    (region_state.magnifier_anchor, runtime_selection)
+                {
+                    let member_text = cx
+                        .ir
+                        .nodes
+                        .get(&selection.extent.node_id)
+                        .and_then(|node| match &node.op {
+                            Op::Semantics(semantics) => semantics.value.as_deref(),
+                            _ => None,
+                        })
+                        .unwrap_or_default()
+                        .to_owned();
+                    overlays.push(build_magnifier(
+                        cx,
+                        owner,
+                        &self.controls.magnifier_configuration,
+                        anchor,
+                        &member_text,
+                        selection.extent.offset.utf8_offset(),
+                    ));
+                }
+            }
+            if !self.excluded
+                && self.controls.context_menu.enabled
+                && cx.runtime_state.context_menu.owner == Some(owner)
+            {
+                let anchor = cx
+                    .runtime_state
+                    .context_menu
+                    .anchor
+                    .map(|point| anchor_to_local(cx, owner, point))
+                    .unwrap_or_default();
+                let menu = if touch_affordances {
+                    build_mobile_toolbar(
+                        &self.controls.context_menu,
+                        owner,
+                        anchor,
+                        selection_present,
+                        !document.is_empty(),
+                    )
+                } else {
+                    text_context_menu_overlay_widget(
+                        &self.controls.context_menu,
+                        owner,
+                        anchor,
+                        |action| match action {
+                            TextContextMenuAction::Copy => selection_present,
+                            TextContextMenuAction::SelectAll => !document.is_empty(),
+                            TextContextMenuAction::Cut | TextContextMenuAction::Paste => false,
+                        },
+                    )
+                };
+                overlays.push(menu.lower(cx));
+            }
+            let visual_id = if overlays.is_empty() {
+                child_id
             } else {
-                Role::Text
-            },
-            value: (!self.excluded).then_some(document),
-            focusable: !self.excluded && !member_ids.is_empty(),
-            read_only: !self.excluded,
-            multiline: member_ids.len() > 1,
-            text_selection: accessibility_selection,
-            context_menu: !self.excluded && self.controls.context_menu.enabled,
-            selection_region: Some(SelectionRegionSemantics {
-                excluded: self.excluded,
-                separator: self.separator.clone(),
-            }),
-            ..Semantics::default()
-        };
-        let mut builder = IrBuilder::new(owner, Op::Semantics(semantics));
-        builder.add_child(visual_id);
-        let owner = builder.build(cx);
-        cx.ir.custom_render_objects.insert(
-            owner,
-            std::sync::Arc::new(SelectionRegionRuntimeConfig {
-                controls: self.controls.clone(),
-            }),
-        );
-        cx.pop_scope();
+                let mut stack = IrBuilder::new(cx.next_node_id(), Op::Layout(LayoutOp::ZStack));
+                stack.add_child(child_id);
+                for overlay in overlays {
+                    stack.add_child(overlay);
+                }
+                stack.build(cx)
+            };
+
+            let semantics = Semantics {
+                role: if self.excluded {
+                    Role::Generic
+                } else {
+                    Role::Text
+                },
+                value: (!self.excluded).then_some(document),
+                focusable: !self.excluded && !member_ids.is_empty(),
+                read_only: !self.excluded,
+                multiline: member_ids.len() > 1,
+                text_selection: accessibility_selection,
+                context_menu: !self.excluded && self.controls.context_menu.enabled,
+                selection_region: Some(SelectionRegionSemantics {
+                    excluded: self.excluded,
+                    separator: self.separator.clone(),
+                }),
+                ..Semantics::default()
+            };
+            let mut builder = IrBuilder::new(owner, Op::Semantics(semantics));
+            builder.add_child(visual_id);
+            let owner = builder.build(cx);
+            cx.ir.custom_render_objects.insert(
+                owner,
+                std::sync::Arc::new(SelectionRegionRuntimeConfig {
+                    controls: self.controls.clone(),
+                }),
+            );
+            owner
+        });
         owner
     }
 }

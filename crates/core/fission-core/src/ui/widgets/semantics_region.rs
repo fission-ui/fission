@@ -326,47 +326,48 @@ impl Default for SemanticsRegion {
 impl Lower for SemanticsRegion {
     fn lower(&self, cx: &mut crate::lowering::LoweringContext) -> WidgetId {
         let id = self.id.map(Into::into).unwrap_or_else(|| cx.next_node_id());
-        cx.push_scope(id);
-        let semantics = Semantics {
-            role: self.role,
-            identifier: self.identifier.clone(),
-            label: self.label.clone(),
-            value: self.value.clone(),
-            hyperlink: self.hyperlink.clone(),
-            popover_target: self.popover_target.clone(),
-            actions: self.actions.clone(),
-            focusable: self.focusable.unwrap_or_else(|| {
-                self.hyperlink.is_some()
-                    || self
-                        .actions
-                        .entries
-                        .iter()
-                        .any(|entry| entry.trigger == ActionTrigger::Default)
-            }),
-            selected: self.selected,
-            expanded: self.expanded,
-            has_popup: self.has_popup,
-            orientation: self.orientation,
-            min_value: self.min_value,
-            max_value: self.max_value,
-            current_value: self.current_value,
-            modal: self.modal,
-            controls: self.controls.clone(),
-            labelled_by: self.labelled_by.clone(),
-            described_by: self.described_by.clone(),
-            active_descendant: self.active_descendant,
-            sequential_focusable: self.sequential_focusable,
-            is_focus_scope: self.is_focus_scope,
-            is_focus_barrier: self.is_focus_barrier,
-            ..Default::default()
-        };
-        let child_id = self.child.as_ref().map(|child| child.lower(cx));
-        let mut builder = IrBuilder::new(id, Op::Semantics(semantics));
-        if let Some(child_id) = child_id {
-            builder.add_child(child_id);
-        }
-        let node_id = builder.build(cx);
-        cx.pop_scope();
+        let node_id = cx.with_scope(id, |cx| {
+            let semantics = Semantics {
+                role: self.role,
+                identifier: self.identifier.clone(),
+                label: self.label.clone(),
+                value: self.value.clone(),
+                hyperlink: self.hyperlink.clone(),
+                popover_target: self.popover_target.clone(),
+                actions: self.actions.clone(),
+                focusable: self.focusable.unwrap_or_else(|| {
+                    self.hyperlink.is_some()
+                        || self
+                            .actions
+                            .entries
+                            .iter()
+                            .any(|entry| entry.trigger == ActionTrigger::Default)
+                }),
+                selected: self.selected,
+                expanded: self.expanded,
+                has_popup: self.has_popup,
+                orientation: self.orientation,
+                min_value: self.min_value,
+                max_value: self.max_value,
+                current_value: self.current_value,
+                modal: self.modal,
+                controls: self.controls.clone(),
+                labelled_by: self.labelled_by.clone(),
+                described_by: self.described_by.clone(),
+                active_descendant: self.active_descendant,
+                sequential_focusable: self.sequential_focusable,
+                is_focus_scope: self.is_focus_scope,
+                is_focus_barrier: self.is_focus_barrier,
+                ..Default::default()
+            };
+            let child_id = self.child.as_ref().map(|child| child.lower(cx));
+            let mut builder = IrBuilder::new(id, Op::Semantics(semantics));
+            if let Some(child_id) = child_id {
+                builder.add_child(child_id);
+            }
+
+            builder.build(cx)
+        });
         node_id
     }
 }

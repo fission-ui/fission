@@ -60,37 +60,37 @@ impl Positioned {}
 impl Lower for Positioned {
     fn lower(&self, cx: &mut LoweringContext) -> WidgetId {
         let id = self.id.map(Into::into).unwrap_or_else(|| cx.next_node_id());
-        cx.push_scope(id);
+        let builder = cx.with_scope(id, |cx| {
+            let child_id = if let Some(child) = &self.child {
+                Some(child.lower(cx))
+            } else {
+                None
+            };
 
-        let child_id = if let Some(child) = &self.child {
-            Some(child.lower(cx))
-        } else {
-            None
-        };
+            // Map the inline edges onto physical ones once, here, so no widget has
+            // to branch on reading order to place an overlay.
+            let (start_edge, end_edge) = match cx.env.layout_direction {
+                fission_ir::LayoutDirection::LeftToRight => (self.start, self.end),
+                fission_ir::LayoutDirection::RightToLeft => (self.end, self.start),
+            };
+            let mut builder = IrBuilder::new(
+                id,
+                Op::Layout(LayoutOp::Positioned {
+                    left: start_edge.or(self.left),
+                    top: self.top,
+                    right: end_edge.or(self.right),
+                    bottom: self.bottom,
+                    width: self.width,
+                    height: self.height,
+                }),
+            );
 
-        // Map the inline edges onto physical ones once, here, so no widget has
-        // to branch on reading order to place an overlay.
-        let (start_edge, end_edge) = match cx.env.layout_direction {
-            fission_ir::LayoutDirection::LeftToRight => (self.start, self.end),
-            fission_ir::LayoutDirection::RightToLeft => (self.end, self.start),
-        };
-        let mut builder = IrBuilder::new(
-            id,
-            Op::Layout(LayoutOp::Positioned {
-                left: start_edge.or(self.left),
-                top: self.top,
-                right: end_edge.or(self.right),
-                bottom: self.bottom,
-                width: self.width,
-                height: self.height,
-            }),
-        );
+            if let Some(cid) = child_id {
+                builder.add_child(cid);
+            }
 
-        if let Some(cid) = child_id {
-            builder.add_child(cid);
-        }
-
-        cx.pop_scope();
+            builder
+        });
         builder.build(cx)
     }
 }

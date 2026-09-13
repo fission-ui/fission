@@ -672,49 +672,49 @@ impl From<TabListSurface> for Widget {
 
 impl LowerWidget for TabListSurface {
     fn lower_dyn(&self, cx: &mut LoweringContext) -> WidgetId {
-        cx.push_scope(self.id);
-        let layout_id = cx.next_node_id();
-        cx.push_scope(layout_id);
+        let layout_id = cx.with_scope(self.id, |cx| {
+            let layout_id = cx.next_node_id();
 
-        let mut row = IrBuilder::new(
-            cx.next_node_id(),
-            Op::Layout(LayoutOp::Flex {
-                direction: FlexDirection::Row,
-                wrap: FlexWrap::NoWrap,
-                flex_grow: 0.0,
-                flex_shrink: 1.0,
-                padding: [0.0; 4],
-                gap: Some(self.style.gap.unwrap_or(14.0)),
-                line_gap: None,
-                align_items: AlignItems::Center,
-                justify_content: JustifyContent::Start,
-            }),
-        );
-        for child in &self.children {
-            row.add_child(fission_core::internal::lower_widget(child, cx));
-        }
-        let row_id = row.build(cx);
+            cx.with_scope(layout_id, |cx| {
+                let mut row = IrBuilder::new(
+                    cx.next_node_id(),
+                    Op::Layout(LayoutOp::Flex {
+                        direction: FlexDirection::Row,
+                        wrap: FlexWrap::NoWrap,
+                        flex_grow: 0.0,
+                        flex_shrink: 1.0,
+                        padding: [0.0; 4],
+                        gap: Some(self.style.gap.unwrap_or(14.0)),
+                        line_gap: None,
+                        align_items: AlignItems::Center,
+                        justify_content: JustifyContent::Start,
+                    }),
+                );
+                for child in &self.children {
+                    row.add_child(fission_core::internal::lower_widget(child, cx));
+                }
+                let row_id = row.build(cx);
 
-        let mut layout = IrBuilder::new(
-            layout_id,
-            Op::Layout(LayoutOp::StyledBox {
-                style: recipe_box_style(&self.style, [2.0; 4], BoxAlignment::Start, None),
-                flex_grow: 0.0,
-                flex_shrink: 1.0,
-            }),
-        )
-        .composite(recipe_composite_style(&self.style));
-        append_recipe_paint(
-            &mut layout,
-            cx,
-            &self.style,
-            Some(self.fallback_background.clone()),
-        );
-        layout.add_child(row_id);
-        let layout_id = layout.build(cx);
+                let mut layout = IrBuilder::new(
+                    layout_id,
+                    Op::Layout(LayoutOp::StyledBox {
+                        style: recipe_box_style(&self.style, [2.0; 4], BoxAlignment::Start, None),
+                        flex_grow: 0.0,
+                        flex_shrink: 1.0,
+                    }),
+                )
+                .composite(recipe_composite_style(&self.style));
+                append_recipe_paint(
+                    &mut layout,
+                    cx,
+                    &self.style,
+                    Some(self.fallback_background.clone()),
+                );
+                layout.add_child(row_id);
 
-        cx.pop_scope();
-        cx.pop_scope();
+                layout.build(cx)
+            })
+        });
 
         let mut semantics = IrBuilder::new(
             self.id,
@@ -762,47 +762,47 @@ impl From<TabTriggerSurface> for Widget {
 
 impl LowerWidget for TabTriggerSurface {
     fn lower_dyn(&self, cx: &mut LoweringContext) -> WidgetId {
-        cx.push_scope(self.id);
-        let layout_id = cx.next_node_id();
-        cx.push_scope(layout_id);
+        let layout_id = cx.with_scope(self.id, |cx| {
+            let layout_id = cx.next_node_id();
 
-        let mut content = IrBuilder::new(
-            cx.next_node_id(),
-            Op::Layout(LayoutOp::Flex {
-                direction: FlexDirection::Row,
-                wrap: FlexWrap::NoWrap,
-                flex_grow: 0.0,
-                flex_shrink: 1.0,
-                padding: [0.0; 4],
-                gap: Some(self.style.gap.unwrap_or(0.0)),
-                line_gap: None,
-                align_items: AlignItems::Center,
-                justify_content: JustifyContent::Center,
-            }),
-        );
-        content.add_child(fission_core::internal::lower_widget(&self.child, cx));
-        let content_id = content.build(cx);
+            cx.with_scope(layout_id, |cx| {
+                let mut content = IrBuilder::new(
+                    cx.next_node_id(),
+                    Op::Layout(LayoutOp::Flex {
+                        direction: FlexDirection::Row,
+                        wrap: FlexWrap::NoWrap,
+                        flex_grow: 0.0,
+                        flex_shrink: 1.0,
+                        padding: [0.0; 4],
+                        gap: Some(self.style.gap.unwrap_or(0.0)),
+                        line_gap: None,
+                        align_items: AlignItems::Center,
+                        justify_content: JustifyContent::Center,
+                    }),
+                );
+                content.add_child(fission_core::internal::lower_widget(&self.child, cx));
+                let content_id = content.build(cx);
 
-        let mut layout = IrBuilder::new(
-            layout_id,
-            Op::Layout(LayoutOp::StyledBox {
-                style: recipe_box_style(
-                    &self.style,
-                    [10.0, 10.0, 0.0, 0.0],
-                    BoxAlignment::Center,
-                    Some(38.0),
-                ),
-                flex_grow: 0.0,
-                flex_shrink: 1.0,
-            }),
-        )
-        .composite(recipe_composite_style(&self.style));
-        append_recipe_paint(&mut layout, cx, &self.style, None);
-        layout.add_child(content_id);
-        let layout_id = layout.build(cx);
+                let mut layout = IrBuilder::new(
+                    layout_id,
+                    Op::Layout(LayoutOp::StyledBox {
+                        style: recipe_box_style(
+                            &self.style,
+                            [10.0, 10.0, 0.0, 0.0],
+                            BoxAlignment::Center,
+                            Some(38.0),
+                        ),
+                        flex_grow: 0.0,
+                        flex_shrink: 1.0,
+                    }),
+                )
+                .composite(recipe_composite_style(&self.style));
+                append_recipe_paint(&mut layout, cx, &self.style, None);
+                layout.add_child(content_id);
 
-        cx.pop_scope();
-        cx.pop_scope();
+                layout.build(cx)
+            })
+        });
 
         let mut actions = ActionSet::default();
         if !self.disabled {

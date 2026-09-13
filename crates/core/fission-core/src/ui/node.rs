@@ -880,9 +880,7 @@ impl Widget {
         }
         let root = match &*self.kind {
             WidgetKind::Identified { id, child } => {
-                cx.push_scope(*id);
-                let child_id = child.lower(cx);
-                cx.pop_scope();
+                let child_id = cx.with_scope(*id, |cx| child.lower(cx));
                 let mut builder = crate::lowering::IrBuilder::new(
                     (*id).into(),
                     Op::Structural(StructuralOp::Group {
@@ -935,9 +933,7 @@ impl Widget {
                     .as_ref()
                     .expect("CustomWidget lowerer must be set");
                 let wrapper = lowerer.widget_id().unwrap_or_else(|| cx.next_node_id());
-                cx.push_scope(wrapper);
-                let child_id = lowerer.lower_dyn(cx);
-                cx.pop_scope();
+                let child_id = cx.with_scope(wrapper, |cx| lowerer.lower_dyn(cx));
                 let mut builder = crate::lowering::IrBuilder::new(
                     wrapper,
                     Op::Structural(StructuralOp::Group {

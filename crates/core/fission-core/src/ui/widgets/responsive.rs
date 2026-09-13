@@ -124,13 +124,14 @@ impl Responsive {
 impl Lower for Responsive {
     fn lower(&self, cx: &mut LoweringContext) -> WidgetId {
         let id = self.id.unwrap_or_else(|| cx.next_node_id());
-        cx.push_scope(id);
-        let mut children = Vec::with_capacity(self.cases.len() + 1);
-        for case in &self.cases {
-            children.push(case.child.lower(cx));
-        }
-        children.push(self.fallback.lower(cx));
-        cx.pop_scope();
+        let children = cx.with_scope(id, |cx| {
+            let mut children = Vec::with_capacity(self.cases.len() + 1);
+            for case in &self.cases {
+                children.push(case.child.lower(cx));
+            }
+            children.push(self.fallback.lower(cx));
+            children
+        });
 
         let mut builder = IrBuilder::new(
             id,
