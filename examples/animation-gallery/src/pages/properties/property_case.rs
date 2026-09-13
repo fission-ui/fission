@@ -1,4 +1,4 @@
-use crate::style::{color, BLUE, PINK, TEAL, VIOLET};
+use crate::style;
 use fission::motion::{
     self, deg, px, scalar, MotionEasing, MotionExpr, MotionPhase, MotionPropertyId,
     MotionStartValue, MotionTrack, MotionTransition,
@@ -37,7 +37,7 @@ pub(super) fn property_case(path: &str) -> PropertyCase {
             "Usually disabled or shortened",
             "Good for entrance and shared-position motion.",
             "Slide",
-            BLUE,
+            style::primary(),
             MotionTrack::composite(
                 MotionPropertyId::TranslateX,
                 MotionStartValue::Explicit(px(-32.0)),
@@ -57,7 +57,7 @@ pub(super) fn property_case(path: &str) -> PropertyCase {
             "Often reduced to fade",
             "Use sparingly for popovers, modals, and press feedback.",
             "Scale",
-            VIOLET,
+            style::secondary(),
             MotionTrack::composite(
                 MotionPropertyId::Scale,
                 MotionStartValue::Explicit(scalar(0.86)),
@@ -77,7 +77,7 @@ pub(super) fn property_case(path: &str) -> PropertyCase {
             "Usually disabled",
             "Useful for chevrons and indeterminate progress.",
             "Rotate",
-            PINK,
+            style::warning(),
             MotionTrack::composite(
                 MotionPropertyId::Rotation,
                 MotionStartValue::Explicit(deg(-8.0)),
@@ -97,7 +97,7 @@ pub(super) fn property_case(path: &str) -> PropertyCase {
             "Partial",
             "Accordion/collapse motion should clip the animated panel.",
             "Height",
-            TEAL,
+            style::success(),
             MotionTrack {
                 property: MotionPropertyId::Height,
                 phase: MotionPhase::Layout,
@@ -129,7 +129,7 @@ pub(super) fn property_case(path: &str) -> PropertyCase {
             "Yes",
             "Shape motion should remain subtle and deterministic.",
             "Radius",
-            BLUE,
+            style::primary(),
             MotionTrack {
                 property: MotionPropertyId::CornerRadius,
                 phase: MotionPhase::Paint,
@@ -151,7 +151,7 @@ pub(super) fn property_case(path: &str) -> PropertyCase {
             "Partial",
             "The wrapper clips while height or translate changes.",
             "Reveal",
-            TEAL,
+            style::success(),
             MotionTrack {
                 property: MotionPropertyId::Height,
                 phase: MotionPhase::Layout,
@@ -173,7 +173,7 @@ pub(super) fn property_case(path: &str) -> PropertyCase {
             "Fades only",
             "Opacity is compositor friendly when supported by the shell.",
             "Opacity",
-            BLUE,
+            style::primary(),
             MotionTrack::composite(
                 MotionPropertyId::Opacity,
                 MotionStartValue::Explicit(scalar(0.0)),
@@ -232,12 +232,12 @@ fn color_case(title: &'static str, property: MotionPropertyId, name: &'static st
         "Yes",
         "Color interpolation is typed and cannot be confused with scalar motion.",
         "Color",
-        PINK,
+        style::warning(),
         MotionTrack {
             property,
             phase: MotionPhase::Paint,
-            from: MotionStartValue::Explicit(motion::color(color(120, 95, 255, 255))),
-            to: motion::color(color(15, 160, 172, 255)),
+            from: MotionStartValue::Explicit(motion::color(style::secondary())),
+            to: motion::color(style::success()),
             transition: MotionTransition::tween(180, MotionEasing::EaseOut),
         },
         PROPERTY_COLOR_SOURCE,

@@ -1,4 +1,5 @@
 use super::*;
+use crate::style;
 
 pub(super) struct BottomStrip;
 
@@ -40,9 +41,9 @@ impl From<BottomStrip> for Widget {
             ],
         })
         .padding_all(tokens.spacing.m)
-        .border(BORDER, 1.0)
+        .border(style::border(), 1.0)
         .border_radius(tokens.radii.xl)
-        .bg(SURFACE)
+        .bg(style::surface())
         .into()
     }
 }

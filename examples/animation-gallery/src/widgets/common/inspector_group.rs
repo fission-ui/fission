@@ -1,5 +1,5 @@
 use crate::state::AnimationGalleryState;
-use crate::style::INK;
+use crate::style;
 use crate::ui;
 use fission::prelude::*;
 
@@ -14,7 +14,7 @@ impl From<InspectorGroup<'_>> for Widget {
         let tokens = &view.env().theme.tokens;
         let mut children: Vec<Widget> = widgets![Text::new(group.title)
             .size(tokens.typography.font_size_sm)
-            .color(INK),];
+            .color(style::text_primary()),];
         children.extend(group.rows.iter().map(|label| ui::LabelRow { label }.into()));
 
         Column {

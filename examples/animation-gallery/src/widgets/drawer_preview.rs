@@ -3,7 +3,7 @@ use crate::state::{
     current_composition_atoms, reset_timeline, toggle_play, AnimationGalleryState, MotionAtom,
     MotionChoice, MotionPolicy, ResetTimeline, TogglePlay,
 };
-use crate::style::MUTED;
+use crate::style;
 use crate::ui;
 use fission::build::BuildCtxHandle;
 use fission::prelude::*;
@@ -32,7 +32,7 @@ impl From<DrawerPreview<'_>> for Widget {
                         "Real Drawer widget. Play opens the side panel through the portal layer.",
                     )
                     .size(tokens.typography.font_size_sm)
-                    .color(MUTED),
+                    .color(style::text_muted()),
                     ui::SmallButton {
                         ctx: preview.ctx,
                         label: "Open real drawer",

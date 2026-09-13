@@ -1,7 +1,7 @@
 use super::common::*;
 use super::modal_preview::ModalPreview;
 use crate::state::{AnimationGalleryState, MotionChoice};
-use crate::style::SOFT_VIOLET;
+use crate::style;
 use fission::build::BuildCtxHandle;
 use fission::Widget;
 
@@ -12,7 +12,7 @@ pub const SUMMARY: WidgetSummary = WidgetSummary {
     title: "Modal",
     subtitle: "6 motions",
     glyph: "window",
-    tint: SOFT_VIOLET,
+    tint: style::Tint::Secondary,
 };
 
 pub struct ModalPage<'a> {

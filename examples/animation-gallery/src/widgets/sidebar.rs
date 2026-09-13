@@ -1,7 +1,7 @@
 use super::common::*;
 use super::sidebar_preview::SidebarPreview;
 use crate::state::AnimationGalleryState;
-use crate::style::SOFT_VIOLET;
+use crate::style;
 use fission::build::BuildCtxHandle;
 use fission::Widget;
 
@@ -12,7 +12,7 @@ pub const SUMMARY: WidgetSummary = WidgetSummary {
     title: "Sidebar",
     subtitle: "custom",
     glyph: "rail",
-    tint: SOFT_VIOLET,
+    tint: style::Tint::Secondary,
 };
 
 pub struct SidebarPage<'a> {

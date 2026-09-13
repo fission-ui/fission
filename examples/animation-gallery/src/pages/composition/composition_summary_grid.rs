@@ -1,7 +1,7 @@
 use super::atom_card::AtomCard;
 use super::composition_data::{atom_sequence, lowered_tracks, policy_summary};
 use crate::state::AnimationGalleryState;
-use crate::style::{BLUE, CYAN, TEAL, VIOLET};
+use crate::style;
 use fission::prelude::*;
 
 const SUMMARY_MIN_WIDTH: f32 = 168.0;
@@ -29,22 +29,22 @@ impl From<CompositionSummaryGrid<'_>> for Widget {
                 AtomCard {
                     title: "Ordered Atoms",
                     body: &sequence,
-                    tint: BLUE,
+                    tint: style::primary(),
                 },
                 AtomCard {
                     title: "Lowered Tracks",
                     body: &tracks,
-                    tint: VIOLET,
+                    tint: style::secondary(),
                 },
                 AtomCard {
                     title: "Policy",
                     body: policy_summary(summary.state.policy),
-                    tint: TEAL,
+                    tint: style::success(),
                 },
                 AtomCard {
                     title: "Conflict Rule",
                     body: "same slot/property/phase: later wins",
-                    tint: CYAN,
+                    tint: style::info(),
                 },
             ],
             ..Default::default()

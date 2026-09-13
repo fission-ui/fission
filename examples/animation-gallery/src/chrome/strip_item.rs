@@ -1,4 +1,5 @@
 use super::*;
+use crate::style;
 
 pub(super) struct StripItem<'a> {
     pub(super) title: &'a str,
@@ -14,11 +15,11 @@ impl From<StripItem<'_>> for Widget {
             children: vec![
                 Text::new(item.title)
                     .size(tokens.typography.font_size_xs)
-                    .color(INK)
+                    .color(style::text_primary())
                     .into(),
                 Text::new(item.body)
                     .size(tokens.typography.font_size_xs)
-                    .color(MUTED)
+                    .color(style::text_muted())
                     .into(),
             ],
             ..Default::default()

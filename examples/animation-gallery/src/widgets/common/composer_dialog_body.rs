@@ -4,7 +4,7 @@ use super::composer_readout_grid::ComposerReadoutGrid;
 use super::composition_lowering::{composition_expression, lowered_composition_tracks};
 use super::GalleryCase;
 use crate::state::{AnimationGalleryState, MotionAtom};
-use crate::style::MUTED;
+use crate::style;
 use fission::build::BuildCtxHandle;
 use fission::prelude::*;
 
@@ -31,7 +31,7 @@ impl From<ComposerDialogBody<'_>> for Widget {
                     body.case.title
                 ))
                 .size(tokens.typography.font_size_sm)
-                .color(MUTED),
+                .color(style::text_muted()),
                 ComposerAtomControls {
                     ctx: body.ctx,
                     path,

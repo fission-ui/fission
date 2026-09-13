@@ -5,7 +5,7 @@ use super::composition_summary_grid::CompositionSummaryGrid;
 use super::expression_panel::ExpressionPanel;
 use super::playback_controls::PlaybackControls;
 use crate::state::AnimationGalleryState;
-use crate::style::{BORDER, SURFACE};
+use crate::style;
 use crate::ui;
 use fission::build::BuildCtxHandle;
 use fission::prelude::*;
@@ -53,9 +53,9 @@ impl From<CompositionWorkbench<'_>> for Widget {
             ..Default::default()
         })
         .padding_all(tokens.spacing.m)
-        .border(BORDER, 1.0)
+        .border(style::border(), 1.0)
         .border_radius(tokens.radii.xl)
-        .bg(SURFACE)
+        .bg(style::surface())
         .into()
     }
 }

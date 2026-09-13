@@ -1,5 +1,5 @@
 use crate::state::{scrub_timeline, AnimationGalleryState, ScrubTimeline};
-use crate::style::MUTED;
+use crate::style;
 use crate::ui;
 use fission::build::BuildCtxHandle;
 use fission::prelude::*;
@@ -24,7 +24,7 @@ impl From<TimelineControl<'_>> for Widget {
             children: widgets![
                 Text::new(format!("{}ms", control.state.scrub_ms))
                     .size(tokens.typography.font_size_sm)
-                    .color(MUTED),
+                    .color(style::text_muted()),
                 Slider {
                     value: control.state.scrub_ms as f32,
                     min: 0.0,

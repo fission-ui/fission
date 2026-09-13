@@ -1,7 +1,7 @@
 use super::carousel_tile::CarouselTile;
 use super::common::PreviewShell;
 use crate::state::{current_composition_atoms, AnimationGalleryState, MotionAtom, MotionChoice};
-use crate::style::{BLUE, TEAL, VIOLET};
+use crate::style;
 use fission::motion::{px, Motion, MotionPropertyId, MotionStartValue, MotionTrack};
 use fission::prelude::*;
 
@@ -27,7 +27,7 @@ impl From<CarouselPreview<'_>> for Widget {
                 children: widgets![
                     CarouselTile {
                         label: "One",
-                        background: BLUE,
+                        background: style::primary(),
                     },
                     Motion {
                         id: WidgetId::explicit("gallery.carousel.slide"),
@@ -38,14 +38,14 @@ impl From<CarouselPreview<'_>> for Widget {
                         )],
                         child: CarouselTile {
                             label: "Two",
-                            background: TEAL,
+                            background: style::success(),
                         }
                         .into(),
                         ..Default::default()
                     },
                     CarouselTile {
                         label: "Three",
-                        background: VIOLET,
+                        background: style::secondary(),
                     },
                 ],
                 ..Default::default()
