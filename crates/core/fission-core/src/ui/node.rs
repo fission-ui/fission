@@ -1077,9 +1077,9 @@ impl From<Button> for Widget {
         let current_widget_id = crate::build::current_widget_id();
         let inherited_root_id = crate::build::current_identity()
             .filter(|identity| Some(*identity) == current_widget_id);
-        let button_id =
-            w.id.or(inherited_root_id)
-                .or_else(|| crate::build::next_implicit_widget_id(Button::MOTION_SALT));
+        let button_id = w.id.or(inherited_root_id).or_else(|| {
+            crate::build::next_implicit_widget_id_for(Button::MOTION_SALT, w.on_press.as_ref())
+        });
         let Some(button_id) = button_id else {
             // Implicit identities and motion declarations are build-scoped.
             return Self::from_kind(WidgetKind::Button(w));
@@ -1201,9 +1201,9 @@ fn toggle_motion_id(
 
 impl From<Checkbox> for Widget {
     fn from(mut w: Checkbox) -> Self {
-        if let Some(id) =
-            toggle_motion_id(w.id, || crate::build::next_implicit_widget_id(0x70C4_EC01))
-        {
+        if let Some(id) = toggle_motion_id(w.id, || {
+            crate::build::next_implicit_widget_id_for(0x70C4_EC01, w.on_toggle.as_ref())
+        }) {
             w.id = Some(id);
             w.register_motion_declarations(id);
         }
@@ -1212,9 +1212,9 @@ impl From<Checkbox> for Widget {
 }
 impl From<Switch> for Widget {
     fn from(mut w: Switch) -> Self {
-        if let Some(id) =
-            toggle_motion_id(w.id, || crate::build::next_implicit_widget_id(0x7057_1C01))
-        {
+        if let Some(id) = toggle_motion_id(w.id, || {
+            crate::build::next_implicit_widget_id_for(0x7057_1C01, w.on_toggle.as_ref())
+        }) {
             w.id = Some(id);
             w.register_motion_declarations(id);
         }
@@ -1223,9 +1223,9 @@ impl From<Switch> for Widget {
 }
 impl From<Radio> for Widget {
     fn from(mut w: Radio) -> Self {
-        if let Some(id) =
-            toggle_motion_id(w.id, || crate::build::next_implicit_widget_id(0x70AD_1001))
-        {
+        if let Some(id) = toggle_motion_id(w.id, || {
+            crate::build::next_implicit_widget_id_for(0x70AD_1001, w.on_select.as_ref())
+        }) {
             w.id = Some(id);
             w.register_motion_declarations(id);
         }

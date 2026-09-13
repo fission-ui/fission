@@ -942,7 +942,12 @@ impl From<Pressable> for Widget {
         let id = pressable
             .id
             .or_else(crate::build::current_widget_id)
-            .or_else(|| crate::build::next_implicit_widget_id(Pressable::MOTION_SALT))
+            .or_else(|| {
+                crate::build::next_implicit_widget_id_for(
+                    Pressable::MOTION_SALT,
+                    pressable.on_press.as_ref(),
+                )
+            })
             .unwrap_or_else(|| WidgetId::explicit("fission.core.pressable"));
         pressable.id = Some(id);
         let transition = pressable.transition.clone();
