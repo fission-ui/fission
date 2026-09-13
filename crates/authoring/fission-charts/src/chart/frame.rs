@@ -109,7 +109,16 @@ pub(super) fn draw_cartesian_axes(
 
     if model.x_axis.axis_type == AxisType::Category && !model.x_categories.is_empty() {
         let band = band_width(model, area);
-        for (idx, label) in model.x_categories.iter().enumerate() {
+        let widest = model
+            .x_categories
+            .iter()
+            .map(|label| label.chars().count())
+            .max()
+            .unwrap_or(0) as f32
+            * AXIS_LABEL_SIZE
+            * AXIS_LABEL_ADVANCE;
+        let step = label_step(widest + AXIS_LABEL_GAP, band);
+        for (idx, label) in model.x_categories.iter().enumerate().step_by(step) {
             let x = map_category_x(idx, model, area);
             add_text(
                 cx,
@@ -140,7 +149,8 @@ pub(super) fn draw_cartesian_axes(
             );
         }
         let band = category_band_width(model.y_categories.len(), area.plot.height());
-        for (idx, label) in model.y_categories.iter().enumerate() {
+        let step = label_step(AXIS_LABEL_HEIGHT, band);
+        for (idx, label) in model.y_categories.iter().enumerate().step_by(step) {
             let y = map_category_y(idx, model, area);
             add_text(
                 cx,
@@ -170,5 +180,38 @@ pub(super) fn draw_cartesian_axes(
                 18.0,
             );
         }
+    }
+}
+
+/// The size category axis labels are drawn at.
+const AXIS_LABEL_SIZE: f32 = 11.0;
+/// The approximate advance of one label character, as a fraction of its size.
+const AXIS_LABEL_ADVANCE: f32 = 0.6;
+/// The space kept between neighbouring horizontal labels.
+const AXIS_LABEL_GAP: f32 = 8.0;
+/// The height a vertical category label needs.
+const AXIS_LABEL_HEIGHT: f32 = 16.0;
+
+/// How many categories to advance between drawn labels so a label needing
+/// `needed` points never overlaps its neighbour in bands `band` points wide:
+/// every label when they fit, otherwise every second, third and so on,
+/// starting with the first.
+fn label_step(needed: f32, band: f32) -> usize {
+    if band <= 0.0 {
+        return 1;
+    }
+    (needed / band).ceil().max(1.0) as usize
+}
+
+#[cfg(test)]
+mod label_tests {
+    use super::label_step;
+
+    #[test]
+    fn labels_that_fit_are_all_drawn_and_crowded_ones_are_thinned() {
+        assert_eq!(label_step(40.0, 60.0), 1);
+        assert_eq!(label_step(40.0, 20.0), 2);
+        assert_eq!(label_step(41.0, 20.0), 3);
+        assert_eq!(label_step(40.0, 0.0), 1);
     }
 }
