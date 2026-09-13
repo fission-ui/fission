@@ -1,7 +1,6 @@
 use crate::app::StoreState;
 use crate::components::feature_pill::FeaturePill;
 use crate::components::nav_link::NavLink;
-use crate::components::palette::{BLUE, GREEN, PINK, TEXT_PRIMARY};
 use fission::prelude::*;
 
 pub struct StoreNav;
@@ -20,7 +19,7 @@ impl From<StoreNav> for Widget {
                     .size(typography.font_size_xl)
                     .line_height(typography.font_size_xl * typography.line_height_heading)
                     .weight(typography.font_weight_bold)
-                    .color(TEXT_PRIMARY)
+                    .color(tokens.colors.text_primary)
                     .semantics_identifier("site-route:/"),
                 Spacer {
                     flex_grow: 1.0,
@@ -32,15 +31,15 @@ impl From<StoreNav> for Widget {
                 },
                 FeaturePill {
                     label: "Session cart",
-                    accent: GREEN,
+                    accent: tokens.colors.success,
                 },
                 FeaturePill {
                     label: "Worker filters",
-                    accent: BLUE,
+                    accent: tokens.colors.primary,
                 },
                 FeaturePill {
                     label: "Cart island",
-                    accent: PINK,
+                    accent: tokens.colors.secondary,
                 },
             ],
             align_items: ir_op::AlignItems::Center,

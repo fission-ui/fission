@@ -1,6 +1,6 @@
 use crate::app::{on_add_to_cart, AddToCart, StoreState};
 use crate::components::card_art::CardArt;
-use crate::components::palette::{card_accent, SURFACE, TEXT_BODY, TEXT_MUTED, TEXT_PRIMARY};
+use crate::components::palette::card_accent;
 use crate::data::Card;
 use fission::prelude::*;
 
@@ -29,7 +29,7 @@ impl From<CardTile> for Widget {
                     .size(typography.font_size_xl)
                     .line_height(typography.font_size_xl * typography.line_height_heading)
                     .weight(typography.font_weight_bold)
-                    .color(TEXT_PRIMARY),
+                    .color(tokens.colors.text_primary),
                 Text::new(format!("{} - {}", tile.card.set, tile.card.rarity))
                     .size(typography.font_size_sm)
                     .line_height(typography.font_size_sm * typography.line_height_snug)
@@ -38,7 +38,7 @@ impl From<CardTile> for Widget {
                 Text::new(tile.card.description)
                     .size(typography.font_size_base)
                     .line_height(typography.font_size_base * typography.line_height_normal)
-                    .color(TEXT_BODY),
+                    .color(tokens.colors.text_secondary),
                 Row {
                     gap: Some(tokens.spacing.s),
                     children: widgets![
@@ -46,7 +46,7 @@ impl From<CardTile> for Widget {
                             .size(typography.font_size_lg)
                             .line_height(typography.font_size_lg * typography.line_height_heading)
                             .weight(typography.font_weight_bold)
-                            .color(TEXT_PRIMARY),
+                            .color(tokens.colors.text_primary),
                         Spacer {
                             flex_grow: 1.0,
                             ..Default::default()
@@ -54,7 +54,7 @@ impl From<CardTile> for Widget {
                         Text::new(format!("{} left", tile.card.stock))
                             .size(typography.font_size_sm)
                             .line_height(typography.font_size_sm * typography.line_height_snug)
-                            .color(TEXT_MUTED),
+                            .color(tokens.colors.text_muted),
                     ],
                     align_items: ir_op::AlignItems::Center,
                     ..Default::default()
@@ -89,7 +89,7 @@ impl From<CardTile> for Widget {
         .padding_all(tokens.spacing.m)
         .border(accent.with_alpha(90), 1.0)
         .border_radius(tokens.radii.xxl)
-        .bg(SURFACE)
+        .bg(tokens.colors.surface)
         .into()
     }
 }

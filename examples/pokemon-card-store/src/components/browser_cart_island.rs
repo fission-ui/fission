@@ -1,6 +1,5 @@
 use crate::app::StoreState;
 use crate::components::layout::CART_ISLAND_WIDTH;
-use crate::components::palette::{AMBER, SURFACE_RAISED, TEXT_BODY};
 use fission::prelude::*;
 
 pub struct BrowserCartIsland;
@@ -21,7 +20,7 @@ impl From<BrowserCartIsland> for Widget {
                             typography.font_size_sm * typography.line_height_snug
                         )
                         .weight(typography.font_weight_bold)
-                        .color(AMBER)
+                        .color(tokens.colors.warning)
                         .semantics_identifier("island-status:cart-drawer"),
                     Text::new("The focused Fission island replaces this fallback with its own widget tree after its WASM artifact loads.")
                         .size(typography.font_size_base)
@@ -29,7 +28,7 @@ impl From<BrowserCartIsland> for Widget {
                             typography.font_size_base
                                 * typography.line_height_normal
                         )
-                        .color(TEXT_BODY),
+                        .color(tokens.colors.text_secondary),
                 ],
                 ..Default::default()
             })
@@ -38,9 +37,9 @@ impl From<BrowserCartIsland> for Widget {
                 Length::points(CART_ISLAND_WIDTH),
             ]))
             .padding_all(tokens.spacing.m)
-            .border(AMBER.with_alpha(130), 1.0)
+            .border(tokens.colors.warning.with_alpha(130), 1.0)
             .border_radius(tokens.radii.xxl)
-            .bg(SURFACE_RAISED),
+            .bg(tokens.colors.surface_raised),
         )
         .identifier("cart-drawer")
         .id(WidgetId::explicit("cart-drawer"))

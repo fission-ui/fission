@@ -1,6 +1,3 @@
-use crate::components::palette::{
-    AMBER, SURFACE, SURFACE_RAISED, TEXT_BODY, TEXT_MUTED, TEXT_PRIMARY,
-};
 use fission::prelude::*;
 use fission::site::{run_browser_island, BrowserIslandApp};
 
@@ -42,7 +39,7 @@ impl From<CartDrawerIsland> for Widget {
                         tokens.typography.body_medium_size * tokens.typography.line_height_normal,
                     )
                     .weight(tokens.typography.font_weight_bold)
-                    .color(AMBER)
+                    .color(tokens.colors.warning)
                     .semantics_identifier("island-status:cart-drawer")
                     .into(),
                 Container::new(Column {
@@ -55,7 +52,7 @@ impl From<CartDrawerIsland> for Widget {
                                     * tokens.typography.line_height_normal,
                             )
                             .weight(tokens.typography.font_weight_bold)
-                            .color(TEXT_BODY)
+                            .color(tokens.colors.text_secondary)
                             .semantics_identifier("island-cart-line")
                             .into(),
                         Text::new(format!("{count} {item_word} in the browser island cart"))
@@ -64,16 +61,16 @@ impl From<CartDrawerIsland> for Widget {
                                 tokens.typography.body_medium_size
                                     * tokens.typography.line_height_normal,
                             )
-                            .color(TEXT_MUTED)
+                            .color(tokens.colors.text_muted)
                             .semantics_identifier("island-cart-count")
                             .into(),
                     ],
                     ..Default::default()
                 })
                 .padding_all(tokens.spacing.m)
-                .border(AMBER.with_alpha(90), 1.0)
+                .border(tokens.colors.warning.with_alpha(90), 1.0)
                 .border_radius(tokens.radii.large)
-                .bg(SURFACE_RAISED)
+                .bg(tokens.colors.surface_raised)
                 .into(),
                 Row {
                     gap: Some(tokens.spacing.m),
@@ -88,7 +85,7 @@ impl From<CartDrawerIsland> for Widget {
                                             * tokens.typography.line_height_normal,
                                     )
                                     .weight(tokens.typography.font_weight_bold)
-                                    .color(TEXT_MUTED)
+                                    .color(tokens.colors.text_muted)
                                     .into(),
                                 Text::new(format!("£{subtotal:.2}"))
                                     .size(tokens.typography.heading_size)
@@ -97,7 +94,7 @@ impl From<CartDrawerIsland> for Widget {
                                             * tokens.typography.line_height_heading,
                                     )
                                     .weight(tokens.typography.font_weight_bold)
-                                    .color(TEXT_PRIMARY)
+                                    .color(tokens.colors.text_primary)
                                     .semantics_identifier("island-cart-total")
                                     .into(),
                             ],
@@ -118,7 +115,7 @@ impl From<CartDrawerIsland> for Widget {
                                             * tokens.typography.line_height_normal,
                                     )
                                     .weight(tokens.typography.font_weight_bold)
-                                    .color(SURFACE),
+                                    .color(tokens.colors.surface),
                             )
                             .padding([
                                 tokens.spacing.m,
@@ -127,7 +124,7 @@ impl From<CartDrawerIsland> for Widget {
                                 tokens.spacing.s,
                             ])
                             .border_radius(tokens.radii.full)
-                            .bg(AMBER),
+                            .bg(tokens.colors.warning),
                         )
                         .identifier("island-action:add-card")
                         .role(fission::Role::Button)
@@ -147,13 +144,13 @@ impl From<CartDrawerIsland> for Widget {
                 .size(tokens.typography.font_size_sm)
                 .line_height(tokens.typography.font_size_sm * tokens.typography.line_height_normal)
                 .weight(tokens.typography.font_weight_semibold)
-                .color(AMBER)
+                .color(tokens.colors.warning)
                 .semantics_identifier("island-last-event")
                 .into(),
                 Text::new(count.to_string())
                     .size(tokens.spacing.none)
                     .line_height(tokens.spacing.none)
-                    .color(SURFACE_RAISED)
+                    .color(tokens.colors.surface_raised)
                     .semantics_identifier("island-cart-count-short")
                     .into(),
             ],
@@ -175,5 +172,6 @@ pub fn cart_drawer_boot(input: &str) -> String {
             BrowserCartState::default(),
             CartDrawerIsland,
         )
+        .theme(fission::theme::Theme::dark())
     })
 }

@@ -1,6 +1,5 @@
 use crate::app::StoreState;
 use crate::components::hero_metric::HeroMetric;
-use crate::components::palette::{TEXT_BODY, TEXT_PRIMARY};
 use fission::prelude::*;
 
 pub struct HeroCopy;
@@ -20,13 +19,13 @@ impl From<HeroCopy> for Widget {
                         typography.display_sm_size * typography.line_height_display
                     )
                     .weight(typography.font_weight_bold)
-                    .color(TEXT_PRIMARY),
+                    .color(tokens.colors.text_primary),
                 Text::new("A Fission web store selling Pokemon cards with server-rendered product pages, route-local enhancement workers, and a session-backed cart.")
                     .size(typography.body_large_size)
                     .line_height(
                         typography.body_large_size * typography.line_height_normal
                     )
-                    .color(TEXT_BODY),
+                    .color(tokens.colors.text_secondary),
                 Row {
                     gap: Some(tokens.spacing.s),
                     wrap: ir_op::FlexWrap::Wrap,
