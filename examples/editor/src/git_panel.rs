@@ -1,6 +1,6 @@
 use crate::git_status_item::GitStatusItem;
 use crate::layout::PANEL_ACTION_HEIGHT;
-use crate::model::{EditorState, OpenFile, RefreshGitStatus};
+use crate::model::{on_refresh_git_status, EditorState, RefreshGitStatus};
 use crate::palette::EditorPalette;
 use fission::prelude::*;
 use fission::widgets::{HStack, Spacer, VStack};
@@ -13,17 +13,7 @@ impl From<GitPanel> for Widget {
         let palette = EditorPalette::from_theme(&view.env().theme);
         let tokens = &view.env().theme.tokens;
 
-        let refresh = ctx.bind(
-            RefreshGitStatus,
-            reduce_with!((|s: &mut EditorState, _, _| s.refresh_git_status())),
-        );
-
-        let open_id = ctx
-            .bind(
-                OpenFile(String::new()),
-                reduce_with!((|s: &mut EditorState, a: OpenFile, _| s.open_file(a.0))),
-            )
-            .id;
+        let refresh = ctx.bind(RefreshGitStatus, reduce_with!(on_refresh_git_status));
 
         let mut children = vec![HStack {
             spacing: Some(tokens.spacing.xs),
@@ -67,7 +57,7 @@ impl From<GitPanel> for Widget {
                 .git_status_lines
                 .iter()
                 .cloned()
-                .map(|entry| GitStatusItem { entry, open_id }.into())
+                .map(|entry| GitStatusItem { entry }.into())
                 .collect();
 
             children.push(

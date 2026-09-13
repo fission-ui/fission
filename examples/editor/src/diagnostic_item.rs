@@ -1,5 +1,5 @@
 use crate::layout::DIAGNOSTIC_MESSAGE_PREVIEW_CHARS;
-use crate::model::{DiagSeverity, Diagnostic, EditorState, OpenFile};
+use crate::model::{on_open_file, DiagSeverity, Diagnostic, EditorState, OpenFile};
 use crate::palette::EditorPalette;
 use fission::prelude::*;
 use fission::widgets::VStack;
@@ -7,12 +7,11 @@ use fission::widgets::VStack;
 pub(crate) struct DiagnosticItem {
     pub path: String,
     pub diagnostic: Diagnostic,
-    pub open_id: ActionId,
 }
 
 impl From<DiagnosticItem> for Widget {
     fn from(item: DiagnosticItem) -> Self {
-        let (_ctx, view) = fission::build::current::<EditorState>();
+        let (ctx, view) = fission::build::current::<EditorState>();
         let palette = EditorPalette::from_theme(&view.env().theme);
         let tokens = &view.env().theme.tokens;
         let (icon, color) = match item.diagnostic.severity {
@@ -50,10 +49,7 @@ impl From<DiagnosticItem> for Widget {
                 }
                 .into(),
             ),
-            on_press: Some(ActionEnvelope {
-                id: item.open_id,
-                payload: serde_json::to_vec(&OpenFile(item.path)).unwrap(),
-            }),
+            on_press: Some(ctx.bind(OpenFile(item.path), reduce_with!(on_open_file))),
             padding: Some([
                 tokens.spacing.xs,
                 tokens.spacing.xs,

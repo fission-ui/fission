@@ -1600,7 +1600,11 @@ fn search_files_recursive(dir: &Path, query: &str, results: &mut Vec<SearchResul
 }
 
 mod fs_jobs;
+mod workspace_reducers;
 pub use fs_jobs::{run_fs_job, FsFailure, FsOp, FsOutcome, FsRequest, FsResult, FS_JOB};
+pub use workspace_reducers::*;
+mod background_reducers;
+pub use background_reducers::*;
 mod commands;
 pub use commands::{
     on_create_file, on_create_folder, on_dismiss_command_palette, on_dismiss_context_menu,

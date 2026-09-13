@@ -13,26 +13,21 @@ impl From<HoverTooltip> for Widget {
         let (ctx, view) = fission::build::current::<EditorState>();
         let palette = EditorPalette::from_theme(&view.env().theme);
         let tokens = &view.env().theme.tokens;
-        if !view.state().show_hover || view.state().hover_info.is_none() {
+        let Some(info) = view
+            .state()
+            .hover_info
+            .as_ref()
+            .filter(|_| view.state().show_hover)
+        else {
             return Spacer {
                 height: Some(tokens.spacing.none),
                 ..Default::default()
             }
             .into();
-        }
-
-        let info = view.state().hover_info.as_ref().unwrap();
+        };
         let (hover_x, hover_y) = view.state().hover_position;
 
-        let dismiss = ctx.bind(
-            DismissHover,
-            reduce_with!(
-                (|s: &mut EditorState, _, _| {
-                    s.show_hover = false;
-                    s.hover_info = None;
-                })
-            ),
-        );
+        let dismiss = ctx.bind(DismissHover, reduce_with!(on_dismiss_hover));
 
         let tooltip_card = Container::new(
             Text::new(info.as_str())

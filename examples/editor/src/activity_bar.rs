@@ -1,8 +1,8 @@
 use crate::layout::ACTIVITY_BAR_WIDTH;
 use crate::model::*;
 use crate::palette::EditorPalette;
+use fission::core::reduce_with;
 use fission::core::ui::{Align, Button, ButtonVariant, Column, Container, Widget};
-use fission::core::{reduce_with, ActionEnvelope};
 
 pub(crate) struct ActivityBar;
 
@@ -35,22 +35,6 @@ impl From<ActivityBar> for Widget {
             ),
         ];
 
-        let set_section_id = ctx
-            .bind(
-                SetSidebarSection(SidebarSection::Explorer),
-                reduce_with!(
-                    (|s: &mut EditorState, a: SetSidebarSection, _| {
-                        if s.sidebar_visible && s.sidebar_section == a.0 {
-                            s.sidebar_visible = false;
-                        } else {
-                            s.sidebar_section = a.0;
-                            s.sidebar_visible = true;
-                        }
-                    })
-                ),
-            )
-            .id;
-
         let mut icons = Vec::new();
         for (icon_svg, section, _label) in &section_icons {
             let is_active =
@@ -79,10 +63,10 @@ impl From<ActivityBar> for Widget {
                         .border(indicator_color, 0.0)
                         .into(),
                     ),
-                    on_press: Some(ActionEnvelope {
-                        id: set_section_id,
-                        payload: serde_json::to_vec(&SetSidebarSection(*section)).unwrap(),
-                    }),
+                    on_press: Some(ctx.bind(
+                        SetSidebarSection(*section),
+                        reduce_with!(on_select_sidebar_section),
+                    )),
                     width: Some(ACTIVITY_BAR_WIDTH),
                     height: Some(ACTIVITY_BAR_WIDTH),
                     padding: Some([tokens.spacing.none; 4]),

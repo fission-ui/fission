@@ -7,10 +7,11 @@ use crate::layout::{
     TAB_BAR_HEIGHT, TERMINAL_HEIGHT_FRACTION,
 };
 use crate::minimap::Minimap;
+use crate::model::{on_update_cursor_position, on_update_editor_document};
 use crate::model::{EditorState, UpdateCursorPosition, UpdateEditorDocument};
 use crate::palette::EditorPalette;
+use fission::core::reduce_with;
 use fission::core::ui::{Container, Row, TextInput, Widget};
-use fission::core::{reduce_with, ReducerContext};
 use fission::widgets::{Spacer, VStack};
 use fission::WidgetId;
 
@@ -67,27 +68,7 @@ impl From<EditorSurface> for Widget {
 
         let update_document = ctx.bind(
             UpdateEditorDocument,
-            reduce_with!(
-                (|s: &mut EditorState,
-                  _a: UpdateEditorDocument,
-                  ctx: &mut ReducerContext<EditorState>| {
-                    let Some(change) = ctx.input.text_change() else {
-                        return;
-                    };
-                    if let Some(tab) = s.open_tabs.get(s.active_tab) {
-                        let path = tab.path.clone();
-                        if let Some(buf) = s.file_contents.get_mut(&path) {
-                            if !buf.is_editable() {
-                                s.status_message = Some("This document is not editable".into());
-                                return;
-                            }
-                            buf.replace_document(&change.new_text);
-                        }
-                        s.mark_active_tab_dirty();
-                        s.notify_buffer_changed(&path);
-                    }
-                })
-            ),
+            reduce_with!(on_update_editor_document),
         );
 
         let update_cursor = ctx.bind(
@@ -95,14 +76,7 @@ impl From<EditorSurface> for Widget {
                 caret: 0,
                 anchor: 0,
             },
-            reduce_with!(
-                (|s: &mut EditorState, a: UpdateCursorPosition, _| {
-                    if let Some((_tab, buf)) = s.active_buffer_mut() {
-                        buf.clear_preedit();
-                        buf.set_selection_offsets(a.caret, a.anchor);
-                    }
-                })
-            ),
+            reduce_with!(on_update_cursor_position),
         );
 
         let value = buffer.display_content();
