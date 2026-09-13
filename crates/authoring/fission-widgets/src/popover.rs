@@ -218,11 +218,17 @@ pub(crate) fn popover_with_options(
         if let (true, Some(on_close)) = (this.is_open, this.on_close.clone()) {
             let backdrop: Widget = SemanticsRegion {
                 actions: fission_ir::ActionSet {
-                    entries: vec![fission_ir::ActionEntry {
-                        trigger: fission_ir::ActionTrigger::Default,
+                    entries: [
+                        fission_ir::ActionTrigger::Default,
+                        fission_ir::ActionTrigger::Dismiss,
+                    ]
+                    .into_iter()
+                    .map(|trigger| fission_ir::ActionEntry {
+                        trigger,
                         action_id: on_close.id.as_u128(),
-                        payload_data: Some(on_close.payload),
-                    }],
+                        payload_data: Some(on_close.payload.clone()),
+                    })
+                    .collect(),
                 },
                 focusable: Some(false),
                 sequential_focusable: false,

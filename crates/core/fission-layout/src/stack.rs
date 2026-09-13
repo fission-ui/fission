@@ -3,8 +3,8 @@
 use super::*;
 
 impl LayoutEngine {
-    /// Whether a stack child is positioned: a positioned or absolutely filling node, or the grid
-    /// item a stack wraps around one.
+    /// Whether a stack child is positioned: a positioned, anchored or absolutely filling node, or
+    /// the grid item a stack wraps around one.
     pub(crate) fn is_positioned_stack_child(&self, child_id: WidgetId) -> bool {
         let positioned = |op: &LayoutOp| {
             matches!(
@@ -12,6 +12,7 @@ impl LayoutEngine {
                 LayoutOp::Positioned { .. }
                     | LayoutOp::PositionedLengths { .. }
                     | LayoutOp::AnchoredPositioned { .. }
+                    | LayoutOp::Flyout { .. }
                     | LayoutOp::AbsoluteFill
             )
         };
