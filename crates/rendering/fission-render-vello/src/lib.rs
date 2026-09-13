@@ -669,6 +669,13 @@ fn decode_image_from_bytes(
     decode_dynamic_image(img, cache_width, cache_height)
 }
 
+/// The largest side a decoded image keeps.
+///
+/// GPU renderers place images in atlas pages of at most this many pixels a side, and no screen
+/// needs more pixels than that for one image, so larger images are scaled down once while decoding
+/// instead of failing to upload on every frame.
+const MAX_DECODED_IMAGE_DIMENSION: u32 = 4096;
+
 fn decode_dynamic_image(
     mut img: image::DynamicImage,
     cache_width: Option<u32>,
@@ -678,6 +685,13 @@ fn decode_dynamic_image(
         if width > 0 && height > 0 {
             img = img.resize(width, height, image::imageops::FilterType::Triangle);
         }
+    }
+    if img.width() > MAX_DECODED_IMAGE_DIMENSION || img.height() > MAX_DECODED_IMAGE_DIMENSION {
+        img = img.resize(
+            MAX_DECODED_IMAGE_DIMENSION,
+            MAX_DECODED_IMAGE_DIMENSION,
+            image::imageops::FilterType::Triangle,
+        );
     }
     let img = img.to_rgba8();
     let (width, height) = img.dimensions();
@@ -862,6 +876,24 @@ mod image_tests {
             let _ = std::io::Write::flush(&mut stream);
         });
         url
+    }
+
+    #[test]
+    fn oversized_images_are_scaled_to_fit_the_gpu_atlas_while_decoding() {
+        let wide = image::RgbaImage::from_pixel(5000, 4, image::Rgba([0, 128, 255, 255]));
+        let mut bytes = Cursor::new(Vec::new());
+        image::DynamicImage::ImageRgba8(wide)
+            .write_to(&mut bytes, image::ImageOutputFormat::Png)
+            .expect("encode png");
+
+        let pixmap =
+            decode_image_from_bytes(&bytes.into_inner(), None, None).expect("decode wide png");
+
+        assert_eq!(u32::from(pixmap.width()), MAX_DECODED_IMAGE_DIMENSION);
+        assert!(
+            pixmap.height() >= 1 && pixmap.height() <= 4,
+            "aspect ratio kept"
+        );
     }
 
     #[test]

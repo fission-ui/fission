@@ -270,6 +270,8 @@ impl Painter for GpuPainter<'_> {
 #[derive(Default)]
 pub struct GpuImageCache {
     entries: HashMap<usize, GpuImageEntry>,
+    /// Images the atlas could not hold, so each is reported once rather than every frame.
+    failed: std::collections::HashSet<usize>,
     frame: u64,
 }
 
@@ -279,6 +281,9 @@ struct GpuImageEntry {
     _image: Arc<Pixmap>,
     last_used: u64,
 }
+
+/// Distinct failed uploads remembered before the reporting set is reset.
+const MAX_REPORTED_IMAGE_FAILURES: usize = 1024;
 
 /// Frames an uploaded image may go unused before its atlas space is reclaimed.
 const GPU_IMAGE_IDLE_FRAMES: u64 = 120;
@@ -292,18 +297,39 @@ impl GpuImageCache {
     ) -> ImageSource {
         let key = Arc::as_ptr(image) as usize;
         let frame = self.frame;
-        let entry = self.entries.entry(key).or_insert_with(|| GpuImageEntry {
-            id: uploader.renderer.upload_image(
+        if let std::collections::hash_map::Entry::Vacant(slot) = self.entries.entry(key) {
+            match uploader.renderer.try_upload_image(
                 resources,
                 uploader.device,
                 uploader.queue,
                 uploader.encoder,
                 image,
-            ),
-            may_have_transparency: image.may_have_transparency(),
-            _image: Arc::clone(image),
-            last_used: frame,
-        });
+            ) {
+                Ok(id) => {
+                    slot.insert(GpuImageEntry {
+                        id,
+                        may_have_transparency: image.may_have_transparency(),
+                        _image: Arc::clone(image),
+                        last_used: frame,
+                    });
+                }
+                Err(error) => {
+                    // An image the atlas cannot hold is skipped rather than ending the app. The
+                    // GPU renderer paints a pixmap source as transparent.
+                    if self.failed.insert(key) {
+                        eprintln!(
+                            "fission-render-vello: skipping a {}x{} image the GPU atlas cannot hold: {error}",
+                            image.width(),
+                            image.height()
+                        );
+                    }
+                    return ImageSource::Pixmap(Arc::clone(image));
+                }
+            }
+        }
+        let Some(entry) = self.entries.get_mut(&key) else {
+            return ImageSource::Pixmap(Arc::clone(image));
+        };
         entry.last_used = frame;
         ImageSource::OpaqueId {
             id: entry.id,
@@ -326,6 +352,9 @@ impl GpuImageCache {
             }
             keep
         });
+        if self.failed.len() > MAX_REPORTED_IMAGE_FAILURES {
+            self.failed.clear();
+        }
         self.frame += 1;
     }
 }
