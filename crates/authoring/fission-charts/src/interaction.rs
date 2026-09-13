@@ -432,3 +432,40 @@ impl Action for ChartBrushChanged {
         ActionId::from_name("fission_charts::ChartBrushChanged")
     }
 }
+
+/// The items a brush covers, sent to a chart's brush callback when a drag ends.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ChartBrushSelection {
+    /// Stable retained identity of the chart that was brushed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_id: Option<fission_core::WidgetId>,
+    /// The brushed region in fractions of the plot: x, y, width and height.
+    /// `None` when the drag cleared the brush.
+    pub region: Option<(f32, f32, f32, f32)>,
+    /// The series items inside the region, in series then data order.
+    pub items: Vec<ChartHit>,
+}
+
+impl ChartBrushSelection {
+    /// Versioned schema name used by component-bound brush input.
+    pub const EVENT_TYPE: &'static str = "fission.chart.brush.v1";
+
+    /// Decodes the brush selection accompanying a chart's brush callback.
+    pub fn from_action_input(
+        input: &fission_core::ActionInput,
+    ) -> Option<(fission_core::WidgetId, Self)> {
+        let (source, mut selection): (_, Self) =
+            input.decode_component_interaction(Self::EVENT_TYPE)?;
+        if selection.source_id.is_some_and(|encoded| encoded != source) {
+            return None;
+        }
+        selection.source_id = Some(source);
+        Some((source, selection))
+    }
+}
+
+impl Action for ChartBrushSelection {
+    fn static_id() -> ActionId {
+        ActionId::from_name("fission_charts::ChartBrushSelection")
+    }
+}
