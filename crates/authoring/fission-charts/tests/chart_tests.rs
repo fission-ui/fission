@@ -1003,3 +1003,28 @@ fn update_animation_draws_values_from_the_motion_state() {
     assert!(!settled.is_empty());
     assert_ne!(settled, easing, "an eased value moves the drawn line");
 }
+
+#[test]
+fn crowded_category_labels_are_thinned_but_keep_the_first() {
+    let labels: Vec<String> = (1..=40).map(|day| format!("Day {day:02}")).collect();
+    let chart = Chart::new()
+        .width(640.0)
+        .height(360.0)
+        .x_axis(Axis::category(labels.iter().map(String::as_str).collect()))
+        .y_axis(Axis::value())
+        .series(vec![LineSeries::new("Visits")
+            .data((1..=40).map(|day| day as f32).collect())
+            .into()]);
+    let ir = lower_chart(chart);
+    let drawn = labels
+        .iter()
+        .filter(|label| count_text(&ir, label) > 0)
+        .count();
+
+    assert_eq!(count_text(&ir, "Day 01"), 1);
+    assert!(drawn < 40, "expected thinned labels, drew {drawn}");
+    assert!(
+        drawn >= 5,
+        "expected a readable number of labels, drew {drawn}"
+    );
+}
