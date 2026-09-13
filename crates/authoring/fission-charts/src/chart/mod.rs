@@ -1038,10 +1038,13 @@ fn chart_area_for_size(chart: &Chart, outer_w: f32, outer_h: f32) -> ChartArea {
     } else {
         44.0
     });
-    let bottom = grid.bottom.unwrap_or(if chart.data_zoom.is_some() {
-        78.0
-    } else {
-        54.0
+    let bottom = grid.bottom.unwrap_or_else(|| {
+        let base = if chart.data_zoom.is_some() {
+            78.0
+        } else {
+            54.0
+        };
+        base + rotated_label_room(chart)
     });
     let plot = LayoutRect::new(
         left,
