@@ -55,6 +55,8 @@ pub(crate) fn stack_size(
             },
         ))
     } else {
-        max_child
+        // Unbounded on both axes, the stack still honours a minimum, such as a camera viewport
+        // requiring its content to be at least as large as the view.
+        constraints.constrain(max_child)
     }
 }

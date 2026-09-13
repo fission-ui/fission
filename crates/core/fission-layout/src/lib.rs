@@ -38,8 +38,10 @@ use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 use std::sync::{Arc, Mutex};
 
+mod geometry;
 mod paragraph;
 mod spotlight;
+use geometry::{intersect_rect, union_rect};
 mod stack;
 pub use paragraph::{
     LineMetric, ParagraphCaretStop, ParagraphCluster, ParagraphGlyph, ParagraphSelectionBox,
@@ -1691,22 +1693,6 @@ fn layout_input_fingerprint(node: &LayoutInputNode) -> u64 {
     let mut hasher = DefaultHasher::new();
     format!("{node:?}").hash(&mut hasher);
     hasher.finish()
-}
-
-fn intersect_rect(left: LayoutRect, right: LayoutRect) -> LayoutRect {
-    let x = left.x().max(right.x());
-    let y = left.y().max(right.y());
-    let right_edge = left.right().min(right.right());
-    let bottom_edge = left.bottom().min(right.bottom());
-    LayoutRect::new(x, y, (right_edge - x).max(0.0), (bottom_edge - y).max(0.0))
-}
-
-fn union_rect(left: LayoutRect, right: LayoutRect) -> LayoutRect {
-    let x = left.x().min(right.x());
-    let y = left.y().min(right.y());
-    let right_edge = left.right().max(right.right());
-    let bottom_edge = left.bottom().max(right.bottom());
-    LayoutRect::new(x, y, right_edge - x, bottom_edge - y)
 }
 
 /// An axis-aligned rectangle: an origin point plus a size.
@@ -5001,11 +4987,32 @@ impl LayoutEngine {
             LayoutOp::Transform { .. }
             | LayoutOp::InteractiveViewport { .. }
             | LayoutOp::Clip { .. } => {
+                // A camera viewport shows content that can be larger than itself, so its content
+                // keeps its natural size instead of being squeezed into the viewport. It is still
+                // at least as large as the viewport, so layers that fill the view keep filling it.
+                let child_constraints = if matches!(node.op, LayoutOp::InteractiveViewport { .. }) {
+                    BoxConstraints {
+                        min_w: if constraints.is_width_bounded() {
+                            constraints.max_w
+                        } else {
+                            constraints.min_w
+                        },
+                        max_w: f32::INFINITY,
+                        min_h: if constraints.is_height_bounded() {
+                            constraints.max_h
+                        } else {
+                            constraints.min_h
+                        },
+                        max_h: f32::INFINITY,
+                    }
+                } else {
+                    constraints
+                };
                 let mut child_size = LayoutSize::ZERO;
                 if let Some(child_id) = node.children_ids.first() {
                     child_size = self.layout_node_constraints(
                         *child_id,
-                        constraints,
+                        child_constraints,
                         origin,
                         out,
                         constraints_out,
