@@ -1,4 +1,5 @@
 use crate::editor_welcome_screen::EditorWelcomeScreen;
+use crate::highlight;
 use crate::layout::{
     ACTIVITY_BAR_WIDTH, BREADCRUMB_HEIGHT, DIVIDER_THICKNESS, EDITOR_HORIZONTAL_RESERVE,
     FIND_REPLACE_REGION_HEIGHT, MENU_BAR_HEIGHT, MINIMAP_WIDTH, MIN_EDITOR_HEIGHT,
@@ -104,9 +105,16 @@ impl From<EditorSurface> for Widget {
             ),
         );
 
+        let value = buffer.display_content();
+        let font_size = tokens.typography.font_size_sm;
+        let line_height = font_size * tokens.typography.line_height_normal;
+        let styled_runs =
+            highlight::highlighted_runs(&value, buffer.language, &palette, font_size, line_height);
+
         let editor_input: Widget = TextInput {
             id: Some(WidgetId::explicit(&format!("editor_input_{}", path))),
-            value: buffer.display_content(),
+            value,
+            styled_runs,
             on_input: Some(update_document),
             on_cursor_change: Some(update_cursor),
             width: Some(editor_viewport_width),
@@ -116,12 +124,10 @@ impl From<EditorSurface> for Widget {
             capture_tab: true,
             auto_indent: true,
             read_only: !buffer.is_editable(),
-            font_size: Some(tokens.typography.font_size_sm),
-            line_height: Some(
-                tokens.typography.font_size_sm * tokens.typography.line_height_normal,
-            ),
+            font_size: Some(font_size),
+            line_height: Some(line_height),
             text_color: Some(palette.bright_text),
-            cursor_color: Some(fission::op::Color::WHITE),
+            cursor_color: Some(palette.bright_text),
             selection_color: Some(palette.editor_selection),
             spell_check: false,
             smart_dashes: false,

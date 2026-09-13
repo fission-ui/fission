@@ -29,6 +29,7 @@ mod file_tree_entry;
 mod find_replace_bar;
 mod git_panel;
 mod git_status_item;
+mod highlight;
 mod hover_tooltip;
 mod layout;
 mod lsp;
