@@ -167,7 +167,7 @@ struct HoverScene<'a> {
 
 impl HoverScene<'_> {
     fn series_color(&self, series_index: usize) -> Color {
-        self.theme.palette[series_index % self.theme.palette.len()]
+        series_color(self.model, self.theme, series_index)
     }
 
     /// A line along the hovered category, a band shading it, or a cross through

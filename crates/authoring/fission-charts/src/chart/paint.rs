@@ -447,3 +447,64 @@ pub(super) fn format_tick(value: f32) -> String {
 pub(super) fn color(r: u8, g: u8, b: u8, a: u8) -> Color {
     Color { r, g, b, a }
 }
+
+/// The palette colour for the series at `index`.
+pub(super) fn palette_color(theme: &ChartTheme, index: usize) -> Color {
+    theme.palette[index % theme.palette.len()]
+}
+
+/// Gives every series without a colour the palette colour for its position,
+/// the same colour the legend and tooltip show for it.
+pub(super) fn apply_series_palette(model: &mut ChartModel, theme: &ChartTheme) {
+    for (index, series) in model.series.iter_mut().enumerate() {
+        if let Some(slot) = series_color_slot(series) {
+            slot.get_or_insert(palette_color(theme, index));
+        }
+    }
+}
+
+/// The colour the series at `index` draws with.
+pub(super) fn series_color(model: &ChartModel, theme: &ChartTheme, index: usize) -> Color {
+    model
+        .series
+        .get(index)
+        .and_then(|series| match series {
+            ResolvedSeries::Line(s) => s.source.color,
+            ResolvedSeries::Bar(s) => s.source.color,
+            ResolvedSeries::Scatter(s) => s.color,
+            ResolvedSeries::Bubble(s) => s.color,
+            ResolvedSeries::Boxplot(s) => s.color,
+            ResolvedSeries::EffectScatter(s) => s.color,
+            ResolvedSeries::PolarBar(s) => s.color,
+            ResolvedSeries::PolarLine(s) => s.color,
+            ResolvedSeries::Liquidfill(s) => s.color,
+            ResolvedSeries::SingleAxis(s) => s.color,
+            ResolvedSeries::PictorialBar(s) => s.color,
+            ResolvedSeries::Lines(s) => s.color,
+            _ => None,
+        })
+        .unwrap_or_else(|| palette_color(theme, index))
+}
+
+fn series_color_slot(series: &mut ResolvedSeries) -> Option<&mut Option<Color>> {
+    Some(match series {
+        ResolvedSeries::Line(s) => &mut s.source.color,
+        ResolvedSeries::Bar(s) => &mut s.source.color,
+        ResolvedSeries::Scatter(s) => &mut s.color,
+        ResolvedSeries::Bubble(s) => &mut s.color,
+        ResolvedSeries::Boxplot(s) => &mut s.color,
+        ResolvedSeries::EffectScatter(s) => &mut s.color,
+        ResolvedSeries::PolarBar(s) => &mut s.color,
+        ResolvedSeries::PolarLine(s) => &mut s.color,
+        ResolvedSeries::Liquidfill(s) => &mut s.color,
+        ResolvedSeries::SingleAxis(s) => &mut s.color,
+        ResolvedSeries::PictorialBar(s) => &mut s.color,
+        ResolvedSeries::Lines(s) => &mut s.color,
+        _ => return None,
+    })
+}
+
+/// A series colour after [`apply_series_palette`] has filled it in.
+pub(super) fn filled(color: Option<Color>) -> Color {
+    color.unwrap_or(Color::TRANSPARENT)
+}

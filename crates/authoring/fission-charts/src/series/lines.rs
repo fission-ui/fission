@@ -5,7 +5,8 @@ use serde::{Deserialize, Serialize};
 pub struct LinesSeries {
     pub name: String,
     pub data: Vec<LineSegment>,
-    pub color: Color,
+    /// The series colour; `None` takes the theme palette colour for its position.
+    pub color: Option<Color>,
     pub effect: bool,
 }
 
@@ -27,7 +28,7 @@ impl LinesSeries {
         Self {
             name: name.into(),
             data: Vec::new(),
-            color: Color::BLUE,
+            color: None,
             effect: false,
         }
     }
@@ -38,7 +39,7 @@ impl LinesSeries {
     }
 
     pub fn color(mut self, color: Color) -> Self {
-        self.color = color;
+        self.color = Some(color);
         self
     }
 

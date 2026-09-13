@@ -26,7 +26,7 @@ pub(super) fn draw_legend(
                 cx,
                 root,
                 LayoutRect::new(x, y + 3.0, 10.0, 10.0),
-                theme.palette[idx % theme.palette.len()],
+                series_color(model, theme, idx),
                 None,
                 2.0,
             );
@@ -52,7 +52,7 @@ pub(super) fn draw_legend(
             cx,
             root,
             LayoutRect::new(x, y + 3.0, 10.0, 10.0),
-            theme.palette[idx % theme.palette.len()],
+            series_color(model, theme, idx),
             None,
             2.0,
         );
