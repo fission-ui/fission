@@ -94,7 +94,10 @@ fn maybe_register_drag_preview(source: &Draggable, preview: Widget) {
             .semantics_identifier
             .as_ref()
             .is_some_and(|id| Some(id) == session.source_identifier.as_ref());
-    if !source_matches {
+    // A source can be built more than once in a pass, for example inside each of a drop zone's
+    // idle, active and hover panels. The preview is registered once.
+    let preview_id = WidgetId::explicit("fission.drag.preview");
+    if !source_matches || fission_core::build::portal_is_registered(preview_id) {
         return;
     }
 
@@ -109,7 +112,7 @@ fn maybe_register_drag_preview(source: &Draggable, preview: Widget) {
 
     ctx.register_portal_with_layer(
         PortalLayer::Toast,
-        Some(WidgetId::explicit("fission.drag.preview")),
+        Some(preview_id),
         Positioned {
             left: Some(x),
             top: Some(y),

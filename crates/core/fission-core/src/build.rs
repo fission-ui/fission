@@ -438,6 +438,18 @@ pub fn try_register_portal(
     true
 }
 
+/// Whether the current build pass has already registered a portal with `id`.
+///
+/// A widget that can be built more than once in a pass, such as a drag source that appears in
+/// several alternative panels, uses this to register its shared surface once.
+pub fn portal_is_registered(id: crate::WidgetId) -> bool {
+    BUILD_SCOPES.with(|scopes| {
+        scopes.borrow().last().is_some_and(|scope| unsafe {
+            (*scope.portals).iter().any(|entry| entry.id == Some(id))
+        })
+    })
+}
+
 pub fn try_register_video(registration: crate::registry::VideoRegistration) {
     let video_nodes =
         BUILD_SCOPES.with(|scopes| scopes.borrow().last().map(|scope| scope.video_nodes));
