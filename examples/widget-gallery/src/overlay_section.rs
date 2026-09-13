@@ -156,7 +156,7 @@ impl From<OverlaySection> for Widget {
                     is_open: true,
                     on_dismiss: Some(close_drawer),
                     dismiss_semantics_identifier: Some("gallery.drawer.backdrop".into()),
-                    content: VStack {
+                    content: Container::new(VStack {
                         spacing: Some(tokens.spacing.s),
                         children: widgets![
                             Text::new("Drawer Content")
@@ -166,7 +166,8 @@ impl From<OverlaySection> for Widget {
                             Text::new("This slides in from the right.")
                                 .color(tokens.colors.text_secondary),
                         ],
-                    }
+                    })
+                    .padding_all(tokens.spacing.l)
                     .into(),
                     width: None,
                     motion: None,
