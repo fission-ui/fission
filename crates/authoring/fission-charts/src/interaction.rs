@@ -375,3 +375,26 @@ impl Action for ChartLegendToggled {
         ActionId::from_name("fission_charts::ChartLegendToggled")
     }
 }
+
+/// Changes a chart's data-zoom window, or starts or ends a drag of it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) enum ChartZoomChanged {
+    /// Shows `start` to `end` percent of the category range.
+    Window {
+        start: f32,
+        end: f32,
+    },
+    /// A drag of the slider window began at `anchor_x`, with the window at `start` to `end`.
+    DragStarted {
+        anchor_x: f32,
+        start: f32,
+        end: f32,
+    },
+    DragEnded,
+}
+
+impl Action for ChartZoomChanged {
+    fn static_id() -> ActionId {
+        ActionId::from_name("fission_charts::ChartZoomChanged")
+    }
+}

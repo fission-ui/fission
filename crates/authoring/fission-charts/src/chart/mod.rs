@@ -5,7 +5,9 @@ use crate::components::{
 };
 use crate::grid::Grid;
 use crate::interaction::{ChartHit, ChartInteraction, ChartInteractionEvent, ChartInteractionKind};
-use crate::interaction::{ChartHover, ChartHoverChanged, ChartHoverCleared, ChartLegendToggled};
+use crate::interaction::{
+    ChartHover, ChartHoverChanged, ChartHoverCleared, ChartLegendToggled, ChartZoomChanged,
+};
 use crate::layout::math::{arc, catmull_rom_to_bezier, pie_slice};
 use crate::layout::scale::LinearScale;
 use crate::legend::Legend;
@@ -93,6 +95,9 @@ pub struct Chart {
     /// legend selection is enabled; set it to hide series from outside.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub hidden_series: Vec<String>,
+    /// A drag of the data-zoom slider in progress, from the chart's own state.
+    #[serde(skip)]
+    pub(crate) zoom_drag: Option<ZoomDrag>,
     pub animation: crate::animation::ChartAnimation,
     pub animate: bool,
 }
@@ -130,6 +135,7 @@ impl Chart {
             on_interaction: None,
             hover: None,
             hidden_series: Vec::new(),
+            zoom_drag: None,
             animation: crate::animation::ChartAnimation::default(),
             animate: false,
         }
@@ -288,6 +294,24 @@ impl From<Chart> for Widget {
         component.id = fission_core::build::current_widget_id()
             .or(component.id)
             .or_else(|| fission_core::build::next_implicit_widget_id(0xC4A7_0001));
+        let zoom_action = if tracks_zoom(&component) {
+            let memory = StateField::new_with("fission_charts::Chart", "zoom", ZoomMemory::default);
+            let remembered = memory.get();
+            if let (Some(zoom), Some((start, end))) =
+                (component.data_zoom.as_mut(), remembered.window)
+            {
+                zoom.start_percent = start;
+                zoom.end_percent = end;
+            }
+            component.zoom_drag = remembered.drag;
+            Some(ctx.bind_local(
+                ChartZoomChanged::DragEnded,
+                memory,
+                reduce_with!(on_zoom_changed),
+            ))
+        } else {
+            None
+        };
         let legend_action = if tracks_legend(&component) {
             let memory =
                 StateField::new_with("fission_charts::Chart", "legend", LegendMemory::default);
@@ -345,17 +369,20 @@ impl From<Chart> for Widget {
             });
         }
 
-        let render_object =
-            if this.interaction.enabled || this.on_interaction.is_some() || hover_actions.is_some()
-            {
-                Some(Arc::new(ChartRenderObject {
-                    chart: this.clone(),
-                    hover_action: hover_actions.as_ref().map(|(changed, _)| changed.clone()),
-                    legend_action,
-                }) as Arc<dyn CustomRenderObject>)
-            } else {
-                None
-            };
+        let render_object = if this.interaction.enabled
+            || this.on_interaction.is_some()
+            || hover_actions.is_some()
+            || zoom_action.is_some()
+        {
+            Some(Arc::new(ChartRenderObject {
+                chart: this.clone(),
+                hover_action: hover_actions.as_ref().map(|(changed, _)| changed.clone()),
+                legend_action,
+                zoom_action: zoom_action.clone(),
+            }) as Arc<dyn CustomRenderObject>)
+        } else {
+            None
+        };
         let node = InternalRenderNode {
             debug_tag: "fission_charts::Chart".into(),
             lowerer: Some(Arc::new(ChartInternalLowerer {
@@ -364,14 +391,23 @@ impl From<Chart> for Widget {
             render_object,
         };
         // The render object only hears events over the chart, so leaving it is
-        // observed by a hover-exit gesture that clears the stored hover.
-        let mut container = match hover_actions {
-            Some((_, cleared)) => Container::new(GestureDetector {
+        // observed by hover-exit gestures that clear the hover and end any drag.
+        let mut widget = fission_core::internal::custom_render_widget(node);
+        if let Some((_, cleared)) = hover_actions {
+            widget = GestureDetector {
                 on_hover_exit: Some(cleared),
-                ..GestureDetector::new(fission_core::internal::custom_render_widget(node))
-            }),
-            None => Container::new(fission_core::internal::custom_render_widget(node)),
-        };
+                ..GestureDetector::new(widget)
+            }
+            .into();
+        }
+        if let Some(action) = &zoom_action {
+            widget = GestureDetector {
+                on_hover_exit: Some(action.with_action(&ChartZoomChanged::DragEnded)),
+                ..GestureDetector::new(widget)
+            }
+            .into();
+        }
+        let mut container = Container::new(widget);
         if let Some(w) = this.width {
             container = container.width(w);
         } else {
@@ -424,6 +460,8 @@ struct ChartRenderObject {
     hover_action: Option<ActionEnvelope>,
     /// Records presses on legend entries, when legend selection is enabled.
     legend_action: Option<ActionEnvelope>,
+    /// Records slider drags and wheel zoom, when the chart has a data zoom.
+    zoom_action: Option<ActionEnvelope>,
 }
 
 impl CustomRenderObject for ChartRenderObject {
@@ -454,6 +492,15 @@ impl CustomRenderObject for ChartRenderObject {
         // reports nothing else still scrolls the page.
         let tracks_hover = self.hover_action.is_some() && kind == ChartInteractionKind::Hover;
         let local = LayoutPoint::new(point.x - node_rect.x(), point.y - node_rect.y());
+        if let Some(action) = &self.zoom_action {
+            if let Some(zoomed) = self.zoom_change(event, kind, local, node_rect) {
+                return CustomEventResult {
+                    handled: true,
+                    actions: vec![(node_id, action.with_action(&zoomed))],
+                    input_actions: Vec::new(),
+                };
+            }
+        }
         if kind == ChartInteractionKind::Press {
             if let Some(action) = &self.legend_action {
                 let model = ChartModel::from_chart(&self.chart);
@@ -654,6 +701,7 @@ mod chart_theme_tests {
             chart,
             hover_action: None,
             legend_action: None,
+            zoom_action: None,
         };
         let result = render.handle_event(
             source,
@@ -711,6 +759,7 @@ mod chart_theme_tests {
             chart,
             hover_action: None,
             legend_action: None,
+            zoom_action: None,
         }
         .handle_event(
             source,

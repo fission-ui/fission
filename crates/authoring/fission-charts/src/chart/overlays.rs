@@ -289,9 +289,8 @@ pub(super) fn draw_data_zoom(
     let Some(zoom) = chart.data_zoom.as_ref() else {
         return;
     };
-    let x = area.plot.x();
-    let y = area.plot.bottom() + 36.0;
-    let w = area.plot.width();
+    let track = zoom_track(area);
+    let (x, y, w) = (track.x(), track.y(), track.width());
     add_rect(
         cx,
         root,
@@ -310,6 +309,34 @@ pub(super) fn draw_data_zoom(
         None,
         6.0,
     );
+    for edge in [start, end] {
+        add_rect(
+            cx,
+            root,
+            LayoutRect::new(
+                x + w * edge - ZOOM_HANDLE_WIDTH / 2.0,
+                y - ZOOM_HANDLE_OVERHANG,
+                ZOOM_HANDLE_WIDTH,
+                track.height() + ZOOM_HANDLE_OVERHANG * 2.0,
+            ),
+            theme.axis_line,
+            None,
+            ZOOM_HANDLE_WIDTH / 2.0,
+        );
+    }
+}
+
+const ZOOM_HANDLE_WIDTH: f32 = 6.0;
+const ZOOM_HANDLE_OVERHANG: f32 = 4.0;
+
+/// The data-zoom slider's track, below the x axis.
+pub(super) fn zoom_track(area: &ChartArea) -> LayoutRect {
+    LayoutRect::new(
+        area.plot.x(),
+        area.plot.bottom() + 36.0,
+        area.plot.width(),
+        8.0,
+    )
 }
 
 pub(super) fn draw_brush(

@@ -891,3 +891,37 @@ fn tooltip_card_uses_the_theme_tooltip_shadow() {
         shadowed_rects(&idle) + usize::from(themed_shadow)
     );
 }
+
+#[test]
+fn data_zoom_slider_draws_handles_at_both_window_edges() {
+    let theme = ChartTheme::light();
+    let chart = Chart::new()
+        .width(640.0)
+        .height(360.0)
+        .theme(theme.clone())
+        .x_axis(Axis::category(vec!["Jan", "Feb", "Mar", "Apr"]))
+        .y_axis(Axis::value())
+        .series(vec![LineSeries::new("Visits")
+            .data(vec![3.0, 5.0, 4.0, 6.0])
+            .into()])
+        .data_zoom(
+            fission_charts::DataZoom::new()
+                .start_percent(25.0)
+                .end_percent(75.0),
+        );
+    let ir = lower_chart(chart);
+    let handles = ir
+        .nodes
+        .values()
+        .filter(|node| {
+            matches!(
+                &node.op,
+                fission_ir::Op::Paint(PaintOp::DrawRect { fill: Some(Fill::Solid(fill)), .. }) if *fill == theme.axis_line
+            )
+        })
+        .count();
+    assert!(
+        handles >= 2,
+        "expected both slider handles, found {handles}"
+    );
+}

@@ -2,7 +2,11 @@
 
 use super::*;
 use crate::components::AxisPointerType;
-use crate::interaction::{ChartLegendSelectionMode, ChartLegendToggled, ChartTooltipTrigger};
+use crate::components::DataZoomType;
+use crate::interaction::{
+    ChartLegendSelectionMode, ChartLegendToggled, ChartTooltipTrigger, ChartZoomChanged,
+};
+use fission_core::event::ScrollDeltaMode;
 use fission_core::ReducerContext;
 
 /// How far the tooltip sits from the pointer.
@@ -463,5 +467,172 @@ pub(super) fn emphasised_item(chart: &Chart, series_index: usize) -> Option<usiz
         hit.data_index
     } else {
         None
+    }
+}
+
+/// How much one wheel line changes the zoom window's width.
+const WHEEL_ZOOM_STEP: f32 = 0.1;
+/// Pixels of trackpad scroll that count as one wheel line.
+const PIXELS_PER_LINE: f32 = 40.0;
+/// The narrowest the zoom window gets, in percent of the range.
+const MIN_ZOOM_SPAN: f32 = 5.0;
+/// How far above and below the slider track a press still grabs it.
+const ZOOM_GRAB_MARGIN: f32 = 6.0;
+
+/// A drag of the zoom slider: where it started and the window at that moment.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct ZoomDrag {
+    pub(crate) anchor_x: f32,
+    pub(crate) start: f32,
+    pub(crate) end: f32,
+}
+
+/// A chart's zoom window and any drag of it, remembered between builds.
+#[derive(Debug, Clone, Default)]
+pub(super) struct ZoomMemory {
+    pub(super) window: Option<(f32, f32)>,
+    pub(super) drag: Option<ZoomDrag>,
+}
+
+impl fission_core::GlobalState for ZoomMemory {}
+
+pub(super) fn tracks_zoom(chart: &Chart) -> bool {
+    chart.data_zoom.is_some()
+}
+
+pub(super) fn on_zoom_changed(
+    memory: &mut ZoomMemory,
+    action: ChartZoomChanged,
+    _: &mut ReducerContext<'_, '_, '_, ZoomMemory>,
+) {
+    match action {
+        ChartZoomChanged::Window { start, end } => memory.window = Some((start, end)),
+        ChartZoomChanged::DragStarted {
+            anchor_x,
+            start,
+            end,
+        } => {
+            memory.drag = Some(ZoomDrag {
+                anchor_x,
+                start,
+                end,
+            });
+        }
+        ChartZoomChanged::DragEnded => memory.drag = None,
+    }
+}
+
+/// The window after dragging it `shift_percent` of the track, keeping its width.
+pub(super) fn dragged_window(drag: ZoomDrag, shift_percent: f32) -> (f32, f32) {
+    let span = drag.end - drag.start;
+    let start = (drag.start + shift_percent).clamp(0.0, 100.0 - span);
+    (start, start + span)
+}
+
+/// The window after zooming by `lines` wheel lines around `focus`, the fraction
+/// of the window under the pointer. Positive lines zoom out.
+pub(super) fn zoomed_window(start: f32, end: f32, lines: f32, focus: f32) -> (f32, f32) {
+    let span = end - start;
+    let new_span = (span * (1.0 + lines * WHEEL_ZOOM_STEP)).clamp(MIN_ZOOM_SPAN, 100.0);
+    let pivot = start + span * focus;
+    let new_start = (pivot - new_span * focus).clamp(0.0, 100.0 - new_span);
+    (new_start, new_start + new_span)
+}
+
+impl ChartRenderObject {
+    /// The zoom change a pointer event makes, if any: a press on the slider
+    /// starts a drag, moves during a drag shift the window, releasing ends it,
+    /// and the wheel zooms around the pointer.
+    pub(super) fn zoom_change(
+        &self,
+        event: &InputEvent,
+        kind: ChartInteractionKind,
+        local: LayoutPoint,
+        node_rect: LayoutRect,
+    ) -> Option<ChartZoomChanged> {
+        let zoom = self.chart.data_zoom.as_ref()?;
+        let area = chart_area_for_size(&self.chart, node_rect.width(), node_rect.height());
+        let track = zoom_track(&area);
+        let grab = LayoutRect::new(
+            track.x(),
+            track.y() - ZOOM_GRAB_MARGIN,
+            track.width(),
+            track.height() + ZOOM_GRAB_MARGIN * 2.0,
+        );
+        match kind {
+            ChartInteractionKind::Press => {
+                grab.contains(local)
+                    .then_some(ChartZoomChanged::DragStarted {
+                        anchor_x: local.x,
+                        start: zoom.start_percent,
+                        end: zoom.end_percent,
+                    })
+            }
+            ChartInteractionKind::Hover => {
+                let drag = self.chart.zoom_drag?;
+                let shift = (local.x - drag.anchor_x) / track.width().max(1.0) * 100.0;
+                let (start, end) = dragged_window(drag, shift);
+                Some(ChartZoomChanged::Window { start, end })
+            }
+            ChartInteractionKind::Release => {
+                self.chart.zoom_drag.map(|_| ChartZoomChanged::DragEnded)
+            }
+            ChartInteractionKind::Scroll => {
+                let InputEvent::Pointer(PointerEvent::Scroll {
+                    delta, delta_mode, ..
+                }) = event
+                else {
+                    return None;
+                };
+                let over = match zoom.zoom_type {
+                    DataZoomType::Inside => area.plot.contains(local),
+                    DataZoomType::Slider => grab.contains(local),
+                };
+                if !over || delta.y == 0.0 {
+                    return None;
+                }
+                let lines = match delta_mode {
+                    ScrollDeltaMode::Line => delta.y,
+                    ScrollDeltaMode::Pixel => delta.y / PIXELS_PER_LINE,
+                };
+                let focus =
+                    ((local.x - area.plot.x()) / area.plot.width().max(1.0)).clamp(0.0, 1.0);
+                let (start, end) =
+                    zoomed_window(zoom.start_percent, zoom.end_percent, lines, focus);
+                Some(ChartZoomChanged::Window { start, end })
+            }
+            ChartInteractionKind::Key => None,
+        }
+    }
+}
+
+#[cfg(test)]
+mod zoom_tests {
+    use super::*;
+
+    #[test]
+    fn dragging_keeps_the_window_width_and_stops_at_the_ends() {
+        let drag = ZoomDrag {
+            anchor_x: 0.0,
+            start: 20.0,
+            end: 50.0,
+        };
+        assert_eq!(dragged_window(drag, 10.0), (30.0, 60.0));
+        assert_eq!(dragged_window(drag, 90.0), (70.0, 100.0));
+        assert_eq!(dragged_window(drag, -40.0), (0.0, 30.0));
+    }
+
+    #[test]
+    fn wheel_zoom_keeps_the_point_under_the_pointer_in_place() {
+        let (start, end) = zoomed_window(20.0, 60.0, -2.0, 0.5);
+        assert!((end - start - 32.0).abs() < 0.01);
+        assert!(((start + end) / 2.0 - 40.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn wheel_zoom_never_narrows_below_the_minimum_or_widens_past_everything() {
+        let (start, end) = zoomed_window(40.0, 50.0, -50.0, 0.0);
+        assert!((end - start - MIN_ZOOM_SPAN).abs() < 0.01);
+        assert_eq!(zoomed_window(10.0, 90.0, 50.0, 0.5), (0.0, 100.0));
     }
 }
