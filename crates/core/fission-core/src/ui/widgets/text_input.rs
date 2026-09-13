@@ -940,7 +940,8 @@ impl Lower for TextInput {
             } else {
                 self.validation_state
             };
-        let constraint_invalid = (effective_required && live_value.text.is_empty())
+        let missing_required = effective_required && live_value.text.is_empty();
+        let constraint_invalid = missing_required
             || self
                 .min_length
                 .is_some_and(|minimum| grapheme_len < minimum)
@@ -975,12 +976,23 @@ impl Lower for TextInput {
             })
             .or_else(|| form_field_context.and_then(|context| context.invalid_message.clone()));
         let is_invalid = effective_validation_state == TextFieldValidationState::Invalid;
+        // An empty required field still fails form validation, but it is only drawn as an error
+        // once the user has visited and left it, so a new form does not open full of red fields.
+        let visited = session.is_some() && !is_focused;
+        let only_missing_required = missing_required
+            && self.error_text.is_none()
+            && declared_validation_state != TextFieldValidationState::Invalid
+            && !self
+                .min_length
+                .is_some_and(|minimum| grapheme_len < minimum)
+            && !pattern_invalid;
+        let show_invalid = is_invalid && (visited || !only_missing_required);
 
         let theme = &cx.env.theme.components.text_input;
         let tokens = &cx.env.theme.tokens;
         let component_state = if !self.enabled {
             ComponentState::Disabled
-        } else if is_invalid {
+        } else if show_invalid {
             ComponentState::Error
         } else if is_focused {
             ComponentState::Focus
