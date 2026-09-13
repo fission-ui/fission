@@ -954,3 +954,52 @@ fn charts_describe_themselves_to_assistive_technology() {
     );
     assert!(semantics.focusable && semantics.sequential_focusable);
 }
+
+#[test]
+fn update_animation_draws_values_from_the_motion_state() {
+    assert!(!ChartAnimation::default().animate_updates);
+    let theme = ChartTheme::light();
+    let chart_id = WidgetId::explicit("update-animated-chart");
+    let chart = || {
+        Chart::new()
+            .id(chart_id)
+            .width(640.0)
+            .height(360.0)
+            .theme(theme.clone())
+            .x_axis(Axis::category(vec!["A", "B"]))
+            .y_axis(Axis::value())
+            .series(vec![LineSeries::new("Load").data(vec![10.0, 10.0]).into()])
+            .animation(ChartAnimation::enter(ChartAnimationKind::Grow).updates(true))
+    };
+    let lower = |eased_second_point: Option<f32>| {
+        let lowerer = ChartInternalLowerer { chart: chart() };
+        let env = Env::default();
+        let mut runtime_state = fission_core::RuntimeState::default();
+        runtime_state.motion.values.insert(
+            (
+                WidgetId::derived(chart_id.as_u128(), &[0xC4A7_A11A]),
+                MotionPropertyId::custom("fission_charts::progress"),
+            ),
+            MotionValue::Scalar(1.0),
+        );
+        if let Some(eased) = eased_second_point {
+            runtime_state.motion.values.insert(
+                (
+                    WidgetId::derived(chart_id.as_u128(), &[0xC4A7_DA7A]),
+                    MotionPropertyId::custom("fission_charts::value::0::1"),
+                ),
+                MotionValue::Scalar(eased),
+            );
+        }
+        let mut cx = LoweringContext::new(&env, &runtime_state, None, None);
+        let root_id = cx.next_node_id();
+        cx.push_scope(root_id);
+        lowerer.lower_dyn(&mut cx);
+        cx.into_ir()
+    };
+
+    let settled = longest_stroked_path_for_color(&lower(None), theme.palette[0]);
+    let easing = longest_stroked_path_for_color(&lower(Some(4.0)), theme.palette[0]);
+    assert!(!settled.is_empty());
+    assert_ne!(settled, easing, "an eased value moves the drawn line");
+}

@@ -44,6 +44,7 @@ mod radial;
 mod relational;
 mod series;
 mod specialty;
+mod updates;
 
 use cartesian::*;
 use frame::*;
@@ -55,6 +56,7 @@ use radial::*;
 use relational::*;
 use series::*;
 use specialty::*;
+use updates::*;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Chart {
@@ -375,6 +377,9 @@ impl From<Chart> for Widget {
         } else {
             None
         };
+        if let Some(declaration) = update_tracks(&component) {
+            ctx.register_motion(declaration);
+        }
         let this = &component;
         if this.animation.enabled {
             ctx.register_motion(MotionDeclaration {
@@ -861,6 +866,7 @@ impl fission_core::internal::LowerWidget for ChartInternalLowerer {
             .clone()
             .unwrap_or_else(|| ChartTheme::from_env(cx.env()));
         apply_series_palette(&mut model, &theme);
+        apply_animated_values(&mut model, &self.chart, cx);
         let area = chart_area(&self.chart, cx);
         let mut root = fission_core::internal::IrBuilder::new(
             cx.next_node_id(),
