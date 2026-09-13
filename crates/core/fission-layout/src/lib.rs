@@ -40,6 +40,7 @@ use std::sync::{Arc, Mutex};
 
 mod paragraph;
 mod spotlight;
+mod stack;
 pub use paragraph::{
     LineMetric, ParagraphCaretStop, ParagraphCluster, ParagraphGlyph, ParagraphSelectionBox,
     ResolvedParagraphLayout, RichTextInlineBox, RichTextLayoutInfo,
@@ -4708,6 +4709,8 @@ impl LayoutEngine {
             }
             LayoutOp::ZStack => {
                 let mut max_child = LayoutSize::ZERO;
+                let mut max_in_flow_child = LayoutSize::ZERO;
+                let mut has_in_flow_child = false;
                 for child_id in &flow_children {
                     let child_size = self.layout_node_constraints(
                         *child_id,
@@ -4722,23 +4725,17 @@ impl LayoutEngine {
                     )?;
                     max_child.width = max_child.width.max(child_size.width);
                     max_child.height = max_child.height.max(child_size.height);
+                    if !self.is_positioned_stack_child(*child_id) {
+                        has_in_flow_child = true;
+                        max_in_flow_child.width = max_in_flow_child.width.max(child_size.width);
+                        max_in_flow_child.height = max_in_flow_child.height.max(child_size.height);
+                    }
                 }
-                let size = if constraints.is_width_bounded() || constraints.is_height_bounded() {
-                    constraints.constrain(LayoutSize::new(
-                        if constraints.is_width_bounded() {
-                            constraints.max_w
-                        } else {
-                            max_child.width
-                        },
-                        if constraints.is_height_bounded() {
-                            constraints.max_h
-                        } else {
-                            max_child.height
-                        },
-                    ))
-                } else {
-                    max_child
-                };
+                let size = stack::stack_size(
+                    constraints,
+                    max_child,
+                    has_in_flow_child.then_some(max_in_flow_child),
+                );
                 for child_id in &flow_children {
                     let child_constraints = BoxConstraints::loose(size.width, size.height);
                     let child_origin = LayoutPoint::new(origin.x, origin.y);

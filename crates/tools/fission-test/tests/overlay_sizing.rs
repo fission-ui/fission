@@ -400,3 +400,61 @@ fn elevated_card_with_a_labelled_button_sizes_to_its_content() -> Result<()> {
     );
     Ok(())
 }
+
+
+#[derive(Clone)]
+struct GalleryModalRoot;
+
+impl From<GalleryModalRoot> for Widget {
+    fn from(_root: GalleryModalRoot) -> Self {
+        ZStack {
+            children: vec![
+                Text::new("Background").into(),
+                Modal {
+                    id: WidgetId::explicit("overlay-sizing.gallery-modal"),
+                    title: "Gallery Modal".into(),
+                    content: Text::new("This is modal content.\nYou can put any widget here.").into(),
+                    is_open: true,
+                    surface_semantics_identifier: Some("overlay-sizing.gallery-surface".into()),
+                    actions: vec![
+                        ModalAction {
+                            label: "Cancel".into(),
+                            on_press: None,
+                            is_primary: false,
+                            semantics_identifier: None,
+                        },
+                        ModalAction {
+                            label: "Confirm".into(),
+                            on_press: None,
+                            is_primary: true,
+                            semantics_identifier: None,
+                        },
+                    ],
+                    width: None,
+                    motion: None,
+                    ..Default::default()
+                }
+                .into(),
+            ],
+            ..Default::default()
+        }
+        .into()
+    }
+}
+
+#[test]
+fn modal_without_a_width_hugs_its_content() -> Result<()> {
+    let mut driver = TestDriver::new(TestHarness::new(State).with_root_widget(GalleryModalRoot));
+    driver.harness.env.viewport_size = fission_layout::LayoutSize::new(1200.0, 935.0);
+    driver.pump()?;
+    driver.pump()?;
+    let surface = driver
+        .find_semantics_identifier("overlay-sizing.gallery-surface")
+        .expect("modal surface semantics");
+    assert!(
+        surface.bounds.height() < 300.0,
+        "a modal without a width should hug its content, got {:?}",
+        surface.bounds
+    );
+    Ok(())
+}
