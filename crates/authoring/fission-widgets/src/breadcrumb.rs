@@ -154,8 +154,8 @@ impl From<BreadcrumbLayout> for Widget {
         let separator_style = view
             .env()
             .theme
-            .recipe(fission_theme::recipe_names::BREADCRUMB)
-            .part("separator");
+            .recipe(fission_theme::recipes::Breadcrumb)
+            .part(fission_theme::recipes::BreadcrumbPart::Separator);
         let root_id = component
             .id
             .or_else(|| fission_core::build::next_implicit_widget_id(IMPLICIT_BREADCRUMB_ID_SALT))

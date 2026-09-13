@@ -8,7 +8,7 @@
 #[cfg(not(target_arch = "wasm32"))]
 use crate::syntax::SyntaxKind;
 use fission::core::op::Color;
-use fission::theme::{recipe_names, Theme};
+use fission::theme::{recipes, Theme};
 
 /// Fully transparent, for surfaces that exist only to take their child's shape.
 const TRANSPARENT: Color = Color {
@@ -117,8 +117,10 @@ impl EditorPalette {
     /// Resolves every editor colour from `theme`.
     pub(crate) fn from_theme(theme: &Theme) -> Self {
         let c = &theme.tokens.colors;
-        let code = theme.recipe(recipe_names::CODE_SYNTAX);
-        let syntax = |part: &str, fallback: Color| code.part(part).text_color.unwrap_or(fallback);
+        let code = theme.recipe(recipes::CodeSyntax);
+        let syntax = |part: recipes::CodeSyntaxPart, fallback: Color| {
+            code.part(part).text_color.unwrap_or(fallback)
+        };
         Self {
             menu_bar_bg: c.surface_raised,
             surface_bg: c.surface,
@@ -139,11 +141,11 @@ impl EditorPalette {
             welcome_heading: c.text_secondary,
             editor_selection: c.primary.with_alpha(96),
             completion_selected_bg: c.primary_subtle,
-            completion_function: syntax("function", c.warning),
-            completion_variable: syntax("variable", c.info),
-            completion_keyword: syntax("keyword", c.primary),
-            completion_type: syntax("type", c.secondary),
-            completion_module: syntax("constant", c.info),
+            completion_function: syntax(recipes::CodeSyntaxPart::Function, c.warning),
+            completion_variable: syntax(recipes::CodeSyntaxPart::Variable, c.info),
+            completion_keyword: syntax(recipes::CodeSyntaxPart::Keyword, c.primary),
+            completion_type: syntax(recipes::CodeSyntaxPart::Type, c.secondary),
+            completion_module: syntax(recipes::CodeSyntaxPart::Constant, c.info),
             completion_fallback: c.text_secondary,
             panel_text: c.text_primary,
             error_text: c.error,
@@ -166,34 +168,34 @@ impl EditorPalette {
             minimap_bg: c.surface_sunken,
             minimap_viewport: c.text_primary.with_alpha(25),
             minimap_empty: c.background,
-            minimap_comment: syntax("comment", c.text_muted),
-            minimap_string: syntax("string", c.success),
+            minimap_comment: syntax(recipes::CodeSyntaxPart::Comment, c.text_muted),
+            minimap_string: syntax(recipes::CodeSyntaxPart::String, c.success),
             minimap_code: c.text_muted,
             file_folder: c.warning,
-            file_rust: syntax("keyword", c.primary),
-            file_config: syntax("number", c.warning),
-            file_web_style: syntax("function", c.info),
-            file_data: syntax("constant", c.info),
-            file_script: syntax("number", c.warning),
+            file_rust: syntax(recipes::CodeSyntaxPart::Keyword, c.primary),
+            file_config: syntax(recipes::CodeSyntaxPart::Number, c.warning),
+            file_web_style: syntax(recipes::CodeSyntaxPart::Function, c.info),
+            file_data: syntax(recipes::CodeSyntaxPart::Constant, c.info),
+            file_script: syntax(recipes::CodeSyntaxPart::Number, c.warning),
             file_neutral: c.text_secondary,
             file_muted: c.text_muted,
-            file_html: syntax("deleted", c.error),
-            file_markup: syntax("type", c.secondary),
-            file_python: syntax("string", c.success),
-            file_yaml: syntax("deleted", c.error),
+            file_html: syntax(recipes::CodeSyntaxPart::Deleted, c.error),
+            file_markup: syntax(recipes::CodeSyntaxPart::Type, c.secondary),
+            file_python: syntax(recipes::CodeSyntaxPart::String, c.success),
+            file_yaml: syntax(recipes::CodeSyntaxPart::Deleted, c.error),
             file_ruby: c.error,
             file_go: c.info,
             #[cfg(not(target_arch = "wasm32"))]
             syntax_colors: SyntaxColors {
-                plain: syntax("variable", c.text_primary),
-                keyword: syntax("keyword", c.primary),
-                string: syntax("string", c.success),
-                comment: syntax("comment", c.text_muted),
-                number: syntax("number", c.warning),
-                type_name: syntax("type", c.secondary),
-                macro_name: syntax("function", c.info),
-                attribute: syntax("constant", c.info),
-                lifetime: syntax("punctuation", c.text_secondary),
+                plain: syntax(recipes::CodeSyntaxPart::Variable, c.text_primary),
+                keyword: syntax(recipes::CodeSyntaxPart::Keyword, c.primary),
+                string: syntax(recipes::CodeSyntaxPart::String, c.success),
+                comment: syntax(recipes::CodeSyntaxPart::Comment, c.text_muted),
+                number: syntax(recipes::CodeSyntaxPart::Number, c.warning),
+                type_name: syntax(recipes::CodeSyntaxPart::Type, c.secondary),
+                macro_name: syntax(recipes::CodeSyntaxPart::Function, c.info),
+                attribute: syntax(recipes::CodeSyntaxPart::Constant, c.info),
+                lifetime: syntax(recipes::CodeSyntaxPart::Punctuation, c.text_secondary),
             },
         }
     }

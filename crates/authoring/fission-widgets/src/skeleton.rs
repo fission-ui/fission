@@ -82,10 +82,7 @@ impl From<Skeleton> for Widget {
         let this = &component;
 
         let tokens = &view.env().theme.tokens;
-        let recipe = view
-            .env()
-            .theme
-            .recipe(fission_theme::recipe_names::SKELETON);
+        let recipe = view.env().theme.recipe(fission_theme::recipes::Skeleton);
 
         let base: Widget = Container::new(fission_core::ui::widgets::Spacer::default())
             .width(this.width.unwrap_or(100.0))

@@ -69,10 +69,7 @@ impl From<NumberInput> for Widget {
         let this = &component;
 
         let tokens = &view.env().theme.tokens;
-        let recipe = view
-            .env()
-            .theme
-            .recipe(fission_theme::recipe_names::NUMBER_INPUT);
+        let recipe = view.env().theme.recipe(fission_theme::recipes::NumberInput);
         let display_text = this
             .display_text
             .clone()
@@ -83,7 +80,9 @@ impl From<NumberInput> for Widget {
             .unwrap_or((glyph_count * 10.0 + 20.0).clamp(52.0, 96.0));
         let button_size = this
             .button_size
-            .or(recipe.part("stepper").width)
+            .or(recipe
+                .part(fission_theme::recipes::NumberInputPart::Stepper)
+                .width)
             .unwrap_or(32.0)
             .max(28.0);
         let icon_size = (button_size * 0.5).clamp(14.0, 18.0);

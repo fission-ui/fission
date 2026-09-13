@@ -42,10 +42,7 @@ impl From<Divider> for Widget {
 
         let tokens = &view.env().theme.tokens;
 
-        let recipe = view
-            .env()
-            .theme
-            .recipe(fission_theme::recipe_names::DIVIDER);
+        let recipe = view.env().theme.recipe(fission_theme::recipes::Divider);
         let thickness = this
             .thickness
             .or(recipe.base.height)

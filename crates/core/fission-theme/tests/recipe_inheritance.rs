@@ -6,14 +6,14 @@ include!(concat!(
     "/generated_inheritance_fixture_design_system.rs"
 ));
 
-use fission_theme::{recipe_names, DesignMode, DesignSystem, Theme};
+use fission_theme::{recipes, DesignMode, DesignSystem, Theme};
 
 #[test]
 fn changing_one_recipe_property_keeps_the_inherited_anatomy() {
     let inherited = Theme::default();
     let custom = InheritanceFixtureDesignSystem::theme(DesignMode::Light);
-    let base = inherited.recipe(recipe_names::BUTTON);
-    let button = custom.recipe(recipe_names::BUTTON);
+    let base = inherited.recipe(recipes::Button);
+    let button = custom.recipe(recipes::Button);
 
     assert!(
         !base.parts.is_empty(),
@@ -41,8 +41,8 @@ fn changing_one_recipe_property_keeps_the_inherited_anatomy() {
     assert_eq!(rest, base.base, "only the declared base property changes");
 
     assert_eq!(
-        custom.recipe(recipe_names::PAGINATION),
-        inherited.recipe(recipe_names::PAGINATION),
+        custom.recipe(recipes::Pagination).component_recipe(),
+        inherited.recipe(recipes::Pagination).component_recipe(),
         "undeclared components are inherited unchanged"
     );
 }

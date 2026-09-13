@@ -86,10 +86,7 @@ impl From<Spinner> for Widget {
         let this = &component;
 
         let tokens = &view.env().theme.tokens;
-        let recipe = view
-            .env()
-            .theme
-            .recipe(fission_theme::recipe_names::SPINNER);
+        let recipe = view.env().theme.recipe(fission_theme::recipes::Spinner);
         let color = this.color.unwrap_or(tokens.colors.primary);
         let dot_size = 10.0;
 
