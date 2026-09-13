@@ -401,7 +401,6 @@ fn elevated_card_with_a_labelled_button_sizes_to_its_content() -> Result<()> {
     Ok(())
 }
 
-
 #[derive(Clone)]
 struct GalleryModalRoot;
 
@@ -413,7 +412,8 @@ impl From<GalleryModalRoot> for Widget {
                 Modal {
                     id: WidgetId::explicit("overlay-sizing.gallery-modal"),
                     title: "Gallery Modal".into(),
-                    content: Text::new("This is modal content.\nYou can put any widget here.").into(),
+                    content: Text::new("This is modal content.\nYou can put any widget here.")
+                        .into(),
                     is_open: true,
                     surface_semantics_identifier: Some("overlay-sizing.gallery-surface".into()),
                     actions: vec![
