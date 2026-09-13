@@ -88,7 +88,7 @@ fn assert_actionable(ir: &CoreIR, identifier: &str, expected_role: Role) {
 }
 
 /// A dismissal backdrop is activatable by pointer but must stay out of the
-/// keyboard path, the way Flutter's ModalBarrier and an ARIA dialog overlay do.
+/// keyboard path, as an ARIA modal dialog's backdrop does.
 /// Keyboard users dismiss with Escape; a focusable scrim would put a stop with
 /// no visible affordance between the trigger and the dialog's own controls.
 fn assert_dismissal_backdrop(ir: &CoreIR, identifier: &str) {
@@ -343,8 +343,7 @@ fn menu_and_select_use_compact_bounded_popup_anatomy() {
     let popup = &portals[0];
     let (trigger_id, _) = semantics_entry(&trigger_ir, "density.trigger");
     // The recipe's control height is a floor, not a fixed height: a trigger
-    // with a taller value still has to contain it. Flutter models this the same
-    // way with ButtonStyle.minimumSize.
+    // with a taller value still has to contain it.
     match &trigger_ir.nodes[&trigger_ir.nodes[&trigger_id].children[0]].op {
         Op::Layout(LayoutOp::Box {
             height, min_height, ..
