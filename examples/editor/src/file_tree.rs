@@ -71,47 +71,14 @@ impl From<FileTree> for Widget {
         let create_file_id = ctx
             .bind(
                 CreateFile(String::new()),
-                reduce_with!(
-                    (|s: &mut EditorState, a: CreateFile, _| {
-                        // Generate a unique path so multiple "New File" clicks
-                        // each create a distinct file.
-                        let mut path = a.0.clone();
-                        while std::path::Path::new(&path).exists()
-                            || s.open_tabs.iter().any(|t| t.path == path)
-                        {
-                            s.untitled_counter += 1;
-                            path = format!("{}-{}", a.0, s.untitled_counter);
-                        }
-                        let _ = std::fs::write(&path, "");
-                        s.request_tree_refresh();
-                        s.open_file(path);
-                    })
-                ),
+                reduce_with!((|s: &mut EditorState, a: CreateFile, _| s.create_file(a.0))),
             )
             .id;
 
         let create_folder_id = ctx
             .bind(
                 CreateFolder(String::new()),
-                reduce_with!(
-                    (|s: &mut EditorState, a: CreateFolder, _| {
-                        // Generate a unique folder name
-                        let mut path = a.0.clone();
-                        let mut counter = 0u32;
-                        while std::path::Path::new(&path).exists() {
-                            counter += 1;
-                            path = format!("{}-{}", a.0, counter);
-                        }
-                        let _ = std::fs::create_dir_all(&path);
-                        s.request_tree_refresh();
-                        // Expand the parent so the new folder is visible
-                        if let Some(parent) = std::path::Path::new(&path).parent() {
-                            s.tree_expanded.insert(parent.to_string_lossy().to_string());
-                        }
-                        // Start inline rename so user can give it a proper name
-                        s.start_rename(path);
-                    })
-                ),
+                reduce_with!((|s: &mut EditorState, a: CreateFolder, _| s.create_folder(a.0))),
             )
             .id;
 

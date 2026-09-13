@@ -270,8 +270,9 @@ pub struct EditorState {
     // Clipboard (in-app)
     pub clipboard: String,
 
-    // File watcher
-    pub file_mtimes: HashMap<String, std::time::SystemTime>,
+    // File operations waiting on FS_JOB, in the order they were requested
+    pub pending_fs: Vec<FsRequest>,
+    pub next_fs_id: u64,
     #[allow(dead_code)]
     pub key_event_count: u64,
     pub redraw_epoch: u64,
@@ -342,7 +343,8 @@ impl Default for EditorState {
             scroll_offset_y: 0.0,
             lsp_handle: None,
             clipboard: String::new(),
-            file_mtimes: HashMap::new(),
+            pending_fs: Vec::new(),
+            next_fs_id: 0,
             key_event_count: 0,
             redraw_epoch: 0,
             cached_tree_entries: Vec::new(),
@@ -422,7 +424,7 @@ pub enum DocumentBacking {
     },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FileWindow {
     pub start_byte: u64,
     pub end_byte: u64,
@@ -1405,6 +1407,12 @@ pub struct EditorStarted {
 pub struct TreeScanCompleted;
 
 #[fission_action]
+pub struct FsCompleted;
+
+#[fission_action]
+pub struct FsFailed;
+
+#[fission_action]
 pub struct TreeScanFailed;
 
 #[fission_action]
@@ -1620,6 +1628,9 @@ fn search_files_recursive(dir: &Path, query: &str, results: &mut Vec<SearchResul
         }
     }
 }
+
+mod fs_jobs;
+pub use fs_jobs::{run_fs_job, FsFailure, FsOp, FsOutcome, FsRequest, FsResult, FS_JOB};
 
 #[cfg(test)]
 mod core_tests;

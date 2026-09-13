@@ -133,6 +133,47 @@ impl From<EditorApp> for Widget {
             });
         }
 
+        let fs_completed = ctx.bind(
+            FsCompleted,
+            reduce_with!(
+                (|state: &mut EditorState,
+                  _: FsCompleted,
+                  reducer: &mut ReducerContext<EditorState>| {
+                    if let Some(outcome) = reducer.input.job_ok(FS_JOB) {
+                        state.apply_fs_outcome(outcome);
+                    }
+                })
+            ),
+        );
+        let fs_failed = ctx.bind(
+            FsFailed,
+            reduce_with!(
+                (|state: &mut EditorState,
+                  _: FsFailed,
+                  reducer: &mut ReducerContext<EditorState>| {
+                    if let Some(failure) = reducer.input.job_err(FS_JOB) {
+                        state.apply_fs_failure(failure);
+                    }
+                })
+            ),
+        );
+        if !view.state().pending_fs.is_empty() {
+            ctx.with_resources(|resources| {
+                for request in &view.state().pending_fs {
+                    resources.job(
+                        JobResource::new(
+                            ResourceKey::new(format!("editor-fs-{}", request.id)),
+                            FS_JOB,
+                            request.clone(),
+                        )
+                        .deps(request.id)
+                        .on_ok(fs_completed.clone())
+                        .on_err(fs_failed.clone()),
+                    );
+                }
+            });
+        }
+
         let poll_terminal = ctx.bind(
             PollTerminal,
             reduce_with!(
