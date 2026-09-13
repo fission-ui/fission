@@ -1,9 +1,9 @@
 //! Reducers behind the compose modal.
 
 use super::{
-    Category, Email, EmailMessage, FileSelected, Folder, InboxState, SendCompose, SetComposeBody,
-    SetComposeOpen, SetComposeSubject, SetComposeTo, SetDatePickerOpen, SetScheduleDate,
-    SetScheduleTime,
+    Category, DiscardCompose, Email, EmailMessage, FileSelected, Folder, InboxState, SendCompose,
+    SetComposeBody, SetComposeOpen, SetComposeSubject, SetComposeTo, SetDatePickerOpen,
+    SetScheduleDate, SetScheduleTime,
 };
 use chrono::Local;
 use fission::core::ReducerContext;
@@ -21,6 +21,19 @@ fn edited_text(cx: &Cx<'_, '_, '_>, fallback: String) -> String {
 
 pub fn set_compose_open(state: &mut InboxState, action: SetComposeOpen, _: &mut Cx<'_, '_, '_>) {
     state.show_compose = action.0;
+}
+
+/// Cancel: closes compose and clears the draft, so the next message starts empty.
+pub fn discard_compose(state: &mut InboxState, _: DiscardCompose, _: &mut Cx<'_, '_, '_>) {
+    state.show_compose = false;
+    state.compose_to.clear();
+    state.compose_to_error = None;
+    state.compose_subject.clear();
+    state.compose_body.clear();
+    state.compose_attachments.clear();
+    state.schedule_date = None;
+    state.schedule_time = None;
+    state.is_date_picker_open = false;
 }
 
 pub fn set_compose_to(state: &mut InboxState, action: SetComposeTo, cx: &mut Cx<'_, '_, '_>) {

@@ -159,6 +159,10 @@ pub struct SetAdvancedFiltersOpen(pub bool);
 #[fission_action]
 pub struct SetSortOption(pub String);
 
+/// Closes compose and throws the draft away.
+#[fission_action]
+pub struct DiscardCompose;
+
 #[fission_action]
 pub struct SetSortMenuOpen(pub bool);
 

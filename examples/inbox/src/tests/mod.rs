@@ -1689,3 +1689,21 @@ fn send_explains_an_invalid_recipient() -> Result<()> {
     );
     Ok(())
 }
+
+#[test]
+fn cancel_discards_the_draft() -> Result<()> {
+    let mut state = InboxState::default();
+    state.show_compose = true;
+    state.compose_to = "dana".into();
+    state.compose_subject = "Plans".into();
+    let mut h = pump_state(state)?;
+    click_identifier(&mut h, "inbox.compose.cancel")?;
+    h.pump()?;
+    let state = h.runtime.get_app_state::<InboxState>().unwrap();
+    assert!(!state.show_compose, "Cancel closes compose");
+    assert!(
+        state.compose_to.is_empty() && state.compose_subject.is_empty(),
+        "Cancel throws the draft away"
+    );
+    Ok(())
+}
