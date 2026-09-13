@@ -2,6 +2,76 @@
 
 use super::*;
 
+/// Legends narrower than this flow their entries in rows under the title.
+const COMPACT_LEGEND_WIDTH: f32 = 420.0;
+const LEGEND_ROW_HEIGHT: f32 = 20.0;
+const LEGEND_ENTRY_HEIGHT: f32 = 16.0;
+const LEGEND_SWATCH: f32 = 10.0;
+const LEGEND_LABEL_OFFSET: f32 = 16.0;
+const LEGEND_FONT_SIZE: f32 = 11.0;
+
+/// One legend entry and where it sits in the chart.
+pub(super) struct LegendItem {
+    pub(super) index: usize,
+    pub(super) name: String,
+    pub(super) x: f32,
+    pub(super) y: f32,
+    pub(super) width: f32,
+}
+
+impl LegendItem {
+    /// The area a press toggles this entry from.
+    pub(super) fn bounds(&self) -> LayoutRect {
+        LayoutRect::new(self.x, self.y, self.width, LEGEND_ENTRY_HEIGHT)
+    }
+}
+
+/// Where each legend entry goes: flowed in rows on narrow charts, otherwise in
+/// a column beside the plot.
+pub(super) fn legend_items(model: &ChartModel, chart: &Chart, area: &ChartArea) -> Vec<LegendItem> {
+    if chart.legend.is_none() {
+        return Vec::new();
+    }
+    let names = series_names(model);
+    if area.outer_w < COMPACT_LEGEND_WIDTH {
+        let mut x = 20.0;
+        let mut y = if chart.title.is_some() { 54.0 } else { 24.0 };
+        names
+            .into_iter()
+            .enumerate()
+            .map(|(index, name)| {
+                let width = 28.0 + name.chars().count() as f32 * 6.5;
+                if x > 20.0 && x + width > area.outer_w - 20.0 {
+                    x = 20.0;
+                    y += LEGEND_ROW_HEIGHT;
+                }
+                let item = LegendItem {
+                    index,
+                    name,
+                    x,
+                    y,
+                    width,
+                };
+                x += width;
+                item
+            })
+            .collect()
+    } else {
+        let x = area.plot.right() + 18.0;
+        names
+            .into_iter()
+            .enumerate()
+            .map(|(index, name)| LegendItem {
+                index,
+                name,
+                x,
+                y: area.plot.y() + index as f32 * LEGEND_ROW_HEIGHT,
+                width: LEGEND_LABEL_OFFSET + 110.0,
+            })
+            .collect()
+    }
+}
+
 pub(super) fn draw_legend(
     cx: &mut fission_core::internal::LoweringContext,
     root: &mut fission_core::internal::IrBuilder,
@@ -10,54 +80,32 @@ pub(super) fn draw_legend(
     area: &ChartArea,
     theme: &ChartTheme,
 ) {
-    if chart.legend.is_none() {
-        return;
-    }
-    if area.outer_w < 420.0 {
-        let mut x = 20.0;
-        let mut y = if chart.title.is_some() { 54.0 } else { 24.0 };
-        for (idx, name) in series_names(model).iter().enumerate() {
-            let item_width = 28.0 + name.chars().count() as f32 * 6.5;
-            if x > 20.0 && x + item_width > area.outer_w - 20.0 {
-                x = 20.0;
-                y += 20.0;
-            }
-            add_rect(
-                cx,
-                root,
-                LayoutRect::new(x, y + 3.0, 10.0, 10.0),
-                series_color(model, theme, idx),
-                None,
-                2.0,
-            );
-            add_text(
-                cx,
-                root,
-                name,
-                11.0,
-                theme.label,
-                x + 16.0,
-                y,
-                item_width,
-                16.0,
-            );
-            x += item_width;
-        }
-        return;
-    }
-    let mut y = area.plot.y();
-    let x = area.plot.right() + 18.0;
-    for (idx, name) in series_names(model).iter().enumerate() {
+    for item in legend_items(model, chart, area) {
+        // Hidden entries stay in place, muted, so they can be turned back on.
+        let (swatch, label) = if model.is_hidden(item.index) {
+            (theme.grid_line, theme.grid_line)
+        } else {
+            (series_color(model, theme, item.index), theme.label)
+        };
         add_rect(
             cx,
             root,
-            LayoutRect::new(x, y + 3.0, 10.0, 10.0),
-            series_color(model, theme, idx),
+            LayoutRect::new(item.x, item.y + 3.0, LEGEND_SWATCH, LEGEND_SWATCH),
+            swatch,
             None,
             2.0,
         );
-        add_text(cx, root, name, 11.0, theme.label, x + 16.0, y, 110.0, 16.0);
-        y += 20.0;
+        add_text(
+            cx,
+            root,
+            &item.name,
+            LEGEND_FONT_SIZE,
+            label,
+            item.x + LEGEND_LABEL_OFFSET,
+            item.y,
+            item.width - LEGEND_LABEL_OFFSET,
+            LEGEND_ENTRY_HEIGHT,
+        );
     }
 }
 

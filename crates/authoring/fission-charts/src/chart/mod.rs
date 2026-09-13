@@ -5,7 +5,7 @@ use crate::components::{
 };
 use crate::grid::Grid;
 use crate::interaction::{ChartHit, ChartInteraction, ChartInteractionEvent, ChartInteractionKind};
-use crate::interaction::{ChartHover, ChartHoverChanged, ChartHoverCleared};
+use crate::interaction::{ChartHover, ChartHoverChanged, ChartHoverCleared, ChartLegendToggled};
 use crate::layout::math::{arc, catmull_rom_to_bezier, pie_slice};
 use crate::layout::scale::LinearScale;
 use crate::legend::Legend;
@@ -89,6 +89,10 @@ pub struct Chart {
     /// example to keep several charts in step.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub hover: Option<ChartHover>,
+    /// Series the legend hides, by name. The chart tracks this itself when
+    /// legend selection is enabled; set it to hide series from outside.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub hidden_series: Vec<String>,
     pub animation: crate::animation::ChartAnimation,
     pub animate: bool,
 }
@@ -125,6 +129,7 @@ impl Chart {
             interaction: ChartInteraction::default(),
             on_interaction: None,
             hover: None,
+            hidden_series: Vec::new(),
             animation: crate::animation::ChartAnimation::default(),
             animate: false,
         }
@@ -258,6 +263,12 @@ impl Chart {
         self
     }
 
+    /// Hides the named series, as if their legend entries had been pressed.
+    pub fn hidden_series(mut self, names: Vec<String>) -> Self {
+        self.hidden_series = names;
+        self
+    }
+
     /// Shows hover feedback for `hover` instead of the pointer's position.
     pub fn hover(mut self, hover: ChartHover) -> Self {
         self.hover = Some(hover);
@@ -277,6 +288,24 @@ impl From<Chart> for Widget {
         component.id = fission_core::build::current_widget_id()
             .or(component.id)
             .or_else(|| fission_core::build::next_implicit_widget_id(0xC4A7_0001));
+        let legend_action = if tracks_legend(&component) {
+            let memory =
+                StateField::new_with("fission_charts::Chart", "legend", LegendMemory::default);
+            if component.hidden_series.is_empty() {
+                component.hidden_series = memory.get().0;
+            }
+            Some(ctx.bind_local(
+                ChartLegendToggled {
+                    series: String::new(),
+                    all: Vec::new(),
+                    mode: component.interaction.legend_selection,
+                },
+                memory,
+                reduce_with!(on_legend_toggled),
+            ))
+        } else {
+            None
+        };
         let hover_actions = if tracks_hover(&component) {
             let memory =
                 StateField::new_with("fission_charts::Chart", "hover", HoverMemory::default);
@@ -322,6 +351,7 @@ impl From<Chart> for Widget {
                 Some(Arc::new(ChartRenderObject {
                     chart: this.clone(),
                     hover_action: hover_actions.as_ref().map(|(changed, _)| changed.clone()),
+                    legend_action,
                 }) as Arc<dyn CustomRenderObject>)
             } else {
                 None
@@ -392,6 +422,8 @@ struct ChartRenderObject {
     chart: Chart,
     /// Records pointer moves in the chart's hover state, when hover feedback is on.
     hover_action: Option<ActionEnvelope>,
+    /// Records presses on legend entries, when legend selection is enabled.
+    legend_action: Option<ActionEnvelope>,
 }
 
 impl CustomRenderObject for ChartRenderObject {
@@ -421,10 +453,29 @@ impl CustomRenderObject for ChartRenderObject {
         // Hover feedback only needs pointer moves, so scrolling over a chart that
         // reports nothing else still scrolls the page.
         let tracks_hover = self.hover_action.is_some() && kind == ChartInteractionKind::Hover;
+        let local = LayoutPoint::new(point.x - node_rect.x(), point.y - node_rect.y());
+        if kind == ChartInteractionKind::Press {
+            if let Some(action) = &self.legend_action {
+                let model = ChartModel::from_chart(&self.chart);
+                let area = chart_area_for_size(&self.chart, node_rect.width(), node_rect.height());
+                let items = legend_items(&model, &self.chart, &area);
+                if let Some(item) = items.iter().find(|item| item.bounds().contains(local)) {
+                    let toggled = ChartLegendToggled {
+                        series: item.name.clone(),
+                        all: items.iter().map(|item| item.name.clone()).collect(),
+                        mode: self.chart.interaction.legend_selection,
+                    };
+                    return CustomEventResult {
+                        handled: true,
+                        actions: vec![(node_id, action.with_action(&toggled))],
+                        input_actions: Vec::new(),
+                    };
+                }
+            }
+        }
         if !reports_events && !tracks_hover {
             return CustomEventResult::ignored();
         }
-        let local = LayoutPoint::new(point.x - node_rect.x(), point.y - node_rect.y());
         let hit = self
             .chart
             .hit_test(node_rect.width(), node_rect.height(), local);
@@ -602,6 +653,7 @@ mod chart_theme_tests {
         let render = ChartRenderObject {
             chart,
             hover_action: None,
+            legend_action: None,
         };
         let result = render.handle_event(
             source,
@@ -658,6 +710,7 @@ mod chart_theme_tests {
         let result = ChartRenderObject {
             chart,
             hover_action: None,
+            legend_action: None,
         }
         .handle_event(
             source,

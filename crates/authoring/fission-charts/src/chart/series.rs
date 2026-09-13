@@ -12,13 +12,16 @@ pub(super) fn render_series(
 ) {
     let x_scale = LinearScale::nice(model.x_domain.0, model.x_domain.1, 6);
     let y_scale = LinearScale::nice(model.y_domain.0, model.y_domain.1, 6);
-    let bar_groups = count_bar_groups(&model.series);
+    let bar_groups = count_bar_groups(model);
     let mut bar_group_index = 0usize;
     let mut bar_stacks: HashMap<(String, usize), f32> = HashMap::new();
     let mut line_stacks: HashMap<(String, usize), f32> = HashMap::new();
     let animation = ChartAnimationFrame::from_chart(chart, cx);
 
     for (series_index, series) in model.series.iter().enumerate() {
+        if model.is_hidden(series_index) {
+            continue;
+        }
         match series {
             ResolvedSeries::Bar(bar) => {
                 let group_index = if bar.source.stack.is_none() {

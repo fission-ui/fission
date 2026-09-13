@@ -14,13 +14,16 @@ pub(super) fn hit_test_chart(
     let x_scale = LinearScale::nice(model.x_domain.0, model.x_domain.1, 6);
     let y_scale = LinearScale::nice(model.y_domain.0, model.y_domain.1, 6);
     let threshold = 10.0;
-    let bar_groups = count_bar_groups(&model.series);
+    let bar_groups = count_bar_groups(model);
     let mut bar_group_index = 0usize;
     let mut bar_stacks: HashMap<(String, usize), f32> = HashMap::new();
     let mut line_stacks: HashMap<(String, usize), f32> = HashMap::new();
     let mut direct_hit = None;
 
     for (series_index, series) in model.series.iter().enumerate() {
+        if model.is_hidden(series_index) {
+            continue;
+        }
         match series {
             ResolvedSeries::Bar(bar) => {
                 let group_index = if bar.source.stack.is_none() {
@@ -239,6 +242,9 @@ pub(super) fn nearest_cartesian_hit(
     let mut best: Option<(f32, ChartHit)> = None;
 
     for (series_index, series) in model.series.iter().enumerate() {
+        if model.is_hidden(series_index) {
+            continue;
+        }
         match series {
             ResolvedSeries::Line(line) => {
                 for (idx, value) in line.values.iter().enumerate() {
