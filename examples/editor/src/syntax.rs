@@ -1,16 +1,17 @@
 //! Production-quality syntax highlighting using tree-sitter.
 //!
 //! Parses the entire document into a concrete syntax tree, walks it to extract
-//! node types (keywords, strings, comments, etc.), and maps them to VS-Code-
-//! Dark+-inspired colors.  Results are cached by content hash so re-builds that
-//! do not change the text skip parsing entirely.
+//! node types (keywords, strings, comments, etc.), and tags each span with a
+//! [`SyntaxKind`]. Kinds are turned into colours when the editor renders, from
+//! the active theme, so cached highlights stay correct across theme changes.
+//! Results are cached by content hash so re-builds that do not change the text
+//! skip parsing entirely.
 //!
 //! Currently supports Rust via `tree-sitter-rust`.  TOML uses a lightweight
 //! hand-rolled tokenizer (good enough for config files).  Other languages fall
 //! back to plain unstyled text.
 
 use crate::model::Language;
-use fission::core::op::Color;
 
 use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
@@ -23,70 +24,25 @@ use tree_sitter::Parser;
 // Public types
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StyledSpan {
     pub text: String,
-    pub color: Color,
+    pub kind: SyntaxKind,
 }
 
-// ---------------------------------------------------------------------------
-// Colour palette (VS Code Dark+ inspired)
-// ---------------------------------------------------------------------------
-
-const KEYWORD: Color = Color {
-    r: 86,
-    g: 156,
-    b: 214,
-    a: 255,
-}; // blue
-const STRING_LIT: Color = Color {
-    r: 206,
-    g: 145,
-    b: 120,
-    a: 255,
-}; // brown/orange
-const COMMENT: Color = Color {
-    r: 106,
-    g: 153,
-    b: 85,
-    a: 255,
-}; // green
-const NUMBER: Color = Color {
-    r: 181,
-    g: 206,
-    b: 168,
-    a: 255,
-}; // light green
-const TYPE_COLOR: Color = Color {
-    r: 78,
-    g: 201,
-    b: 176,
-    a: 255,
-}; // teal
-const MACRO_COLOR: Color = Color {
-    r: 220,
-    g: 220,
-    b: 170,
-    a: 255,
-}; // yellow
-const DEFAULT: Color = Color {
-    r: 212,
-    g: 212,
-    b: 212,
-    a: 255,
-};
-const ATTRIBUTE_COLOR: Color = Color {
-    r: 156,
-    g: 220,
-    b: 254,
-    a: 255,
-}; // light blue
-const LIFETIME_COLOR: Color = Color {
-    r: 86,
-    g: 156,
-    b: 214,
-    a: 255,
-}; // blue
+/// What a span of source is, for choosing its colour from the theme.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum SyntaxKind {
+    Plain,
+    Keyword,
+    String,
+    Comment,
+    Number,
+    Type,
+    Macro,
+    Attribute,
+    Lifetime,
+}
 
 // ---------------------------------------------------------------------------
 // Cached parsers (one per language)
@@ -131,14 +87,14 @@ pub fn highlight_line(line: &str, language: Language) -> Vec<StyledSpan> {
             doc.into_iter().next().unwrap_or_else(|| {
                 vec![StyledSpan {
                     text: line.to_string(),
-                    color: DEFAULT,
+                    kind: SyntaxKind::Plain,
                 }]
             })
         }
         Language::Toml => highlight_toml_line(line),
         _ => vec![StyledSpan {
             text: line.to_string(),
-            color: DEFAULT,
+            kind: SyntaxKind::Plain,
         }],
     }
 }
@@ -204,7 +160,8 @@ pub fn highlight_document(content: &str, language: Language) -> Vec<Vec<StyledSp
     result
 }
 
-/// Invalidate the highlight cache.  Useful if theme colours change.
+/// Invalidate the highlight cache. Highlights hold kinds, not colours, so a
+/// theme change does not require this.
 #[allow(dead_code)]
 pub fn invalidate_cache() {
     HIGHLIGHT_CACHE.lock().unwrap().clear();
@@ -234,13 +191,13 @@ fn highlight_rust_document(content: &str) -> Vec<Vec<StyledSpan>> {
         lines.len().max(1)
     };
 
-    // Start with every line as a single DEFAULT span
+    // Start with every line as a single plain span
     let mut result: Vec<Vec<StyledSpan>> = lines
         .iter()
         .map(|l| {
             vec![StyledSpan {
                 text: l.to_string(),
-                color: DEFAULT,
+                kind: SyntaxKind::Plain,
             }]
         })
         .collect();
@@ -249,19 +206,19 @@ fn highlight_rust_document(content: &str) -> Vec<Vec<StyledSpan>> {
     if content.ends_with('\n') {
         result.push(vec![StyledSpan {
             text: String::new(),
-            color: DEFAULT,
+            kind: SyntaxKind::Plain,
         }]);
     }
 
     // Collect colored ranges from the syntax tree
-    let mut colored_ranges: Vec<(usize, usize, usize, usize, Color)> = Vec::new();
+    let mut colored_ranges: Vec<(usize, usize, usize, usize, SyntaxKind)> = Vec::new();
     let mut stack = vec![tree.root_node()];
     while let Some(node) = stack.pop() {
         let parent_kind = node.parent().map(|parent| parent.kind());
-        if let Some(c) = node_color(node.kind(), parent_kind) {
+        if let Some(kind) = node_kind(node.kind(), parent_kind) {
             let start = node.start_position();
             let end = node.end_position();
-            colored_ranges.push((start.row, start.column, end.row, end.column, c));
+            colored_ranges.push((start.row, start.column, end.row, end.column, kind));
             if is_leaf_colored(node.kind()) {
                 continue;
             }
@@ -282,15 +239,15 @@ fn highlight_rust_document(content: &str) -> Vec<Vec<StyledSpan>> {
     colored_ranges.sort_by_key(|&(sr, sc, _, _, _)| (sr, sc));
 
     // Apply colored ranges to lines, splitting spans as needed
-    for &(start_row, start_col, end_row, end_col, color) in &colored_ranges {
-        apply_color_to_range(
+    for &(start_row, start_col, end_row, end_col, kind) in &colored_ranges {
+        apply_kind_to_range(
             &mut result,
             &lines,
             start_row,
             start_col,
             end_row,
             end_col,
-            color,
+            kind,
         );
     }
 
@@ -318,36 +275,36 @@ fn is_leaf_colored(kind: &str) -> bool {
     )
 }
 
-/// Map a tree-sitter item kind to a colour.  Returns `None` if the item
-/// should inherit the default colour or be handled by its children.
-fn node_color(kind: &str, parent_kind: Option<&str>) -> Option<Color> {
+/// Map a tree-sitter item kind to a syntax kind.  Returns `None` if the item
+/// should stay plain or be handled by its children.
+fn node_kind(kind: &str, parent_kind: Option<&str>) -> Option<SyntaxKind> {
     match kind {
         // Comments
-        "line_comment" | "block_comment" => Some(COMMENT),
+        "line_comment" | "block_comment" => Some(SyntaxKind::Comment),
 
         // String / char literals
         "string_literal" | "raw_string_literal" | "string_content" | "char_literal" => {
-            Some(STRING_LIT)
+            Some(SyntaxKind::String)
         }
 
         // Numeric literals
-        "integer_literal" | "float_literal" => Some(NUMBER),
+        "integer_literal" | "float_literal" => Some(SyntaxKind::Number),
 
         // Boolean
-        "boolean_literal" | "true" | "false" => Some(KEYWORD),
+        "boolean_literal" | "true" | "false" => Some(SyntaxKind::Keyword),
 
         // Rust keywords (leaf nodes whose text is the keyword itself)
         "fn" | "let" | "mut" | "pub" | "use" | "mod" | "struct" | "enum" | "impl" | "trait"
         | "for" | "while" | "loop" | "if" | "else" | "match" | "return" | "break" | "continue"
         | "const" | "static" | "type" | "where" | "as" | "in" | "ref" | "self" | "Self"
         | "super" | "crate" | "async" | "await" | "dyn" | "move" | "unsafe" | "extern"
-        | "yield" => Some(KEYWORD),
+        | "yield" => Some(SyntaxKind::Keyword),
 
         // Identifier-like nodes that tree-sitter may emit as keywords
-        "mutable_specifier" => Some(KEYWORD), // `mut`
+        "mutable_specifier" => Some(SyntaxKind::Keyword), // `mut`
 
         // Type identifiers
-        "type_identifier" | "primitive_type" => Some(TYPE_COLOR),
+        "type_identifier" | "primitive_type" => Some(SyntaxKind::Type),
 
         // Macro invocations
         "macro_invocation" => {
@@ -359,37 +316,37 @@ fn node_color(kind: &str, parent_kind: Option<&str>) -> Option<Color> {
         // The `!` in a macro call and the macro name
         "!" => {
             if parent_kind == Some("macro_invocation") {
-                return Some(MACRO_COLOR);
+                return Some(SyntaxKind::Macro);
             }
             None
         }
 
         // Attributes
-        "attribute_item" | "inner_attribute_item" => Some(ATTRIBUTE_COLOR),
+        "attribute_item" | "inner_attribute_item" => Some(SyntaxKind::Attribute),
 
         // Lifetime labels
-        "lifetime" | "label" => Some(LIFETIME_COLOR),
+        "lifetime" | "label" => Some(SyntaxKind::Lifetime),
 
         _ => {
             // Handle identifier nodes that are macro names
             if kind == "identifier" && parent_kind == Some("macro_invocation") {
-                return Some(MACRO_COLOR);
+                return Some(SyntaxKind::Macro);
             }
             None
         }
     }
 }
 
-/// Apply a colour to a (start_row, start_col) .. (end_row, end_col) range,
+/// Tag a (start_row, start_col) .. (end_row, end_col) range with `kind`,
 /// splitting existing spans as necessary.
-fn apply_color_to_range(
+fn apply_kind_to_range(
     result: &mut Vec<Vec<StyledSpan>>,
     lines: &[&str],
     start_row: usize,
     start_col: usize,
     end_row: usize,
     end_col: usize,
-    color: Color,
+    kind: SyntaxKind,
 ) {
     for row in start_row..=end_row {
         if row >= result.len() || row >= lines.len() {
@@ -427,7 +384,7 @@ fn apply_color_to_range(
                     let before_byte = col_start - span_start;
                     new_spans.push(StyledSpan {
                         text: span.text[..before_byte].to_string(),
-                        color: span.color,
+                        kind: span.kind,
                     });
                 }
 
@@ -437,7 +394,7 @@ fn apply_color_to_range(
                 if overlap_start < overlap_end && overlap_end <= span.text.len() {
                     new_spans.push(StyledSpan {
                         text: span.text[overlap_start..overlap_end].to_string(),
-                        color,
+                        kind,
                     });
                 }
 
@@ -446,7 +403,7 @@ fn apply_color_to_range(
                     let after_byte = col_end - span_start;
                     new_spans.push(StyledSpan {
                         text: span.text[after_byte..].to_string(),
-                        color: span.color,
+                        kind: span.kind,
                     });
                 }
             }
@@ -472,14 +429,14 @@ fn highlight_toml_line(line: &str) -> Vec<StyledSpan> {
     if trimmed.starts_with('#') {
         return vec![StyledSpan {
             text: line.to_string(),
-            color: COMMENT,
+            kind: SyntaxKind::Comment,
         }];
     }
 
     if trimmed.starts_with('[') {
         return vec![StyledSpan {
             text: line.to_string(),
-            color: KEYWORD,
+            kind: SyntaxKind::Keyword,
         }];
     }
 
@@ -490,18 +447,18 @@ fn highlight_toml_line(line: &str) -> Vec<StyledSpan> {
         return vec![
             StyledSpan {
                 text: key.to_string(),
-                color: TYPE_COLOR,
+                kind: SyntaxKind::Type,
             },
             StyledSpan {
                 text: rest.to_string(),
-                color: STRING_LIT,
+                kind: SyntaxKind::String,
             },
         ];
     }
 
     vec![StyledSpan {
         text: line.to_string(),
-        color: DEFAULT,
+        kind: SyntaxKind::Plain,
     }]
 }
 
@@ -515,7 +472,7 @@ fn plain_document(content: &str) -> Vec<Vec<StyledSpan>> {
         .map(|l| {
             vec![StyledSpan {
                 text: l.to_string(),
-                color: DEFAULT,
+                kind: SyntaxKind::Plain,
             }]
         })
         .collect()
@@ -553,7 +510,9 @@ mod tests {
     fn rust_keyword_highlighted() {
         let spans = highlight_line("fn main() {", Language::Rust);
         assert!(
-            spans.iter().any(|s| s.text == "fn" && s.color == KEYWORD),
+            spans
+                .iter()
+                .any(|s| s.text == "fn" && s.kind == SyntaxKind::Keyword),
             "expected 'fn' keyword span, got: {:?}",
             spans
         );
@@ -565,7 +524,7 @@ mod tests {
         // The whole line should be a comment
         let comment_text: String = spans
             .iter()
-            .filter(|s| s.color == COMMENT)
+            .filter(|s| s.kind == SyntaxKind::Comment)
             .map(|s| s.text.as_str())
             .collect();
         assert!(
@@ -581,7 +540,7 @@ mod tests {
         assert!(
             spans
                 .iter()
-                .any(|s| s.text.contains("hello") && s.color == STRING_LIT),
+                .any(|s| s.text.contains("hello") && s.kind == SyntaxKind::String),
             "expected string literal span, got: {:?}",
             spans
         );
@@ -590,7 +549,7 @@ mod tests {
     #[test]
     fn toml_section_highlighted() {
         let spans = highlight_line("[package]", Language::Toml);
-        assert_eq!(spans[0].color, KEYWORD);
+        assert_eq!(spans[0].kind, SyntaxKind::Keyword);
     }
 
     #[test]
@@ -607,14 +566,18 @@ mod tests {
 
         // First line should contain an "fn" keyword span
         assert!(
-            doc[0].iter().any(|s| s.text == "fn" && s.color == KEYWORD),
+            doc[0]
+                .iter()
+                .any(|s| s.text == "fn" && s.kind == SyntaxKind::Keyword),
             "first line: {:?}",
             doc[0]
         );
 
         // Second line should contain a number
         assert!(
-            doc[1].iter().any(|s| s.text == "42" && s.color == NUMBER),
+            doc[1]
+                .iter()
+                .any(|s| s.text == "42" && s.kind == SyntaxKind::Number),
             "second line: {:?}",
             doc[1]
         );
@@ -636,7 +599,7 @@ mod tests {
         let src = "[package]\nname = \"foo\"\n# comment\n";
         let doc = highlight_document(src, Language::Toml);
         assert!(doc.len() >= 3);
-        assert_eq!(doc[0][0].color, KEYWORD); // [package]
-        assert_eq!(doc[2][0].color, COMMENT); // # comment
+        assert_eq!(doc[0][0].kind, SyntaxKind::Keyword); // [package]
+        assert_eq!(doc[2][0].kind, SyntaxKind::Comment); // # comment
     }
 }

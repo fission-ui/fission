@@ -4,7 +4,7 @@ use crate::layout::{
     OVERLAY_HORIZONTAL_RESERVE, OVERLAY_MIN_INSET,
 };
 use crate::model::*;
-use crate::palette::{FLYOUT_BG, FLYOUT_BORDER, INTERACTION_BACKDROP};
+use crate::palette::EditorPalette;
 use fission::core::ui::{Container, GestureDetector, Positioned, Widget, ZStack};
 use fission::core::{reduce_with, PortalLayer, WidgetId};
 use fission::widgets::{Spacer, VStack};
@@ -14,6 +14,7 @@ pub(crate) struct ContextMenu;
 impl From<ContextMenu> for Widget {
     fn from(_component: ContextMenu) -> Self {
         let (ctx, view) = fission::build::current::<EditorState>();
+        let palette = EditorPalette::from_theme(&view.env().theme);
         let tokens = &view.env().theme.tokens;
         if !view.state().context_menu_visible {
             return Spacer {
@@ -219,15 +220,15 @@ impl From<ContextMenu> for Widget {
             children: items,
         })
         .width(card_width)
-        .bg(FLYOUT_BG)
-        .border(FLYOUT_BORDER, 1.0)
+        .bg(palette.flyout_bg)
+        .border(palette.flyout_border, 1.0)
         .border_radius(view.env().theme.tokens.radii.small)
         .into();
 
         let backdrop = GestureDetector {
             on_tap: Some(dismiss.clone()),
             child: Container::new(Spacer::default())
-                .bg(INTERACTION_BACKDROP)
+                .bg(palette.interaction_backdrop)
                 .flex_grow(1.0)
                 .into(),
             ..Default::default()

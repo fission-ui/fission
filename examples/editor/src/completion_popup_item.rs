@@ -1,9 +1,6 @@
 use crate::layout::{COMPLETION_ITEM_HEIGHT, COMPLETION_KIND_WIDTH};
 use crate::model::{EditorState, SelectCompletion};
-use crate::palette::{
-    BRIGHT_TEXT, COMPLETION_FALLBACK, COMPLETION_FUNCTION, COMPLETION_KEYWORD, COMPLETION_MODULE,
-    COMPLETION_SELECTED_BG, COMPLETION_TYPE, COMPLETION_VARIABLE, DIM_TEXT,
-};
+use crate::palette::EditorPalette;
 use fission::prelude::*;
 use fission::widgets::{HStack, Spacer};
 
@@ -19,6 +16,7 @@ pub(crate) struct CompletionPopupItem {
 impl From<CompletionPopupItem> for Widget {
     fn from(item: CompletionPopupItem) -> Self {
         let (_, view) = fission::build::current::<EditorState>();
+        let palette = EditorPalette::from_theme(&view.env().theme);
         let tokens = &view.env().theme.tokens;
         let detail = item
             .detail
@@ -34,12 +32,12 @@ impl From<CompletionPopupItem> for Widget {
                         Container::new(
                             Text::new(kind_label(&item.kind))
                                 .size(tokens.typography.font_size_xs)
-                                .color(kind_color(&item.kind)),
+                                .color(kind_color(&item.kind, &palette)),
                         )
                         .width(COMPLETION_KIND_WIDTH),
                         Text::new(item.label)
                             .size(tokens.typography.font_size_xs)
-                            .color(BRIGHT_TEXT),
+                            .color(palette.bright_text),
                         Spacer {
                             flex_grow: 1.0,
                             ..Default::default()
@@ -48,7 +46,7 @@ impl From<CompletionPopupItem> for Widget {
                             Widget::from(
                                 Text::new(detail)
                                     .size(tokens.typography.font_size_xs)
-                                    .color(DIM_TEXT),
+                                    .color(palette.dim_text),
                             )
                         } else {
                             Widget::from(Spacer {
@@ -77,7 +75,9 @@ impl From<CompletionPopupItem> for Widget {
         .into();
 
         if item.selected {
-            Container::new(button).bg(COMPLETION_SELECTED_BG).into()
+            Container::new(button)
+                .bg(palette.completion_selected_bg)
+                .into()
         } else {
             button
         }
@@ -101,13 +101,13 @@ fn kind_label(kind: &str) -> &'static str {
     }
 }
 
-fn kind_color(kind: &str) -> Color {
+fn kind_color(kind: &str, palette: &EditorPalette) -> Color {
     match kind {
-        "function" | "method" => COMPLETION_FUNCTION,
-        "variable" | "field" => COMPLETION_VARIABLE,
-        "keyword" => COMPLETION_KEYWORD,
-        "struct" | "class" | "enum" => COMPLETION_TYPE,
-        "module" => COMPLETION_MODULE,
-        _ => COMPLETION_FALLBACK,
+        "function" | "method" => palette.completion_function,
+        "variable" | "field" => palette.completion_variable,
+        "keyword" => palette.completion_keyword,
+        "struct" | "class" | "enum" => palette.completion_type,
+        "module" => palette.completion_module,
+        _ => palette.completion_fallback,
     }
 }

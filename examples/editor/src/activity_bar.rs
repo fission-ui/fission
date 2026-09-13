@@ -1,6 +1,6 @@
 use crate::layout::ACTIVITY_BAR_WIDTH;
 use crate::model::*;
-use crate::palette::{ACTIVITY_BAR_BG, BRIGHT_TEXT, DIM_TEXT, TRANSPARENT};
+use crate::palette::EditorPalette;
 use fission::core::ui::{Align, Button, ButtonVariant, Column, Container, Widget};
 use fission::core::{reduce_with, ActionEnvelope};
 
@@ -9,6 +9,7 @@ pub(crate) struct ActivityBar;
 impl From<ActivityBar> for Widget {
     fn from(_component: ActivityBar) -> Self {
         let (ctx, view) = fission::build::current::<EditorState>();
+        let palette = EditorPalette::from_theme(&view.env().theme);
         let tokens = &view.env().theme.tokens;
 
         let section_icons = vec![
@@ -54,9 +55,17 @@ impl From<ActivityBar> for Widget {
         for (icon_svg, section, _label) in &section_icons {
             let is_active =
                 view.state().sidebar_visible && view.state().sidebar_section == *section;
-            let color = if is_active { BRIGHT_TEXT } else { DIM_TEXT };
+            let color = if is_active {
+                palette.bright_text
+            } else {
+                palette.dim_text
+            };
 
-            let indicator_color = if is_active { BRIGHT_TEXT } else { TRANSPARENT };
+            let indicator_color = if is_active {
+                palette.bright_text
+            } else {
+                palette.transparent
+            };
 
             icons.push(
                 Button {
@@ -88,7 +97,7 @@ impl From<ActivityBar> for Widget {
             ..Default::default()
         })
         .width(ACTIVITY_BAR_WIDTH)
-        .bg(ACTIVITY_BAR_BG)
+        .bg(palette.activity_bar_bg)
         .flex_shrink(0.0)
         .into()
     }

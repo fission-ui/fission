@@ -1,6 +1,6 @@
 use crate::layout::PANEL_ACTION_HEIGHT;
 use crate::model::{EditorState, GitStatusEntry, OpenFile};
-use crate::palette::{DIM_TEXT, GIT_ADDED, GIT_DELETED, GIT_MODIFIED, PANEL_TEXT};
+use crate::palette::EditorPalette;
 use fission::prelude::*;
 use fission::widgets::HStack;
 
@@ -12,13 +12,14 @@ pub(crate) struct GitStatusItem {
 impl From<GitStatusItem> for Widget {
     fn from(item: GitStatusItem) -> Self {
         let (_ctx, view) = fission::build::current::<EditorState>();
+        let palette = EditorPalette::from_theme(&view.env().theme);
         let tokens = &view.env().theme.tokens;
         let status_color = match item.entry.status.as_str() {
-            "M" => GIT_MODIFIED,
-            "A" => GIT_ADDED,
-            "D" => GIT_DELETED,
-            "?" | "??" => DIM_TEXT,
-            _ => PANEL_TEXT,
+            "M" => palette.git_modified,
+            "A" => palette.git_added,
+            "D" => palette.git_deleted,
+            "?" | "??" => palette.dim_text,
+            _ => palette.panel_text,
         };
         let filename = item
             .entry
@@ -39,7 +40,7 @@ impl From<GitStatusItem> for Widget {
                             .color(status_color),
                         Text::new(filename)
                             .size(tokens.typography.font_size_sm)
-                            .color(PANEL_TEXT)
+                            .color(palette.panel_text)
                             .flex_grow(1.0),
                     ],
                 }

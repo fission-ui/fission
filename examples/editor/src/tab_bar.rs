@@ -1,7 +1,7 @@
 use crate::editor_tab::EditorTab;
 use crate::layout::TAB_BAR_HEIGHT;
 use crate::model::{CloseTab, EditorState, SelectTab};
-use crate::palette::{BORDER_COLOR, SURFACE_BG};
+use crate::palette::EditorPalette;
 use fission::prelude::*;
 use fission::widgets::{HStack, Spacer};
 
@@ -10,6 +10,7 @@ pub struct TabBar;
 impl From<TabBar> for Widget {
     fn from(_component: TabBar) -> Self {
         let (ctx, view) = fission::build::current::<EditorState>();
+        let palette = EditorPalette::from_theme(&view.env().theme);
         let tokens = &view.env().theme.tokens;
 
         if view.state().open_tabs.is_empty() {
@@ -77,8 +78,8 @@ impl From<TabBar> for Widget {
         })
         .height(TAB_BAR_HEIGHT)
         .min_height(TAB_BAR_HEIGHT)
-        .bg(SURFACE_BG)
-        .border(BORDER_COLOR, 1.0)
+        .bg(palette.surface_bg)
+        .border(palette.border_color, 1.0)
         .flex_shrink(0.0)
         .into()
     }

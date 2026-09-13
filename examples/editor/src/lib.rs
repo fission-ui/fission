@@ -66,10 +66,6 @@ pub fn embedded_state() -> EditorState {
     state
 }
 
-pub fn configure_embedded_env(_state: &EditorState, env: &mut fission::core::Env) {
-    env.theme = fission::theme::Theme::dark();
-}
-
 #[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
 pub fn run_desktop() -> anyhow::Result<()> {
     let root = std::env::args()

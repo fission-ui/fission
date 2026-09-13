@@ -7,7 +7,7 @@ use crate::model::{
     EditorState, RefreshGitStatus, SaveAllFiles, SaveFile, SetSidebarSection, SidebarSection,
     ToggleCommandPalette, ToggleSidebar, ToggleTerminal, UpdateCommandQuery,
 };
-use crate::palette::{FLYOUT_BG, FLYOUT_BORDER, MODAL_BACKDROP};
+use crate::palette::EditorPalette;
 use fission::core::ui::{Container, GestureDetector, Positioned, TextInput, Widget, ZStack};
 use fission::core::{reduce_with, ReducerContext, WidgetId};
 use fission::widgets::{Spacer, VStack};
@@ -22,6 +22,7 @@ struct Command {
 impl From<CommandPalette> for Widget {
     fn from(_component: CommandPalette) -> Self {
         let (ctx, view) = fission::build::current::<EditorState>();
+        let palette = EditorPalette::from_theme(&view.env().theme);
         let tokens = &view.env().theme.tokens;
         if !view.state().show_command_palette {
             return Spacer {
@@ -241,8 +242,8 @@ impl From<CommandPalette> for Widget {
             ],
         })
         .width(palette_width)
-        .bg(FLYOUT_BG)
-        .border(FLYOUT_BORDER, 1.0)
+        .bg(palette.flyout_bg)
+        .border(palette.flyout_border, 1.0)
         .border_radius(tokens.radii.small);
         let dropdown: Widget = if let Some(shadow) = tokens.elevations.level3 {
             dropdown.shadow(shadow).flex_shrink(1.0).into()
@@ -254,7 +255,7 @@ impl From<CommandPalette> for Widget {
         let backdrop = GestureDetector {
             on_tap: Some(dismiss.clone()),
             child: Container::new(Spacer::default())
-                .bg(MODAL_BACKDROP)
+                .bg(palette.modal_backdrop)
                 .flex_grow(1.0)
                 .into(),
             ..Default::default()
