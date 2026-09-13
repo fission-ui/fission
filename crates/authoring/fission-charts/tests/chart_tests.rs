@@ -1081,3 +1081,71 @@ fn dense_lines_are_thinned_to_the_plot_width_without_symbols() {
         "symbols shown"
     );
 }
+
+fn month_chart(axis: Axis) -> fission_ir::CoreIR {
+    lower_chart(
+        Chart::new()
+            .width(640.0)
+            .height(360.0)
+            .x_axis(axis)
+            .y_axis(Axis::value())
+            .series(vec![BarSeries::new("Sales")
+                .data((1..=12).map(|month| month as f32).collect())
+                .into()]),
+    )
+}
+
+fn month_label_boxes(ir: &fission_ir::CoreIR) -> Vec<(f32, f32)> {
+    ir.nodes
+        .values()
+        .filter_map(|node| {
+            let fission_ir::Op::Paint(PaintOp::DrawText { text, .. }) = &node.op else {
+                return None;
+            };
+            if !text.starts_with("Month") {
+                return None;
+            }
+            let parent = ir.nodes.get(&node.parent?)?;
+            let fission_ir::Op::Layout(LayoutOp::Positioned { top: Some(top), .. }) = parent.op
+            else {
+                return None;
+            };
+            Some((
+                parent
+                    .composite
+                    .rotation
+                    .as_ref()
+                    .map_or(0.0, |angle| angle.base),
+                top,
+            ))
+        })
+        .collect()
+}
+
+#[test]
+fn rotated_category_labels_turn_about_their_ticks_below_a_shorter_plot() {
+    let labels: Vec<String> = (1..=12).map(|month| format!("Month {month:02}")).collect();
+    let names: Vec<&str> = labels.iter().map(String::as_str).collect();
+
+    let upright = month_label_boxes(&month_chart(Axis::category(names.clone())));
+    let rotated = month_label_boxes(&month_chart(Axis::category(names).label_rotate(45.0)));
+
+    assert!(!rotated.is_empty());
+    assert!(
+        rotated
+            .iter()
+            .all(|(angle, _)| (angle + std::f32::consts::FRAC_PI_4).abs() < 1e-3),
+        "{rotated:?}"
+    );
+    assert!(upright.iter().all(|(angle, _)| *angle == 0.0));
+    assert!(
+        rotated.len() >= upright.len(),
+        "slanted labels need less room across each category"
+    );
+    let upright_top = upright.iter().map(|(_, top)| *top).fold(f32::MAX, f32::min);
+    let rotated_top = rotated.iter().map(|(_, top)| *top).fold(f32::MAX, f32::min);
+    assert!(
+        rotated_top < upright_top,
+        "the plot ends higher to leave room for slanted labels"
+    );
+}

@@ -117,9 +117,31 @@ pub(super) fn draw_cartesian_axes(
             .unwrap_or(0) as f32
             * AXIS_LABEL_SIZE
             * AXIS_LABEL_ADVANCE;
-        let step = label_step(widest + AXIS_LABEL_GAP, band);
+        let rotation = model
+            .x_axis
+            .label_rotate
+            .filter(|degrees| degrees.abs() > MIN_LABEL_ROTATION);
+        let needed = match rotation {
+            // A slanted label only needs its line height of room across the band.
+            Some(degrees) => {
+                (AXIS_LABEL_HEIGHT / degrees.to_radians().sin().abs()).min(widest + AXIS_LABEL_GAP)
+            }
+            None => widest + AXIS_LABEL_GAP,
+        };
+        let step = label_step(needed, band);
         for (idx, label) in model.x_categories.iter().enumerate().step_by(step) {
             let x = map_category_x(idx, model, area);
+            if let Some(degrees) = rotation {
+                add_rotated_label(
+                    cx,
+                    root,
+                    label,
+                    theme.label,
+                    (x, area.plot.bottom() + 8.0),
+                    degrees,
+                );
+                continue;
+            }
             add_text(
                 cx,
                 root,
@@ -191,6 +213,100 @@ const AXIS_LABEL_ADVANCE: f32 = 0.6;
 const AXIS_LABEL_GAP: f32 = 8.0;
 /// The height a vertical category label needs.
 const AXIS_LABEL_HEIGHT: f32 = 16.0;
+/// Rotations smaller than this, in degrees, draw labels upright.
+const MIN_LABEL_ROTATION: f32 = 0.5;
+
+/// Draws a category label turned `degrees` counter-clockwise, with the end
+/// nearest the axis at `anchor`: a positive angle slants the label up to the
+/// right so it ends at its tick, and a negative one slants it down to the right
+/// from its tick. Label width is estimated from its character count.
+fn add_rotated_label(
+    cx: &mut fission_core::internal::LoweringContext,
+    root: &mut fission_core::internal::IrBuilder,
+    text: &str,
+    color: Color,
+    anchor: (f32, f32),
+    degrees: f32,
+) {
+    let width = text.chars().count() as f32 * AXIS_LABEL_SIZE * AXIS_LABEL_ADVANCE + 2.0;
+    let height = AXIS_LABEL_HEIGHT;
+    let radians = degrees.to_radians();
+    // Screen y grows downwards, so the label's reading direction is
+    // (cos, -sin), and the box centre sits half a label back from the anchor
+    // along it for positive angles, or forward for negative ones.
+    let side = if degrees >= 0.0 { -1.0 } else { 1.0 };
+    let centre = (
+        anchor.0 + side * width / 2.0 * radians.cos(),
+        anchor.1 - side * width / 2.0 * radians.sin(),
+    );
+    let paint_id = cx.next_node_id();
+    let mut label = fission_core::internal::IrBuilder::new(
+        cx.next_node_id(),
+        fission_ir::Op::Layout(LayoutOp::Positioned {
+            left: Some(centre.0 - width / 2.0),
+            top: Some(centre.1 - height / 2.0),
+            right: None,
+            bottom: None,
+            width: Some(width),
+            height: Some(height),
+        }),
+    )
+    // Composite rotation turns about the box centre, clockwise for positive values.
+    .composite(fission_ir::op::CompositeStyle {
+        rotation: Some(fission_ir::op::CompositeScalar::new(-radians)),
+        ..Default::default()
+    });
+    label.add_child(
+        fission_core::internal::IrBuilder::new(
+            paint_id,
+            fission_ir::Op::Paint(PaintOp::DrawText {
+                text: text.to_string(),
+                size: AXIS_LABEL_SIZE,
+                color,
+                underline: false,
+                locale: None,
+                wrap: false,
+                caret_index: None,
+                caret_color: None,
+                caret_width: None,
+                caret_height: None,
+                caret_radius: None,
+                paragraph_style: None,
+            }),
+        )
+        .build(cx),
+    );
+    root.add_child(label.build(cx));
+}
+
+/// The extra room below the plot that slanted category labels need beyond an
+/// upright label's.
+pub(super) fn rotated_label_room(chart: &Chart) -> f32 {
+    let Some(axis) = chart
+        .x_axis
+        .as_ref()
+        .filter(|axis| axis.axis_type == AxisType::Category)
+    else {
+        return 0.0;
+    };
+    let Some(degrees) = axis
+        .label_rotate
+        .filter(|degrees| degrees.abs() > MIN_LABEL_ROTATION)
+    else {
+        return 0.0;
+    };
+    let widest = axis
+        .data
+        .iter()
+        .map(|label| label.chars().count())
+        .max()
+        .unwrap_or(0) as f32
+        * AXIS_LABEL_SIZE
+        * AXIS_LABEL_ADVANCE;
+    let radians = degrees.to_radians();
+    let drop = widest * radians.sin().abs() + AXIS_LABEL_HEIGHT * radians.cos().abs();
+    (drop - AXIS_LABEL_HEIGHT).max(0.0)
+}
 
 /// How many categories to advance between drawn labels so a label needing
 /// `needed` points never overlaps its neighbour in bands `band` points wide:
