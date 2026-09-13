@@ -27,45 +27,7 @@ impl From<CompletionPopup> for Widget {
             .into();
         }
 
-        let dismiss = ctx.bind(
-            DismissCompletions,
-            reduce_with!(
-                (|s: &mut EditorState, _, _| {
-                    s.show_completions = false;
-                    s.completions.clear();
-                    s.selected_completion = 0;
-                })
-            ),
-        );
-
-        let select_id = ctx
-            .bind(
-                SelectCompletion(0),
-                reduce_with!(
-                    (|s: &mut EditorState, a: SelectCompletion, _| {
-                        let idx = a.0;
-                        let label = s.completions.get(idx).map(|item| item.label.clone());
-                        if let Some(label) = label {
-                            // Insert the selected completion label into the active buffer
-                            if let Some((_tab, buf)) = s.active_buffer_mut() {
-                                let (caret, _anchor) = buf.current_offsets();
-                                buf.apply_edit(caret..caret, &label);
-                                let next = caret + label.len();
-                                buf.set_selection_offsets(next, next);
-                            }
-                            s.mark_active_tab_dirty();
-                            if let Some(tab) = s.open_tabs.get(s.active_tab) {
-                                let path = tab.path.clone();
-                                s.notify_buffer_changed(&path);
-                            }
-                        }
-                        s.show_completions = false;
-                        s.completions.clear();
-                        s.selected_completion = 0;
-                    })
-                ),
-            )
-            .id;
+        let dismiss = ctx.bind(DismissCompletions, reduce_with!(on_dismiss_completions));
 
         let viewport = view.viewport_size();
         let popup_width = (viewport.width - OVERLAY_HORIZONTAL_RESERVE)
@@ -84,7 +46,6 @@ impl From<CompletionPopup> for Widget {
                     detail: completion.detail.clone(),
                     kind: completion.kind.clone(),
                     selected: i == selected_idx,
-                    select_id,
                 }
                 .into(),
             );

@@ -1,17 +1,16 @@
 use crate::layout::PANEL_ACTION_HEIGHT;
-use crate::model::{EditorState, GitStatusEntry, OpenFile};
+use crate::model::{on_open_file, EditorState, GitStatusEntry, OpenFile};
 use crate::palette::EditorPalette;
 use fission::prelude::*;
 use fission::widgets::HStack;
 
 pub(crate) struct GitStatusItem {
     pub entry: GitStatusEntry,
-    pub open_id: ActionId,
 }
 
 impl From<GitStatusItem> for Widget {
     fn from(item: GitStatusItem) -> Self {
-        let (_ctx, view) = fission::build::current::<EditorState>();
+        let (ctx, view) = fission::build::current::<EditorState>();
         let palette = EditorPalette::from_theme(&view.env().theme);
         let tokens = &view.env().theme.tokens;
         let status_color = match item.entry.status.as_str() {
@@ -46,10 +45,7 @@ impl From<GitStatusItem> for Widget {
                 }
                 .into(),
             ),
-            on_press: Some(ActionEnvelope {
-                id: item.open_id,
-                payload: serde_json::to_vec(&OpenFile(item.entry.path)).unwrap(),
-            }),
+            on_press: Some(ctx.bind(OpenFile(item.entry.path), reduce_with!(on_open_file))),
             height: Some(PANEL_ACTION_HEIGHT),
             padding: Some([
                 tokens.spacing.xs,

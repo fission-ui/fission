@@ -1,5 +1,5 @@
 use crate::layout::{COMPLETION_ITEM_HEIGHT, COMPLETION_KIND_WIDTH};
-use crate::model::{EditorState, SelectCompletion};
+use crate::model::{on_select_completion, EditorState, SelectCompletion};
 use crate::palette::EditorPalette;
 use fission::prelude::*;
 use fission::widgets::{HStack, Spacer};
@@ -10,12 +10,11 @@ pub(crate) struct CompletionPopupItem {
     pub detail: Option<String>,
     pub kind: String,
     pub selected: bool,
-    pub select_id: ActionId,
 }
 
 impl From<CompletionPopupItem> for Widget {
     fn from(item: CompletionPopupItem) -> Self {
-        let (_, view) = fission::build::current::<EditorState>();
+        let (ctx, view) = fission::build::current::<EditorState>();
         let palette = EditorPalette::from_theme(&view.env().theme);
         let tokens = &view.env().theme.tokens;
         let detail = item
@@ -58,10 +57,10 @@ impl From<CompletionPopupItem> for Widget {
                 }
                 .into(),
             ),
-            on_press: Some(ActionEnvelope {
-                id: item.select_id,
-                payload: serde_json::to_vec(&SelectCompletion(item.index)).unwrap(),
-            }),
+            on_press: Some(ctx.bind(
+                SelectCompletion(item.index),
+                reduce_with!(on_select_completion),
+            )),
             height: Some(COMPLETION_ITEM_HEIGHT),
             padding: Some([
                 tokens.spacing.xs,

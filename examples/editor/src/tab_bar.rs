@@ -1,6 +1,6 @@
 use crate::editor_tab::EditorTab;
 use crate::layout::TAB_BAR_HEIGHT;
-use crate::model::{CloseTab, EditorState, SelectTab};
+use crate::model::EditorState;
 use crate::palette::EditorPalette;
 use fission::prelude::*;
 use fission::widgets::{HStack, Spacer};
@@ -9,7 +9,7 @@ pub struct TabBar;
 
 impl From<TabBar> for Widget {
     fn from(_component: TabBar) -> Self {
-        let (ctx, view) = fission::build::current::<EditorState>();
+        let (_, view) = fission::build::current::<EditorState>();
         let palette = EditorPalette::from_theme(&view.env().theme);
         let tokens = &view.env().theme.tokens;
 
@@ -20,29 +20,6 @@ impl From<TabBar> for Widget {
             }
             .into();
         }
-
-        let select_id = ctx
-            .bind(
-                SelectTab(0),
-                reduce_with!(
-                    (|s: &mut EditorState, a: SelectTab, _| {
-                        s.active_tab = a.0;
-                        s.update_breadcrumb();
-                    })
-                ),
-            )
-            .id;
-
-        let close_id = ctx
-            .bind(
-                CloseTab(0),
-                reduce_with!(
-                    (|s: &mut EditorState, a: CloseTab, _| {
-                        s.close_tab(a.0);
-                    })
-                ),
-            )
-            .id;
 
         let tab_nodes = view
             .state()
@@ -55,8 +32,6 @@ impl From<TabBar> for Widget {
                     index,
                     tab,
                     active: index == view.state().active_tab,
-                    select_id,
-                    close_id,
                 }
                 .into()
             })

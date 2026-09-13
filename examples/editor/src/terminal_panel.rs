@@ -4,7 +4,7 @@ use crate::layout::{
     MIN_TERMINAL_WIDTH, SIDEBAR_MAX_WIDTH, SIDEBAR_MIN_WIDTH,
 };
 use crate::layout::{MIN_TERMINAL_HEIGHT, PANEL_HEADER_HEIGHT, TERMINAL_HEIGHT_FRACTION};
-use crate::model::{BottomPanelTab, EditorState};
+use crate::model::{on_set_bottom_panel_tab, BottomPanelTab, EditorState};
 use crate::palette::EditorPalette;
 use crate::terminal_panel_tab::TerminalPanelTab;
 use fission::core::reduce_with;
@@ -26,22 +26,11 @@ impl From<TerminalPanel> for Widget {
         let is_problems = view.state().bottom_panel_tab == BottomPanelTab::Problems;
         let set_terminal = ctx.bind(
             crate::model::SetBottomPanelTab(BottomPanelTab::Terminal),
-            reduce_with!(
-                (|s: &mut EditorState, a: crate::model::SetBottomPanelTab, _| {
-                    s.bottom_panel_tab = a.0;
-                    if a.0 == BottomPanelTab::Terminal {
-                        s.ensure_terminal_session();
-                    }
-                })
-            ),
+            reduce_with!(on_set_bottom_panel_tab),
         );
         let set_problems = ctx.bind(
             crate::model::SetBottomPanelTab(BottomPanelTab::Problems),
-            reduce_with!(
-                (|s: &mut EditorState, a: crate::model::SetBottomPanelTab, _| {
-                    s.bottom_panel_tab = a.0;
-                })
-            ),
+            reduce_with!(on_set_bottom_panel_tab),
         );
 
         let title = view
