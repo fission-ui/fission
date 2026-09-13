@@ -1719,12 +1719,16 @@ impl Lower for Button {
                             ButtonContentAlign::End => fission_ir::op::JustifyContent::End,
                             ButtonContentAlign::Center => fission_ir::op::JustifyContent::Center,
                         };
+                        // The row hugs its content. A button given a width, or stretched by its
+                        // parent, still hands the row its full width through tight constraints,
+                        // so start and end alignment apply; an unsized button no longer grows to
+                        // whatever width is offered.
                         let mut flex_builder = IrBuilder::new(
                             cx.next_node_id(),
                             Op::Layout(LayoutOp::Flex {
                                 direction: fission_ir::FlexDirection::Row,
                                 wrap: fission_ir::FlexWrap::NoWrap,
-                                flex_grow: 1.0,
+                                flex_grow: 0.0,
                                 flex_shrink: 0.0,
                                 padding: [0.0; 4],
                                 gap: None,

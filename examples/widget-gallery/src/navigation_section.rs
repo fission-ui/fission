@@ -2,8 +2,8 @@ use crate::gallery_section::GallerySection;
 use crate::state::GalleryState;
 use fission::prelude::*;
 use fission::widgets::{
-    Breadcrumb, BreadcrumbItem, Link, MenuButton, MenuItem, Pagination, SegmentedControl, TabItem,
-    Tabs,
+    Breadcrumb, BreadcrumbItem, HStack, Link, MenuButton, MenuItem, Pagination, SegmentedControl,
+    TabItem, Tabs,
 };
 use std::sync::Arc;
 
@@ -99,26 +99,30 @@ impl From<NavigationSection> for Widget {
                     text: "Visit documentation".into(),
                     on_click: None,
                 },
-                MenuButton {
-                    id: WidgetId::explicit("gallery_menu"),
-                    label: "Actions".into(),
-                    items: vec![
-                        MenuItem {
-                            label: "Edit".into(),
-                            icon: None,
-                            on_select: None,
-                            semantics_identifier: Some("gallery.menu.edit".into()),
-                        },
-                        MenuItem {
-                            label: "Delete".into(),
-                            icon: None,
-                            on_select: None,
-                            semantics_identifier: Some("gallery.menu.delete".into()),
-                        },
-                    ],
-                    is_open: state.menu_open,
-                    on_toggle: Some(with_reducer!(ctx, ToggleMenu, toggle_menu)),
-                    trigger_semantics_identifier: Some("gallery.menu.trigger".into()),
+                // The section column stretches its children; the row lets the trigger hug its label.
+                HStack {
+                    children: widgets![MenuButton {
+                        id: WidgetId::explicit("gallery_menu"),
+                        label: "Actions".into(),
+                        items: vec![
+                            MenuItem {
+                                label: "Edit".into(),
+                                icon: None,
+                                on_select: None,
+                                semantics_identifier: Some("gallery.menu.edit".into()),
+                            },
+                            MenuItem {
+                                label: "Delete".into(),
+                                icon: None,
+                                on_select: None,
+                                semantics_identifier: Some("gallery.menu.delete".into()),
+                            },
+                        ],
+                        is_open: state.menu_open,
+                        on_toggle: Some(with_reducer!(ctx, ToggleMenu, toggle_menu)),
+                        trigger_semantics_identifier: Some("gallery.menu.trigger".into()),
+                    }],
+                    ..Default::default()
                 },
             ],
         )

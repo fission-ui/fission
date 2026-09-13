@@ -90,28 +90,40 @@ impl From<OverlaySection> for Widget {
                 is_visible: false,
                 motion: None,
             },
-            Select {
-                id: WidgetId::explicit("gallery_select"),
-                selected_label: state.select_value.clone(),
-                items: vec![
-                    SelectItem {
-                        label: "Option A".into(),
-                        icon: None,
-                        on_select: with_reducer!(ctx, SelectValue("Option A".into()), select_value),
-                        semantics_identifier: Some("gallery.select.a".into()),
-                    },
-                    SelectItem {
-                        label: "Option B".into(),
-                        icon: None,
-                        on_select: with_reducer!(ctx, SelectValue("Option B".into()), select_value),
-                        semantics_identifier: Some("gallery.select.b".into()),
-                    },
-                ],
-                is_open: state.select_open,
-                on_toggle: Some(with_reducer!(ctx, ToggleSelect, toggle_select)),
-                trigger_semantics_identifier: Some("gallery.select.trigger".into()),
-                placeholder: "Choose...".into(),
-                width: None,
+            // The section column stretches its children; the row lets the trigger hug its value.
+            HStack {
+                children: widgets![Select {
+                    id: WidgetId::explicit("gallery_select"),
+                    selected_label: state.select_value.clone(),
+                    items: vec![
+                        SelectItem {
+                            label: "Option A".into(),
+                            icon: None,
+                            on_select: with_reducer!(
+                                ctx,
+                                SelectValue("Option A".into()),
+                                select_value
+                            ),
+                            semantics_identifier: Some("gallery.select.a".into()),
+                        },
+                        SelectItem {
+                            label: "Option B".into(),
+                            icon: None,
+                            on_select: with_reducer!(
+                                ctx,
+                                SelectValue("Option B".into()),
+                                select_value
+                            ),
+                            semantics_identifier: Some("gallery.select.b".into()),
+                        },
+                    ],
+                    is_open: state.select_open,
+                    on_toggle: Some(with_reducer!(ctx, ToggleSelect, toggle_select)),
+                    trigger_semantics_identifier: Some("gallery.select.trigger".into()),
+                    placeholder: "Choose...".into(),
+                    width: None,
+                }],
+                ..Default::default()
             },
         ];
 
