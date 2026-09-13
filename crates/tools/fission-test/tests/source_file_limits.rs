@@ -16,7 +16,6 @@ const LIMIT: usize = 2_000;
 
 /// Files over the limit when it was introduced, with their line counts then.
 const OVERSIZED: &[(&str, usize)] = &[
-    ("crates/authoring/fission-charts/src/chart.rs", 4877),
     ("crates/core/fission-core/src/runtime.rs", 3155),
     (
         "crates/core/fission-core/tests/input_controller_tests.rs",
