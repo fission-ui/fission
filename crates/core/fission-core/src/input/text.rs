@@ -864,7 +864,11 @@ impl TextInputController {
         let shortcut = ctx.editing_convention.has_primary_shortcut(modifiers)
             && !ctx.editing_convention.is_alt_gr(modifiers);
         let text_key = matches!(key_code, KeyCode::Char(_) | KeyCode::Space);
-        if shortcut || !text_key || text.is_empty() {
+        // Control chords are commands on every host, AltGr aside, even when the platform also
+        // reports the letter as produced text, as browsers do.
+        let control_chord =
+            Self::has_ctrl(modifiers) && !ctx.editing_convention.is_alt_gr(modifiers);
+        if shortcut || control_chord || !text_key || text.is_empty() {
             return self.handle_key(ctx, key_code, modifiers);
         }
         let Some(focused_id) = ctx.interaction.focused else {
@@ -1076,7 +1080,9 @@ impl TextInputController {
                 }
 
                 if !handled {
-                    if read_only {
+                    // A Control chord without a binding is not text.
+                    if read_only || (Self::has_ctrl(modifiers) && !convention.is_alt_gr(modifiers))
+                    {
                         handled = true;
                     } else {
                         let (s, e) = sel.unwrap_or((caret, caret));

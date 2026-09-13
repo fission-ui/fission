@@ -2453,6 +2453,70 @@ fn produced_text_is_distinct_from_logical_key_and_inserted_once() {
 }
 
 #[test]
+fn control_chords_with_produced_text_navigate_instead_of_inserting_on_apple_hosts() {
+    let node_id = WidgetId::derived(272, &[0]);
+    let ir = create_text_node(node_id, "one two", false);
+    let layout = LayoutSnapshot::new(LayoutSize::new(100.0, 100.0));
+    let mut text_edit = TextEditStateMap::default();
+    let mut interaction = InteractionStateMap::default();
+    let mut scroll = ScrollStateMap::default();
+    let mut gesture = fission_core::env::GestureState::default();
+    let clipboard: Arc<dyn Clipboard> = Arc::new(MockClipboard::new());
+    let measurer: Arc<dyn TextMeasurer> = Arc::new(MockTextMeasurer);
+    interaction.set_focused(Some(node_id));
+    text_edit.set_caret(node_id, "one two".len(), None);
+    let mut controller = TextInputController;
+    let mut ctx = setup_ctx_with_convention(
+        &ir,
+        &layout,
+        &mut text_edit,
+        &mut interaction,
+        &mut scroll,
+        &mut gesture,
+        &clipboard,
+        Some(&measurer),
+        TextEditingConvention::Apple,
+    );
+    let mut press = |ctx: &mut ControllerContext, letter: char| {
+        assert!(controller.handle_event(
+            ctx,
+            &InputEvent::Keyboard(KeyEvent::DownWithText {
+                key_code: KeyCode::Char(letter),
+                modifiers: MOD_CTRL,
+                text: letter.to_string(),
+            }),
+        ));
+    };
+
+    press(&mut ctx, 'a');
+    assert_eq!(
+        ctx.text_edit.get(node_id).unwrap().committed_text(),
+        "one two"
+    );
+    assert_eq!(
+        ctx.text_edit.get(node_id).unwrap().selection_range(),
+        (0, 0)
+    );
+
+    press(&mut ctx, 'e');
+    assert_eq!(
+        ctx.text_edit.get(node_id).unwrap().committed_text(),
+        "one two"
+    );
+    assert_eq!(
+        ctx.text_edit.get(node_id).unwrap().selection_range(),
+        ("one two".len(), "one two".len())
+    );
+
+    press(&mut ctx, 'q');
+    assert_eq!(
+        ctx.text_edit.get(node_id).unwrap().committed_text(),
+        "one two",
+        "an unbound Control chord must not insert its letter"
+    );
+}
+
+#[test]
 fn test_max_length_counts_grapheme_clusters() {
     let node_id = WidgetId::derived(270, &[0]);
     let mut ir = create_text_node(node_id, "e\u{301}", false);
