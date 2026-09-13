@@ -4,6 +4,7 @@ use crate::components::{
     MarkPoint, VisualMap,
 };
 use crate::grid::Grid;
+use crate::interaction::ChartKeyboardSelected;
 use crate::interaction::{ChartHit, ChartInteraction, ChartInteractionEvent, ChartInteractionKind};
 use crate::interaction::{
     ChartHover, ChartHoverChanged, ChartHoverCleared, ChartLegendToggled, ChartZoomChanged,
@@ -98,6 +99,12 @@ pub struct Chart {
     /// A drag of the data-zoom slider in progress, from the chart's own state.
     #[serde(skip)]
     pub(crate) zoom_drag: Option<ZoomDrag>,
+    /// The category the keyboard selection is on, from the chart's own state.
+    #[serde(skip)]
+    pub(crate) keyboard_category: Option<usize>,
+    /// Key bindings that move the keyboard selection, bound when the chart builds.
+    #[serde(skip)]
+    pub(crate) keyboard_actions: Vec<fission_ir::KeyAction>,
     pub animation: crate::animation::ChartAnimation,
     pub animate: bool,
 }
@@ -136,6 +143,8 @@ impl Chart {
             hover: None,
             hidden_series: Vec::new(),
             zoom_drag: None,
+            keyboard_category: None,
+            keyboard_actions: Vec::new(),
             animation: crate::animation::ChartAnimation::default(),
             animate: false,
         }
@@ -294,6 +303,25 @@ impl From<Chart> for Widget {
         component.id = fission_core::build::current_widget_id()
             .or(component.id)
             .or_else(|| fission_core::build::next_implicit_widget_id(0xC4A7_0001));
+        if component.interaction.keyboard_focus {
+            let memory =
+                StateField::new_with("fission_charts::Chart", "keyboard", KeyboardMemory::default);
+            let category_count = ChartModel::from_chart(&component).x_categories.len();
+            let selected = memory.get().0.filter(|index| *index < category_count);
+            let select = ctx.bind_local(
+                ChartKeyboardSelected(None),
+                memory,
+                reduce_with!(on_keyboard_selected),
+            );
+            component.keyboard_category = selected;
+            component.keyboard_actions = keyboard_targets(selected, category_count)
+                .into_iter()
+                .map(|(key, target)| {
+                    let envelope = select.with_action(&ChartKeyboardSelected(target));
+                    fission_ir::KeyAction::new(key, envelope.id.as_u128()).payload(envelope.payload)
+                })
+                .collect();
+        }
         let zoom_action = if tracks_zoom(&component) {
             let memory = StateField::new_with("fission_charts::Chart", "zoom", ZoomMemory::default);
             let remembered = memory.get();
@@ -857,9 +885,45 @@ impl fission_core::internal::LowerWidget for ChartInternalLowerer {
         draw_timeline(cx, &mut root, &self.chart, &area, &theme);
         draw_toolbox(cx, &mut root, &self.chart, &area, &theme);
         draw_diagnostics(cx, &mut root, &model, &area, &theme);
-        draw_hover(cx, &mut root, &model, &self.chart, &area, &theme);
+        let keyboard = keyboard_hover(&model, &area, self.chart.keyboard_category);
+        let hover_source = match (&self.chart.hover, keyboard) {
+            (Some(hover), _) => Some(HoverSource::Pointer(hover)),
+            (None, Some(hover)) => Some(HoverSource::Keyboard(hover)),
+            (None, None) => None,
+        };
+        draw_hover(
+            cx,
+            &mut root,
+            &model,
+            &self.chart,
+            &area,
+            &theme,
+            hover_source,
+        );
 
-        root.build(cx)
+        let content = root.build(cx);
+        // Describe the chart to assistive technology, and put it in the focus
+        // order with its navigation keys when keyboard focus is enabled.
+        let semantics = fission_ir::Semantics {
+            role: fission_ir::Role::Image,
+            label: Some(
+                self.chart
+                    .title
+                    .clone()
+                    .unwrap_or_else(|| "Chart".to_string()),
+            ),
+            value: Some(describe_chart(&model, self.chart.keyboard_category)),
+            focusable: self.chart.interaction.keyboard_focus,
+            sequential_focusable: self.chart.interaction.keyboard_focus,
+            key_actions: self.chart.keyboard_actions.clone(),
+            ..Default::default()
+        };
+        let mut described = fission_core::internal::IrBuilder::new(
+            cx.next_node_id(),
+            fission_ir::Op::Semantics(semantics),
+        );
+        described.add_child(content);
+        described.build(cx)
     }
 
     fn widget_id(&self) -> Option<WidgetId> {

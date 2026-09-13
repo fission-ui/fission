@@ -398,3 +398,13 @@ impl Action for ChartZoomChanged {
         ActionId::from_name("fission_charts::ChartZoomChanged")
     }
 }
+
+/// Moves a chart's keyboard selection to a category, or clears it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct ChartKeyboardSelected(pub Option<usize>);
+
+impl Action for ChartKeyboardSelected {
+    fn static_id() -> ActionId {
+        ActionId::from_name("fission_charts::ChartKeyboardSelected")
+    }
+}
