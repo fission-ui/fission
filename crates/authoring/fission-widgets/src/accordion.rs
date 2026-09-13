@@ -284,6 +284,9 @@ impl From<Accordion> for Widget {
                 SemanticsRegion::new(Button {
                     variant: ButtonVariant::Ghost,
                     content_align: ButtonContentAlign::Start,
+                    // The bordered header surface is the button's content; theme padding around it
+                    // would inset the header from the full-width panel below.
+                    padding: Some([0.0; 4]),
                     child: Some(
                         Container::new(HStack {
                             spacing: Some(header_style.gap.unwrap_or(tokens.spacing.s)),

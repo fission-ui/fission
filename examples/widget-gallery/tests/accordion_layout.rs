@@ -95,4 +95,33 @@ fn an_expanded_accordion_panel_spans_the_accordion() {
         panel_width >= 600.0,
         "the expanded panel should span the accordion, got {panel_width}"
     );
+
+    let header = driver
+        .find_text("Section 2")
+        .expect("expanded section header")
+        .bounds;
+    let bordered = |contains: &dyn Fn(fission::layout::LayoutRect) -> bool| {
+        ir.nodes
+            .iter()
+            .filter(|(_, node)| {
+                let op = format!("{:?}", node.op);
+                op.starts_with("Paint(DrawRect") && op.contains("stroke: Some")
+            })
+            .filter_map(|(id, _)| snapshot.get_node_rect(*id))
+            .filter(|rect| contains(*rect) && rect.height() < 200.0)
+            .max_by(|a, b| a.width().total_cmp(&b.width()))
+    };
+    let header_surface = bordered(&|rect| {
+        rect.y() <= header.y() && rect.y() + rect.height() >= header.y() + header.height()
+    })
+    .expect("bordered header surface");
+    let panel_surface = bordered(&|rect| {
+        rect.y() <= content.y() && rect.y() + rect.height() >= content.y() + content.height()
+    })
+    .expect("bordered panel surface");
+    assert!(
+        (header_surface.x() - panel_surface.x()).abs() < 1.0
+            && (header_surface.width() - panel_surface.width()).abs() < 1.0,
+        "the header and its panel should share edges, got header {header_surface:?} and panel {panel_surface:?}"
+    );
 }
