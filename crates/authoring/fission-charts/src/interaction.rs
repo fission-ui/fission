@@ -128,6 +128,8 @@ impl ChartBrush {
         }
     }
 
+    /// The region the brush shows before anyone drags one, in fractions of the
+    /// plot. Dragging across the plot replaces it, and a click clears it.
     pub fn preview_rect(mut self, x: f32, y: f32, width: f32, height: f32) -> Self {
         self.preview_rect = Some((x, y, width, height));
         self
@@ -406,5 +408,27 @@ pub(crate) struct ChartKeyboardSelected(pub Option<usize>);
 impl Action for ChartKeyboardSelected {
     fn static_id() -> ActionId {
         ActionId::from_name("fission_charts::ChartKeyboardSelected")
+    }
+}
+
+/// Starts, extends or ends a drag of a chart's brush, in fractions of the plot.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) enum ChartBrushChanged {
+    /// A drag began at `x`, `y`.
+    Started { x: f32, y: f32 },
+    /// The drag now covers this region.
+    Moved {
+        x: f32,
+        y: f32,
+        width: f32,
+        height: f32,
+    },
+    /// The drag finished. A region too small to see is cleared.
+    Ended,
+}
+
+impl Action for ChartBrushChanged {
+    fn static_id() -> ActionId {
+        ActionId::from_name("fission_charts::ChartBrushChanged")
     }
 }
