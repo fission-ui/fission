@@ -43,6 +43,9 @@ macro_rules! register_example_jobs {
         $asyncs.register_job(editor_example::GIT_STATUS_JOB, |request, _| async move {
             editor_example::run_git_status(request)
         });
+        $asyncs.register_job(editor_example::FS_JOB, |request, _| async move {
+            editor_example::run_fs_job(request)
+        });
         $asyncs.register_job(
             pokemon_card_store_example::CATALOG_JOB,
             |_request, _| async move {

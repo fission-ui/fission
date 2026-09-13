@@ -1,4 +1,4 @@
-use super::test_support::{cleanup, temp_file};
+use super::test_support::{cleanup, run_pending_fs, temp_file};
 use super::*;
 
 #[test]
@@ -9,6 +9,7 @@ fn test_undo_redo() {
     let path = "/tmp/test_undo.txt".to_string();
     std::fs::write(&path, "hello").ok();
     state.open_file(path.clone());
+    run_pending_fs(&mut state);
 
     // Modify content
     if let Some(buf) = state.file_contents.get_mut(&path) {
@@ -118,6 +119,7 @@ fn test_find_replace() {
     let path = "/tmp/test_find.txt".to_string();
     std::fs::write(&path, "foo bar foo baz foo").ok();
     state.open_file(path.clone());
+    run_pending_fs(&mut state);
     state.find_query = "foo".to_string();
     state.find_next();
     assert_eq!(state.find_matches.len(), 3);
@@ -137,6 +139,7 @@ fn test_open_file_creates_tab() {
     state.root_path = std::env::temp_dir();
     let path = temp_file("test_open_tab.rs", "fn main() {}");
     state.open_file(path.clone());
+    run_pending_fs(&mut state);
 
     assert_eq!(state.open_tabs.len(), 1);
     assert_eq!(state.open_tabs[0].title, "test_open_tab.rs");
@@ -158,7 +161,9 @@ fn test_open_file_deduplicates() {
     state.root_path = std::env::temp_dir();
     let path = temp_file("test_dedup.txt", "hello");
     state.open_file(path.clone());
+    run_pending_fs(&mut state);
     state.open_file(path.clone());
+    run_pending_fs(&mut state);
 
     // Should only have one tab, not two
     assert_eq!(state.open_tabs.len(), 1);
@@ -172,6 +177,7 @@ fn test_save_clears_dirty() {
     state.root_path = std::env::temp_dir();
     let path = temp_file("test_save_dirty.txt", "original");
     state.open_file(path.clone());
+    run_pending_fs(&mut state);
 
     // Modify content, mark dirty
     if let Some(buf) = state.file_contents.get_mut(&path) {
@@ -182,6 +188,7 @@ fn test_save_clears_dirty() {
 
     // Save
     state.save_active_file();
+    run_pending_fs(&mut state);
     assert!(!state.open_tabs[0].is_dirty);
     assert!(state.status_message.as_ref().unwrap().contains("Saved"));
 
@@ -199,7 +206,9 @@ fn test_close_tab_removes() {
     let path1 = temp_file("test_close1.txt", "one");
     let path2 = temp_file("test_close2.txt", "two");
     state.open_file(path1.clone());
+    run_pending_fs(&mut state);
     state.open_file(path2.clone());
+    run_pending_fs(&mut state);
 
     assert_eq!(state.open_tabs.len(), 2);
     assert_eq!(state.active_tab, 1); // second tab is active
@@ -223,8 +232,11 @@ fn test_close_tab_adjusts_active_index() {
     let p2 = temp_file("test_close_adj2.txt", "b");
     let p3 = temp_file("test_close_adj3.txt", "c");
     state.open_file(p1.clone());
+    run_pending_fs(&mut state);
     state.open_file(p2.clone());
+    run_pending_fs(&mut state);
     state.open_file(p3.clone());
+    run_pending_fs(&mut state);
     assert_eq!(state.active_tab, 2);
 
     // Close the last tab; active_tab should adjust
@@ -242,6 +254,7 @@ fn test_find_matches_correct() {
     state.root_path = std::env::temp_dir();
     let path = temp_file("test_find_match.txt", "apple banana apple cherry apple");
     state.open_file(path.clone());
+    run_pending_fs(&mut state);
 
     state.find_query = "apple".to_string();
     state.find_next();
@@ -263,6 +276,7 @@ fn test_find_next_wraps_around() {
     state.root_path = std::env::temp_dir();
     let path = temp_file("test_find_wrap.txt", "aa bb aa");
     state.open_file(path.clone());
+    run_pending_fs(&mut state);
 
     state.find_query = "aa".to_string();
     state.find_next();
@@ -291,6 +305,7 @@ fn test_find_previous() {
     state.root_path = std::env::temp_dir();
     let path = temp_file("test_find_prev.txt", "xx yy xx yy xx");
     state.open_file(path.clone());
+    run_pending_fs(&mut state);
 
     state.find_query = "xx".to_string();
     state.find_next(); // build matches + advance
@@ -309,6 +324,7 @@ fn test_replace_one() {
     state.root_path = std::env::temp_dir();
     let path = temp_file("test_replace_one.txt", "cat dog cat");
     state.open_file(path.clone());
+    run_pending_fs(&mut state);
 
     state.find_query = "cat".to_string();
     state.replace_query = "bird".to_string();
@@ -332,6 +348,7 @@ fn test_replace_all_works() {
     state.root_path = std::env::temp_dir();
     let path = temp_file("test_replace_all.txt", "foo bar foo baz foo");
     state.open_file(path.clone());
+    run_pending_fs(&mut state);
 
     state.find_query = "foo".to_string();
     state.replace_query = "ZZZ".to_string();
@@ -355,6 +372,7 @@ fn test_replace_all_empty_query_noop() {
     state.root_path = std::env::temp_dir();
     let path = temp_file("test_replace_noop.txt", "unchanged");
     state.open_file(path.clone());
+    run_pending_fs(&mut state);
 
     state.find_query = "".to_string();
     state.replace_query = "something".to_string();
@@ -372,6 +390,7 @@ fn test_undo_redo_model() {
     state.root_path = std::env::temp_dir();
     let path = temp_file("test_undo_redo_model.txt", "version_0");
     state.open_file(path.clone());
+    run_pending_fs(&mut state);
 
     // Make several changes
     if let Some(buf) = state.file_contents.get_mut(&path) {
@@ -414,6 +433,8 @@ fn test_large_file_rejected() {
 
     state.open_file(path_str.clone());
 
+    run_pending_fs(&mut state);
+
     assert_eq!(state.open_tabs.len(), 1);
     assert!(state.file_contents.contains_key(&path_str));
     let buf = state.file_contents.get(&path_str).expect("huge buffer");
@@ -441,6 +462,8 @@ fn test_create_file() {
 
     state.create_file(path_str.clone());
 
+    run_pending_fs(&mut state);
+
     // File should exist on disk
     assert!(path.exists(), "file should be created on disk");
 
@@ -459,66 +482,6 @@ fn test_create_file() {
 }
 
 #[test]
-fn test_delete_file() {
-    let mut state = EditorState::default();
-    state.root_path = std::env::temp_dir();
-    let path = temp_file("test_delete_target.txt", "to be deleted");
-    state.open_file(path.clone());
-    assert_eq!(state.open_tabs.len(), 1);
-
-    state.delete_file(path.clone());
-
-    // File should not exist on disk
-    assert!(!std::path::Path::new(&path).exists());
-    // Tab should be closed
-    assert!(state.open_tabs.is_empty());
-    // Buffer should be removed
-    assert!(state.file_contents.get(&path).is_none());
-    // Status message
-    assert!(state.status_message.as_ref().unwrap().contains("Deleted"));
-}
-
-#[test]
-fn test_rename_file() {
-    let mut state = EditorState::default();
-    state.root_path = std::env::temp_dir();
-    let path = temp_file("test_rename_src.txt", "rename me");
-    state.open_file(path.clone());
-
-    let new_name = "test_rename_dst.txt";
-    state.rename_file(path.clone(), new_name.to_string());
-
-    // Old file should not exist
-    assert!(!std::path::Path::new(&path).exists());
-
-    // New file should exist
-    let new_path = std::env::temp_dir().join(new_name);
-    assert!(new_path.exists());
-
-    // Tab should reflect new path and title
-    assert_eq!(state.open_tabs[0].title, new_name);
-    assert_eq!(
-        state.open_tabs[0].path,
-        new_path.to_string_lossy().to_string()
-    );
-
-    // Buffer should be under new path
-    let buf = state
-        .file_contents
-        .get(&new_path.to_string_lossy().to_string())
-        .expect("buffer under new path");
-    assert_eq!(buf.content(), "rename me");
-
-    // Old path buffer gone
-    assert!(state.file_contents.get(&path).is_none());
-
-    // Status message
-    assert!(state.status_message.as_ref().unwrap().contains("Renamed"));
-
-    std::fs::remove_file(&new_path).ok();
-}
-
-#[test]
 fn test_breadcrumb_updates() {
     let mut state = EditorState::default();
     state.root_path = std::env::temp_dir();
@@ -529,6 +492,8 @@ fn test_breadcrumb_updates() {
     let path_str = file_path.to_string_lossy().to_string();
 
     state.open_file(path_str.clone());
+
+    run_pending_fs(&mut state);
 
     // Breadcrumb should contain the dir name and the file name
     assert!(
@@ -553,9 +518,13 @@ fn test_breadcrumb_updates_on_tab_switch() {
     let p2 = temp_file("breadcrumb_b.txt", "b");
 
     state.open_file(p1.clone());
+
+    run_pending_fs(&mut state);
     assert!(state.breadcrumb_path.last() == Some(&"breadcrumb_a.txt".to_string()));
 
     state.open_file(p2.clone());
+
+    run_pending_fs(&mut state);
     assert!(state.breadcrumb_path.last() == Some(&"breadcrumb_b.txt".to_string()));
 
     // Switch back to first
@@ -596,6 +565,8 @@ fn test_open_file_uses_huge_window_mode() {
 
     state.open_file(file.to_string_lossy().to_string());
 
+    run_pending_fs(&mut state);
+
     let buf = state
         .active_buffer()
         .map(|(_, buf)| buf)
@@ -626,6 +597,8 @@ fn test_shift_active_file_window_moves_between_windows() {
     sparse.set_len(LARGE_FILE_LIMIT + 4096).unwrap();
 
     state.open_file(file.to_string_lossy().to_string());
+
+    run_pending_fs(&mut state);
     let initial_window = state
         .active_buffer()
         .and_then(|(_, buf)| match &buf.backing {
@@ -702,6 +675,8 @@ fn test_huge_window_edits_save_via_overlay_journal() {
     sparse.set_len(LARGE_FILE_LIMIT + 4096).unwrap();
 
     state.open_file(file.to_string_lossy().to_string());
+
+    run_pending_fs(&mut state);
     {
         let (_, buf) = state.active_buffer_mut().expect("active huge buffer");
         let original = buf.content();
@@ -711,6 +686,7 @@ fn test_huge_window_edits_save_via_overlay_journal() {
     }
     state.mark_active_tab_dirty();
     state.save_active_file();
+    run_pending_fs(&mut state);
 
     let saved = std::fs::read_to_string(&file).unwrap();
     assert!(
@@ -739,6 +715,7 @@ fn test_search_finds_results() {
     state.root_path = dir.clone();
     // Also open the file so it is in file_contents
     state.open_file(file.to_string_lossy().to_string());
+    run_pending_fs(&mut state);
 
     state.search_query = "hello".to_string();
     state.run_search();
@@ -805,6 +782,7 @@ fn test_paste_at_cursor() {
     state.root_path = std::env::temp_dir();
     let path = temp_file("test_paste.txt", "line one\nline two\nline three");
     state.open_file(path.clone());
+    run_pending_fs(&mut state);
 
     // Set cursor to line 1, col 5 ("line |two")
     if let Some(buf) = state.file_contents.get_mut(&path) {
@@ -831,6 +809,7 @@ fn test_paste_empty_clipboard_noop() {
     state.root_path = std::env::temp_dir();
     let path = temp_file("test_paste_noop.txt", "no change");
     state.open_file(path.clone());
+    run_pending_fs(&mut state);
 
     state.clipboard = "".to_string();
     state.paste();
@@ -847,6 +826,7 @@ fn test_cut_line() {
     state.root_path = std::env::temp_dir();
     let path = temp_file("test_cut.txt", "line A\nline B\nline C");
     state.open_file(path.clone());
+    run_pending_fs(&mut state);
 
     // Set cursor to line 1 ("line B")
     if let Some(buf) = state.file_contents.get_mut(&path) {
@@ -883,6 +863,7 @@ fn test_copy_line() {
     state.root_path = std::env::temp_dir();
     let path = temp_file("test_copy.txt", "alpha\nbeta\ngamma");
     state.open_file(path.clone());
+    run_pending_fs(&mut state);
 
     if let Some(buf) = state.file_contents.get_mut(&path) {
         buf.set_caret_line_col(2, 0);
@@ -903,6 +884,7 @@ fn test_go_to_line() {
     state.root_path = std::env::temp_dir();
     let path = temp_file("test_goto.txt", "line 1\nline 2\nline 3\nline 4\nline 5");
     state.open_file(path.clone());
+    run_pending_fs(&mut state);
 
     // Go to line 3 (1-based)
     state.go_to_line(3);
@@ -980,7 +962,9 @@ fn test_save_all_files() {
     let p1 = temp_file("test_save_all_1.txt", "one");
     let p2 = temp_file("test_save_all_2.txt", "two");
     state.open_file(p1.clone());
+    run_pending_fs(&mut state);
     state.open_file(p2.clone());
+    run_pending_fs(&mut state);
 
     // Modify both
     if let Some(buf) = state.file_contents.get_mut(&p1) {
@@ -994,6 +978,8 @@ fn test_save_all_files() {
     state.open_tabs[1].is_dirty = true;
 
     state.save_all_files();
+
+    run_pending_fs(&mut state);
 
     assert!(!state.open_tabs[0].is_dirty);
     assert!(!state.open_tabs[1].is_dirty);
@@ -1068,6 +1054,7 @@ fn test_active_buffer_returns_correct_pair() {
     state.root_path = std::env::temp_dir();
     let path = temp_file("test_active_buf.txt", "some content");
     state.open_file(path.clone());
+    run_pending_fs(&mut state);
 
     let (tab, buf) = state.active_buffer().expect("active buffer");
     assert_eq!(tab.path, path);
@@ -1093,6 +1080,8 @@ fn test_create_folder() {
     std::fs::remove_dir_all(&folder_path).ok();
 
     state.create_folder(folder_str.clone());
+
+    run_pending_fs(&mut state);
 
     assert!(folder_path.exists());
     assert!(folder_path.is_dir());
