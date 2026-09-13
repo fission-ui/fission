@@ -37,6 +37,8 @@ impl From<LaneDropzonePanel> for Widget {
                     Tag {
                         label: panel.items.len().to_string(),
                         on_close: None,
+                        on_press: None,
+                        selected: false,
                     },
                 ],
             },

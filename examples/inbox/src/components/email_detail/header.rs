@@ -217,6 +217,8 @@ impl From<LabelTags> for Widget {
                     Tag {
                         label,
                         on_close: None,
+                        on_press: None,
+                        selected: false,
                     }
                     .into()
                 })

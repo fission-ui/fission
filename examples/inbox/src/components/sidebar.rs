@@ -97,6 +97,8 @@ impl From<Sidebar> for Widget {
                                     Tag {
                                         label: (*label).into(),
                                         on_close: None,
+                                        on_press: None,
+                                        selected: false,
                                     }
                                     .into()
                                 })
