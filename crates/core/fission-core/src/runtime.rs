@@ -2890,6 +2890,13 @@ impl Runtime {
         }
 
         self.runtime_state.interaction.set_focused(next);
+        // Focus rings follow the way focus moved: keyboard navigation shows them, a click hides
+        // them, and programmatic focus keeps whichever the user was last using.
+        match source {
+            crate::TextEditSource::Keyboard => self.runtime_state.interaction.focus_visible = true,
+            crate::TextEditSource::Pointer => self.runtime_state.interaction.focus_visible = false,
+            _ => {}
+        }
         if let Some(new_id) = next {
             let select_all = ir
                 .custom_render_objects

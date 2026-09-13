@@ -735,7 +735,7 @@ impl Button {
     ) -> ButtonStyleResolved {
         let is_hovered = interaction.is_hovered(self_id) && !self.disabled;
         let is_pressed = interaction.is_pressed(self_id) && !self.disabled;
-        let is_focused = interaction.is_focused(self_id) && !self.disabled;
+        let is_focused = interaction.is_focus_visible(self_id) && !self.disabled;
         let is_invalid = !self.disabled && (form_field_invalid || self.is_semantically_invalid());
         let is_selected = !self.disabled && self.is_semantically_selected();
         // Pointer states and keyboard focus are independent. Resolve the

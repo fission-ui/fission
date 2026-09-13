@@ -530,6 +530,7 @@ fn replacement_component_recipe_composes_selected_hover_and_focus_without_button
     let mut runtime = RuntimeState::default();
     runtime.interaction.set_hovered(id, true);
     runtime.interaction.set_focused(Some(id));
+    runtime.interaction.focus_visible = true;
 
     let ir = lower(widget.into(), &env, &runtime);
     let layout_id = button_layout_id(&ir, id);
@@ -607,6 +608,7 @@ fn button_layers_focus_recipe_over_pressed_state_without_layout_shift() {
     let mut runtime = RuntimeState::default();
     runtime.interaction.set_pressed(id, true);
     runtime.interaction.set_focused(Some(id));
+    runtime.interaction.focus_visible = true;
     let focused_ir = lower(widget.into(), &env, &runtime);
     let default_layout_id = button_layout_id(&default_ir, id);
     let focused_layout_id = button_layout_id(&focused_ir, id);
@@ -648,6 +650,7 @@ fn disabled_button_recipe_wins_over_all_runtime_interaction() {
     runtime.interaction.set_hovered(id, true);
     runtime.interaction.set_pressed(id, true);
     runtime.interaction.set_focused(Some(id));
+    runtime.interaction.focus_visible = true;
     let ir = lower(
         Button {
             id: Some(id),
@@ -773,6 +776,7 @@ fn every_button_hierarchy_gets_a_focus_ring_with_destructive_colour_override() {
         let id = WidgetId::explicit(&format!("quality.button.focus.{variant:?}"));
         let mut runtime = RuntimeState::default();
         runtime.interaction.set_focused(Some(id));
+        runtime.interaction.focus_visible = true;
         let ir = lower(
             Button {
                 id: Some(id),
@@ -1127,6 +1131,7 @@ fn text_input_preserves_every_focus_shadow_layer_without_layout_shift() {
     let default_ir = lower(widget.clone().into(), &env, &RuntimeState::default());
     let mut runtime = RuntimeState::default();
     runtime.interaction.set_focused(Some(id));
+    runtime.interaction.focus_visible = true;
     let focused_ir = lower(widget.into(), &env, &runtime);
     let default_layout_id = text_input_layout_id(&default_ir, id);
     let focused_layout_id = text_input_layout_id(&focused_ir, id);
@@ -1195,6 +1200,7 @@ fn text_input_resolves_hover_invalid_and_disabled_recipes_in_priority_order() {
 
     let mut focused = hovered.clone();
     focused.interaction.set_focused(Some(id));
+    focused.interaction.focus_visible = true;
     let invalid_ir = lower(
         TextInput {
             id: Some(id),

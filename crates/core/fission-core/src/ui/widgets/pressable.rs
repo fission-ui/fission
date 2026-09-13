@@ -275,7 +275,7 @@ impl Pressable {
         }
         if cx.runtime_state.interaction.is_pressed(id) {
             self.style.merged(self.pressed_style.as_ref())
-        } else if cx.runtime_state.interaction.is_focused(id) {
+        } else if cx.runtime_state.interaction.is_focus_visible(id) {
             self.style.merged(self.focused_style.as_ref())
         } else if cx.runtime_state.interaction.is_hovered(id) {
             self.style.merged(self.hover_style.as_ref())

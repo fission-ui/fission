@@ -1024,6 +1024,9 @@ pub struct InteractionStateMap {
     pub hover_rich_text_annotation: Option<HoveredRichTextAnnotation>,
     pub pressed: HashMap<WidgetId, bool>,
     pub focused: Option<WidgetId>,
+    /// Whether focus should be drawn: true after keyboard focus movement, false after pointer
+    /// focus, and unchanged by programmatic focus.
+    pub focus_visible: bool,
     active_descendants: HashMap<WidgetId, WidgetId>,
     pub cursor: MouseCursor,
     pub last_down_point: Option<LayoutPoint>,
@@ -1044,6 +1047,12 @@ impl InteractionStateMap {
     }
     pub fn is_focused(&self, id: WidgetId) -> bool {
         self.focused == Some(id) || self.active_descendants.values().any(|target| *target == id)
+    }
+
+    /// Whether `id` is focused and its focus should be drawn, as it is after keyboard
+    /// navigation but not after a click.
+    pub fn is_focus_visible(&self, id: WidgetId) -> bool {
+        self.focus_visible && self.is_focused(id)
     }
 
     /// Returns the runtime-owned active descendant for a composite controller.

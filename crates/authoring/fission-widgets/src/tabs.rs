@@ -389,7 +389,7 @@ impl From<TabTrigger> for Widget {
         let theme = &view.env().theme.components.tabs;
         let interaction = &view.runtime().interaction;
         let is_pressed = interaction.is_pressed(trigger.id);
-        let is_focused = interaction.is_focused(trigger.id);
+        let is_focused = interaction.is_focus_visible(trigger.id);
         let selected = trigger.selected && !trigger.disabled;
         let state = if trigger.disabled {
             ComponentState::Disabled
