@@ -27,7 +27,8 @@ struct BuildScope {
     local_state_seen: HashSet<crate::state::LocalStateKey>,
     widget_id_stack: Vec<crate::WidgetId>,
     identity_stack: Vec<crate::WidgetId>,
-    implicit_widget_seq: u32,
+    /// Next implicit identity ordinal for each parent identity and widget kind.
+    implicit_widget_seq: HashMap<(u128, u32), u32>,
     providers: HashMap<TypeId, Vec<Box<dyn Any + Send + Sync>>>,
 }
 
@@ -106,7 +107,7 @@ where
             local_state_seen: HashSet::new(),
             widget_id_stack: Vec::new(),
             identity_stack: vec![root_id],
-            implicit_widget_seq: 0,
+            implicit_widget_seq: HashMap::new(),
             providers: HashMap::new(),
         });
     });
@@ -313,8 +314,11 @@ pub fn next_implicit_widget_id(salt: u32) -> Option<crate::WidgetId> {
             .last()
             .map(|id| id.as_u128())
             .unwrap_or(0x1337_C0DE_0000_0000);
-        let sequence = scope.implicit_widget_seq;
-        scope.implicit_widget_seq = scope.implicit_widget_seq.wrapping_add(1);
+        // Each parent and widget kind counts separately, so a widget's identity does not shift
+        // when a widget of another kind, or under another parent, is built before it.
+        let next = scope.implicit_widget_seq.entry((parent, salt)).or_insert(0);
+        let sequence = *next;
+        *next = next.wrapping_add(1);
         Some(crate::WidgetId::derived(parent, &[salt, sequence]))
     })
 }
