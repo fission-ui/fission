@@ -1,0 +1,7 @@
+fission-shell-winit: renderer: metal-vello requested=auto backend=Metal adapter=Apple M1 Pro size=1600x1200 scale=2.00
+startup clear frame failed: failed to get startup surface texture: occluded
+render surface acquisition was occluded; retrying
+
+thread 'main' (60649219) panicked at third_party/vello/vello_gpu/src/schedule/mod.rs:947:14:
+draw target and sampled layer must have compatible texture parities
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace

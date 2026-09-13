@@ -1,0 +1,35 @@
+targets = [
+    "linux",
+    "macos",
+    "windows",
+]
+
+[app]
+name = "embed-webview"
+app_id = "com.example.embed_webview"
+version = "0.14.1"
+build = 1
+
+[package.macos]
+bundle_id = "com.example.embed_webview"
+marketing_version = "0.14.1"
+build_number = "1"
+minimum_os = "13.0"
+
+[package.windows]
+identity_name = "com.example.embed.webview"
+publisher = "CN=Fission Developer"
+version = "0.14.1"
+installer = "msix"
+certificate_thumbprint_env = "WINDOWS_CERTIFICATE_THUMBPRINT"
+certificate_base64_env = "WINDOWS_CERTIFICATE_BASE64"
+certificate_password_env = "WINDOWS_CERTIFICATE_PASSWORD"
+
+[distribution.microsoft_store]
+package_identity_name = "com.example.embed.webview"
+package_type = "msix"
+token_env = "MICROSOFT_STORE_TOKEN"
+tenant_id_env = "AZURE_TENANT_ID"
+client_id_env = "AZURE_CLIENT_ID"
+client_secret_env = "MICROSOFT_STORE_CLIENT_SECRET"
+seller_id_env = "MICROSOFT_STORE_SELLER_ID"
