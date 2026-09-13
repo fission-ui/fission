@@ -1490,3 +1490,25 @@ fn web_embed_present() -> Result<()> {
     assert!(ir_has_embed_kind(&h, EmbedKind::Web), "expected web embed");
     Ok(())
 }
+
+#[test]
+fn deleting_an_open_email_moves_it_to_trash_and_returns_to_its_folder() -> Result<()> {
+    let mut h = pump_state(state_detail())?;
+    click_identifier(&mut h, "inbox.detail.delete")?;
+    h.pump()?;
+    let state = h.runtime.get_app_state::<InboxState>().unwrap();
+    let email = state
+        .emails
+        .iter()
+        .find(|email| email.id == 1)
+        .expect("email 1 is kept in Trash");
+    assert!(
+        email.folders.contains(&crate::model::Folder::Trash) && email.folders.len() == 1,
+        "the email is only in Trash, got {:?}",
+        email.folders
+    );
+    assert_eq!(state.current_path, "/inbox");
+    assert!(state.show_toast);
+    assert_eq!(state.toast_message.as_deref(), Some("Moved to Trash"));
+    Ok(())
+}

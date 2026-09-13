@@ -132,6 +132,8 @@ pub fn translation_bundles() -> Vec<TranslationBundle> {
         "This email is from outside your organization.".into(),
     );
     en_messages.insert("email.details".into(), "Details".into());
+    en_messages.insert("action.delete".into(), "Delete".into());
+    en_messages.insert("action.back".into(), "Back to".into());
     en_messages.insert("email.attachments".into(), "Attachments".into());
     en_messages.insert(
         "email.scanning_attachments".into(),
@@ -316,6 +318,8 @@ pub fn translation_bundles() -> Vec<TranslationBundle> {
         "Este correo es de fuera de tu organización.".into(),
     );
     es_messages.insert("email.details".into(), "Detalles".into());
+    es_messages.insert("action.delete".into(), "Eliminar".into());
+    es_messages.insert("action.back".into(), "Volver a".into());
     es_messages.insert("email.attachments".into(), "Adjuntos".into());
     es_messages.insert(
         "email.scanning_attachments".into(),

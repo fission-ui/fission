@@ -1,8 +1,8 @@
 //! Reducers behind the email detail view.
 
 use super::{
-    EmailMessage, Folder, InboxState, Navigate, SelectReplyMode, SendReply, SetReplyBody,
-    ToggleDetails, ToggleToast,
+    DeleteEmail, EmailMessage, Folder, InboxState, Navigate, SelectReplyMode, SendReply,
+    SetReplyBody, ToggleDetails, ToggleToast,
 };
 use chrono::Local;
 use fission::core::ReducerContext;
@@ -53,6 +53,28 @@ pub fn send_reply(state: &mut InboxState, action: SendReply, _: &mut Cx<'_, '_, 
     state.reply_body.clear();
     state.show_toast = true;
     state.toast_message = Some("Reply sent".into());
+}
+
+/// Moves the thread to Trash, or deletes it for good when it is already there, then returns to the
+/// folder it was opened from and confirms with a toast.
+pub fn delete_email(state: &mut InboxState, action: DeleteEmail, _: &mut Cx<'_, '_, '_>) {
+    let Some(index) = state.emails.iter().position(|email| email.id == action.0) else {
+        return;
+    };
+    let message = if state.emails[index].folders.contains(&Folder::Trash) {
+        state.emails.remove(index);
+        "Deleted forever"
+    } else {
+        let email = &mut state.emails[index];
+        email.folders.clear();
+        email.folders.insert(Folder::Trash);
+        "Moved to Trash"
+    };
+    state.selected_emails.retain(|id| *id != action.0);
+    let folder = state.selected_folder.path();
+    state.navigate_to(folder);
+    state.toast_message = Some(message.into());
+    state.show_toast = true;
 }
 
 /// Shows or hides the toast.

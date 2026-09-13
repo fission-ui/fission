@@ -1,23 +1,13 @@
 //! Reducers behind the sidebar's navigation.
 
-use super::{
-    Folder, InboxState, SelectFolder, SetContactsOpen, ToggleBrowserDemo, ToggleContactSelection,
-};
+use super::{InboxState, SelectFolder, SetContactsOpen, ToggleBrowserDemo, ToggleContactSelection};
 use fission::core::ReducerContext;
 
 type Cx<'a, 'b, 'c> = ReducerContext<'a, 'b, 'c, InboxState>;
 
 /// Opens a folder and closes the mobile menu that offered it.
 pub fn select_folder(state: &mut InboxState, action: SelectFolder, _: &mut Cx<'_, '_, '_>) {
-    let path = match action.0 {
-        Folder::Inbox => "/inbox".to_string(),
-        Folder::Starred => "/starred".to_string(),
-        Folder::Sent => "/sent".to_string(),
-        Folder::Drafts => "/drafts".to_string(),
-        Folder::Trash => "/trash".to_string(),
-        Folder::Custom(label) => format!("/{label}"),
-    };
-    state.navigate_to(path);
+    state.navigate_to(action.0.path());
     state.show_mobile_menu = false;
 }
 

@@ -41,6 +41,20 @@ impl Default for Folder {
     }
 }
 
+impl Folder {
+    /// The route that lists this folder.
+    pub fn path(&self) -> String {
+        match self {
+            Folder::Inbox => "/inbox".to_string(),
+            Folder::Starred => "/starred".to_string(),
+            Folder::Sent => "/sent".to_string(),
+            Folder::Drafts => "/drafts".to_string(),
+            Folder::Trash => "/trash".to_string(),
+            Folder::Custom(label) => format!("/{label}"),
+        }
+    }
+}
+
 impl ToString for Folder {
     fn to_string(&self) -> String {
         match self {
