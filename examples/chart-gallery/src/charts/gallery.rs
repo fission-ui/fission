@@ -1,8 +1,8 @@
 use crate::state::GalleryState;
 use crate::style::{amber, blue};
 use fission::charts::{
-    Chart, ChartAnimation, ChartAnimationKind, ChartSelectionMode, ChartTooltipTrigger, MarkLine,
-    MarkPoint,
+    AxisPointer, AxisPointerType, Chart, ChartAnimation, ChartAnimationKind, ChartEmphasis,
+    ChartLegendSelectionMode, ChartSelectionMode, ChartTooltipTrigger, MarkLine, MarkPoint,
 };
 use fission::core::ViewHandle;
 
@@ -33,8 +33,15 @@ pub(crate) fn configure_chart(mut chart: Chart, view: ViewHandle<GalleryState>) 
             .tooltip_trigger(ChartTooltipTrigger::Item)
             .selection_mode(ChartSelectionMode::Single)
             .emit_events(true)
-            .keyboard_focus(true);
+            .keyboard_focus(true)
+            .emphasis(ChartEmphasis::data())
+            .legend_selection(ChartLegendSelectionMode::Toggle);
         chart = chart.interaction(interaction);
+        // Only charts with an x axis get an axis pointer; pies and other radial
+        // charts would otherwise show a stray line.
+        if chart.x_axis.is_some() && chart.axis_pointer.is_none() {
+            chart = chart.axis_pointer(AxisPointer::new().pointer_type(AxisPointerType::Shadow));
+        }
     }
 
     if view.state().animations {
