@@ -1512,3 +1512,39 @@ fn deleting_an_open_email_moves_it_to_trash_and_returns_to_its_folder() -> Resul
     assert_eq!(state.toast_message.as_deref(), Some("Moved to Trash"));
     Ok(())
 }
+
+#[test]
+fn compose_cancel_closes_the_dialog() -> Result<()> {
+    let mut state = InboxState::default();
+    state.show_compose = true;
+    let mut h = pump_state(state)?;
+    click_identifier(&mut h, "inbox.compose.cancel")?;
+    let state = h.runtime.get_app_state::<InboxState>().unwrap();
+    assert!(!state.show_compose, "Cancel closes compose");
+    Ok(())
+}
+
+#[test]
+fn list_tabs_show_only_their_category() -> Result<()> {
+    let mut h = pump_state(state_default())?;
+    assert!(display_texts(&h)
+        .iter()
+        .any(|t| t == "Quarterly planning sync"));
+    click_identifier(&mut h, "inbox.tabs.promotions")?;
+    h.pump()?;
+    assert_eq!(
+        h.runtime.get_app_state::<InboxState>().unwrap().active_tab,
+        2,
+        "the Promotions tab is chosen"
+    );
+    let texts = display_texts(&h);
+    assert!(
+        texts.iter().any(|t| t == "Weekly product update"),
+        "Promotions lists its threads: {texts:?}"
+    );
+    assert!(
+        !texts.iter().any(|t| t == "Quarterly planning sync"),
+        "Promotions hides primary threads"
+    );
+    Ok(())
+}

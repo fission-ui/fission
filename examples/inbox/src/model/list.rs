@@ -75,6 +75,7 @@ pub fn navigate(state: &mut InboxState, action: Navigate, _: &mut Cx<'_, '_, '_>
 
 pub fn select_tab(state: &mut InboxState, action: SelectTab, _: &mut Cx<'_, '_, '_>) {
     state.active_tab = action.0;
+    state.page = 1;
 }
 
 pub fn set_mobile_menu_open(

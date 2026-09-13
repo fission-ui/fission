@@ -7,7 +7,7 @@ mod tabs;
 mod toolbar;
 
 use crate::model::list::set_page;
-use crate::model::{Email, Folder, InboxState, SetPage};
+use crate::model::{Category, Email, Folder, InboxState, SetPage};
 use fission::core::ui::{Button, Container, Text, Widget};
 use fission::core::{reduce_with, WidgetId};
 use fission::icons::material;
@@ -92,6 +92,7 @@ impl From<EmailList> for Widget {
             .emails
             .iter()
             .filter(|email| email.folders.contains(&folder))
+            .filter(|email| email.category == Category::from_tab(state.active_tab))
             .collect();
         if !state.search_query.trim().is_empty() {
             emails.retain(|email| email.matches_query(&state.search_query));

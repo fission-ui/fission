@@ -1,7 +1,7 @@
 //! Reducers behind the compose modal.
 
 use super::{
-    Email, EmailMessage, FileSelected, Folder, InboxState, SendCompose, SetComposeBody,
+    Category, Email, EmailMessage, FileSelected, Folder, InboxState, SendCompose, SetComposeBody,
     SetComposeOpen, SetComposeSubject, SetComposeTo, SetDatePickerOpen, SetScheduleDate,
     SetScheduleTime,
 };
@@ -98,6 +98,7 @@ pub fn send_compose(state: &mut InboxState, _: SendCompose, _: &mut Cx<'_, '_, '
         is_read: true,
         is_flagged: false,
         labels: vec!["Sent".into()],
+        category: Category::Primary,
         messages: vec![EmailMessage {
             id: message_id,
             from: "You".into(),

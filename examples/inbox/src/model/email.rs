@@ -22,7 +22,28 @@ pub struct Email {
     pub is_read: bool,
     pub is_flagged: bool,
     pub labels: Vec<String>,
+    pub category: Category,
     pub messages: Vec<EmailMessage>,
+}
+
+/// The list tab a thread belongs to, in tab order.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum Category {
+    #[default]
+    Primary,
+    Social,
+    Promotions,
+}
+
+impl Category {
+    /// The category shown by the tab at `index`.
+    pub fn from_tab(index: usize) -> Self {
+        match index {
+            1 => Category::Social,
+            2 => Category::Promotions,
+            _ => Category::Primary,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -111,6 +132,7 @@ pub fn seed_mailbox() -> SeededMailbox {
 
     let mut add_thread = |subject: &str,
                           sender: &str,
+                          category: Category,
                           folders: &[Folder],
                           is_read: bool,
                           is_flagged: bool,
@@ -147,6 +169,7 @@ pub fn seed_mailbox() -> SeededMailbox {
             is_read,
             is_flagged,
             labels: labels.iter().map(|s| (*s).to_string()).collect(),
+            category,
             messages,
         };
         email.refresh_preview();
@@ -156,6 +179,7 @@ pub fn seed_mailbox() -> SeededMailbox {
     add_thread(
         "Quarterly planning sync",
         "Dana Wu",
+        Category::Primary,
         &[Folder::Inbox],
         false,
         true,
@@ -168,6 +192,7 @@ pub fn seed_mailbox() -> SeededMailbox {
     add_thread(
         "Design review: Inbox refresh",
         "Alex Rivera",
+        Category::Primary,
         &[Folder::Inbox, Folder::Starred],
         true,
         true,
@@ -180,6 +205,7 @@ pub fn seed_mailbox() -> SeededMailbox {
     add_thread(
         "Receipt — Fission Pro renewal",
         "Billing",
+        Category::Promotions,
         &[Folder::Inbox],
         true,
         false,
@@ -189,6 +215,7 @@ pub fn seed_mailbox() -> SeededMailbox {
     add_thread(
         "Draft: Partnership proposal",
         "You",
+        Category::Primary,
         &[Folder::Drafts],
         true,
         false,
@@ -198,6 +225,7 @@ pub fn seed_mailbox() -> SeededMailbox {
     add_thread(
         "Meeting follow-up",
         "You",
+        Category::Primary,
         &[Folder::Sent],
         true,
         false,
@@ -207,6 +235,7 @@ pub fn seed_mailbox() -> SeededMailbox {
     add_thread(
         "Travel details: NYC",
         "Ops",
+        Category::Primary,
         &[Folder::Inbox],
         false,
         false,
@@ -218,6 +247,7 @@ pub fn seed_mailbox() -> SeededMailbox {
     add_thread(
         "Weekly product update",
         "Product Team",
+        Category::Promotions,
         &[Folder::Inbox],
         true,
         false,
@@ -227,6 +257,7 @@ pub fn seed_mailbox() -> SeededMailbox {
     add_thread(
         "Security review notes",
         "Security",
+        Category::Primary,
         &[Folder::Inbox],
         false,
         false,
@@ -238,6 +269,7 @@ pub fn seed_mailbox() -> SeededMailbox {
     add_thread(
         "Customer interview highlights",
         "Research",
+        Category::Social,
         &[Folder::Inbox],
         true,
         false,
@@ -249,6 +281,7 @@ pub fn seed_mailbox() -> SeededMailbox {
     add_thread(
         "Hiring loop feedback",
         "People Ops",
+        Category::Social,
         &[Folder::Inbox],
         false,
         false,
