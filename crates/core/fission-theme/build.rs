@@ -24,6 +24,15 @@ fn main() {
         "generated_cupertino_design_system.rs",
         "FissionCupertinoDesignSystem",
     );
+    // A partial design system that inherits from the default one, so tests can
+    // check what inheritance keeps. It is not part of the crate's API.
+    fission_design_system_codegen::generate(
+        fission_design_system_codegen::Config::new("tests/fixtures/inheriting/dsp.json")
+            .out_file("generated_inheritance_fixture_design_system.rs")
+            .type_name("InheritanceFixtureDesignSystem")
+            .crate_path("fission_theme"),
+    )
+    .unwrap_or_else(|error| panic!("failed to generate the inheritance fixture: {error}"));
 }
 
 fn generate(directory: &str, out_file: &str, type_name: &str) {

@@ -108,3 +108,87 @@ fn each_system_resolves_its_own_geometry_for_a_shared_recipe() {
         "every system should resolve a tag radius: {radii:?}"
     );
 }
+
+#[test]
+fn a_partial_recipe_merges_over_its_inherited_recipe_field_by_field() {
+    use fission_theme::{ComponentRecipe, ComponentStateStyles, ResolvedComponentStyle};
+
+    let inherited = ComponentRecipe {
+        base: ResolvedComponentStyle {
+            radius: Some(4.0),
+            gap: Some(8.0),
+            ..Default::default()
+        },
+        parts: [
+            (
+                "item".to_string(),
+                ResolvedComponentStyle {
+                    height: Some(32.0),
+                    padding_x: Some(12.0),
+                    ..Default::default()
+                },
+            ),
+            (
+                "icon".to_string(),
+                ResolvedComponentStyle {
+                    width: Some(16.0),
+                    ..Default::default()
+                },
+            ),
+        ]
+        .into_iter()
+        .collect(),
+        states: ComponentStateStyles {
+            hover: Some(ResolvedComponentStyle {
+                opacity: Some(0.9),
+                radius: Some(4.0),
+                ..Default::default()
+            }),
+            ..Default::default()
+        },
+        scalars: [
+            ("max_visible".to_string(), 4.0),
+            ("overlap".to_string(), 10.0),
+        ]
+        .into_iter()
+        .collect(),
+        ..Default::default()
+    };
+    let overlay = ComponentRecipe {
+        base: ResolvedComponentStyle {
+            radius: Some(12.0),
+            ..Default::default()
+        },
+        parts: [(
+            "item".to_string(),
+            ResolvedComponentStyle {
+                height: Some(40.0),
+                ..Default::default()
+            },
+        )]
+        .into_iter()
+        .collect(),
+        states: ComponentStateStyles {
+            hover: Some(ResolvedComponentStyle {
+                opacity: Some(0.8),
+                ..Default::default()
+            }),
+            ..Default::default()
+        },
+        scalars: [("overlap".to_string(), 6.0)].into_iter().collect(),
+        ..Default::default()
+    };
+
+    let merged = overlay.merged_over(&inherited);
+
+    assert_eq!(merged.base.radius, Some(12.0));
+    assert_eq!(merged.base.gap, Some(8.0));
+    assert_eq!(merged.parts["item"].height, Some(40.0));
+    assert_eq!(merged.parts["item"].padding_x, Some(12.0));
+    assert_eq!(merged.parts["icon"].width, Some(16.0));
+    let hover = merged.states.hover.expect("hover state survives");
+    assert_eq!(hover.opacity, Some(0.8));
+    assert_eq!(hover.radius, Some(4.0));
+    assert_eq!(merged.scalars["max_visible"], 4.0);
+    assert_eq!(merged.scalars["overlap"], 6.0);
+}
