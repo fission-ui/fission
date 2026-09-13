@@ -237,6 +237,17 @@ pub fn register_file_system_capabilities(async_registry: &mut AsyncRegistry) {
                     ));
                 }
                 let path = resolve_for_creation(&grant, &request.path)?;
+                // Acquire a stream before creating directories or opening the
+                // destination. An invalid or already-consumed stream must not
+                // truncate an existing user file or leave an empty new file.
+                let mut source_stream = match &request.source {
+                    FileWriteSource::Bytes(_) => None,
+                    FileWriteSource::Stream(id) => {
+                        Some(ctx.open_data_stream(*id).map_err(|error| {
+                            FileSystemError::new("stream_open_failed", error.to_string())
+                        })?)
+                    }
+                };
                 if request.create_parents {
                     if let Some(parent) = path.parent() {
                         std::fs::create_dir_all(parent)
@@ -259,10 +270,8 @@ pub fn register_file_system_capabilities(async_registry: &mut AsyncRegistry) {
                             .map_err(|error| io_error("write_failed", &path, error))?;
                         bytes.len() as u64
                     }
-                    FileWriteSource::Stream(id) => {
-                        let mut stream = ctx.open_data_stream(id).map_err(|error| {
-                            FileSystemError::new("stream_open_failed", error.to_string())
-                        })?;
+                    FileWriteSource::Stream(_) => {
+                        let stream = source_stream.as_mut().expect("stream was opened above");
                         let mut written = 0_u64;
                         while let Some(chunk) =
                             std::future::poll_fn(|cx| stream.as_mut().poll_next(cx)).await
