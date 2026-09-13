@@ -2476,11 +2476,18 @@ impl {krate}::DesignSystem for {type_name} {{
             let Some(recipe) = value.as_object() else {
                 continue;
             };
-            entries.push(format!(
-                "recipes.insert({}.to_string(), {});",
-                rust_string(name),
-                self.component_recipe_expr(krate, mode, recipe)?
-            ));
+            let recipe = self.component_recipe_expr(krate, mode, recipe)?;
+            let name = format!("{name:?}");
+            entries.push(if base.is_some() {
+                // An inheriting design system layers its recipe over the
+                // inherited one, so changing one property keeps the parts,
+                // sizes, states and scalars it does not mention.
+                format!(
+                    "{{ let recipe = {recipe}; let recipe = match recipes.get({name}) {{ Some(inherited) => recipe.merged_over(inherited), None => recipe }}; recipes.insert({name}.to_string(), recipe); }}"
+                )
+            } else {
+                format!("recipes.insert({name}.to_string(), {recipe});")
+            });
         }
         // Built with successive inserts rather than one array literal: a
         // literal holding every recipe is a single enormous temporary, and

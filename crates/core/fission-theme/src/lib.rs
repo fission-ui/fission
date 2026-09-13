@@ -508,6 +508,43 @@ pub struct ComponentRecipe {
 }
 
 impl ComponentRecipe {
+    /// This recipe layered over `inherited`, field by field.
+    ///
+    /// The base style, each part, each size and each state keep whatever this
+    /// recipe leaves unset, and scalars this recipe does not declare stay
+    /// inherited. A design system that changes one property of a component
+    /// therefore keeps the rest of that component's anatomy instead of
+    /// replacing it with empty styles.
+    pub fn merged_over(&self, inherited: &ComponentRecipe) -> ComponentRecipe {
+        let mut parts = inherited.parts.clone();
+        for (name, style) in &self.parts {
+            let merged = parts
+                .get(name)
+                .map_or_else(|| style.clone(), |base| base.merge(style));
+            parts.insert(name.clone(), merged);
+        }
+        let mut sizes = inherited.sizes.clone();
+        for (size, style) in &self.sizes {
+            let merged = sizes
+                .get(size)
+                .map_or_else(|| style.clone(), |base| base.merge(style));
+            sizes.insert(*size, merged);
+        }
+        let mut scalars = inherited.scalars.clone();
+        scalars.extend(
+            self.scalars
+                .iter()
+                .map(|(name, value)| (name.clone(), *value)),
+        );
+        ComponentRecipe {
+            base: inherited.base.merge(&self.base),
+            parts,
+            sizes,
+            states: inherited.states.merged_with(&self.states),
+            scalars,
+        }
+    }
+
     /// Returns a named part, or an empty style when the design system does not
     /// declare one.
     ///
@@ -557,6 +594,30 @@ pub struct ComponentStateStyles {
 }
 
 impl ComponentStateStyles {
+    /// `overlay`'s states layered over these: each state keeps whatever the
+    /// overlay leaves unset, and states the overlay omits stay inherited.
+    pub fn merged_with(&self, overlay: &Self) -> Self {
+        fn state(
+            base: &Option<ResolvedComponentStyle>,
+            overlay: &Option<ResolvedComponentStyle>,
+        ) -> Option<ResolvedComponentStyle> {
+            match (base, overlay) {
+                (Some(base), Some(overlay)) => Some(base.merge(overlay)),
+                (base, None) => base.clone(),
+                (None, overlay) => overlay.clone(),
+            }
+        }
+        Self {
+            default: self.default.merge(&overlay.default),
+            hover: state(&self.hover, &overlay.hover),
+            active: state(&self.active, &overlay.active),
+            focus: state(&self.focus, &overlay.focus),
+            disabled: state(&self.disabled, &overlay.disabled),
+            error: state(&self.error, &overlay.error),
+            selected: state(&self.selected, &overlay.selected),
+        }
+    }
+
     pub fn resolve(&self, state: ComponentState) -> ResolvedComponentStyle {
         let overlay = match state {
             ComponentState::Default => None,

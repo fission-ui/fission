@@ -1,0 +1,15 @@
+{
+  "$comment": "A partial design system that inherits every recipe it does not declare from Fission's default design system. tests/recipe_inheritance.rs checks that changing one property keeps the rest of the inherited recipe.",
+  "$package": {
+    "name": "fission-theme-inheritance-fixture",
+    "version": "0.0.0"
+  },
+  "tokens": {
+    "$ref": "../../../design/default/tokens.json"
+  },
+  "components": {
+    "button": {
+      "radius": "20px"
+    }
+  }
+}
