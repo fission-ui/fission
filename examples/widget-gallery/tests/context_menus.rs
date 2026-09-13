@@ -16,8 +16,6 @@ fn right_click(driver: &mut TestDriver<GalleryState>, point: LayoutPoint) {
             modifiers: 0,
         }))
         .expect("pointer down");
-    let menu = &driver.harness.runtime.runtime_state.context_menu;
-    eprintln!("DBG after secondary down: owner={:?} anchor={:?}", menu.owner, menu.anchor);
     driver
         .harness
         .send_event(InputEvent::Pointer(PointerEvent::Up {
@@ -28,28 +26,16 @@ fn right_click(driver: &mut TestDriver<GalleryState>, point: LayoutPoint) {
             modifiers: 0,
         }))
         .expect("pointer up");
-    let menu = &driver.harness.runtime.runtime_state.context_menu;
-    eprintln!("DBG after secondary up: owner={:?} anchor={:?}", menu.owner, menu.anchor);
     driver.pump().expect("pump after right-click");
     driver.pump().expect("second pump after right-click");
 }
 
 fn driver() -> TestDriver<GalleryState> {
-    let mut driver = TestDriver::new(TestHarness::new(GalleryState::default()).with_root_widget(GalleryApp));
+    let mut driver =
+        TestDriver::new(TestHarness::new(GalleryState::default()).with_root_widget(GalleryApp));
     driver.harness.env.viewport_size = LayoutSize::new(1000.0, 3000.0);
     driver.pump().expect("first frame");
     driver
-}
-
-fn report(driver: &TestDriver<GalleryState>, label: &str) {
-    let menu = &driver.harness.runtime.runtime_state.context_menu;
-    eprintln!(
-        "DBG {label}: owner={:?} anchor={:?} select_all_visible={} help_visible={}",
-        menu.owner,
-        menu.anchor,
-        driver.find_text("Select All").is_some(),
-        driver.find_text("Menu items can be arbitrary widgets").is_some(),
-    );
 }
 
 #[test]
@@ -63,9 +49,10 @@ fn right_clicking_the_custom_region_opens_its_menu() {
         &mut driver,
         LayoutPoint::new(region.x() + 20.0, region.y() + region.height() / 2.0),
     );
-    report(&driver, "custom region");
     assert!(
-        driver.find_text("Menu items can be arbitrary widgets").is_some(),
+        driver
+            .find_text("Menu items can be arbitrary widgets")
+            .is_some(),
         "the custom region's menu should be visible after a right-click"
     );
 }
@@ -81,7 +68,6 @@ fn right_clicking_selectable_text_opens_its_menu() {
         &mut driver,
         LayoutPoint::new(text.x() + 40.0, text.y() + text.height() / 2.0),
     );
-    report(&driver, "selectable text");
     assert!(
         driver
             .harness
@@ -114,8 +100,12 @@ fn right_clicking_a_text_field_opens_a_menu_whose_copy_runs_and_closes() {
         field.bounds.x() + 20.0,
         field.bounds.y() + field.bounds.height() / 2.0,
     );
-    driver.tap_point(centre.x, centre.y).expect("focus the field");
-    driver.press_key(KeyCode::Char('a'), MOD_CTRL).expect("select all");
+    driver
+        .tap_point(centre.x, centre.y)
+        .expect("focus the field");
+    driver
+        .press_key(KeyCode::Char('a'), MOD_CTRL)
+        .expect("select all");
     right_click(&mut driver, centre);
 
     let owner = driver.harness.runtime.runtime_state.context_menu.owner;
@@ -130,7 +120,10 @@ fn right_clicking_a_text_field_opens_a_menu_whose_copy_runs_and_closes() {
         .find(|found| found.label.as_deref() == Some("Copy"))
         .expect("Copy item in the field's menu")
         .bounds;
-    let point = LayoutPoint::new(copy.x() + copy.width() / 2.0, copy.y() + copy.height() / 2.0);
+    let point = LayoutPoint::new(
+        copy.x() + copy.width() / 2.0,
+        copy.y() + copy.height() / 2.0,
+    );
     for event in [
         InputEvent::Pointer(PointerEvent::Down {
             pointer_id: Default::default(),
