@@ -8,9 +8,12 @@ use crate::model::{
 };
 use fission::core::op::GridTrack;
 use fission::core::ui::{Grid, GridItem, Text, TextContent, Widget};
-use fission::core::{reduce_with, WidgetId};
+use fission::core::{reduce_with, ActionEnvelope, WidgetId};
 use fission::theme::{DesignMode, DesignSystem, FissionFluent2DesignSystem};
 use fission::widgets::{Card, FormControl, Select, SelectItem, Slider, VStack};
+
+const MIN_ZOOM: f32 = 0.75;
+const MAX_ZOOM: f32 = 1.25;
 
 /// Theme values, with each one's label key and semantics identifier.
 const THEMES: [(&str, &str, &str); 3] = [
@@ -42,16 +45,6 @@ impl From<AppearanceSettings> for Widget {
         let (ctx, view) = fission::build::current::<InboxState>();
         let state = view.state();
         let tokens = &view.env().theme.tokens;
-        let theme_label = THEMES
-            .iter()
-            .find(|(value, ..)| state.theme_mode == *value)
-            .unwrap_or(&THEMES[0])
-            .1;
-        let density_label = DENSITIES
-            .iter()
-            .find(|(value, ..)| state.density_mode == *value)
-            .unwrap_or(&DENSITIES[0])
-            .1;
 
         VStack {
             spacing: Some(tokens.spacing.m),
@@ -60,94 +53,56 @@ impl From<AppearanceSettings> for Widget {
                     key: "settings.appearance",
                 }
                 .into(),
-                FormControl {
-                    id: None,
-                    label: Some(view.tr("settings.theme.label")),
-                    required: false,
-                    error: None,
-                    helper: None,
-                    child: Select {
-                        id: WidgetId::explicit("theme_select"),
-                        trigger_semantics_identifier: Some("settings.theme".into()),
-                        selected_label: Some(view.tr(theme_label)),
-                        placeholder: view.tr("settings.theme.placeholder"),
-                        is_open: state.show_theme_select,
-                        on_toggle: Some(ctx.bind(
-                            SetThemeSelectOpen(!state.show_theme_select),
-                            reduce_with!(set_theme_select_open),
-                        )),
-                        items: THEMES
-                            .iter()
-                            .map(|(value, key, identifier)| SelectItem {
-                                label: view.tr(key),
-                                icon: None,
-                                on_select: ctx
-                                    .bind(SetTheme((*value).into()), reduce_with!(set_theme)),
-                                semantics_identifier: Some((*identifier).into()),
-                            })
-                            .collect(),
-                        ..Default::default()
-                    }
-                    .into(),
+                SettingSelect {
+                    id: "theme_select",
+                    trigger_identifier: Some("settings.theme"),
+                    label_key: "settings.theme.label",
+                    placeholder_key: "settings.theme.placeholder",
+                    helper_key: None,
+                    options: &THEMES,
+                    current: state.theme_mode.clone(),
+                    is_open: state.show_theme_select,
+                    on_toggle: ctx.bind(
+                        SetThemeSelectOpen(!state.show_theme_select),
+                        reduce_with!(set_theme_select_open),
+                    ),
+                    on_select: THEMES
+                        .iter()
+                        .map(|(value, ..)| {
+                            ctx.bind(SetTheme((*value).into()), reduce_with!(set_theme))
+                        })
+                        .collect(),
                 }
                 .into(),
-                FormControl {
-                    id: None,
-                    label: Some(view.tr("settings.density.label")),
-                    required: false,
-                    error: None,
-                    helper: Some(view.tr("settings.density.helper")),
-                    child: Select {
-                        id: WidgetId::explicit("density_select"),
-                        selected_label: Some(view.tr(density_label)),
-                        placeholder: view.tr("settings.density.placeholder"),
-                        is_open: state.show_density_select,
-                        on_toggle: Some(ctx.bind(
-                            SetDensitySelectOpen(!state.show_density_select),
-                            reduce_with!(set_density_select_open),
-                        )),
-                        items: DENSITIES
-                            .iter()
-                            .map(|(value, key, identifier)| SelectItem {
-                                label: view.tr(key),
-                                icon: None,
-                                on_select: ctx
-                                    .bind(SetDensity((*value).into()), reduce_with!(set_density)),
-                                semantics_identifier: Some((*identifier).into()),
-                            })
-                            .collect(),
-                        ..Default::default()
-                    }
-                    .into(),
+                SettingSelect {
+                    id: "density_select",
+                    trigger_identifier: None,
+                    label_key: "settings.density.label",
+                    placeholder_key: "settings.density.placeholder",
+                    helper_key: Some("settings.density.helper"),
+                    options: &DENSITIES,
+                    current: state.density_mode.clone(),
+                    is_open: state.show_density_select,
+                    on_toggle: ctx.bind(
+                        SetDensitySelectOpen(!state.show_density_select),
+                        reduce_with!(set_density_select_open),
+                    ),
+                    on_select: DENSITIES
+                        .iter()
+                        .map(|(value, ..)| {
+                            ctx.bind(SetDensity((*value).into()), reduce_with!(set_density))
+                        })
+                        .collect(),
                 }
                 .into(),
-                FormControl {
-                    id: None,
-                    label: Some(view.tr("settings.zoom.label")),
-                    required: false,
-                    error: None,
-                    helper: Some(view.tr("settings.zoom.helper")),
-                    child: Slider {
-                        id: None,
-                        semantics_identifier: Some("inbox.settings.zoom_level".into()),
-                        value: state.zoom_level,
-                        min: 0.75,
-                        max: 1.25,
-                        on_change: Some(
-                            ctx.bind(SetZoomLevel(state.zoom_level), reduce_with!(set_zoom_level)),
-                        ),
-                        ..Default::default()
-                    }
-                    .into(),
-                }
-                .into(),
+                ZoomSetting.into(),
                 Grid {
                     id: None,
                     columns: vec![GridTrack::Fr(1.0), GridTrack::Fr(1.0)],
                     rows: vec![GridTrack::Auto],
                     column_gap: Some(tokens.spacing.s),
                     row_gap: Some(tokens.spacing.s),
-                    padding: [0.0; 4],
+                    padding: [tokens.spacing.none; 4],
                     children: vec![
                         GridItem::new(ThemePreviewCard {
                             caption_key: "settings.theme.preview_light",
@@ -165,6 +120,90 @@ impl From<AppearanceSettings> for Widget {
                 }
                 .into(),
             ],
+        }
+        .into()
+    }
+}
+
+/// A labelled select over a table of `(value, label key, semantics identifier)`
+/// options, with one bound action per option in the same order.
+struct SettingSelect {
+    id: &'static str,
+    trigger_identifier: Option<&'static str>,
+    label_key: &'static str,
+    placeholder_key: &'static str,
+    helper_key: Option<&'static str>,
+    options: &'static [(&'static str, &'static str, &'static str)],
+    current: String,
+    is_open: bool,
+    on_toggle: ActionEnvelope,
+    on_select: Vec<ActionEnvelope>,
+}
+
+impl From<SettingSelect> for Widget {
+    fn from(select: SettingSelect) -> Self {
+        let (_, view) = fission::build::current::<InboxState>();
+        let selected_key = select
+            .options
+            .iter()
+            .find(|(value, ..)| select.current == *value)
+            .unwrap_or(&select.options[0])
+            .1;
+        FormControl {
+            id: None,
+            label: Some(view.tr(select.label_key)),
+            required: false,
+            error: None,
+            helper: select.helper_key.map(|key| view.tr(key)),
+            child: Select {
+                id: WidgetId::explicit(select.id),
+                trigger_semantics_identifier: select.trigger_identifier.map(Into::into),
+                selected_label: Some(view.tr(selected_key)),
+                placeholder: view.tr(select.placeholder_key),
+                is_open: select.is_open,
+                on_toggle: Some(select.on_toggle),
+                items: select
+                    .options
+                    .iter()
+                    .zip(select.on_select)
+                    .map(|((_, key, identifier), on_select)| SelectItem {
+                        label: view.tr(key),
+                        icon: None,
+                        on_select,
+                        semantics_identifier: Some((*identifier).into()),
+                    })
+                    .collect(),
+                ..Default::default()
+            }
+            .into(),
+        }
+        .into()
+    }
+}
+
+/// The reading zoom, from 75% to 125%.
+struct ZoomSetting;
+
+impl From<ZoomSetting> for Widget {
+    fn from(_: ZoomSetting) -> Self {
+        let (ctx, view) = fission::build::current::<InboxState>();
+        let zoom = view.state().zoom_level;
+        FormControl {
+            id: None,
+            label: Some(view.tr("settings.zoom.label")),
+            required: false,
+            error: None,
+            helper: Some(view.tr("settings.zoom.helper")),
+            child: Slider {
+                id: None,
+                semantics_identifier: Some("inbox.settings.zoom_level".into()),
+                value: zoom,
+                min: MIN_ZOOM,
+                max: MAX_ZOOM,
+                on_change: Some(ctx.bind(SetZoomLevel(zoom), reduce_with!(set_zoom_level))),
+                ..Default::default()
+            }
+            .into(),
         }
         .into()
     }
