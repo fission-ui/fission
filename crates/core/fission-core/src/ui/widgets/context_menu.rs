@@ -269,13 +269,20 @@ pub(crate) fn text_context_menu_overlay_widget(
     anchor: fission_layout::LayoutPoint,
     action_enabled: impl Fn(TextContextMenuAction) -> bool,
 ) -> Widget {
+    text_menu_overlay(config, owner, anchor, |action| {
+        text_context_menu_item_widget(owner, action, action_enabled(action))
+    })
+}
+
+/// Builds a text context menu popup at `anchor` whose rows come from `item`.
+fn text_menu_overlay(
+    config: &TextContextMenuConfig,
+    owner: WidgetId,
+    anchor: fission_layout::LayoutPoint,
+    item: impl Fn(TextContextMenuAction) -> Widget,
+) -> Widget {
     let menu = config.menu.clone();
-    let children = config
-        .actions
-        .iter()
-        .copied()
-        .map(|action| text_context_menu_item_widget(owner, action, action_enabled(action)))
-        .collect();
+    let children = config.actions.iter().copied().map(item).collect();
 
     let background = menu.background.unwrap_or(Color {
         r: 255,
@@ -491,13 +498,18 @@ pub(crate) fn text_context_menu_item_widget(
     action: TextContextMenuAction,
     enabled: bool,
 ) -> Widget {
+    text_menu_item(text_context_menu_button_id(owner, action), action, enabled)
+}
+
+/// A text context menu row with the given identity.
+fn text_menu_item(id: WidgetId, action: TextContextMenuAction, enabled: bool) -> Widget {
     let child = Text::new(TextContent::KeyWithFallback {
         key: action.label_key().to_string(),
         fallback: action.fallback_label().to_string(),
     });
 
     Button {
-        id: Some(text_context_menu_button_id(owner, action)),
+        id: Some(id),
         child: Some(child.into()),
         semantics: Some(Semantics {
             role: fission_ir::Role::Button,
@@ -639,4 +651,44 @@ pub(crate) fn lift_text_menu_into_portal(
 /// Returns whether the text context menu for `owner` was lifted into a portal, clearing the mark.
 pub(crate) fn take_lifted_text_menu(owner: WidgetId) -> bool {
     LIFTED_TEXT_MENU_OWNERS.with(|owners| owners.borrow_mut().remove(&owner))
+}
+
+/// Lifts the open context menu of a text field into the flyout portal layer.
+///
+/// The rows carry the field's toolbar identities, so choosing one runs the editing command through
+/// the text field and closes the menu. Returns whether the menu was lifted.
+pub(crate) fn lift_text_input_menu_into_portal(
+    input_id: WidgetId,
+    config: &TextContextMenuConfig,
+    selection_present: bool,
+    has_text: bool,
+    editable: bool,
+) -> bool {
+    let Some(runtime) = crate::build::try_current_runtime_state() else {
+        return false;
+    };
+    if !config.enabled || runtime.context_menu.owner != Some(input_id) {
+        return false;
+    }
+    let Some(anchor) = runtime.context_menu.anchor else {
+        return false;
+    };
+    let menu = text_menu_overlay(config, input_id, anchor, |action| {
+        let enabled = match action {
+            TextContextMenuAction::Copy => selection_present,
+            TextContextMenuAction::Cut => selection_present && editable,
+            TextContextMenuAction::Paste => editable,
+            TextContextMenuAction::SelectAll => has_text,
+        };
+        text_menu_item(
+            crate::ui::widgets::text_input::text_input_toolbar_button_id(input_id, action),
+            action,
+            enabled,
+        )
+    });
+    crate::build::try_register_portal(
+        crate::PortalLayer::Flyout,
+        Some(context_menu_popup_id(input_id)),
+        menu,
+    )
 }

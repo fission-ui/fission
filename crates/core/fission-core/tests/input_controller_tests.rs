@@ -2619,7 +2619,7 @@ fn test_secondary_click_shows_text_toolbar_affordance() {
     );
     let event = InputEvent::Pointer(PointerEvent::Down {
         pointer_id: Default::default(),
-        kind: Default::default(),
+        kind: fission_core::event::PointerKind::Touch,
         point: LayoutPoint::new(248.0, 50.0),
         button: PointerButton::Secondary,
         modifiers: 0,
@@ -2844,7 +2844,7 @@ fn test_selection_handle_drag_updates_selection_and_toolbar_lifecycle() {
 
     let down = InputEvent::Pointer(PointerEvent::Down {
         pointer_id: Default::default(),
-        kind: Default::default(),
+        kind: fission_core::event::PointerKind::Touch,
         point: LayoutPoint::new(220.0, 50.0),
         button: PointerButton::Primary,
         modifiers: 0,
@@ -2860,7 +2860,7 @@ fn test_selection_handle_drag_updates_selection_and_toolbar_lifecycle() {
 
     let drag = InputEvent::Pointer(PointerEvent::Move {
         pointer_id: Default::default(),
-        kind: Default::default(),
+        kind: fission_core::event::PointerKind::Touch,
         point: LayoutPoint::new(212.0, 50.0),
         modifiers: 0,
     });
@@ -2876,7 +2876,7 @@ fn test_selection_handle_drag_updates_selection_and_toolbar_lifecycle() {
 
     let up = InputEvent::Pointer(PointerEvent::Up {
         pointer_id: Default::default(),
-        kind: Default::default(),
+        kind: fission_core::event::PointerKind::Touch,
         point: LayoutPoint::new(212.0, 50.0),
         button: PointerButton::Primary,
         modifiers: 0,

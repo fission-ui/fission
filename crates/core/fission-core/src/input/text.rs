@@ -40,6 +40,7 @@ impl InputController for TextInputController {
             InputEvent::Pointer(PointerEvent::Down {
                 point,
                 button,
+                kind,
                 modifiers,
                 ..
             }) => {
@@ -80,6 +81,16 @@ impl InputController for TextInputController {
                                     }
                                 }
 
+                                if matches!(button, crate::event::PointerButton::Secondary)
+                                    && !matches!(
+                                        kind,
+                                        crate::event::PointerKind::Touch
+                                            | crate::event::PointerKind::Stylus
+                                    )
+                                {
+                                    // A mouse right-click opens the context menu on release.
+                                    return true;
+                                }
                                 if matches!(button, crate::event::PointerButton::Secondary) {
                                     let value = sem.value.as_deref().unwrap_or("").to_string();
                                     let wrapper_anchor =
@@ -571,7 +582,9 @@ impl InputController for TextInputController {
 
                 false
             }
-            InputEvent::Pointer(PointerEvent::Up { point, button, .. }) => {
+            InputEvent::Pointer(PointerEvent::Up {
+                point, button, kind, ..
+            }) => {
                 if let Some(focused_id) = ctx.interaction.focused {
                     if let Some(node) = ctx.ir.nodes.get(&focused_id) {
                         if let Op::Semantics(sem) = &node.op {
@@ -584,14 +597,27 @@ impl InputController for TextInputController {
                                             (point.y - geom.rect.origin.y).max(0.0),
                                         )
                                     });
-                                let show_toolbar =
-                                    matches!(button, crate::event::PointerButton::Secondary)
+                                let secondary =
+                                    matches!(button, crate::event::PointerButton::Secondary);
+                                let touch = matches!(
+                                    kind,
+                                    crate::event::PointerKind::Touch
+                                        | crate::event::PointerKind::Stylus
+                                );
+                                // A mouse right-click opens the field's context menu at the pointer,
+                                // drawn above all content. The floating selection toolbar is a touch
+                                // affordance.
+                                if secondary && !touch && sem.context_menu {
+                                    ctx.context_menu.open(focused_id, *point);
+                                }
+                                let show_toolbar = touch
+                                    && (secondary
                                         || ctx
                                             .text_edit
                                             .states
                                             .get(&focused_id)
                                             .map(|state| state.caret != state.anchor)
-                                            .unwrap_or(false);
+                                            .unwrap_or(false));
                                 if let Some(state) = ctx.text_edit.states.get_mut(&focused_id) {
                                     state.affordances.active_handle = None;
                                     state.affordances.magnifier_visible = false;

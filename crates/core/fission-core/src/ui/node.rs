@@ -1064,7 +1064,25 @@ impl From<Button> for Widget {
     }
 }
 impl From<TextInput> for Widget {
-    fn from(w: TextInput) -> Self {
+    fn from(mut w: TextInput) -> Self {
+        if w.context_menu.enabled {
+            if w.id.is_none() {
+                w.id = crate::build::next_implicit_widget_id(0x7E48);
+            }
+            if let (Some(input_id), Some(runtime)) = (w.id, crate::build::try_current_runtime_state()) {
+                let selection_present = runtime
+                    .text_edit
+                    .get(input_id)
+                    .is_some_and(|state| state.caret != state.anchor);
+                crate::ui::widgets::context_menu::lift_text_input_menu_into_portal(
+                    input_id,
+                    &w.context_menu,
+                    selection_present,
+                    !w.value.is_empty(),
+                    w.enabled && !w.read_only,
+                );
+            }
+        }
         Self::from_kind(WidgetKind::TextInput(w))
     }
 }
