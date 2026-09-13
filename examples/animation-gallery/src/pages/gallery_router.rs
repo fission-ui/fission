@@ -17,102 +17,37 @@ macro_rules! route {
     };
 }
 
+/// A route to a page built from only the build context and gallery state.
+macro_rules! page_route {
+    ($path:expr, $page:path) => {
+        route!($path, |ctx, view, _| {
+            $page {
+                ctx,
+                state: view.state(),
+            }
+            .into()
+        })
+    };
+}
+
 impl From<GalleryRouter> for Widget {
     fn from(router: GalleryRouter) -> Self {
         Router::<AnimationGalleryState> {
             current_path: router.current_path,
             routes: vec![
-                route!("/overview", |ctx, view, _| {
-                    overview::OverviewPage {
-                        ctx,
-                        state: view.state(),
-                    }
-                    .into()
-                }),
-                route!(widgets::modal::PATH, |ctx, view, _| {
-                    widgets::modal::ModalPage {
-                        ctx,
-                        state: view.state(),
-                    }
-                    .into()
-                }),
-                route!(widgets::drawer::PATH, |ctx, view, _| {
-                    widgets::drawer::DrawerPage {
-                        ctx,
-                        state: view.state(),
-                    }
-                    .into()
-                }),
-                route!(widgets::popover::PATH, |ctx, view, _| {
-                    widgets::popover::PopoverPage {
-                        ctx,
-                        state: view.state(),
-                    }
-                    .into()
-                }),
-                route!(widgets::tooltip::PATH, |ctx, view, _| {
-                    widgets::tooltip::TooltipPage {
-                        ctx,
-                        state: view.state(),
-                    }
-                    .into()
-                }),
-                route!(widgets::toast::PATH, |ctx, view, _| {
-                    widgets::toast::ToastPage {
-                        ctx,
-                        state: view.state(),
-                    }
-                    .into()
-                }),
-                route!(widgets::accordion::PATH, |ctx, view, _| {
-                    widgets::accordion::AccordionPage {
-                        ctx,
-                        state: view.state(),
-                    }
-                    .into()
-                }),
-                route!(widgets::tabs::PATH, |ctx, view, _| {
-                    widgets::tabs::TabsPage {
-                        ctx,
-                        state: view.state(),
-                    }
-                    .into()
-                }),
-                route!(widgets::button::PATH, |ctx, view, _| {
-                    widgets::button::ButtonPage {
-                        ctx,
-                        state: view.state(),
-                    }
-                    .into()
-                }),
-                route!(widgets::checkbox::PATH, |ctx, view, _| {
-                    widgets::checkbox::CheckboxPage {
-                        ctx,
-                        state: view.state(),
-                    }
-                    .into()
-                }),
-                route!(widgets::switch::PATH, |ctx, view, _| {
-                    widgets::switch::SwitchPage {
-                        ctx,
-                        state: view.state(),
-                    }
-                    .into()
-                }),
-                route!(widgets::sidebar::PATH, |ctx, view, _| {
-                    widgets::sidebar::SidebarPage {
-                        ctx,
-                        state: view.state(),
-                    }
-                    .into()
-                }),
-                route!(widgets::carousel::PATH, |ctx, view, _| {
-                    widgets::carousel::CarouselPage {
-                        ctx,
-                        state: view.state(),
-                    }
-                    .into()
-                }),
+                page_route!("/overview", overview::OverviewPage),
+                page_route!(widgets::modal::PATH, widgets::modal::ModalPage),
+                page_route!(widgets::drawer::PATH, widgets::drawer::DrawerPage),
+                page_route!(widgets::popover::PATH, widgets::popover::PopoverPage),
+                page_route!(widgets::tooltip::PATH, widgets::tooltip::TooltipPage),
+                page_route!(widgets::toast::PATH, widgets::toast::ToastPage),
+                page_route!(widgets::accordion::PATH, widgets::accordion::AccordionPage),
+                page_route!(widgets::tabs::PATH, widgets::tabs::TabsPage),
+                page_route!(widgets::button::PATH, widgets::button::ButtonPage),
+                page_route!(widgets::checkbox::PATH, widgets::checkbox::CheckboxPage),
+                page_route!(widgets::switch::PATH, widgets::switch::SwitchPage),
+                page_route!(widgets::sidebar::PATH, widgets::sidebar::SidebarPage),
+                page_route!(widgets::carousel::PATH, widgets::carousel::CarouselPage),
                 route!("/properties/:property", |ctx, view, params| {
                     let path = format!(
                         "/properties/{}",
@@ -140,13 +75,7 @@ impl From<GalleryRouter> for Widget {
                     }
                     .into()
                 }),
-                route!("/policy/:policy", |ctx, view, _| {
-                    policy::PolicyPage {
-                        ctx,
-                        state: view.state(),
-                    }
-                    .into()
-                }),
+                page_route!("/policy/:policy", policy::PolicyPage),
                 route!("/diagnostics/:panel", |ctx, view, params| {
                     let path = format!(
                         "/diagnostics/{}",
