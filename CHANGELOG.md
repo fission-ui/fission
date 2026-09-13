@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **User-granted directories** - The opt-in `filesystem` capability gives reducers opaque directory handles and validated relative-path operations for listing, metadata, streamed reads, byte or stream writes, directory creation, removal, permission checks, and release. Desktop shells use the native folder picker; Web uses the modern File System Access API and can persist granted handles—not file contents—in IndexedDB for later restoration.
+
 ## [0.14.1] - 2026-08-26
 
 ### Fixed

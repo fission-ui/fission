@@ -1,0 +1,62 @@
+---
+title: File system
+description: Reference for user-granted directory handles, relative paths, streams, operations, and target behavior.
+---
+
+# File system
+
+## Public API
+
+| Item | Value |
+| --- | --- |
+| Effect helper | `ctx.effects.file_system()` |
+| Directory identity | `DirectoryHandle / DirectoryHandleId` |
+| Portable path | `FileSystemPath` |
+| Access and permission | `FileSystemAccessMode / FileSystemPermission` |
+| Entry metadata | `FileSystemEntry / FileSystemEntryKind` |
+| Write source | `FileWriteSource::Bytes / FileWriteSource::Stream` |
+| Error | `FileSystemError` |
+| CLI value | `filesystem` |
+
+## Operations
+
+| Method | Request | Success |
+| --- | --- | --- |
+| `pick_directory` | `PickDirectoryRequest` | `PickDirectoryResult` |
+| `restore_directory` | `RestoreDirectoryRequest` | `RestoreDirectoryResult` |
+| `forget_directory` | `ForgetDirectoryRequest` | `()` |
+| `permission` | `DirectoryPermissionRequest` | `DirectoryPermissionResult` |
+| `list` | `ListDirectoryRequest` | `ListDirectoryResult` |
+| `stat` | `StatEntryRequest` | `StatEntryResult` |
+| `read` | `ReadFileRequest` | `ReadFileResult` |
+| `write` | `WriteFileRequest` | `WriteFileResult` |
+| `create_directory` | `CreateDirectoryRequest` | `()` |
+| `remove` | `RemoveEntryRequest` | `()` |
+| `release` | `ReleaseDirectoryRequest` | `()` |
+
+The corresponding capability constants use the same names in uppercase, including `PICK_DIRECTORY`, `LIST_DIRECTORY`, `READ_FILE`, and `WRITE_FILE`.
+
+## Ownership and safety
+
+Handles are opaque, runtime-local values. They must not be persisted as integers or interpreted as paths. Persist an app-chosen key and ask `restore_directory` for a new live handle instead.
+
+`FileSystemPath::new` is the only public constructor for non-root paths. The empty `FileSystemPath::root()` addresses the selected directory for listing and stat. Root writes and removals are rejected.
+
+`ReadFileResult::stream` is a single-consumer runtime stream. `FileWriteSource::Stream` consumes its stream when the host opens it. Desktop providers transfer stream data incrementally. The initial Web bridge buffers each file while converting browser file objects, so Web apps should keep operations to files that fit comfortably in memory. `WriteFileRequest::overwrite` defaults to false so replacing user data requires an explicit choice.
+
+## Target behavior
+
+| Target | Behavior |
+| --- | --- |
+| Web | Uses `showDirectoryPicker` and `FileSystemDirectoryHandle`; optional handles are structured-cloned into IndexedDB. Requires a secure context and browser support. |
+| macOS, Windows, Linux | Uses the native folder picker and keeps paths private in the shell registry. |
+| Android, iOS | Typed `unsupported` in this release. |
+| Terminal, Static site, SSR | No interactive directory provider. |
+
+Web persistence stores only a granted browser handle. It is not an IndexedDB-backed virtual filesystem and it never copies the user's files. Browser permissions can return to `prompt` or `denied` after restoration.
+
+## Configuration
+
+Run `fission add-capability filesystem --project-dir .`. This adds `filesystem` to `fission.toml` and the optional Fission Cargo feature. No OS manifest permission can replace the required user picker interaction.
+
+See the [File system guide](/docs/capabilities/file-system/) for reducer examples.

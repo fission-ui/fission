@@ -1,0 +1,77 @@
+---
+title: File system
+description: Let a user grant an app access to a real device folder on desktop and the Web.
+---
+
+# File system
+
+The file-system capability lets a user choose a real folder and keep the app inside that grant. It is useful for editors, project tools, media libraries, and local-first products that should work with files the user already owns instead of copying them into app-private storage.
+
+Enable it once for the project:
+
+```bash
+fission add-capability filesystem --project-dir .
+```
+
+The command records the capability and enables its optional shell integration. App code receives an opaque `DirectoryHandle`, never a native path or browser object. Every operation uses a validated `FileSystemPath` relative to the selected directory.
+
+## Pick a directory from a user action
+
+Directory pickers and browser permission prompts must start from a direct user action. Queue the request from its reducer:
+
+```rust
+let request = PickDirectoryRequest {
+    access: FileSystemAccessMode::ReadWrite,
+    persistence_key: Some("current-project".into()),
+};
+
+ctx.effects
+    .file_system()
+    .pick_directory(request)
+    .on_ok(ctx.effects.bind(DirectoryPicked, reduce_with!(on_directory_picked)))
+    .on_err(ctx.effects.bind(DirectoryFailed, reduce_with!(on_directory_failed)));
+```
+
+`PickDirectoryResult::directory` is `None` when the user cancels. Store the returned handle in app state for the current runtime. A handle is host-owned and can become invalid or lose permission, so handle `invalid_handle` and `permission_denied` as normal outcomes.
+
+## Work beneath the grant
+
+Construct relative paths before issuing an operation:
+
+```rust
+let path = FileSystemPath::new("chapters/one.md")?;
+
+ctx.effects.file_system().read(ReadFileRequest {
+    directory: state.project_directory.id,
+    path,
+});
+```
+
+The available operations are `list`, `stat`, `read`, `write`, `create_directory`, `remove`, `permission`, and `release`. Reads return a `DataStreamId`. Writes accept `FileWriteSource::Bytes` for a small value or `FileWriteSource::Stream` when data already lives in the runtime stream registry. Writes refuse to replace an existing file unless `overwrite` is explicitly true.
+
+Desktop reads and stream-sourced writes transfer data incrementally. The initial Web provider preserves the same public stream contract but buffers each file while bridging browser `File` and `FileSystemWritableFileStream` objects; keep browser operations to files that fit comfortably in memory in this release.
+
+`FileSystemPath` uses `/` on every target. It rejects absolute paths, `.` and `..`, empty components, Windows separators and drive prefixes. The native host also refuses to traverse symbolic links, preserving the browser capability's directory-handle semantics.
+
+## Restore a browser grant
+
+When `persistence_key` is present, the Web provider stores the browser's `FileSystemDirectoryHandle` in IndexedDB. It does not store or copy directory contents. On a later launch, call `restore_directory`; then inspect or request permission with `permission` before accessing files.
+
+```rust
+ctx.effects
+    .file_system()
+    .restore_directory(RestoreDirectoryRequest {
+        persistence_key: "current-project".into(),
+        access: FileSystemAccessMode::ReadWrite,
+    });
+```
+
+Browser support requires a secure context and `showDirectoryPicker`. Browsers without the modern File System Access API return `unsupported`. Native desktop selection works on macOS, Windows, and Linux. Persistent restoration is browser-only in this release; mobile shells return typed unsupported errors.
+
+Call `forget_directory` to delete a persisted browser handle, and `release` when the current runtime no longer needs a live handle. Forgetting a handle does not delete user files.
+
+## Error handling
+
+All operations return `FileSystemError { code, message }`. Treat cancellation separately from failure: picker cancellation is a successful result with no directory. Common error codes include `unsupported`, `permission_denied`, `invalid_handle`, `invalid_path`, `not_found`, `not_a_file`, and operation-specific I/O failures.
+
+For the complete type and operation list, see the [File system reference](/reference/capabilities/file-system/) and [capability matrix](/docs/capabilities/matrix/).
