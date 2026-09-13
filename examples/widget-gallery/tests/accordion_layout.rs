@@ -57,3 +57,42 @@ fn accordion_headers_span_the_accordion_with_a_legible_chevron() {
         "the accordion chevron should be at least 16px, got {smallest_icon}"
     );
 }
+
+#[test]
+fn an_expanded_accordion_panel_spans_the_accordion() {
+    let mut driver = TestDriver::new(
+        TestHarness::new(GalleryState {
+            accordion_open: 1,
+            ..GalleryState::default()
+        })
+        .with_root_widget(GalleryApp),
+    );
+    driver.harness.env.viewport_size = LayoutSize::new(1000.0, 3000.0);
+    driver.pump().expect("first frame");
+
+    let content = driver
+        .find_text("Content of section 2")
+        .expect("expanded panel content")
+        .bounds;
+    let ir = driver.harness.last_ir.as_ref().expect("ir");
+    let snapshot = driver.harness.last_snapshot.as_ref().expect("snapshot");
+    let panel_width = ir
+        .nodes
+        .iter()
+        .filter(|(_, node)| {
+            let op = format!("{:?}", node.op);
+            op.starts_with("Paint(DrawRect") && op.contains("stroke: Some")
+        })
+        .filter_map(|(id, _)| snapshot.get_node_rect(*id))
+        .filter(|rect| {
+            rect.y() <= content.y()
+                && rect.y() + rect.height() >= content.y() + content.height()
+                && rect.height() < 200.0
+        })
+        .map(|rect| rect.width())
+        .fold(0.0f32, f32::max);
+    assert!(
+        panel_width >= 600.0,
+        "the expanded panel should span the accordion, got {panel_width}"
+    );
+}

@@ -336,6 +336,7 @@ impl From<Accordion> for Widget {
             if item.is_expanded || (motion.is_some() && presence_active(panel_id)) {
                 let mut panel: Widget = SemanticsRegion::new(
                     Container::new(item.content.clone())
+                        .width_length(fission_core::op::Length::percent(100.0))
                         .padding(panel_style.padding_box(tokens.spacing.m, tokens.spacing.m))
                         .bg_fill(
                             panel_style
@@ -362,7 +363,12 @@ impl From<Accordion> for Widget {
                     }
                     .into();
                 }
-                children.push(panel);
+                // Like the header, the panel spans the accordion; a column does not stretch it.
+                children.push(
+                    Container::new(panel)
+                        .width_length(fission_core::op::Length::percent(100.0))
+                        .into(),
+                );
             }
         }
 
