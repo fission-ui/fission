@@ -16,6 +16,7 @@ platforms = ["android", "ios", "linux", "macos", "windows", "web"]
 
 [features]
 default = []
+filesystem = []
 tray = ["dep:tray-icon", "dep:gtk"]
 three-d = ["dep:fission-3d"]
 video = ["dep:gstreamer", "dep:gstreamer-video"]

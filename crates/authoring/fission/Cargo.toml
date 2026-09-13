@@ -19,6 +19,11 @@ default = []
 charts = ["dep:fission-charts"]
 desktop = ["dep:fission-shell-desktop", "interactive-canvas"]
 desktop-tray = ["desktop", "fission-shell-desktop?/tray"]
+filesystem = [
+    "fission-shell-desktop?/filesystem",
+    "fission-shell-mobile?/filesystem",
+    "fission-shell-web?/filesystem",
+]
 icons-reflection = ["fission-icons/reflection"]
 interactive-canvas = [
     "fission-core/interactive-canvas",
