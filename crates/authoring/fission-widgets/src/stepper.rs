@@ -22,15 +22,14 @@ impl From<Stepper> for Widget {
             return fission_core::ui::widgets::Spacer::default().into();
         }
 
-        let recipe = view
-            .env()
-            .theme
-            .recipe(fission_theme::recipe_names::STEPPER);
-        let node_style = recipe.part("node");
-        let connector_style = recipe.part("connector");
-        let label_style = recipe.part("label");
+        let recipe = view.env().theme.recipe(fission_theme::recipes::Stepper);
+        let node_style = recipe.part(fission_theme::recipes::StepperPart::Node);
+        let connector_style = recipe.part(fission_theme::recipes::StepperPart::Connector);
+        let label_style = recipe.part(fission_theme::recipes::StepperPart::Label);
         let last_index = this.steps.len().saturating_sub(1);
-        let node_slot = recipe.scalar("node_slot").unwrap_or(62.0);
+        let node_slot = recipe
+            .scalar(fission_theme::recipes::StepperScalar::NodeSlot)
+            .unwrap_or(62.0);
         let connector_width = connector_style.width.unwrap_or(22.0);
         let mut indicator_row = Vec::new();
         let mut label_row = Vec::new();

@@ -207,13 +207,10 @@ impl From<Accordion> for Widget {
         let this = &component;
 
         let tokens = &view.env().theme.tokens;
-        let recipe = view
-            .env()
-            .theme
-            .recipe(fission_theme::recipe_names::ACCORDION);
-        let header_style = recipe.part("header");
-        let panel_style = recipe.part("panel");
-        let indicator_style = recipe.part("indicator");
+        let recipe = view.env().theme.recipe(fission_theme::recipes::Accordion);
+        let header_style = recipe.part(fission_theme::recipes::AccordionPart::Header);
+        let panel_style = recipe.part(fission_theme::recipes::AccordionPart::Panel);
+        let indicator_style = recipe.part(fission_theme::recipes::AccordionPart::Indicator);
         let base_id = fission_core::build::current_widget_id()
             .unwrap_or_else(|| WidgetId::explicit("fission.widgets.accordion.motion"));
 

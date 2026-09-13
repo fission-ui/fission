@@ -551,7 +551,9 @@ impl ComponentRecipe {
     /// Returning a default rather than `None` keeps widget code linear: ask for
     /// the part, then fall back per field with `unwrap_or`, so a design system
     /// can declare as much or as little as it wants.
-    pub fn part(&self, name: &str) -> &ResolvedComponentStyle {
+    ///
+    /// Prefer [`Recipe::part`], which only accepts the component's own part keys.
+    pub fn part_named(&self, name: &str) -> &ResolvedComponentStyle {
         static EMPTY: std::sync::OnceLock<ResolvedComponentStyle> = std::sync::OnceLock::new();
         self.parts
             .get(name)
@@ -559,7 +561,7 @@ impl ComponentRecipe {
     }
 
     /// Returns a named part only when the design system declares it.
-    pub fn try_part(&self, name: &str) -> Option<&ResolvedComponentStyle> {
+    pub fn try_part_named(&self, name: &str) -> Option<&ResolvedComponentStyle> {
         self.parts.get(name)
     }
 
@@ -577,7 +579,7 @@ impl ComponentRecipe {
     }
 
     /// Returns a scalar declared on the recipe.
-    pub fn scalar(&self, name: &str) -> Option<f32> {
+    pub fn scalar_named(&self, name: &str) -> Option<f32> {
         self.scalars.get(name).copied()
     }
 }
@@ -3759,104 +3761,112 @@ impl ComponentTheme {
     }
 }
 
-/// Names of the component recipes widgets read.
+/// Typed names for the component recipes, parts and scalars Fission's design
+/// systems declare, generated from the default design system.
 ///
-/// Read a recipe through one of these rather than a string literal, so a
-/// misspelt component name is a compile error instead of a silently empty
-/// recipe. Every design system Fission supplies declares all of
-/// [`REQUIRED`](recipe_names::REQUIRED), and a test holds that list to the one
-/// the design system codegen enforces.
-pub mod recipe_names {
-    pub const ACCORDION: &str = "accordion";
-    pub const BREADCRUMB: &str = "breadcrumb";
-    pub const CIRCULAR_PROGRESS: &str = "circular_progress";
-    pub const COLOUR_PICKER: &str = "colour_picker";
-    pub const DATA_TABLE: &str = "data_table";
-    pub const DATE_PICKER: &str = "date_picker";
-    pub const DRAWER: &str = "drawer";
-    pub const DROPDOWN: &str = "dropdown";
-    pub const FILE_UPLOAD: &str = "file_upload";
-    pub const HERO: &str = "hero";
-    pub const MARKDOWN: &str = "markdown";
-    pub const NUMBER_INPUT: &str = "number_input";
-    pub const POPOVER: &str = "popover";
-    pub const RANGE_SLIDER: &str = "range_slider";
-    pub const REFRESH_INDICATOR: &str = "refresh_indicator";
-    pub const SPINNER: &str = "spinner";
-    pub const SPLIT_VIEW: &str = "split_view";
-    pub const TERMINAL: &str = "terminal";
-    pub const TIME_PICKER: &str = "time_picker";
-    pub const ALERT: &str = "alert";
-    pub const AVATAR: &str = "avatar";
-    pub const AVATAR_GROUP: &str = "avatar_group";
-    pub const BADGE: &str = "badge";
-    pub const BUTTON: &str = "button";
-    pub const CARD: &str = "card";
-    pub const CODE: &str = "code";
-    pub const CODE_SYNTAX: &str = "code_syntax";
-    pub const DIVIDER: &str = "divider";
-    pub const EMPTY_STATE: &str = "empty_state";
-    pub const FEATURE_ICON: &str = "feature_icon";
-    pub const INPUT: &str = "input";
-    pub const MENU: &str = "menu";
-    pub const MODAL: &str = "modal";
-    pub const PAGINATION: &str = "pagination";
-    pub const PROGRESS_BAR: &str = "progress_bar";
-    pub const SKELETON: &str = "skeleton";
-    pub const SELECT: &str = "select";
-    pub const STAT: &str = "stat";
-    pub const STEPPER: &str = "stepper";
-    pub const TABS: &str = "tabs";
-    pub const TAG: &str = "tag";
-    pub const TOAST: &str = "toast";
-    pub const TOOLTIP: &str = "tooltip";
+/// Read a recipe with its key, such as `theme.recipe(recipes::Accordion)`, and
+/// its parts with that component's part enum, such as
+/// `recipes::AccordionPart::Indicator`. A misspelt or undeclared name is then a
+/// compile error instead of a silently empty style. Every supplied design
+/// system declares all of [`REQUIRED`](recipes::REQUIRED).
+#[allow(clippy::all)]
+pub mod recipes {
+    include!(concat!(env!("OUT_DIR"), "/generated_recipe_keys.rs"));
+}
 
-    /// The recipes every supplied design system must declare.
-    pub const REQUIRED: &[&str] = &[
-        ACCORDION,
-        BREADCRUMB,
-        CIRCULAR_PROGRESS,
-        COLOUR_PICKER,
-        DATA_TABLE,
-        DATE_PICKER,
-        DRAWER,
-        DROPDOWN,
-        FILE_UPLOAD,
-        HERO,
-        MARKDOWN,
-        NUMBER_INPUT,
-        POPOVER,
-        RANGE_SLIDER,
-        REFRESH_INDICATOR,
-        SPINNER,
-        SPLIT_VIEW,
-        TERMINAL,
-        TIME_PICKER,
-        ALERT,
-        AVATAR,
-        AVATAR_GROUP,
-        BADGE,
-        BUTTON,
-        CARD,
-        CODE,
-        CODE_SYNTAX,
-        DIVIDER,
-        EMPTY_STATE,
-        FEATURE_ICON,
-        INPUT,
-        MENU,
-        MODAL,
-        PAGINATION,
-        PROGRESS_BAR,
-        SKELETON,
-        SELECT,
-        STAT,
-        STEPPER,
-        TABS,
-        TAG,
-        TOAST,
-        TOOLTIP,
-    ];
+/// A component recipe named by a generated key in [`recipes`].
+pub trait RecipeKey: Copy {
+    /// The name the design system declares the recipe under.
+    const NAME: &'static str;
+    /// The parts this component's recipe declares.
+    type Part: RecipePartKey;
+    /// The scalars this component's recipe declares.
+    type Scalar: RecipeScalarKey;
+}
+
+/// A named part of one component's recipe.
+pub trait RecipePartKey: Copy {
+    /// The name the design system declares the part under.
+    fn name(self) -> &'static str;
+}
+
+/// A named scalar of one component's recipe.
+pub trait RecipeScalarKey: Copy {
+    /// The name the design system declares the scalar under.
+    fn name(self) -> &'static str;
+}
+
+/// The part key of a recipe that declares no parts.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum NoParts {}
+
+impl RecipePartKey for NoParts {
+    fn name(self) -> &'static str {
+        match self {}
+    }
+}
+
+/// The scalar key of a recipe that declares no scalars.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum NoScalars {}
+
+impl RecipeScalarKey for NoScalars {
+    fn name(self) -> &'static str {
+        match self {}
+    }
+}
+
+/// A component recipe read through its key, so its parts and scalars can only
+/// be named with that component's own keys.
+///
+/// Dereferences to the [`ComponentRecipe`] for its base style, sizes and states.
+pub struct Recipe<'a, K: RecipeKey> {
+    recipe: &'a ComponentRecipe,
+    key: std::marker::PhantomData<K>,
+}
+
+impl<K: RecipeKey> Clone for Recipe<'_, K> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<K: RecipeKey> Copy for Recipe<'_, K> {}
+
+impl<K: RecipeKey> std::fmt::Debug for Recipe<'_, K> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple(K::NAME).field(self.recipe).finish()
+    }
+}
+
+impl<'a, K: RecipeKey> Recipe<'a, K> {
+    /// Returns a part, or an empty style when the design system does not declare it.
+    pub fn part(&self, part: K::Part) -> &'a ResolvedComponentStyle {
+        self.recipe.part_named(part.name())
+    }
+
+    /// Returns a part only when the design system declares it.
+    pub fn try_part(&self, part: K::Part) -> Option<&'a ResolvedComponentStyle> {
+        self.recipe.try_part_named(part.name())
+    }
+
+    /// Returns a scalar the recipe declares.
+    pub fn scalar(&self, scalar: K::Scalar) -> Option<f32> {
+        self.recipe.scalar_named(scalar.name())
+    }
+
+    /// The untyped recipe, for code that works across components.
+    pub fn component_recipe(&self) -> &'a ComponentRecipe {
+        self.recipe
+    }
+}
+
+impl<K: RecipeKey> std::ops::Deref for Recipe<'_, K> {
+    type Target = ComponentRecipe;
+
+    fn deref(&self) -> &ComponentRecipe {
+        self.recipe
+    }
 }
 
 /// The top-level theme combining primitive [`Tokens`] and derived [`ComponentTheme`].
@@ -3889,6 +3899,12 @@ impl Default for Theme {
 }
 
 impl Theme {
+    /// Returns the component themes for mutation, copying them only if this
+    /// theme's set is shared with another.
+    pub fn components_mut(&mut self) -> &mut ComponentTheme {
+        Arc::make_mut(&mut self.components)
+    }
+
     /// Returns the design system's recipe for `name`.
     ///
     /// Returns an empty recipe when the design system does not declare one, so
@@ -3899,13 +3915,26 @@ impl Theme {
     /// recipes widgets read, so an empty result here means either an
     /// application design system that chose not to override this component, or
     /// a widget reading a name nobody declares.
-    /// Returns the component themes for mutation, copying them only if this
-    /// theme's set is shared with another.
-    pub fn components_mut(&mut self) -> &mut ComponentTheme {
-        Arc::make_mut(&mut self.components)
+    pub fn recipe<K: RecipeKey>(&self, _key: K) -> Recipe<'_, K> {
+        Recipe {
+            recipe: self.recipe_named(K::NAME),
+            key: std::marker::PhantomData,
+        }
     }
 
-    pub fn recipe(&self, name: &str) -> &ComponentRecipe {
+    /// Returns the recipe for `key` only when the design system declares it.
+    pub fn try_recipe<K: RecipeKey>(&self, _key: K) -> Option<Recipe<'_, K>> {
+        self.try_recipe_named(K::NAME).map(|recipe| Recipe {
+            recipe,
+            key: std::marker::PhantomData,
+        })
+    }
+
+    /// Returns the recipe declared under `name`, or an empty recipe.
+    ///
+    /// Prefer [`recipe`](Self::recipe); this is for names known only at run
+    /// time, such as an application design system's own components.
+    pub fn recipe_named(&self, name: &str) -> &ComponentRecipe {
         static EMPTY: std::sync::OnceLock<ComponentRecipe> = std::sync::OnceLock::new();
         self.components
             .recipes
@@ -3913,8 +3942,8 @@ impl Theme {
             .unwrap_or_else(|| EMPTY.get_or_init(ComponentRecipe::default))
     }
 
-    /// Returns the recipe for `name` only when the design system declares it.
-    pub fn try_recipe(&self, name: &str) -> Option<&ComponentRecipe> {
+    /// Returns the recipe declared under `name` only when the design system declares it.
+    pub fn try_recipe_named(&self, name: &str) -> Option<&ComponentRecipe> {
         self.components.recipes.get(name)
     }
 

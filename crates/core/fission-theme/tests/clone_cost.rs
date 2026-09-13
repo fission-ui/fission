@@ -20,18 +20,18 @@ fn recipe_and_part_lookups_borrow() {
     // Widgets call these on every build, so they must not clone a 3 KB recipe
     // or a 400 byte style each time.
     let theme = Theme::default();
-    let first = theme.recipe("button") as *const _;
-    let second = theme.recipe("button") as *const _;
+    let first = theme.recipe_named("button") as *const _;
+    let second = theme.recipe_named("button") as *const _;
     assert_eq!(first, second, "recipe lookup should borrow from the theme");
 
-    let recipe = theme.recipe("pagination");
-    let a = recipe.part("item") as *const _;
-    let b = recipe.part("item") as *const _;
+    let recipe = theme.recipe_named("pagination");
+    let a = recipe.part_named("item") as *const _;
+    let b = recipe.part_named("item") as *const _;
     assert_eq!(a, b, "part lookup should borrow from the recipe");
 
     // A missing name is still a borrow, of one shared empty value.
-    let missing_a = theme.recipe("not-a-component") as *const _;
-    let missing_b = theme.recipe("also-not-a-component") as *const _;
+    let missing_a = theme.recipe_named("not-a-component") as *const _;
+    let missing_b = theme.recipe_named("also-not-a-component") as *const _;
     assert_eq!(
         missing_a, missing_b,
         "absent recipes should share one empty value rather than allocate"

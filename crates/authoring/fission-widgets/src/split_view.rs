@@ -126,8 +126,8 @@ impl From<SplitView> for Widget {
         let _handle_style = view
             .env()
             .theme
-            .recipe(fission_theme::recipe_names::SPLIT_VIEW)
-            .part("handle");
+            .recipe(fission_theme::recipes::SplitView)
+            .part(fission_theme::recipes::SplitViewPart::Handle);
         // The handle is a resizable separator, not decoration: it reports the
         // axis it splits and where it currently sits, so a reader knows the
         // panes are adjustable and by how much.
