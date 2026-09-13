@@ -1,8 +1,8 @@
-use crate::model::{InboxState, SetTheme};
+use crate::model::InboxState;
 use fission::core::op::Color;
 use fission::core::ui::widgets::{Clip, Spacer, Transform};
 use fission::core::ui::{Container, Positioned, Widget, ZStack};
-use fission::core::{ActionEnvelope, ActionId};
+use fission::core::ActionEnvelope;
 use fission::icons::material;
 use fission::motion::MotionTransition;
 use fission::prelude::{Pressable, PressableRole, PressableStyle, WidgetId};
@@ -17,7 +17,8 @@ const PREVIEW_PRESSED_SCALE: f32 = 0.98;
 const PREVIEW_TRANSITION_MS: u64 = 120;
 
 pub struct SettingsThemePreview {
-    pub action_id: ActionId,
+    /// Dispatched when the preview is chosen.
+    pub on_press: ActionEnvelope,
     pub theme_name: &'static str,
     pub background: Color,
     pub accent: Color,
@@ -27,12 +28,7 @@ pub struct SettingsThemePreview {
 impl From<SettingsThemePreview> for Widget {
     fn from(preview: SettingsThemePreview) -> Self {
         let (_, view) = fission::build::current::<InboxState>();
-        let active_label = view
-            .env()
-            .i18n
-            .get(&view.env().locale, "settings.theme.active")
-            .map(str::to_owned)
-            .unwrap_or_else(|| "settings.theme.active".to_string());
+        let active_label = view.tr("settings.theme.active");
         let tokens = &view.env().theme.tokens;
         let (sin, cos) = PREVIEW_ICON_ROTATION_RADIANS.sin_cos();
         let rotation = [
@@ -90,10 +86,7 @@ impl From<SettingsThemePreview> for Widget {
         .semantics_identifier(identifier)
         .label(format!("Use {} theme", preview.theme_name))
         .role(PressableRole::Button)
-        .on_press(ActionEnvelope {
-            id: preview.action_id,
-            payload: serde_json::to_vec(&SetTheme(preview.theme_name.to_string())).unwrap(),
-        })
+        .on_press(preview.on_press)
         .hover(PressableStyle {
             opacity: Some(PREVIEW_HOVER_OPACITY),
             ..Default::default()

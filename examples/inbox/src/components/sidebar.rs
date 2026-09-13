@@ -1,59 +1,50 @@
+use crate::model::compose::set_compose_open;
+use crate::model::navigation::{select_folder, set_contacts_open};
+use crate::model::settings::set_settings_open;
 use crate::model::{
     Folder, InboxState, SelectFolder, SetComposeOpen, SetContactsOpen, SetSettingsOpen,
 };
+use fission::core::op::FlexDirection;
 use fission::core::reduce_with;
 use fission::core::ui::{
-    Button, ButtonContentAlign, ButtonVariant, Container, Text, TextContent, Widget,
+    Button, ButtonContentAlign, ButtonVariant, Container, Scroll, Text, TextContent, Widget,
 };
+use fission::widgets::divider::Orientation;
 use fission::widgets::{Divider, Tag, TreeItem, TreeView, VStack, Wrap};
-use serde_json;
 
+/// The built-in folders, with each one's tree id and label key.
+const FOLDERS: [(Folder, &str, &str); 5] = [
+    (Folder::Inbox, "inbox", "folder.inbox"),
+    (Folder::Starred, "starred", "folder.starred"),
+    (Folder::Sent, "sent", "folder.sent"),
+    (Folder::Drafts, "drafts", "folder.drafts"),
+    (Folder::Trash, "trash", "folder.trash"),
+];
+
+/// Labels shown beneath the folders.
+const LABELS: [&str; 4] = ["Work", "Personal", "Travel", "Receipts"];
+
+/// App title, compose, folders, labels and the contacts and settings links.
 pub struct Sidebar;
 
 impl From<Sidebar> for Widget {
     fn from(_component: Sidebar) -> Self {
         let (ctx, view) = fission::build::current::<InboxState>();
+        let state = view.state();
         let tokens = &view.env().theme.tokens;
-        let t = |key: &str| {
-            view.env()
-                .i18n
-                .get(&view.env().locale, key)
-                .map(|s| s.to_string())
-                .unwrap_or_else(|| key.to_string())
-        };
 
-        let select_folder_id = ctx
-            .bind(
-                SelectFolder(Folder::Inbox),
-                reduce_with!(
-                    (|s: &mut InboxState, a: SelectFolder, _| {
-                        let path = match a.0 {
-                            Folder::Inbox => "/inbox".into(),
-                            Folder::Starred => "/starred".into(),
-                            Folder::Sent => "/sent".into(),
-                            Folder::Drafts => "/drafts".into(),
-                            Folder::Trash => "/trash".into(),
-                            Folder::Custom(label) => format!("/{}", label),
-                        };
-                        s.navigate_to(path);
-                        s.show_mobile_menu = false;
-                    })
-                ),
-            )
-            .id;
-
-        Container::new(fission::core::ui::Scroll {
-            direction: fission::op::FlexDirection::Column,
+        Container::new(Scroll {
+            direction: FlexDirection::Column,
             show_scrollbar: true,
             flex_grow: 1.0,
             flex_shrink: 1.0,
             child: Some(
                 VStack {
-                    spacing: Some(6.0),
+                    spacing: Some(tokens.spacing.xs),
                     children: vec![
                         Text {
                             content: TextContent::Key("app.title".into()),
-                            font_size: Some(22.0),
+                            font_size: Some(tokens.typography.heading2_size),
                             ..Default::default()
                         }
                         .into(),
@@ -67,151 +58,66 @@ impl From<Sidebar> for Widget {
                                 }
                                 .into(),
                             ),
-                            on_press: Some(ctx.bind(
-                                SetComposeOpen(true),
-                                reduce_with!(
-                                    (|s: &mut InboxState, a: SetComposeOpen, _| {
-                                        s.show_compose = a.0
-                                    })
-                                ),
-                            )),
+                            on_press: Some(
+                                ctx.bind(SetComposeOpen(true), reduce_with!(set_compose_open)),
+                            ),
                             ..Default::default()
                         }
                         .into(),
                         TreeView {
-                            selected_id: Some(
-                                view.state().selected_folder.to_string().to_lowercase(),
-                            ),
-                            expanded_ids: view.state().expanded_folders.clone(),
-                            items: vec![
-                                TreeItem {
-                                    id: "inbox".into(),
-                                    label: t("folder.inbox"),
+                            selected_id: Some(state.selected_folder.to_string().to_lowercase()),
+                            expanded_ids: state.expanded_folders.clone(),
+                            items: FOLDERS
+                                .iter()
+                                .map(|(folder, id, label)| TreeItem {
+                                    id: (*id).into(),
+                                    label: view.tr(label),
                                     icon: None,
                                     children: vec![],
                                     on_toggle: None,
-                                    on_select: Some(fission::core::ActionEnvelope {
-                                        id: select_folder_id,
-                                        payload: serde_json::to_vec(&SelectFolder(Folder::Inbox))
-                                            .unwrap(),
-                                    }),
-                                },
-                                TreeItem {
-                                    id: "starred".into(),
-                                    label: t("folder.starred"),
-                                    icon: None,
-                                    children: vec![],
-                                    on_toggle: None,
-                                    on_select: Some(fission::core::ActionEnvelope {
-                                        id: select_folder_id,
-                                        payload: serde_json::to_vec(&SelectFolder(Folder::Starred))
-                                            .unwrap(),
-                                    }),
-                                },
-                                TreeItem {
-                                    id: "sent".into(),
-                                    label: t("folder.sent"),
-                                    icon: None,
-                                    children: vec![],
-                                    on_toggle: None,
-                                    on_select: Some(fission::core::ActionEnvelope {
-                                        id: select_folder_id,
-                                        payload: serde_json::to_vec(&SelectFolder(Folder::Sent))
-                                            .unwrap(),
-                                    }),
-                                },
-                                TreeItem {
-                                    id: "drafts".into(),
-                                    label: t("folder.drafts"),
-                                    icon: None,
-                                    children: vec![],
-                                    on_toggle: None,
-                                    on_select: Some(fission::core::ActionEnvelope {
-                                        id: select_folder_id,
-                                        payload: serde_json::to_vec(&SelectFolder(Folder::Drafts))
-                                            .unwrap(),
-                                    }),
-                                },
-                                TreeItem {
-                                    id: "trash".into(),
-                                    label: t("folder.trash"),
-                                    icon: None,
-                                    children: vec![],
-                                    on_toggle: None,
-                                    on_select: Some(fission::core::ActionEnvelope {
-                                        id: select_folder_id,
-                                        payload: serde_json::to_vec(&SelectFolder(Folder::Trash))
-                                            .unwrap(),
-                                    }),
-                                },
-                            ],
+                                    on_select: Some(ctx.bind(
+                                        SelectFolder(folder.clone()),
+                                        reduce_with!(select_folder),
+                                    )),
+                                })
+                                .collect(),
                         }
                         .into(),
-                        Text::new(t("labels.title"))
-                            .size(12.0)
+                        Text::new(view.tr("labels.title"))
+                            .size(tokens.typography.font_size_xs)
                             .color(tokens.colors.text_secondary)
                             .into(),
                         Wrap {
-                            direction: fission::op::FlexDirection::Row,
-                            spacing: Some(8.0),
+                            direction: FlexDirection::Row,
+                            spacing: Some(tokens.spacing.s),
                             run_spacing: None,
-                            children: vec![
-                                Tag {
-                                    label: "Work".into(),
-                                    on_close: None,
-                                }
-                                .into(),
-                                Tag {
-                                    label: "Personal".into(),
-                                    on_close: None,
-                                }
-                                .into(),
-                                Tag {
-                                    label: "Travel".into(),
-                                    on_close: None,
-                                }
-                                .into(),
-                                Tag {
-                                    label: "Receipts".into(),
-                                    on_close: None,
-                                }
-                                .into(),
-                            ],
+                            children: LABELS
+                                .iter()
+                                .map(|label| {
+                                    Tag {
+                                        label: (*label).into(),
+                                        on_close: None,
+                                    }
+                                    .into()
+                                })
+                                .collect(),
                         }
                         .into(),
                         Divider {
-                            orientation: fission::widgets::divider::Orientation::Horizontal,
+                            orientation: Orientation::Horizontal,
                             ..Default::default()
                         }
                         .into(),
-                        Button {
-                            variant: ButtonVariant::Ghost,
-                            child: Some(Text::new(t("nav.contacts")).size(14.0).into()),
-                            content_align: ButtonContentAlign::Start,
-                            on_press: Some(ctx.bind(
-                                SetContactsOpen(true),
-                                reduce_with!(
-                                    (|s: &mut InboxState, a: SetContactsOpen, _| {
-                                        s.show_contacts = a.0
-                                    })
-                                ),
-                            )),
-                            ..Default::default()
+                        NavLink {
+                            label_key: "nav.contacts",
+                            on_press: ctx
+                                .bind(SetContactsOpen(true), reduce_with!(set_contacts_open)),
                         }
                         .into(),
-                        Button {
-                            variant: ButtonVariant::Ghost,
-                            child: Some(Text::new(t("nav.settings")).size(14.0).into()),
-                            content_align: ButtonContentAlign::Start,
-                            on_press: Some(ctx.bind(
-                                SetSettingsOpen(true),
-                                reduce_with!(
-                                    (|s: &mut InboxState, a: SetSettingsOpen, _| {
-                                        s.show_settings = a.0
-                                    })
-                                ),
-                            )),
-                            ..Default::default()
+                        NavLink {
+                            label_key: "nav.settings",
+                            on_press: ctx
+                                .bind(SetSettingsOpen(true), reduce_with!(set_settings_open)),
                         }
                         .into(),
                     ],
@@ -221,7 +127,31 @@ impl From<Sidebar> for Widget {
             ..Default::default()
         })
         .bg(tokens.colors.surface)
-        .padding_all(8.0)
+        .padding_all(tokens.spacing.s)
+        .into()
+    }
+}
+
+/// A text link in the sidebar that opens a panel.
+struct NavLink {
+    label_key: &'static str,
+    on_press: fission::core::ActionEnvelope,
+}
+
+impl From<NavLink> for Widget {
+    fn from(link: NavLink) -> Self {
+        let (_, view) = fission::build::current::<()>();
+        Button {
+            variant: ButtonVariant::Ghost,
+            child: Some(
+                Text::new(view.tr(link.label_key))
+                    .size(view.env().theme.tokens.typography.font_size_base)
+                    .into(),
+            ),
+            content_align: ButtonContentAlign::Start,
+            on_press: Some(link.on_press),
+            ..Default::default()
+        }
         .into()
     }
 }
