@@ -334,13 +334,22 @@ impl HoverScene<'_> {
         let left = left.max(EDGE_INSET);
         let top = top.max(EDGE_INSET);
 
-        add_rect(
+        add_positioned_paint(
             cx,
             root,
             LayoutRect::new(left, top, width, height),
-            style.bg_color,
-            None,
-            style.radius,
+            fission_ir::Op::Paint(PaintOp::DrawRect {
+                fill: Some(Fill::Solid(style.bg_color)),
+                stroke: None,
+                corner_radius: style.radius,
+                shadow: style
+                    .style
+                    .shadows
+                    .first()
+                    .map(|layer| layer.to_box_shadow()),
+                corner_radii: None,
+                border_sides: None,
+            }),
         );
         let inner_left = left + style.padding_x;
         let inner_right = left + width - style.padding_x;
@@ -440,5 +449,19 @@ pub(super) fn on_legend_toggled(
                 hidden.len() == others.len() && others.iter().all(|name| hidden.contains(name));
             *hidden = if isolated { Vec::new() } else { others };
         }
+    }
+}
+
+/// The data index of the hovered item in the series at `series_index`, when the
+/// chart's emphasis is enabled.
+pub(super) fn emphasised_item(chart: &Chart, series_index: usize) -> Option<usize> {
+    if !chart.interaction.emphasis.enabled {
+        return None;
+    }
+    let hit = chart.hover.as_ref()?.hit.as_ref()?;
+    if hit.series_index == Some(series_index) {
+        hit.data_index
+    } else {
+        None
     }
 }

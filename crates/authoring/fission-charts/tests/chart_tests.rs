@@ -832,3 +832,62 @@ fn hidden_series_are_not_drawn_but_keep_their_colour_and_legend_entry() {
         "hiding South rescales the value axis"
     );
 }
+
+fn shadowed_rects(ir: &fission_ir::CoreIR) -> usize {
+    ir.nodes
+        .values()
+        .filter(|node| {
+            matches!(
+                &node.op,
+                fission_ir::Op::Paint(PaintOp::DrawRect {
+                    shadow: Some(_),
+                    ..
+                })
+            )
+        })
+        .count()
+}
+
+#[test]
+fn emphasis_lifts_only_the_hovered_bar() {
+    let sales = || {
+        Chart::new()
+            .width(640.0)
+            .height(360.0)
+            .x_axis(Axis::category(vec!["Q1", "Q2", "Q3"]))
+            .y_axis(Axis::value())
+            .series(vec![BarSeries::new("Sales")
+                .data(vec![4.0, 6.0, 5.0])
+                .into()])
+            .interaction(ChartInteraction::new().emphasis(fission_charts::ChartEmphasis::data()))
+    };
+    let hover = ChartHover {
+        x: 320.0,
+        y: 200.0,
+        hit: Some(ChartHit::series_item(0, "Sales", 1, None, Some(6.0))),
+    };
+
+    let idle = lower_chart(sales());
+    let hovered = lower_chart(sales().hover(hover));
+
+    assert_eq!(shadowed_rects(&hovered), shadowed_rects(&idle) + 1);
+}
+
+#[test]
+fn tooltip_card_uses_the_theme_tooltip_shadow() {
+    let themed_shadow = !Env::default()
+        .theme
+        .components
+        .tooltip
+        .style
+        .shadows
+        .is_empty();
+    let idle = lower_chart(weekday_chart(ChartTooltipTrigger::Axis));
+    let hovered =
+        lower_chart(weekday_chart(ChartTooltipTrigger::Axis).hover(ChartHover::at(400.0, 200.0)));
+
+    assert_eq!(
+        shadowed_rects(&hovered),
+        shadowed_rects(&idle) + usize::from(themed_shadow)
+    );
+}
