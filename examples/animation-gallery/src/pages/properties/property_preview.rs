@@ -1,6 +1,6 @@
 use super::PropertyCase;
 use crate::state::AnimationGalleryState;
-use crate::style::{color, BORDER};
+use crate::style;
 use crate::widgets::common::{policy_allows_motion, preview_active};
 use fission::motion::Motion;
 use fission::prelude::*;
@@ -21,7 +21,7 @@ impl From<PropertyPreview<'_>> for Widget {
         let child: Widget = Container::new(
             Text::new(preview.property.demo_label)
                 .size(tokens.typography.body_large_size)
-                .color(Color::WHITE),
+                .color(style::on_primary()),
         )
         .width(DEMO_WIDTH)
         .height(DEMO_HEIGHT)
@@ -47,9 +47,9 @@ impl From<PropertyPreview<'_>> for Widget {
         Container::new(preview_child)
             .height(PREVIEW_HEIGHT)
             .padding_all(tokens.spacing.xxl)
-            .border(BORDER, 1.0)
+            .border(style::border(), 1.0)
             .border_radius(tokens.radii.xl)
-            .bg(color(242, 248, 252, 255))
+            .bg(style::surface_sunken())
             .into()
     }
 }

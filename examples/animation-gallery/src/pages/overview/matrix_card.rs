@@ -1,5 +1,5 @@
 use crate::state::AnimationGalleryState;
-use crate::style::{BORDER, SURFACE};
+use crate::style;
 use crate::ui;
 use fission::prelude::*;
 
@@ -24,9 +24,9 @@ impl From<MatrixCard<'_>> for Widget {
             ..Default::default()
         })
         .padding_all(tokens.spacing.s)
-        .border(BORDER, 1.0)
+        .border(style::border(), 1.0)
         .border_radius(tokens.radii.xl)
-        .bg(SURFACE)
+        .bg(style::surface())
         .into()
     }
 }

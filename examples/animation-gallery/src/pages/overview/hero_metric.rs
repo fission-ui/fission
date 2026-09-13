@@ -1,5 +1,5 @@
 use crate::state::AnimationGalleryState;
-use crate::style::{BLUE, BORDER, MUTED, SURFACE};
+use crate::style;
 use fission::prelude::*;
 
 pub(super) struct HeroMetric<'a> {
@@ -18,17 +18,17 @@ impl From<HeroMetric<'_>> for Widget {
             children: widgets![
                 Text::new(metric.value)
                     .size(typography.font_size_xl)
-                    .color(BLUE),
+                    .color(style::primary()),
                 Text::new(metric.label)
                     .size(typography.font_size_sm)
-                    .color(MUTED),
+                    .color(style::text_muted()),
             ],
             ..Default::default()
         })
         .padding_all(tokens.spacing.s)
-        .border(BORDER, 1.0)
+        .border(style::border(), 1.0)
         .border_radius(tokens.radii.xl)
-        .bg(SURFACE)
+        .bg(style::surface())
         .into()
     }
 }

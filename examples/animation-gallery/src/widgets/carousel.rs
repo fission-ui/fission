@@ -1,7 +1,7 @@
 use super::carousel_preview::CarouselPreview;
 use super::common::*;
 use crate::state::AnimationGalleryState;
-use crate::style::SOFT_TEAL;
+use crate::style;
 use fission::build::BuildCtxHandle;
 use fission::Widget;
 
@@ -12,7 +12,7 @@ pub const SUMMARY: WidgetSummary = WidgetSummary {
     title: "Carousel",
     subtitle: "custom",
     glyph: "slides",
-    tint: SOFT_TEAL,
+    tint: style::Tint::Success,
 };
 
 pub struct CarouselPage<'a> {

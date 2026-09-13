@@ -4,7 +4,7 @@ use crate::state::{
     current_composition_atoms, reset_timeline, AnimationGalleryState, MotionAtom, MotionChoice,
     MotionPolicy, ResetTimeline,
 };
-use crate::style::MUTED;
+use crate::style;
 use fission::build::BuildCtxHandle;
 use fission::prelude::*;
 use fission::widgets::{Popover, PopoverMotion};
@@ -28,7 +28,7 @@ impl From<PopoverPreview<'_>> for Widget {
                 children: widgets![
                     Text::new("Real Popover widget anchored to the trigger below.")
                         .size(tokens.typography.font_size_sm)
-                        .color(MUTED),
+                        .color(style::text_muted()),
                     Popover {
                         id: WidgetId::explicit("gallery.real.popover"),
                         is_open: preview_active(preview.state),
@@ -59,7 +59,7 @@ impl From<PopoverPreview<'_>> for Widget {
                             "Use the playback control to open it; backdrop and close button dismiss it.",
                         )
                         .size(tokens.typography.font_size_sm)
-                        .color(MUTED))
+                        .color(style::text_muted()))
                     },
                 ],
                 ..Default::default()

@@ -1,4 +1,5 @@
 use super::*;
+use crate::style;
 
 pub(super) struct BrandRail<'a> {
     pub(super) ctx: &'a BuildCtxHandle<AnimationGalleryState>,
@@ -44,24 +45,24 @@ impl From<BrandRail<'_>> for Widget {
                                 Container::new(
                                     Text::new("F")
                                         .size(typography.heading_size)
-                                        .color(fission::op::Color::WHITE),
+                                        .color(style::on_primary()),
                                 )
                                 .width(BRAND_MARK_SIZE)
                                 .height(BRAND_MARK_SIZE)
                                 .padding_all(tokens.spacing.m)
                                 .border_radius(tokens.radii.xl)
-                                .bg(color(6, 17, 57, 255))
+                                .bg(style::primary())
                                 .into(),
                                 Column {
                                     gap: Some(tokens.spacing.xs),
                                     children: vec![
                                         Text::new("Fission")
                                             .size(typography.heading_size)
-                                            .color(INK)
+                                            .color(style::text_primary())
                                             .into(),
                                         Text::new("Animation Gallery")
                                             .size(typography.font_size_lg)
-                                            .color(BLUE)
+                                            .color(style::primary())
                                             .into(),
                                     ],
                                     ..Default::default()
@@ -73,14 +74,14 @@ impl From<BrandRail<'_>> for Widget {
                         .into(),
                         Text::new("Explore, compose, and ship deterministic motion for your UI.")
                             .size(typography.body_large_size)
-                            .color(INK)
+                            .color(style::text_primary())
                             .into(),
                         Container::new(Column {
                             gap: Some(tokens.spacing.s),
                             children: vec![
                                 Text::new("Motion principles")
                                     .size(typography.font_size_base)
-                                    .color(INK)
+                                    .color(style::text_primary())
                                     .into(),
                                 PrincipleCard {
                                     title: "Explicit",
@@ -98,9 +99,9 @@ impl From<BrandRail<'_>> for Widget {
                             ..Default::default()
                         })
                         .padding_all(tokens.spacing.m)
-                        .border(BORDER, 1.0)
+                        .border(style::border(), 1.0)
                         .border_radius(tokens.radii.xl)
-                        .bg(SURFACE)
+                        .bg(style::surface())
                         .into(),
                         Container::new(Column {
                             gap: Some(tokens.spacing.m),
@@ -108,9 +109,9 @@ impl From<BrandRail<'_>> for Widget {
                             ..Default::default()
                         })
                         .padding_all(tokens.spacing.m)
-                        .border(BORDER, 1.0)
+                        .border(style::border(), 1.0)
                         .border_radius(tokens.radii.xl)
-                        .bg(SURFACE)
+                        .bg(style::surface())
                         .into(),
                     ],
                     ..Default::default()
@@ -121,7 +122,7 @@ impl From<BrandRail<'_>> for Widget {
             ..Default::default()
         })
         .width(BRAND_RAIL_WIDTH)
-        .bg(color(236, 241, 248, 255))
+        .bg(style::surface_sunken())
         .into()
     }
 }

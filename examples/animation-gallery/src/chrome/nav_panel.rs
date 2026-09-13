@@ -1,4 +1,5 @@
 use super::*;
+use crate::style;
 
 pub(super) struct NavPanel<'a> {
     pub(super) ctx: &'a BuildCtxHandle<AnimationGalleryState>,
@@ -11,7 +12,7 @@ impl From<NavPanel<'_>> for Widget {
         let tokens = &view.env().theme.tokens;
         let mut children = vec![Text::new("Fission")
             .size(tokens.typography.font_size_lg)
-            .color(INK)
+            .color(style::text_primary())
             .into()];
         for group in routes::NAV_GROUPS {
             children.push(
@@ -31,9 +32,9 @@ impl From<NavPanel<'_>> for Widget {
         })
         .width(NAV_PANEL_WIDTH)
         .padding_all(tokens.spacing.m)
-        .border(BORDER, 1.0)
+        .border(style::border(), 1.0)
         .border_radius(tokens.radii.xl)
-        .bg(SURFACE)
+        .bg(style::surface())
         .into()
     }
 }

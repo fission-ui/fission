@@ -1,5 +1,5 @@
 use crate::state::{policy_label, AnimationGalleryState};
-use crate::style::INK;
+use crate::style;
 use crate::ui;
 use fission::prelude::*;
 
@@ -22,7 +22,7 @@ impl From<CurrentValues<'_>> for Widget {
             children: widgets![
                 Text::new("Current Values")
                     .size(tokens.typography.font_size_sm)
-                    .color(INK),
+                    .color(style::text_primary()),
                 ui::LabelValue {
                     label: "t(progress)",
                     value: &progress_value,

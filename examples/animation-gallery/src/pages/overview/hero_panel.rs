@@ -1,5 +1,5 @@
 use super::hero_metric::HeroMetric;
-use crate::style::{color, BORDER};
+use crate::style;
 use fission::prelude::*;
 
 const METRIC_MIN_WIDTH: f32 = 132.0;
@@ -40,9 +40,9 @@ impl From<HeroPanel> for Widget {
             ..Default::default()
         })
         .padding_all(spacing.m)
-        .border(BORDER, 1.0)
+        .border(style::border(), 1.0)
         .border_radius(view.env().theme.tokens.radii.xxl)
-        .bg(color(244, 248, 255, 255))
+        .bg(style::primary_subtle())
         .into()
     }
 }

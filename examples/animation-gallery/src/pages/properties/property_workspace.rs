@@ -1,7 +1,7 @@
 use super::property_preview::PropertyPreview;
 use super::PropertyCase;
 use crate::state::{reset_timeline, toggle_play, AnimationGalleryState, ResetTimeline, TogglePlay};
-use crate::style::{BORDER, SURFACE};
+use crate::style;
 use crate::ui;
 use crate::widgets::common::TimelineControl;
 use fission::build::BuildCtxHandle;
@@ -58,9 +58,9 @@ impl From<PropertyWorkspace<'_>> for Widget {
             ..Default::default()
         })
         .padding_all(tokens.spacing.m)
-        .border(BORDER, 1.0)
+        .border(style::border(), 1.0)
         .border_radius(tokens.radii.xl)
-        .bg(SURFACE)
+        .bg(style::surface())
         .into()
     }
 }

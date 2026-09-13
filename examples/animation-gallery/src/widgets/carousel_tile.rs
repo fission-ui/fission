@@ -1,4 +1,5 @@
 use crate::state::AnimationGalleryState;
+use crate::style;
 use fission::prelude::*;
 
 const TILE_WIDTH: f32 = 110.0;
@@ -17,7 +18,7 @@ impl From<CarouselTile<'_>> for Widget {
         Container::new(
             Text::new(tile.label)
                 .size(tokens.typography.font_size_sm)
-                .color(Color::WHITE),
+                .color(style::on_primary()),
         )
         .width(TILE_WIDTH)
         .height(TILE_HEIGHT)

@@ -1,6 +1,6 @@
 use crate::chrome;
 use crate::state::AnimationGalleryState;
-use crate::style::BACKGROUND;
+use crate::style;
 #[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
 use fission::DesktopApp;
 use fission::{build, Container, Widget};
@@ -16,7 +16,7 @@ impl From<AnimationGalleryApp> for Widget {
             ctx: &ctx,
             state: &state,
         })
-        .bg(BACKGROUND)
+        .bg(style::background())
         .into()
     }
 }

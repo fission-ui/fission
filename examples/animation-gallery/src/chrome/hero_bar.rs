@@ -1,4 +1,5 @@
 use super::*;
+use crate::style;
 
 pub(super) struct HeroBar<'a> {
     pub(super) state: &'a AnimationGalleryState,
@@ -22,11 +23,11 @@ impl From<HeroBar<'_>> for Widget {
                     children: vec![
                         Text::new(title)
                             .size(typography.heading_size)
-                            .color(INK)
+                            .color(style::text_primary())
                             .into(),
                         Text::new("Preview real widgets, compose motion atoms, inspect lowered tracks, and validate deterministic behavior.")
                             .size(typography.font_size_sm)
-                            .color(MUTED)
+                            .color(style::text_muted())
                             .into(),
                     ],
                     ..Default::default()
@@ -35,21 +36,21 @@ impl From<HeroBar<'_>> for Widget {
                 Container::new(
                     Text::new("explicit / deterministic / testable")
                         .size(typography.font_size_xs)
-                        .color(BLUE),
+                        .color(style::primary()),
                 )
                     .width(HERO_BADGE_WIDTH)
                     .padding_all(tokens.spacing.m)
-                    .border(BORDER, 1.0)
+                    .border(style::border(), 1.0)
                     .border_radius(tokens.radii.full)
-                    .bg(SURFACE)
+                    .bg(style::surface())
                     .into(),
             ],
             ..Default::default()
         })
         .padding_all(tokens.spacing.m)
         .border_radius(tokens.radii.xxl)
-        .border(BORDER, 1.0)
-        .bg(color(247, 250, 255, 255))
+        .border(style::border(), 1.0)
+        .bg(style::primary_subtle())
         .into()
     }
 }

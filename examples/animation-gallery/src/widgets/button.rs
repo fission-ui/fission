@@ -1,7 +1,7 @@
 use super::button_preview::ButtonPreview;
 use super::common::*;
 use crate::state::AnimationGalleryState;
-use crate::style::SOFT_VIOLET;
+use crate::style;
 use fission::build::BuildCtxHandle;
 use fission::Widget;
 
@@ -12,7 +12,7 @@ pub const SUMMARY: WidgetSummary = WidgetSummary {
     title: "Button",
     subtitle: "5 motions",
     glyph: "click",
-    tint: SOFT_VIOLET,
+    tint: style::Tint::Secondary,
 };
 
 pub struct ButtonPage<'a> {

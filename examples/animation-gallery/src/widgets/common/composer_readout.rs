@@ -1,5 +1,5 @@
 use crate::state::AnimationGalleryState;
-use crate::style::{BORDER, INK, MUTED, SURFACE};
+use crate::style;
 use fission::prelude::*;
 
 const READOUT_HEIGHT: f32 = 170.0;
@@ -21,20 +21,20 @@ impl From<ComposerReadout<'_>> for Widget {
             children: widgets![
                 Text::new(readout.title)
                     .size(typography.font_size_sm)
-                    .color(INK),
+                    .color(style::text_primary()),
                 Text::new(readout.body)
                     .size(typography.font_size_xs)
                     .line_height(typography.font_size_xs * typography.line_height_snug,)
-                    .color(MUTED)
+                    .color(style::text_muted())
                     .max_height(BODY_MAX_HEIGHT),
             ],
             ..Default::default()
         })
         .height(READOUT_HEIGHT)
         .padding_all(tokens.spacing.s)
-        .border(BORDER, 1.0)
+        .border(style::border(), 1.0)
         .border_radius(tokens.radii.large)
-        .bg(SURFACE)
+        .bg(style::surface())
         .into()
     }
 }

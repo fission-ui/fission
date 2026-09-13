@@ -1,6 +1,6 @@
 use super::policy_card::PolicyCard;
 use crate::state::{AnimationGalleryState, MotionPolicy};
-use crate::style::{BORDER, SURFACE};
+use crate::style;
 use fission::prelude::*;
 
 const POLICY_CARD_MIN_WIDTH: f32 = 168.0;
@@ -42,9 +42,9 @@ impl From<PolicyCards> for Widget {
             ..Default::default()
         })
         .padding_all(tokens.spacing.m)
-        .border(BORDER, 1.0)
+        .border(style::border(), 1.0)
         .border_radius(tokens.radii.xl)
-        .bg(SURFACE)
+        .bg(style::surface())
         .into()
     }
 }

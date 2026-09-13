@@ -1,7 +1,7 @@
 use crate::state::{
     reset_timeline, AnimationGalleryState, MotionAtom, MotionPolicy, ResetTimeline,
 };
-use crate::style::MUTED;
+use crate::style;
 use crate::widgets::common::{preview_active, PreviewShell};
 use fission::build::BuildCtxHandle;
 use fission::prelude::*;
@@ -29,7 +29,7 @@ impl From<CompositionPreview<'_>> for Widget {
                         "Real Modal widget using the ordered expression. Use playback to open it.",
                     )
                     .size(view.env().theme.tokens.typography.font_size_sm)
-                    .color(MUTED),
+                    .color(style::text_muted()),
                     Modal {
                         id: WidgetId::explicit("gallery.composition.modal"),
                         title: "Composed motion".into(),

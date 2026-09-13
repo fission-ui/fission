@@ -1,5 +1,5 @@
 use crate::state::{reset_timeline, AnimationGalleryState, ResetTimeline, TogglePlay};
-use crate::style::{color, BORDER};
+use crate::style;
 use crate::ui;
 use crate::widgets::common::{PolicyControl, TimelineControl};
 use fission::build::BuildCtxHandle;
@@ -53,9 +53,9 @@ impl From<PlaybackControls<'_>> for Widget {
             ..Default::default()
         })
         .padding_all(tokens.spacing.s)
-        .border(BORDER, 1.0)
+        .border(style::border(), 1.0)
         .border_radius(tokens.radii.xl)
-        .bg(color(249, 251, 255, 255))
+        .bg(style::surface_sunken())
         .into()
     }
 }

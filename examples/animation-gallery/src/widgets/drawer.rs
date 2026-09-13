@@ -1,7 +1,7 @@
 use super::common::*;
 use super::drawer_preview::DrawerPreview;
 use crate::state::AnimationGalleryState;
-use crate::style::SOFT_BLUE;
+use crate::style;
 use fission::build::BuildCtxHandle;
 use fission::Widget;
 
@@ -12,7 +12,7 @@ pub const SUMMARY: WidgetSummary = WidgetSummary {
     title: "Drawer",
     subtitle: "5 motions",
     glyph: "panel",
-    tint: SOFT_BLUE,
+    tint: style::Tint::Primary,
 };
 
 pub struct DrawerPage<'a> {

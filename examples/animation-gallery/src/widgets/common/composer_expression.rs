@@ -1,5 +1,5 @@
 use crate::state::{composition_type_name_for_path, AnimationGalleryState};
-use crate::style::{BORDER, INK, MUTED, SURFACE};
+use crate::style;
 use fission::prelude::*;
 
 const EXPRESSION_MAX_WIDTH: f32 = 650.0;
@@ -23,19 +23,19 @@ impl From<ComposerExpression<'_>> for Widget {
                     composition_type_name_for_path(expression.path)
                 ))
                 .size(typography.font_size_sm)
-                .color(MUTED),
+                .color(style::text_muted()),
                 Text::new(expression.expression)
                     .size(typography.font_size_sm)
                     .line_height(typography.font_size_sm * typography.line_height_snug,)
-                    .color(INK)
+                    .color(style::text_primary())
                     .max_width(EXPRESSION_MAX_WIDTH),
             ],
             ..Default::default()
         })
         .padding_all(tokens.spacing.s)
-        .border(BORDER, 1.0)
+        .border(style::border(), 1.0)
         .border_radius(tokens.radii.large)
-        .bg(SURFACE)
+        .bg(style::surface())
         .into()
     }
 }

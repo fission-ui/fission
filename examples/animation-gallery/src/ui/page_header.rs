@@ -1,5 +1,5 @@
 use crate::state::AnimationGalleryState;
-use crate::style::{INK, MUTED};
+use crate::style;
 use fission::prelude::*;
 
 pub struct PageHeader<'a> {
@@ -16,10 +16,10 @@ impl From<PageHeader<'_>> for Widget {
             children: widgets![
                 Text::new(header.title)
                     .size(tokens.typography.font_size_xl)
-                    .color(INK),
+                    .color(style::text_primary()),
                 Text::new(header.subtitle)
                     .size(tokens.typography.font_size_xs)
-                    .color(MUTED),
+                    .color(style::text_muted()),
             ],
             ..Default::default()
         }

@@ -1,5 +1,5 @@
 use crate::state::AnimationGalleryState;
-use crate::style::SURFACE;
+use crate::style;
 use fission::prelude::*;
 
 const MENU_WIDTH: f32 = 260.0;
@@ -31,7 +31,7 @@ impl From<PopoverMenu> for Widget {
         .padding_all(tokens.spacing.s)
         .width(MENU_WIDTH)
         .border_radius(tokens.radii.large)
-        .bg(SURFACE)
+        .bg(style::surface())
         .into()
     }
 }

@@ -1,5 +1,5 @@
 use crate::state::{AnimationGalleryState, MotionPolicy};
-use crate::style::MUTED;
+use crate::style;
 use crate::widgets::common::{preview_active, PreviewShell};
 use fission::prelude::*;
 use fission::widgets::{Toast, ToastKind, ToastMotion};
@@ -25,7 +25,7 @@ impl From<PolicyPreview<'_>> for Widget {
                 "Use the playback control to run the real Toast widget under the selected policy.",
             )
             .size(view.env().theme.tokens.typography.font_size_xs)
-            .color(MUTED)
+            .color(style::text_muted())
             .into()
         };
 

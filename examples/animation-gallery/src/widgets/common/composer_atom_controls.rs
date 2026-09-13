@@ -2,7 +2,7 @@ use crate::state::{
     available_composition_atoms_for_path, default_composition_atoms_for_path, motion_atom_label,
     set_composition_atoms, AnimationGalleryState, MotionAtom, SetCompositionAtoms,
 };
-use crate::style::{color, BORDER, MUTED};
+use crate::style;
 use crate::ui;
 use fission::build::BuildCtxHandle;
 use fission::prelude::*;
@@ -39,7 +39,7 @@ impl From<ComposerAtomControls<'_>> for Widget {
             children: widgets![
                 Text::new("Add atom")
                     .size(tokens.typography.font_size_sm)
-                    .color(crate::style::INK),
+                    .color(style::text_primary()),
                 Wrap {
                     direction: FlexDirection::Row,
                     spacing: Some(tokens.spacing.s),
@@ -73,16 +73,16 @@ impl From<ComposerAtomControls<'_>> for Widget {
                         },
                         Text::new(format!("{} atoms", controls.atoms.len()))
                             .size(tokens.typography.font_size_sm)
-                            .color(MUTED),
+                            .color(style::text_muted()),
                     ],
                 },
             ],
             ..Default::default()
         })
         .padding_all(tokens.spacing.s)
-        .border(BORDER, 1.0)
+        .border(style::border(), 1.0)
         .border_radius(tokens.radii.xl)
-        .bg(color(249, 251, 255, 255))
+        .bg(style::surface_sunken())
         .into()
     }
 }

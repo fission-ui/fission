@@ -1,4 +1,5 @@
 use super::*;
+use crate::style;
 
 pub(super) struct StoryLabel<'a> {
     pub(super) step: &'a str,
@@ -16,24 +17,24 @@ impl From<StoryLabel<'_>> for Widget {
                 Container::new(
                     Text::new(label.step)
                         .size(tokens.typography.font_size_xs)
-                        .color(fission::op::Color::WHITE),
+                        .color(style::on_primary()),
                 )
                 .width(STORY_STEP_SIZE)
                 .height(STORY_STEP_SIZE)
                 .padding_all(tokens.spacing.s)
                 .border_radius(tokens.radii.full)
-                .bg(BLUE)
+                .bg(style::primary())
                 .into(),
                 Column {
                     gap: Some(tokens.spacing.xs),
                     children: vec![
                         Text::new(label.title)
                             .size(tokens.typography.font_size_sm)
-                            .color(BLUE)
+                            .color(style::primary())
                             .into(),
                         Text::new(label.caption)
                             .size(tokens.typography.font_size_xs)
-                            .color(MUTED)
+                            .color(style::text_muted())
                             .into(),
                     ],
                     ..Default::default()
