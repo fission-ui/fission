@@ -1654,3 +1654,13 @@ fn the_date_and_size_filters_narrow_the_list() -> Result<()> {
     );
     Ok(())
 }
+
+#[test]
+fn start_meeting_confirms_that_it_started() -> Result<()> {
+    let mut h = pump_state(state_default())?;
+    click_identifier(&mut h, "inbox.meet.start")?;
+    let state = h.runtime.get_app_state::<InboxState>().unwrap();
+    assert!(state.show_toast, "starting a meeting shows a notification");
+    assert_eq!(state.toast_message.as_deref(), Some("Meeting started"));
+    Ok(())
+}

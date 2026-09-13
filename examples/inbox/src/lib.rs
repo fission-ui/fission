@@ -172,6 +172,7 @@ pub fn translation_bundles() -> Vec<TranslationBundle> {
     en_messages.insert("quick.camera".into(), "Camera".into());
     en_messages.insert("quick.microphone".into(), "Microphone".into());
     en_messages.insert("quick.start_meeting".into(), "Start meeting".into());
+    en_messages.insert("quick.meeting_started".into(), "Meeting started".into());
     en_messages.insert("quick.mailbox_stats".into(), "Mailbox stats".into());
     en_messages.insert("quick.unread".into(), "Unread".into());
     en_messages.insert("quick.in_inbox".into(), "In Inbox".into());
@@ -367,6 +368,7 @@ pub fn translation_bundles() -> Vec<TranslationBundle> {
     es_messages.insert("quick.camera".into(), "Cámara".into());
     es_messages.insert("quick.microphone".into(), "Micrófono".into());
     es_messages.insert("quick.start_meeting".into(), "Iniciar reunión".into());
+    es_messages.insert("quick.meeting_started".into(), "Reunión iniciada".into());
     es_messages.insert(
         "quick.mailbox_stats".into(),
         "Estadísticas del buzón".into(),
