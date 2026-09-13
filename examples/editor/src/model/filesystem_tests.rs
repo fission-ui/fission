@@ -1145,8 +1145,10 @@ fn test_completion_kind_str() {
 
 #[test]
 fn deleting_from_the_context_menu_removes_the_file_and_its_tab() {
-    let mut state = EditorState::default();
-    state.root_path = std::env::temp_dir();
+    let mut state = EditorState {
+        root_path: std::env::temp_dir(),
+        ..EditorState::default()
+    };
     let path = temp_file("test_delete_from_context_menu.txt", "bye");
     state.open_file(path.clone());
     run_pending_fs(&mut state);

@@ -1332,9 +1332,6 @@ pub struct StartRename(pub String);
 pub struct ConfirmRename;
 
 #[fission_action]
-pub struct CancelRename;
-
-#[fission_action]
 pub struct UpdateRenameInput;
 
 #[fission_action]
@@ -1343,12 +1340,6 @@ pub struct SetActiveMenu(pub Option<String>);
 #[allow(dead_code)]
 #[fission_action]
 pub struct GoToLine(pub usize);
-
-#[fission_action]
-pub struct Undo;
-
-#[fission_action]
-pub struct Redo;
 
 #[fission_action]
 pub struct UpdateCursorPosition {
