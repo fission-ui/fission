@@ -55,8 +55,9 @@ pub fn send_reply(state: &mut InboxState, action: SendReply, _: &mut Cx<'_, '_, 
     state.toast_message = Some("Reply sent".into());
 }
 
-pub fn show_toast(state: &mut InboxState, _: ToggleToast, _: &mut Cx<'_, '_, '_>) {
-    state.show_toast = true;
+/// Shows or hides the toast.
+pub fn set_toast_visible(state: &mut InboxState, action: ToggleToast, _: &mut Cx<'_, '_, '_>) {
+    state.show_toast = action.0;
 }
 
 pub fn toggle_details(state: &mut InboxState, _: ToggleDetails, _: &mut Cx<'_, '_, '_>) {

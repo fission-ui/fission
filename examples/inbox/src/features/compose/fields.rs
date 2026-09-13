@@ -8,7 +8,7 @@ use crate::model::{
 };
 use fission::core::op::FlexDirection;
 use fission::core::ui::Widget;
-use fission::core::{reduce_with, ActionEnvelope, WidgetId};
+use fission::core::{reduce_with, WidgetId};
 use fission::widgets::{
     Combobox, DatePicker, FileUpload, FormControl, TextInput, TimePicker, Wrap,
 };
@@ -41,7 +41,7 @@ impl From<RecipientField> for Widget {
             .any(|recipient| recipient.eq_ignore_ascii_case(value.trim()));
         // A picked suggestion carries its own address, so its action is filled in on select.
         let to_action = ctx.bind(SetComposeTo(String::new()), reduce_with!(set_compose_to));
-        let to_id = to_action.id;
+        let pick_recipient = to_action.clone();
 
         FormControl {
             id: None,
@@ -58,10 +58,8 @@ impl From<RecipientField> for Widget {
                 width: Some(field.width),
                 max_popup_height: Some(180.0),
                 on_input: Some(to_action),
-                on_select: Some(Arc::new(move |recipient| ActionEnvelope {
-                    id: to_id,
-                    payload: serde_json::to_vec(&SetComposeTo(recipient))
-                        .expect("an address always serializes"),
+                on_select: Some(Arc::new(move |recipient| {
+                    pick_recipient.with_action(&SetComposeTo(recipient))
                 })),
                 on_toggle: None,
             }
@@ -107,15 +105,11 @@ impl From<ScheduleFields> for Widget {
         let (ctx, view) = fission::build::current::<InboxState>();
         let state = view.state();
         // Dates and times are chosen by the picker, so their actions are filled in on change.
-        let date_id = ctx
-            .bind(
-                SetScheduleDate(chrono::Local::now().date_naive()),
-                reduce_with!(set_schedule_date),
-            )
-            .id;
-        let time_id = ctx
-            .bind(SetScheduleTime(0, 0), reduce_with!(set_schedule_time))
-            .id;
+        let date_action = ctx.bind(
+            SetScheduleDate(chrono::Local::now().date_naive()),
+            reduce_with!(set_schedule_date),
+        );
+        let time_action = ctx.bind(SetScheduleTime(0, 0), reduce_with!(set_schedule_time));
 
         Wrap {
             direction: FlexDirection::Row,
@@ -130,10 +124,8 @@ impl From<ScheduleFields> for Widget {
                     view_year: None,
                     view_month: None,
                     on_navigate: None,
-                    on_change: Some(Arc::new(move |date| ActionEnvelope {
-                        id: date_id,
-                        payload: serde_json::to_vec(&SetScheduleDate(date))
-                            .expect("a date always serializes"),
+                    on_change: Some(Arc::new(move |date| {
+                        date_action.with_action(&SetScheduleDate(date))
                     })),
                     on_toggle: Some(ctx.bind(
                         SetDatePickerOpen(!state.is_date_picker_open),
@@ -147,10 +139,8 @@ impl From<ScheduleFields> for Widget {
                 TimePicker {
                     hour: state.schedule_time.map_or(9, |(hour, _)| hour),
                     minute: state.schedule_time.map_or(0, |(_, minute)| minute),
-                    on_change: Some(Arc::new(move |hour, minute| ActionEnvelope {
-                        id: time_id,
-                        payload: serde_json::to_vec(&SetScheduleTime(hour, minute))
-                            .expect("a time always serializes"),
+                    on_change: Some(Arc::new(move |hour, minute| {
+                        time_action.with_action(&SetScheduleTime(hour, minute))
                     })),
                 }
                 .into(),

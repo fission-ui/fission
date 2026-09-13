@@ -320,6 +320,25 @@ pub struct ActionEnvelope {
     pub payload: Vec<u8>,
 }
 
+impl ActionEnvelope {
+    /// Returns an envelope routed like this one that carries `action` instead.
+    ///
+    /// Widgets that report a value, such as a picked date, a chosen suggestion
+    /// or a selected row, need a different payload for each value. Bind the
+    /// action once, then build each value's envelope from the bound one:
+    ///
+    /// ```rust,ignore
+    /// let pick = ctx.bind(SetDate(today), reduce_with!(set_date));
+    /// let on_change = Arc::new(move |date| pick.with_action(&SetDate(date)));
+    /// ```
+    pub fn with_action<A: Action>(&self, action: &A) -> Self {
+        Self {
+            id: self.id,
+            payload: action.encode(),
+        }
+    }
+}
+
 /// A typed wrapper around an [`Action`] value that converts into an
 /// [`ActionEnvelope`] via `From`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -391,3 +410,29 @@ impl_downcast!(GlobalState);
 /// [`build::current`](crate::build::current), which provides access to effects
 /// and input context without exposing internal IR node identities.
 pub type Reducer<S> = fn(&mut S, &ActionEnvelope, WidgetId) -> anyhow::Result<()>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[derive(Debug, PartialEq, Serialize, Deserialize)]
+    struct Pick(u32);
+
+    impl Action for Pick {
+        fn static_id() -> ActionId {
+            ActionId::from_name("fission_core::action::tests::Pick")
+        }
+    }
+
+    #[test]
+    fn with_action_keeps_the_route_and_replaces_the_payload() {
+        let bound = ActionEnvelope {
+            id: ActionId::from_u128(7),
+            payload: Pick(0).encode(),
+        };
+        let picked = bound.with_action(&Pick(42));
+        assert_eq!(picked.id, bound.id);
+        let decoded: Pick = serde_json::from_slice(&picked.payload).expect("payload decodes");
+        assert_eq!(decoded, Pick(42));
+    }
+}

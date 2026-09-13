@@ -104,6 +104,9 @@ binds reducers that update app state.
   `ctx.bind_local(...)` when an action updates one local-state field.
 - Use reducers for explicit state transitions. Match the dispatched action to the
   reducer registration used by the widget.
+- When a widget reports a value, such as a picked date, a chosen suggestion or a
+  selected row, bind the action once and build each value's envelope with
+  `bound.with_action(&SetDate(date))`. Never serialise payloads by hand.
 - Do not store `BuildCtxHandle` or `ViewHandle` in structs, reducers, services,
   async tasks, statics, or other long-lived places. They are build-scope handles.
 - Do not mutate `GlobalState` during component conversion. Dispatch actions and

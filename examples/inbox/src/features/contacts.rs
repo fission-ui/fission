@@ -1,8 +1,8 @@
+use crate::model::navigation::{set_contacts_open, toggle_contact_selection};
 use crate::model::{InboxState, SetContactsOpen, ToggleContactSelection};
 use fission::core::ui::Widget;
 use fission::core::{reduce_with, WidgetId};
 use fission::widgets::{DataTable, Modal, ModalAction, TableColumn, TableRow};
-use serde_json;
 use std::sync::Arc;
 
 pub struct ContactsModal;
@@ -11,20 +11,11 @@ impl From<ContactsModal> for Widget {
     fn from(_component: ContactsModal) -> Self {
         let (ctx, view) = fission::build::current::<InboxState>();
         let viewport_width = view.viewport_size().width.max(0.0);
-        let toggle_id = ctx
-            .bind(
-                ToggleContactSelection("".into()),
-                reduce_with!(
-                    (|s: &mut InboxState, a: ToggleContactSelection, _| {
-                        if let Some(pos) = s.contact_selected_ids.iter().position(|id| id == &a.0) {
-                            s.contact_selected_ids.remove(pos);
-                        } else {
-                            s.contact_selected_ids.push(a.0);
-                        }
-                    })
-                ),
-            )
-            .id;
+        let close = ctx.bind(SetContactsOpen(false), reduce_with!(set_contacts_open));
+        let toggle = ctx.bind(
+            ToggleContactSelection(String::new()),
+            reduce_with!(toggle_contact_selection),
+        );
         let data = vec![
             TableRow {
                 id: "1".into(),
@@ -44,10 +35,7 @@ impl From<ContactsModal> for Widget {
             id: WidgetId::explicit("contacts_modal"),
             title: "Contacts".into(),
             is_open: true,
-            on_dismiss: Some(ctx.bind(
-                SetContactsOpen(false),
-                reduce_with!((|s: &mut InboxState, a: SetContactsOpen, _| s.show_contacts = a.0)),
-            )),
+            on_dismiss: Some(close.clone()),
             backdrop_semantics_identifier: Some("inbox.contacts.backdrop".into()),
             close_semantics_identifier: Some("inbox.contacts.close".into()),
             surface_semantics_identifier: Some("inbox.contacts.surface".into()),
@@ -72,9 +60,8 @@ impl From<ContactsModal> for Widget {
                 ],
                 rows: data,
                 selected_ids: view.state().contact_selected_ids.clone(),
-                on_selection_change: Some(Arc::new(move |row_id| fission::core::ActionEnvelope {
-                    id: toggle_id,
-                    payload: serde_json::to_vec(&ToggleContactSelection(row_id)).unwrap(),
+                on_selection_change: Some(Arc::new(move |row_id| {
+                    toggle.with_action(&ToggleContactSelection(row_id))
                 })),
                 label: Some("Contacts".into()),
                 ..Default::default()
@@ -83,12 +70,7 @@ impl From<ContactsModal> for Widget {
             actions: vec![ModalAction {
                 label: "Done".into(),
                 is_primary: true,
-                on_press: Some(ctx.bind(
-                    SetContactsOpen(false),
-                    reduce_with!(
-                        (|s: &mut InboxState, a: SetContactsOpen, _| s.show_contacts = a.0)
-                    ),
-                )),
+                on_press: Some(close),
                 semantics_identifier: Some("inbox.contacts.done".into()),
             }],
             motion: None,

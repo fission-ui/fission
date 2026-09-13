@@ -9,8 +9,8 @@ use cards::{MailboxStatsCard, MeetCard, QuickActionsCard, SetupCard, SyncStatusC
 use chrono::{Datelike, Local};
 use density::SidebarDensity;
 use fission::core::op::FlexDirection;
+use fission::core::reduce_with;
 use fission::core::ui::{Container, Scroll, Widget};
-use fission::core::{reduce_with, ActionEnvelope};
 use fission::widgets::{Calendar, VStack};
 use std::sync::Arc;
 
@@ -22,14 +22,12 @@ impl From<RightSidebar> for Widget {
         let tokens = &view.env().theme.tokens;
         let density = SidebarDensity::for_height(view.viewport_size().height);
         let today = Local::now().date_naive();
-        // A calendar reports whichever date was chosen, so its action cannot be
-        // bound ahead of time; bind once for the id and fill in the date on select.
-        let calendar_action = ctx
-            .bind(
-                SetCalendarSelected(today),
-                reduce_with!(set_calendar_selected),
-            )
-            .id;
+        // A calendar reports whichever date was chosen, so each date's action is
+        // built from the bound one.
+        let calendar_action = ctx.bind(
+            SetCalendarSelected(today),
+            reduce_with!(set_calendar_selected),
+        );
 
         Container::new(Scroll {
             direction: FlexDirection::Column,
@@ -45,10 +43,8 @@ impl From<RightSidebar> for Widget {
                             year: today.year(),
                             month: today.month(),
                             selected_date: view.state().calendar_selected.or(Some(today)),
-                            on_select: Some(Arc::new(move |date| ActionEnvelope {
-                                id: calendar_action,
-                                payload: serde_json::to_vec(&SetCalendarSelected(date))
-                                    .expect("a date always serializes"),
+                            on_select: Some(Arc::new(move |date| {
+                                calendar_action.with_action(&SetCalendarSelected(date))
                             })),
                             on_navigate: None,
                             cell_size: Some(density.calendar_cell_size()),

@@ -1,3 +1,4 @@
+use crate::model::navigation::set_browser_demo_open;
 use crate::model::{InboxState, OpenInAppLink, OpenSystemLink, ToggleBrowserDemo};
 use fission::core::ui::{Container, Text, Widget};
 use fission::core::{reduce_with, WidgetId};
@@ -12,16 +13,15 @@ impl From<BrowserModal> for Widget {
         let viewport_width = view.viewport_size().width.max(0.0);
         let modal_width = (viewport_width - 48.0).clamp(360.0, 820.0);
         let webview_width = (modal_width - 96.0).clamp(260.0, 680.0);
+        let close = ctx.bind(
+            ToggleBrowserDemo(false),
+            reduce_with!(set_browser_demo_open),
+        );
         Modal {
             id: WidgetId::explicit("browser_modal"),
             title: "Browser & Links Demo".into(),
             is_open: true,
-            on_dismiss: Some(ctx.bind(
-                ToggleBrowserDemo(false),
-                reduce_with!(
-                    (|s: &mut InboxState, a: ToggleBrowserDemo, _| s.show_browser_demo = a.0)
-                ),
-            )),
+            on_dismiss: Some(close.clone()),
             backdrop_semantics_identifier: Some("inbox.browser.backdrop".into()),
             close_semantics_identifier: Some("inbox.browser.close".into()),
             surface_semantics_identifier: Some("inbox.browser.surface".into()),
@@ -95,12 +95,7 @@ impl From<BrowserModal> for Widget {
             actions: vec![ModalAction {
                 label: "Close".into(),
                 is_primary: true,
-                on_press: Some(ctx.bind(
-                    ToggleBrowserDemo(false),
-                    reduce_with!(
-                        (|s: &mut InboxState, a: ToggleBrowserDemo, _| s.show_browser_demo = a.0)
-                    ),
-                )),
+                on_press: Some(close),
                 semantics_identifier: Some("inbox.browser.done".into()),
             }],
             motion: None,

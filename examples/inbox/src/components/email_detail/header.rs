@@ -1,4 +1,4 @@
-use crate::model::detail::{navigate_back, show_toast, toggle_details};
+use crate::model::detail::{navigate_back, set_toast_visible, toggle_details};
 use crate::model::{Email, InboxState, Navigate, ToggleDetails, ToggleToast};
 use fission::core::op::FlexDirection;
 use fission::core::reduce_with;
@@ -83,7 +83,9 @@ impl From<DetailHeader> for Widget {
                                 .size(tokens.typography.font_size_xl)
                                 .into(),
                         ),
-                        on_press: Some(ctx.bind(ToggleToast(true), reduce_with!(show_toast))),
+                        on_press: Some(
+                            ctx.bind(ToggleToast(true), reduce_with!(set_toast_visible)),
+                        ),
                         ..Default::default()
                     }
                     .into(),
