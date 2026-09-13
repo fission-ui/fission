@@ -413,7 +413,10 @@ pub(crate) fn wrap_implicit_selection_affordances(
             ));
         }
     }
-    if context_menu.enabled && cx.runtime_state.context_menu.owner == Some(owner) {
+    if context_menu.enabled
+        && cx.runtime_state.context_menu.owner == Some(owner)
+        && !crate::ui::widgets::context_menu::take_lifted_text_menu(owner)
+    {
         let anchor = cx
             .runtime_state
             .context_menu

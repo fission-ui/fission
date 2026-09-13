@@ -407,6 +407,37 @@ where
     )
 }
 
+/// Registers a portal when a build pass is active, returning whether it was registered.
+///
+/// Framework widgets use this to lift a surface such as an open context menu above all content.
+/// Outside a build pass, for example when a widget is lowered directly, nothing is registered and
+/// the caller keeps rendering the surface in place.
+pub fn try_register_portal(
+    layer: crate::PortalLayer,
+    id: Option<crate::WidgetId>,
+    node: crate::Widget,
+) -> bool {
+    let target = BUILD_SCOPES.with(|scopes| {
+        scopes
+            .borrow()
+            .last()
+            .map(|scope| (scope.ctx, scope.portals, scope.next_portal_seq))
+    });
+    let Some((ctx, portals, next_portal_seq)) = target else {
+        return false;
+    };
+    unsafe {
+        let seq = next_portal_seq(ctx);
+        (*portals).push(crate::registry::PortalEntry {
+            layer,
+            seq,
+            id,
+            node,
+        });
+    }
+    true
+}
+
 pub fn try_register_video(registration: crate::registry::VideoRegistration) {
     let video_nodes =
         BUILD_SCOPES.with(|scopes| scopes.borrow().last().map(|scope| scope.video_nodes));

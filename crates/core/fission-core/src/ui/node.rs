@@ -1003,7 +1003,30 @@ impl From<Clip> for Widget {
     }
 }
 impl From<Text> for Widget {
-    fn from(w: Text) -> Self {
+    fn from(mut w: Text) -> Self {
+        if w.selectable && w.context_menu.enabled {
+            if w.id.is_none() {
+                w.id = crate::build::next_implicit_widget_id(0x7E47);
+            }
+            if let (Some(owner), Some(runtime)) = (w.id, crate::build::try_current_runtime_state())
+            {
+                let touch = runtime.selectable_text.region(owner).is_some_and(|state| {
+                    matches!(
+                        state.pointer_kind,
+                        crate::event::PointerKind::Touch | crate::event::PointerKind::Stylus
+                    )
+                });
+                if !touch {
+                    let selection_present = w.selection_range.is_some()
+                        || runtime.selectable_text.region_selection(owner).is_some();
+                    crate::ui::widgets::context_menu::lift_text_menu_into_portal(
+                        owner,
+                        &w.context_menu,
+                        selection_present,
+                    );
+                }
+            }
+        }
         Self::from_kind(WidgetKind::Text(w))
     }
 }
@@ -1086,7 +1109,8 @@ impl From<Overlay> for Widget {
     }
 }
 impl From<ContextMenuRegion> for Widget {
-    fn from(w: ContextMenuRegion) -> Self {
+    fn from(mut w: ContextMenuRegion) -> Self {
+        crate::ui::widgets::context_menu::lift_open_menu_into_portal(&mut w);
         Self::from_kind(WidgetKind::ContextMenuRegion(w))
     }
 }
