@@ -1,9 +1,10 @@
 //! Reducers behind the email list.
 
 use super::{
-    Folder, InboxState, Navigate, SelectTab, SetAdvancedFiltersOpen, SetFilterMode,
-    SetMobileMenuOpen, SetPage, SetSortOption, ToggleEmailSelection, ToggleFlag, ToggleLabelFilter,
-    UpdateSearch,
+    Folder, InboxState, Navigate, SelectTab, SetAdvancedFiltersOpen, SetDateFilter,
+    SetDateFilterEndOpen, SetDateFilterStartOpen, SetFilterMode, SetMobileMenuOpen, SetPage,
+    SetSizeFilter, SetSortMenuOpen, SetSortOption, ToggleEmailSelection, ToggleFlag,
+    ToggleLabelFilter, UpdateSearch,
 };
 use fission::core::ReducerContext;
 
@@ -27,6 +28,43 @@ pub fn set_advanced_filters_open(
 
 pub fn set_sort_option(state: &mut InboxState, action: SetSortOption, _: &mut Cx<'_, '_, '_>) {
     state.sort_option = action.0;
+    state.show_sort_menu = false;
+}
+
+pub fn set_sort_menu_open(state: &mut InboxState, action: SetSortMenuOpen, _: &mut Cx<'_, '_, '_>) {
+    state.show_sort_menu = action.0;
+}
+
+pub fn set_date_filter(state: &mut InboxState, action: SetDateFilter, _: &mut Cx<'_, '_, '_>) {
+    state.date_filter = (action.0, action.1);
+    state.date_filter_start_open = false;
+    state.date_filter_end_open = false;
+    state.page = 1;
+}
+
+pub fn set_date_filter_start_open(
+    state: &mut InboxState,
+    action: SetDateFilterStartOpen,
+    _: &mut Cx<'_, '_, '_>,
+) {
+    state.date_filter_start_open = action.0;
+    state.date_filter_end_open &= !action.0;
+}
+
+pub fn set_date_filter_end_open(
+    state: &mut InboxState,
+    action: SetDateFilterEndOpen,
+    _: &mut Cx<'_, '_, '_>,
+) {
+    state.date_filter_end_open = action.0;
+    state.date_filter_start_open &= !action.0;
+}
+
+pub fn set_size_filter(state: &mut InboxState, _: SetSizeFilter, cx: &mut Cx<'_, '_, '_>) {
+    if let Some(change) = cx.input.range_slider_change() {
+        state.size_filter_mb = (change.start, change.end);
+        state.page = 1;
+    }
 }
 
 /// Takes the query from the input event, falling back to the payload when the

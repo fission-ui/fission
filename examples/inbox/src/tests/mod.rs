@@ -1592,3 +1592,65 @@ fn a_sidebar_label_filters_the_list_and_toggles_off() -> Result<()> {
     );
     Ok(())
 }
+
+#[test]
+fn the_sort_menu_offers_each_order() -> Result<()> {
+    let mut h = pump_state(state_default())?;
+    click_identifier(&mut h, "inbox.sort")?;
+    h.pump()?;
+    assert!(
+        h.runtime
+            .get_app_state::<InboxState>()
+            .unwrap()
+            .show_sort_menu
+    );
+    click_identifier(&mut h, "inbox.sort.unread")?;
+    h.pump()?;
+    let state = h.runtime.get_app_state::<InboxState>().unwrap();
+    assert_eq!(state.sort_option, "Unread");
+    assert!(!state.show_sort_menu, "choosing an order closes the menu");
+    Ok(())
+}
+
+#[test]
+fn a_filters_date_field_opens_its_calendar() -> Result<()> {
+    let mut h = pump_state(state_filters_open())?;
+    let start_id = WidgetId::derived(WidgetId::explicit("filter_date_start").as_u128(), &[0]);
+    click_node(&mut h, start_id)?;
+    assert!(
+        h.runtime
+            .get_app_state::<InboxState>()
+            .unwrap()
+            .date_filter_start_open
+    );
+    Ok(())
+}
+
+#[test]
+fn the_date_and_size_filters_narrow_the_list() -> Result<()> {
+    let day = chrono::NaiveDate::from_ymd_opt(2025, 1, 11).unwrap();
+    let mut state = state_default();
+    state.date_filter = (Some(day), Some(day));
+    let texts = display_texts(&pump_state(state)?);
+    assert!(
+        texts.iter().any(|t| t == "Quarterly planning sync"),
+        "{texts:?}"
+    );
+    assert!(
+        !texts.iter().any(|t| t == "Travel details: NYC"),
+        "{texts:?}"
+    );
+
+    let mut state = state_default();
+    state.size_filter_mb = (0.0, 2.0);
+    let texts = display_texts(&pump_state(state)?);
+    assert!(
+        texts.iter().any(|t| t == "Travel details: NYC"),
+        "{texts:?}"
+    );
+    assert!(
+        !texts.iter().any(|t| t == "Quarterly planning sync"),
+        "{texts:?}"
+    );
+    Ok(())
+}

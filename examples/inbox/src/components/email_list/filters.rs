@@ -1,10 +1,18 @@
-use crate::model::list::set_advanced_filters_open;
-use crate::model::{InboxState, SetAdvancedFiltersOpen};
+use crate::model::app_state::SIZE_FILTER_MAX_MB;
+use crate::model::list::{
+    set_advanced_filters_open, set_date_filter, set_date_filter_end_open,
+    set_date_filter_start_open, set_size_filter,
+};
+use crate::model::{
+    InboxState, SetAdvancedFiltersOpen, SetDateFilter, SetDateFilterEndOpen,
+    SetDateFilterStartOpen, SetSizeFilter,
+};
 use fission::core::op::BoxShadow;
 use fission::core::ui::{Button, ButtonVariant, Container, Text, TextContent, Widget};
 use fission::core::{reduce_with, Length, WidgetId};
 use fission::icons::material;
 use fission::widgets::{DateRangePicker, HStack, Icon, Popover, RangeSlider, VStack};
+use std::sync::Arc;
 
 /// The filters button and the date and size filters it reveals.
 pub(super) struct AdvancedFilters;
@@ -14,6 +22,8 @@ impl From<AdvancedFilters> for Widget {
         let (ctx, view) = fission::build::current::<InboxState>();
         let state = view.state();
         let tokens = &view.env().theme.tokens;
+        // The picker fills in the chosen range.
+        let date_action = ctx.bind(SetDateFilter(None, None), reduce_with!(set_date_filter));
         let caption = |key: &str| {
             Text::new(TextContent::Key(key.into()))
                 .size(tokens.typography.font_size_xs)
@@ -55,27 +65,41 @@ impl From<AdvancedFilters> for Widget {
                     DateRangePicker {
                         id_start: WidgetId::explicit("filter_date_start"),
                         id_end: WidgetId::explicit("filter_date_end"),
-                        start: state.schedule_date,
-                        end: state.schedule_date,
-                        is_start_open: false,
-                        is_end_open: false,
-                        on_change: None,
-                        on_toggle_start: None,
-                        on_toggle_end: None,
-                        on_close_start: None,
-                        on_close_end: None,
+                        start: state.date_filter.0,
+                        end: state.date_filter.1,
+                        is_start_open: state.date_filter_start_open,
+                        is_end_open: state.date_filter_end_open,
+                        on_change: Some(Arc::new(move |start, end| {
+                            date_action.with_action(&SetDateFilter(start, end))
+                        })),
+                        on_toggle_start: Some(ctx.bind(
+                            SetDateFilterStartOpen(!state.date_filter_start_open),
+                            reduce_with!(set_date_filter_start_open),
+                        )),
+                        on_toggle_end: Some(ctx.bind(
+                            SetDateFilterEndOpen(!state.date_filter_end_open),
+                            reduce_with!(set_date_filter_end_open),
+                        )),
+                        on_close_start: Some(ctx.bind(
+                            SetDateFilterStartOpen(false),
+                            reduce_with!(set_date_filter_start_open),
+                        )),
+                        on_close_end: Some(ctx.bind(
+                            SetDateFilterEndOpen(false),
+                            reduce_with!(set_date_filter_end_open),
+                        )),
                     }
                     .into(),
                     caption("filter.size_mb").into(),
                     RangeSlider {
-                        id: None,
-                        semantics_identifier: None,
-                        start: 5.0,
-                        end: 50.0,
+                        id: Some(WidgetId::explicit("filter_size")),
+                        semantics_identifier: Some("inbox.filters.size".into()),
+                        start: state.size_filter_mb.0,
+                        end: state.size_filter_mb.1,
                         min: 0.0,
-                        max: 100.0,
-                        step: None,
-                        on_change: None,
+                        max: SIZE_FILTER_MAX_MB,
+                        step: Some(1.0),
+                        on_change: Some(ctx.bind(SetSizeFilter, reduce_with!(set_size_filter))),
                     }
                     .into(),
                 ],

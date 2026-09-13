@@ -1,10 +1,10 @@
 use super::filters::AdvancedFilters;
-use crate::model::list::{set_filter_mode, set_sort_option, update_search};
-use crate::model::{InboxState, SetFilterMode, SetSortOption, UpdateSearch};
-use fission::core::reduce_with;
+use crate::model::list::{set_filter_mode, set_sort_menu_open, set_sort_option, update_search};
+use crate::model::{InboxState, SetFilterMode, SetSortMenuOpen, SetSortOption, UpdateSearch};
 use fission::core::ui::widgets::Spacer;
 use fission::core::ui::{TextContent, Widget};
-use fission::widgets::{DropDown, HStack, SegmentedControl, TextInput, VStack};
+use fission::core::{reduce_with, WidgetId};
+use fission::widgets::{HStack, SegmentedControl, Select, SelectItem, TextInput, VStack};
 use std::sync::Arc;
 
 /// Filter modes with the translation key for each one's label.
@@ -28,11 +28,6 @@ impl From<ListToolbar> for Widget {
         let filter_actions: Vec<_> = (0..FILTER_MODES.len())
             .map(|mode| ctx.bind(SetFilterMode(mode), reduce_with!(set_filter_mode)))
             .collect();
-        let next_sort = if state.sort_option == "Newest" {
-            "Oldest"
-        } else {
-            "Newest"
-        };
         let sort_label = SORT_OPTIONS
             .iter()
             .find(|(value, _)| state.sort_option == *value)
@@ -64,13 +59,31 @@ impl From<ListToolbar> for Widget {
                             ..Default::default()
                         }
                         .into(),
-                        DropDown {
-                            selected: Some(sort_label),
-                            options: SORT_OPTIONS.iter().map(|(_, key)| view.tr(key)).collect(),
+                        Select {
+                            id: WidgetId::explicit("inbox.sort"),
+                            selected_label: Some(sort_label),
+                            items: SORT_OPTIONS
+                                .iter()
+                                .map(|(value, key)| SelectItem {
+                                    label: view.tr(key),
+                                    icon: None,
+                                    on_select: ctx.bind(
+                                        SetSortOption((*value).into()),
+                                        reduce_with!(set_sort_option),
+                                    ),
+                                    semantics_identifier: Some(format!(
+                                        "inbox.sort.{}",
+                                        value.to_lowercase()
+                                    )),
+                                })
+                                .collect(),
+                            is_open: state.show_sort_menu,
                             on_toggle: Some(ctx.bind(
-                                SetSortOption(next_sort.into()),
-                                reduce_with!(set_sort_option),
+                                SetSortMenuOpen(!state.show_sort_menu),
+                                reduce_with!(set_sort_menu_open),
                             )),
+                            trigger_semantics_identifier: Some("inbox.sort".into()),
+                            width: Some(140.0),
                             ..Default::default()
                         }
                         .into(),
