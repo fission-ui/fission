@@ -51,8 +51,12 @@ impl From<DateRangePicker> for Widget {
         let s = this.start;
         let e = this.end;
 
-        SemanticsRegion::new(HStack {
+        // The two fields wrap onto a second line when the range is given less width than they
+        // need side by side, instead of running past the edge of a popover or card.
+        SemanticsRegion::new(crate::Wrap {
+            direction: fission_core::op::FlexDirection::Row,
             spacing: Some(8.0),
+            run_spacing: Some(8.0),
             children: vec![
                 DatePicker {
                     id: this.id_start,
