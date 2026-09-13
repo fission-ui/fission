@@ -1548,3 +1548,47 @@ fn list_tabs_show_only_their_category() -> Result<()> {
     );
     Ok(())
 }
+
+/// The sidebar's pressable label tag; rows also show plain "Travel" tags.
+fn label_filter_node(h: &TestHarness<InboxState>, label: &str) -> WidgetId {
+    let ir = h.last_ir.as_ref().expect("ir");
+    ir.nodes
+        .values()
+        .find_map(|node| match &node.op {
+            Op::Semantics(semantics)
+                if semantics.role == Role::Button && semantics.label.as_deref() == Some(label) =>
+            {
+                Some(node.id)
+            }
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("a pressable {label:?} label"))
+}
+
+#[test]
+fn a_sidebar_label_filters_the_list_and_toggles_off() -> Result<()> {
+    let mut h = pump_state(state_default())?;
+    let travel = label_filter_node(&h, "Travel");
+    click_node(&mut h, travel)?;
+    h.pump()?;
+    let state = h.runtime.get_app_state::<InboxState>().unwrap();
+    assert_eq!(state.label_filter.as_deref(), Some("Travel"));
+    let texts = display_texts(&h);
+    assert!(
+        texts.iter().any(|t| t == "Travel details: NYC"),
+        "{texts:?}"
+    );
+    assert!(
+        !texts.iter().any(|t| t == "Quarterly planning sync"),
+        "{texts:?}"
+    );
+
+    let travel = label_filter_node(&h, "Travel");
+    click_node(&mut h, travel)?;
+    let state = h.runtime.get_app_state::<InboxState>().unwrap();
+    assert_eq!(
+        state.label_filter, None,
+        "pressing the active label clears it"
+    );
+    Ok(())
+}

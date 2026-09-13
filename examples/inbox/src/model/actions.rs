@@ -79,6 +79,10 @@ pub struct DismissDropdown;
 #[fission_action]
 pub struct SelectTab(pub usize);
 
+/// Turns a label filter on, or off when it is already the active one.
+#[fission_action]
+pub struct ToggleLabelFilter(pub String);
+
 #[fission_action]
 pub struct SelectReplyMode(pub usize);
 

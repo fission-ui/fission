@@ -94,6 +94,9 @@ impl From<EmailList> for Widget {
             .filter(|email| email.folders.contains(&folder))
             .filter(|email| email.category == Category::from_tab(state.active_tab))
             .collect();
+        if let Some(label) = &state.label_filter {
+            emails.retain(|email| email.labels.contains(label));
+        }
         if !state.search_query.trim().is_empty() {
             emails.retain(|email| email.matches_query(&state.search_query));
         }

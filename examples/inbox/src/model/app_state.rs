@@ -66,6 +66,8 @@ pub struct InboxState {
     pub search_query: String,
     pub show_filter_dropdown: bool,
     pub active_tab: usize,
+    /// The label the list is narrowed to, if any.
+    pub label_filter: Option<String>,
     pub reply_mode: usize,
     pub reply_body: String,
     pub notifications_enabled: bool,
@@ -140,6 +142,7 @@ impl Default for InboxState {
             search_query: "".into(),
             show_filter_dropdown: false,
             active_tab: 0,
+            label_filter: None,
             reply_mode: 0,
             reply_body: "".into(),
             notifications_enabled: true,

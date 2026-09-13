@@ -2,7 +2,8 @@
 
 use super::{
     Folder, InboxState, Navigate, SelectTab, SetAdvancedFiltersOpen, SetFilterMode,
-    SetMobileMenuOpen, SetPage, SetSortOption, ToggleEmailSelection, ToggleFlag, UpdateSearch,
+    SetMobileMenuOpen, SetPage, SetSortOption, ToggleEmailSelection, ToggleFlag, ToggleLabelFilter,
+    UpdateSearch,
 };
 use fission::core::ReducerContext;
 
@@ -71,6 +72,16 @@ pub fn navigate(state: &mut InboxState, action: Navigate, _: &mut Cx<'_, '_, '_>
             email.is_read = true;
         }
     }
+}
+
+pub fn toggle_label_filter(
+    state: &mut InboxState,
+    action: ToggleLabelFilter,
+    _: &mut Cx<'_, '_, '_>,
+) {
+    state.label_filter =
+        (state.label_filter.as_deref() != Some(action.0.as_str())).then_some(action.0);
+    state.page = 1;
 }
 
 pub fn select_tab(state: &mut InboxState, action: SelectTab, _: &mut Cx<'_, '_, '_>) {
