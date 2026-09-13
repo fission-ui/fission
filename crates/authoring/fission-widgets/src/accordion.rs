@@ -1,6 +1,6 @@
 use crate::motion_support::{
-    collapse_y_in, dedupe, exit_for, fade_in, push_enter_with_exit, slot_id, SLOT_CONTENT,
-    SLOT_HEADER, SLOT_INDICATOR, SLOT_PANEL,
+    collapse_y_in, dedupe, exit_for, fade_in, presence_active, push_enter_with_exit,
+    resolve_motion, slot_id, SLOT_CONTENT, SLOT_HEADER, SLOT_INDICATOR, SLOT_PANEL,
 };
 use crate::stack::{HStack, VStack};
 use fission_core::motion::{
@@ -30,6 +30,8 @@ use std::ops::Add;
 /// );
 /// ```
 pub enum AccordionMotion {
+    /// No accordion-owned motion.
+    None,
     /// Curated default: collapse, fade, and chevron rotation.
     Default,
     /// Animate panel height.
@@ -123,6 +125,7 @@ impl AccordionMotion {
                     item.append_plan(expanded, plan);
                 }
             }
+            Self::None => {}
             Self::Custom {
                 panel_enter,
                 panel_exit,
@@ -193,7 +196,7 @@ pub struct AccordionItem {
 pub struct Accordion {
     /// Collapsible sections in display order.
     pub items: Vec<AccordionItem>,
-    /// Optional explicit accordion motion. `None` emits no accordion-owned motion declarations.
+    /// Accordion motion. `None` plays the default motion unless the app turns widget motion off.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub motion: Option<AccordionMotion>,
 }
@@ -214,6 +217,12 @@ impl From<Accordion> for Widget {
         let base_id = fission_core::build::current_widget_id()
             .unwrap_or_else(|| WidgetId::explicit("fission.widgets.accordion.motion"));
 
+        let motion = resolve_motion(
+            &this.motion,
+            AccordionMotion::Default,
+            AccordionMotion::None,
+            view.env(),
+        );
         let mut children = Vec::new();
 
         for (index, item) in this.items.iter().enumerate() {
@@ -231,10 +240,7 @@ impl From<Accordion> for Widget {
                 WidgetId::derived(base_id.as_u128(), &[index as u32]),
                 SLOT_INDICATOR,
             );
-            let motion_plan = this
-                .motion
-                .as_ref()
-                .map(|motion| motion.plan(item.is_expanded));
+            let motion_plan = motion.as_ref().map(|motion| motion.plan(item.is_expanded));
             let mut indicator: Widget = Text {
                 content: TextContent::Literal(if item.is_expanded { "▼" } else { "▶" }.into()),
                 font_size: Some(
@@ -306,7 +312,7 @@ impl From<Accordion> for Widget {
             );
 
             // Content
-            if item.is_expanded || this.motion.is_some() {
+            if item.is_expanded || (motion.is_some() && presence_active(panel_id)) {
                 let mut panel: Widget = SemanticsRegion::new(
                     Container::new(item.content.clone())
                         .padding(panel_style.padding_box(tokens.spacing.m, tokens.spacing.m))

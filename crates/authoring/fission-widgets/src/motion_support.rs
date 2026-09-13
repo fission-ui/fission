@@ -78,3 +78,28 @@ pub(crate) fn push_enter_with_exit(
     exit.extend(exit_for(std::slice::from_ref(&track)));
     enter.push(track);
 }
+
+/// The motion a widget plays: its explicit preset, nothing for an explicit
+/// `none` preset, or its curated `default` when the preset is unset and the app
+/// has not turned built-in widget motion off.
+pub(crate) fn resolve_motion<M: Clone + PartialEq>(
+    explicit: &Option<M>,
+    default: M,
+    none: M,
+    env: &fission_core::Env,
+) -> Option<M> {
+    match explicit {
+        Some(motion) if *motion == none => None,
+        Some(motion) => Some(motion.clone()),
+        None => env.widget_motion.is_on().then_some(default),
+    }
+}
+
+/// Whether the presence `id` is still mounted from an earlier build: entering,
+/// shown, or playing its exit. A closed widget stays in the tree only while
+/// this holds, so its exit can finish without keeping a hidden popup mounted.
+pub(crate) fn presence_active(id: WidgetId) -> bool {
+    fission_core::build::try_current_runtime_state()
+        .and_then(|runtime| runtime.motion.presence.get(&id).copied())
+        .is_some_and(|phase| phase != fission_core::motion::PresencePhase::Hidden)
+}

@@ -403,7 +403,8 @@ pub mod public {
     };
     pub use crate::env::{
         Clipboard, DragSessionPayload, DragSessionState, Env, ImeHandler, InteractionStateMap,
-        LayoutDirection, MotionPreference, RuntimeState, ScrollStateMap, WindowEnv, WindowTitle,
+        LayoutDirection, MotionPreference, RuntimeState, ScrollStateMap, WidgetMotion, WindowEnv,
+        WindowTitle,
     };
     pub use crate::runtime::Runtime;
     pub use crate::selection::{
@@ -616,8 +617,8 @@ pub use effect::{
 };
 pub use env::{
     Clipboard, DragSessionPayload, DragSessionState, Env, ImeHandler, InteractionStateMap,
-    LayoutDirection, MotionPreference, RouteLocation, RuntimeState, ScrollStateMap, WindowEnv,
-    WindowTitle,
+    LayoutDirection, MotionPreference, RouteLocation, RuntimeState, ScrollStateMap, WidgetMotion,
+    WindowEnv, WindowTitle,
 };
 #[cfg(feature = "store")]
 pub use fission_store::*;

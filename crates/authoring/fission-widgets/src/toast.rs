@@ -1,5 +1,6 @@
 use crate::motion_support::{
-    dedupe, exit_for, fade_in, push_enter_with_exit, scale_in, slide_y_in, slot_id, SLOT_SURFACE,
+    dedupe, exit_for, fade_in, push_enter_with_exit, resolve_motion, scale_in, slide_y_in, slot_id,
+    SLOT_SURFACE,
 };
 use crate::stack::HStack;
 use crate::Icon;
@@ -22,6 +23,8 @@ use std::ops::Add;
 /// let motion = Some(ToastMotion::Fade + ToastMotion::SlideFromTop);
 /// ```
 pub enum ToastMotion {
+    /// No toast-owned motion.
+    None,
     /// Curated default toast motion.
     Default,
     /// Fade the toast surface.
@@ -95,6 +98,7 @@ impl ToastMotion {
                     item.append_plan(plan);
                 }
             }
+            Self::None => {}
             Self::Custom {
                 enter,
                 exit,
@@ -166,7 +170,7 @@ pub struct Toast {
     pub message: String,
     /// Optional action dispatched from the close button.
     pub on_close: Option<ActionEnvelope>,
-    /// Optional explicit toast motion. `None` emits no toast-owned motion declarations.
+    /// Toast motion. `None` plays the default motion unless the app turns widget motion off.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub motion: Option<ToastMotion>,
 }
@@ -272,7 +276,13 @@ impl From<Toast> for Widget {
             .label(this.message.clone())
             .into();
 
-        if let Some(motion) = &this.motion {
+        let motion = resolve_motion(
+            &this.motion,
+            ToastMotion::Default,
+            ToastMotion::None,
+            view.env(),
+        );
+        if let Some(motion) = &motion {
             let plan = motion.plan();
             toast = Presence {
                 id: slot_id(this.id, SLOT_SURFACE),

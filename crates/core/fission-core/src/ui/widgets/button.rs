@@ -159,8 +159,10 @@ impl ButtonIconContent {
 /// Optional motion presets owned by [`Button`].
 ///
 /// The active button recipe automatically owns transitions between its visual
-/// states. Set [`Button::motion`] to `Some(...)` to compose optional transform
-/// or ripple feedback with those recipe transitions.
+/// states. A button without explicit motion also shows a pointer-origin ripple
+/// unless the app sets [`Env::widget_motion`](crate::Env::widget_motion) to
+/// `Off`. Set [`Button::motion`] to compose other feedback with the recipe
+/// transitions, or to `Some(ButtonMotion::None)` for none.
 ///
 /// ```rust,ignore
 /// use fission::prelude::*;
@@ -173,6 +175,8 @@ impl ButtonIconContent {
 /// };
 /// ```
 pub enum ButtonMotion {
+    /// No button-owned motion beyond the recipe's state transitions.
+    None,
     /// Curated default hover/press scale feedback.
     Default,
     /// Scale up slightly while hovered.
@@ -255,7 +259,7 @@ impl ButtonMotion {
                 )
                 .transition(MotionTransition::spring(420.0, 30.0)),
             ),
-            Self::Ripple => {}
+            Self::None | Self::Ripple => {}
             Self::HoverPressRipple => out.extend(hover_press(id)),
             Self::Composition(items) => {
                 for item in items {
@@ -366,7 +370,8 @@ pub struct Button {
     /// When `true`, the button is greyed out and its `on_press` action is not
     /// attached.
     pub disabled: bool,
-    /// Optional transform and ripple motion composed with recipe state transitions.
+    /// Transform and ripple motion composed with recipe state transitions.
+    /// `None` shows the default ripple unless the app turns widget motion off.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub motion: Option<ButtonMotion>,
 }
@@ -1250,7 +1255,14 @@ impl Button {
     }
 
     pub(crate) fn register_motion_declarations(&self, id: WidgetId) {
-        let explicit_motion = self.motion.as_ref();
+        // Unset motion falls back to the subtle default ripple unless the app
+        // has turned built-in widget motion off.
+        let default_motion = ButtonMotion::Ripple;
+        let explicit_motion = self.motion.as_ref().or_else(|| {
+            crate::build::try_current_env()
+                .is_some_and(|env| env.widget_motion.is_on())
+                .then_some(&default_motion)
+        });
         let mut tracks = crate::build::try_current_env()
             .map(|env| self.recipe_motion_tracks(env, id))
             .unwrap_or_default();

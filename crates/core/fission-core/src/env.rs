@@ -28,6 +28,28 @@ pub enum MotionPreference {
     Reduced,
 }
 
+/// Whether widgets play their built-in motion when an app leaves it unset.
+///
+/// Unlike [`MotionPreference`], shells never change this: it is the app's own
+/// choice. Widgets whose `motion` is set explicitly still play it; use
+/// [`MotionPreference::Reduced`] to make every animation instant.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WidgetMotion {
+    /// Widgets without explicit motion play their subtle built-in motion.
+    #[default]
+    Standard,
+    /// Widgets without explicit motion render without animation.
+    Off,
+}
+
+impl WidgetMotion {
+    /// Returns whether widgets play their built-in motion by default.
+    pub const fn is_on(self) -> bool {
+        matches!(self, Self::Standard)
+    }
+}
+
 impl MotionPreference {
     /// Returns whether declarative motion must be reduced for this environment.
     pub const fn is_reduced(self) -> bool {
@@ -191,6 +213,8 @@ pub struct Env {
     pub layout_direction: LayoutDirection,
     /// App-wide accessibility preference for declarative motion.
     pub motion_preference: MotionPreference,
+    /// App-wide default for widgets' built-in motion. Shells never override it.
+    pub widget_motion: WidgetMotion,
     /// Current light/dark appearance reported by the host platform.
     ///
     /// Applications that offer a "System" preference can select their generated
@@ -214,6 +238,7 @@ impl Default for Env {
             theme: Theme::default(),
             layout_direction: LayoutDirection::default(),
             motion_preference: MotionPreference::default(),
+            widget_motion: WidgetMotion::default(),
             system_theme_mode: DesignMode::Light,
             i18n: I18nRegistry::new(),
             locale: Locale::default(),
@@ -233,6 +258,7 @@ impl std::fmt::Debug for Env {
             .field("theme", &self.theme)
             .field("layout_direction", &self.layout_direction)
             .field("motion_preference", &self.motion_preference)
+            .field("widget_motion", &self.widget_motion)
             .field("system_theme_mode", &self.system_theme_mode)
             .field("locale", &self.locale)
             .field("window", &self.window)
@@ -261,6 +287,7 @@ impl Env {
             theme: Theme::default(),
             layout_direction: LayoutDirection::default(),
             motion_preference: MotionPreference::default(),
+            widget_motion: WidgetMotion::default(),
             system_theme_mode: DesignMode::Light,
             i18n: I18nRegistry::new(),
             locale: Locale::default(),

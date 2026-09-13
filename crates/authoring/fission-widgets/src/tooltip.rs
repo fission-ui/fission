@@ -1,6 +1,6 @@
 use crate::motion_support::{
-    dedupe, exit_for, fade_in, push_enter_with_exit, scale_in, slide_y_in, slot_id, SLOT_CONTENT,
-    SLOT_SURFACE,
+    dedupe, exit_for, fade_in, presence_active, push_enter_with_exit, resolve_motion, scale_in,
+    slide_y_in, slot_id, SLOT_CONTENT, SLOT_SURFACE,
 };
 use fission_core::motion::{MotionTrack, Presence};
 use fission_core::ui::{Container, SemanticsRegion, Text, Widget};
@@ -18,6 +18,8 @@ use std::ops::Add;
 /// let motion = Some(TooltipMotion::FadeAndSlide);
 /// ```
 pub enum TooltipMotion {
+    /// No tooltip-owned motion.
+    None,
     /// Curated default tooltip motion.
     Default,
     /// Fade the tooltip surface.
@@ -85,6 +87,7 @@ impl TooltipMotion {
                     item.append_plan(plan);
                 }
             }
+            Self::None => {}
             Self::Custom {
                 surface_enter,
                 surface_exit,
@@ -147,7 +150,7 @@ pub struct Tooltip {
     pub text: String,
     /// Controlled visibility override in addition to framework hover state.
     pub is_visible: bool,
-    /// Optional explicit tooltip motion. `None` emits no tooltip-owned motion declarations.
+    /// Tooltip motion. `None` plays the default motion unless the app turns widget motion off.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub motion: Option<TooltipMotion>,
 }
@@ -176,7 +179,13 @@ impl From<Tooltip> for Widget {
                 .described_by(vec![tooltip_id])
                 .into();
 
-        if show_tooltip || this.motion.is_some() {
+        let motion = resolve_motion(
+            &this.motion,
+            TooltipMotion::Default,
+            TooltipMotion::None,
+            view.env(),
+        );
+        if show_tooltip || (motion.is_some() && presence_active(slot_id(this.id, SLOT_SURFACE))) {
             let style = &theme.style;
             let mut tooltip_card: Widget = Container::new(
                 Text::new(this.text.clone())
@@ -195,7 +204,7 @@ impl From<Tooltip> for Widget {
             .border_radius(style.radius.unwrap_or(theme.radius))
             .shadows(style.outer_shadows())
             .into();
-            if let Some(motion) = &this.motion {
+            if let Some(motion) = &motion {
                 let plan = motion.plan();
                 tooltip_card = Presence {
                     id: slot_id(this.id, SLOT_SURFACE),

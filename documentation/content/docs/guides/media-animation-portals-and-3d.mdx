@@ -38,6 +38,26 @@ Do not use animation as a substitute for clear structure. If the user cannot tel
 
 A common mistake is forgetting stable widget identity. The runtime needs a durable widget ID to track an animation across frames. Another mistake is mixing animation intent with business logic. Reducers should decide what state changed. Animation should explain that change visually.
 
+### Default widget motion
+
+Built-in widgets animate subtly out of the box: modals and popovers fade and
+scale, drawers slide, tooltips and toasts ease in, tabs move their indicator,
+accordions collapse, and buttons ripple from the pointer. Each widget's
+`motion` field chooses another preset, and `Some(ModalMotion::None)` (or the
+matching `None` preset) turns one widget's motion off.
+
+To ship an app with no built-in motion, set `Env::widget_motion` once:
+
+```rust
+use fission::prelude::*;
+
+let mut env = Env::default();
+env.widget_motion = WidgetMotion::Off;
+```
+
+Shells never change `widget_motion`, so the choice holds on every platform.
+Widgets with an explicit `motion` preset still play it.
+
 ### Respecting reduced-motion preferences
 
 Reduced motion is one environment-level policy, not a collection of unrelated
