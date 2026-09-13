@@ -3,9 +3,11 @@
 use super::*;
 use crate::components::AxisPointerType;
 use crate::components::DataZoomType;
+use crate::interaction::ChartKeyboardSelected;
 use crate::interaction::{
     ChartLegendSelectionMode, ChartLegendToggled, ChartTooltipTrigger, ChartZoomChanged,
 };
+use fission_core::event::KeyCode;
 use fission_core::event::ScrollDeltaMode;
 use fission_core::ReducerContext;
 
@@ -76,6 +78,13 @@ fn tooltip_trigger(chart: &Chart) -> ChartTooltipTrigger {
     }
 }
 
+/// Where hover feedback comes from: the pointer, or the keyboard selection,
+/// which always shows the selected category's values.
+pub(super) enum HoverSource<'a> {
+    Pointer(&'a ChartHover),
+    Keyboard(ChartHover),
+}
+
 pub(super) fn draw_hover(
     cx: &mut fission_core::internal::LoweringContext,
     root: &mut fission_core::internal::IrBuilder,
@@ -83,9 +92,14 @@ pub(super) fn draw_hover(
     chart: &Chart,
     area: &ChartArea,
     theme: &ChartTheme,
+    source: Option<HoverSource<'_>>,
 ) {
-    let Some(hover) = chart.hover.as_ref() else {
+    let Some(source) = source else {
         return;
+    };
+    let (hover, from_keyboard) = match &source {
+        HoverSource::Pointer(hover) => (*hover, false),
+        HoverSource::Keyboard(hover) => (hover, true),
     };
     let pointer = LayoutPoint::new(hover.x, hover.y);
     if !area.plot.contains(pointer) {
@@ -98,7 +112,11 @@ pub(super) fn draw_hover(
         pointer,
         category: hovered_category(model, area, pointer),
     };
-    let trigger = tooltip_trigger(chart);
+    let trigger = if from_keyboard {
+        ChartTooltipTrigger::Axis
+    } else {
+        tooltip_trigger(chart)
+    };
 
     let pointer_type = chart
         .axis_pointer
@@ -634,5 +652,118 @@ mod zoom_tests {
         let (start, end) = zoomed_window(40.0, 50.0, -50.0, 0.0);
         assert!((end - start - MIN_ZOOM_SPAN).abs() < 0.01);
         assert_eq!(zoomed_window(10.0, 90.0, 50.0, 0.5), (0.0, 100.0));
+    }
+}
+
+/// A chart's keyboard selection, remembered between builds.
+#[derive(Debug, Clone, Default)]
+pub(super) struct KeyboardMemory(pub(super) Option<usize>);
+
+impl fission_core::GlobalState for KeyboardMemory {}
+
+pub(super) fn on_keyboard_selected(
+    memory: &mut KeyboardMemory,
+    action: ChartKeyboardSelected,
+    _: &mut ReducerContext<'_, '_, '_, KeyboardMemory>,
+) {
+    memory.0 = action.0;
+}
+
+/// Each navigation key and the category it selects from `current` among
+/// `count` categories: arrows step, Home and End jump, Escape clears.
+pub(super) fn keyboard_targets(
+    current: Option<usize>,
+    count: usize,
+) -> Vec<(KeyCode, Option<usize>)> {
+    if count == 0 {
+        return Vec::new();
+    }
+    let last = count - 1;
+    let previous = current.map_or(last, |index| index.saturating_sub(1));
+    let next = current.map_or(0, |index| (index + 1).min(last));
+    vec![
+        (KeyCode::Left, Some(previous)),
+        (KeyCode::Right, Some(next)),
+        (KeyCode::Home, Some(0)),
+        (KeyCode::End, Some(last)),
+        (KeyCode::Escape, None),
+    ]
+}
+
+/// What assistive technology reads for the chart: an overview, or the selected
+/// category's value in every visible series.
+pub(super) fn describe_chart(model: &ChartModel, selected: Option<usize>) -> String {
+    let names = series_names(model);
+    let visible: Vec<usize> = (0..model.series.len())
+        .filter(|index| !model.is_hidden(*index))
+        .collect();
+    let Some((index, label)) =
+        selected.and_then(|index| model.x_categories.get(index).map(|label| (index, label)))
+    else {
+        return format!(
+            "{} series across {} categories",
+            visible.len(),
+            model.x_categories.len()
+        );
+    };
+    let values: Vec<String> = visible
+        .iter()
+        .filter_map(|&series_index| {
+            let values = match &model.series[series_index] {
+                ResolvedSeries::Line(line) => &line.values,
+                ResolvedSeries::Bar(bar) => &bar.values,
+                _ => return None,
+            };
+            Some(format!(
+                "{} {}",
+                names[series_index],
+                format_tick(*values.get(index)?)
+            ))
+        })
+        .collect();
+    format!("{label}: {}", values.join(", "))
+}
+
+/// The hover the keyboard selection shows, at the selected category's centre.
+pub(super) fn keyboard_hover(
+    model: &ChartModel,
+    area: &ChartArea,
+    selected: Option<usize>,
+) -> Option<ChartHover> {
+    let index = selected.filter(|index| *index < model.x_categories.len())?;
+    Some(ChartHover::at(
+        map_category_x(index, model, area),
+        area.plot.y() + area.plot.height() / 2.0,
+    ))
+}
+
+#[cfg(test)]
+mod keyboard_tests {
+    use super::*;
+    use crate::{Axis, LineSeries};
+
+    #[test]
+    fn arrows_step_and_stop_at_the_ends_home_and_end_jump_and_escape_clears() {
+        let targets = keyboard_targets(Some(2), 3);
+        assert!(targets.contains(&(KeyCode::Left, Some(1))));
+        assert!(targets.contains(&(KeyCode::Right, Some(2))));
+        assert!(targets.contains(&(KeyCode::Home, Some(0))));
+        assert!(targets.contains(&(KeyCode::End, Some(2))));
+        assert!(targets.contains(&(KeyCode::Escape, None)));
+        assert!(keyboard_targets(None, 0).is_empty());
+        assert!(keyboard_targets(None, 3).contains(&(KeyCode::Right, Some(0))));
+    }
+
+    #[test]
+    fn the_description_reads_the_selected_category() {
+        let chart = Chart::new()
+            .x_axis(Axis::category(vec!["Q1", "Q2"]))
+            .series(vec![
+                LineSeries::new("North").data(vec![3.0, 5.0]).into(),
+                LineSeries::new("South").data(vec![2.0, 4.0]).into(),
+            ]);
+        let model = ChartModel::from_chart(&chart);
+        assert_eq!(describe_chart(&model, None), "2 series across 2 categories");
+        assert_eq!(describe_chart(&model, Some(1)), "Q2: North 5, South 4");
     }
 }

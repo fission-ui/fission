@@ -655,11 +655,16 @@ fn test_chart_lowering() {
     let ir = cx.into_ir();
     let root_node = ir.nodes.get(&generated_id).expect("Root node should exist");
 
-    // Root should be a ZStack
-    match &root_node.op {
-        fission_ir::Op::Layout(LayoutOp::ZStack) => {}
-        _ => panic!("Expected ZStack LayoutOp for Chart"),
-    }
+    // The root describes the chart and holds its drawing stack.
+    let fission_ir::Op::Semantics(semantics) = &root_node.op else {
+        panic!("Expected the chart root to carry semantics");
+    };
+    assert_eq!(semantics.role, fission_ir::Role::Image);
+    let stack = ir
+        .nodes
+        .get(&root_node.children[0])
+        .expect("chart drawing stack");
+    assert!(matches!(stack.op, fission_ir::Op::Layout(LayoutOp::ZStack)));
 
     assert!(
         ir.nodes.len() > 10,
@@ -924,4 +929,28 @@ fn data_zoom_slider_draws_handles_at_both_window_edges() {
         handles >= 2,
         "expected both slider handles, found {handles}"
     );
+}
+
+#[test]
+fn charts_describe_themselves_to_assistive_technology() {
+    let ir = lower_chart(
+        weekday_chart(ChartTooltipTrigger::Axis)
+            .interaction(ChartInteraction::new().keyboard_focus(true)),
+    );
+    let semantics = ir
+        .nodes
+        .values()
+        .find_map(|node| match &node.op {
+            fission_ir::Op::Semantics(semantics) => Some(semantics),
+            _ => None,
+        })
+        .expect("chart semantics");
+
+    assert_eq!(semantics.role, fission_ir::Role::Image);
+    assert_eq!(semantics.label.as_deref(), Some("Chart"));
+    assert_eq!(
+        semantics.value.as_deref(),
+        Some("2 series across 3 categories")
+    );
+    assert!(semantics.focusable && semantics.sequential_focusable);
 }
