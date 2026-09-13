@@ -3,6 +3,7 @@ use crate::motion_support::{
     resolve_motion, slot_id, SLOT_CONTENT, SLOT_HEADER, SLOT_INDICATOR, SLOT_PANEL,
 };
 use crate::stack::{HStack, VStack};
+use crate::Icon;
 use fission_core::motion::{
     deg, Motion, MotionEasing, MotionPropertyId, MotionStartValue, MotionTrack, MotionTransition,
     Presence,
@@ -13,6 +14,7 @@ use fission_core::ui::{
     Widget,
 };
 use fission_core::{ActionEnvelope, WidgetId};
+use fission_icons::material;
 use fission_ir::Role;
 use serde::{Deserialize, Serialize};
 use std::ops::Add;
@@ -238,17 +240,30 @@ impl From<Accordion> for Widget {
                 SLOT_INDICATOR,
             );
             let motion_plan = motion.as_ref().map(|motion| motion.plan(item.is_expanded));
-            let mut indicator: Widget = Text {
-                content: TextContent::Literal(if item.is_expanded { "▼" } else { "▶" }.into()),
-                font_size: Some(
+            // One square chevron that rotates about its centre. Swapping glyphs while also
+            // rotating showed the wrong glyph mid-turn, and a text glyph is not centred in its
+            // box, so the turn looked tilted.
+            let indicator_size = indicator_style
+                .icon_size
+                .or(indicator_style.font_size)
+                .unwrap_or(tokens.typography.font_size_base);
+            let rotates = motion_plan
+                .as_ref()
+                .is_some_and(|plan| !plan.indicator.is_empty());
+            // Without rotation motion, the expanded state shows the upward chevron directly.
+            let chevron = if item.is_expanded && !rotates {
+                material::navigation::expand_less::regular()
+            } else {
+                material::navigation::expand_more::regular()
+            };
+            let mut indicator: Widget = Icon::svg(chevron)
+                .size(indicator_size)
+                .color(
                     indicator_style
-                        .font_size
-                        .unwrap_or(tokens.typography.font_size_xs),
-                ),
-                color: Some(tokens.colors.text_secondary),
-                ..Default::default()
-            }
-            .into();
+                        .text_color
+                        .unwrap_or(tokens.colors.text_secondary),
+                )
+                .into();
             if let Some(plan) = &motion_plan {
                 if !plan.indicator.is_empty() {
                     indicator = Motion {
