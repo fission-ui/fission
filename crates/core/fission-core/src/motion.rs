@@ -248,12 +248,7 @@ impl MotionValue {
             (Self::Scalar(a), Self::Scalar(b)) => Self::Scalar(lerp(*a, *b, t)),
             (Self::Px(a), Self::Px(b)) => Self::Px(lerp(*a, *b, t)),
             (Self::Deg(a), Self::Deg(b)) => Self::Deg(lerp(*a, *b, t)),
-            (Self::Color(a), Self::Color(b)) => Self::Color(Color {
-                r: lerp(a.r as f32, b.r as f32, t).round().clamp(0.0, 255.0) as u8,
-                g: lerp(a.g as f32, b.g as f32, t).round().clamp(0.0, 255.0) as u8,
-                b: lerp(a.b as f32, b.b as f32, t).round().clamp(0.0, 255.0) as u8,
-                a: lerp(a.a as f32, b.a as f32, t).round().clamp(0.0, 255.0) as u8,
-            }),
+            (Self::Color(a), Self::Color(b)) => Self::Color(interpolate_color(*a, *b, t)),
             _ => {
                 if t >= 1.0 {
                     to.clone()
@@ -1916,6 +1911,34 @@ fn map_numeric(value: MotionValue, f: impl FnOnce(f32) -> f32) -> MotionValue {
         | MotionValue::Color(_)
         | MotionValue::Fill(_)
         | MotionValue::Shadows(_) => value,
+    }
+}
+
+/// Interpolates colours with premultiplied alpha.
+///
+/// Blending the straight channels would carry the colour of a transparent end into the
+/// transition: fading a hover background out to a transparent black would darken it on the way.
+/// Weighting each colour by its alpha keeps a fade to or from transparent in the visible colour.
+fn interpolate_color(from: Color, to: Color, t: f32) -> Color {
+    let from_alpha = from.a as f32 / 255.0;
+    let to_alpha = to.a as f32 / 255.0;
+    let alpha = lerp(from_alpha, to_alpha, t);
+    let channel = |from_channel: u8, to_channel: u8| {
+        if alpha <= f32::EPSILON {
+            return to_channel;
+        }
+        let premultiplied = lerp(
+            from_channel as f32 * from_alpha,
+            to_channel as f32 * to_alpha,
+            t,
+        );
+        (premultiplied / alpha).round().clamp(0.0, 255.0) as u8
+    };
+    Color {
+        r: channel(from.r, to.r),
+        g: channel(from.g, to.g),
+        b: channel(from.b, to.b),
+        a: (alpha * 255.0).round().clamp(0.0, 255.0) as u8,
     }
 }
 
