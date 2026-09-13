@@ -5,6 +5,8 @@
 //! light and dark modes and whichever design system is active, instead of fixing
 //! one dark palette.
 
+#[cfg(not(target_arch = "wasm32"))]
+use crate::syntax::SyntaxKind;
 use fission::core::op::Color;
 use fission::theme::{recipe_names, Theme};
 
@@ -91,6 +93,24 @@ pub(crate) struct EditorPalette {
     pub(crate) file_yaml: Color,
     pub(crate) file_ruby: Color,
     pub(crate) file_go: Color,
+    /// Highlighted source colours, looked up through [`EditorPalette::syntax`].
+    #[cfg(not(target_arch = "wasm32"))]
+    syntax_colors: SyntaxColors,
+}
+
+/// Colours for each [`SyntaxKind`], resolved from the `code_syntax` recipe.
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Clone, Copy, Debug)]
+struct SyntaxColors {
+    plain: Color,
+    keyword: Color,
+    string: Color,
+    comment: Color,
+    number: Color,
+    type_name: Color,
+    macro_name: Color,
+    attribute: Color,
+    lifetime: Color,
 }
 
 impl EditorPalette {
@@ -163,6 +183,35 @@ impl EditorPalette {
             file_yaml: syntax("deleted", c.error),
             file_ruby: c.error,
             file_go: c.info,
+            #[cfg(not(target_arch = "wasm32"))]
+            syntax_colors: SyntaxColors {
+                plain: syntax("variable", c.text_primary),
+                keyword: syntax("keyword", c.primary),
+                string: syntax("string", c.success),
+                comment: syntax("comment", c.text_muted),
+                number: syntax("number", c.warning),
+                type_name: syntax("type", c.secondary),
+                macro_name: syntax("function", c.info),
+                attribute: syntax("constant", c.info),
+                lifetime: syntax("punctuation", c.text_secondary),
+            },
+        }
+    }
+
+    /// The colour for a highlighted span of `kind`.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) fn syntax(&self, kind: SyntaxKind) -> Color {
+        let colors = &self.syntax_colors;
+        match kind {
+            SyntaxKind::Plain => colors.plain,
+            SyntaxKind::Keyword => colors.keyword,
+            SyntaxKind::String => colors.string,
+            SyntaxKind::Comment => colors.comment,
+            SyntaxKind::Number => colors.number,
+            SyntaxKind::Type => colors.type_name,
+            SyntaxKind::Macro => colors.macro_name,
+            SyntaxKind::Attribute => colors.attribute,
+            SyntaxKind::Lifetime => colors.lifetime,
         }
     }
 }
