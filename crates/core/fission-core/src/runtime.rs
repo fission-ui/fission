@@ -1542,6 +1542,7 @@ impl Runtime {
         use crate::ui::custom_render::downcast_render_object;
 
         self.reconcile_focus(ir)?;
+        crate::input::update_focus_modality(&mut self.runtime_state.interaction, &event);
         let cancelled_pointer_sequence = crate::input::gesture::cancel_unavailable_pointer_sequence(
             ir,
             &mut self.runtime_state.gesture,

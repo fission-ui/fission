@@ -221,3 +221,29 @@ pub(crate) fn scoped_action_input(
         input
     }
 }
+
+/// Focus rings follow the input in use, not only focus changes: a press hides them, even on the
+/// control that already has focus, and keyboard navigation shows them.
+pub(crate) fn update_focus_modality(
+    interaction: &mut crate::env::InteractionStateMap,
+    event: &crate::event::InputEvent,
+) {
+    use crate::event::{InputEvent, KeyCode, KeyEvent, PointerEvent};
+    match event {
+        InputEvent::Pointer(PointerEvent::Down { .. }) => interaction.focus_visible = false,
+        InputEvent::Keyboard(KeyEvent::Down {
+            key_code:
+                KeyCode::Tab
+                | KeyCode::Up
+                | KeyCode::Down
+                | KeyCode::Left
+                | KeyCode::Right
+                | KeyCode::Home
+                | KeyCode::End
+                | KeyCode::PageUp
+                | KeyCode::PageDown,
+            ..
+        }) => interaction.focus_visible = true,
+        _ => {}
+    }
+}
