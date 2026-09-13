@@ -2403,7 +2403,13 @@ impl Runtime {
                     }
                     KeyCode::Enter | KeyCode::Space => {
                         if let Some(focused_id) = self.runtime_state.interaction.focused {
-                            let mut current_id = Some(focused_id);
+                            // A text field takes Enter and Space as input: Space is typed and Enter
+                            // submits through the field's own actions. Activating a surrounding
+                            // control would act on it and move focus out of the field.
+                            let edits_text = ir.nodes.get(&focused_id).is_some_and(|node| {
+                                matches!(&node.op, Op::Semantics(semantics) if semantics.supports_text_editing())
+                            });
+                            let mut current_id = (!edits_text).then_some(focused_id);
                             while let Some(node_id) = current_id {
                                 if let Some(node) = ir.nodes.get(&node_id) {
                                     if let Op::Semantics(semantics) = &node.op {
