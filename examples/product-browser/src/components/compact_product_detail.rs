@@ -23,7 +23,7 @@ impl From<CompactProductDetail> for Widget {
                     id: Some(WidgetId::explicit("product-browser.compact-detail.back",)),
                     on_press: Some(close),
                     variant: ButtonVariant::Ghost,
-                    child: Some(Text::new("Back to products").into()),
+                    child: Some(Text::new(view.tr("product_browser.detail.back")).into()),
                     ..Default::default()
                 }
                 .semantics_identifier("product-browser.compact-detail.back"),

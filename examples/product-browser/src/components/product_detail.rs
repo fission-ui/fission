@@ -45,10 +45,12 @@ impl From<ProductDetail> for Widget {
                         .weight(tokens.typography.font_weight_bold)
                         .color(tokens.colors.primary)
                         .into(),
-                    Text::new(format!(
-                        "{:.1} stars · {} in stock · {}",
-                        product.rating, product.stock, product.category
-                    ))
+                    Text::new(
+                        view.tr("product_browser.detail.facts")
+                            .replace("{rating}", &format!("{:.1}", product.rating))
+                            .replace("{stock}", &product.stock.to_string())
+                            .replace("{category}", &product.category),
+                    )
                     .size(tokens.typography.font_size_sm)
                     .color(tokens.colors.text_secondary)
                     .max_width(DETAIL_TEXT_WIDTH)
@@ -63,9 +65,10 @@ impl From<ProductDetail> for Widget {
                         .max_width(DETAIL_TEXT_WIDTH)
                         .into(),
                     Text::new(if product.tags.is_empty() {
-                        "No tags".to_string()
+                        view.tr("product_browser.detail.no_tags")
                     } else {
-                        format!("Tags: {}", product.tags.join(", "))
+                        view.tr("product_browser.detail.tags")
+                            .replace("{tags}", &product.tags.join(", "))
                     })
                     .size(tokens.typography.font_size_sm)
                     .color(tokens.colors.text_secondary)
@@ -77,7 +80,7 @@ impl From<ProductDetail> for Widget {
             .into()
         } else {
             Center {
-                child: Text::new("Select a product to see the details")
+                child: Text::new(view.tr("product_browser.detail.empty"))
                     .color(tokens.colors.text_secondary)
                     .max_width(DETAIL_EMPTY_TEXT_WIDTH)
                     .into(),

@@ -18,13 +18,13 @@ impl From<CategoryRail> for Widget {
         let compact = component.instance == "compact";
         let tokens = &view.env().theme.tokens;
 
-        let heading = Text::new("Categories")
+        let heading = Text::new(view.tr("product_browser.categories.title"))
             .size(tokens.typography.body_medium_size)
             .weight(tokens.typography.font_weight_bold)
             .color(tokens.colors.text_primary)
             .into();
         let mut entries = vec![CategoryEntry {
-            label: "All products".to_string(),
+            label: view.tr("product_browser.categories.all"),
             action: with_reducer!(ctx, CategorySelected(None), on_category_selected),
             selected: view.state().selected_category.is_none(),
             identifier: format!("product-browser.category.{}.all", component.instance),
@@ -34,7 +34,7 @@ impl From<CategoryRail> for Widget {
         match component.snapshot.connection_state {
             AsyncConnectionState::Waiting => {
                 entries.push(
-                    Text::new("Loading categories...")
+                    Text::new(view.tr("product_browser.categories.loading"))
                         .size(tokens.typography.body_medium_size)
                         .color(tokens.colors.text_secondary)
                         .into(),
@@ -42,7 +42,7 @@ impl From<CategoryRail> for Widget {
             }
             _ if component.snapshot.has_error() => {
                 entries.push(
-                    Text::new("Categories unavailable")
+                    Text::new(view.tr("product_browser.categories.unavailable"))
                         .size(tokens.typography.body_medium_size)
                         .color(tokens.colors.text_secondary)
                         .into(),
