@@ -257,6 +257,18 @@ impl InputController for GestureController {
                             return true;
                         }
 
+                        // A drag that starts on a focused text input selects text. It must not
+                        // become a pan, which would scroll the surrounding view and swallow the
+                        // moves before the text input sees them.
+                        if let Some(focused) = ctx.interaction.focused {
+                            let edits_text = ctx.ir.nodes.get(&focused).is_some_and(|node| {
+                                matches!(&node.op, Op::Semantics(semantics) if semantics.supports_text_editing())
+                            });
+                            if edits_text && ctx.interaction.is_pressed(focused) {
+                                return false;
+                            }
+                        }
+
                         if let Some(start) = ctx.gesture.start_point {
                             let dx = point.x - start.x;
                             let dy = point.y - start.y;
