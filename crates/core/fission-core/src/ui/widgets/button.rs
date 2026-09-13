@@ -1434,7 +1434,7 @@ impl Button {
     }
 }
 
-fn component_motion_transition(motion: ComponentMotion) -> MotionTransition {
+pub(crate) fn component_motion_transition(motion: ComponentMotion) -> MotionTransition {
     let easing = match motion.easing {
         EasingCurve::Linear => MotionEasing::Linear,
         EasingCurve::Ease => MotionEasing::CubicBezier(0.25, 0.1, 0.25, 1.0),

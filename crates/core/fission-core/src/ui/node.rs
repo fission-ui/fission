@@ -1116,18 +1116,48 @@ impl From<Responsive> for Widget {
         Self::from_kind(WidgetKind::Responsive(w))
     }
 }
+/// The identity a toggle's motion is tracked under: its explicit id, the
+/// identity its build scope gives it, or an implicit one. `None` outside a build.
+fn toggle_motion_id(
+    explicit: Option<WidgetId>,
+    implicit: impl FnOnce() -> Option<WidgetId>,
+) -> Option<WidgetId> {
+    let current_widget_id = crate::build::current_widget_id();
+    let inherited =
+        crate::build::current_identity().filter(|identity| Some(*identity) == current_widget_id);
+    explicit.or(inherited).or_else(implicit)
+}
+
 impl From<Checkbox> for Widget {
-    fn from(w: Checkbox) -> Self {
+    fn from(mut w: Checkbox) -> Self {
+        if let Some(id) =
+            toggle_motion_id(w.id, || crate::build::next_implicit_widget_id(0x70C4_EC01))
+        {
+            w.id = Some(id);
+            w.register_motion_declarations(id);
+        }
         Self::from_kind(WidgetKind::Checkbox(w))
     }
 }
 impl From<Switch> for Widget {
-    fn from(w: Switch) -> Self {
+    fn from(mut w: Switch) -> Self {
+        if let Some(id) =
+            toggle_motion_id(w.id, || crate::build::next_implicit_widget_id(0x7057_1C01))
+        {
+            w.id = Some(id);
+            w.register_motion_declarations(id);
+        }
         Self::from_kind(WidgetKind::Switch(w))
     }
 }
 impl From<Radio> for Widget {
-    fn from(w: Radio) -> Self {
+    fn from(mut w: Radio) -> Self {
+        if let Some(id) =
+            toggle_motion_id(w.id, || crate::build::next_implicit_widget_id(0x70AD_1001))
+        {
+            w.id = Some(id);
+            w.register_motion_declarations(id);
+        }
         Self::from_kind(WidgetKind::Radio(w))
     }
 }

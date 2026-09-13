@@ -86,42 +86,46 @@ impl Lower for Radio {
                 tokens.colors.text_primary
             };
 
-            // Outer Circle
-            let bg_paint = if self.checked {
-                Op::Paint(PaintOp::DrawRect {
-                    fill: None,
-                    stroke: Some(fission_ir::op::Stroke {
-                        fill: fission_ir::op::Fill::Solid(active_color),
-                        width: 2.0,
-                        dash_array: None,
-                        line_cap: fission_ir::op::LineCap::Butt,
-                        line_join: fission_ir::op::LineJoin::Miter,
-                    }),
-                    corner_radius: size / 2.0,
-                    shadow: None,
-                    corner_radii: None,
-                    border_sides: None,
-                })
-            } else {
-                Op::Paint(PaintOp::DrawRect {
-                    fill: None,
-                    stroke: Some(fission_ir::op::Stroke {
-                        fill: fission_ir::op::Fill::Solid(border_color),
-                        width: 1.5,
-                        dash_array: None,
-                        line_cap: fission_ir::op::LineCap::Butt,
-                        line_join: fission_ir::op::LineJoin::Miter,
-                    }),
-                    corner_radius: size / 2.0,
-                    shadow: None,
-                    corner_radii: None,
-                    border_sides: None,
-                })
+            // The ring's colour and weight ease between states when widget motion is on.
+            let ring_color = match cx
+                .runtime_state
+                .motion
+                .values
+                .get(&(id, crate::motion::MotionPropertyId::BorderColor))
+            {
+                Some(crate::motion::MotionValue::Color(color)) => *color,
+                _ if self.checked => active_color,
+                _ => border_color,
             };
+            let ring_width = match cx
+                .runtime_state
+                .motion
+                .values
+                .get(&(id, crate::motion::MotionPropertyId::BorderWidth))
+            {
+                Some(crate::motion::MotionValue::Px(width)) => *width,
+                _ if self.checked => RING_CHECKED_WIDTH,
+                _ => RING_WIDTH,
+            };
+            let bg_paint = Op::Paint(PaintOp::DrawRect {
+                fill: None,
+                stroke: Some(fission_ir::op::Stroke {
+                    fill: fission_ir::op::Fill::Solid(ring_color),
+                    width: ring_width,
+                    dash_array: None,
+                    line_cap: fission_ir::op::LineCap::Butt,
+                    line_join: fission_ir::op::LineJoin::Miter,
+                }),
+                corner_radius: size / 2.0,
+                shadow: None,
+                corner_radii: None,
+                border_sides: None,
+            });
             let outer_node = IrBuilder::new(cx.next_node_id(), bg_paint).build(cx);
 
-            // Dot
-            let dot_node = if self.checked {
+            // The dot is always present so it can fade and grow in and out.
+            let dot_motion = WidgetId::derived(id.as_u128(), &[DOT_MOTION_PATH]);
+            let dot_node = {
                 let dot = IrBuilder::new(
                     cx.next_node_id(),
                     Op::Paint(PaintOp::DrawRect {
@@ -148,7 +152,22 @@ impl Lower for Radio {
                         flex_shrink: 0.0,
                         aspect_ratio: None,
                     }),
-                );
+                )
+                .composite(fission_ir::op::CompositeStyle {
+                    opacity: Some(
+                        fission_ir::op::CompositeScalar::new(if self.checked { 1.0 } else { 0.0 })
+                            .motion(dot_motion),
+                    ),
+                    scale: Some(
+                        fission_ir::op::CompositeScalar::new(if self.checked {
+                            1.0
+                        } else {
+                            DOT_HIDDEN_SCALE
+                        })
+                        .motion(dot_motion),
+                    ),
+                    ..Default::default()
+                });
                 dot_box.add_child(dot);
                 let dot_box_id = dot_box.build(cx);
                 let mut dot_align = IrBuilder::new(cx.next_node_id(), Op::Layout(LayoutOp::Align));
@@ -170,9 +189,7 @@ impl Lower for Radio {
                     }),
                 );
                 dot_container.add_child(dot_align_id);
-                Some(dot_container.build(cx))
-            } else {
-                None
+                dot_container.build(cx)
             };
 
             let mut radio_box = IrBuilder::new(
@@ -191,9 +208,7 @@ impl Lower for Radio {
                 }),
             );
             radio_box.add_child(outer_node);
-            if let Some(d) = dot_node {
-                radio_box.add_child(d);
-            }
+            radio_box.add_child(dot_node);
             let radio_final = radio_box.build(cx);
 
             // Label
@@ -288,5 +303,59 @@ impl Lower for Radio {
         let mut sem_node = IrBuilder::new(id, Op::Semantics(semantics));
         sem_node.add_child(layout_id);
         sem_node.build(cx)
+    }
+}
+
+/// Path from a radio's id to its dot's motion identity.
+const DOT_MOTION_PATH: u32 = 0xD07_0001;
+/// The scale a radio dot grows from and shrinks to.
+const DOT_HIDDEN_SCALE: f32 = 0.4;
+/// The ring's stroke width when unselected and when selected.
+const RING_WIDTH: f32 = 1.5;
+const RING_CHECKED_WIDTH: f32 = 2.0;
+
+impl Radio {
+    /// Registers the tracks that ease the ring and dot between states.
+    pub(crate) fn register_motion_declarations(&self, id: WidgetId) {
+        use crate::ui::widgets::checkbox::{register_tracks, shown_tracks, toggle_transition};
+        let Some(env) = crate::build::try_current_env() else {
+            return;
+        };
+        let Some(transition) = toggle_transition(env) else {
+            return;
+        };
+        let colors = &env.theme.tokens.colors;
+        let ring = if self.disabled {
+            colors.text_muted
+        } else if self.checked {
+            colors.primary
+        } else {
+            colors.text_secondary
+        };
+        register_tracks(
+            id,
+            vec![
+                crate::motion::MotionTrack::paint(
+                    crate::motion::MotionPropertyId::BorderColor,
+                    crate::motion::MotionStartValue::Current,
+                    crate::motion::color(ring),
+                )
+                .transition(transition.clone()),
+                crate::motion::MotionTrack::paint(
+                    crate::motion::MotionPropertyId::BorderWidth,
+                    crate::motion::MotionStartValue::Current,
+                    crate::motion::px(if self.checked {
+                        RING_CHECKED_WIDTH
+                    } else {
+                        RING_WIDTH
+                    }),
+                )
+                .transition(transition.clone()),
+            ],
+        );
+        register_tracks(
+            WidgetId::derived(id.as_u128(), &[DOT_MOTION_PATH]),
+            shown_tracks(self.checked, DOT_HIDDEN_SCALE, transition),
+        );
     }
 }
