@@ -8,6 +8,7 @@ use fission_charts::{
     PolarLineSeries, RadarSeries, SankeySeries, ScatterSeries, SingleAxisSeries, SunburstSeries,
     ThemeRiverSeries, TreeSeries, TreemapNode, TreemapSeries, WordcloudSeries,
 };
+use fission_charts::{ChartHit, ChartHover, ChartTooltipTrigger};
 use fission_core::{
     env::Env,
     internal::{LowerWidget, LoweringContext},
@@ -678,4 +679,76 @@ fn test_chart_lowering() {
         .values()
         .any(|n| matches!(n.op, fission_ir::Op::Paint(PaintOp::DrawPath { .. })));
     assert!(has_paths, "Line chart should generate DrawPath PaintOps");
+}
+
+fn lower_chart(chart: Chart) -> fission_ir::CoreIR {
+    let lowerer = ChartInternalLowerer { chart };
+    let env = Env::default();
+    let runtime_state = fission_core::RuntimeState::default();
+    let mut cx = LoweringContext::new(&env, &runtime_state, None, None);
+    let root_id = cx.next_node_id();
+    cx.push_scope(root_id);
+    lowerer.lower_dyn(&mut cx);
+    cx.into_ir()
+}
+
+fn count_text(ir: &fission_ir::CoreIR, wanted: &str) -> usize {
+    ir.nodes
+        .values()
+        .filter(|node| node.op.text().is_some_and(|text| text == wanted))
+        .count()
+}
+
+/// Revenue and orders by weekday, 800 by 400 points, so the plot spans x 70 to
+/// 756 and y 38 to 346.
+fn weekday_chart(trigger: ChartTooltipTrigger) -> Chart {
+    Chart::new()
+        .width(800.0)
+        .height(400.0)
+        .x_axis(Axis::category(vec!["Mon", "Tue", "Wed"]))
+        .y_axis(Axis::value())
+        .series(vec![
+            LineSeries::new("Revenue")
+                .data(vec![120.0, 200.0, 150.0])
+                .into(),
+            BarSeries::new("Orders").data(vec![30.0, 45.0, 12.0]).into(),
+        ])
+        .interaction(ChartInteraction::tooltips(trigger))
+}
+
+#[test]
+fn axis_tooltip_lists_every_series_at_the_hovered_category() {
+    let idle = lower_chart(weekday_chart(ChartTooltipTrigger::Axis));
+    // x 400 falls in the middle category band, "Tue".
+    let hovered =
+        lower_chart(weekday_chart(ChartTooltipTrigger::Axis).hover(ChartHover::at(400.0, 200.0)));
+
+    assert_eq!(count_text(&idle, "Revenue"), 0);
+    assert_eq!(count_text(&hovered, "Revenue"), 1);
+    assert_eq!(count_text(&hovered, "Orders"), 1);
+    assert_eq!(count_text(&hovered, "45"), 1);
+    assert_eq!(count_text(&hovered, "200"), count_text(&idle, "200") + 1);
+    assert_eq!(count_text(&hovered, "Tue"), count_text(&idle, "Tue") + 1);
+}
+
+#[test]
+fn item_tooltip_shows_only_the_hit_item() {
+    let hover = ChartHover {
+        x: 400.0,
+        y: 300.0,
+        hit: Some(ChartHit::series_item(1, "Orders", 1, None, Some(45.0))),
+    };
+    let hovered = lower_chart(weekday_chart(ChartTooltipTrigger::Item).hover(hover));
+
+    assert_eq!(count_text(&hovered, "Orders"), 1);
+    assert_eq!(count_text(&hovered, "45"), 1);
+    assert_eq!(count_text(&hovered, "Revenue"), 0);
+}
+
+#[test]
+fn hover_outside_the_plot_draws_no_feedback() {
+    let idle = lower_chart(weekday_chart(ChartTooltipTrigger::Axis));
+    let outside =
+        lower_chart(weekday_chart(ChartTooltipTrigger::Axis).hover(ChartHover::at(10.0, 10.0)));
+    assert_eq!(outside.nodes.len(), idle.nodes.len());
 }
