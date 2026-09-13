@@ -484,8 +484,7 @@ pub struct BoxStyle {
     ///
     /// The inline edges follow the layout direction: `start` is the left edge
     /// in a left-to-right layout and the right edge in a right-to-left one.
-    /// This is the directional counterpart of [`padding`](Self::padding), the
-    /// way Flutter pairs `EdgeInsetsDirectional` with `EdgeInsets`.
+    /// This is the directional counterpart of [`padding`](Self::padding).
     ///
     /// When present this replaces `padding` rather than merging with it, so a
     /// box has exactly one source of inner spacing.

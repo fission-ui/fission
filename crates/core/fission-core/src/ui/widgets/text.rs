@@ -1738,8 +1738,8 @@ impl Lower for Text {
         };
         let selection_range = runtime_selection.or(self.selection_range);
 
-        // `Text` always paints through rich-text IR, the way Flutter routes
-        // every `Text` through a single `Paragraph`.
+        // `Text` always paints through rich-text IR, so plain and rich text
+        // share a single paragraph path.
         //
         // Style resolution falls back to the theme's sans family, so a resolved
         // style always carries a font family. Emitting a bare `DrawText` here
