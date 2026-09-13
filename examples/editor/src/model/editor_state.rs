@@ -123,6 +123,24 @@ impl EditorState {
                 self.update_breadcrumb();
                 self.status_message = Some(format!("Renamed to '{}'", new_name));
             }
+            FsResult::Deleted { path } => {
+                let removed = |candidate: &str| Path::new(candidate).starts_with(&path);
+                self.open_tabs.retain(|tab| !removed(&tab.path));
+                self.active_tab = self.active_tab.min(self.open_tabs.len().saturating_sub(1));
+                self.file_contents.retain(|open, _| !removed(open));
+                self.tree_expanded.retain(|expanded| !removed(expanded));
+                if self.tree_selected.as_deref().is_some_and(removed) {
+                    self.tree_selected = None;
+                }
+                let name = Path::new(&path)
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .unwrap_or(&path)
+                    .to_string();
+                self.request_tree_refresh();
+                self.update_breadcrumb();
+                self.status_message = Some(format!("Deleted '{}'", name));
+            }
         }
     }
 

@@ -1217,9 +1217,6 @@ pub struct SetEditorPreedit {
 }
 
 #[fission_action]
-pub struct ToggleCommandPalette;
-
-#[fission_action]
 pub struct UpdateCommandQuery;
 
 #[fission_action]
@@ -1232,16 +1229,7 @@ pub struct ToggleTerminal;
 pub struct SetSidebarSection(pub SidebarSection);
 
 #[fission_action]
-pub struct SaveFile;
-
-#[fission_action]
-pub struct SaveAllFiles;
-
-#[fission_action]
 pub struct DismissMenu;
-
-#[fission_action]
-pub struct ShowMenuStatus(pub String);
 
 #[fission_action]
 pub struct SetBottomPanelTab(pub BottomPanelTab);
@@ -1249,12 +1237,6 @@ pub struct SetBottomPanelTab(pub BottomPanelTab);
 #[fission_action]
 #[allow(dead_code)]
 pub struct ShowContextStatus(pub String);
-
-#[fission_action]
-pub struct RenameContextTarget;
-
-#[fission_action]
-pub struct DeleteContextTarget;
 
 #[fission_action]
 pub struct UpdateSearchQuery;
@@ -1363,22 +1345,10 @@ pub struct SetActiveMenu(pub Option<String>);
 pub struct GoToLine(pub usize);
 
 #[fission_action]
-pub struct GoToDefinition;
-
-#[fission_action]
 pub struct Undo;
 
 #[fission_action]
 pub struct Redo;
-
-#[fission_action]
-pub struct CopySelection;
-
-#[fission_action]
-pub struct CutSelection;
-
-#[fission_action]
-pub struct PasteClipboard;
 
 #[fission_action]
 pub struct UpdateCursorPosition {
@@ -1631,6 +1601,14 @@ fn search_files_recursive(dir: &Path, query: &str, results: &mut Vec<SearchResul
 
 mod fs_jobs;
 pub use fs_jobs::{run_fs_job, FsFailure, FsOp, FsOutcome, FsRequest, FsResult, FS_JOB};
+mod commands;
+pub use commands::{
+    on_create_file, on_create_folder, on_dismiss_command_palette, on_dismiss_context_menu,
+    on_dismiss_menu, on_open_file, on_refresh_tree, on_run_command, on_show_context_menu,
+    on_toggle_menu, on_toggle_tree_node, on_update_command_query, on_update_rename_input,
+    DismissCommandPalette, EditorCommand, RunCommand, EDITOR_CONTEXT_COMMANDS, MENUS,
+    PALETTE_COMMANDS, TREE_CONTEXT_COMMANDS,
+};
 
 #[cfg(test)]
 mod core_tests;

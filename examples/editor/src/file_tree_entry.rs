@@ -1,10 +1,13 @@
-use crate::model::{EditorState, FileEntry, OpenFile, ShowContextMenu, ToggleTreeNode};
+use crate::model::{
+    on_open_file, on_show_context_menu, on_toggle_tree_node, on_update_rename_input, EditorState,
+    FileEntry, OpenFile, ShowContextMenu, ToggleTreeNode, UpdateRenameInput,
+};
 use crate::palette::EditorPalette;
 use fission::core::op::Color;
+use fission::core::reduce_with;
 use fission::core::ui::{
     Button, ButtonContentAlign, ButtonVariant, Container, GestureDetector, Text, TextInput, Widget,
 };
-use fission::core::{ActionEnvelope, ActionId};
 use fission::widgets::{HStack, Icon, Spacer, VStack};
 
 const TREE_INDENT: f32 = 16.0;
@@ -19,15 +22,11 @@ const ICON_SIZE: f32 = 16.0;
 pub(crate) struct FileTreeEntry {
     pub entry: FileEntry,
     pub depth: usize,
-    pub toggle_id: ActionId,
-    pub open_id: ActionId,
-    pub context_menu_id: ActionId,
-    pub rename_input_action: ActionEnvelope,
 }
 
 impl From<FileTreeEntry> for Widget {
     fn from(component: FileTreeEntry) -> Self {
-        let (_, view) = fission::build::current::<EditorState>();
+        let (ctx, view) = fission::build::current::<EditorState>();
         let palette = EditorPalette::from_theme(&view.env().theme);
         let tokens = &view.env().theme.tokens;
         let entry = component.entry;
@@ -57,32 +56,28 @@ impl From<FileTreeEntry> for Widget {
         };
 
         let tap_action = if entry.is_dir {
-            ActionEnvelope {
-                id: component.toggle_id,
-                payload: serde_json::to_vec(&ToggleTreeNode(entry.path.clone())).unwrap(),
-            }
+            ctx.bind(
+                ToggleTreeNode(entry.path.clone()),
+                reduce_with!(on_toggle_tree_node),
+            )
         } else {
-            ActionEnvelope {
-                id: component.open_id,
-                payload: serde_json::to_vec(&OpenFile(entry.path.clone())).unwrap(),
-            }
+            ctx.bind(OpenFile(entry.path.clone()), reduce_with!(on_open_file))
         };
-        let context_menu_action = ActionEnvelope {
-            id: component.context_menu_id,
-            payload: serde_json::to_vec(&ShowContextMenu {
+        let context_menu_action = ctx.bind(
+            ShowContextMenu {
                 x: 0.0,
                 y: 0.0,
                 target: Some(entry.path.clone()),
-            })
-            .unwrap(),
-        };
+            },
+            reduce_with!(on_show_context_menu),
+        );
 
         let name: Widget = if is_renaming {
             TextInput {
                 id: Some(fission::WidgetId::explicit("rename_input")),
                 value: view.state().rename_input.clone(),
                 placeholder: Some("New name".into()),
-                on_input: Some(component.rename_input_action.clone()),
+                on_input: Some(ctx.bind(UpdateRenameInput, reduce_with!(on_update_rename_input))),
                 ..Default::default()
             }
             .into()
@@ -147,10 +142,6 @@ impl From<FileTreeEntry> for Widget {
                 FileTreeEntry {
                     entry: child,
                     depth: component.depth + 1,
-                    toggle_id: component.toggle_id,
-                    open_id: component.open_id,
-                    context_menu_id: component.context_menu_id,
-                    rename_input_action: component.rename_input_action.clone(),
                 }
                 .into()
             }));
