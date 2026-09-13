@@ -102,6 +102,9 @@ impl From<SegmentedControl> for Widget {
                 children,
             })
             .padding_all(1.0)
+            // The bordered track must not shrink below its segments, or a crowded row squeezes
+            // the border box and clips its trailing edge.
+            .flex_shrink(0.0)
             .bg(theme.bg_color)
             .border(theme.border_color, 1.0)
             .border_radius(theme.radius),
