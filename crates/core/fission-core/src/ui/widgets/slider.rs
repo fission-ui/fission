@@ -140,7 +140,33 @@ impl Lower for Slider {
                 let inner_id = inner_box.build(cx);
 
                 track_container.add_child(inner_id);
-                track_container.build(cx)
+                let track_id = track_container.build(cx);
+
+                // A stack gives its children loose constraints, so an unsized track would measure
+                // zero wide and never paint. A one-column grid gives it the full slider width.
+                let mut track_item = IrBuilder::new(
+                    cx.next_node_id(),
+                    Op::Layout(LayoutOp::GridItem {
+                        row_start: fission_ir::op::GridPlacement::Line(1),
+                        row_end: fission_ir::op::GridPlacement::Auto,
+                        col_start: fission_ir::op::GridPlacement::Line(1),
+                        col_end: fission_ir::op::GridPlacement::Auto,
+                    }),
+                );
+                track_item.add_child(track_id);
+                let track_item_id = track_item.build(cx);
+                let mut track_grid = IrBuilder::new(
+                    cx.next_node_id(),
+                    Op::Layout(LayoutOp::Grid {
+                        columns: vec![GridTrack::Fr(1.0)],
+                        rows: vec![GridTrack::Points(control_height)],
+                        column_gap: None,
+                        row_gap: None,
+                        padding: [0.0; 4],
+                    }),
+                );
+                track_grid.add_child(track_item_id);
+                track_grid.build(cx)
             };
 
             // Layer 2: Thumb Grid
