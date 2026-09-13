@@ -12,22 +12,23 @@ impl From<ProductBrowserHeader> for Widget {
         let (_ctx, view) = fission::build::current::<ProductBrowserState>();
         let tokens = &view.env().theme.tokens;
         let summary = match view.state().products.data() {
-            Some(page) if page.total > page.products.len() as u32 => {
-                format!(
-                    "{} shown from {} matching products",
-                    page.products.len(),
-                    page.total
-                )
+            Some(page) if page.total > page.products.len() as u32 => view
+                .tr("product_browser.summary.partial")
+                .replace("{shown}", &page.products.len().to_string())
+                .replace("{total}", &page.total.to_string()),
+            Some(page) => view
+                .tr("product_browser.summary.all")
+                .replace("{shown}", &page.products.len().to_string()),
+            None if view.state().products.has_error() => {
+                view.tr("product_browser.summary.unavailable")
             }
-            Some(page) => format!("{} products shown", page.products.len()),
-            None if view.state().products.has_error() => "Product service unavailable".to_string(),
-            None => "Loading product catalog".to_string(),
+            None => view.tr("product_browser.summary.loading"),
         };
 
         let title = Container::new(Column {
             gap: Some(tokens.spacing.xs),
             children: widgets![
-                Text::new("Product Browser")
+                Text::new(view.tr("product_browser.title"))
                     .size(tokens.typography.heading_size)
                     .line_height(
                         tokens.typography.heading_size * tokens.typography.line_height_heading,
@@ -50,7 +51,7 @@ impl From<ProductBrowserHeader> for Widget {
             id: Some(WidgetId::explicit("product-browser.search")),
             semantics_identifier: Some("product-browser.search".into()),
             value: view.state().query.clone(),
-            placeholder: Some("Search products".into()),
+            placeholder: Some(view.tr("product_browser.search.placeholder").into()),
             on_input: Some(header.on_search),
             ..Default::default()
         })
