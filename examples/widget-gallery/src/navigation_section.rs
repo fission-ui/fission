@@ -35,17 +35,11 @@ impl From<NavigationSection> for Widget {
         let state = view.state();
         let segmented_change = Arc::new({
             let action = with_reducer!(ctx, SetSegmented(0), set_segmented);
-            move |index| ActionEnvelope {
-                id: action.id,
-                payload: serde_json::to_vec(&index).unwrap(),
-            }
+            move |index| action.with_action(&SetSegmented(index))
         });
         let page_change = Arc::new({
             let action = with_reducer!(ctx, SetPage(1), set_page);
-            move |page| ActionEnvelope {
-                id: action.id,
-                payload: serde_json::to_vec(&page).unwrap(),
-            }
+            move |page| action.with_action(&SetPage(page))
         });
 
         GallerySection::new(

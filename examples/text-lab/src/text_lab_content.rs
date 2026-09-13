@@ -22,10 +22,10 @@ impl From<TextLabContent> for Widget {
         let set_multiline = with_reducer!(ctx, SetMultiline, set_multiline);
         let set_inline_combobox =
             with_reducer!(ctx, SetInlineCombobox(String::new()), set_inline_combobox);
-        let set_inline_combobox_id = set_inline_combobox.id;
-        let set_show_modal_id = with_reducer!(ctx, SetShowModal(false), set_show_modal).id;
-        let set_menu_open_id = with_reducer!(ctx, SetMenuOpen(false), set_menu_open).id;
-        let menu_picked_id = with_reducer!(ctx, MenuPicked(String::new()), menu_picked).id;
+        let pick_inline_suggestion = set_inline_combobox.clone();
+        let menu_toggle = with_reducer!(ctx, SetMenuOpen(!view.state().menu_open), set_menu_open);
+        let open_modal = with_reducer!(ctx, SetShowModal(true), set_show_modal);
+        let pick_menu_item = with_reducer!(ctx, MenuPicked(String::new()), menu_picked);
 
         let inline_options = [
             "alice@example.com",
@@ -39,15 +39,6 @@ impl From<TextLabContent> for Widget {
         let inline_has_exact = inline_options
             .iter()
             .any(|value| value.eq_ignore_ascii_case(view.state().inline_combobox.trim()));
-
-        let menu_toggle = ActionEnvelope {
-            id: set_menu_open_id,
-            payload: serde_json::to_vec(&SetMenuOpen(!view.state().menu_open)).unwrap(),
-        };
-        let open_modal = ActionEnvelope {
-            id: set_show_modal_id,
-            payload: serde_json::to_vec(&SetShowModal(true)).unwrap(),
-        };
 
         VStack {
             spacing: Some(tokens.spacing.m),
@@ -114,9 +105,8 @@ impl From<TextLabContent> for Widget {
                         width: None,
                         max_popup_height: Some(POPUP_MAX_HEIGHT),
                         on_input: Some(set_inline_combobox),
-                        on_select: Some(Arc::new(move |value| ActionEnvelope {
-                            id: set_inline_combobox_id,
-                            payload: serde_json::to_vec(&SetInlineCombobox(value)).unwrap(),
+                        on_select: Some(Arc::new(move |value| {
+                            pick_inline_suggestion.with_action(&SetInlineCombobox(value))
                         })),
                         on_toggle: None,
                     }
@@ -136,25 +126,17 @@ impl From<TextLabContent> for Widget {
                                 MenuItem {
                                     label: "Mark all as read".to_string(),
                                     icon: None,
-                                    on_select: Some(ActionEnvelope {
-                                        id: menu_picked_id,
-                                        payload: serde_json::to_vec(&MenuPicked(
-                                            "mark_all_read".to_string(),
-                                        ))
-                                        .unwrap(),
-                                    }),
+                                    on_select: Some(
+                                        pick_menu_item.with_action(&MenuPicked("mark_all_read".into())),
+                                    ),
                                     semantics_identifier: Some("text-lab.mark-all-read".into()),
                                 },
                                 MenuItem {
                                     label: "Archive selected".to_string(),
                                     icon: None,
-                                    on_select: Some(ActionEnvelope {
-                                        id: menu_picked_id,
-                                        payload: serde_json::to_vec(&MenuPicked(
-                                            "archive_selected".to_string(),
-                                        ))
-                                        .unwrap(),
-                                    }),
+                                    on_select: Some(
+                                        pick_menu_item.with_action(&MenuPicked("archive_selected".into())),
+                                    ),
                                     semantics_identifier: Some("text-lab.archive-selected".into()),
                                 },
                             ],
