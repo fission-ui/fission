@@ -71,8 +71,10 @@ impl From<Calendar> for Widget {
             (this.year, this.month + 1)
         };
 
+        // The flexible spacers around the title separate it from the arrows; fixed gaps on top of
+        // them made the header wider than a calendar with small cells, pushing the next arrow out.
         let header = HStack {
-            spacing: Some(8.0),
+            spacing: Some(0.0),
             children: vec![
                 Button {
                     variant: ButtonVariant::Ghost,
