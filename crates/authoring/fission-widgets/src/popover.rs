@@ -267,15 +267,17 @@ pub(crate) fn popover_with_options(
             }
             .into();
 
-            ctx.register_portal_with_layer(
+            ctx.register_anchored_portal(
                 fission_core::PortalLayer::Flyout,
                 Some(this.id),
+                anchor_id,
                 overlay,
             );
         } else {
-            ctx.register_portal_with_layer(
+            ctx.register_anchored_portal(
                 fission_core::PortalLayer::Flyout,
                 Some(this.id),
+                anchor_id,
                 flyout_node,
             );
         }

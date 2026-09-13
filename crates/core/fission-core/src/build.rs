@@ -466,6 +466,7 @@ pub fn try_register_portal(
             layer,
             seq,
             id,
+            anchor: None,
             node,
         });
     }
@@ -777,6 +778,31 @@ impl<S: GlobalState> BuildCtxHandle<S> {
         id: Option<crate::WidgetId>,
         node: crate::Widget,
     ) {
+        self.push_portal(layer, id, None, node);
+    }
+
+    /// Registers a portal positioned against `anchor`.
+    ///
+    /// Content is built before the widget that portals it, so a popup inside another popup's
+    /// content registers first. Naming the anchor lets the popup be ordered after the portal
+    /// that contains its anchor, so it draws above that portal and is dismissed before it.
+    pub fn register_anchored_portal(
+        &self,
+        layer: crate::PortalLayer,
+        id: Option<crate::WidgetId>,
+        anchor: crate::WidgetId,
+        node: crate::Widget,
+    ) {
+        self.push_portal(layer, id, Some(anchor), node);
+    }
+
+    fn push_portal(
+        &self,
+        layer: crate::PortalLayer,
+        id: Option<crate::WidgetId>,
+        anchor: Option<crate::WidgetId>,
+        node: crate::Widget,
+    ) {
         let (ctx, portals, next_portal_seq) = BUILD_SCOPES.with(|scopes| {
             let scopes = scopes.borrow();
             let Some(scope) = scopes.last() else {
@@ -793,6 +819,7 @@ impl<S: GlobalState> BuildCtxHandle<S> {
                 layer,
                 seq,
                 id,
+                anchor,
                 node,
             });
         }

@@ -338,8 +338,15 @@ impl Widget {
             }
             #[cfg(feature = "interactive-canvas")]
             WidgetKind::InteractiveViewer(InteractiveViewer { child, .. }) => child.visit(visitor),
-            WidgetKind::Custom(_)
-            | WidgetKind::Text(_)
+            WidgetKind::Custom(widget) => {
+                if let Some(lowerer) = &widget.lowerer {
+                    for child in lowerer.children() {
+                        child.visit(visitor)?;
+                    }
+                }
+                ControlFlow::Continue(())
+            }
+            WidgetKind::Text(_)
             | WidgetKind::Image(_)
             | WidgetKind::Video(_)
             | WidgetKind::Checkbox(_)

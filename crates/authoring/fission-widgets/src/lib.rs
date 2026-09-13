@@ -456,6 +456,10 @@ struct FlyoutLowerer {
 }
 
 impl LowerWidget for FlyoutLowerer {
+    fn children(&self) -> Vec<&Widget> {
+        vec![&self.content]
+    }
+
     fn lower_dyn(&self, cx: &mut LoweringContext) -> WidgetId {
         let content_id = fission_core::internal::lower_widget(&self.content, cx);
         let mut flyout = IrBuilder::new(
