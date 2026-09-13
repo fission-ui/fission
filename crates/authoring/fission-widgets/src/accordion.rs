@@ -15,7 +15,7 @@ use fission_core::ui::{
 };
 use fission_core::{ActionEnvelope, WidgetId};
 use fission_icons::material;
-use fission_ir::Role;
+use fission_ir::{Role, Semantics};
 use serde::{Deserialize, Serialize};
 use std::ops::Add;
 
@@ -281,7 +281,20 @@ impl From<Accordion> for Widget {
                 SLOT_HEADER,
             );
             children.push(
-                SemanticsRegion::new(Button {
+                Button {
+                    // A disclosure header is a button that states whether its panel is open and
+                    // which panel it controls, so a reader knows what pressing it does and can
+                    // jump to the revealed content. The button carries these itself; a wrapping
+                    // region would expose a generic node in its place.
+                    id: Some(header_id),
+                    semantics: Some(Semantics {
+                        role: Role::Button,
+                        label: Some(item.title.clone()),
+                        expanded: Some(item.is_expanded),
+                        controls: vec![panel_semantics_id],
+                        focusable: true,
+                        ..Semantics::default()
+                    }),
                     variant: ButtonVariant::Ghost,
                     content_align: ButtonContentAlign::Start,
                     // The bordered header surface is the button's content; theme padding around it
@@ -317,17 +330,10 @@ impl From<Accordion> for Widget {
                     ),
                     on_press: item.on_toggle.clone(),
                     ..Default::default()
-                })
-                // A disclosure header states whether its panel is open and
-                // which panel it controls, so a reader knows what pressing it
-                // does and can jump to the revealed content.
-                .id(header_id)
-                .label(item.title.clone())
-                .expanded(item.is_expanded)
-                .controls(vec![panel_semantics_id])
+                }
                 .into(),
             );
-            // A column does not stretch a bare semantics wrapper, so give the header the full width.
+            // A column does not stretch the header button, so give it the full width.
             let header = children.pop().expect("header just pushed");
             children.push(
                 Container::new(header)

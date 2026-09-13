@@ -125,3 +125,36 @@ fn an_expanded_accordion_panel_spans_the_accordion() {
         "the header and its panel should share edges, got header {header_surface:?} and panel {panel_surface:?}"
     );
 }
+
+#[test]
+fn an_accordion_header_is_a_button_that_states_its_expansion() {
+    let mut driver = TestDriver::new(
+        TestHarness::new(GalleryState {
+            accordion_open: 1,
+            ..GalleryState::default()
+        })
+        .with_root_widget(GalleryApp),
+    );
+    driver.harness.env.viewport_size = LayoutSize::new(1000.0, 3000.0);
+    driver.pump().expect("first frame");
+    let ir = driver.harness.last_ir.as_ref().expect("ir");
+    let header = ir
+        .nodes
+        .values()
+        .find_map(|node| match &node.op {
+            fission::core::op::Op::Semantics(semantics)
+                if semantics.label.as_deref() == Some("Section 2") =>
+            {
+                Some(semantics.clone())
+            }
+            _ => None,
+        })
+        .expect("Section 2 header");
+    assert_eq!(header.role, Role::Button);
+    assert_eq!(header.expanded, Some(true));
+    assert_eq!(
+        header.controls.len(),
+        1,
+        "the header names the panel it controls"
+    );
+}
