@@ -490,7 +490,12 @@ impl InputController for GestureController {
                             }
                         }
 
-                        if !was_secondary {
+                        // A secondary release never closes a menu. Selectable text opens its menu on the
+                        // secondary press and consumes it, so this controller never recorded that press
+                        // and must read the button from the release itself.
+                        let secondary_release = was_secondary
+                            || matches!(button, crate::event::PointerButton::Secondary);
+                        if !secondary_release {
                             ctx.context_menu.close();
                         }
                         self.reset_pointer_sequence(ctx, *point);
