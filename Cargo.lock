@@ -9119,6 +9119,8 @@ dependencies = [
  "anyhow",
  "fission",
  "fission-design-system-codegen",
+ "serde",
+ "serde_yaml",
 ]
 
 [[package]]
