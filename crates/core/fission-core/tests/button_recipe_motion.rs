@@ -243,7 +243,9 @@ fn button_recipe_without_a_transition_keeps_state_paint_immediate() {
 
     let mut runtime = RuntimeState::default();
     runtime.interaction.set_hovered(id, true);
-    let (widget, context) = build_button(&env, &runtime, semantic_button(id, "Immediate"));
+    let mut button = semantic_button(id, "Immediate");
+    button.motion = Some(ButtonMotion::None);
+    let (widget, context) = build_button(&env, &runtime, button);
     assert!(context.motion_declarations.is_empty());
     let ir = lower(&widget, &env, &runtime);
     assert!(ir.nodes.values().any(|node| matches!(
@@ -418,10 +420,34 @@ fn implicit_button_identity(motion: Option<ButtonMotion>) -> (WidgetId, usize) {
 
 #[test]
 fn implicit_button_identity_is_independent_of_explicit_motion() {
-    let (without_explicit_motion, recipe_declarations) = implicit_button_identity(None);
+    let (without_explicit_motion, recipe_declarations) =
+        implicit_button_identity(Some(ButtonMotion::None));
     let (with_explicit_motion, composed_declarations) =
         implicit_button_identity(Some(ButtonMotion::HoverScale));
 
     assert_eq!(without_explicit_motion, with_explicit_motion);
     assert!(composed_declarations >= recipe_declarations);
+}
+
+#[test]
+fn unset_button_motion_ripples_unless_the_app_turns_widget_motion_off() {
+    let id = WidgetId::explicit("button.default-ripple");
+    let runtime = RuntimeState::default();
+    let ripples = |env: &Env| {
+        let (_, context) = build_button(env, &runtime, semantic_button(id, "Default"));
+        context
+            .motion_declarations
+            .iter()
+            .filter(|declaration| matches!(declaration.kind, MotionDeclarationKind::RippleLayer(_)))
+            .count()
+    };
+
+    assert_eq!(ripples(&Env::default()), 1);
+    assert_eq!(
+        ripples(&Env {
+            widget_motion: fission_core::WidgetMotion::Off,
+            ..Default::default()
+        }),
+        0
+    );
 }

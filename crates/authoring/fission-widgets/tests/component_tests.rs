@@ -284,6 +284,11 @@ fn motion_enabled_widgets_do_not_reuse_wrapper_id_for_wrapped_widget() {
 fn test_modal_motion_keeps_closed_modal_on_presence_path() {
     let mut runtime = fission_core::Runtime::default();
     runtime.add_app_state(Box::new(State::default())).unwrap();
+    // The modal was open on an earlier frame and is now playing its exit.
+    runtime.runtime_state.motion.presence.insert(
+        modal_surface(WidgetId::explicit("motion_modal")),
+        fission_core::motion::PresencePhase::Exiting,
+    );
 
     let mut ctx = BuildCtx::<State>::new();
     let env = Env::default();
@@ -334,7 +339,7 @@ fn test_toast_renders_content() {
         kind: ToastKind::Success,
         message: "Operation completed".into(),
         on_close: None,
-        motion: None,
+        motion: Some(ToastMotion::None),
     };
 
     let node = build::enter(&mut ctx, &view, || toast.into());
@@ -416,5 +421,83 @@ fn test_popover_with_on_close_adds_backdrop_layer() {
     assert!(
         fission_core::internal::widget_kind_name(&portals[0].1) == "ZStack",
         "popover with on_close should include the backdrop + flyout stack"
+    );
+}
+
+/// The id of a modal's surface presence, as the modal derives it.
+fn modal_surface(modal: WidgetId) -> WidgetId {
+    WidgetId::derived(modal.as_u128(), &[0x005A_FACE])
+}
+
+/// Builds a closed modal and returns how many portals and motion declarations
+/// it registers. `exiting` marks the modal as closing after being open.
+fn closed_modal(env: &Env, motion: Option<ModalMotion>, exiting: bool) -> (usize, usize) {
+    let id = WidgetId::explicit("default_motion_modal");
+    let mut runtime = fission_core::Runtime::default();
+    runtime.add_app_state(Box::new(State::default())).unwrap();
+    if exiting {
+        runtime.runtime_state.motion.presence.insert(
+            modal_surface(id),
+            fission_core::motion::PresencePhase::Exiting,
+        );
+    }
+    let mut ctx = BuildCtx::<State>::new();
+    let state = runtime.get_app_state::<State>().unwrap();
+    let view = View::new(state, &runtime.runtime_state, env, None);
+    let _: Widget = build::enter(&mut ctx, &view, || {
+        Modal {
+            id,
+            title: "Motion".into(),
+            content: Text::new("Body").into(),
+            is_open: false,
+            on_dismiss: None,
+            backdrop_semantics_identifier: None,
+            close_semantics_identifier: None,
+            surface_semantics_identifier: None,
+            actions: vec![],
+            width: None,
+            motion,
+        }
+        .into()
+    });
+    (
+        ctx.take_portals().len(),
+        ctx.take_motion_declarations().len(),
+    )
+}
+
+#[test]
+fn widgets_play_default_motion_unless_the_app_or_the_widget_turns_it_off() {
+    let standard = Env::default();
+    let (portals, declarations) = closed_modal(&standard, None, true);
+    assert_eq!(
+        portals, 1,
+        "unset motion keeps a closing modal mounted for its exit"
+    );
+    assert!(declarations > 0, "unset motion plays the default preset");
+    assert_eq!(
+        closed_modal(&standard, None, false),
+        (0, 0),
+        "a modal that was never open mounts nothing"
+    );
+    assert_eq!(
+        closed_modal(&standard, Some(ModalMotion::None), true),
+        (0, 0),
+        "an explicit none preset closes without motion"
+    );
+
+    let off = Env {
+        widget_motion: fission_core::WidgetMotion::Off,
+        ..Env::default()
+    };
+    assert_eq!(
+        closed_modal(&off, None, true),
+        (0, 0),
+        "the app switch turns defaults off"
+    );
+    let (portals, declarations) = closed_modal(&off, Some(ModalMotion::Fade), true);
+    assert!(
+        portals == 1 && declarations > 0,
+        "explicit presets still play when defaults are off"
     );
 }

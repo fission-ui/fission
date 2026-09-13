@@ -1,6 +1,6 @@
 use crate::motion_support::{
-    dedupe, exit_for, fade_in, push_enter_with_exit, scale_in, slide_x_in, slide_y_in, slot_id,
-    SLOT_BACKDROP, SLOT_FOCUS_SCOPE, SLOT_SURFACE,
+    dedupe, exit_for, fade_in, presence_active, push_enter_with_exit, resolve_motion, scale_in,
+    slide_x_in, slide_y_in, slot_id, SLOT_BACKDROP, SLOT_FOCUS_SCOPE, SLOT_SURFACE,
 };
 use crate::stack::{HStack, VStack};
 use crate::Icon;
@@ -23,7 +23,9 @@ const MODAL_CLOSE_ID_PATH: u32 = 0xC1_05_E;
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 /// Optional motion presets owned by [`Modal`].
 ///
-/// Modals render without motion unless [`Modal::motion`] is set. Presets lower
+/// Modals play their default motion unless [`Modal::motion`] chooses another
+/// preset, `Some(ModalMotion::None)` turns it off, or the app sets
+/// `Env::widget_motion` to `Off`. Presets lower
 /// to native [`Presence`] and [`MotionTrack`] values for the stable `backdrop`
 /// and `surface` slots.
 ///
@@ -31,6 +33,8 @@ const MODAL_CLOSE_ID_PATH: u32 = 0xC1_05_E;
 /// let motion = Some(ModalMotion::FromTop + ModalMotion::Fade + ModalMotion::Scale);
 /// ```
 pub enum ModalMotion {
+    /// No modal-owned motion.
+    None,
     /// Curated default modal motion.
     Default,
     /// Fade the backdrop and surface.
@@ -149,6 +153,7 @@ impl ModalMotion {
                     item.append_plan(plan, duration_ms, initial_scale);
                 }
             }
+            Self::None => {}
             Self::Custom {
                 backdrop,
                 surface_enter,
@@ -263,7 +268,7 @@ pub struct Modal {
     pub actions: Vec<ModalAction>,
     /// Preferred logical width, clamped to the available viewport.
     pub width: Option<f32>,
-    /// Optional explicit modal motion. `None` emits no modal-owned motion declarations.
+    /// Modal motion. `None` plays the default motion unless the app turns widget motion off.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub motion: Option<ModalMotion>,
 }
@@ -882,7 +887,7 @@ pub struct ModalLayout {
     pub surface_semantics_identifier: Option<String>,
     /// Preferred logical width, clamped to the available viewport.
     pub width: Option<f32>,
-    /// Optional explicit modal motion.
+    /// Modal motion. `None` plays the default motion unless the app turns widget motion off.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub motion: Option<ModalMotion>,
 }
@@ -989,7 +994,15 @@ impl From<ModalRecipe> for Widget {
         if let Some(id) = fission_core::build::current_widget_id() {
             component.id = id;
         }
-        if !component.is_open && component.motion.is_none() {
+        component.motion = resolve_motion(
+            &component.motion,
+            ModalMotion::Default,
+            ModalMotion::None,
+            view.env(),
+        );
+        if !component.is_open
+            && !(component.motion.is_some() && presence_active(slot_id(component.id, SLOT_SURFACE)))
+        {
             return fission_core::ui::widgets::spacer::Spacer::default().into();
         }
 

@@ -1,6 +1,6 @@
 use crate::motion_support::{
-    dedupe, exit_for, fade_in, push_enter_with_exit, slide_x_in, slide_y_in, slot_id,
-    SLOT_BACKDROP, SLOT_FOCUS_SCOPE, SLOT_PANEL,
+    dedupe, exit_for, fade_in, presence_active, push_enter_with_exit, resolve_motion, slide_x_in,
+    slide_y_in, slot_id, SLOT_BACKDROP, SLOT_FOCUS_SCOPE, SLOT_PANEL,
 };
 use fission_core::motion::{MotionTrack, Presence};
 use fission_core::op::{BoxShadow, Color, CornerRadii};
@@ -21,13 +21,17 @@ pub enum DrawerSide {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 /// Optional motion presets owned by [`Drawer`].
 ///
-/// Drawers render without motion unless [`Drawer::motion`] is set. Presets
+/// Drawers play their default motion unless [`Drawer::motion`] chooses another
+/// preset, `Some(DrawerMotion::None)` turns it off, or the app sets
+/// `Env::widget_motion` to `Off`. Presets
 /// lower to native presence tracks for the stable `backdrop` and `panel` slots.
 ///
 /// ```rust,ignore
 /// let motion = Some(DrawerMotion::FromSide + DrawerMotion::Fade);
 /// ```
 pub enum DrawerMotion {
+    /// No drawer-owned motion.
+    None,
     /// Curated default: side slide plus fade.
     Default,
     /// Fade the backdrop and panel.
@@ -141,6 +145,7 @@ impl DrawerMotion {
                     item.append_plan(side, width, plan);
                 }
             }
+            Self::None => {}
             Self::Custom {
                 backdrop,
                 panel_enter,
@@ -220,7 +225,7 @@ pub struct Drawer {
     pub content: Widget,
     /// Preferred logical panel width, clamped to the viewport.
     pub width: Option<f32>,
-    /// Optional explicit drawer motion. `None` emits no drawer-owned motion declarations.
+    /// Drawer motion. `None` plays the default motion unless the app turns widget motion off.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub motion: Option<DrawerMotion>,
 }
@@ -242,13 +247,16 @@ impl From<Drawer> for Widget {
             this.width.unwrap_or(300.0)
         };
         let width = this.width.unwrap_or(300.0).min(max_panel_width);
-        if !this.is_open && this.motion.is_none() {
+        let motion = resolve_motion(
+            &this.motion,
+            DrawerMotion::Default,
+            DrawerMotion::None,
+            view.env(),
+        );
+        if !this.is_open && !(motion.is_some() && presence_active(slot_id(this.id, SLOT_PANEL))) {
             return fission_core::ui::widgets::Spacer::default().into();
         }
-        let motion_plan = this
-            .motion
-            .as_ref()
-            .map(|motion| motion.plan(this.side, width));
+        let motion_plan = motion.as_ref().map(|motion| motion.plan(this.side, width));
 
         // Dismissal belongs only to the logical open state. The visual scrim
         // may remain mounted for exit motion, but it must stop owning input on

@@ -381,7 +381,7 @@ pub use fission_core::{
 };
 
 // Core env types
-pub use fission_core::env::{Env, LayoutDirection, MotionPreference};
+pub use fission_core::env::{Env, LayoutDirection, MotionPreference, WidgetMotion};
 
 // IR op types (Color, LayoutOp, PaintOp, etc.)
 pub use fission_ir::op;
@@ -552,7 +552,7 @@ pub mod prelude {
     pub use fission_widgets::*;
 
     // Actions
-    pub use fission_core::env::{Env, LayoutDirection, MotionPreference};
+    pub use fission_core::env::{Env, LayoutDirection, MotionPreference, WidgetMotion};
     pub use fission_core::event::{
         InputEvent, KeyCode, KeyEvent, PointerButton, PointerEvent, PointerId, PointerKind,
         PointerPhase, ScrollDeltaMode,

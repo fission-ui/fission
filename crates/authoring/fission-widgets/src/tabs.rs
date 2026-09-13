@@ -1,6 +1,6 @@
 use crate::motion_support::{
-    dedupe, exit_for, fade_in, push_enter_with_exit, slide_x_in, slot_id, SLOT_CONTENT,
-    SLOT_INDICATOR,
+    dedupe, exit_for, fade_in, push_enter_with_exit, resolve_motion, slide_x_in, slot_id,
+    SLOT_CONTENT, SLOT_INDICATOR,
 };
 use crate::stack::VStack;
 use crate::Badge;
@@ -38,6 +38,8 @@ const IMPLICIT_TABS_ID_SALT: u32 = 0x5441_4253;
 /// let motion = Some(TabsMotion::Indicator + TabsMotion::SlideContent);
 /// ```
 pub enum TabsMotion {
+    /// No tabs-owned motion.
+    None,
     /// Curated default: indicator plus fading content.
     Default,
     /// Animate the active indicator toward the active tab trigger.
@@ -126,6 +128,7 @@ impl TabsMotion {
                     item.append_plan(active_trigger, plan);
                 }
             }
+            Self::None => {}
             Self::Custom {
                 indicator,
                 content_enter,
@@ -213,7 +216,7 @@ pub struct Tabs {
     pub items: Vec<TabItem>,
     /// Design-system size used for tab typography, spacing, and indicator style.
     pub size: ComponentSize,
-    /// Optional explicit tabs motion. `None` emits no tabs-owned motion declarations.
+    /// Tabs motion. `None` plays the default motion unless the app turns widget motion off.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub motion: Option<TabsMotion>,
 }
@@ -960,10 +963,14 @@ impl From<Tabs> for Widget {
         };
         let active_index = resolved_active_index.unwrap_or(0);
         let active_trigger = WidgetId::derived(base_id.as_u128(), &[active_index as u32, 0]);
-        let motion_plan = this
-            .motion
-            .as_ref()
-            .map(|motion| motion.plan(active_trigger));
+        let (_, view) = fission_core::build::current::<()>();
+        let motion = resolve_motion(
+            &this.motion,
+            TabsMotion::Default,
+            TabsMotion::None,
+            view.env(),
+        );
+        let motion_plan = motion.as_ref().map(|motion| motion.plan(active_trigger));
         let indicator_slot = slot_id(base_id, SLOT_INDICATOR);
         let tab_triggers = this
             .items
