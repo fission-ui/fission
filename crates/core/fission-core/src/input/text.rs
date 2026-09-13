@@ -1465,7 +1465,15 @@ impl TextInputController {
             ),
             TextContextMenuAction::SelectAll => EditingCommand::SelectAll,
         };
-        self.handle_editing_command(ctx, &command)
+        let handled = self.handle_editing_command(ctx, &command);
+        // Choosing an action finishes with the menu, as it does in every platform text field.
+        if let Some(focused_id) = ctx.interaction.focused {
+            if let Some(state) = ctx.text_edit.states.get_mut(&focused_id) {
+                state.affordances.toolbar_visible = false;
+            }
+        }
+        ctx.context_menu.close();
+        handled
     }
 
     fn prepare_inserted_text(
