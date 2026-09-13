@@ -33,11 +33,13 @@ fn nfc_uri_extracts_portable_uri_record() {
 
 #[test]
 fn unsupported_availability_is_not_reported_as_ready() {
-    let mut state = FieldInspectorState::default();
-    state.notification_settings = Some(NotificationSettings {
-        permission: NotificationPermission::Unsupported,
-        ..Default::default()
-    });
+    let mut state = FieldInspectorState {
+        notification_settings: Some(NotificationSettings {
+            permission: NotificationPermission::Unsupported,
+            ..Default::default()
+        }),
+        ..FieldInspectorState::default()
+    };
     state.camera_availability = Some(CameraAvailability {
         permission: CameraPermission::Denied,
         devices: Vec::new(),
