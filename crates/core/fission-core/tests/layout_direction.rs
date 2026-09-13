@@ -50,8 +50,10 @@ fn row_uses_logical_source_order_for_layout_and_focus() {
     assert_eq!(ltr_layout.get_node_rect(first).unwrap().origin.x, 0.0);
     assert_eq!(ltr_layout.get_node_rect(second).unwrap().origin.x, 20.0);
 
-    let mut rtl_env = Env::default();
-    rtl_env.layout_direction = LayoutDirection::RightToLeft;
+    let rtl_env = Env {
+        layout_direction: LayoutDirection::RightToLeft,
+        ..Env::default()
+    };
     let (rtl_ir, rtl_layout) = lower_and_layout(&rtl_env, make_row().into());
     assert_eq!(rtl_ir.layout_direction, LayoutDirection::RightToLeft);
     assert_eq!(
@@ -67,8 +69,10 @@ fn row_uses_logical_source_order_for_layout_and_focus() {
 fn positioned_left_and_right_offsets_remain_physical_in_rtl() {
     let left_child = WidgetId::explicit("direction.physical-left");
     let right_child = WidgetId::explicit("direction.physical-right");
-    let mut env = Env::default();
-    env.layout_direction = LayoutDirection::RightToLeft;
+    let env = Env {
+        layout_direction: LayoutDirection::RightToLeft,
+        ..Env::default()
+    };
     let root = ZStack {
         children: vec![
             Positioned {
@@ -125,8 +129,10 @@ fn directional_padding_mirrors_its_inline_edges() {
         .into()
     };
 
-    let mut ltr = Env::default();
-    ltr.layout_direction = LayoutDirection::LeftToRight;
+    let ltr = Env {
+        layout_direction: LayoutDirection::LeftToRight,
+        ..Env::default()
+    };
     let (_, ltr_snapshot) = lower_and_layout(&ltr, widget());
     let ltr_x = ltr_snapshot
         .get_node_rect(child_id)
@@ -134,8 +140,10 @@ fn directional_padding_mirrors_its_inline_edges() {
         .origin
         .x;
 
-    let mut rtl = Env::default();
-    rtl.layout_direction = LayoutDirection::RightToLeft;
+    let rtl = Env {
+        layout_direction: LayoutDirection::RightToLeft,
+        ..Env::default()
+    };
     let (_, rtl_snapshot) = lower_and_layout(&rtl, widget());
     let rtl_x = rtl_snapshot
         .get_node_rect(child_id)
@@ -170,8 +178,10 @@ fn physical_padding_does_not_mirror() {
         .into()
     };
 
-    let mut rtl = Env::default();
-    rtl.layout_direction = LayoutDirection::RightToLeft;
+    let rtl = Env {
+        layout_direction: LayoutDirection::RightToLeft,
+        ..Env::default()
+    };
     let (_, snapshot) = lower_and_layout(&rtl, widget());
     assert_eq!(
         snapshot

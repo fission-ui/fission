@@ -8,14 +8,16 @@
 
 use fission_core::authoring::LoweringContext;
 use fission_core::env::{Env, RuntimeState};
-use fission_core::op::{BorderSides, Color, CornerRadii, Fill, Stroke};
+use fission_core::op::{Color, CornerRadii, Fill, Stroke};
 use fission_core::ui::{Container, Text, TextContent};
 use fission_core::Widget;
 use fission_ir::{op::LineCap, op::LineJoin, LayoutDirection, Op, PaintOp};
 
 fn paint_ops(widget: Widget, direction: LayoutDirection) -> Vec<PaintOp> {
-    let mut env = Env::default();
-    env.layout_direction = direction;
+    let env = Env {
+        layout_direction: direction,
+        ..Env::default()
+    };
     let runtime = RuntimeState::default();
     let mut cx = LoweringContext::new(&env, &runtime, None, None);
     let root = fission_core::internal::lower_widget(&widget, &mut cx);
