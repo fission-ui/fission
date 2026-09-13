@@ -122,7 +122,9 @@ impl TreeView {
             children: row_children,
         })
         .padding_all(8.0)
-        .height(40.0)
+        // At least a comfortable row, and taller when a long or translated label wraps; a fixed
+        // height let a wrapped label spill over the next row.
+        .min_height(40.0)
         .bg(if is_selected {
             theme.selected_bg
         } else {
@@ -145,7 +147,6 @@ impl TreeView {
                 child: Some(row_content),
                 on_press: item.on_select.clone(),
                 padding: Some([0.0; 4]),
-                height: Some(40.0), // Force button height
                 semantics: Some(Semantics {
                     role: Role::TreeItem,
                     label: Some(item.label.clone()),
