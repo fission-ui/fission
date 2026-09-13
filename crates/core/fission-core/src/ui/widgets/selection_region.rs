@@ -575,6 +575,7 @@ impl Lower for SelectionRegion {
             if !self.excluded
                 && self.controls.context_menu.enabled
                 && cx.runtime_state.context_menu.owner == Some(owner)
+                && !crate::ui::widgets::context_menu::take_lifted_text_menu(owner)
             {
                 let anchor = cx
                     .runtime_state

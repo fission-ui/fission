@@ -993,7 +993,37 @@ impl From<FocusScope> for Widget {
     }
 }
 impl From<SelectionRegion> for Widget {
-    fn from(w: SelectionRegion) -> Self {
+    fn from(mut w: SelectionRegion) -> Self {
+        // Like selectable text, an open desktop menu opens above all content at the pointer
+        // instead of inside the region, where ancestors would clip it and later content cover it.
+        if !w.excluded && w.controls.context_menu.enabled {
+            if w.id.is_none() {
+                w.id = crate::build::next_implicit_widget_id(0x5E1E);
+            }
+            if let (Some(owner), Some(runtime)) = (w.id, crate::build::try_current_runtime_state())
+            {
+                let pointer_kind = runtime
+                    .selectable_text
+                    .region(owner)
+                    .map(|state| state.pointer_kind)
+                    .unwrap_or_default();
+                if !w
+                    .controls
+                    .platform_style
+                    .uses_touch_affordances(pointer_kind)
+                {
+                    let selection_present = runtime
+                        .selectable_text
+                        .region_selection(owner)
+                        .is_some_and(|selection| !selection.is_collapsed());
+                    crate::ui::widgets::context_menu::lift_text_menu_into_portal(
+                        owner,
+                        &w.controls.context_menu,
+                        selection_present,
+                    );
+                }
+            }
+        }
         Self::from_kind(WidgetKind::SelectionRegion(w))
     }
 }
