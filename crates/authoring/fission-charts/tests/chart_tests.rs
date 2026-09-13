@@ -796,3 +796,39 @@ fn an_explicit_series_colour_wins_over_the_palette() {
     assert!(!longest_stroked_path_for_color(&ir, chosen).is_empty());
     assert!(longest_stroked_path_for_color(&ir, theme.palette[0]).is_empty());
 }
+
+#[test]
+fn hidden_series_are_not_drawn_but_keep_their_colour_and_legend_entry() {
+    let theme = ChartTheme::light();
+    let chart = |hidden: Vec<String>| {
+        Chart::new()
+            .width(640.0)
+            .height(360.0)
+            .theme(theme.clone())
+            .legend(fission_charts::Legend::top_right())
+            .x_axis(Axis::category(vec!["Q1", "Q2", "Q3"]))
+            .y_axis(Axis::value())
+            .series(vec![
+                LineSeries::new("North").data(vec![3.0, 5.0, 4.0]).into(),
+                LineSeries::new("South").data(vec![20.0, 40.0, 60.0]).into(),
+                LineSeries::new("East").data(vec![2.0, 1.0, 3.0]).into(),
+            ])
+            .hidden_series(hidden)
+    };
+
+    let shown = lower_chart(chart(Vec::new()));
+    let hidden = lower_chart(chart(vec!["South".to_string()]));
+
+    assert!(!longest_stroked_path_for_color(&shown, theme.palette[1]).is_empty());
+    assert!(longest_stroked_path_for_color(&hidden, theme.palette[1]).is_empty());
+    // East keeps the third palette colour although South is hidden.
+    assert!(!longest_stroked_path_for_color(&hidden, theme.palette[2]).is_empty());
+    assert_eq!(count_text(&hidden, "South"), 1);
+
+    let model = ChartModel::from_chart(&chart(vec!["South".to_string()]));
+    assert!(model.is_hidden(1));
+    assert!(
+        model.y_domain.1 < 20.0,
+        "hiding South rescales the value axis"
+    );
+}

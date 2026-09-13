@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::components::AxisPointerType;
-use crate::interaction::ChartTooltipTrigger;
+use crate::interaction::{ChartLegendSelectionMode, ChartLegendToggled, ChartTooltipTrigger};
 use fission_core::ReducerContext;
 
 /// How far the tooltip sits from the pointer.
@@ -230,6 +230,9 @@ impl HoverScene<'_> {
         }
         let scale = LinearScale::nice(self.model.y_domain.0, self.model.y_domain.1, 6);
         for (series_index, series) in self.model.series.iter().enumerate() {
+            if self.model.is_hidden(series_index) {
+                continue;
+            }
             let ResolvedSeries::Line(line) = series else {
                 continue;
             };
@@ -255,6 +258,7 @@ impl HoverScene<'_> {
             .series
             .iter()
             .enumerate()
+            .filter(|(series_index, _)| !self.model.is_hidden(*series_index))
             .filter_map(|(series_index, series)| {
                 let values = match series {
                     ResolvedSeries::Line(line) => &line.values,
@@ -394,6 +398,47 @@ impl HoverScene<'_> {
                 line,
             );
             y += line;
+        }
+    }
+}
+
+/// The series a chart's legend has hidden, remembered between builds.
+#[derive(Debug, Clone, Default)]
+pub(super) struct LegendMemory(pub(super) Vec<String>);
+
+impl fission_core::GlobalState for LegendMemory {}
+
+/// Whether pressing legend entries changes which series show.
+pub(super) fn tracks_legend(chart: &Chart) -> bool {
+    chart.legend.is_some() && chart.interaction.legend_selection != ChartLegendSelectionMode::Static
+}
+
+/// Toggles the pressed series, or in single mode shows only it, and shows every
+/// series again when the isolated one is pressed a second time.
+pub(super) fn on_legend_toggled(
+    memory: &mut LegendMemory,
+    action: ChartLegendToggled,
+    _: &mut ReducerContext<'_, '_, '_, LegendMemory>,
+) {
+    let hidden = &mut memory.0;
+    match action.mode {
+        ChartLegendSelectionMode::Static => {}
+        ChartLegendSelectionMode::Toggle => {
+            if let Some(position) = hidden.iter().position(|name| *name == action.series) {
+                hidden.remove(position);
+            } else {
+                hidden.push(action.series);
+            }
+        }
+        ChartLegendSelectionMode::Single => {
+            let others: Vec<String> = action
+                .all
+                .into_iter()
+                .filter(|name| *name != action.series)
+                .collect();
+            let isolated =
+                hidden.len() == others.len() && others.iter().all(|name| hidden.contains(name));
+            *hidden = if isolated { Vec::new() } else { others };
         }
     }
 }

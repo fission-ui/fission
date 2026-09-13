@@ -2,10 +2,15 @@
 
 use super::*;
 
-pub(super) fn count_bar_groups(series: &[ResolvedSeries]) -> usize {
-    series
+pub(super) fn count_bar_groups(model: &ChartModel) -> usize {
+    model
+        .series
         .iter()
-        .filter(|series| matches!(series, ResolvedSeries::Bar(bar) if bar.source.stack.is_none()))
+        .enumerate()
+        .filter(|(index, series)| {
+            !model.is_hidden(*index)
+                && matches!(series, ResolvedSeries::Bar(bar) if bar.source.stack.is_none())
+        })
         .count()
         .max(1)
 }

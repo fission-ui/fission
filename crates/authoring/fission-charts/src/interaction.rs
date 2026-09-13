@@ -359,3 +359,19 @@ impl Action for ChartHoverCleared {
         ActionId::from_name("fission_charts::ChartHoverCleared")
     }
 }
+
+/// Records a press on a legend entry in the chart's own legend state.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct ChartLegendToggled {
+    /// The pressed entry's series name.
+    pub series: String,
+    /// Every series name, in order, for isolating one series.
+    pub all: Vec<String>,
+    pub mode: ChartLegendSelectionMode,
+}
+
+impl Action for ChartLegendToggled {
+    fn static_id() -> ActionId {
+        ActionId::from_name("fission_charts::ChartLegendToggled")
+    }
+}
