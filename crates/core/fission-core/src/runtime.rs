@@ -2215,6 +2215,11 @@ impl Runtime {
                         }
                     }
                     KeyCode::Escape => {
+                        // An open context menu is the topmost surface, so Escape closes it first.
+                        if self.runtime_state.context_menu.owner.is_some() {
+                            self.runtime_state.context_menu.close();
+                            return Ok(());
+                        }
                         if let Some((node_id, action)) = crate::hit_test::topmost_semantics_action(
                             ir,
                             fission_ir::ActionTrigger::Dismiss,

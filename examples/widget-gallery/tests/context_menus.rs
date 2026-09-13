@@ -1,6 +1,6 @@
 //! Right-clicking the gallery's custom region or its selectable text opens a visible menu.
 
-use fission::core::event::{InputEvent, PointerButton, PointerEvent};
+use fission::core::event::{InputEvent, KeyCode, KeyEvent, PointerButton, PointerEvent};
 use fission::layout::{LayoutPoint, LayoutSize};
 use fission_test::{TestDriver, TestHarness};
 use widget_gallery::{GalleryApp, GalleryState};
@@ -152,5 +152,46 @@ fn right_clicking_a_text_field_opens_a_menu_whose_copy_runs_and_closes() {
             .owner
             .is_none(),
         "choosing Copy should close the text field's menu"
+    );
+}
+
+#[test]
+fn escape_closes_an_open_text_menu() {
+    let mut driver = driver();
+    let text = driver
+        .find_text("drag across this sentence")
+        .expect("selectable text")
+        .bounds;
+    right_click(
+        &mut driver,
+        LayoutPoint::new(text.x() + 20.0, text.y() + text.height() / 2.0),
+    );
+    assert!(
+        driver
+            .harness
+            .runtime
+            .runtime_state
+            .context_menu
+            .owner
+            .is_some(),
+        "right-clicking selectable text should open its menu"
+    );
+    driver
+        .harness
+        .send_event(InputEvent::Keyboard(KeyEvent::Down {
+            key_code: KeyCode::Escape,
+            modifiers: 0,
+        }))
+        .expect("escape");
+    driver.pump().expect("pump after escape");
+    assert!(
+        driver
+            .harness
+            .runtime
+            .runtime_state
+            .context_menu
+            .owner
+            .is_none(),
+        "Escape should close the menu"
     );
 }
