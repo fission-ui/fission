@@ -1,0 +1,62 @@
+//! The gallery accordion's headers span the accordion and show a legible chevron.
+
+use fission::core::Role;
+use fission::layout::LayoutSize;
+use fission_test::{TestDriver, TestHarness};
+use widget_gallery::{GalleryApp, GalleryState};
+
+#[test]
+fn accordion_headers_span_the_accordion_with_a_legible_chevron() {
+    let mut driver =
+        TestDriver::new(TestHarness::new(GalleryState::default()).with_root_widget(GalleryApp));
+    driver.harness.env.viewport_size = LayoutSize::new(1000.0, 3000.0);
+    driver.pump().expect("first frame");
+
+    let header = [Role::Generic, Role::Button]
+        .into_iter()
+        .flat_map(|role| driver.find_role(role))
+        .find(|found| found.label.as_deref() == Some("Section 1"))
+        .expect("Section 1 header")
+        .bounds;
+    let card = driver.find_text("Card Title").expect("card title above the accordion").bounds;
+    eprintln!("DBG header={:?} card_title={card:?}", header);
+    assert!(
+        header.width() >= 600.0,
+        "an accordion header should span the section width, got {header:?}"
+    );
+
+    let ir = driver.harness.last_ir.as_ref().expect("ir");
+    let snapshot = driver.harness.last_snapshot.as_ref().expect("snapshot");
+    let smallest_icon = ir
+        .nodes
+        .iter()
+        .filter(|(_, node)| format!("{:?}", node.op).starts_with("Paint(DrawSvg"))
+        .filter_map(|(id, _)| snapshot.get_node_rect(*id))
+        .filter(|rect| {
+            rect.y() >= header.y() - 1.0 && rect.y() + rect.height() <= header.y() + header.height() + 1.0
+        })
+        .map(|rect| rect.width().min(rect.height()))
+        .fold(f32::INFINITY, f32::min);
+    eprintln!("DBG smallest chevron side in header: {smallest_icon}");
+    let widest_bordered_surface = ir
+        .nodes
+        .iter()
+        .filter(|(_, node)| {
+            let op = format!("{:?}", node.op);
+            op.starts_with("Paint(DrawRect") && op.contains("stroke: Some")
+        })
+        .filter_map(|(id, _)| snapshot.get_node_rect(*id))
+        .filter(|rect| rect.y() >= header.y() - 1.0 && rect.y() <= header.y() + 1.0)
+        .map(|rect| rect.width())
+        .fold(0.0f32, f32::max);
+    eprintln!("DBG widest bordered header surface: {widest_bordered_surface}");
+    assert!(
+        widest_bordered_surface >= header.width() - 2.0,
+        "the bordered header surface should span the header, got {widest_bordered_surface} of {}",
+        header.width()
+    );
+    assert!(
+        smallest_icon >= 16.0,
+        "the accordion chevron should be at least 16px, got {smallest_icon}"
+    );
+}

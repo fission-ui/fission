@@ -243,10 +243,10 @@ impl From<Accordion> for Widget {
             // One square chevron that rotates about its centre. Swapping glyphs while also
             // rotating showed the wrong glyph mid-turn, and a text glyph is not centred in its
             // box, so the turn looked tilted.
+            // The recipe's font size described the old text glyph; an icon needs an icon size.
             let indicator_size = indicator_style
                 .icon_size
-                .or(indicator_style.font_size)
-                .unwrap_or(tokens.typography.font_size_base);
+                .unwrap_or(tokens.spacing.m.max(16.0));
             let rotates = motion_plan
                 .as_ref()
                 .is_some_and(|plan| !plan.indicator.is_empty());
@@ -308,6 +308,8 @@ impl From<Accordion> for Widget {
                                 .unwrap_or(Fill::Solid(tokens.colors.surface)),
                         )
                         .border(tokens.colors.border, 1.0)
+                        // Fill the header row so the bordered surface spans the accordion.
+                        .flex_grow(1.0)
                         .into(),
                     ),
                     on_press: item.on_toggle.clone(),
@@ -321,6 +323,13 @@ impl From<Accordion> for Widget {
                 .expanded(item.is_expanded)
                 .controls(vec![panel_semantics_id])
                 .into(),
+            );
+            // A column does not stretch a bare semantics wrapper, so give the header the full width.
+            let header = children.pop().expect("header just pushed");
+            children.push(
+                Container::new(header)
+                    .width_length(fission_core::op::Length::percent(100.0))
+                    .into(),
             );
 
             // Content
