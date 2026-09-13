@@ -47,15 +47,15 @@ impl Lower for ZStack {
     fn lower(&self, cx: &mut LoweringContext) -> WidgetId {
         let id = self.id.map(Into::into).unwrap_or_else(|| cx.next_node_id());
 
-        cx.push_scope(id);
+        let builder = cx.with_scope(id, |cx| {
+            let mut builder = IrBuilder::new(id, Op::Layout(LayoutOp::ZStack));
+            for child in &self.children {
+                let child_id = child.lower(cx);
+                builder.add_child(wrap_zstack_child(cx, child_id));
+            }
 
-        let mut builder = IrBuilder::new(id, Op::Layout(LayoutOp::ZStack));
-        for child in &self.children {
-            let child_id = child.lower(cx);
-            builder.add_child(wrap_zstack_child(cx, child_id));
-        }
-
-        cx.pop_scope();
+            builder
+        });
 
         builder.build(cx)
     }

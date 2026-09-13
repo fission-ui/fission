@@ -1007,78 +1007,78 @@ impl LowerWidget for MenuSeparatorLowerer {
         let padding = self.style.padding_box(0.0, 4.0);
         let margin = self.style.margin.unwrap_or([0.0; 4]);
 
-        cx.push_scope(self.id);
-        let mut line = IrBuilder::new(
-            cx.next_node_id(),
-            Op::Layout(LayoutOp::StyledBox {
-                style: BoxStyle {
-                    width: Some(Length::percent(100.0)),
-                    height: Some(Length::Points(line_height)),
-                    alignment: BoxAlignment::Stretch,
-                    ..Default::default()
-                },
-                flex_grow: 1.0,
-                flex_shrink: 0.0,
-            }),
-        );
-        if let Some(fill) = line_fill {
-            line.add_child(
-                IrBuilder::new(
-                    cx.next_node_id(),
-                    Op::Paint(PaintOp::DrawRect {
-                        fill: Some(fill),
-                        stroke: None,
-                        corner_radius: 0.0,
-                        shadow: None,
-                        corner_radii: None,
-                        border_sides: None,
-                    }),
-                )
-                .build(cx),
+        cx.with_scope(self.id, |cx| {
+            let mut line = IrBuilder::new(
+                cx.next_node_id(),
+                Op::Layout(LayoutOp::StyledBox {
+                    style: BoxStyle {
+                        width: Some(Length::percent(100.0)),
+                        height: Some(Length::Points(line_height)),
+                        alignment: BoxAlignment::Stretch,
+                        ..Default::default()
+                    },
+                    flex_grow: 1.0,
+                    flex_shrink: 0.0,
+                }),
             );
-        }
-        let line_id = line.build(cx);
-        let mut positioned_line = IrBuilder::new(
-            cx.next_node_id(),
-            Op::Layout(LayoutOp::PositionedLengths {
-                left: Some(Length::Points(margin[0])),
-                top: Some(Length::Points(padding[2] + margin[2])),
-                right: Some(Length::Points(margin[1])),
-                bottom: Some(Length::Points(padding[3] + margin[3])),
-                width: None,
-                height: None,
-            }),
-        );
-        positioned_line.add_child(line_id);
-        let positioned_line_id = positioned_line.build(cx);
+            if let Some(fill) = line_fill {
+                line.add_child(
+                    IrBuilder::new(
+                        cx.next_node_id(),
+                        Op::Paint(PaintOp::DrawRect {
+                            fill: Some(fill),
+                            stroke: None,
+                            corner_radius: 0.0,
+                            shadow: None,
+                            corner_radii: None,
+                            border_sides: None,
+                        }),
+                    )
+                    .build(cx),
+                );
+            }
+            let line_id = line.build(cx);
+            let mut positioned_line = IrBuilder::new(
+                cx.next_node_id(),
+                Op::Layout(LayoutOp::PositionedLengths {
+                    left: Some(Length::Points(margin[0])),
+                    top: Some(Length::Points(padding[2] + margin[2])),
+                    right: Some(Length::Points(margin[1])),
+                    bottom: Some(Length::Points(padding[3] + margin[3])),
+                    width: None,
+                    height: None,
+                }),
+            );
+            positioned_line.add_child(line_id);
+            let positioned_line_id = positioned_line.build(cx);
 
-        let mut outer = IrBuilder::new(
-            cx.next_node_id(),
-            Op::Layout(LayoutOp::StyledBox {
-                style: BoxStyle {
-                    height: self.style.height.map(Length::Points),
-                    alignment: BoxAlignment::Center,
+            let mut outer = IrBuilder::new(
+                cx.next_node_id(),
+                Op::Layout(LayoutOp::StyledBox {
+                    style: BoxStyle {
+                        height: self.style.height.map(Length::Points),
+                        alignment: BoxAlignment::Center,
+                        ..Default::default()
+                    },
+                    flex_grow: 0.0,
+                    flex_shrink: 0.0,
+                }),
+            );
+            outer.add_child(positioned_line_id);
+            let outer_id = outer.build(cx);
+            let mut semantics = IrBuilder::new(
+                self.id,
+                Op::Semantics(Semantics {
+                    role: Role::Separator,
+                    focusable: false,
+                    sequential_focusable: false,
                     ..Default::default()
-                },
-                flex_grow: 0.0,
-                flex_shrink: 0.0,
-            }),
-        );
-        outer.add_child(positioned_line_id);
-        let outer_id = outer.build(cx);
-        let mut semantics = IrBuilder::new(
-            self.id,
-            Op::Semantics(Semantics {
-                role: Role::Separator,
-                focusable: false,
-                sequential_focusable: false,
-                ..Default::default()
-            }),
-        );
-        semantics.add_child(outer_id);
-        let id = semantics.build(cx);
-        cx.pop_scope();
-        id
+                }),
+            );
+            semantics.add_child(outer_id);
+
+            semantics.build(cx)
+        })
     }
 
     fn widget_id(&self) -> Option<WidgetId> {
@@ -1186,194 +1186,197 @@ impl From<MenuActionItem> for Widget {
 
 impl LowerWidget for MenuActionItemLowerer {
     fn lower_dyn(&self, cx: &mut LoweringContext) -> WidgetId {
-        cx.push_scope(self.id);
-        let layout_id = cx.next_node_id();
-        cx.push_scope(layout_id);
+        let (layout_id, description_id) = cx.with_scope(self.id, |cx| {
+            let layout_id = cx.next_node_id();
+            let (description_id, layout_id) = cx.with_scope(layout_id, |cx| {
+                let text_color = self
+                    .style
+                    .text_color
+                    .unwrap_or(cx.env().theme.tokens.colors.text_primary);
+                let icon_size = self.style.icon_size.unwrap_or(16.0);
+                let mut row = IrBuilder::new(
+                    cx.next_node_id(),
+                    Op::Layout(LayoutOp::Flex {
+                        direction: FlexDirection::Row,
+                        wrap: FlexWrap::NoWrap,
+                        flex_grow: 1.0,
+                        flex_shrink: 1.0,
+                        padding: [0.0; 4],
+                        gap: Some(self.style.gap.unwrap_or(8.0)),
+                        line_gap: None,
+                        align_items: AlignItems::Center,
+                        justify_content: JustifyContent::Start,
+                    }),
+                );
 
-        let text_color = self
-            .style
-            .text_color
-            .unwrap_or(cx.env().theme.tokens.colors.text_primary);
-        let icon_size = self.style.icon_size.unwrap_or(16.0);
-        let mut row = IrBuilder::new(
-            cx.next_node_id(),
-            Op::Layout(LayoutOp::Flex {
-                direction: FlexDirection::Row,
-                wrap: FlexWrap::NoWrap,
-                flex_grow: 1.0,
-                flex_shrink: 1.0,
-                padding: [0.0; 4],
-                gap: Some(self.style.gap.unwrap_or(8.0)),
-                line_gap: None,
-                align_items: AlignItems::Center,
-                justify_content: JustifyContent::Start,
-            }),
-        );
+                if self.reserve_leading_space || self.leading_icon.is_some() {
+                    let leading: Widget = self.leading_icon.as_ref().map_or_else(
+                        || {
+                            Spacer {
+                                width: Some(icon_size),
+                                height: Some(icon_size),
+                                ..Default::default()
+                            }
+                            .into()
+                        },
+                        |icon| {
+                            Icon::svg(icon.clone())
+                                .size(icon_size)
+                                .color(text_color)
+                                .into()
+                        },
+                    );
+                    row.add_child(fission_core::internal::lower_widget(&leading, cx));
+                }
 
-        if self.reserve_leading_space || self.leading_icon.is_some() {
-            let leading: Widget = self.leading_icon.as_ref().map_or_else(
-                || {
-                    Spacer {
-                        width: Some(icon_size),
-                        height: Some(icon_size),
-                        ..Default::default()
-                    }
-                    .into()
-                },
-                |icon| {
-                    Icon::svg(icon.clone())
-                        .size(icon_size)
-                        .color(text_color)
-                        .into()
-                },
-            );
-            row.add_child(fission_core::internal::lower_widget(&leading, cx));
-        }
+                let mut label = Text::new(self.label.clone())
+                    .size(self.style.font_size.unwrap_or(14.0))
+                    .weight(self.style.font_weight.unwrap_or(400))
+                    .color(text_color);
+                if let Some(line_height) = self.style.line_height {
+                    label = label.line_height(line_height);
+                }
+                if let Some(letter_spacing) = self.style.letter_spacing {
+                    label = label.letter_spacing(letter_spacing);
+                }
+                let label: Widget = label.into();
 
-        let mut label = Text::new(self.label.clone())
-            .size(self.style.font_size.unwrap_or(14.0))
-            .weight(self.style.font_weight.unwrap_or(400))
-            .color(text_color);
-        if let Some(line_height) = self.style.line_height {
-            label = label.line_height(line_height);
-        }
-        if let Some(letter_spacing) = self.style.letter_spacing {
-            label = label.letter_spacing(letter_spacing);
-        }
-        let label: Widget = label.into();
+                let mut text_stack = IrBuilder::new(
+                    cx.next_node_id(),
+                    Op::Layout(LayoutOp::Flex {
+                        direction: FlexDirection::Column,
+                        wrap: FlexWrap::NoWrap,
+                        flex_grow: 1.0,
+                        flex_shrink: 1.0,
+                        padding: [0.0; 4],
+                        gap: self
+                            .description
+                            .as_ref()
+                            .map(|_| self.description_style.gap.unwrap_or(2.0)),
+                        line_gap: None,
+                        align_items: AlignItems::Start,
+                        justify_content: JustifyContent::Center,
+                    }),
+                );
+                text_stack.add_child(fission_core::internal::lower_widget(&label, cx));
 
-        let mut text_stack = IrBuilder::new(
-            cx.next_node_id(),
-            Op::Layout(LayoutOp::Flex {
-                direction: FlexDirection::Column,
-                wrap: FlexWrap::NoWrap,
-                flex_grow: 1.0,
-                flex_shrink: 1.0,
-                padding: [0.0; 4],
-                gap: self
+                let description_id = self
                     .description
                     .as_ref()
-                    .map(|_| self.description_style.gap.unwrap_or(2.0)),
-                line_gap: None,
-                align_items: AlignItems::Start,
-                justify_content: JustifyContent::Center,
-            }),
-        );
-        text_stack.add_child(fission_core::internal::lower_widget(&label, cx));
-
-        let description_id = self
-            .description
-            .as_ref()
-            .map(|_| WidgetId::derived(self.id.as_u128(), &[DESCRIPTION_ID_PATH]));
-        if let (Some(description), Some(description_id)) = (&self.description, description_id) {
-            let description_color = if self.disabled {
-                text_color
-            } else {
-                self.description_style
-                    .text_color
-                    .unwrap_or(cx.env().theme.tokens.colors.text_muted)
-            };
-            let mut description_text = Text::new(description.clone())
-                .size(self.description_style.font_size.unwrap_or(13.0))
-                .weight(self.description_style.font_weight.unwrap_or(400))
-                .color(description_color);
-            if let Some(line_height) = self.description_style.line_height {
-                description_text = description_text.line_height(line_height);
-            }
-            let description_widget: Widget = SemanticsRegion {
-                id: Some(description_id),
-                label: Some(description.clone()),
-                role: Role::Text,
-                focusable: Some(false),
-                child: Some(description_text.into()),
-                ..Default::default()
-            }
-            .into();
-            text_stack.add_child(fission_core::internal::lower_widget(
-                &description_widget,
-                cx,
-            ));
-        }
-        row.add_child(text_stack.build(cx));
-
-        if let Some(trailing) = &self.trailing {
-            let (value, style) = match trailing {
-                MenuItemTrailing::Shortcut(value) => (value, &self.shortcut_style),
-                MenuItemTrailing::Metadata(value) => (value, &self.metadata_style),
-            };
-            let trailing_color = if self.disabled {
-                text_color
-            } else {
-                style
-                    .text_color
-                    .unwrap_or(cx.env().theme.tokens.colors.text_muted)
-            };
-            let mut trailing_text = Text::new(value.clone())
-                .size(style.font_size.unwrap_or(12.0))
-                .weight(style.font_weight.unwrap_or(400))
-                .color(trailing_color);
-            if let Some(line_height) = style.line_height {
-                trailing_text = trailing_text.line_height(line_height);
-            }
-            if let Some(letter_spacing) = style.letter_spacing {
-                trailing_text = trailing_text.letter_spacing(letter_spacing);
-            }
-            let trailing_widget: Widget = trailing_text.into();
-            row.add_child(fission_core::internal::lower_widget(&trailing_widget, cx));
-        }
-
-        if self.reserve_indicator_space || self.selected == Some(true) {
-            let indicator_size = self.indicator_style.icon_size.unwrap_or(16.0);
-            let indicator: Widget = if self.selected == Some(true) {
-                Icon::svg(material::navigation::check::regular())
-                    .size(indicator_size)
-                    .color(self.indicator_style.text_color.unwrap_or(text_color))
-                    .into()
-            } else {
-                Spacer {
-                    width: Some(indicator_size),
-                    height: Some(indicator_size),
-                    ..Default::default()
+                    .map(|_| WidgetId::derived(self.id.as_u128(), &[DESCRIPTION_ID_PATH]));
+                if let (Some(description), Some(description_id)) =
+                    (&self.description, description_id)
+                {
+                    let description_color = if self.disabled {
+                        text_color
+                    } else {
+                        self.description_style
+                            .text_color
+                            .unwrap_or(cx.env().theme.tokens.colors.text_muted)
+                    };
+                    let mut description_text = Text::new(description.clone())
+                        .size(self.description_style.font_size.unwrap_or(13.0))
+                        .weight(self.description_style.font_weight.unwrap_or(400))
+                        .color(description_color);
+                    if let Some(line_height) = self.description_style.line_height {
+                        description_text = description_text.line_height(line_height);
+                    }
+                    let description_widget: Widget = SemanticsRegion {
+                        id: Some(description_id),
+                        label: Some(description.clone()),
+                        role: Role::Text,
+                        focusable: Some(false),
+                        child: Some(description_text.into()),
+                        ..Default::default()
+                    }
+                    .into();
+                    text_stack.add_child(fission_core::internal::lower_widget(
+                        &description_widget,
+                        cx,
+                    ));
                 }
-                .into()
-            };
-            row.add_child(fission_core::internal::lower_widget(&indicator, cx));
-        }
+                row.add_child(text_stack.build(cx));
 
-        let row_id = row.build(cx);
-        // Logical [start, end, top, bottom]: the selection indicator sits at the
-        // end of the row, whichever physical edge that is.
-        let mut padding = self.style.padding_box(8.0, 6.0);
-        if self.reserve_indicator_space || self.selected == Some(true) {
-            let inset = self.indicator_style.inset_end.unwrap_or(padding[1]);
-            padding[1] = padding[1].max(inset);
-        }
-        let has_description = self.description.is_some();
-        let mut layout = IrBuilder::new(
-            layout_id,
-            Op::Layout(LayoutOp::StyledBox {
-                style: BoxStyle {
-                    width: self.width.map(Length::Points),
-                    height: (!has_description)
-                        .then(|| self.style.height.map(Length::Points))
-                        .flatten(),
-                    min_height: self.style.height.map(Length::Points),
-                    max_width: self.style.max_width.map(Length::Points),
-                    padding_directional: Some(padding.map(Length::Points)),
-                    alignment: BoxAlignment::Stretch,
-                    ..Default::default()
-                },
-                flex_grow: 0.0,
-                flex_shrink: 1.0,
-            }),
-        )
-        .composite(recipe_composite_style(&self.style));
-        append_recipe_paint(&mut layout, cx, &self.style);
-        layout.add_child(row_id);
-        let layout_id = layout.build(cx);
+                if let Some(trailing) = &self.trailing {
+                    let (value, style) = match trailing {
+                        MenuItemTrailing::Shortcut(value) => (value, &self.shortcut_style),
+                        MenuItemTrailing::Metadata(value) => (value, &self.metadata_style),
+                    };
+                    let trailing_color = if self.disabled {
+                        text_color
+                    } else {
+                        style
+                            .text_color
+                            .unwrap_or(cx.env().theme.tokens.colors.text_muted)
+                    };
+                    let mut trailing_text = Text::new(value.clone())
+                        .size(style.font_size.unwrap_or(12.0))
+                        .weight(style.font_weight.unwrap_or(400))
+                        .color(trailing_color);
+                    if let Some(line_height) = style.line_height {
+                        trailing_text = trailing_text.line_height(line_height);
+                    }
+                    if let Some(letter_spacing) = style.letter_spacing {
+                        trailing_text = trailing_text.letter_spacing(letter_spacing);
+                    }
+                    let trailing_widget: Widget = trailing_text.into();
+                    row.add_child(fission_core::internal::lower_widget(&trailing_widget, cx));
+                }
 
-        cx.pop_scope();
-        cx.pop_scope();
+                if self.reserve_indicator_space || self.selected == Some(true) {
+                    let indicator_size = self.indicator_style.icon_size.unwrap_or(16.0);
+                    let indicator: Widget = if self.selected == Some(true) {
+                        Icon::svg(material::navigation::check::regular())
+                            .size(indicator_size)
+                            .color(self.indicator_style.text_color.unwrap_or(text_color))
+                            .into()
+                    } else {
+                        Spacer {
+                            width: Some(indicator_size),
+                            height: Some(indicator_size),
+                            ..Default::default()
+                        }
+                        .into()
+                    };
+                    row.add_child(fission_core::internal::lower_widget(&indicator, cx));
+                }
+
+                let row_id = row.build(cx);
+                // Logical [start, end, top, bottom]: the selection indicator sits at the
+                // end of the row, whichever physical edge that is.
+                let mut padding = self.style.padding_box(8.0, 6.0);
+                if self.reserve_indicator_space || self.selected == Some(true) {
+                    let inset = self.indicator_style.inset_end.unwrap_or(padding[1]);
+                    padding[1] = padding[1].max(inset);
+                }
+                let has_description = self.description.is_some();
+                let mut layout = IrBuilder::new(
+                    layout_id,
+                    Op::Layout(LayoutOp::StyledBox {
+                        style: BoxStyle {
+                            width: self.width.map(Length::Points),
+                            height: (!has_description)
+                                .then(|| self.style.height.map(Length::Points))
+                                .flatten(),
+                            min_height: self.style.height.map(Length::Points),
+                            max_width: self.style.max_width.map(Length::Points),
+                            padding_directional: Some(padding.map(Length::Points)),
+                            alignment: BoxAlignment::Stretch,
+                            ..Default::default()
+                        },
+                        flex_grow: 0.0,
+                        flex_shrink: 1.0,
+                    }),
+                )
+                .composite(recipe_composite_style(&self.style));
+                append_recipe_paint(&mut layout, cx, &self.style);
+                layout.add_child(row_id);
+                let layout_id = layout.build(cx);
+
+                (description_id, layout_id)
+            });
+            (layout_id, description_id)
+        });
 
         let mut actions = ActionSet::default();
         if !self.disabled {

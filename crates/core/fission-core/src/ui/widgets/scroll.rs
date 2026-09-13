@@ -76,48 +76,48 @@ impl Lower for Scroll {
     fn lower(&self, cx: &mut LoweringContext) -> WidgetId {
         let layout_id = self.id.map(Into::into).unwrap_or_else(|| cx.next_node_id());
 
-        cx.push_scope(layout_id);
-
-        let mut builder = IrBuilder::new(
-            layout_id,
-            Op::Layout(LayoutOp::Scroll {
-                direction: self.direction,
-                show_scrollbar: self.show_scrollbar,
-                width: self.width,
-                height: self.height,
-                min_width: None,
-                max_width: None,
-                min_height: None,
-                max_height: None,
-                padding: [0.0; 4],
-                flex_grow: self.flex_grow,
-                flex_shrink: self.flex_shrink,
-            }),
-        );
-        if let Some(child) = &self.child {
-            // Wrap content in a non-shrinking Box to ensure it overflows the viewport
-            // allowing scrolling to work.
-            let content_id = cx.next_node_id();
-            let mut content_box = IrBuilder::new(
-                content_id,
-                Op::Layout(LayoutOp::Box {
-                    width: None,
-                    height: None,
+        let builder = cx.with_scope(layout_id, |cx| {
+            let mut builder = IrBuilder::new(
+                layout_id,
+                Op::Layout(LayoutOp::Scroll {
+                    direction: self.direction,
+                    show_scrollbar: self.show_scrollbar,
+                    width: self.width,
+                    height: self.height,
                     min_width: None,
                     max_width: None,
                     min_height: None,
                     max_height: None,
                     padding: [0.0; 4],
-                    flex_grow: 0.0,
-                    flex_shrink: 0.0,
-                    aspect_ratio: None,
+                    flex_grow: self.flex_grow,
+                    flex_shrink: self.flex_shrink,
                 }),
             );
-            content_box.add_child(child.lower(cx));
-            builder.add_child(content_box.build(cx));
-        }
+            if let Some(child) = &self.child {
+                // Wrap content in a non-shrinking Box to ensure it overflows the viewport
+                // allowing scrolling to work.
+                let content_id = cx.next_node_id();
+                let mut content_box = IrBuilder::new(
+                    content_id,
+                    Op::Layout(LayoutOp::Box {
+                        width: None,
+                        height: None,
+                        min_width: None,
+                        max_width: None,
+                        min_height: None,
+                        max_height: None,
+                        padding: [0.0; 4],
+                        flex_grow: 0.0,
+                        flex_shrink: 0.0,
+                        aspect_ratio: None,
+                    }),
+                );
+                content_box.add_child(child.lower(cx));
+                builder.add_child(content_box.build(cx));
+            }
 
-        cx.pop_scope();
+            builder
+        });
 
         let scroll_id = builder.build(cx);
 

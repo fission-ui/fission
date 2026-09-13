@@ -28,9 +28,7 @@ impl ActionScope {
 impl Lower for ActionScope {
     fn lower(&self, cx: &mut LoweringContext) -> WidgetId {
         let wrapper_id = cx.next_node_id();
-        cx.push_scope(wrapper_id);
-        let child_id = self.child.lower(cx);
-        cx.pop_scope();
+        let child_id = cx.with_scope(wrapper_id, |cx| self.child.lower(cx));
 
         let semantics = Semantics {
             action_scope_id: Some(self.id.as_u128()),

@@ -39,9 +39,7 @@ impl Lower for Clip {
     fn lower(&self, cx: &mut LoweringContext) -> WidgetId {
         let id = self.id.map(Into::into).unwrap_or_else(|| cx.next_node_id());
 
-        cx.push_scope(id);
-        let child_id = self.child.lower(cx);
-        cx.pop_scope();
+        let child_id = cx.with_scope(id, |cx| self.child.lower(cx));
 
         let mut builder = IrBuilder::new(
             id,

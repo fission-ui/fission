@@ -372,30 +372,30 @@ impl ContextMenuRegion {
 impl Lower for ContextMenuRegion {
     fn lower(&self, cx: &mut LoweringContext<'_>) -> WidgetId {
         let owner = self.id.unwrap_or_else(|| cx.next_node_id());
-        cx.push_scope(owner);
+        let builder = cx.with_scope(owner, |cx| {
+            let child_id = self.child.lower(cx);
+            let visual_id = if self.enabled && cx.runtime_state.context_menu.owner == Some(owner) {
+                let anchor = cx
+                    .runtime_state
+                    .context_menu
+                    .anchor
+                    .map(|screen_anchor| anchor_to_local(cx, owner, screen_anchor))
+                    .unwrap_or_else(|| fission_layout::LayoutPoint::new(0.0, 0.0));
+                let menu_id = self.menu.overlay_widget(owner, anchor).lower(cx);
+                let mut stack = IrBuilder::new(cx.next_node_id(), Op::Layout(LayoutOp::ZStack));
+                stack.add_child(child_id);
+                stack.add_child(menu_id);
+                stack.build(cx)
+            } else {
+                child_id
+            };
 
-        let child_id = self.child.lower(cx);
-        let visual_id = if self.enabled && cx.runtime_state.context_menu.owner == Some(owner) {
-            let anchor = cx
-                .runtime_state
-                .context_menu
-                .anchor
-                .map(|screen_anchor| anchor_to_local(cx, owner, screen_anchor))
-                .unwrap_or_else(|| fission_layout::LayoutPoint::new(0.0, 0.0));
-            let menu_id = self.menu.overlay_widget(owner, anchor).lower(cx);
-            let mut stack = IrBuilder::new(cx.next_node_id(), Op::Layout(LayoutOp::ZStack));
-            stack.add_child(child_id);
-            stack.add_child(menu_id);
-            stack.build(cx)
-        } else {
-            child_id
-        };
-
-        let mut semantics = self.semantics.clone().unwrap_or_default();
-        semantics.context_menu = self.enabled;
-        let mut builder = IrBuilder::new(owner, Op::Semantics(semantics));
-        builder.add_child(visual_id);
-        cx.pop_scope();
+            let mut semantics = self.semantics.clone().unwrap_or_default();
+            semantics.context_menu = self.enabled;
+            let mut builder = IrBuilder::new(owner, Op::Semantics(semantics));
+            builder.add_child(visual_id);
+            builder
+        });
         builder.build(cx)
     }
 }

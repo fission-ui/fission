@@ -56,123 +56,125 @@ impl Switch {
 impl Lower for Switch {
     fn lower(&self, cx: &mut LoweringContext) -> WidgetId {
         let id = self.id.map(Into::into).unwrap_or_else(|| cx.next_node_id());
-        cx.push_scope(id);
+        let layout_id = cx.with_scope(id, |cx| {
+            let tokens = &cx.env.theme.tokens;
+            let width = 36.0;
+            let height = 20.0;
+            let thumb_size = 16.0;
+            let padding = 2.0;
 
-        let tokens = &cx.env.theme.tokens;
-        let width = 36.0;
-        let height = 20.0;
-        let thumb_size = 16.0;
-        let padding = 2.0;
+            let track_color = if self.disabled {
+                tokens.colors.surface_sunken
+            } else if self.checked {
+                tokens.colors.primary
+            } else {
+                tokens.colors.border
+            };
+            let thumb_color = if self.disabled {
+                tokens.colors.text_muted
+            } else {
+                tokens.colors.on_primary
+            };
 
-        let track_color = if self.disabled {
-            tokens.colors.surface_sunken
-        } else if self.checked {
-            tokens.colors.primary
-        } else {
-            tokens.colors.border
-        };
-        let thumb_color = if self.disabled {
-            tokens.colors.text_muted
-        } else {
-            tokens.colors.on_primary
-        };
+            // Track
+            let track_paint = Op::Paint(PaintOp::DrawRect {
+                fill: Some(fission_ir::op::Fill::Solid(track_color)),
+                stroke: None,
+                corner_radius: height / 2.0,
+                shadow: None,
+                corner_radii: None,
+                border_sides: None,
+            });
+            let track_node = IrBuilder::new(cx.next_node_id(), track_paint).build(cx);
 
-        // Track
-        let track_paint = Op::Paint(PaintOp::DrawRect {
-            fill: Some(fission_ir::op::Fill::Solid(track_color)),
-            stroke: None,
-            corner_radius: height / 2.0,
-            shadow: None,
-            corner_radii: None,
-            border_sides: None,
-        });
-        let track_node = IrBuilder::new(cx.next_node_id(), track_paint).build(cx);
+            // Thumb
+            let thumb_paint = Op::Paint(PaintOp::DrawRect {
+                fill: Some(fission_ir::op::Fill::Solid(thumb_color)),
+                stroke: None,
+                corner_radius: thumb_size / 2.0,
+                shadow: Some(fission_ir::op::BoxShadow {
+                    spread_radius: 0.0,
+                    inset: false,
+                    color: Color {
+                        r: 0,
+                        g: 0,
+                        b: 0,
+                        a: 50,
+                    },
+                    blur_radius: 2.0,
+                    offset: (0.0, 1.0),
+                }),
+                corner_radii: None,
+                border_sides: None,
+            });
+            let thumb_paint_node = IrBuilder::new(cx.next_node_id(), thumb_paint).build(cx);
 
-        // Thumb
-        let thumb_paint = Op::Paint(PaintOp::DrawRect {
-            fill: Some(fission_ir::op::Fill::Solid(thumb_color)),
-            stroke: None,
-            corner_radius: thumb_size / 2.0,
-            shadow: Some(fission_ir::op::BoxShadow {
-                spread_radius: 0.0,
-                inset: false,
-                color: Color {
-                    r: 0,
-                    g: 0,
-                    b: 0,
-                    a: 50,
-                },
-                blur_radius: 2.0,
-                offset: (0.0, 1.0),
-            }),
-            corner_radii: None,
-            border_sides: None,
-        });
-        let thumb_paint_node = IrBuilder::new(cx.next_node_id(), thumb_paint).build(cx);
+            let left_padding = if self.checked {
+                width - thumb_size - padding
+            } else {
+                padding
+            };
 
-        let left_padding = if self.checked {
-            width - thumb_size - padding
-        } else {
-            padding
-        };
-
-        let mut thumb_wrapper = IrBuilder::new(
-            cx.next_node_id(),
-            Op::Layout(LayoutOp::Box {
-                width: Some(thumb_size),
-                height: Some(thumb_size),
-                min_width: None,
-                max_width: None,
-                min_height: None,
-                max_height: None,
-                padding: [0.0; 4],
-                flex_grow: 0.0,
-                flex_shrink: 0.0,
-                aspect_ratio: None,
-            }),
-        );
-        thumb_wrapper.add_child(thumb_paint_node);
-        let thumb_id = thumb_wrapper.build(cx);
-
-        // ZStack for Track + Content
-        let layout_id = cx.next_node_id();
-        let bg_id = {
-            let mut bg_fill = IrBuilder::new(cx.next_node_id(), Op::Layout(LayoutOp::AbsoluteFill));
-            bg_fill.add_child(track_node);
-            bg_fill.build(cx)
-        };
-
-        let content_id = {
-            let mut thumb_track = IrBuilder::new(
+            let mut thumb_wrapper = IrBuilder::new(
                 cx.next_node_id(),
                 Op::Layout(LayoutOp::Box {
-                    width: Some(width),
-                    height: Some(height),
+                    width: Some(thumb_size),
+                    height: Some(thumb_size),
                     min_width: None,
                     max_width: None,
                     min_height: None,
                     max_height: None,
-                    padding: [left_padding, 0.0, padding, 0.0],
+                    padding: [0.0; 4],
                     flex_grow: 0.0,
                     flex_shrink: 0.0,
                     aspect_ratio: None,
                 }),
             );
-            thumb_track.add_child(thumb_id);
-            thumb_track.build(cx)
-        };
+            thumb_wrapper.add_child(thumb_paint_node);
+            let thumb_id = thumb_wrapper.build(cx);
 
-        cx.push_scope(layout_id);
-        let bg_wrapped = wrap_zstack_child(cx, bg_id);
-        let content_wrapped = wrap_zstack_child(cx, content_id);
-        cx.pop_scope();
+            // ZStack for Track + Content
+            let layout_id = cx.next_node_id();
+            let bg_id = {
+                let mut bg_fill =
+                    IrBuilder::new(cx.next_node_id(), Op::Layout(LayoutOp::AbsoluteFill));
+                bg_fill.add_child(track_node);
+                bg_fill.build(cx)
+            };
 
-        let mut root = IrBuilder::new(layout_id, Op::Layout(LayoutOp::ZStack));
-        root.add_child(bg_wrapped);
-        root.add_child(content_wrapped);
-        root.build(cx);
+            let content_id = {
+                let mut thumb_track = IrBuilder::new(
+                    cx.next_node_id(),
+                    Op::Layout(LayoutOp::Box {
+                        width: Some(width),
+                        height: Some(height),
+                        min_width: None,
+                        max_width: None,
+                        min_height: None,
+                        max_height: None,
+                        padding: [left_padding, 0.0, padding, 0.0],
+                        flex_grow: 0.0,
+                        flex_shrink: 0.0,
+                        aspect_ratio: None,
+                    }),
+                );
+                thumb_track.add_child(thumb_id);
+                thumb_track.build(cx)
+            };
 
-        cx.pop_scope();
+            let (bg_wrapped, content_wrapped) = cx.with_scope(layout_id, |cx| {
+                let bg_wrapped = wrap_zstack_child(cx, bg_id);
+                let content_wrapped = wrap_zstack_child(cx, content_id);
+                (bg_wrapped, content_wrapped)
+            });
+
+            let mut root = IrBuilder::new(layout_id, Op::Layout(LayoutOp::ZStack));
+            root.add_child(bg_wrapped);
+            root.add_child(content_wrapped);
+            root.build(cx);
+
+            layout_id
+        });
 
         let mut semantics = fission_ir::Semantics {
             role: fission_ir::Role::Switch,

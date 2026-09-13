@@ -96,8 +96,15 @@ impl<'a> LoweringContext<'a> {
         self.ir
     }
 
-    /// Runs `lower` with node identities derived from `node_id`, so ids
-    /// allocated inside stay stable however the surrounding tree changes.
+    /// Runs `lower` inside an identity scope rooted at `node_id`, then restores
+    /// the surrounding scope.
+    ///
+    /// Ids allocated inside derive from `node_id`, so they stay stable however
+    /// the surrounding tree changes, and siblings lowered after this call keep
+    /// the ids they would have had without it. Identity scopes only decide
+    /// automatically derived descendant ids; they do not affect layout,
+    /// rendering, permissions or event isolation. `lower` may return a
+    /// `Result`, and an error returned with `?` still leaves the scope.
     pub fn with_scope<R>(&mut self, node_id: WidgetId, lower: impl FnOnce(&mut Self) -> R) -> R {
         self.push_scope(node_id);
         let result = lower(self);
@@ -125,14 +132,14 @@ impl<'a> LoweringContext<'a> {
         }
     }
 
-    /// Starts an identity scope rooted at `node_id`. Pair with
-    /// [`pop_scope`](Self::pop_scope), or prefer [`with_scope`](Self::with_scope).
-    pub fn push_scope(&mut self, node_id: WidgetId) {
+    /// Starts an identity scope rooted at `node_id`. Widgets use
+    /// [`with_scope`](Self::with_scope), which cannot leave a scope open.
+    pub(crate) fn push_scope(&mut self, node_id: WidgetId) {
         self.id_stack.push((node_id, 0));
     }
 
     /// Ends the identity scope started by the matching [`push_scope`](Self::push_scope).
-    pub fn pop_scope(&mut self) {
+    pub(crate) fn pop_scope(&mut self) {
         self.id_stack
             .pop()
             .expect("InternalLowering stack underflow");
@@ -743,4 +750,65 @@ pub fn build_layout_tree(ir: &CoreIR, _env: &Env) -> Vec<LayoutInputNode> {
     }
 
     input_nodes
+}
+
+#[cfg(test)]
+mod identity_scope_tests {
+    use super::LoweringContext;
+    use crate::{Env, RuntimeState, WidgetId};
+
+    #[test]
+    fn nested_scopes_restore_the_surrounding_scope_for_later_siblings() {
+        let env = Env::default();
+        let runtime = RuntimeState::default();
+        let root = WidgetId::explicit("scope.root");
+
+        let mut nested = LoweringContext::new(&env, &runtime, None, None);
+        let (first, second) = nested.with_scope(root, |cx| {
+            let first = cx.next_node_id();
+            cx.with_scope(first, |cx| {
+                let _ = cx.next_node_id();
+                cx.with_scope(WidgetId::explicit("scope.inner"), |cx| {
+                    let _ = cx.next_node_id();
+                    let _ = cx.next_node_id();
+                });
+                let _ = cx.next_node_id();
+            });
+            (first, cx.next_node_id())
+        });
+        let after_nested = nested.next_node_id();
+
+        let mut flat = LoweringContext::new(&env, &runtime, None, None);
+        let (flat_first, flat_second) =
+            flat.with_scope(root, |cx| (cx.next_node_id(), cx.next_node_id()));
+        let after_flat = flat.next_node_id();
+
+        assert_eq!(first, flat_first);
+        assert_eq!(
+            second, flat_second,
+            "a sibling after nested scopes keeps its id"
+        );
+        assert_eq!(
+            after_nested, after_flat,
+            "the outer scope is restored when it ends"
+        );
+    }
+
+    #[test]
+    fn a_failed_lowering_still_leaves_its_scope() {
+        let env = Env::default();
+        let runtime = RuntimeState::default();
+        let mut cx = LoweringContext::new(&env, &runtime, None, None);
+        let mut reference = LoweringContext::new(&env, &runtime, None, None);
+
+        let failed: Result<WidgetId, &str> =
+            cx.with_scope(WidgetId::explicit("scope.fails"), |cx| {
+                let _ = cx.next_node_id();
+                Err::<(), &str>("lowering failed")?;
+                Ok(cx.next_node_id())
+            });
+
+        assert!(failed.is_err());
+        assert_eq!(cx.next_node_id(), reference.next_node_id());
+    }
 }

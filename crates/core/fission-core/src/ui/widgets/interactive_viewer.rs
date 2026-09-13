@@ -72,9 +72,10 @@ impl Lower for InteractiveViewer {
         let id = self.id.unwrap_or_else(|| cx.next_node_id());
         let (min_scale, max_scale) = normalized_scale_bounds(self.min_scale, self.max_scale);
 
-        cx.push_scope(id);
-        let child_id = self.child.lower(cx);
-        cx.pop_scope();
+        let child_id = cx.with_scope(id, |cx| {
+            let child_id = self.child.lower(cx);
+            child_id
+        });
 
         let mut builder = IrBuilder::new(
             id,

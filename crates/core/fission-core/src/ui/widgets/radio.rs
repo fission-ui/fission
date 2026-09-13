@@ -65,97 +65,117 @@ impl Radio {
 impl Lower for Radio {
     fn lower(&self, cx: &mut LoweringContext) -> WidgetId {
         let id = self.id.map(Into::into).unwrap_or_else(|| cx.next_node_id());
-        cx.push_scope(id);
+        let layout_id = cx.with_scope(id, |cx| {
+            let tokens = &cx.env.theme.tokens;
+            let size = 18.0;
+            let dot_size = size * 0.5;
+            let _radius = size / 2.0;
+            let border_color = if self.disabled {
+                tokens.colors.text_muted
+            } else {
+                tokens.colors.text_secondary
+            };
+            let active_color = if self.disabled {
+                tokens.colors.text_muted
+            } else {
+                tokens.colors.primary
+            };
+            let text_color = if self.disabled {
+                tokens.colors.text_muted
+            } else {
+                tokens.colors.text_primary
+            };
 
-        let tokens = &cx.env.theme.tokens;
-        let size = 18.0;
-        let dot_size = size * 0.5;
-        let _radius = size / 2.0;
-        let border_color = if self.disabled {
-            tokens.colors.text_muted
-        } else {
-            tokens.colors.text_secondary
-        };
-        let active_color = if self.disabled {
-            tokens.colors.text_muted
-        } else {
-            tokens.colors.primary
-        };
-        let text_color = if self.disabled {
-            tokens.colors.text_muted
-        } else {
-            tokens.colors.text_primary
-        };
-
-        // Outer Circle
-        let bg_paint = if self.checked {
-            Op::Paint(PaintOp::DrawRect {
-                fill: None,
-                stroke: Some(fission_ir::op::Stroke {
-                    fill: fission_ir::op::Fill::Solid(active_color),
-                    width: 2.0,
-                    dash_array: None,
-                    line_cap: fission_ir::op::LineCap::Butt,
-                    line_join: fission_ir::op::LineJoin::Miter,
-                }),
-                corner_radius: size / 2.0,
-                shadow: None,
-                corner_radii: None,
-                border_sides: None,
-            })
-        } else {
-            Op::Paint(PaintOp::DrawRect {
-                fill: None,
-                stroke: Some(fission_ir::op::Stroke {
-                    fill: fission_ir::op::Fill::Solid(border_color),
-                    width: 1.5,
-                    dash_array: None,
-                    line_cap: fission_ir::op::LineCap::Butt,
-                    line_join: fission_ir::op::LineJoin::Miter,
-                }),
-                corner_radius: size / 2.0,
-                shadow: None,
-                corner_radii: None,
-                border_sides: None,
-            })
-        };
-        let outer_node = IrBuilder::new(cx.next_node_id(), bg_paint).build(cx);
-
-        // Dot
-        let dot_node = if self.checked {
-            let dot = IrBuilder::new(
-                cx.next_node_id(),
+            // Outer Circle
+            let bg_paint = if self.checked {
                 Op::Paint(PaintOp::DrawRect {
-                    fill: Some(fission_ir::op::Fill::Solid(active_color)),
-                    stroke: None,
-                    corner_radius: dot_size / 2.0,
+                    fill: None,
+                    stroke: Some(fission_ir::op::Stroke {
+                        fill: fission_ir::op::Fill::Solid(active_color),
+                        width: 2.0,
+                        dash_array: None,
+                        line_cap: fission_ir::op::LineCap::Butt,
+                        line_join: fission_ir::op::LineJoin::Miter,
+                    }),
+                    corner_radius: size / 2.0,
                     shadow: None,
                     corner_radii: None,
                     border_sides: None,
-                }),
-            )
-            .build(cx);
-            let mut dot_box = IrBuilder::new(
-                cx.next_node_id(),
-                Op::Layout(LayoutOp::Box {
-                    width: Some(dot_size),
-                    height: Some(dot_size),
-                    min_width: None,
-                    max_width: None,
-                    min_height: None,
-                    max_height: None,
-                    padding: [0.0; 4],
-                    flex_grow: 0.0,
-                    flex_shrink: 0.0,
-                    aspect_ratio: None,
-                }),
-            );
-            dot_box.add_child(dot);
-            let dot_box_id = dot_box.build(cx);
-            let mut dot_align = IrBuilder::new(cx.next_node_id(), Op::Layout(LayoutOp::Align));
-            dot_align.add_child(dot_box_id);
-            let dot_align_id = dot_align.build(cx);
-            let mut dot_container = IrBuilder::new(
+                })
+            } else {
+                Op::Paint(PaintOp::DrawRect {
+                    fill: None,
+                    stroke: Some(fission_ir::op::Stroke {
+                        fill: fission_ir::op::Fill::Solid(border_color),
+                        width: 1.5,
+                        dash_array: None,
+                        line_cap: fission_ir::op::LineCap::Butt,
+                        line_join: fission_ir::op::LineJoin::Miter,
+                    }),
+                    corner_radius: size / 2.0,
+                    shadow: None,
+                    corner_radii: None,
+                    border_sides: None,
+                })
+            };
+            let outer_node = IrBuilder::new(cx.next_node_id(), bg_paint).build(cx);
+
+            // Dot
+            let dot_node = if self.checked {
+                let dot = IrBuilder::new(
+                    cx.next_node_id(),
+                    Op::Paint(PaintOp::DrawRect {
+                        fill: Some(fission_ir::op::Fill::Solid(active_color)),
+                        stroke: None,
+                        corner_radius: dot_size / 2.0,
+                        shadow: None,
+                        corner_radii: None,
+                        border_sides: None,
+                    }),
+                )
+                .build(cx);
+                let mut dot_box = IrBuilder::new(
+                    cx.next_node_id(),
+                    Op::Layout(LayoutOp::Box {
+                        width: Some(dot_size),
+                        height: Some(dot_size),
+                        min_width: None,
+                        max_width: None,
+                        min_height: None,
+                        max_height: None,
+                        padding: [0.0; 4],
+                        flex_grow: 0.0,
+                        flex_shrink: 0.0,
+                        aspect_ratio: None,
+                    }),
+                );
+                dot_box.add_child(dot);
+                let dot_box_id = dot_box.build(cx);
+                let mut dot_align = IrBuilder::new(cx.next_node_id(), Op::Layout(LayoutOp::Align));
+                dot_align.add_child(dot_box_id);
+                let dot_align_id = dot_align.build(cx);
+                let mut dot_container = IrBuilder::new(
+                    cx.next_node_id(),
+                    Op::Layout(LayoutOp::Box {
+                        width: Some(size),
+                        height: Some(size),
+                        min_width: None,
+                        max_width: None,
+                        min_height: None,
+                        max_height: None,
+                        padding: [0.0; 4],
+                        flex_grow: 0.0,
+                        flex_shrink: 0.0,
+                        aspect_ratio: None,
+                    }),
+                );
+                dot_container.add_child(dot_align_id);
+                Some(dot_container.build(cx))
+            } else {
+                None
+            };
+
+            let mut radio_box = IrBuilder::new(
                 cx.next_node_id(),
                 Op::Layout(LayoutOp::Box {
                     width: Some(size),
@@ -170,96 +190,76 @@ impl Lower for Radio {
                     aspect_ratio: None,
                 }),
             );
-            dot_container.add_child(dot_align_id);
-            Some(dot_container.build(cx))
-        } else {
-            None
-        };
+            radio_box.add_child(outer_node);
+            if let Some(d) = dot_node {
+                radio_box.add_child(d);
+            }
+            let radio_final = radio_box.build(cx);
 
-        let mut radio_box = IrBuilder::new(
-            cx.next_node_id(),
-            Op::Layout(LayoutOp::Box {
-                width: Some(size),
-                height: Some(size),
-                min_width: None,
-                max_width: None,
-                min_height: None,
-                max_height: None,
-                padding: [0.0; 4],
-                flex_grow: 0.0,
-                flex_shrink: 0.0,
-                aspect_ratio: None,
-            }),
-        );
-        radio_box.add_child(outer_node);
-        if let Some(d) = dot_node {
-            radio_box.add_child(d);
-        }
-        let radio_final = radio_box.build(cx);
+            // Label
+            let label_id = if let Some(text) = &self.label {
+                let text_id = IrBuilder::new(
+                    cx.next_node_id(),
+                    Op::Paint(PaintOp::DrawText {
+                        text: text.clone(),
+                        size: tokens.typography.body_medium_size,
+                        color: text_color,
+                        underline: false,
+                        locale: None,
+                        wrap: false,
+                        caret_index: None,
+                        caret_color: None,
+                        caret_width: None,
+                        caret_height: None,
+                        caret_radius: None,
+                        paragraph_style: None,
+                    }),
+                )
+                .build(cx);
+                let mut layout = IrBuilder::new(
+                    cx.next_node_id(),
+                    Op::Layout(LayoutOp::Box {
+                        width: None,
+                        height: None,
+                        min_width: None,
+                        max_width: None,
+                        min_height: None,
+                        max_height: None,
+                        padding: [tokens.spacing.s, 0.0, 0.0, 0.0],
+                        flex_grow: 0.0,
+                        flex_shrink: 0.0,
+                        aspect_ratio: None,
+                    }),
+                );
+                layout.add_child(text_id);
+                Some(layout.build(cx))
+            } else {
+                None
+            };
 
-        // Label
-        let label_id = if let Some(text) = &self.label {
-            let text_id = IrBuilder::new(
-                cx.next_node_id(),
-                Op::Paint(PaintOp::DrawText {
-                    text: text.clone(),
-                    size: tokens.typography.body_medium_size,
-                    color: text_color,
-                    underline: false,
-                    locale: None,
-                    wrap: false,
-                    caret_index: None,
-                    caret_color: None,
-                    caret_width: None,
-                    caret_height: None,
-                    caret_radius: None,
-                    paragraph_style: None,
-                }),
-            )
-            .build(cx);
-            let mut layout = IrBuilder::new(
-                cx.next_node_id(),
-                Op::Layout(LayoutOp::Box {
-                    width: None,
-                    height: None,
-                    min_width: None,
-                    max_width: None,
-                    min_height: None,
-                    max_height: None,
-                    padding: [tokens.spacing.s, 0.0, 0.0, 0.0],
+            let layout_id = cx.next_node_id();
+            let mut row = IrBuilder::new(
+                layout_id,
+                Op::Layout(LayoutOp::Flex {
+                    direction: fission_ir::FlexDirection::Row,
+                    wrap: fission_ir::op::FlexWrap::NoWrap,
                     flex_grow: 0.0,
-                    flex_shrink: 0.0,
-                    aspect_ratio: None,
+                    flex_shrink: 1.0,
+                    padding: [0.0; 4],
+                    gap: Some(8.0),
+                    line_gap: None,
+                    align_items: fission_ir::op::AlignItems::Center,
+                    justify_content: fission_ir::op::JustifyContent::Start,
                 }),
             );
-            layout.add_child(text_id);
-            Some(layout.build(cx))
-        } else {
-            None
-        };
+            row.add_child(radio_final);
+            if let Some(l) = label_id {
+                row.add_child(l);
+            }
+            row.build(cx);
 
-        let layout_id = cx.next_node_id();
-        let mut row = IrBuilder::new(
-            layout_id,
-            Op::Layout(LayoutOp::Flex {
-                direction: fission_ir::FlexDirection::Row,
-                wrap: fission_ir::op::FlexWrap::NoWrap,
-                flex_grow: 0.0,
-                flex_shrink: 1.0,
-                padding: [0.0; 4],
-                gap: Some(8.0),
-                line_gap: None,
-                align_items: fission_ir::op::AlignItems::Center,
-                justify_content: fission_ir::op::JustifyContent::Start,
-            }),
-        );
-        row.add_child(radio_final);
-        if let Some(l) = label_id {
-            row.add_child(l);
-        }
-        row.build(cx);
-
-        cx.pop_scope();
+            layout_id
+        });
 
         let mut semantics = fission_ir::Semantics {
             role: fission_ir::Role::Radio,

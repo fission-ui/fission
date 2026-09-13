@@ -127,6 +127,7 @@ The shape is always the same:
 - read the environment with `cx.env()`: theme, locale, viewport size and layout direction;
 - read runtime state such as scroll offsets with `cx.runtime_state()`;
 - allocate node ids with `cx.next_node_id()`, and allocate them under a stable identity with `cx.with_scope(id, |cx| ...)`;
+- treat an identity scope as naming only: it decides the ids derived for descendants, not layout, rendering, permissions or event isolation;
 - read back what its children emitted with `cx.ir()`;
 - attach a render object to a node with `cx.set_render_object(id, object)`.
 

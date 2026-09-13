@@ -57,8 +57,7 @@ fn lower_chart_with_animation_progress(
     );
     let mut cx = LoweringContext::new(&env, &runtime_state, None, None);
     let root_id = cx.next_node_id();
-    cx.push_scope(root_id);
-    lowerer.lower_dyn(&mut cx);
+    cx.with_scope(root_id, |cx| lowerer.lower_dyn(cx));
     cx.into_ir()
 }
 
@@ -482,8 +481,7 @@ fn chart_theme_follows_dark_fission_env() {
     let runtime_state = fission_core::RuntimeState::default();
     let mut cx = LoweringContext::new(&env, &runtime_state, None, None);
     let root_id = cx.next_node_id();
-    cx.push_scope(root_id);
-    lowerer.lower_dyn(&mut cx);
+    cx.with_scope(root_id, |cx| lowerer.lower_dyn(cx));
 
     let has_dark_surface = cx.ir().nodes.values().any(|node| {
         matches!(
@@ -569,8 +567,7 @@ fn map_lines_tree_sunburst_and_theme_river_lower_to_paths() {
     let runtime_state = fission_core::RuntimeState::default();
     let mut cx = LoweringContext::new(&env, &runtime_state, None, None);
     let root_id = cx.next_node_id();
-    cx.push_scope(root_id);
-    lowerer.lower_dyn(&mut cx);
+    cx.with_scope(root_id, |cx| lowerer.lower_dyn(cx));
 
     let path_count = cx
         .ir()
@@ -609,8 +606,7 @@ fn mark_components_lower_to_paint_nodes() {
     let runtime_state = fission_core::RuntimeState::default();
     let mut cx = LoweringContext::new(&env, &runtime_state, None, None);
     let root_id = cx.next_node_id();
-    cx.push_scope(root_id);
-    lowerer.lower_dyn(&mut cx);
+    cx.with_scope(root_id, |cx| lowerer.lower_dyn(cx));
 
     let path_count = cx
         .ir()
@@ -648,9 +644,7 @@ fn test_chart_lowering() {
     let mut cx = LoweringContext::new(&env, &runtime_state, None, None);
 
     let root_id = cx.next_node_id();
-    cx.push_scope(root_id);
-
-    let generated_id = lowerer.lower_dyn(&mut cx);
+    let generated_id = cx.with_scope(root_id, |cx| lowerer.lower_dyn(cx));
 
     let ir = cx.into_ir();
     let root_node = ir.nodes.get(&generated_id).expect("Root node should exist");
@@ -692,8 +686,7 @@ fn lower_chart(chart: Chart) -> fission_ir::CoreIR {
     let runtime_state = fission_core::RuntimeState::default();
     let mut cx = LoweringContext::new(&env, &runtime_state, None, None);
     let root_id = cx.next_node_id();
-    cx.push_scope(root_id);
-    lowerer.lower_dyn(&mut cx);
+    cx.with_scope(root_id, |cx| lowerer.lower_dyn(cx));
     cx.into_ir()
 }
 
@@ -993,8 +986,7 @@ fn update_animation_draws_values_from_the_motion_state() {
         }
         let mut cx = LoweringContext::new(&env, &runtime_state, None, None);
         let root_id = cx.next_node_id();
-        cx.push_scope(root_id);
-        lowerer.lower_dyn(&mut cx);
+        cx.with_scope(root_id, |cx| lowerer.lower_dyn(cx));
         cx.into_ir()
     };
 

@@ -121,91 +121,94 @@ struct RangeSliderLowerer {
 impl LowerWidget for RangeSliderLowerer {
     fn lower_dyn(&self, cx: &mut LoweringContext) -> WidgetId {
         let control_id = WidgetId::derived(self.node_id.as_u128(), &[CONTROL_PATH]);
-        cx.push_scope(control_id);
+        let (start, end, layout_id) = cx.with_scope(control_id, |cx| {
+            let tokens = &cx.env().theme.tokens;
+            let thumb_size = 16.0;
+            let track_height = 4.0;
+            let (min, max, start, end) = normalized_values(&self.component);
+            let range = (max - min).max(f32::EPSILON);
+            let start_pct = (start - min) / range * 100.0;
+            let end_pct = (end - min) / range * 100.0;
 
-        let tokens = &cx.env().theme.tokens;
-        let thumb_size = 16.0;
-        let track_height = 4.0;
-        let (min, max, start, end) = normalized_values(&self.component);
-        let range = (max - min).max(f32::EPSILON);
-        let start_pct = (start - min) / range * 100.0;
-        let end_pct = (end - min) / range * 100.0;
+            let track_layer =
+                track_layer(cx, thumb_size, track_height, tokens.colors.border_strong);
+            let selected_layer = selected_track_layer(
+                cx,
+                start_pct,
+                end_pct,
+                thumb_size,
+                track_height,
+                tokens.colors.primary,
+            );
+            let action = self.component.on_change.as_ref();
+            let start_thumb = thumb_layer(
+                cx,
+                self.start_thumb_id,
+                start_pct,
+                thumb_size,
+                tokens.colors.primary,
+                self.component
+                    .semantics_identifier
+                    .as_ref()
+                    .map(|id| format!("{id}.start")),
+                min,
+                end,
+                start,
+                action,
+            );
+            let end_thumb = thumb_layer(
+                cx,
+                self.end_thumb_id,
+                end_pct,
+                thumb_size,
+                tokens.colors.primary,
+                self.component
+                    .semantics_identifier
+                    .as_ref()
+                    .map(|id| format!("{id}.end")),
+                start,
+                max,
+                end,
+                action,
+            );
 
-        let track_layer = track_layer(cx, thumb_size, track_height, tokens.colors.border_strong);
-        let selected_layer = selected_track_layer(
-            cx,
-            start_pct,
-            end_pct,
-            thumb_size,
-            track_height,
-            tokens.colors.primary,
-        );
-        let action = self.component.on_change.as_ref();
-        let start_thumb = thumb_layer(
-            cx,
-            self.start_thumb_id,
-            start_pct,
-            thumb_size,
-            tokens.colors.primary,
-            self.component
-                .semantics_identifier
-                .as_ref()
-                .map(|id| format!("{id}.start")),
-            min,
-            end,
-            start,
-            action,
-        );
-        let end_thumb = thumb_layer(
-            cx,
-            self.end_thumb_id,
-            end_pct,
-            thumb_size,
-            tokens.colors.primary,
-            self.component
-                .semantics_identifier
-                .as_ref()
-                .map(|id| format!("{id}.end")),
-            start,
-            max,
-            end,
-            action,
-        );
+            let stack_id = cx.next_node_id();
+            let (track_wrapped, selected_wrapped, start_wrapped, end_wrapped) =
+                cx.with_scope(stack_id, |cx| {
+                    let track_wrapped = wrap_zstack_child(cx, track_layer);
+                    let selected_wrapped = wrap_zstack_child(cx, selected_layer);
+                    let start_wrapped = wrap_zstack_child(cx, start_thumb);
+                    let end_wrapped = wrap_zstack_child(cx, end_thumb);
+                    (track_wrapped, selected_wrapped, start_wrapped, end_wrapped)
+                });
+            let mut stack = IrBuilder::new(stack_id, Op::Layout(LayoutOp::ZStack));
+            stack.add_child(track_wrapped);
+            stack.add_child(selected_wrapped);
+            stack.add_child(start_wrapped);
+            stack.add_child(end_wrapped);
+            stack.build(cx);
 
-        let stack_id = cx.next_node_id();
-        cx.push_scope(stack_id);
-        let track_wrapped = wrap_zstack_child(cx, track_layer);
-        let selected_wrapped = wrap_zstack_child(cx, selected_layer);
-        let start_wrapped = wrap_zstack_child(cx, start_thumb);
-        let end_wrapped = wrap_zstack_child(cx, end_thumb);
-        cx.pop_scope();
-        let mut stack = IrBuilder::new(stack_id, Op::Layout(LayoutOp::ZStack));
-        stack.add_child(track_wrapped);
-        stack.add_child(selected_wrapped);
-        stack.add_child(start_wrapped);
-        stack.add_child(end_wrapped);
-        stack.build(cx);
+            let layout_id = cx.next_node_id();
+            let mut layout = IrBuilder::new(
+                layout_id,
+                Op::Layout(LayoutOp::Box {
+                    width: None,
+                    height: Some(thumb_size),
+                    min_width: None,
+                    max_width: None,
+                    min_height: None,
+                    max_height: None,
+                    padding: [0.0; 4],
+                    flex_grow: 1.0,
+                    flex_shrink: 1.0,
+                    aspect_ratio: None,
+                }),
+            );
+            layout.add_child(stack_id);
+            layout.build(cx);
 
-        let layout_id = cx.next_node_id();
-        let mut layout = IrBuilder::new(
-            layout_id,
-            Op::Layout(LayoutOp::Box {
-                width: None,
-                height: Some(thumb_size),
-                min_width: None,
-                max_width: None,
-                min_height: None,
-                max_height: None,
-                padding: [0.0; 4],
-                flex_grow: 1.0,
-                flex_shrink: 1.0,
-                aspect_ratio: None,
-            }),
-        );
-        layout.add_child(stack_id);
-        layout.build(cx);
-
-        cx.pop_scope();
+            (start, end, layout_id)
+        });
         // A two-thumb range is a group containing two sliders, and the whole
         // track accepts drag, so a press beside a thumb moves the nearer one.
         // Marking it draggable is what makes the track hit-testable, the same

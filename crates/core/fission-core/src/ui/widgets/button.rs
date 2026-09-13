@@ -1580,86 +1580,54 @@ impl Lower for Button {
             content_padding[3] + resolved_style.layout_border_width,
         ];
 
-        cx.push_scope(layout_node_id);
-
-        let mut button_builder = IrBuilder::new(
-            layout_node_id,
-            Op::Layout(LayoutOp::Box {
-                width: self.width.or(resolved_style.width),
-                height: self.height,
-                min_width: self.min_width,
-                max_width: self.max_width.or(resolved_style.max_width),
-                min_height: if self.height.is_some() {
-                    None
-                } else {
-                    Some(
-                        resolved_style
-                            .min_height
-                            .unwrap_or(0.0)
-                            .max(resolved_style.height),
-                    )
-                },
-                max_height: None,
-                padding: layout_padding,
-                flex_grow: self.flex_grow,
-                flex_shrink: self.flex_shrink,
-                aspect_ratio: None,
-            }),
-        )
-        .composite(self.motion_composite_style(cx.env, final_id, &resolved_style));
-
-        for shadow in &resolved_style.outer_shadows {
-            let shadow_id = IrBuilder::new(
-                cx.next_node_id(),
-                Op::Paint(PaintOp::DrawRect {
-                    fill: None,
-                    stroke: None,
-                    corner_radius: resolved_style.corner_radius,
-                    shadow: Some(*shadow),
-                    corner_radii: None,
-                    border_sides: None,
+        cx.with_scope(layout_node_id, |cx| {
+            let mut button_builder = IrBuilder::new(
+                layout_node_id,
+                Op::Layout(LayoutOp::Box {
+                    width: self.width.or(resolved_style.width),
+                    height: self.height,
+                    min_width: self.min_width,
+                    max_width: self.max_width.or(resolved_style.max_width),
+                    min_height: if self.height.is_some() {
+                        None
+                    } else {
+                        Some(
+                            resolved_style
+                                .min_height
+                                .unwrap_or(0.0)
+                                .max(resolved_style.height),
+                        )
+                    },
+                    max_height: None,
+                    padding: layout_padding,
+                    flex_grow: self.flex_grow,
+                    flex_shrink: self.flex_shrink,
+                    aspect_ratio: None,
                 }),
             )
-            .build(cx);
-            button_builder.add_child(shadow_id);
-        }
+            .composite(self.motion_composite_style(cx.env, final_id, &resolved_style));
 
-        let background_id = IrBuilder::new(
-            cx.next_node_id(),
-            Op::Paint(PaintOp::DrawRect {
-                fill: resolved_style.background_fill.clone(),
-                stroke: resolved_style.stroke.clone(),
-                corner_radius: resolved_style.corner_radius,
-                shadow: None,
-                corner_radii: None,
-                border_sides: None,
-            }),
-        )
-        .build(cx);
-        button_builder.add_child(background_id);
+            for shadow in &resolved_style.outer_shadows {
+                let shadow_id = IrBuilder::new(
+                    cx.next_node_id(),
+                    Op::Paint(PaintOp::DrawRect {
+                        fill: None,
+                        stroke: None,
+                        corner_radius: resolved_style.corner_radius,
+                        shadow: Some(*shadow),
+                        corner_radii: None,
+                        border_sides: None,
+                    }),
+                )
+                .build(cx);
+                button_builder.add_child(shadow_id);
+            }
 
-        for shadow in &resolved_style.inset_shadows {
-            let shadow_id = IrBuilder::new(
+            let background_id = IrBuilder::new(
                 cx.next_node_id(),
                 Op::Paint(PaintOp::DrawRect {
-                    fill: None,
-                    stroke: None,
-                    corner_radius: resolved_style.corner_radius,
-                    shadow: Some(*shadow),
-                    corner_radii: None,
-                    border_sides: None,
-                }),
-            )
-            .build(cx);
-            button_builder.add_child(shadow_id);
-        }
-
-        if let Some(focus_ring) = resolved_style.focus_ring.clone() {
-            let focus_ring_id = IrBuilder::new(
-                cx.next_node_id(),
-                Op::Paint(PaintOp::DrawRect {
-                    fill: None,
-                    stroke: Some(focus_ring),
+                    fill: resolved_style.background_fill.clone(),
+                    stroke: resolved_style.stroke.clone(),
                     corner_radius: resolved_style.corner_radius,
                     shadow: None,
                     corner_radii: None,
@@ -1667,77 +1635,107 @@ impl Lower for Button {
                 }),
             )
             .build(cx);
-            button_builder.add_child(focus_ring_id);
-        }
+            button_builder.add_child(background_id);
 
-        let content_id = if let Some(content) = &self.icon_content {
-            Some(content.lower_with_style(cx, &resolved_style, final_id))
-        } else if let Some(content) = &self.content {
-            Some(content.lower_with_style(cx, &resolved_style, final_id))
-        } else if let Some(child_widget) = &self.child {
-            Some(
-                if let Ok(mut text_widget) = child_widget.clone().into_text() {
-                    text_widget.color = Some(resolved_style.text_color);
-                    text_widget.font_size = Some(resolved_style.font_size);
-                    text_widget.font_weight = Some(resolved_style.font_weight);
-                    text_widget.line_height = resolved_style.line_height;
-                    text_widget.letter_spacing = resolved_style.letter_spacing;
-                    text_widget.lower(cx)
-                } else {
-                    child_widget.lower(cx)
-                },
-            )
-        } else {
-            None
-        };
-        if let Some(child_id) = content_id {
-            let aligned_id = match self.content_align {
-                ButtonContentAlign::Center => {
-                    // Center the content within the button's box (vertically + horizontally).
-                    let mut align_builder =
-                        IrBuilder::new(cx.next_node_id(), Op::Layout(LayoutOp::Align));
-                    align_builder.add_child(child_id);
-                    align_builder.build(cx)
-                }
-                ButtonContentAlign::Start | ButtonContentAlign::End => {
-                    let justify = match self.content_align {
-                        ButtonContentAlign::Start => fission_ir::op::JustifyContent::Start,
-                        ButtonContentAlign::End => fission_ir::op::JustifyContent::End,
-                        ButtonContentAlign::Center => fission_ir::op::JustifyContent::Center,
-                    };
-                    let mut flex_builder = IrBuilder::new(
-                        cx.next_node_id(),
-                        Op::Layout(LayoutOp::Flex {
-                            direction: fission_ir::FlexDirection::Row,
-                            wrap: fission_ir::FlexWrap::NoWrap,
-                            flex_grow: 1.0,
-                            flex_shrink: 0.0,
-                            padding: [0.0; 4],
-                            gap: None,
-                            line_gap: None,
-                            align_items: fission_ir::op::AlignItems::Center,
-                            justify_content: justify,
-                        }),
-                    );
-                    flex_builder.add_child(child_id);
-                    flex_builder.build(cx)
-                }
+            for shadow in &resolved_style.inset_shadows {
+                let shadow_id = IrBuilder::new(
+                    cx.next_node_id(),
+                    Op::Paint(PaintOp::DrawRect {
+                        fill: None,
+                        stroke: None,
+                        corner_radius: resolved_style.corner_radius,
+                        shadow: Some(*shadow),
+                        corner_radii: None,
+                        border_sides: None,
+                    }),
+                )
+                .build(cx);
+                button_builder.add_child(shadow_id);
+            }
+
+            if let Some(focus_ring) = resolved_style.focus_ring.clone() {
+                let focus_ring_id = IrBuilder::new(
+                    cx.next_node_id(),
+                    Op::Paint(PaintOp::DrawRect {
+                        fill: None,
+                        stroke: Some(focus_ring),
+                        corner_radius: resolved_style.corner_radius,
+                        shadow: None,
+                        corner_radii: None,
+                        border_sides: None,
+                    }),
+                )
+                .build(cx);
+                button_builder.add_child(focus_ring_id);
+            }
+
+            let content_id = if let Some(content) = &self.icon_content {
+                Some(content.lower_with_style(cx, &resolved_style, final_id))
+            } else if let Some(content) = &self.content {
+                Some(content.lower_with_style(cx, &resolved_style, final_id))
+            } else if let Some(child_widget) = &self.child {
+                Some(
+                    if let Ok(mut text_widget) = child_widget.clone().into_text() {
+                        text_widget.color = Some(resolved_style.text_color);
+                        text_widget.font_size = Some(resolved_style.font_size);
+                        text_widget.font_weight = Some(resolved_style.font_weight);
+                        text_widget.line_height = resolved_style.line_height;
+                        text_widget.letter_spacing = resolved_style.letter_spacing;
+                        text_widget.lower(cx)
+                    } else {
+                        child_widget.lower(cx)
+                    },
+                )
+            } else {
+                None
             };
-            button_builder.add_child(aligned_id);
-        }
+            if let Some(child_id) = content_id {
+                let aligned_id = match self.content_align {
+                    ButtonContentAlign::Center => {
+                        // Center the content within the button's box (vertically + horizontally).
+                        let mut align_builder =
+                            IrBuilder::new(cx.next_node_id(), Op::Layout(LayoutOp::Align));
+                        align_builder.add_child(child_id);
+                        align_builder.build(cx)
+                    }
+                    ButtonContentAlign::Start | ButtonContentAlign::End => {
+                        let justify = match self.content_align {
+                            ButtonContentAlign::Start => fission_ir::op::JustifyContent::Start,
+                            ButtonContentAlign::End => fission_ir::op::JustifyContent::End,
+                            ButtonContentAlign::Center => fission_ir::op::JustifyContent::Center,
+                        };
+                        let mut flex_builder = IrBuilder::new(
+                            cx.next_node_id(),
+                            Op::Layout(LayoutOp::Flex {
+                                direction: fission_ir::FlexDirection::Row,
+                                wrap: fission_ir::FlexWrap::NoWrap,
+                                flex_grow: 1.0,
+                                flex_shrink: 0.0,
+                                padding: [0.0; 4],
+                                gap: None,
+                                line_gap: None,
+                                align_items: fission_ir::op::AlignItems::Center,
+                                justify_content: justify,
+                            }),
+                        );
+                        flex_builder.add_child(child_id);
+                        flex_builder.build(cx)
+                    }
+                };
+                button_builder.add_child(aligned_id);
+            }
 
-        let button_node_id = button_builder.build(cx);
+            let button_node_id = button_builder.build(cx);
 
-        if let Some(op) = semantics_op {
-            let mut semantics_builder = IrBuilder::new(final_id, Op::Semantics(op));
-            semantics_builder.add_child(button_node_id);
-            let res_id = semantics_builder.build(cx);
-            cx.pop_scope();
-            return res_id;
-        }
+            if let Some(op) = semantics_op {
+                let mut semantics_builder = IrBuilder::new(final_id, Op::Semantics(op));
+                semantics_builder.add_child(button_node_id);
+                let res_id = semantics_builder.build(cx);
+                return res_id;
+            }
 
-        cx.pop_scope();
-        button_node_id
+            button_node_id
+        })
     }
 }
 
