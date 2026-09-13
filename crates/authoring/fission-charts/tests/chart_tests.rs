@@ -8,7 +8,7 @@ use fission_charts::{
     PolarLineSeries, RadarSeries, SankeySeries, ScatterSeries, SingleAxisSeries, SunburstSeries,
     ThemeRiverSeries, TreeSeries, TreemapNode, TreemapSeries, WordcloudSeries,
 };
-use fission_charts::{ChartHit, ChartHover, ChartTooltipTrigger};
+use fission_charts::{ChartHit, ChartHover, ChartTheme, ChartTooltipTrigger};
 use fission_core::{
     env::Env,
     internal::{LowerWidget, LoweringContext},
@@ -751,4 +751,48 @@ fn hover_outside_the_plot_draws_no_feedback() {
     let outside =
         lower_chart(weekday_chart(ChartTooltipTrigger::Axis).hover(ChartHover::at(10.0, 10.0)));
     assert_eq!(outside.nodes.len(), idle.nodes.len());
+}
+
+#[test]
+fn series_without_colours_draw_in_palette_order() {
+    let theme = ChartTheme::light();
+    let chart = Chart::new()
+        .width(640.0)
+        .height(360.0)
+        .theme(theme.clone())
+        .x_axis(Axis::category(vec!["Q1", "Q2", "Q3"]))
+        .y_axis(Axis::value())
+        .series(vec![
+            LineSeries::new("North").data(vec![3.0, 5.0, 4.0]).into(),
+            LineSeries::new("South").data(vec![2.0, 4.0, 6.0]).into(),
+        ]);
+    let ir = lower_chart(chart);
+
+    assert!(!longest_stroked_path_for_color(&ir, theme.palette[0]).is_empty());
+    assert!(!longest_stroked_path_for_color(&ir, theme.palette[1]).is_empty());
+}
+
+#[test]
+fn an_explicit_series_colour_wins_over_the_palette() {
+    let theme = ChartTheme::light();
+    let chosen = Color {
+        r: 12,
+        g: 34,
+        b: 56,
+        a: 255,
+    };
+    let chart = Chart::new()
+        .width(640.0)
+        .height(360.0)
+        .theme(theme.clone())
+        .x_axis(Axis::category(vec!["Q1", "Q2"]))
+        .y_axis(Axis::value())
+        .series(vec![LineSeries::new("North")
+            .data(vec![3.0, 5.0])
+            .color(chosen)
+            .into()]);
+    let ir = lower_chart(chart);
+
+    assert!(!longest_stroked_path_for_color(&ir, chosen).is_empty());
+    assert!(longest_stroked_path_for_color(&ir, theme.palette[0]).is_empty());
 }

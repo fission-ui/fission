@@ -207,7 +207,7 @@ pub(super) fn render_polar_bar(
         let end = start + slot * 0.80 * item_progress;
         let outer = inner + (max_r - inner) * (*value / max_value).clamp(0.0, 1.0) * item_progress;
         let c = mix_color(
-            polar.color.with_alpha(150),
+            filled(polar.color).with_alpha(150),
             theme.palette[idx % theme.palette.len()],
             0.35,
         );
@@ -304,7 +304,10 @@ pub(super) fn render_polar_line(
         root,
         &path_for_line(&revealed_points, polar.smooth, None),
         None,
-        Some(fade_stroke(stroke(polar.color, 2.4), series_progress)),
+        Some(fade_stroke(
+            stroke(filled(polar.color), 2.4),
+            series_progress,
+        )),
     );
     for (idx, (x, y)) in revealed_points.into_iter().enumerate() {
         let item_progress = animation.item_progress(series_progress, idx);
@@ -316,7 +319,7 @@ pub(super) fn render_polar_line(
             cx,
             root,
             LayoutRect::new(x - r, y - r, r * 2.0, r * 2.0),
-            fade_color(polar.color, item_progress),
+            fade_color(filled(polar.color), item_progress),
             Some(fade_stroke(stroke(Color::WHITE, 1.0), item_progress)),
             r,
         );

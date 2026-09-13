@@ -77,7 +77,7 @@ pub(super) fn render_bar(
             cx,
             root,
             LayoutRect::new(x - bar_w / 2.0, top, bar_w, height),
-            bar.source.color,
+            filled(bar.source.color),
             None,
             bar.source.border_radius.unwrap_or(4.0),
         );
@@ -143,7 +143,7 @@ pub(super) fn render_horizontal_bar(
             cx,
             root,
             LayoutRect::new(left, y - bar_h / 2.0, width, bar_h),
-            bar.source.color,
+            filled(bar.source.color),
             None,
             bar.source.border_radius.unwrap_or(4.0),
         );
@@ -217,7 +217,7 @@ pub(super) fn render_line(
                 line.source.step.as_deref(),
             ),
             None,
-            Some(stroke(line.source.color, 2.4)),
+            Some(stroke(filled(line.source.color), 2.4)),
         );
     }
     for (idx, (x, y)) in revealed_points.into_iter().enumerate() {
@@ -230,7 +230,7 @@ pub(super) fn render_line(
             cx,
             root,
             LayoutRect::new(x - radius, y - radius, radius * 2.0, radius * 2.0),
-            fade_color(line.source.color, item_progress),
+            fade_color(filled(line.source.color), item_progress),
             Some(stroke(Color::WHITE, 1.0)),
             radius,
         );
@@ -325,7 +325,7 @@ pub(super) fn render_bubble(
             * item_progress.sqrt();
         let fill = visual_map
             .map(|map| visual_color(map, *size))
-            .unwrap_or_else(|| bubble.color.with_alpha(185));
+            .unwrap_or_else(|| filled(bubble.color).with_alpha(185));
         add_rect(
             cx,
             root,
@@ -391,8 +391,11 @@ pub(super) fn render_boxplot(
                 box_w,
                 (q1_y - q3_y).abs().max(1.0),
             ),
-            fade_color(boxplot.color.with_alpha(70), item_progress),
-            Some(fade_stroke(stroke(boxplot.color, 1.5), item_progress)),
+            fade_color(filled(boxplot.color).with_alpha(70), item_progress),
+            Some(fade_stroke(
+                stroke(filled(boxplot.color), 1.5),
+                item_progress,
+            )),
             1.0,
         );
         add_path(
@@ -418,7 +421,10 @@ pub(super) fn render_boxplot(
                 max_y
             ),
             None,
-            Some(fade_stroke(stroke(boxplot.color, 1.2), item_progress)),
+            Some(fade_stroke(
+                stroke(filled(boxplot.color), 1.2),
+                item_progress,
+            )),
         );
         add_path(
             cx,
@@ -431,7 +437,10 @@ pub(super) fn render_boxplot(
                 med_y
             ),
             None,
-            Some(fade_stroke(stroke(boxplot.color, 2.0), item_progress)),
+            Some(fade_stroke(
+                stroke(filled(boxplot.color), 2.0),
+                item_progress,
+            )),
         );
     }
 }
@@ -752,7 +761,7 @@ pub(super) fn render_single_axis(
             cx,
             root,
             LayoutRect::new(x - r, y - r, r * 2.0, r * 2.0),
-            fade_color(single_axis.color.with_alpha(170), item_progress),
+            fade_color(filled(single_axis.color).with_alpha(170), item_progress),
             Some(fade_stroke(stroke(Color::WHITE, 1.0), item_progress)),
             r,
         );
@@ -821,7 +830,7 @@ pub(super) fn render_pictorial_bar(
                 cx,
                 root,
                 &path,
-                Some(Fill::Solid(fade_color(pic.color, unit_progress))),
+                Some(Fill::Solid(fade_color(filled(pic.color), unit_progress))),
                 None,
             );
         }

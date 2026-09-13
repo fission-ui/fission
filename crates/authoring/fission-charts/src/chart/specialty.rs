@@ -91,7 +91,7 @@ pub(super) fn render_liquidfill(
         root,
         LayoutRect::new(center.0 - r, center.1 - r, r * 2.0, r * 2.0),
         color(232, 244, 255, 255),
-        Some(stroke(liquid.color, 2.0)),
+        Some(stroke(filled(liquid.color), 2.0)),
         r,
     );
     let water_y = center.1 + r - value * r * 2.0;
@@ -115,7 +115,7 @@ pub(super) fn render_liquidfill(
         root,
         &path,
         Some(Fill::Solid(fade_color(
-            liquid.color.with_alpha(190),
+            filled(liquid.color).with_alpha(190),
             series_progress,
         ))),
         None,

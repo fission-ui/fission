@@ -8,7 +8,8 @@ pub struct LineSeries {
     pub data: Vec<f32>,
     pub encode: Option<Encode>,
     pub smooth: bool,
-    pub color: Color,
+    /// The series colour; `None` takes the theme palette colour for its position.
+    pub color: Option<Color>,
     pub area_style: Option<Color>,
     pub step: Option<String>, // "start", "middle", "end"
     pub stack: Option<String>,
@@ -21,7 +22,7 @@ impl LineSeries {
             data: Vec::new(),
             encode: None,
             smooth: false,
-            color: Color::BLUE,
+            color: None,
             area_style: None,
             step: None,
             stack: None,
@@ -44,7 +45,7 @@ impl LineSeries {
     }
 
     pub fn color(mut self, color: Color) -> Self {
-        self.color = color;
+        self.color = Some(color);
         self
     }
 

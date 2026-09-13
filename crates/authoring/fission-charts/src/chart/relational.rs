@@ -110,7 +110,11 @@ pub(super) fn render_lines(
         let to = interpolate_point(from, full_to, item_progress);
         let intensity = (segment.value / max_value).clamp(0.0, 1.0);
         let stroke_color = fade_color(
-            mix_color(lines.color.with_alpha(110), lines.color, intensity),
+            mix_color(
+                filled(lines.color).with_alpha(110),
+                filled(lines.color),
+                intensity,
+            ),
             item_progress,
         );
         let control_x = (from.0 + to.0) / 2.0;

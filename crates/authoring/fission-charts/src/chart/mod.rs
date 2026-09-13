@@ -724,12 +724,13 @@ mod chart_theme_tests {
 
 impl fission_core::internal::LowerWidget for ChartInternalLowerer {
     fn lower_dyn(&self, cx: &mut fission_core::internal::LoweringContext) -> fission_ir::WidgetId {
-        let model = ChartModel::from_chart(&self.chart);
+        let mut model = ChartModel::from_chart(&self.chart);
         let theme = self
             .chart
             .theme
             .clone()
             .unwrap_or_else(|| ChartTheme::from_env(cx.env()));
+        apply_series_palette(&mut model, &theme);
         let area = chart_area(&self.chart, cx);
         let mut root = fission_core::internal::IrBuilder::new(
             cx.next_node_id(),
@@ -764,15 +765,23 @@ impl fission_core::internal::LowerWidget for ChartInternalLowerer {
     }
 }
 
+/// The chart's outer size: its explicit width and height, otherwise the size
+/// layout gave it on the last frame, otherwise a guess from the viewport for the
+/// very first frame.
 fn chart_area(chart: &Chart, cx: &fission_core::internal::LoweringContext) -> ChartArea {
-    let outer_w = chart.width.unwrap_or_else(|| {
-        let available_w = cx.env().viewport_size.width;
-        (available_w - 380.0).max(260.0)
-    });
-    let outer_h = chart.height.unwrap_or_else(|| {
-        let available_h = cx.env().viewport_size.height;
-        (available_h - 200.0).max(320.0)
-    });
+    let laid_out = chart
+        .id
+        .and_then(|id| cx.layout()?.get_node_rect(id))
+        .filter(|rect| rect.width() > 0.0 && rect.height() > 0.0);
+    let viewport = cx.env().viewport_size;
+    let outer_w = chart
+        .width
+        .or(laid_out.map(|rect| rect.width()))
+        .unwrap_or_else(|| (viewport.width - 380.0).max(260.0));
+    let outer_h = chart
+        .height
+        .or(laid_out.map(|rect| rect.height()))
+        .unwrap_or_else(|| (viewport.height - 200.0).max(320.0));
     chart_area_for_size(chart, outer_w, outer_h)
 }
 

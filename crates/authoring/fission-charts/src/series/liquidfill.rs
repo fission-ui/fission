@@ -5,7 +5,8 @@ use serde::{Deserialize, Serialize};
 pub struct LiquidfillSeries {
     pub name: String,
     pub data: Vec<f32>,
-    pub color: Color,
+    /// The series colour; `None` takes the theme palette colour for its position.
+    pub color: Option<Color>,
 }
 
 impl LiquidfillSeries {
@@ -13,7 +14,7 @@ impl LiquidfillSeries {
         Self {
             name: name.into(),
             data: Vec::new(),
-            color: Color::BLUE,
+            color: None,
         }
     }
 
