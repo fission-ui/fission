@@ -4,7 +4,7 @@ use crate::components::{
     MarkPoint, VisualMap,
 };
 use crate::grid::Grid;
-use crate::interaction::ChartKeyboardSelected;
+use crate::interaction::{ChartBrushChanged, ChartKeyboardSelected};
 use crate::interaction::{ChartHit, ChartInteraction, ChartInteractionEvent, ChartInteractionKind};
 use crate::interaction::{
     ChartHover, ChartHoverChanged, ChartHoverCleared, ChartLegendToggled, ChartZoomChanged,
@@ -34,6 +34,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
+mod brush;
 mod cartesian;
 mod frame;
 mod hit_test;
@@ -46,6 +47,7 @@ mod series;
 mod specialty;
 mod updates;
 
+use brush::*;
 use cartesian::*;
 use frame::*;
 use hit_test::*;
@@ -101,6 +103,9 @@ pub struct Chart {
     /// A drag of the data-zoom slider in progress, from the chart's own state.
     #[serde(skip)]
     pub(crate) zoom_drag: Option<ZoomDrag>,
+    /// Where a brush drag in progress began, from the chart's own state.
+    #[serde(skip)]
+    pub(crate) brush_anchor: Option<(f32, f32)>,
     /// The category the keyboard selection is on, from the chart's own state.
     #[serde(skip)]
     pub(crate) keyboard_category: Option<usize>,
@@ -145,6 +150,7 @@ impl Chart {
             hover: None,
             hidden_series: Vec::new(),
             zoom_drag: None,
+            brush_anchor: None,
             keyboard_category: None,
             keyboard_actions: Vec::new(),
             animation: crate::animation::ChartAnimation::default(),
@@ -342,6 +348,24 @@ impl From<Chart> for Widget {
         } else {
             None
         };
+        let brush_action = if tracks_brush(&component) {
+            let memory =
+                StateField::new_with("fission_charts::Chart", "brush", BrushMemory::default);
+            let remembered = memory.get();
+            if remembered.touched {
+                if let Some(brush) = component.interaction.brush.as_mut() {
+                    brush.preview_rect = remembered.rect;
+                }
+            }
+            component.brush_anchor = remembered.anchor;
+            Some(ctx.bind_local(
+                ChartBrushChanged::Ended,
+                memory,
+                reduce_with!(on_brush_changed),
+            ))
+        } else {
+            None
+        };
         let legend_action = if tracks_legend(&component) {
             let memory =
                 StateField::new_with("fission_charts::Chart", "legend", LegendMemory::default);
@@ -406,12 +430,14 @@ impl From<Chart> for Widget {
             || this.on_interaction.is_some()
             || hover_actions.is_some()
             || zoom_action.is_some()
+            || brush_action.is_some()
         {
             Some(Arc::new(ChartRenderObject {
                 chart: this.clone(),
                 hover_action: hover_actions.as_ref().map(|(changed, _)| changed.clone()),
                 legend_action,
                 zoom_action: zoom_action.clone(),
+                brush_action: brush_action.clone(),
             }) as Arc<dyn CustomRenderObject>)
         } else {
             None
@@ -436,6 +462,13 @@ impl From<Chart> for Widget {
         if let Some(action) = &zoom_action {
             widget = GestureDetector {
                 on_hover_exit: Some(action.with_action(&ChartZoomChanged::DragEnded)),
+                ..GestureDetector::new(widget)
+            }
+            .into();
+        }
+        if let Some(action) = &brush_action {
+            widget = GestureDetector {
+                on_hover_exit: Some(action.with_action(&ChartBrushChanged::Ended)),
                 ..GestureDetector::new(widget)
             }
             .into();
@@ -495,6 +528,8 @@ struct ChartRenderObject {
     legend_action: Option<ActionEnvelope>,
     /// Records slider drags and wheel zoom, when the chart has a data zoom.
     zoom_action: Option<ActionEnvelope>,
+    /// Records brush drags across the plot, when the brush is enabled.
+    brush_action: Option<ActionEnvelope>,
 }
 
 impl CustomRenderObject for ChartRenderObject {
@@ -530,6 +565,15 @@ impl CustomRenderObject for ChartRenderObject {
                 return CustomEventResult {
                     handled: true,
                     actions: vec![(node_id, action.with_action(&zoomed))],
+                    input_actions: Vec::new(),
+                };
+            }
+        }
+        if let Some(action) = &self.brush_action {
+            if let Some(brushed) = self.brush_change(kind, local, node_rect) {
+                return CustomEventResult {
+                    handled: true,
+                    actions: vec![(node_id, action.with_action(&brushed))],
                     input_actions: Vec::new(),
                 };
             }
@@ -735,6 +779,7 @@ mod chart_theme_tests {
             hover_action: None,
             legend_action: None,
             zoom_action: None,
+            brush_action: None,
         };
         let result = render.handle_event(
             source,
@@ -793,6 +838,7 @@ mod chart_theme_tests {
             hover_action: None,
             legend_action: None,
             zoom_action: None,
+            brush_action: None,
         }
         .handle_event(
             source,
