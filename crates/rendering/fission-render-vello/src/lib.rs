@@ -927,6 +927,8 @@ mod tests {
     #[derive(Default)]
     struct RecordingPainter {
         glyphs: usize,
+        /// Distinct baselines glyphs were drawn on, one per painted line of text.
+        glyph_rows: Vec<f32>,
         paths: usize,
         rects: usize,
         clip_layers: usize,
@@ -975,6 +977,15 @@ mod tests {
         }
         fn fill_glyphs(&mut self, _: Affine, _: PaintType, _: &FontData, _: f32, glyphs: &[Glyph]) {
             self.glyphs += glyphs.len();
+            for glyph in glyphs {
+                if !self
+                    .glyph_rows
+                    .iter()
+                    .any(|row| (row - glyph.y).abs() < 0.5)
+                {
+                    self.glyph_rows.push(glyph.y);
+                }
+            }
         }
         fn image_source(&mut self, image: &Arc<Pixmap>) -> ImageSource {
             ImageSource::Pixmap(Arc::clone(image))
@@ -1276,6 +1287,56 @@ mod tests {
             first.left.abs() < 1.0,
             "text already centred by layout starts at its box, not {} along the wrap width",
             first.left
+        );
+    }
+
+    #[test]
+    fn text_wrapped_by_layout_is_painted_wrapped() {
+        let color = RenderColor {
+            r: 0,
+            g: 0,
+            b: 0,
+            a: 255,
+        };
+        // Layout wrapped this heading onto two lines at the width it was offered, even though
+        // the draw op itself does not ask to wrap.
+        let resolved = fission_render::ResolvedParagraphLayout {
+            constraint_width: Some(150.0),
+            size: fission_render::LayoutSize::new(113.34375, 86.5793),
+            lines: Vec::new(),
+            inline_boxes: Vec::new(),
+            clusters: Vec::new(),
+            glyphs: Vec::new(),
+            caret_stops: Vec::new(),
+            selection_boxes: Vec::new(),
+        };
+        let mut painter = RecordingPainter::default();
+        {
+            let mut renderer = test_renderer(&mut painter);
+            renderer.render_text(
+                "Fission Inbox",
+                36.0,
+                color,
+                false,
+                false,
+                LayoutPoint::new(0.0, 0.0),
+                LayoutRect::new(0.0, 0.0, 113.34375, 86.5793),
+                Some(&resolved),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                &[],
+                &[],
+            );
+        }
+        assert_eq!(
+            painter.glyph_rows.len(),
+            2,
+            "text layout wrapped onto two lines is painted on two lines, rows at {:?}",
+            painter.glyph_rows
         );
     }
 
@@ -2867,6 +2928,12 @@ impl<'a> VelloRenderer<'a> {
         inline_boxes: &[crate::text::RichInlineBox],
         styles: &[(std::ops::Range<usize>, RenderTextStyle)],
     ) {
+        // The paragraph resolved during layout decides wrapping: text that layout broke at a width,
+        // and sized to that many lines, is painted broken at the same width even when the draw op
+        // does not ask to wrap. Editable text keeps its own single-line behaviour.
+        let wrap = wrap
+            || (caret_index.is_none()
+                && resolved_layout.is_some_and(|layout| layout.constraint_width.is_some()));
         let mut layout_bounds = bounds;
         if wrap {
             if let Some(width) = resolved_layout.and_then(|layout| layout.constraint_width) {
