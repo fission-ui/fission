@@ -105,8 +105,8 @@
 }
 
 /* Only the text link sits directly on the gradient; the button keeps its own colours. */
-.fission-site-landing-cta-actions > .fission-site-row > :last-child .fission-site-text-run,
-.fission-site-landing-cta-actions > .fission-site-row > :last-child a {
+.fission-site-landing-cta-actions > .fission-site-row > :last-child:not(:first-child) .fission-site-text-run,
+.fission-site-landing-cta-actions > .fission-site-row > :last-child:not(:first-child) a {
   color: #ffffff !important;
 }
 
@@ -148,5 +148,269 @@
   /* Zoom rather than transform so the composite's layout box shrinks with it and stays centred. */
   .fission-site-landing-surfaces {
     zoom: 0.52;
+  }
+}
+
+/* Blog index and posts use the landing look: a centred column, rounded white cards and the
+   landing heading scale. The blog template itself is unchanged. */
+.fission-site-blog-layout {
+  box-sizing: border-box;
+  width: min(100%, 76rem) !important;
+  max-width: 76rem !important;
+  margin-inline: auto !important;
+  padding: clamp(3rem, 6vw, 5rem) clamp(1.25rem, 4vw, 2.5rem) 5rem !important;
+}
+
+.fission-site-blog-layout > .fission-site-row {
+  display: block !important;
+  width: 100% !important;
+}
+
+.fission-site-blog-rail {
+  display: none !important;
+}
+
+.fission-site-blog-index-hero {
+  max-width: 48rem !important;
+  margin: 0 auto 3rem !important;
+  text-align: center;
+}
+
+.fission-site-blog-index-hero > .fission-site-column {
+  align-items: center !important;
+  gap: 1rem !important;
+}
+
+.fission-site-blog-index-title .fission-site-text-run,
+.fission-site-blog-post-title .fission-site-text-run {
+  color: var(--fs-color-heading) !important;
+  font-size: clamp(2.25rem, 4.5vw, 3.25rem) !important;
+  font-weight: 700 !important;
+  line-height: 1.08 !important;
+  letter-spacing: -0.035em !important;
+}
+
+.fission-site-blog-featured-card,
+.fission-site-blog-card {
+  box-sizing: border-box;
+  height: 100%;
+  padding: clamp(1.25rem, 3vw, 2rem) !important;
+  border: 1px solid var(--fs-color-border) !important;
+  border-radius: 1.25rem !important;
+  background: var(--fs-color-surface-raised) !important;
+  box-shadow: 0 10px 30px color-mix(in srgb, var(--fs-color-heading) 6%, transparent);
+  transition: border-color 150ms ease, transform 150ms ease;
+}
+
+.fission-site-blog-featured-card {
+  margin: 0 0 2rem !important;
+  background: linear-gradient(135deg, var(--fs-color-primary-subtle), var(--fs-color-surface-raised)) !important;
+}
+
+.fission-site-blog-featured-card:hover,
+.fission-site-blog-card:hover {
+  border-color: var(--fs-color-primary) !important;
+  transform: translateY(-2px);
+}
+
+.fission-site-blog-featured-card h2 .fission-site-text-run {
+  font-size: clamp(1.6rem, 3vw, 2.25rem) !important;
+  font-weight: 700 !important;
+  line-height: 1.15 !important;
+}
+
+.fission-site-blog-card h2 .fission-site-text-run {
+  font-size: 1.25rem !important;
+  font-weight: 700 !important;
+  line-height: 1.25 !important;
+}
+
+.fission-site-blog-post-list > .fission-site-column {
+  display: grid !important;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1.25rem !important;
+  align-items: stretch !important;
+}
+
+.fission-site-blog-post-list > .fission-site-column > * {
+  width: auto !important;
+  min-width: 0 !important;
+}
+
+.fission-site-blog-post {
+  width: min(100%, 46rem) !important;
+  max-width: 46rem !important;
+  margin-inline: auto;
+}
+
+.fission-site-blog-taxonomy {
+  flex-wrap: wrap !important;
+}
+
+.fission-site-blog-adjacent-posts {
+  margin-top: 3rem;
+  padding-top: 2rem;
+  border-top: 1px solid var(--fs-color-border);
+}
+
+.fission-site-blog-pagination {
+  margin-top: 2rem;
+}
+
+/* Footer: identity beside four link columns, legal line underneath. */
+.fission-site-footer {
+  box-sizing: border-box;
+  width: 100% !important;
+}
+
+.fission-site-footer > .fission-site-column {
+  width: min(100%, 72rem) !important;
+  margin-inline: auto;
+}
+
+.fission-site-footer-top > .fission-site-row {
+  display: grid !important;
+  grid-template-columns: minmax(14rem, 1fr) auto;
+  gap: 2.5rem !important;
+  width: 100% !important;
+}
+
+.fission-site-footer-columns > .fission-site-row {
+  display: grid !important;
+  grid-template-columns: repeat(4, minmax(8rem, 1fr));
+  gap: 2rem !important;
+}
+
+.fission-site-footer-columns > .fission-site-row > * {
+  width: auto !important;
+}
+
+.fission-site-footer-legal {
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--fs-color-border);
+}
+
+.fission-site-footer .fission-site-route-link,
+.fission-site-footer .fission-site-markdown-link {
+  color: var(--fs-color-text-secondary) !important;
+  text-decoration: none;
+}
+
+.fission-site-footer .fission-site-route-link:hover,
+.fission-site-footer .fission-site-markdown-link:hover {
+  color: var(--fs-color-primary) !important;
+}
+
+@media (max-width: 1000px) {
+  .fission-site-blog-post-list > .fission-site-column {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .fission-site-footer-top > .fission-site-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 640px) {
+  .fission-site-blog-post-list > .fission-site-column,
+  .fission-site-footer-columns > .fission-site-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .fission-site-blog-post-list > .fission-site-column {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  body:has(.fission-site-blog-layout) .fission-site-doc-header .fission-site-sidebar-toggle {
+    display: none;
+  }
+}
+
+/* The generated wrapper around the blog layout should not draw a second card. */
+.fission-site-box:has(> .fission-site-blog-layout) {
+  width: 100% !important;
+  max-width: none !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+/* The blog template's post list sidebar duplicates the index cards; the index and the adjacent
+   post links carry navigation instead. */
+.fission-site-blog-layout .fission-site-doc-sidebar {
+  display: none !important;
+}
+
+.fission-site-blog-layout .fission-site-doc-main {
+  width: 100% !important;
+  max-width: none !important;
+}
+
+/* Crates directory and detail pages. */
+.fission-site-crate-directory-hero,
+.fission-site-crate-band {
+  box-sizing: border-box;
+  width: 100% !important;
+}
+
+.fission-site-crate-directory-copy [data-fission-semantics="crate-searchbox"],
+.fission-site-crate-directory-copy .fission-site-crate-searchbox {
+  margin-inline: auto;
+}
+
+.fission-crates-enhanced-grid {
+  gap: 1.25rem;
+}
+
+/* Crates search: the enhanced input replaces the generated text field's visible label and static
+   preview, so show only the real input. The label stays available to assistive technology. */
+[data-fission-semantics="crate-searchbox"] .fission-site-control-label {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  overflow: hidden !important;
+  clip: rect(0 0 0 0) !important;
+  white-space: nowrap !important;
+}
+
+[data-fission-semantics="crate-searchbox"] .fission-site-control > .fission-site-box {
+  display: none !important;
+}
+
+[data-fission-semantics="crate-searchbox"] .fission-site-control,
+[data-fission-semantics="crate-searchbox"] .fission-site-input {
+  width: 100% !important;
+}
+
+[data-fission-semantics="crate-searchbox"] .fission-site-input {
+  min-height: 2.25rem;
+  border: 0 !important;
+  outline: none;
+  background: transparent !important;
+  color: var(--fs-color-text-primary) !important;
+  font: inherit;
+  font-size: 1rem !important;
+}
+
+/* Featured crate: copy beside its visual on wide screens, stacked on narrow ones. */
+[data-fission-semantics="crate-featured"] > .fission-site-row {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) minmax(12rem, 18rem);
+  gap: 2rem !important;
+  align-items: center !important;
+  width: 100% !important;
+}
+
+[data-fission-semantics="crate-featured"] > .fission-site-row > * {
+  width: auto !important;
+  min-width: 0 !important;
+}
+
+@media (max-width: 820px) {
+  [data-fission-semantics="crate-featured"] > .fission-site-row {
+    grid-template-columns: minmax(0, 1fr);
   }
 }

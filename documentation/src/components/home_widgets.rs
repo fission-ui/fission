@@ -311,39 +311,6 @@ impl From<StatusText> for Widget {
             .into()
     }
 }
-#[derive(Clone, Debug)]
-pub(super) struct Pill {
-    label: &'static str,
-}
-
-impl Pill {
-    pub(super) fn new(label: &'static str) -> Self {
-        Self { label }
-    }
-}
-
-impl From<Pill> for Widget {
-    fn from(component: Pill) -> Self {
-        let (_ctx, view) = fission::build::current::<DocsState>();
-        let tokens = &view.env().theme.tokens;
-        Container::new(
-            Text::new(component.label)
-                .size(tokens.typography.font_size_sm)
-                .weight(tokens.typography.font_weight_bold)
-                .color(tokens.colors.primary),
-        )
-        .padding([
-            tokens.spacing.m,
-            tokens.spacing.m,
-            tokens.spacing.s,
-            tokens.spacing.s,
-        ])
-        .bg_fill(Fill::Solid(tokens.colors.primary_subtle))
-        .border(tokens.colors.focus_ring, 1.0)
-        .border_radius(tokens.radii.full)
-        .into()
-    }
-}
 #[allow(dead_code)]
 #[derive(Clone, Debug)]
 pub(super) struct CodeCard {
@@ -401,23 +368,6 @@ impl From<CodeCard> for Widget {
         .into()
     }
 }
-pub(super) fn page_fill(tokens: &Tokens) -> Fill {
-    Fill::LinearGradient {
-        start: (0.0, 0.0),
-        end: (1.0, 1.0),
-        stops: vec![
-            (0.0, tokens.colors.background),
-            (0.6, tokens.colors.surface_sunken),
-            (1.0, tokens.colors.surface),
-        ],
-        extend: Default::default(),
-    }
-}
-
-pub(super) fn content_width(tokens: &Tokens) -> f32 {
-    tokens.spacing.xxxxl * 11.75
-}
-
 pub(super) fn nav_inset(tokens: &Tokens) -> f32 {
     tokens.spacing.xxxxl
 }
