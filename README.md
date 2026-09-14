@@ -156,7 +156,7 @@ Some platform capabilities depend on what the host supports; the
 ## Examples
 
 ```sh
-git clone https://github.com/fission-ui/fission
+git clone --recurse-submodules https://github.com/fission-ui/fission
 cd fission
 cargo run -p counter
 cargo run -p inbox
