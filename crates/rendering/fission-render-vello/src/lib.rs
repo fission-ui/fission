@@ -1239,6 +1239,47 @@ mod tests {
     }
 
     #[test]
+    fn wrapped_centred_text_aligns_within_its_own_box() {
+        let mut painter = RecordingPainter::default();
+        let renderer = test_renderer(&mut painter);
+        let style = test_style();
+        let text = "No emails here";
+        let styles = vec![(0..text.len(), style.clone())];
+        let paragraph = TextParagraphStyle {
+            text_align: TextAlign::Center,
+            text_width_basis: TextWidthBasis::Parent,
+            ..Default::default()
+        };
+        let natural = renderer.paragraph_layout(
+            text,
+            &style,
+            false,
+            LayoutRect::new(0.0, 0.0, 1000.0, 40.0),
+            TextParagraphStyle::default(),
+            &[],
+            &styles,
+        );
+        // Layout sized the box to the text and centred the box; the paragraph was broken against
+        // the wider width layout offered.
+        let own_box = LayoutRect::new(0.0, 0.0, natural.width(), 40.0);
+        let wrap_bounds = LayoutRect::new(0.0, 0.0, 400.0, 40.0);
+        let prepared = super::prepare_paragraph_layout(text, &style, paragraph, &[], &styles, None);
+        let layout = renderer.paragraph_layout_from_prepared(
+            &prepared,
+            true,
+            wrap_bounds,
+            own_box,
+            paragraph,
+        );
+        let first = paragraph_line_visual_bounds(&layout.lines().next().unwrap()).unwrap();
+        assert!(
+            first.left.abs() < 1.0,
+            "text already centred by layout starts at its box, not {} along the wrap width",
+            first.left
+        );
+    }
+
+    #[test]
     fn longest_line_width_basis_aligns_against_content_width() {
         let mut painter = RecordingPainter::default();
         let renderer = test_renderer(&mut painter);
@@ -1298,6 +1339,7 @@ mod tests {
             &style,
             false,
             LayoutPoint::new(0.0, 0.0),
+            LayoutRect::new(0.0, 0.0, 80.0, 24.0),
             LayoutRect::new(0.0, 0.0, 80.0, 24.0),
             TextParagraphStyle {
                 text_align: TextAlign::Start,
@@ -2096,14 +2138,19 @@ impl<'a> VelloRenderer<'a> {
     ) -> parley::layout::Layout<ParleyBrush> {
         let prepared =
             prepare_paragraph_layout(text, base_style, paragraph, inline_boxes, styles, None);
-        self.paragraph_layout_from_prepared(&prepared, wrap, bounds, paragraph)
+        self.paragraph_layout_from_prepared(&prepared, wrap, bounds, bounds, paragraph)
     }
 
+    /// Lays out a paragraph broken at `bounds` and aligned within `alignment_bounds`. A wrapped
+    /// paragraph is broken at the width layout offered it, which can be wider than the box layout
+    /// then sized and positioned for the text; aligning within that wider width would move text
+    /// that layout already placed.
     fn paragraph_layout_from_prepared(
         &self,
         prepared: &PreparedParagraphLayout,
         wrap: bool,
         bounds: fission_render::LayoutRect,
+        alignment_bounds: fission_render::LayoutRect,
         paragraph: TextParagraphStyle,
     ) -> parley::layout::Layout<ParleyBrush> {
         let mut layout = (*self.measurer.layout_rich(
@@ -2120,7 +2167,9 @@ impl<'a> VelloRenderer<'a> {
         ))
         .clone();
 
-        if let Some(alignment_width) = paragraph_alignment_width(&layout, bounds, paragraph) {
+        if let Some(alignment_width) =
+            paragraph_alignment_width(&layout, alignment_bounds, paragraph)
+        {
             // parley aligns lines against the width they were broken at. Break again at the
             // alignment width when no line is wider than it: the lines come out the same, and
             // alignment then happens against the parent or longest-line width the paragraph asked
@@ -2158,7 +2207,8 @@ impl<'a> VelloRenderer<'a> {
 
         let prepared =
             prepare_paragraph_layout(text, base_style, paragraph, inline_boxes, styles, None);
-        let layout = self.paragraph_layout_from_prepared(&prepared, wrap, bounds, paragraph);
+        let layout =
+            self.paragraph_layout_from_prepared(&prepared, wrap, bounds, bounds, paragraph);
         let total_lines = layout.lines().count();
         let visible_lines = paragraph
             .max_lines
@@ -2583,6 +2633,7 @@ impl<'a> VelloRenderer<'a> {
         wrap: bool,
         position: fission_render::LayoutPoint,
         bounds: fission_render::LayoutRect,
+        alignment_bounds: fission_render::LayoutRect,
         paragraph: TextParagraphStyle,
         inline_boxes: &[crate::text::RichInlineBox],
         styles: &[(std::ops::Range<usize>, RenderTextStyle)],
@@ -2601,7 +2652,13 @@ impl<'a> VelloRenderer<'a> {
             styles,
             caret_index,
         );
-        let layout = self.paragraph_layout_from_prepared(&prepared, wrap, bounds, paragraph);
+        let layout = self.paragraph_layout_from_prepared(
+            &prepared,
+            wrap,
+            bounds,
+            alignment_bounds,
+            paragraph,
+        );
         let lines: Vec<_> = layout.lines().collect();
         let total_lines = lines.len();
         let visible_lines = paragraph
@@ -2841,6 +2898,7 @@ impl<'a> VelloRenderer<'a> {
                 wrap,
                 position,
                 layout_bounds,
+                bounds,
                 paragraph,
                 inline_boxes,
                 paragraph_styles,
