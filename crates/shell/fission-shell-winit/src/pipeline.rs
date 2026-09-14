@@ -1,4 +1,5 @@
 use crate::web_backend::WebSurfaceFrame;
+mod transform_matrix;
 use anyhow::Result;
 use fission_core::diff::diff_ir;
 use fission_core::env::{Env, VideoStateMap, WebStateMap};
@@ -21,6 +22,7 @@ use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 #[cfg(not(target_arch = "wasm32"))]
 use std::time::Instant;
+use transform_matrix::*;
 #[cfg(target_arch = "wasm32")]
 use web_time::Instant;
 
@@ -1691,6 +1693,10 @@ fn generate_render_layer_recursive(
     if emit_opacity_layer {
         layer.style.opacity = composite_opacity.unwrap_or(1.0);
     }
+    // Carried down unconditionally. A blend mode is meaningful even on a layer
+    // that is fully opaque and unclipped, which is exactly the case the opacity
+    // and clip checks above skip.
+    layer.style.blend_mode = node.composite.blend_mode;
 
     if let Some(transform) = compose_dynamic_layer_transform(
         &TransformBinding {
@@ -2300,11 +2306,13 @@ fn build_local_paint_list(
         Op::Paint(fission_ir::PaintOp::BackdropFilter {
             filter,
             corner_radius,
+            corner_radii,
         }) => {
             list.push(DisplayOp::BackdropFilter {
                 rect,
-                filter: *filter,
+                filter: filter.clone(),
                 corner_radius: *corner_radius,
+                corner_radii: *corner_radii,
                 bounds: rect,
                 node_id: Some(node_id),
             });
@@ -2314,6 +2322,8 @@ fn build_local_paint_list(
             stroke,
             corner_radius,
             shadow,
+            corner_radii,
+            border_sides,
         }) => {
             let bounds = shadow
                 .as_ref()
@@ -2340,6 +2350,8 @@ fn build_local_paint_list(
                 }),
                 bounds,
                 node_id: Some(node_id),
+                corner_radii: *corner_radii,
+                border_sides: border_sides.as_ref().map(map_border_sides),
             });
         }
         Op::Paint(fission_ir::PaintOp::DrawText {
@@ -2557,6 +2569,8 @@ fn build_scrollbar_paint(
         shadow: None,
         bounds: geometry.rail_rect,
         node_id: Some(node_id),
+        corner_radii: None,
+        border_sides: None,
     });
     list.push(DisplayOp::DrawRect {
         rect: geometry.thumb_rect,
@@ -2566,6 +2580,8 @@ fn build_scrollbar_paint(
         shadow: None,
         bounds: geometry.thumb_rect,
         node_id: Some(node_id),
+        corner_radii: None,
+        border_sides: None,
     });
 
     Some(list)
@@ -2589,81 +2605,6 @@ fn resolve_scalar_value(
         .motion_target
         .map(|target| animation_map.scalar_value(target, property))
         .unwrap_or(scalar.base)
-}
-
-fn composite_transform_matrix(
-    rect: LayoutRect,
-    translate_x: f32,
-    translate_y: f32,
-    scale: f32,
-    rotation: f32,
-) -> [f32; 16] {
-    let center_x = rect.origin.x + rect.size.width * 0.5;
-    let center_y = rect.origin.y + rect.size.height * 0.5;
-
-    let to_center = translation_matrix(center_x, center_y);
-    let from_center = translation_matrix(-center_x, -center_y);
-    let scale_matrix = scale_matrix(scale);
-    let rotation_matrix = rotation_z_matrix(rotation);
-    let motion_translate = translation_matrix(translate_x, translate_y);
-
-    // Matrices use translation in indices 12/13 and are applied to points in
-    // row-vector order. Compose operations in that same order so scale and
-    // rotation preserve the widget's visual center.
-    multiply_matrix(
-        from_center,
-        multiply_matrix(
-            scale_matrix,
-            multiply_matrix(
-                rotation_matrix,
-                multiply_matrix(to_center, motion_translate),
-            ),
-        ),
-    )
-}
-
-fn translation_matrix(tx: f32, ty: f32) -> [f32; 16] {
-    [
-        1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, tx, ty, 0.0, 1.0,
-    ]
-}
-
-fn scale_matrix(scale: f32) -> [f32; 16] {
-    [
-        scale, 0.0, 0.0, 0.0, 0.0, scale, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0,
-    ]
-}
-
-fn rotation_z_matrix(radians: f32) -> [f32; 16] {
-    let sin = radians.sin();
-    let cos = radians.cos();
-    [
-        cos, sin, 0.0, 0.0, -sin, cos, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0,
-    ]
-}
-
-fn multiply_matrix(a: [f32; 16], b: [f32; 16]) -> [f32; 16] {
-    let mut out = [0.0; 16];
-    for row in 0..4 {
-        for col in 0..4 {
-            let mut sum = 0.0;
-            for k in 0..4 {
-                sum += a[row * 4 + k] * b[k * 4 + col];
-            }
-            out[row * 4 + col] = sum;
-        }
-    }
-    out
-}
-
-fn is_identity_matrix(matrix: &[f32; 16]) -> bool {
-    const IDENTITY: [f32; 16] = [
-        1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0,
-    ];
-    matrix
-        .iter()
-        .zip(IDENTITY.iter())
-        .all(|(lhs, rhs)| (*lhs - *rhs).abs() <= 0.000_1)
 }
 
 #[cfg(test)]
@@ -2690,53 +2631,64 @@ impl SnapshotProvider for Pipeline {
     }
 }
 
+fn map_border_sides(sides: &fission_ir::BorderSides) -> fission_render::BorderSides {
+    fission_render::BorderSides {
+        top: sides.top.as_ref().map(map_stroke),
+        right: sides.right.as_ref().map(map_stroke),
+        bottom: sides.bottom.as_ref().map(map_stroke),
+        left: sides.left.as_ref().map(map_stroke),
+    }
+}
+
 fn map_fill(f: &fission_ir::op::Fill) -> Fill {
-    match f {
-        fission_ir::op::Fill::Solid(c) => Fill::Solid(RenderColor {
+    fn color(c: &fission_ir::op::Color) -> RenderColor {
+        RenderColor {
             r: c.r,
             g: c.g,
             b: c.b,
             a: c.a,
-        }),
-        fission_ir::op::Fill::LinearGradient { start, end, stops } => Fill::LinearGradient {
+        }
+    }
+    fn stops(src: &[(f32, fission_ir::op::Color)]) -> Vec<(f32, RenderColor)> {
+        src.iter().map(|(o, c)| (*o, color(c))).collect()
+    }
+
+    match f {
+        fission_ir::op::Fill::Solid(c) => Fill::Solid(color(c)),
+        fission_ir::op::Fill::LinearGradient {
+            start,
+            end,
+            stops: s,
+            extend,
+        } => Fill::LinearGradient {
             start: *start,
             end: *end,
-            stops: stops
-                .iter()
-                .map(|(o, c)| {
-                    (
-                        *o,
-                        RenderColor {
-                            r: c.r,
-                            g: c.g,
-                            b: c.b,
-                            a: c.a,
-                        },
-                    )
-                })
-                .collect(),
+            stops: stops(s),
+            extend: *extend,
         },
         fission_ir::op::Fill::RadialGradient {
             center,
             radius,
-            stops,
+            stops: s,
+            extend,
         } => Fill::RadialGradient {
             center: *center,
             radius: *radius,
-            stops: stops
-                .iter()
-                .map(|(o, c)| {
-                    (
-                        *o,
-                        RenderColor {
-                            r: c.r,
-                            g: c.g,
-                            b: c.b,
-                            a: c.a,
-                        },
-                    )
-                })
-                .collect(),
+            stops: stops(s),
+            extend: *extend,
+        },
+        fission_ir::op::Fill::SweepGradient {
+            center,
+            start_angle,
+            end_angle,
+            stops: s,
+            extend,
+        } => Fill::SweepGradient {
+            center: *center,
+            start_angle: *start_angle,
+            end_angle: *end_angle,
+            stops: stops(s),
+            extend: *extend,
         },
     }
 }
@@ -2821,6 +2773,22 @@ mod tests {
 
         assert!((center.0 - 152.0).abs() < 0.001);
         assert!((center.1 - 62.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn composite_rotation_turns_degrees_about_the_layout_center() {
+        let rect = LayoutRect::new(100.0, 40.0, 80.0, 60.0);
+        let transform = composite_transform_matrix(rect, 0.0, 0.0, 1.0, 180.0);
+
+        let center = transform_point(transform, 140.0, 70.0);
+        let top_left = transform_point(transform, 100.0, 40.0);
+
+        assert!((center.0 - 140.0).abs() < 0.001);
+        assert!((center.1 - 70.0).abs() < 0.001);
+        assert!(
+            (top_left.0 - 180.0).abs() < 0.01 && (top_left.1 - 100.0).abs() < 0.01,
+            "a half turn moves the top-left corner onto the bottom-right, got {top_left:?}"
+        );
     }
 
     impl Renderer for NullRenderer {
@@ -3298,6 +3266,8 @@ mod tests {
                 stroke: None,
                 corner_radius: 0.0,
                 shadow: None,
+                corner_radii: None,
+                border_sides: None,
             }),
             vec![],
         );
@@ -3357,6 +3327,8 @@ mod tests {
                 stroke: None,
                 corner_radius: 8.0,
                 shadow: None,
+                corner_radii: None,
+                border_sides: None,
             }),
             vec![],
         );
@@ -3452,6 +3424,8 @@ mod tests {
                 stroke: None,
                 corner_radius: 0.0,
                 shadow: None,
+                corner_radii: None,
+                border_sides: None,
             }),
             vec![],
         );
@@ -3467,6 +3441,8 @@ mod tests {
                 stroke: None,
                 corner_radius: 0.0,
                 shadow: None,
+                corner_radii: None,
+                border_sides: None,
             }),
             vec![],
         );
@@ -3502,6 +3478,8 @@ mod tests {
                 stroke: None,
                 corner_radius: 8.0,
                 shadow: None,
+                corner_radii: None,
+                border_sides: None,
             }),
             vec![],
         );
@@ -3595,6 +3573,8 @@ mod tests {
                 stroke: None,
                 corner_radius: 0.0,
                 shadow: None,
+                corner_radii: None,
+                border_sides: None,
             }),
             vec![],
         );
@@ -3610,6 +3590,8 @@ mod tests {
                 stroke: None,
                 corner_radius: 0.0,
                 shadow: None,
+                corner_radii: None,
+                border_sides: None,
             }),
             vec![],
         );
@@ -3683,6 +3665,8 @@ mod tests {
                 stroke: None,
                 corner_radius: 0.0,
                 shadow: None,
+                corner_radii: None,
+                border_sides: None,
             }),
             vec![],
         );
@@ -3838,6 +3822,8 @@ mod tests {
                 stroke: None,
                 corner_radius: 0.0,
                 shadow: None,
+                corner_radii: None,
+                border_sides: None,
             }),
             vec![],
         );
@@ -3981,6 +3967,8 @@ mod tests {
                 stroke: None,
                 corner_radius: 0.0,
                 shadow: None,
+                corner_radii: None,
+                border_sides: None,
             }),
             vec![],
         );

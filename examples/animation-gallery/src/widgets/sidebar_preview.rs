@@ -1,7 +1,7 @@
 use super::common::PreviewShell;
 use super::sidebar_rail::SidebarRail;
 use crate::state::{current_composition_atoms, AnimationGalleryState, MotionAtom, MotionChoice};
-use crate::style::MUTED;
+use crate::style;
 use fission::prelude::*;
 
 pub(super) struct SidebarPreview<'a> {
@@ -33,7 +33,7 @@ impl From<SidebarPreview<'_>> for Widget {
                     SidebarRail { width_progress },
                     Text::new("Sidebar uses Drawer-style native motion.")
                         .size(view.env().theme.tokens.typography.font_size_sm)
-                        .color(MUTED),
+                        .color(style::text_muted()),
                 ],
                 ..Default::default()
             }

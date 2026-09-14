@@ -2,7 +2,7 @@ use crate::app::{on_add_to_cart, AddToCart, StoreState};
 use crate::components::cart_summary::CartSummary;
 use crate::components::detail_art::DetailArt;
 use crate::components::layout::DETAIL_ART_WIDTH;
-use crate::components::palette::{card_accent, SURFACE, TEXT_BODY, TEXT_PRIMARY};
+use crate::components::palette::card_accent;
 use crate::data::Card;
 use fission::prelude::*;
 
@@ -51,7 +51,7 @@ impl From<CardDetail> for Widget {
                                         typography.heading1_size * typography.line_height_heading
                                     )
                                     .weight(typography.font_weight_bold)
-                                    .color(TEXT_PRIMARY),
+                                    .color(tokens.colors.text_primary),
                                 Text::new(format!(
                                     "{} - {} - {}",
                                     detail.card.set, detail.card.rarity, detail.card.type_line
@@ -67,7 +67,7 @@ impl From<CardDetail> for Widget {
                                     .line_height(
                                         typography.body_large_size * typography.line_height_normal
                                     )
-                                    .color(TEXT_BODY),
+                                    .color(tokens.colors.text_secondary),
                                 Text::new(format!(
                                     "GBP {:.2} - {} currently in stock",
                                     detail.card.price, detail.card.stock
@@ -77,7 +77,7 @@ impl From<CardDetail> for Widget {
                                     typography.font_size_xl * typography.line_height_heading
                                 )
                                 .weight(typography.font_weight_bold)
-                                .color(TEXT_PRIMARY),
+                                .color(tokens.colors.text_primary),
                                 Button {
                                     variant: ButtonVariant::Filled,
                                     child: Some(Text::new("Add this card to basket").into()),
@@ -98,7 +98,7 @@ impl From<CardDetail> for Widget {
                 .padding_all(tokens.spacing.l)
                 .border(accent.with_alpha(120), 1.0)
                 .border_radius(tokens.radii.xxl)
-                .bg(SURFACE),
+                .bg(tokens.colors.surface),
             ],
             ..Default::default()
         }

@@ -39,12 +39,16 @@ impl From<FeedbackSection> for Widget {
                     title: "Error".into(),
                     description: Some("Something went wrong.".into()),
                 },
-                ProgressBar { value: 0.65 },
+                ProgressBar {
+                    value: 0.65,
+                    label: Some("Upload progress".into()),
+                },
                 HStack {
                     spacing: Some(tokens.spacing.m),
                     children: widgets![
                         Spinner {
                             id: WidgetId::explicit("spinner1"),
+                            label: None,
                             color: None,
                             motion: Some(SpinnerMotion::Default),
                         },

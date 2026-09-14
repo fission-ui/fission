@@ -1,9 +1,8 @@
 use fission_core::{
-    internal::{InternalIrBuilder, InternalLowerer, InternalLoweringCx},
+    internal::{IrBuilder, LowerWidget, LoweringContext},
     LayoutOp, Op, Widget,
 };
 use fission_ir::WidgetId;
-use std::sync::Arc;
 
 /// Lays out an inverse overlay around an already-laid-out anchor.
 ///
@@ -23,15 +22,14 @@ pub struct Spotlight {
 
 impl From<Spotlight> for Widget {
     fn from(spotlight: Spotlight) -> Self {
-        fission_core::internal::custom_render_widget(fission_core::CustomWidget {
-            debug_tag: "Spotlight".into(),
-            lowerer: Some(Arc::new(SpotlightLowerer {
+        fission_core::authoring::custom_widget(
+            "Spotlight",
+            SpotlightLowerer {
                 anchor: spotlight.anchor,
                 padding: spotlight.padding,
                 children: spotlight.children,
-            })),
-            render_object: None,
-        })
+            },
+        )
     }
 }
 
@@ -42,14 +40,14 @@ struct SpotlightLowerer {
     children: [Widget; 5],
 }
 
-impl InternalLowerer for SpotlightLowerer {
-    fn lower_dyn(&self, cx: &mut InternalLoweringCx) -> WidgetId {
+impl LowerWidget for SpotlightLowerer {
+    fn lower_dyn(&self, cx: &mut LoweringContext) -> WidgetId {
         let children = self
             .children
             .iter()
             .map(|child| fission_core::internal::lower_widget(child, cx))
             .collect::<Vec<_>>();
-        let mut builder = InternalIrBuilder::new(
+        let mut builder = IrBuilder::new(
             cx.next_node_id(),
             Op::Layout(LayoutOp::Spotlight {
                 anchor: self.anchor,

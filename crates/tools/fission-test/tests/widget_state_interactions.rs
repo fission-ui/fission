@@ -85,6 +85,7 @@ fn number_input_text_entry_dispatches_parsed_float() -> Result<()> {
             let (ctx, view) = fission_core::build::current::<State>();
             NumberInput {
                 id: Some(WidgetId::explicit("quantity")),
+                label: None,
                 value: view.state().number,
                 display_text: Some(String::new()),
                 on_input: Some(ctx.bind(
@@ -139,6 +140,7 @@ fn number_input_ignores_invalid_intermediate_float() -> Result<()> {
             let (ctx, view) = fission_core::build::current::<State>();
             NumberInput {
                 id: Some(WidgetId::explicit("quantity")),
+                label: None,
                 value: view.state().number,
                 display_text: Some(String::new()),
                 on_input: Some(ctx.bind(
@@ -337,6 +339,8 @@ fn drawer_backdrop_dismisses_and_registers_focus_barrier() -> Result<()> {
 
     let state = driver.harness.runtime.get_app_state::<State>().unwrap();
     assert!(!state.drawer_open, "backdrop tap should close the drawer");
+    // The drawer plays its default exit motion before it leaves the tree.
+    driver.tick(400)?;
     driver.assert_text_not_visible("Drawer content");
 
     Ok(())
@@ -397,6 +401,7 @@ fn circular_progress_indeterminate_registers_repeating_rotation() -> Result<()> 
             let (_ctx, _view) = fission_core::build::current::<State>();
             CircularProgress {
                 id: component.progress_id,
+                label: None,
                 value: None,
                 motion: Some(CircularProgressMotion::Spin),
                 ..Default::default()
@@ -466,6 +471,7 @@ fn circular_progress_indeterminate_without_motion_renders_static_indicator() -> 
             let (_ctx, _view) = fission_core::build::current::<State>();
             CircularProgress {
                 id: WidgetId::explicit("static_spinner"),
+                label: None,
                 value: None,
                 motion: None,
                 ..Default::default()
@@ -506,6 +512,7 @@ fn circular_progress_determinate_does_not_register_rotation() -> Result<()> {
             let (_ctx, _view) = fission_core::build::current::<State>();
             CircularProgress {
                 id: component.progress_id,
+                label: None,
                 value: Some(0.5),
                 motion: Some(CircularProgressMotion::Spin),
                 ..Default::default()

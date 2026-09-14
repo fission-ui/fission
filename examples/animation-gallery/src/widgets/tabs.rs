@@ -1,7 +1,7 @@
 use super::common::*;
 use super::tabs_preview::TabsPreview;
 use crate::state::AnimationGalleryState;
-use crate::style::SOFT_BLUE;
+use crate::style;
 use fission::build::BuildCtxHandle;
 use fission::Widget;
 
@@ -12,7 +12,7 @@ pub const SUMMARY: WidgetSummary = WidgetSummary {
     title: "Tabs",
     subtitle: "4 motions",
     glyph: "tabs",
-    tint: SOFT_BLUE,
+    tint: style::Tint::Primary,
 };
 
 pub struct TabsPage<'a> {

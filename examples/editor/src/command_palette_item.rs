@@ -1,6 +1,6 @@
 use crate::layout::PANEL_HEADER_HEIGHT;
 use crate::model::EditorState;
-use crate::palette::{BRIGHT_TEXT, DIM_TEXT};
+use crate::palette::EditorPalette;
 use fission::prelude::*;
 use fission::widgets::{HStack, Spacer};
 
@@ -13,6 +13,7 @@ pub(crate) struct CommandPaletteItem {
 impl From<CommandPaletteItem> for Widget {
     fn from(item: CommandPaletteItem) -> Self {
         let (_, view) = fission::build::current::<EditorState>();
+        let palette = EditorPalette::from_theme(&view.env().theme);
         let tokens = &view.env().theme.tokens;
 
         Button {
@@ -24,14 +25,14 @@ impl From<CommandPaletteItem> for Widget {
                     children: widgets![
                         Text::new(item.label)
                             .size(tokens.typography.font_size_sm)
-                            .color(BRIGHT_TEXT),
+                            .color(palette.bright_text),
                         Spacer {
                             flex_grow: 1.0,
                             ..Default::default()
                         },
                         Text::new(item.description)
                             .size(tokens.typography.font_size_xs)
-                            .color(DIM_TEXT),
+                            .color(palette.dim_text),
                     ],
                 }
                 .into(),

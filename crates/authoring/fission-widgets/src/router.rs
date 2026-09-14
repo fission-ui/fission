@@ -185,7 +185,7 @@ fn match_route(pattern: &str, path: &str) -> Option<RouteParams> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use fission_core::internal::BuildCtx;
+    use fission_core::authoring::BuildCtx;
     use fission_core::{Env, RuntimeState, Text, View};
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Mutex;

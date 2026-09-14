@@ -1,4 +1,4 @@
-use fission_core::internal::{BuildCtx, InternalLoweringCx};
+use fission_core::authoring::{BuildCtx, LoweringContext};
 use fission_core::{
     build, widgets, Button, ButtonMotion, Column, Env, MotionDeclarationKind, MotionEasing,
     MotionPhase, MotionPreference, MotionPropertyId, MotionTransition, Runtime, RuntimeState, Text,
@@ -31,15 +31,15 @@ fn build_button(env: &Env, runtime: &RuntimeState, button: Button) -> (Widget, B
 }
 
 fn lower(widget: &Widget, env: &Env, runtime: &RuntimeState) -> fission_ir::CoreIR {
-    let mut cx = InternalLoweringCx::new(env, runtime, None, None);
+    let mut cx = LoweringContext::new(env, runtime, None, None);
     let root = fission_core::internal::lower_widget(widget, &mut cx);
-    cx.ir.set_root(root);
-    cx.ir
+    cx.set_root(root);
+    cx.into_ir()
 }
 
 fn primary_states(env: &mut Env) -> &mut fission_theme::ComponentStateStyles {
     env.theme
-        .components
+        .components_mut()
         .button
         .hierarchies
         .iter_mut()
@@ -63,7 +63,7 @@ fn install_linear_transition_recipe(env: &mut Env) {
         duration_ms: 100,
         easing: EasingCurve::Linear,
     };
-    env.theme.components.button.transition = Some(transition.clone());
+    env.theme.components_mut().button.transition = Some(transition.clone());
     let states = primary_states(env);
     states.default = ResolvedComponentStyle {
         background: Some(Fill::Solid(Color::BLACK)),
@@ -178,6 +178,8 @@ fn button_recipe_registers_and_consumes_paint_state_transitions() {
                 stroke: Some(stroke),
                 corner_radius,
                 shadow: None,
+                corner_radii: None,
+                border_sides: None,
             }) => Some((*color, stroke.width, *corner_radius)),
             _ => None,
         })
@@ -220,7 +222,7 @@ fn button_recipe_registers_and_consumes_paint_state_transitions() {
 fn button_recipe_without_a_transition_keeps_state_paint_immediate() {
     let id = WidgetId::explicit("button.immediate-recipe");
     let mut env = Env::default();
-    env.theme.components.button.transition = None;
+    env.theme.components_mut().button.transition = None;
     let states = primary_states(&mut env);
     states.default.transition = None;
     states.default.background = Some(Fill::Solid(Color::BLACK));
@@ -241,7 +243,9 @@ fn button_recipe_without_a_transition_keeps_state_paint_immediate() {
 
     let mut runtime = RuntimeState::default();
     runtime.interaction.set_hovered(id, true);
-    let (widget, context) = build_button(&env, &runtime, semantic_button(id, "Immediate"));
+    let mut button = semantic_button(id, "Immediate");
+    button.motion = Some(ButtonMotion::None);
+    let (widget, context) = build_button(&env, &runtime, button);
     assert!(context.motion_declarations.is_empty());
     let ir = lower(&widget, &env, &runtime);
     assert!(ir.nodes.values().any(|node| matches!(
@@ -416,10 +420,34 @@ fn implicit_button_identity(motion: Option<ButtonMotion>) -> (WidgetId, usize) {
 
 #[test]
 fn implicit_button_identity_is_independent_of_explicit_motion() {
-    let (without_explicit_motion, recipe_declarations) = implicit_button_identity(None);
+    let (without_explicit_motion, recipe_declarations) =
+        implicit_button_identity(Some(ButtonMotion::None));
     let (with_explicit_motion, composed_declarations) =
         implicit_button_identity(Some(ButtonMotion::HoverScale));
 
     assert_eq!(without_explicit_motion, with_explicit_motion);
     assert!(composed_declarations >= recipe_declarations);
+}
+
+#[test]
+fn unset_button_motion_ripples_unless_the_app_turns_widget_motion_off() {
+    let id = WidgetId::explicit("button.default-ripple");
+    let runtime = RuntimeState::default();
+    let ripples = |env: &Env| {
+        let (_, context) = build_button(env, &runtime, semantic_button(id, "Default"));
+        context
+            .motion_declarations
+            .iter()
+            .filter(|declaration| matches!(declaration.kind, MotionDeclarationKind::RippleLayer(_)))
+            .count()
+    };
+
+    assert_eq!(ripples(&Env::default()), 1);
+    assert_eq!(
+        ripples(&Env {
+            widget_motion: fission_core::WidgetMotion::Off,
+            ..Default::default()
+        }),
+        0
+    );
 }

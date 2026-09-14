@@ -124,15 +124,11 @@ Release-build measurements on the same host using `FISSION_RENDERER=native-vello
 
 On this macOS/Metal host, `MemoryHints::MemoryUsage` did not reduce the previously measured footprint. It may still matter on Vulkan/DX12 backends where WGPU's allocator chunk sizing is the larger contributor.
 
-## Direct WGPU2D prototype comparison
+## Direct WGPU2D prototype comparison (retired)
 
-Change set:
+The `fission-render-wgpu2d` prototype has since been removed. It drew only solid and stroked rectangle quads, with placeholders for text, images, paths, SVG, surfaces, gradients, clips, transforms and opacity. It had fallen out of the workspace and stopped compiling against the display list. `fission-render-vello` now drives wgpu directly through the `vello_gpu` sparse-strips renderer, so a separate direct-wgpu path is no longer needed for comparison. The measurements below are kept for the record.
 
-- Added a selectable `fission-render-wgpu2d` prototype via `FISSION_RENDERER=native-wgpu2d`.
-- The prototype currently clears the target and renders solid rectangle quads, stroke quads, cached scene recursion, and placeholders for text, images, paths, SVG, surfaces, gradients, clips, transforms, and opacity.
-- Screenshot sanity check: `/tmp/fission-wgpu2d-shots/inbox.png`.
-
-Release-build measurements on the same host:
+Release-build measurements on the same host, taken while the prototype was selectable as `FISSION_RENDERER=native-wgpu2d`:
 
 | Case | Physical footprint | Peak | Notes |
 | --- | ---: | ---: | --- |

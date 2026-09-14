@@ -12,7 +12,19 @@ pub struct HoverController;
 
 impl HoverController {
     pub fn clear(ctx: &mut ControllerContext, point: Option<LayoutPoint>) -> bool {
+        ctx.interaction.pointer_position = None;
         Self::apply_hover_path(ctx, Vec::new(), point)
+    }
+
+    /// Recomputes hover at the last pointer position. After a rebuild or layout change the
+    /// widgets under a stationary pointer may differ, and identities may have been reused, so the
+    /// recorded hover path can name widgets the pointer is no longer over.
+    pub fn refresh(ctx: &mut ControllerContext) -> bool {
+        let Some(point) = ctx.interaction.pointer_position else {
+            return false;
+        };
+        let next_path = Self::hover_path_at_point(ctx, point);
+        Self::apply_hover_path(ctx, next_path, Some(point))
     }
 
     fn hover_path_at_point(ctx: &ControllerContext, point: LayoutPoint) -> Vec<WidgetId> {
@@ -130,6 +142,7 @@ impl InputController for HoverController {
                 ..
             })
             | InputEvent::Pointer(PointerEvent::Scroll { point, .. }) => {
+                ctx.interaction.pointer_position = Some(*point);
                 let next_path = Self::hover_path_at_point(ctx, *point);
                 let _ = Self::apply_hover_path(ctx, next_path, Some(*point));
             }

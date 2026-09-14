@@ -1,5 +1,5 @@
 use crate::model::{EditorState, ToggleSidebar, ToggleTerminal};
-use crate::palette::{BRIGHT_TEXT, SURFACE_BG};
+use crate::palette::EditorPalette;
 use fission::core::ui::{Button, ButtonVariant, Container, Row, Text, Widget};
 use fission::core::with_reducer;
 use fission::widgets::{Icon, Spacer};
@@ -9,6 +9,7 @@ pub(crate) struct CompactEditorToolbar;
 impl From<CompactEditorToolbar> for Widget {
     fn from(_toolbar: CompactEditorToolbar) -> Self {
         let (ctx, view) = fission::build::current::<EditorState>();
+        let palette = EditorPalette::from_theme(&view.env().theme);
         let tokens = &view.env().theme.tokens;
         let toggle_sidebar = with_reducer!(
             ctx,
@@ -51,11 +52,11 @@ impl From<CompactEditorToolbar> for Widget {
                             children: vec![
                                 Icon::svg(navigation_icon)
                                     .size(tokens.typography.font_size_lg)
-                                    .color(BRIGHT_TEXT)
+                                    .color(palette.bright_text)
                                     .into(),
                                 Text::new(navigation_label)
                                     .size(tokens.typography.font_size_sm)
-                                    .color(BRIGHT_TEXT)
+                                    .color(palette.bright_text)
                                     .into(),
                             ],
                             ..Default::default()
@@ -77,7 +78,7 @@ impl From<CompactEditorToolbar> for Widget {
                     child: Some(
                         Icon::svg(fission::icons::material::action::terminal::round())
                             .size(tokens.typography.font_size_lg)
-                            .color(BRIGHT_TEXT)
+                            .color(palette.bright_text)
                             .into(),
                     ),
                     on_press: Some(toggle_terminal),
@@ -88,7 +89,7 @@ impl From<CompactEditorToolbar> for Widget {
             ],
             ..Default::default()
         })
-        .bg(SURFACE_BG)
+        .bg(palette.surface_bg)
         .padding_all(tokens.spacing.xs)
         .flex_shrink(0.0)
         .into()

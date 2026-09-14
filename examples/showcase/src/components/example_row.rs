@@ -1,6 +1,5 @@
 use super::TargetChip;
 use crate::catalog::{ExampleCategory, ExampleDefinition};
-use crate::i18n::message;
 use crate::state::{on_navigate, Navigate, ShowcaseState};
 use fission::icons::material;
 use fission::op::{AlignItems, Fill, FlexWrap};
@@ -18,7 +17,7 @@ impl From<ExampleRow> for Widget {
         let tokens = &view.env().theme.tokens;
         let path = format!("/examples/{}", component.example.slug);
         let navigate = with_reducer!(ctx, Navigate(path), on_navigate);
-        let title = message(view.env(), component.example.title_key);
+        let title = view.env().tr(component.example.title_key);
         let target_chips = component
             .example
             .targets

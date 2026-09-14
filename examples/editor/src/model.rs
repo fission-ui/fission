@@ -270,8 +270,9 @@ pub struct EditorState {
     // Clipboard (in-app)
     pub clipboard: String,
 
-    // File watcher
-    pub file_mtimes: HashMap<String, std::time::SystemTime>,
+    // File operations waiting on FS_JOB, in the order they were requested
+    pub pending_fs: Vec<FsRequest>,
+    pub next_fs_id: u64,
     #[allow(dead_code)]
     pub key_event_count: u64,
     pub redraw_epoch: u64,
@@ -342,7 +343,8 @@ impl Default for EditorState {
             scroll_offset_y: 0.0,
             lsp_handle: None,
             clipboard: String::new(),
-            file_mtimes: HashMap::new(),
+            pending_fs: Vec::new(),
+            next_fs_id: 0,
             key_event_count: 0,
             redraw_epoch: 0,
             cached_tree_entries: Vec::new(),
@@ -422,7 +424,7 @@ pub enum DocumentBacking {
     },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FileWindow {
     pub start_byte: u64,
     pub end_byte: u64,
@@ -1215,9 +1217,6 @@ pub struct SetEditorPreedit {
 }
 
 #[fission_action]
-pub struct ToggleCommandPalette;
-
-#[fission_action]
 pub struct UpdateCommandQuery;
 
 #[fission_action]
@@ -1230,16 +1229,7 @@ pub struct ToggleTerminal;
 pub struct SetSidebarSection(pub SidebarSection);
 
 #[fission_action]
-pub struct SaveFile;
-
-#[fission_action]
-pub struct SaveAllFiles;
-
-#[fission_action]
 pub struct DismissMenu;
-
-#[fission_action]
-pub struct ShowMenuStatus(pub String);
 
 #[fission_action]
 pub struct SetBottomPanelTab(pub BottomPanelTab);
@@ -1247,12 +1237,6 @@ pub struct SetBottomPanelTab(pub BottomPanelTab);
 #[fission_action]
 #[allow(dead_code)]
 pub struct ShowContextStatus(pub String);
-
-#[fission_action]
-pub struct RenameContextTarget;
-
-#[fission_action]
-pub struct DeleteContextTarget;
 
 #[fission_action]
 pub struct UpdateSearchQuery;
@@ -1348,9 +1332,6 @@ pub struct StartRename(pub String);
 pub struct ConfirmRename;
 
 #[fission_action]
-pub struct CancelRename;
-
-#[fission_action]
 pub struct UpdateRenameInput;
 
 #[fission_action]
@@ -1359,24 +1340,6 @@ pub struct SetActiveMenu(pub Option<String>);
 #[allow(dead_code)]
 #[fission_action]
 pub struct GoToLine(pub usize);
-
-#[fission_action]
-pub struct GoToDefinition;
-
-#[fission_action]
-pub struct Undo;
-
-#[fission_action]
-pub struct Redo;
-
-#[fission_action]
-pub struct CopySelection;
-
-#[fission_action]
-pub struct CutSelection;
-
-#[fission_action]
-pub struct PasteClipboard;
 
 #[fission_action]
 pub struct UpdateCursorPosition {
@@ -1403,6 +1366,12 @@ pub struct EditorStarted {
 
 #[fission_action]
 pub struct TreeScanCompleted;
+
+#[fission_action]
+pub struct FsCompleted;
+
+#[fission_action]
+pub struct FsFailed;
 
 #[fission_action]
 pub struct TreeScanFailed;
@@ -1620,6 +1589,21 @@ fn search_files_recursive(dir: &Path, query: &str, results: &mut Vec<SearchResul
         }
     }
 }
+
+mod fs_jobs;
+mod workspace_reducers;
+pub use fs_jobs::{run_fs_job, FsFailure, FsOp, FsOutcome, FsRequest, FsResult, FS_JOB};
+pub use workspace_reducers::*;
+mod background_reducers;
+pub use background_reducers::*;
+mod commands;
+pub use commands::{
+    on_create_file, on_create_folder, on_dismiss_command_palette, on_dismiss_context_menu,
+    on_dismiss_menu, on_open_file, on_refresh_tree, on_run_command, on_show_context_menu,
+    on_toggle_menu, on_toggle_tree_node, on_update_command_query, on_update_rename_input,
+    DismissCommandPalette, EditorCommand, RunCommand, EDITOR_CONTEXT_COMMANDS, MENUS,
+    PALETTE_COMMANDS, TREE_CONTEXT_COMMANDS,
+};
 
 #[cfg(test)]
 mod core_tests;

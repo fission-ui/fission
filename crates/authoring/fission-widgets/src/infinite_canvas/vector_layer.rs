@@ -1,9 +1,6 @@
 use std::hash::{Hash, Hasher};
-use std::sync::Arc;
 
-use fission_core::internal::{
-    InternalIrBuilder, InternalLowerer, InternalLoweringCx, InternalRenderNode,
-};
+use fission_core::authoring::{IrBuilder, LowerWidget, LoweringContext};
 use fission_core::ui::Widget;
 use fission_core::{LayoutOp, Op, WidgetId};
 use fission_ir::op::{BoxStyle, Fill, Length, PaintOp, Stroke};
@@ -29,9 +26,9 @@ impl std::fmt::Debug for CanvasVectorLayer {
     }
 }
 
-impl InternalLowerer for CanvasVectorLayer {
-    fn lower_dyn(&self, cx: &mut InternalLoweringCx) -> WidgetId {
-        let paint = InternalIrBuilder::new(
+impl LowerWidget for CanvasVectorLayer {
+    fn lower_dyn(&self, cx: &mut LoweringContext) -> WidgetId {
+        let paint = IrBuilder::new(
             WidgetId::derived(self.id.as_u128(), &[1]),
             Op::Paint(PaintOp::DrawPath {
                 path: self.path.clone(),
@@ -41,7 +38,7 @@ impl InternalLowerer for CanvasVectorLayer {
         )
         .build(cx);
 
-        let mut layout = InternalIrBuilder::new(
+        let mut layout = IrBuilder::new(
             WidgetId::derived(self.id.as_u128(), &[0]),
             Op::Layout(LayoutOp::StyledBox {
                 style: BoxStyle {
@@ -73,11 +70,7 @@ impl InternalLowerer for CanvasVectorLayer {
 
 impl From<CanvasVectorLayer> for Widget {
     fn from(layer: CanvasVectorLayer) -> Self {
-        fission_core::internal::custom_render_widget(InternalRenderNode {
-            debug_tag: "InfiniteCanvasVectorLayer".into(),
-            lowerer: Some(Arc::new(layer)),
-            render_object: None,
-        })
+        fission_core::authoring::custom_widget("InfiniteCanvasVectorLayer", layer)
     }
 }
 
@@ -109,17 +102,17 @@ mod tests {
         .into();
         let env = Env::default();
         let runtime = RuntimeState::default();
-        let mut cx = InternalLoweringCx::new(&env, &runtime, None, None);
+        let mut cx = LoweringContext::new(&env, &runtime, None, None);
         let root = fission_core::internal::lower_widget(&widget, &mut cx);
 
         assert_eq!(root, id);
-        let wrapper = cx.ir.nodes.get(&root).expect("wrapper");
+        let wrapper = cx.ir().nodes.get(&root).expect("wrapper");
         assert_eq!(wrapper.children.len(), 1);
         assert_ne!(wrapper.children[0], root);
-        let layout = cx.ir.nodes.get(&wrapper.children[0]).expect("layout");
+        let layout = cx.ir().nodes.get(&wrapper.children[0]).expect("layout");
         assert_eq!(layout.children.len(), 1);
         assert!(matches!(
-            cx.ir.nodes[&layout.children[0]].op,
+            cx.ir().nodes[&layout.children[0]].op,
             Op::Paint(PaintOp::DrawPath { .. })
         ));
     }
@@ -147,9 +140,9 @@ mod tests {
         .into();
         let env = Env::default();
         let runtime = RuntimeState::default();
-        let mut cx = InternalLoweringCx::new(&env, &runtime, None, None);
+        let mut cx = LoweringContext::new(&env, &runtime, None, None);
         let root = fission_core::internal::lower_widget(&widget, &mut cx);
-        let nodes = fission_core::internal::build_layout_tree(&cx.ir, &env);
+        let nodes = fission_core::internal::build_layout_tree(cx.ir(), &env);
         let snapshot = LayoutEngine::new()
             .compute_layout(&nodes, root, LayoutSize::new(800.0, 600.0), &|_| 0.0)
             .expect("positioned vector layout");

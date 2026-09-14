@@ -1,4 +1,4 @@
-use fission_core::internal::BuildCtx;
+use fission_core::authoring::BuildCtx;
 use fission_core::ui::Widget;
 use fission_core::{build, GlobalState, View};
 use fission_widgets::TimePicker;
@@ -30,9 +30,21 @@ fn build_time_picker(hour: u32, minute: u32) -> Widget {
     })
 }
 
+fn semantics_child(node: &Widget) -> Option<&Widget> {
+    match node.kind() {
+        fission_core::ui::WidgetKind::SemanticsRegion(region) => region.child.as_ref(),
+        _ => None,
+    }
+}
+
 fn collect_text_inputs<'a>(node: &'a Widget, out: &mut Vec<&'a fission_core::ui::TextInput>) {
     if let Some(input) = fission_core::internal::widget_as_text_input(node) {
         out.push(input);
+    }
+    // Widgets that announce themselves wrap their surface in a semantics
+    // region, so the walk has to pass through one.
+    if let Some(child) = semantics_child(node) {
+        collect_text_inputs(child, out);
     }
     if let Some(row) = fission_core::internal::widget_as_row(node) {
         for child in &row.children {
@@ -59,9 +71,9 @@ fn collect_text_inputs<'a>(node: &'a Widget, out: &mut Vec<&'a fission_core::ui:
 fn collect_buttons<'a>(node: &'a Widget, out: &mut Vec<&'a fission_core::ui::Button>) {
     if let Some(button) = fission_core::internal::widget_as_button(node) {
         out.push(button);
-        if let Some(child) = &button.child {
-            collect_buttons(child, out);
-        }
+    }
+    if let Some(child) = semantics_child(node) {
+        collect_buttons(child, out);
     }
     if let Some(row) = fission_core::internal::widget_as_row(node) {
         for child in &row.children {
@@ -83,8 +95,11 @@ fn collect_buttons<'a>(node: &'a Widget, out: &mut Vec<&'a fission_core::ui::But
 #[test]
 fn time_picker_uses_compact_stepper_buttons() {
     let node = build_time_picker(9, 0);
+    // The hour and minute steppers are one time value, so the picker lowers
+    // through a group semantics region around its row.
+    let surface = semantics_child(&node).expect("time picker surface");
     let row =
-        fission_core::internal::widget_as_row(&node).expect("TimePicker should lower to a row");
+        fission_core::internal::widget_as_row(surface).expect("TimePicker should lower to a row");
     assert_eq!(
         row.children.len(),
         3,

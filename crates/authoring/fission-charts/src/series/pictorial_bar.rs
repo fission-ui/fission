@@ -6,7 +6,8 @@ pub struct PictorialBarSeries {
     pub name: String,
     pub data: Vec<f32>,
     pub symbol: String, // e.g. "circle", "rect", "path://..."
-    pub color: Color,
+    /// The series colour; `None` takes the theme palette colour for its position.
+    pub color: Option<Color>,
 }
 
 impl PictorialBarSeries {
@@ -15,7 +16,7 @@ impl PictorialBarSeries {
             name: name.into(),
             data: Vec::new(),
             symbol: "circle".into(),
-            color: Color::BLUE,
+            color: None,
         }
     }
 
@@ -30,7 +31,7 @@ impl PictorialBarSeries {
     }
 
     pub fn color(mut self, color: Color) -> Self {
-        self.color = color;
+        self.color = Some(color);
         self
     }
 }

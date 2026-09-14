@@ -34,6 +34,7 @@ mod imp {
     #[derive(Debug)]
     enum QueuedAccessibilityEvent {
         ActionRequested(ActionRequest),
+        Activated,
         Deactivated,
     }
 
@@ -42,6 +43,9 @@ mod imp {
         latest_node_map: Mutex<HashMap<NodeId, WidgetId>>,
         events: Mutex<VecDeque<QueuedAccessibilityEvent>>,
         proxy: EventLoopProxy<TestEvent>,
+        /// Whether an assistive technology is reading the tree. Building the tree walks the whole
+        /// IR, so frames skip it entirely while nothing is listening.
+        listening: std::sync::atomic::AtomicBool,
     }
 
     impl AccessibilityShared {
@@ -56,6 +60,15 @@ mod imp {
 
     impl ActivationHandler for FissionActivationHandler {
         fn request_initial_tree(&mut self) -> Option<TreeUpdate> {
+            // Answer with the last tree built, then rebuild on the next frame so the assistive
+            // technology receives the current one.
+            self.shared
+                .listening
+                .store(true, std::sync::atomic::Ordering::Relaxed);
+            if let Ok(mut events) = self.shared.events.lock() {
+                events.push_back(QueuedAccessibilityEvent::Activated);
+            }
+            self.shared.wake();
             self.shared
                 .latest_update
                 .lock()
@@ -83,6 +96,9 @@ mod imp {
 
     impl DeactivationHandler for FissionDeactivationHandler {
         fn deactivate_accessibility(&mut self) {
+            self.shared
+                .listening
+                .store(false, std::sync::atomic::Ordering::Relaxed);
             if let Ok(mut events) = self.shared.events.lock() {
                 events.push_back(QueuedAccessibilityEvent::Deactivated);
             }
@@ -105,6 +121,7 @@ mod imp {
                     latest_node_map: Mutex::new(HashMap::new()),
                     events: Mutex::new(VecDeque::new()),
                     proxy,
+                    listening: std::sync::atomic::AtomicBool::new(false),
                 }),
                 active: false,
             }
@@ -145,6 +162,13 @@ mod imp {
             runtime: &Runtime,
             scale_factor: f64,
         ) {
+            if !self
+                .shared
+                .listening
+                .load(std::sync::atomic::Ordering::Relaxed)
+            {
+                return;
+            }
             let built = build_tree_update(ir, layout, runtime, scale_factor);
             if let Ok(mut latest) = self.shared.latest_update.lock() {
                 *latest = built.update.clone();
@@ -186,6 +210,10 @@ mod imp {
                         if self.handle_action_request(request, runtime, ir, layout) {
                             changed = true;
                         }
+                    }
+                    QueuedAccessibilityEvent::Activated => {
+                        self.active = true;
+                        changed = true;
                     }
                     QueuedAccessibilityEvent::Deactivated => {
                         self.active = false;
@@ -592,6 +620,7 @@ mod imp {
                         | Role::Link
                         | Role::MenuItem
                         | Role::Image
+                        | Role::Video
                         | Role::TextInput
                         | Role::Checkbox
                         | Role::Radio
@@ -974,6 +1003,19 @@ mod imp {
             Role::Alert => AccessRole::Alert,
             Role::Group => AccessRole::Group,
             Role::Separator => AccessRole::Splitter,
+            Role::Tree => AccessRole::Tree,
+            Role::TreeItem => AccessRole::TreeItem,
+            Role::Toolbar => AccessRole::Toolbar,
+            Role::RadioGroup => AccessRole::RadioGroup,
+            Role::Table => AccessRole::Table,
+            Role::TableRow => AccessRole::Row,
+            Role::TableCell => AccessRole::Cell,
+            Role::ColumnHeader => AccessRole::ColumnHeader,
+            Role::ProgressBar => AccessRole::ProgressIndicator,
+            Role::Tooltip => AccessRole::Tooltip,
+            Role::Status => AccessRole::Status,
+            Role::SpinButton => AccessRole::SpinButton,
+            Role::Video => AccessRole::Video,
             Role::Generic => AccessRole::GenericContainer,
         }
     }

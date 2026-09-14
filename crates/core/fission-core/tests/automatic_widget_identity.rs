@@ -1,6 +1,7 @@
 use std::ops::ControlFlow;
 
-use fission_core::internal::{self, BuildCtx};
+use fission_core::authoring::BuildCtx;
+use fission_core::internal;
 use fission_core::ui::widgets::text::InlineWidgetSpan;
 use fission_core::ui::{Container, Overlay, RichText, Scroll, TextContent, TextInput, ZStack};
 use fission_core::{

@@ -1,7 +1,7 @@
 use crate::env::TextSelectionHandleKind;
-use crate::lowering::{InternalIrBuilder, InternalLoweringCx};
+use crate::lowering::{IrBuilder, LoweringContext};
 use crate::ui::{
-    traits::InternalLower,
+    traits::Lower,
     widgets::context_menu::{TextContextMenuAction, TextContextMenuConfig},
     Button, ButtonContentAlign, ButtonVariant, Container, Positioned, Row, Spacer, Text,
     TextContent, TextFontStyle, Widget,
@@ -25,7 +25,9 @@ use unicode_segmentation::UnicodeSegmentation;
 
 mod config;
 mod decoration;
+mod text_runs;
 pub use config::*;
+use text_runs::{clamp_text_offset, split_runs_for_range};
 
 #[cfg(debug_assertions)]
 fn report_invalid_validation_pattern() {
@@ -840,8 +842,8 @@ impl Default for TextInput {
     }
 }
 
-impl InternalLower for TextInput {
-    fn lower(&self, cx: &mut InternalLoweringCx) -> WidgetId {
+impl Lower for TextInput {
+    fn lower(&self, cx: &mut LoweringContext) -> WidgetId {
         let input_id = self.id.map(Into::into).unwrap_or_else(|| cx.next_node_id());
         let is_focused = cx.runtime_state.interaction.is_focused(input_id);
         let is_hovered = cx.runtime_state.interaction.is_hovered(input_id);
@@ -879,26 +881,28 @@ impl InternalLower for TextInput {
             None
         };
         let session_display = retained_session.map(|state| state.display_text());
+        // A collapsed caret cannot be carried across a model transform: the
+        // offset was measured against the local edit, and the model may have
+        // inserted or removed text anywhere before it. Move it to the end of
+        // the value actually being rendered.
+        //
+        // This applies whether or not the session was retained. A transform is
+        // precisely the case where it is not retained, so checking it only on
+        // the retained path left the rule unreachable.
+        let selection_for = |state: &crate::env::TextEditState| {
+            if pending_model_transform && state.caret == state.anchor {
+                (model_text.len(), model_text.len())
+            } else {
+                (
+                    clamp_text_offset(model_text, state.caret),
+                    clamp_text_offset(model_text, state.anchor),
+                )
+            }
+        };
         let model_selection = retained_session
-            .map(|state| {
-                if pending_model_transform && state.caret == state.anchor {
-                    (model_text.len(), model_text.len())
-                } else {
-                    (
-                        clamp_text_offset(model_text, state.caret),
-                        clamp_text_offset(model_text, state.anchor),
-                    )
-                }
-            })
+            .map(selection_for)
             .or(controlled_selection)
-            .or_else(|| {
-                session.map(|state| {
-                    (
-                        clamp_text_offset(model_text, state.caret),
-                        clamp_text_offset(model_text, state.anchor),
-                    )
-                })
-            })
+            .or_else(|| session.map(selection_for))
             .unwrap_or((model_text.len(), model_text.len()));
         let semantic_value = retained_session
             .map(|state| state.committed_text())
@@ -938,7 +942,8 @@ impl InternalLower for TextInput {
             } else {
                 self.validation_state
             };
-        let constraint_invalid = (effective_required && live_value.text.is_empty())
+        let missing_required = effective_required && live_value.text.is_empty();
+        let constraint_invalid = missing_required
             || self
                 .min_length
                 .is_some_and(|minimum| grapheme_len < minimum)
@@ -973,12 +978,23 @@ impl InternalLower for TextInput {
             })
             .or_else(|| form_field_context.and_then(|context| context.invalid_message.clone()));
         let is_invalid = effective_validation_state == TextFieldValidationState::Invalid;
+        // An empty required field still fails form validation, but it is only drawn as an error
+        // once the user has visited and left it, so a new form does not open full of red fields.
+        let visited = session.is_some() && !is_focused;
+        let only_missing_required = missing_required
+            && self.error_text.is_none()
+            && declared_validation_state != TextFieldValidationState::Invalid
+            && !self
+                .min_length
+                .is_some_and(|minimum| grapheme_len < minimum)
+            && !pattern_invalid;
+        let show_invalid = is_invalid && (visited || !only_missing_required);
 
         let theme = &cx.env.theme.components.text_input;
         let tokens = &cx.env.theme.tokens;
         let component_state = if !self.enabled {
             ComponentState::Disabled
-        } else if is_invalid {
+        } else if show_invalid {
             ComponentState::Error
         } else if is_focused {
             ComponentState::Focus
@@ -1131,20 +1147,22 @@ impl InternalLower for TextInput {
                 .filter(|shadow| !shadow.inset)
             {
                 ids.push(
-                    InternalIrBuilder::new(
+                    IrBuilder::new(
                         cx.next_node_id(),
                         Op::Paint(PaintOp::DrawRect {
                             fill: None,
                             stroke: None,
                             corner_radius: border_radius,
                             shadow: Some(shadow.to_box_shadow()),
+                            corner_radii: None,
+                            border_sides: None,
                         }),
                     )
                     .build(cx),
                 );
             }
             ids.push(
-                InternalIrBuilder::new(
+                IrBuilder::new(
                     cx.next_node_id(),
                     Op::Paint(PaintOp::DrawRect {
                         fill: Some(
@@ -1162,19 +1180,23 @@ impl InternalLower for TextInput {
                         }),
                         corner_radius: border_radius,
                         shadow: None,
+                        corner_radii: None,
+                        border_sides: None,
                     }),
                 )
                 .build(cx),
             );
             for shadow in component_style.shadows.iter().filter(|shadow| shadow.inset) {
                 ids.push(
-                    InternalIrBuilder::new(
+                    IrBuilder::new(
                         cx.next_node_id(),
                         Op::Paint(PaintOp::DrawRect {
                             fill: None,
                             stroke: None,
                             corner_radius: border_radius,
                             shadow: Some(shadow.to_box_shadow()),
+                            corner_radii: None,
+                            border_sides: None,
                         }),
                     )
                     .build(cx),
@@ -1428,7 +1450,7 @@ impl InternalLower for TextInput {
                 }
         });
 
-        let text_id = InternalIrBuilder::new(
+        let text_id = IrBuilder::new(
             cx.next_node_id(),
             Op::Paint(PaintOp::DrawRichText {
                 runs,
@@ -1443,7 +1465,7 @@ impl InternalLower for TextInput {
         )
         .build(cx);
 
-        let mut text_box = InternalIrBuilder::new(
+        let mut text_box = IrBuilder::new(
             cx.next_node_id(),
             Op::Layout(LayoutOp::Box {
                 width: None,
@@ -1462,7 +1484,7 @@ impl InternalLower for TextInput {
         let text_layout_id = text_box.build(cx);
 
         // 3. Scroll Container
-        let mut scroll = InternalIrBuilder::new(
+        let mut scroll = IrBuilder::new(
             cx.next_node_id(),
             Op::Layout(LayoutOp::Scroll {
                 direction: if self.multiline && self.wrap_mode != TextWrapMode::NoWrap {
@@ -1488,7 +1510,7 @@ impl InternalLower for TextInput {
         let scroll_id = scroll.build(cx);
 
         // 4. Editable content row and vertical alignment container.
-        let mut content_row = InternalIrBuilder::new(
+        let mut content_row = IrBuilder::new(
             cx.next_node_id(),
             Op::Layout(LayoutOp::Flex {
                 direction: FlexDirection::Row,
@@ -1523,7 +1545,7 @@ impl InternalLower for TextInput {
         }
         let content_row_id = content_row.build(cx);
 
-        let mut content_alignment = InternalIrBuilder::new(
+        let mut content_alignment = IrBuilder::new(
             cx.next_node_id(),
             Op::Layout(LayoutOp::Flex {
                 direction: FlexDirection::Column,
@@ -1566,7 +1588,7 @@ impl InternalLower for TextInput {
 
         // 5. Wrapper (Border + Padding)
         let wrapper_id = cx.next_node_id();
-        let mut wrapper = InternalIrBuilder::new(
+        let mut wrapper = IrBuilder::new(
             wrapper_id,
             Op::Layout(LayoutOp::Box {
                 width: self.width.or(component_style.width),
@@ -1598,7 +1620,7 @@ impl InternalLower for TextInput {
                 let affordances = &session_state.affordances;
                 let mut overlay_children = Vec::new();
 
-                if self.selection_controls.enabled {
+                if self.selection_controls.enabled && affordances.touch_handles {
                     if caret == anchor {
                         if self.selection_controls.show_collapsed_handle {
                             if let Some(point) = affordances.caret_handle {
@@ -1640,6 +1662,32 @@ impl InternalLower for TextInput {
                     }
                 }
 
+                // A field with an explicit identity lifts its open menu above all content while
+                // building. A field without one only has an identity once lowered, so its menu is
+                // drawn here, in place.
+                if self.id.is_none()
+                    && self.context_menu.enabled
+                    && !affordances.toolbar_visible
+                    && cx.runtime_state.context_menu.owner == Some(input_id)
+                {
+                    if let Some(menu_anchor) = cx.runtime_state.context_menu.anchor {
+                        let local = crate::ui::widgets::context_menu::anchor_to_local(
+                            cx,
+                            input_id,
+                            menu_anchor,
+                        );
+                        let menu = crate::ui::widgets::context_menu::text_input_menu(
+                            input_id,
+                            &self.context_menu,
+                            local,
+                            caret != anchor,
+                            !display_text.is_empty(),
+                            !self.read_only,
+                        );
+                        overlay_children.push(menu.lower(cx));
+                    }
+                }
+
                 if self.magnifier_configuration.enabled && affordances.magnifier_visible {
                     if let Some(anchor_point) = affordances.magnifier_anchor {
                         overlay_children.push(self.build_magnifier_overlay(
@@ -1653,8 +1701,7 @@ impl InternalLower for TextInput {
                 }
 
                 if !overlay_children.is_empty() {
-                    let mut stack =
-                        InternalIrBuilder::new(cx.next_node_id(), Op::Layout(LayoutOp::ZStack));
+                    let mut stack = IrBuilder::new(cx.next_node_id(), Op::Layout(LayoutOp::ZStack));
                     stack.add_child(wrapper_visual_id);
                     for child in overlay_children {
                         stack.add_child(child);
@@ -1699,7 +1746,7 @@ impl InternalLower for TextInput {
                         .text_color
                         .unwrap_or(tokens.colors.text_secondary),
                 );
-                let mut column = InternalIrBuilder::new(
+                let mut column = IrBuilder::new(
                     cx.next_node_id(),
                     Op::Layout(LayoutOp::Flex {
                         direction: FlexDirection::Column,
@@ -1904,7 +1951,7 @@ impl InternalLower for TextInput {
                 .entries
                 .push(fission_ir::ActionEntry::hover_cursor(mouse_cursor));
         }
-        let mut semantics_builder = InternalIrBuilder::new(input_id, Op::Semantics(semantics));
+        let mut semantics_builder = IrBuilder::new(input_id, Op::Semantics(semantics));
         semantics_builder.add_child(field_body_id);
         let semantics_id = semantics_builder.build(cx);
         cx.ir.custom_render_objects.insert(
@@ -1924,62 +1971,4 @@ impl InternalLower for TextInput {
         );
         semantics_id
     }
-}
-
-fn clamp_text_offset(value: &str, mut offset: usize) -> usize {
-    offset = offset.min(value.len());
-    while offset > 0 && !value.is_char_boundary(offset) {
-        offset -= 1;
-    }
-    offset
-}
-
-fn split_runs_for_range(
-    runs: &[fission_ir::op::TextRun],
-    start: usize,
-    end: usize,
-    mut apply: impl FnMut(&mut fission_ir::op::TextStyle),
-) -> Vec<fission_ir::op::TextRun> {
-    if start >= end {
-        return runs.to_vec();
-    }
-
-    let mut out = Vec::new();
-    let mut run_start = 0usize;
-    for run in runs {
-        let run_end = run_start + run.text.len();
-        let overlap_start = start.max(run_start);
-        let overlap_end = end.min(run_end);
-        if overlap_start >= overlap_end {
-            out.push(run.clone());
-            run_start = run_end;
-            continue;
-        }
-
-        let local_start = overlap_start - run_start;
-        let local_end = overlap_end - run_start;
-        if local_start > 0 {
-            out.push(fission_ir::op::TextRun {
-                text: run.text[..local_start].to_string(),
-                style: run.style.clone(),
-            });
-        }
-
-        let mut styled = run.style.clone();
-        apply(&mut styled);
-        out.push(fission_ir::op::TextRun {
-            text: run.text[local_start..local_end].to_string(),
-            style: styled,
-        });
-
-        if local_end < run.text.len() {
-            out.push(fission_ir::op::TextRun {
-                text: run.text[local_end..].to_string(),
-                style: run.style.clone(),
-            });
-        }
-
-        run_start = run_end;
-    }
-    out
 }

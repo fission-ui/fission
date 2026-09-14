@@ -1,8 +1,8 @@
-use crate::internal::InternalLower;
-use crate::lowering::{InternalIrBuilder, InternalLoweringCx};
+use crate::authoring::Lower;
+use crate::lowering::{IrBuilder, LoweringContext};
 use fission_ir::{
     op::{Color, LayoutOp, Op, PaintOp, Stroke},
-    WidgetId,
+    Role, Semantics, WidgetId,
 };
 use serde::{Deserialize, Serialize};
 
@@ -64,6 +64,11 @@ pub struct Icon {
     pub size: Option<f32>,
     /// Optional stroke (when set, the fill is suppressed).
     pub stroke: Option<Stroke>,
+    /// Accessible name, for an icon that carries meaning on its own.
+    ///
+    /// Leave it unset for decorative icons and for icons inside a control that
+    /// already has a label -- naming both makes a screen reader say it twice.
+    pub semantic_label: Option<String>,
 }
 
 impl Icon {
@@ -74,6 +79,7 @@ impl Icon {
             color: None,
             size: None,
             stroke: None,
+            semantic_label: None,
         }
     }
 
@@ -84,6 +90,7 @@ impl Icon {
             color: None,
             size: None,
             stroke: None,
+            semantic_label: None,
         }
     }
 
@@ -94,12 +101,49 @@ impl Icon {
             color: None,
             size: None,
             stroke: None,
+            semantic_label: None,
+        }
+    }
+
+    /// Picks between a start-pointing and an end-pointing glyph for the active
+    /// reading order.
+    ///
+    /// A back chevron points left in a left-to-right layout and right in a
+    /// right-to-left one. Pass the two glyphs in reading order — the one that
+    /// means "towards the start" first — and this resolves which is which, so
+    /// widgets do not each re-derive the rule.
+    ///
+    /// ```rust,ignore
+    /// // A "previous page" control.
+    /// Icon::svg_directional(
+    ///     material::navigation::chevron_left::regular(),
+    ///     material::navigation::chevron_right::regular(),
+    /// )
+    /// ```
+    pub fn svg_directional(
+        towards_start: impl Into<String>,
+        towards_end: impl Into<String>,
+    ) -> Self {
+        let (_, view) = crate::build::current::<()>();
+        match view.env().layout_direction {
+            fission_ir::LayoutDirection::LeftToRight => Self::svg(towards_start),
+            fission_ir::LayoutDirection::RightToLeft => Self::svg(towards_end),
         }
     }
 
     // Deprecated: new -> path
     pub fn new(path: impl Into<String>) -> Self {
         Self::path(path)
+    }
+
+    /// Names this icon for assistive technology.
+    ///
+    /// Only for an icon that conveys meaning by itself. An icon inside a
+    /// labelled button is decorative as far as a screen reader is concerned,
+    /// and naming it makes the control announce twice.
+    pub fn semantic_label(mut self, label: impl Into<String>) -> Self {
+        self.semantic_label = Some(label.into());
+        self
     }
 
     pub fn size(mut self, s: f32) -> Self {
@@ -118,8 +162,8 @@ impl Icon {
     }
 }
 
-impl InternalLower for Icon {
-    fn lower(&self, cx: &mut InternalLoweringCx) -> WidgetId {
+impl Lower for Icon {
+    fn lower(&self, cx: &mut LoweringContext) -> WidgetId {
         let id = self.id.map(Into::into).unwrap_or_else(|| cx.next_node_id());
 
         let tokens = &cx.env.theme.tokens;
@@ -160,9 +204,9 @@ impl InternalLower for Icon {
             },
         };
 
-        let paint_id = InternalIrBuilder::new(cx.next_node_id(), Op::Paint(paint_op)).build(cx);
+        let paint_id = IrBuilder::new(cx.next_node_id(), Op::Paint(paint_op)).build(cx);
 
-        let mut layout = InternalIrBuilder::new(
+        let mut layout = IrBuilder::new(
             id,
             Op::Layout(LayoutOp::Box {
                 width: Some(size),
@@ -178,6 +222,20 @@ impl InternalLower for Icon {
             }),
         );
         layout.add_child(paint_id);
-        layout.build(cx)
+        let layout_id = layout.build(cx);
+
+        let Some(label) = self.semantic_label.clone() else {
+            return layout_id;
+        };
+        let mut semantics = IrBuilder::new(
+            cx.next_node_id(),
+            Op::Semantics(Semantics {
+                role: Role::Image,
+                label: Some(label),
+                ..Default::default()
+            }),
+        );
+        semantics.add_child(layout_id);
+        semantics.build(cx)
     }
 }

@@ -79,10 +79,7 @@ impl From<ColourPickerSection> for Widget {
                 SetGalleryColour(state.colour_value),
                 set_gallery_colour
             );
-            move |colour: Color| ActionEnvelope {
-                id: action.id,
-                payload: serde_json::to_vec(&colour).unwrap(),
-            }
+            move |colour: Color| action.with_action(&SetGalleryColour(colour))
         });
 
         GallerySection::new(
@@ -106,7 +103,6 @@ impl From<ColourPickerSection> for Widget {
                         ))
                         .color(tokens.colors.text_secondary),
                     ],
-                    ..Default::default()
                 },
                 Wrap {
                     direction: FlexDirection::Row,

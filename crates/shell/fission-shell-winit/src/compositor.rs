@@ -3,14 +3,10 @@ use anyhow::Result;
 use bytemuck::{Pod, Zeroable};
 use fission_layout::LayoutPoint;
 use fission_render::LayerClip;
-use fission_render::Renderer as _;
-use fission_render_vello::{
-    workload_profile_for_encoded_scene, RetainedSceneCache, VelloRenderer, VelloTextMeasurer,
-};
+use fission_render_vello::gpu::GpuSceneRenderer;
+use fission_render_vello::VelloTextMeasurer;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use vello::wgpu;
-use vello::{RenderParams, Renderer as VelloSceneRenderer, Scene};
 
 #[repr(C)]
 #[derive(Clone, Copy, PartialEq, Pod, Zeroable)]
@@ -171,8 +167,8 @@ impl TextureLayerCompositor {
 
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("fission-compositor pipeline layout"),
-            bind_group_layouts: &[&bind_group_layout],
-            push_constant_ranges: &[],
+            bind_group_layouts: &[Some(&bind_group_layout)],
+            immediate_size: 0,
         });
 
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -205,7 +201,7 @@ impl TextureLayerCompositor {
             },
             depth_stencil: None,
             multisample: wgpu::MultisampleState::default(),
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         });
 
@@ -216,7 +212,7 @@ impl TextureLayerCompositor {
             address_mode_w: wgpu::AddressMode::ClampToEdge,
             mag_filter: wgpu::FilterMode::Linear,
             min_filter: wgpu::FilterMode::Linear,
-            mipmap_filter: wgpu::FilterMode::Nearest,
+            mipmap_filter: wgpu::MipmapFilterMode::Nearest,
             ..Default::default()
         });
 
@@ -258,8 +254,7 @@ impl TextureLayerCompositor {
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
-        vello_renderer: &mut VelloSceneRenderer,
-        retained_scene_cache: &mut RetainedSceneCache,
+        renderer: &mut GpuSceneRenderer,
         measurer: Arc<VelloTextMeasurer>,
         scale_factor: f64,
         viewport_width: u32,
@@ -293,8 +288,7 @@ impl TextureLayerCompositor {
             let outcome = self.render_plan_layer(
                 device,
                 queue,
-                vello_renderer,
-                retained_scene_cache,
+                renderer,
                 Arc::clone(&measurer),
                 scale_factor,
                 plan,
@@ -414,8 +408,7 @@ impl TextureLayerCompositor {
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
-        vello_renderer: &mut VelloSceneRenderer,
-        retained_scene_cache: &mut RetainedSceneCache,
+        renderer: &mut GpuSceneRenderer,
         measurer: Arc<VelloTextMeasurer>,
         scale_factor: f64,
         plan: &CompositorTexturePlan,
@@ -469,8 +462,7 @@ impl TextureLayerCompositor {
                 let outcome = self.render_plan_layer(
                     device,
                     queue,
-                    vello_renderer,
-                    retained_scene_cache,
+                    renderer,
                     Arc::clone(&measurer),
                     scale_factor,
                     child,
@@ -515,8 +507,7 @@ impl TextureLayerCompositor {
             let outcome = self.render_plan_layer(
                 device,
                 queue,
-                vello_renderer,
-                retained_scene_cache,
+                renderer,
                 Arc::clone(&measurer),
                 scale_factor,
                 child,
@@ -569,8 +560,7 @@ impl TextureLayerCompositor {
                         .expect("missing cached compositor layer"),
                     device,
                     queue,
-                    vello_renderer,
-                    retained_scene_cache,
+                    renderer,
                     Arc::clone(&measurer),
                     scale_factor,
                     plan.scene.as_ref(),
@@ -593,8 +583,7 @@ impl TextureLayerCompositor {
                         .expect("missing cached compositor layer"),
                     device,
                     queue,
-                    vello_renderer,
-                    retained_scene_cache,
+                    renderer,
                     Arc::clone(&measurer),
                     scale_factor,
                     plan.scene.as_ref(),
@@ -798,6 +787,7 @@ impl TextureLayerCompositor {
                 depth_stencil_attachment: None,
                 timestamp_writes: None,
                 occlusion_query_set: None,
+                multiview_mask: None,
             });
             pass.set_pipeline(&self.pipeline);
             for batch in &draw_batches {
@@ -1312,8 +1302,7 @@ fn ensure_base_texture(
     cached: &mut CachedLayerTexture,
     device: &wgpu::Device,
     queue: &wgpu::Queue,
-    vello_renderer: &mut VelloSceneRenderer,
-    retained_scene_cache: &mut RetainedSceneCache,
+    renderer: &mut GpuSceneRenderer,
     measurer: Arc<VelloTextMeasurer>,
     scale_factor: f64,
     scene: Option<&fission_render::RenderScene>,
@@ -1339,8 +1328,7 @@ fn ensure_base_texture(
             render_plan_scene(
                 device,
                 queue,
-                vello_renderer,
-                retained_scene_cache,
+                renderer,
                 measurer,
                 scale_factor,
                 scene,
@@ -1407,8 +1395,7 @@ fn render_or_seed_layer_base(
     cached: &mut CachedLayerTexture,
     device: &wgpu::Device,
     queue: &wgpu::Queue,
-    vello_renderer: &mut VelloSceneRenderer,
-    retained_scene_cache: &mut RetainedSceneCache,
+    renderer: &mut GpuSceneRenderer,
     measurer: Arc<VelloTextMeasurer>,
     scale_factor: f64,
     scene: Option<&fission_render::RenderScene>,
@@ -1421,8 +1408,7 @@ fn render_or_seed_layer_base(
         cached,
         device,
         queue,
-        vello_renderer,
-        retained_scene_cache,
+        renderer,
         measurer,
         scale_factor,
         scene,
@@ -1468,6 +1454,7 @@ fn clear_target_view(
             depth_stencil_attachment: None,
             timestamp_writes: None,
             occlusion_query_set: None,
+            multiview_mask: None,
         });
     }
     queue.submit(Some(encoder.finish()));
@@ -1476,66 +1463,33 @@ fn clear_target_view(
 fn render_plan_scene(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
-    vello_renderer: &mut VelloSceneRenderer,
-    retained_scene_cache: &mut RetainedSceneCache,
+    renderer: &mut GpuSceneRenderer,
     measurer: Arc<VelloTextMeasurer>,
     scale_factor: f64,
     scene: &fission_render::RenderScene,
-    scene_cache_key: Option<u64>,
+    _scene_cache_key: Option<u64>,
     target_view: &wgpu::TextureView,
     width: u32,
     height: u32,
 ) -> Result<()> {
-    let params = RenderParams {
-        base_color: vello::peniko::Color::from_rgba8(0, 0, 0, 0),
+    // A layer base is rendered from scratch into a transparent target. The cache key still
+    // decides whether the base needs rendering at all; see `ensure_base_texture`.
+    renderer.render(
+        device,
+        queue,
+        scene,
+        measurer,
+        scale_factor,
+        target_view,
         width,
         height,
-        antialiasing_method: vello::AaConfig::Area,
-    };
-    if let Some(cache_key) = scene_cache_key {
-        let cached_scene = retained_scene_cache.get_or_insert_with(cache_key, |scene_cache| {
-            let mut encoded = Scene::new();
-            let mut renderer = VelloRenderer::new(
-                &mut encoded,
-                Arc::clone(&measurer),
-                scene_cache,
-                scale_factor,
-            );
-            renderer.render_scene(scene)?;
-            Ok(encoded)
-        })?;
-        let workload_profile =
-            workload_profile_for_encoded_scene(scene, cached_scene, width, height, scale_factor);
-        vello_renderer
-            .render_to_texture_with_workload_profile(
-                device,
-                queue,
-                cached_scene,
-                target_view,
-                &params,
-                Some(&workload_profile),
-            )
-            .map_err(|error| anyhow::anyhow!("failed to render cached scene: {error}"))?;
-        return Ok(());
-    }
-
-    let mut encoded = Scene::new();
-    let mut renderer =
-        VelloRenderer::new(&mut encoded, measurer, retained_scene_cache, scale_factor);
-    renderer.render_scene(scene)?;
-    let workload_profile =
-        workload_profile_for_encoded_scene(scene, &encoded, width, height, scale_factor);
-    vello_renderer
-        .render_to_texture_with_workload_profile(
-            device,
-            queue,
-            &encoded,
-            target_view,
-            &params,
-            Some(&workload_profile),
-        )
-        .map_err(|error| anyhow::anyhow!("failed to render compositor scene: {error}"))?;
-    Ok(())
+        Some(fission_render::Color {
+            r: 0,
+            g: 0,
+            b: 0,
+            a: 0,
+        }),
+    )
 }
 
 #[cfg(test)]

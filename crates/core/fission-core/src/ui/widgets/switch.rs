@@ -1,5 +1,5 @@
-use crate::internal::InternalLower;
-use crate::lowering::{wrap_zstack_child, InternalIrBuilder, InternalLoweringCx};
+use crate::authoring::Lower;
+use crate::lowering::{wrap_zstack_child, IrBuilder, LoweringContext};
 use crate::ActionEnvelope;
 use fission_ir::{
     op::{Color, LayoutOp, Op, PaintOp},
@@ -53,123 +53,147 @@ impl Switch {
     }
 }
 
-impl InternalLower for Switch {
-    fn lower(&self, cx: &mut InternalLoweringCx) -> WidgetId {
+impl Lower for Switch {
+    fn lower(&self, cx: &mut LoweringContext) -> WidgetId {
         let id = self.id.map(Into::into).unwrap_or_else(|| cx.next_node_id());
-        cx.push_scope(id);
+        let layout_id = cx.with_scope(id, |cx| {
+            let tokens = &cx.env.theme.tokens;
+            let width = SWITCH_WIDTH;
+            let height = 20.0;
+            let thumb_size = SWITCH_THUMB;
+            let padding = SWITCH_PADDING;
 
-        let tokens = &cx.env.theme.tokens;
-        let width = 36.0;
-        let height = 20.0;
-        let thumb_size = 16.0;
-        let padding = 2.0;
+            let track_color = if self.disabled {
+                tokens.colors.surface_sunken
+            } else if self.checked {
+                tokens.colors.primary
+            } else {
+                tokens.colors.border
+            };
+            // The track colour eases between states when widget motion is on.
+            let track_color = match cx
+                .runtime_state
+                .motion
+                .values
+                .get(&(id, crate::motion::MotionPropertyId::BackgroundColor))
+            {
+                Some(crate::motion::MotionValue::Color(color)) => *color,
+                _ => track_color,
+            };
+            let thumb_color = if self.disabled {
+                tokens.colors.text_muted
+            } else {
+                tokens.colors.on_primary
+            };
 
-        let track_color = if self.disabled {
-            tokens.colors.surface_sunken
-        } else if self.checked {
-            tokens.colors.primary
-        } else {
-            tokens.colors.border
-        };
-        let thumb_color = if self.disabled {
-            tokens.colors.text_muted
-        } else {
-            tokens.colors.on_primary
-        };
+            // Track
+            let track_paint = Op::Paint(PaintOp::DrawRect {
+                fill: Some(fission_ir::op::Fill::Solid(track_color)),
+                stroke: None,
+                corner_radius: height / 2.0,
+                shadow: None,
+                corner_radii: None,
+                border_sides: None,
+            });
+            let track_node = IrBuilder::new(cx.next_node_id(), track_paint).build(cx);
 
-        // Track
-        let track_paint = Op::Paint(PaintOp::DrawRect {
-            fill: Some(fission_ir::op::Fill::Solid(track_color)),
-            stroke: None,
-            corner_radius: height / 2.0,
-            shadow: None,
-        });
-        let track_node = InternalIrBuilder::new(cx.next_node_id(), track_paint).build(cx);
+            // Thumb
+            let thumb_paint = Op::Paint(PaintOp::DrawRect {
+                fill: Some(fission_ir::op::Fill::Solid(thumb_color)),
+                stroke: None,
+                corner_radius: thumb_size / 2.0,
+                shadow: Some(fission_ir::op::BoxShadow {
+                    spread_radius: 0.0,
+                    inset: false,
+                    color: Color {
+                        r: 0,
+                        g: 0,
+                        b: 0,
+                        a: 50,
+                    },
+                    blur_radius: 2.0,
+                    offset: (0.0, 1.0),
+                }),
+                corner_radii: None,
+                border_sides: None,
+            });
+            let thumb_paint_node = IrBuilder::new(cx.next_node_id(), thumb_paint).build(cx);
 
-        // Thumb
-        let thumb_paint = Op::Paint(PaintOp::DrawRect {
-            fill: Some(fission_ir::op::Fill::Solid(thumb_color)),
-            stroke: None,
-            corner_radius: thumb_size / 2.0,
-            shadow: Some(fission_ir::op::BoxShadow {
-                spread_radius: 0.0,
-                inset: false,
-                color: Color {
-                    r: 0,
-                    g: 0,
-                    b: 0,
-                    a: 50,
-                },
-                blur_radius: 2.0,
-                offset: (0.0, 1.0),
-            }),
-        });
-        let thumb_paint_node = InternalIrBuilder::new(cx.next_node_id(), thumb_paint).build(cx);
+            // The thumb is laid out in the off position and slides to its state.
+            let left_padding = padding;
+            let thumb_motion = WidgetId::derived(id.as_u128(), &[THUMB_MOTION_PATH]);
 
-        let left_padding = if self.checked {
-            width - thumb_size - padding
-        } else {
-            padding
-        };
-
-        let mut thumb_wrapper = InternalIrBuilder::new(
-            cx.next_node_id(),
-            Op::Layout(LayoutOp::Box {
-                width: Some(thumb_size),
-                height: Some(thumb_size),
-                min_width: None,
-                max_width: None,
-                min_height: None,
-                max_height: None,
-                padding: [0.0; 4],
-                flex_grow: 0.0,
-                flex_shrink: 0.0,
-                aspect_ratio: None,
-            }),
-        );
-        thumb_wrapper.add_child(thumb_paint_node);
-        let thumb_id = thumb_wrapper.build(cx);
-
-        // ZStack for Track + Content
-        let layout_id = cx.next_node_id();
-        let bg_id = {
-            let mut bg_fill =
-                InternalIrBuilder::new(cx.next_node_id(), Op::Layout(LayoutOp::AbsoluteFill));
-            bg_fill.add_child(track_node);
-            bg_fill.build(cx)
-        };
-
-        let content_id = {
-            let mut thumb_track = InternalIrBuilder::new(
+            let mut thumb_wrapper = IrBuilder::new(
                 cx.next_node_id(),
                 Op::Layout(LayoutOp::Box {
-                    width: Some(width),
-                    height: Some(height),
+                    width: Some(thumb_size),
+                    height: Some(thumb_size),
                     min_width: None,
                     max_width: None,
                     min_height: None,
                     max_height: None,
-                    padding: [left_padding, 0.0, padding, 0.0],
+                    padding: [0.0; 4],
                     flex_grow: 0.0,
                     flex_shrink: 0.0,
                     aspect_ratio: None,
                 }),
-            );
-            thumb_track.add_child(thumb_id);
-            thumb_track.build(cx)
-        };
+            )
+            .composite(fission_ir::op::CompositeStyle {
+                translate_x: Some(
+                    fission_ir::op::CompositeScalar::new(if self.checked {
+                        thumb_travel()
+                    } else {
+                        0.0
+                    })
+                    .motion(thumb_motion),
+                ),
+                ..Default::default()
+            });
+            thumb_wrapper.add_child(thumb_paint_node);
+            let thumb_id = thumb_wrapper.build(cx);
 
-        cx.push_scope(layout_id);
-        let bg_wrapped = wrap_zstack_child(cx, bg_id);
-        let content_wrapped = wrap_zstack_child(cx, content_id);
-        cx.pop_scope();
+            // ZStack for Track + Content
+            let layout_id = cx.next_node_id();
+            let bg_id = {
+                let mut bg_fill =
+                    IrBuilder::new(cx.next_node_id(), Op::Layout(LayoutOp::AbsoluteFill));
+                bg_fill.add_child(track_node);
+                bg_fill.build(cx)
+            };
 
-        let mut root = InternalIrBuilder::new(layout_id, Op::Layout(LayoutOp::ZStack));
-        root.add_child(bg_wrapped);
-        root.add_child(content_wrapped);
-        root.build(cx);
+            let content_id = {
+                let mut thumb_track = IrBuilder::new(
+                    cx.next_node_id(),
+                    Op::Layout(LayoutOp::Box {
+                        width: Some(width),
+                        height: Some(height),
+                        min_width: None,
+                        max_width: None,
+                        min_height: None,
+                        max_height: None,
+                        padding: [left_padding, 0.0, padding, 0.0],
+                        flex_grow: 0.0,
+                        flex_shrink: 0.0,
+                        aspect_ratio: None,
+                    }),
+                );
+                thumb_track.add_child(thumb_id);
+                thumb_track.build(cx)
+            };
 
-        cx.pop_scope();
+            let (bg_wrapped, content_wrapped) = cx.with_scope(layout_id, |cx| {
+                let bg_wrapped = wrap_zstack_child(cx, bg_id);
+                let content_wrapped = wrap_zstack_child(cx, content_id);
+                (bg_wrapped, content_wrapped)
+            });
+
+            let mut root = IrBuilder::new(layout_id, Op::Layout(LayoutOp::ZStack));
+            root.add_child(bg_wrapped);
+            root.add_child(content_wrapped);
+            root.build(cx);
+
+            layout_id
+        });
 
         let mut semantics = fission_ir::Semantics {
             role: fission_ir::Role::Switch,
@@ -194,8 +218,58 @@ impl InternalLower for Switch {
             }
         }
 
-        let mut sem_node = InternalIrBuilder::new(id, Op::Semantics(semantics));
+        let mut sem_node = IrBuilder::new(id, Op::Semantics(semantics));
         sem_node.add_child(layout_id);
         sem_node.build(cx)
+    }
+}
+
+const SWITCH_WIDTH: f32 = 36.0;
+const SWITCH_THUMB: f32 = 16.0;
+const SWITCH_PADDING: f32 = 2.0;
+/// Path from a switch's id to its thumb's motion identity.
+const THUMB_MOTION_PATH: u32 = 0x7B0_0001;
+
+/// How far the thumb slides between the off and on positions.
+fn thumb_travel() -> f32 {
+    SWITCH_WIDTH - SWITCH_THUMB - SWITCH_PADDING * 2.0
+}
+
+impl Switch {
+    /// Registers the tracks that slide the thumb and ease the track colour.
+    pub(crate) fn register_motion_declarations(&self, id: WidgetId) {
+        use crate::ui::widgets::checkbox::{register_tracks, toggle_transition};
+        let Some(env) = crate::build::try_current_env() else {
+            return;
+        };
+        let Some(transition) = toggle_transition(env) else {
+            return;
+        };
+        let colors = &env.theme.tokens.colors;
+        let track = if self.disabled {
+            colors.surface_sunken
+        } else if self.checked {
+            colors.primary
+        } else {
+            colors.border
+        };
+        register_tracks(
+            id,
+            vec![crate::motion::MotionTrack::paint(
+                crate::motion::MotionPropertyId::BackgroundColor,
+                crate::motion::MotionStartValue::Current,
+                crate::motion::color(track),
+            )
+            .transition(transition.clone())],
+        );
+        register_tracks(
+            WidgetId::derived(id.as_u128(), &[THUMB_MOTION_PATH]),
+            vec![crate::motion::MotionTrack::composite(
+                crate::motion::MotionPropertyId::TranslateX,
+                crate::motion::MotionStartValue::Current,
+                crate::motion::px(if self.checked { thumb_travel() } else { 0.0 }),
+            )
+            .transition(transition)],
+        );
     }
 }

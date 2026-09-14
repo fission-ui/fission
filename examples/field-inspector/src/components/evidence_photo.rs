@@ -17,8 +17,7 @@ impl From<EvidencePhoto> for Widget {
         let order = view.state().selected_order();
         let width = if photo.compact {
             (view.viewport_size().width - COMPACT_RESERVED_WIDTH)
-                .max(0.0)
-                .min(COMPACT_IMAGE_MAX_WIDTH)
+                .clamp(0.0, COMPACT_IMAGE_MAX_WIDTH)
         } else {
             EXPANDED_IMAGE_WIDTH
         };

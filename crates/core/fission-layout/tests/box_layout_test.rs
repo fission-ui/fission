@@ -186,3 +186,95 @@ fn stretch_box_shrink_wraps_child_on_loose_axis() {
     assert_eq!(snapshot.nodes[&column].rect.height(), 77.0);
     assert_eq!(snapshot.nodes[&content].rect.height(), 85.0);
 }
+
+fn stretch_container(id: WidgetId, child: WidgetId) -> LayoutInputNode {
+    LayoutInputNode {
+        id,
+        parent_id: None,
+        op: IrLayoutOp::StyledBox {
+            style: BoxStyle {
+                width: Some(Length::points(40.0)),
+                height: Some(Length::points(40.0)),
+                alignment: BoxAlignment::Stretch,
+                ..Default::default()
+            },
+            flex_grow: 0.0,
+            flex_shrink: 0.0,
+        },
+        children_ids: vec![child],
+        debug_name: "container".into(),
+        width: None,
+        height: None,
+        flex_grow: 0.0,
+        flex_shrink: 0.0,
+        rich_text: None,
+    }
+}
+
+fn plain_box(id: WidgetId, parent: WidgetId, size: Option<f32>) -> LayoutInputNode {
+    LayoutInputNode {
+        id,
+        parent_id: Some(parent),
+        op: IrLayoutOp::Box {
+            width: size,
+            height: size,
+            min_width: None,
+            max_width: None,
+            min_height: None,
+            max_height: None,
+            padding: [0.0; 4],
+            flex_grow: 0.0,
+            flex_shrink: 0.0,
+            aspect_ratio: None,
+        },
+        children_ids: vec![],
+        debug_name: "child".into(),
+        width: size,
+        height: size,
+        flex_grow: 0.0,
+        flex_shrink: 0.0,
+        rich_text: None,
+    }
+}
+
+#[test]
+fn a_stretching_container_centres_a_child_that_sets_its_own_size() {
+    let container = WidgetId::from_u128(0xC0_0001);
+    let icon = WidgetId::from_u128(0xC0_0002);
+    let nodes = vec![
+        stretch_container(container, icon),
+        plain_box(icon, container, Some(16.0)),
+    ];
+    let mut engine = LayoutEngine::new();
+    let snapshot = engine
+        .compute_layout(&nodes, container, LayoutSize::new(400.0, 400.0), &|_| 0.0)
+        .expect("layout");
+
+    let outer = snapshot.nodes[&container].rect;
+    let inner = snapshot.nodes[&icon].rect;
+    assert_eq!((inner.width(), inner.height()), (16.0, 16.0));
+    assert_eq!(
+        (inner.x() - outer.x(), inner.y() - outer.y()),
+        (12.0, 12.0),
+        "a fixed-size child such as an icon sits in the middle, not the corner"
+    );
+}
+
+#[test]
+fn a_stretching_container_still_fills_with_an_auto_sized_child() {
+    let container = WidgetId::from_u128(0xC0_0011);
+    let content = WidgetId::from_u128(0xC0_0012);
+    let nodes = vec![
+        stretch_container(container, content),
+        plain_box(content, container, None),
+    ];
+    let mut engine = LayoutEngine::new();
+    let snapshot = engine
+        .compute_layout(&nodes, container, LayoutSize::new(400.0, 400.0), &|_| 0.0)
+        .expect("layout");
+
+    assert_eq!(
+        snapshot.nodes[&content].rect,
+        snapshot.nodes[&container].rect
+    );
+}

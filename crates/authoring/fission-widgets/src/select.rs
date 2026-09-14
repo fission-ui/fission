@@ -11,7 +11,7 @@ use fission_core::ui::{
 };
 use fission_core::{ActionEnvelope, WidgetId};
 use fission_icons::material;
-use fission_ir::{LayoutDirection, PopupKind, Role, Semantics, TextFieldValidationState};
+use fission_ir::{PopupKind, Role, Semantics, TextFieldValidationState};
 use fission_theme::ComponentState;
 use serde::{Deserialize, Serialize};
 
@@ -420,17 +420,15 @@ impl From<SelectTriggerRegion> for Widget {
         } else {
             style.clone()
         };
+        // Recipe padding is logical, and Button mirrors it for the active
+        // reading order, so reserve the indicator's room on the end edge and
+        // leave direction alone.
         let mut padding = style.padding_box(tokens.spacing.s, tokens.spacing.xs);
         let indicator_inset = theme.indicator_style.inset_end.unwrap_or(tokens.spacing.s);
-        match view.env().layout_direction {
-            LayoutDirection::LeftToRight => padding[1] = padding[1].max(indicator_inset),
-            LayoutDirection::RightToLeft => {
-                padding.swap(0, 1);
-                padding[0] = padding[0].max(indicator_inset);
-            }
-        }
+        padding[1] = padding[1].max(indicator_inset);
         style.padding = Some(padding);
         let resolved_value = region.trigger.value.resolve(view.env());
+        let has_width = region.width.is_some();
         let child = region.trigger.child.unwrap_or_else(|| {
             HStack {
                 spacing: Some(style.gap.unwrap_or(tokens.spacing.xs)),
@@ -449,8 +447,10 @@ impl From<SelectTriggerRegion> for Widget {
                         .line_height(value_style.line_height.unwrap_or(20.0))
                         .color(value_style.text_color.unwrap_or(tokens.colors.text_primary))
                         .into(),
+                    // Only a select given a width pushes its chevron to the end. Without one the
+                    // trigger hugs its value and chevron instead of filling its container.
                     Spacer {
-                        flex_grow: 1.0,
+                        flex_grow: if has_width { 1.0 } else { 0.0 },
                         ..Default::default()
                     }
                     .into(),

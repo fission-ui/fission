@@ -6,7 +6,8 @@ pub struct PolarBarSeries {
     pub name: String,
     pub data: Vec<(String, f32)>,
     pub inner_radius: f32,
-    pub color: Color,
+    /// The series colour; `None` takes the theme palette colour for its position.
+    pub color: Option<Color>,
 }
 
 impl PolarBarSeries {
@@ -15,7 +16,7 @@ impl PolarBarSeries {
             name: name.into(),
             data: Vec::new(),
             inner_radius: 28.0,
-            color: Color::BLUE,
+            color: None,
         }
     }
 
@@ -33,7 +34,7 @@ impl PolarBarSeries {
     }
 
     pub fn color(mut self, color: Color) -> Self {
-        self.color = color;
+        self.color = Some(color);
         self
     }
 }
@@ -42,7 +43,8 @@ impl PolarBarSeries {
 pub struct PolarLineSeries {
     pub name: String,
     pub data: Vec<(f32, f32)>,
-    pub color: Color,
+    /// The series colour; `None` takes the theme palette colour for its position.
+    pub color: Option<Color>,
     pub smooth: bool,
 }
 
@@ -51,7 +53,7 @@ impl PolarLineSeries {
         Self {
             name: name.into(),
             data: Vec::new(),
-            color: Color::BLUE,
+            color: None,
             smooth: false,
         }
     }
@@ -62,7 +64,7 @@ impl PolarLineSeries {
     }
 
     pub fn color(mut self, color: Color) -> Self {
-        self.color = color;
+        self.color = Some(color);
         self
     }
 

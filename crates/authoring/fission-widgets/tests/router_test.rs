@@ -1,4 +1,4 @@
-use fission_core::internal::BuildCtx;
+use fission_core::authoring::BuildCtx;
 use fission_core::ui::{Scroll, Text};
 use fission_core::{build, GlobalState, View};
 use fission_ir::{LayoutOp, Op, WidgetId};
@@ -79,11 +79,9 @@ fn router_scopes_route_content_by_matched_path() {
 fn assert_widget_draws_text(widget: &fission_core::Widget, expected: &str) {
     let ir = fission_core::internal::lower_widget_to_ir(widget);
     assert!(
-        ir.nodes.values().any(|node| matches!(
-            &node.op,
-            fission_ir::Op::Paint(fission_ir::PaintOp::DrawText { text, .. })
-                if text == expected
-        )),
+        ir.nodes
+            .values()
+            .any(|node| node.op.text().as_deref() == Some(expected)),
         "expected lowered widget tree to draw `{expected}`"
     );
 }

@@ -1,4 +1,3 @@
-use crate::i18n::message;
 use crate::state::{on_navigate, Navigate, ShowcaseState};
 use fission::op::{AlignItems, Fill};
 use fission::prelude::*;
@@ -40,7 +39,7 @@ impl From<Brand> for Widget {
         .id(WidgetId::explicit("showcase.nav.brand"))
         .on_press(navigate)
         .role(PressableRole::Link)
-        .label(message(view.env(), "showcase.app.title"))
+        .label(view.env().tr("showcase.app.title"))
         .semantics_identifier("showcase.nav.home")
         .style(PressableStyle {
             padding: Some(Length::all(Length::points(tokens.spacing.xs))),

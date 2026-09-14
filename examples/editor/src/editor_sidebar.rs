@@ -2,7 +2,7 @@ use crate::file_tree::FileTree;
 use crate::git_panel::GitPanel;
 use crate::layout::PANEL_HEADER_HEIGHT;
 use crate::model::{EditorState, SidebarSection};
-use crate::palette::{DIM_TEXT, SIDEBAR_HEADING, SURFACE_BG};
+use crate::palette::EditorPalette;
 use crate::search_panel::SearchPanel;
 use fission::core::ui::{Column, Container, Text, Widget};
 
@@ -13,6 +13,7 @@ pub(crate) struct EditorSidebar {
 impl From<EditorSidebar> for Widget {
     fn from(sidebar: EditorSidebar) -> Self {
         let (_, view) = fission::build::current::<EditorState>();
+        let palette = EditorPalette::from_theme(&view.env().theme);
         let tokens = &view.env().theme.tokens;
         let (title, content) = match view.state().sidebar_section {
             SidebarSection::Explorer => ("EXPLORER", FileTree.into()),
@@ -23,7 +24,7 @@ impl From<EditorSidebar> for Widget {
                 Container::new(
                     Text::new("No extensions installed")
                         .size(tokens.typography.font_size_xs)
-                        .color(DIM_TEXT),
+                        .color(palette.dim_text),
                 )
                 .padding_all(tokens.spacing.s)
                 .flex_grow(1.0)
@@ -34,9 +35,9 @@ impl From<EditorSidebar> for Widget {
         let header = Container::new(
             Text::new(title)
                 .size(tokens.typography.font_size_xs)
-                .color(SIDEBAR_HEADING),
+                .color(palette.sidebar_heading),
         )
-        .bg(SURFACE_BG)
+        .bg(palette.surface_bg)
         .height(PANEL_HEADER_HEIGHT)
         .padding_all(tokens.spacing.s)
         .flex_shrink(0.0);
@@ -46,7 +47,7 @@ impl From<EditorSidebar> for Widget {
             flex_grow: 1.0,
             ..Default::default()
         })
-        .bg(SURFACE_BG)
+        .bg(palette.surface_bg)
         .min_width(0.0);
         if let Some(width) = sidebar.width {
             container = container.width(width).flex_shrink(0.0);

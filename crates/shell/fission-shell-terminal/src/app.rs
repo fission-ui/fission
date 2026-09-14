@@ -14,10 +14,10 @@ use crossterm::style::{
 };
 use crossterm::terminal::{self, Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen};
 use crossterm::{execute, queue};
+use fission_core::authoring::BuildCtx;
+use fission_core::authoring::LoweringContext;
 use fission_core::event::ImeEvent;
 use fission_core::internal::build_layout_tree;
-use fission_core::internal::BuildCtx;
-use fission_core::internal::InternalLoweringCx;
 use fission_core::ui::{Container, Overlay, Widget, ZStack};
 use fission_core::{
     Action, ActionEnvelope, ActionId, ActionRegistry, Effect, Env, GlobalState, InputEvent,
@@ -395,7 +395,7 @@ where
             node_tree = self.build_widget_tree(viewport)?;
         }
         let (ir, root_id) = {
-            let mut cx = InternalLoweringCx::new(
+            let mut cx = LoweringContext::new(
                 &self.env,
                 &self.runtime.runtime_state,
                 Some(&self.measurer),
@@ -404,8 +404,8 @@ where
             let shell_root_id = fission_core::internal::shell_root_id(self.root_id);
             let root_id =
                 fission_core::internal::lower_widget_with_root(&node_tree, &mut cx, shell_root_id);
-            cx.ir.root = Some(root_id);
-            (cx.ir, root_id)
+            cx.set_root(root_id);
+            (cx.into_ir(), root_id)
         };
         verify_terminal_ir(&ir).context("terminal shell support check failed")?;
         self.runtime.reconcile_focus(&ir)?;

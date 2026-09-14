@@ -5,7 +5,8 @@ use serde::{Deserialize, Serialize};
 pub struct BoxplotSeries {
     pub name: String,
     pub data: Vec<Vec<f32>>, // [min, Q1, median, Q3, max]
-    pub color: Color,
+    /// The series colour; `None` takes the theme palette colour for its position.
+    pub color: Option<Color>,
 }
 
 impl BoxplotSeries {
@@ -13,7 +14,7 @@ impl BoxplotSeries {
         Self {
             name: name.into(),
             data: Vec::new(),
-            color: Color::BLUE,
+            color: None,
         }
     }
 
@@ -41,7 +42,7 @@ impl BoxplotSeries {
     }
 
     pub fn color(mut self, color: Color) -> Self {
-        self.color = color;
+        self.color = Some(color);
         self
     }
 }

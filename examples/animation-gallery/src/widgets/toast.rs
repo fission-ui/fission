@@ -1,7 +1,7 @@
 use super::common::*;
 use super::toast_preview::ToastPreview;
 use crate::state::AnimationGalleryState;
-use crate::style::SOFT_TEAL;
+use crate::style;
 use fission::build::BuildCtxHandle;
 use fission::Widget;
 
@@ -12,7 +12,7 @@ pub const SUMMARY: WidgetSummary = WidgetSummary {
     title: "Toast",
     subtitle: "5 motions",
     glyph: "toast",
-    tint: SOFT_TEAL,
+    tint: style::Tint::Success,
 };
 
 pub struct ToastPage<'a> {

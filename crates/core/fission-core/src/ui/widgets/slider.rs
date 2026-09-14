@@ -1,6 +1,6 @@
-use crate::internal::InternalLower;
+use crate::authoring::Lower;
 use crate::lowering::wrap_zstack_child;
-use crate::lowering::{InternalIrBuilder, InternalLoweringCx};
+use crate::lowering::{IrBuilder, LoweringContext};
 use crate::ActionEnvelope;
 use fission_ir::{
     op::{Color, Fill, GridTrack, LayoutOp, Op, PaintOp},
@@ -83,27 +83,214 @@ impl Default for Slider {
     }
 }
 
-impl InternalLower for Slider {
-    fn lower(&self, cx: &mut InternalLoweringCx) -> WidgetId {
+impl Lower for Slider {
+    fn lower(&self, cx: &mut LoweringContext) -> WidgetId {
         let id = self.id.map(Into::into).unwrap_or_else(|| cx.next_node_id());
-        cx.push_scope(id);
+        let layout_id = cx.with_scope(id, |cx| {
+            let tokens = &cx.env.theme.tokens;
+            let thumb_size = self.thumb_size.unwrap_or(16.0).max(1.0);
+            let track_height = self.track_height.unwrap_or(4.0).max(1.0);
+            let control_height = thumb_size.max(track_height);
 
-        let tokens = &cx.env.theme.tokens;
-        let thumb_size = self.thumb_size.unwrap_or(16.0).max(1.0);
-        let track_height = self.track_height.unwrap_or(4.0).max(1.0);
-        let control_height = thumb_size.max(track_height);
+            let range = (self.max - self.min).max(0.0001);
+            let pct = ((self.value - self.min) / range).clamp(0.0, 1.0) * 100.0;
 
-        let range = (self.max - self.min).max(0.0001);
-        let pct = ((self.value - self.min) / range).clamp(0.0, 1.0) * 100.0;
+            let layout_id = cx.next_node_id();
+            let stack_id = cx.next_node_id();
 
-        let layout_id = cx.next_node_id();
-        let stack_id = cx.next_node_id();
+            let track_layer = {
+                let p_y = (control_height - track_height) / 2.0;
 
-        let track_layer = {
-            let p_y = (control_height - track_height) / 2.0;
+                let mut track_container = IrBuilder::new(
+                    cx.next_node_id(),
+                    Op::Layout(LayoutOp::Box {
+                        width: None,
+                        height: Some(control_height),
+                        min_width: None,
+                        max_width: None,
+                        min_height: None,
+                        max_height: None,
+                        padding: [0.0, 0.0, p_y, p_y],
+                        flex_grow: 0.0,
+                        flex_shrink: 0.0,
+                        aspect_ratio: None,
+                    }),
+                );
 
-            let mut track_container = InternalIrBuilder::new(
-                cx.next_node_id(),
+                let inner_paint = IrBuilder::new(
+                    cx.next_node_id(),
+                    Op::Paint(PaintOp::DrawRect {
+                        fill: Some(
+                            self.track_fill
+                                .clone()
+                                .unwrap_or(Fill::Solid(tokens.colors.border_strong)),
+                        ),
+                        stroke: None,
+                        corner_radius: track_height / 2.0,
+                        shadow: None,
+                        corner_radii: None,
+                        border_sides: None,
+                    }),
+                )
+                .build(cx);
+
+                let mut inner_box =
+                    IrBuilder::new(cx.next_node_id(), Op::Layout(LayoutOp::AbsoluteFill));
+                inner_box.add_child(inner_paint);
+                let inner_id = inner_box.build(cx);
+
+                track_container.add_child(inner_id);
+                let track_id = track_container.build(cx);
+
+                // A stack gives its children loose constraints, so an unsized track would measure
+                // zero wide and never paint. A one-column grid gives it the full slider width.
+                let mut track_item = IrBuilder::new(
+                    cx.next_node_id(),
+                    Op::Layout(LayoutOp::GridItem {
+                        row_start: fission_ir::op::GridPlacement::Line(1),
+                        row_end: fission_ir::op::GridPlacement::Auto,
+                        col_start: fission_ir::op::GridPlacement::Line(1),
+                        col_end: fission_ir::op::GridPlacement::Auto,
+                    }),
+                );
+                track_item.add_child(track_id);
+                let track_item_id = track_item.build(cx);
+                let mut track_grid = IrBuilder::new(
+                    cx.next_node_id(),
+                    Op::Layout(LayoutOp::Grid {
+                        columns: vec![GridTrack::Fr(1.0)],
+                        rows: vec![GridTrack::Points(control_height)],
+                        column_gap: None,
+                        row_gap: None,
+                        padding: [0.0; 4],
+                    }),
+                );
+                track_grid.add_child(track_item_id);
+                track_grid.build(cx)
+            };
+
+            // Layer 2: Thumb Grid
+            let thumb_layer = {
+                let thumb_paint = IrBuilder::new(
+                    cx.next_node_id(),
+                    Op::Paint(PaintOp::DrawRect {
+                        fill: Some(
+                            self.thumb_fill
+                                .clone()
+                                .unwrap_or(Fill::Solid(tokens.colors.primary)),
+                        ),
+                        stroke: None,
+                        corner_radius: thumb_size / 2.0,
+                        shadow: Some(fission_ir::op::BoxShadow {
+                            spread_radius: 0.0,
+                            inset: false,
+                            color: Color {
+                                r: 0,
+                                g: 0,
+                                b: 0,
+                                a: 50,
+                            },
+                            blur_radius: 2.0,
+                            offset: (0.0, 1.0),
+                        }),
+                        corner_radii: None,
+                        border_sides: None,
+                    }),
+                )
+                .build(cx);
+
+                let mut thumb_box = IrBuilder::new(
+                    cx.next_node_id(),
+                    Op::Layout(LayoutOp::Box {
+                        width: Some(thumb_size),
+                        height: Some(thumb_size),
+                        min_width: None,
+                        max_width: None,
+                        min_height: None,
+                        max_height: None,
+                        padding: [0.0; 4],
+                        flex_grow: 0.0,
+                        flex_shrink: 0.0,
+                        aspect_ratio: None,
+                    }),
+                );
+                thumb_box.add_child(thumb_paint);
+                let thumb_box_id = thumb_box.build(cx);
+
+                // Grid placement positions the thumb's left edge at the value
+                // percentage. Translate the visual thumb so its centre sits on the
+                // track point the user clicked or dragged to.
+                let mut transformed_thumb = IrBuilder::new(
+                    cx.next_node_id(),
+                    Op::Layout(LayoutOp::Transform {
+                        transform: [
+                            1.0,
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0,
+                            1.0,
+                            0.0,
+                            0.0,
+                            0.0,
+                            0.0,
+                            1.0,
+                            0.0,
+                            -thumb_size / 2.0,
+                            (control_height - thumb_size) / 2.0,
+                            0.0,
+                            1.0,
+                        ],
+                    }),
+                );
+                transformed_thumb.add_child(thumb_box_id);
+                let transformed_thumb_id = transformed_thumb.build(cx);
+
+                let mut grid = IrBuilder::new(
+                    cx.next_node_id(),
+                    Op::Layout(LayoutOp::Grid {
+                        columns: vec![
+                            GridTrack::Percent(pct),
+                            GridTrack::Points(thumb_size),
+                            GridTrack::Fr(1.0),
+                        ],
+                        rows: vec![GridTrack::Points(control_height)],
+                        column_gap: None,
+                        row_gap: None,
+                        padding: [0.0; 4],
+                    }),
+                );
+
+                // Thumb item at col 2
+                let mut item = IrBuilder::new(
+                    cx.next_node_id(),
+                    Op::Layout(LayoutOp::GridItem {
+                        row_start: fission_ir::op::GridPlacement::Line(1),
+                        row_end: fission_ir::op::GridPlacement::Auto,
+                        col_start: fission_ir::op::GridPlacement::Line(2),
+                        col_end: fission_ir::op::GridPlacement::Auto,
+                    }),
+                );
+                item.add_child(transformed_thumb_id);
+                let item_id = item.build(cx);
+
+                grid.add_child(item_id);
+                grid.build(cx)
+            };
+
+            let (track_wrapped, thumb_wrapped) = cx.with_scope(stack_id, |cx| {
+                let track_wrapped = wrap_zstack_child(cx, track_layer);
+                let thumb_wrapped = wrap_zstack_child(cx, thumb_layer);
+                (track_wrapped, thumb_wrapped)
+            });
+
+            let mut zstack = IrBuilder::new(stack_id, Op::Layout(LayoutOp::ZStack));
+            zstack.add_child(track_wrapped);
+            zstack.add_child(thumb_wrapped);
+            zstack.build(cx);
+
+            let mut layout = IrBuilder::new(
+                layout_id,
                 Op::Layout(LayoutOp::Box {
                     width: None,
                     height: Some(control_height),
@@ -111,173 +298,17 @@ impl InternalLower for Slider {
                     max_width: None,
                     min_height: None,
                     max_height: None,
-                    padding: [0.0, 0.0, p_y, p_y],
-                    flex_grow: 0.0,
-                    flex_shrink: 0.0,
+                    padding: [0.0; 4],
+                    flex_grow: 1.0,
+                    flex_shrink: 1.0,
                     aspect_ratio: None,
                 }),
             );
+            layout.add_child(stack_id);
+            layout.build(cx);
 
-            let inner_paint = InternalIrBuilder::new(
-                cx.next_node_id(),
-                Op::Paint(PaintOp::DrawRect {
-                    fill: Some(
-                        self.track_fill
-                            .clone()
-                            .unwrap_or(Fill::Solid(tokens.colors.border_strong)),
-                    ),
-                    stroke: None,
-                    corner_radius: track_height / 2.0,
-                    shadow: None,
-                }),
-            )
-            .build(cx);
-
-            let mut inner_box =
-                InternalIrBuilder::new(cx.next_node_id(), Op::Layout(LayoutOp::AbsoluteFill));
-            inner_box.add_child(inner_paint);
-            let inner_id = inner_box.build(cx);
-
-            track_container.add_child(inner_id);
-            track_container.build(cx)
-        };
-
-        // Layer 2: Thumb Grid
-        let thumb_layer = {
-            let thumb_paint = InternalIrBuilder::new(
-                cx.next_node_id(),
-                Op::Paint(PaintOp::DrawRect {
-                    fill: Some(
-                        self.thumb_fill
-                            .clone()
-                            .unwrap_or(Fill::Solid(tokens.colors.primary)),
-                    ),
-                    stroke: None,
-                    corner_radius: thumb_size / 2.0,
-                    shadow: Some(fission_ir::op::BoxShadow {
-                        spread_radius: 0.0,
-                        inset: false,
-                        color: Color {
-                            r: 0,
-                            g: 0,
-                            b: 0,
-                            a: 50,
-                        },
-                        blur_radius: 2.0,
-                        offset: (0.0, 1.0),
-                    }),
-                }),
-            )
-            .build(cx);
-
-            let mut thumb_box = InternalIrBuilder::new(
-                cx.next_node_id(),
-                Op::Layout(LayoutOp::Box {
-                    width: Some(thumb_size),
-                    height: Some(thumb_size),
-                    min_width: None,
-                    max_width: None,
-                    min_height: None,
-                    max_height: None,
-                    padding: [0.0; 4],
-                    flex_grow: 0.0,
-                    flex_shrink: 0.0,
-                    aspect_ratio: None,
-                }),
-            );
-            thumb_box.add_child(thumb_paint);
-            let thumb_box_id = thumb_box.build(cx);
-
-            // Grid placement positions the thumb's left edge at the value
-            // percentage. Translate the visual thumb so its centre sits on the
-            // track point the user clicked or dragged to.
-            let mut transformed_thumb = InternalIrBuilder::new(
-                cx.next_node_id(),
-                Op::Layout(LayoutOp::Transform {
-                    transform: [
-                        1.0,
-                        0.0,
-                        0.0,
-                        0.0,
-                        0.0,
-                        1.0,
-                        0.0,
-                        0.0,
-                        0.0,
-                        0.0,
-                        1.0,
-                        0.0,
-                        -thumb_size / 2.0,
-                        (control_height - thumb_size) / 2.0,
-                        0.0,
-                        1.0,
-                    ],
-                }),
-            );
-            transformed_thumb.add_child(thumb_box_id);
-            let transformed_thumb_id = transformed_thumb.build(cx);
-
-            let mut grid = InternalIrBuilder::new(
-                cx.next_node_id(),
-                Op::Layout(LayoutOp::Grid {
-                    columns: vec![
-                        GridTrack::Percent(pct),
-                        GridTrack::Points(thumb_size),
-                        GridTrack::Fr(1.0),
-                    ],
-                    rows: vec![GridTrack::Points(control_height)],
-                    column_gap: None,
-                    row_gap: None,
-                    padding: [0.0; 4],
-                }),
-            );
-
-            // Thumb item at col 2
-            let mut item = InternalIrBuilder::new(
-                cx.next_node_id(),
-                Op::Layout(LayoutOp::GridItem {
-                    row_start: fission_ir::op::GridPlacement::Line(1),
-                    row_end: fission_ir::op::GridPlacement::Auto,
-                    col_start: fission_ir::op::GridPlacement::Line(2),
-                    col_end: fission_ir::op::GridPlacement::Auto,
-                }),
-            );
-            item.add_child(transformed_thumb_id);
-            let item_id = item.build(cx);
-
-            grid.add_child(item_id);
-            grid.build(cx)
-        };
-
-        cx.push_scope(stack_id);
-        let track_wrapped = wrap_zstack_child(cx, track_layer);
-        let thumb_wrapped = wrap_zstack_child(cx, thumb_layer);
-        cx.pop_scope();
-
-        let mut zstack = InternalIrBuilder::new(stack_id, Op::Layout(LayoutOp::ZStack));
-        zstack.add_child(track_wrapped);
-        zstack.add_child(thumb_wrapped);
-        zstack.build(cx);
-
-        let mut layout = InternalIrBuilder::new(
-            layout_id,
-            Op::Layout(LayoutOp::Box {
-                width: None,
-                height: Some(control_height),
-                min_width: None,
-                max_width: None,
-                min_height: None,
-                max_height: None,
-                padding: [0.0; 4],
-                flex_grow: 1.0,
-                flex_shrink: 1.0,
-                aspect_ratio: None,
-            }),
-        );
-        layout.add_child(stack_id);
-        layout.build(cx);
-
-        cx.pop_scope();
+            layout_id
+        });
 
         let mut semantics = fission_ir::Semantics {
             role: fission_ir::Role::Slider,
@@ -299,7 +330,7 @@ impl InternalLower for Slider {
             });
         }
 
-        let mut sem_node = InternalIrBuilder::new(id, Op::Semantics(semantics));
+        let mut sem_node = IrBuilder::new(id, Op::Semantics(semantics));
         sem_node.add_child(layout_id);
         sem_node.build(cx)
     }

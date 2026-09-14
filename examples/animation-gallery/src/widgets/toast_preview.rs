@@ -3,7 +3,7 @@ use crate::state::{
     current_composition_atoms, reset_timeline, AnimationGalleryState, MotionAtom, MotionChoice,
     MotionPolicy, ResetTimeline,
 };
-use crate::style::MUTED;
+use crate::style;
 use crate::ui;
 use fission::build::BuildCtxHandle;
 use fission::prelude::*;
@@ -27,13 +27,14 @@ impl From<ToastPreview<'_>> for Widget {
                 kind: ToastKind::Success,
                 message: "Saved changes with real Toast motion.".into(),
                 on_close: Some(close),
+                duration: fission::widgets::ToastDuration::Default,
                 motion: toast_motion(preview.state),
             }
             .into()
         } else {
             Text::new("Use the playback control to mount the real Toast widget.")
                 .size(tokens.typography.font_size_sm)
-                .color(MUTED)
+                .color(style::text_muted())
                 .into()
         };
 
@@ -43,7 +44,7 @@ impl From<ToastPreview<'_>> for Widget {
                 children: widgets![
                     Text::new("Actual Toast widget; app state controls its lifetime.")
                         .size(tokens.typography.font_size_sm)
-                        .color(MUTED),
+                        .color(style::text_muted()),
                     toast,
                     if preview_active(preview.state) {
                         Widget::from(ui::SmallButton {
@@ -56,7 +57,7 @@ impl From<ToastPreview<'_>> for Widget {
                         Widget::from(
                             Text::new("The toast close action is wired to application state.")
                                 .size(tokens.typography.font_size_sm)
-                                .color(MUTED),
+                                .color(style::text_muted()),
                         )
                     },
                 ],

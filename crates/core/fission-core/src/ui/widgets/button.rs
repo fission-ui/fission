@@ -1,5 +1,5 @@
-use crate::internal::InternalLower;
-use crate::lowering::{InternalIrBuilder, InternalLoweringCx};
+use crate::authoring::Lower;
+use crate::lowering::{IrBuilder, LoweringContext};
 use crate::motion::{
     color, fill as motion_fill, hover_press, px, ripple_effect, scalar, shadows as motion_shadows,
     MotionEasing, MotionExpr, MotionPhase, MotionPredicate, MotionPropertyId, MotionStartValue,
@@ -159,8 +159,10 @@ impl ButtonIconContent {
 /// Optional motion presets owned by [`Button`].
 ///
 /// The active button recipe automatically owns transitions between its visual
-/// states. Set [`Button::motion`] to `Some(...)` to compose optional transform
-/// or ripple feedback with those recipe transitions.
+/// states. A button without explicit motion also shows a pointer-origin ripple
+/// unless the app sets [`Env::widget_motion`](crate::Env::widget_motion) to
+/// `Off`. Set [`Button::motion`] to compose other feedback with the recipe
+/// transitions, or to `Some(ButtonMotion::None)` for none.
 ///
 /// ```rust,ignore
 /// use fission::prelude::*;
@@ -173,6 +175,8 @@ impl ButtonIconContent {
 /// };
 /// ```
 pub enum ButtonMotion {
+    /// No button-owned motion beyond the recipe's state transitions.
+    None,
     /// Curated default hover/press scale feedback.
     Default,
     /// Scale up slightly while hovered.
@@ -255,7 +259,7 @@ impl ButtonMotion {
                 )
                 .transition(MotionTransition::spring(420.0, 30.0)),
             ),
-            Self::Ripple => {}
+            Self::None | Self::Ripple => {}
             Self::HoverPressRipple => out.extend(hover_press(id)),
             Self::Composition(items) => {
                 for item in items {
@@ -348,6 +352,9 @@ pub struct Button {
     /// Flex shrink factor for parent flex layouts.
     pub flex_shrink: f32,
     /// Custom padding `[left, right, top, bottom]` (overrides theme defaults).
+    ///
+    /// This is the exact inset of the content: unlike theme padding it gains no extra room for
+    /// the border, so a button wrapping cells that pad themselves stays on its neighbours' grid.
     pub padding: Option<[f32; 4]>,
     /// Optional visual overrides applied after the active design-system recipe.
     pub style: Option<ButtonStyleOverride>,
@@ -366,7 +373,8 @@ pub struct Button {
     /// When `true`, the button is greyed out and its `on_press` action is not
     /// attached.
     pub disabled: bool,
-    /// Optional transform and ripple motion composed with recipe state transitions.
+    /// Transform and ripple motion composed with recipe state transitions.
+    /// `None` shows the default ripple unless the app turns widget motion off.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub motion: Option<ButtonMotion>,
 }
@@ -546,11 +554,11 @@ struct ButtonStyleResolved {
 impl ButtonContent {
     fn lower_with_style(
         &self,
-        cx: &mut InternalLoweringCx<'_>,
+        cx: &mut LoweringContext<'_>,
         style: &ButtonStyleResolved,
         button_id: WidgetId,
     ) -> WidgetId {
-        let mut row = InternalIrBuilder::new(
+        let mut row = IrBuilder::new(
             WidgetId::derived(button_id.as_u128(), &[0xBC00]),
             Op::Layout(LayoutOp::Flex {
                 direction: fission_ir::FlexDirection::Row,
@@ -593,7 +601,7 @@ impl ButtonContent {
 impl ButtonIconContent {
     fn lower_with_style(
         &self,
-        cx: &mut InternalLoweringCx<'_>,
+        cx: &mut LoweringContext<'_>,
         style: &ButtonStyleResolved,
         button_id: WidgetId,
     ) -> WidgetId {
@@ -603,7 +611,7 @@ impl ButtonIconContent {
 
 fn lower_content_icon(
     icon: &Icon,
-    cx: &mut InternalLoweringCx<'_>,
+    cx: &mut LoweringContext<'_>,
     style: &ButtonStyleResolved,
     button_id: WidgetId,
     slot: u32,
@@ -730,7 +738,7 @@ impl Button {
     ) -> ButtonStyleResolved {
         let is_hovered = interaction.is_hovered(self_id) && !self.disabled;
         let is_pressed = interaction.is_pressed(self_id) && !self.disabled;
-        let is_focused = interaction.is_focused(self_id) && !self.disabled;
+        let is_focused = interaction.is_focus_visible(self_id) && !self.disabled;
         let is_invalid = !self.disabled && (form_field_invalid || self.is_semantically_invalid());
         let is_selected = !self.disabled && self.is_semantically_selected();
         // Pointer states and keyboard focus are independent. Resolve the
@@ -1250,7 +1258,14 @@ impl Button {
     }
 
     pub(crate) fn register_motion_declarations(&self, id: WidgetId) {
-        let explicit_motion = self.motion.as_ref();
+        // Unset motion falls back to the subtle default ripple unless the app
+        // has turned built-in widget motion off.
+        let default_motion = ButtonMotion::Ripple;
+        let explicit_motion = self.motion.as_ref().or_else(|| {
+            crate::build::try_current_env()
+                .is_some_and(|env| env.widget_motion.is_on())
+                .then_some(&default_motion)
+        });
         let mut tracks = crate::build::try_current_env()
             .map(|env| self.recipe_motion_tracks(env, id))
             .unwrap_or_default();
@@ -1275,7 +1290,7 @@ impl Button {
 
     fn animated_style(
         &self,
-        cx: &InternalLoweringCx<'_>,
+        cx: &LoweringContext<'_>,
         mut style: ButtonStyleResolved,
     ) -> ButtonStyleResolved {
         if self.recipe_component_motion(cx.env).is_none() {
@@ -1422,7 +1437,7 @@ impl Button {
     }
 }
 
-fn component_motion_transition(motion: ComponentMotion) -> MotionTransition {
+pub(crate) fn component_motion_transition(motion: ComponentMotion) -> MotionTransition {
     let easing = match motion.easing {
         EasingCurve::Linear => MotionEasing::Linear,
         EasingCurve::Ease => MotionEasing::CubicBezier(0.25, 0.1, 0.25, 1.0),
@@ -1510,8 +1525,8 @@ fn button_state_track<T: Clone + PartialEq>(
     })
 }
 
-impl InternalLower for Button {
-    fn lower(&self, cx: &mut InternalLoweringCx) -> WidgetId {
+impl Lower for Button {
+    fn lower(&self, cx: &mut LoweringContext) -> WidgetId {
         let mut semantics_op = self.build_semantics();
         if let (Some(semantics), Some(context)) = (&mut semantics_op, cx.form_field_context()) {
             semantics.required |= context.required;
@@ -1552,164 +1567,195 @@ impl InternalLower for Button {
                 }),
             ),
         );
-        let content_padding = self.padding.unwrap_or(resolved_style.padding);
-        let layout_padding = [
-            content_padding[0] + resolved_style.layout_border_width,
-            content_padding[1] + resolved_style.layout_border_width,
-            content_padding[2] + resolved_style.layout_border_width,
-            content_padding[3] + resolved_style.layout_border_width,
-        ];
+        // Recipe padding is logical [start, end, top, bottom]; mirror it once
+        // here so no control has to branch on reading order itself.
+        // Theme padding also reserves room for the widest border any state draws; explicit padding
+        // is taken as the exact content inset.
+        let layout_padding = self.padding.unwrap_or_else(|| {
+            let [start, end, top, bottom] = resolved_style.padding;
+            let border = resolved_style.layout_border_width;
+            let (left, right) = match cx.env.layout_direction {
+                fission_ir::LayoutDirection::LeftToRight => (start, end),
+                fission_ir::LayoutDirection::RightToLeft => (end, start),
+            };
+            [left + border, right + border, top + border, bottom + border]
+        });
 
-        cx.push_scope(layout_node_id);
-
-        let mut button_builder = InternalIrBuilder::new(
-            layout_node_id,
-            Op::Layout(LayoutOp::Box {
-                width: self.width.or(resolved_style.width),
-                height: self.height,
-                min_width: self.min_width,
-                max_width: self.max_width.or(resolved_style.max_width),
-                min_height: if self.height.is_some() {
-                    None
-                } else {
-                    Some(
-                        resolved_style
-                            .min_height
-                            .unwrap_or(0.0)
-                            .max(resolved_style.height),
-                    )
-                },
-                max_height: None,
-                padding: layout_padding,
-                flex_grow: self.flex_grow,
-                flex_shrink: self.flex_shrink,
-                aspect_ratio: None,
-            }),
-        )
-        .composite(self.motion_composite_style(cx.env, final_id, &resolved_style));
-
-        for shadow in &resolved_style.outer_shadows {
-            let shadow_id = InternalIrBuilder::new(
-                cx.next_node_id(),
-                Op::Paint(PaintOp::DrawRect {
-                    fill: None,
-                    stroke: None,
-                    corner_radius: resolved_style.corner_radius,
-                    shadow: Some(*shadow),
+        cx.with_scope(layout_node_id, |cx| {
+            let mut button_builder = IrBuilder::new(
+                layout_node_id,
+                Op::Layout(LayoutOp::Box {
+                    width: self.width.or(resolved_style.width),
+                    height: self.height,
+                    min_width: self.min_width,
+                    max_width: self.max_width.or(resolved_style.max_width),
+                    min_height: if self.height.is_some() {
+                        None
+                    } else {
+                        Some(
+                            resolved_style
+                                .min_height
+                                .unwrap_or(0.0)
+                                .max(resolved_style.height),
+                        )
+                    },
+                    max_height: None,
+                    padding: layout_padding,
+                    flex_grow: self.flex_grow,
+                    flex_shrink: self.flex_shrink,
+                    aspect_ratio: None,
                 }),
             )
-            .build(cx);
-            button_builder.add_child(shadow_id);
-        }
+            .composite(self.motion_composite_style(cx.env, final_id, &resolved_style));
 
-        let background_id = InternalIrBuilder::new(
-            cx.next_node_id(),
-            Op::Paint(PaintOp::DrawRect {
-                fill: resolved_style.background_fill.clone(),
-                stroke: resolved_style.stroke.clone(),
-                corner_radius: resolved_style.corner_radius,
-                shadow: None,
-            }),
-        )
-        .build(cx);
-        button_builder.add_child(background_id);
+            for shadow in &resolved_style.outer_shadows {
+                let shadow_id = IrBuilder::new(
+                    cx.next_node_id(),
+                    Op::Paint(PaintOp::DrawRect {
+                        fill: None,
+                        stroke: None,
+                        corner_radius: resolved_style.corner_radius,
+                        shadow: Some(*shadow),
+                        corner_radii: None,
+                        border_sides: None,
+                    }),
+                )
+                .build(cx);
+                button_builder.add_child(shadow_id);
+            }
 
-        for shadow in &resolved_style.inset_shadows {
-            let shadow_id = InternalIrBuilder::new(
+            let background_id = IrBuilder::new(
                 cx.next_node_id(),
                 Op::Paint(PaintOp::DrawRect {
-                    fill: None,
-                    stroke: None,
-                    corner_radius: resolved_style.corner_radius,
-                    shadow: Some(*shadow),
-                }),
-            )
-            .build(cx);
-            button_builder.add_child(shadow_id);
-        }
-
-        if let Some(focus_ring) = resolved_style.focus_ring.clone() {
-            let focus_ring_id = InternalIrBuilder::new(
-                cx.next_node_id(),
-                Op::Paint(PaintOp::DrawRect {
-                    fill: None,
-                    stroke: Some(focus_ring),
+                    fill: resolved_style.background_fill.clone(),
+                    stroke: resolved_style.stroke.clone(),
                     corner_radius: resolved_style.corner_radius,
                     shadow: None,
+                    corner_radii: None,
+                    border_sides: None,
                 }),
             )
             .build(cx);
-            button_builder.add_child(focus_ring_id);
-        }
+            button_builder.add_child(background_id);
 
-        let content_id = if let Some(content) = &self.icon_content {
-            Some(content.lower_with_style(cx, &resolved_style, final_id))
-        } else if let Some(content) = &self.content {
-            Some(content.lower_with_style(cx, &resolved_style, final_id))
-        } else if let Some(child_widget) = &self.child {
-            Some(
-                if let Ok(mut text_widget) = child_widget.clone().into_text() {
-                    text_widget.color = Some(resolved_style.text_color);
-                    text_widget.font_size = Some(resolved_style.font_size);
-                    text_widget.font_weight = Some(resolved_style.font_weight);
-                    text_widget.line_height = resolved_style.line_height;
-                    text_widget.letter_spacing = resolved_style.letter_spacing;
-                    text_widget.lower(cx)
-                } else {
-                    child_widget.lower(cx)
-                },
-            )
-        } else {
-            None
-        };
-        if let Some(child_id) = content_id {
-            let aligned_id = match self.content_align {
-                ButtonContentAlign::Center => {
-                    // Center the content within the button's box (vertically + horizontally).
-                    let mut align_builder =
-                        InternalIrBuilder::new(cx.next_node_id(), Op::Layout(LayoutOp::Align));
-                    align_builder.add_child(child_id);
-                    align_builder.build(cx)
-                }
-                ButtonContentAlign::Start | ButtonContentAlign::End => {
-                    let justify = match self.content_align {
-                        ButtonContentAlign::Start => fission_ir::op::JustifyContent::Start,
-                        ButtonContentAlign::End => fission_ir::op::JustifyContent::End,
-                        ButtonContentAlign::Center => fission_ir::op::JustifyContent::Center,
-                    };
-                    let mut flex_builder = InternalIrBuilder::new(
-                        cx.next_node_id(),
-                        Op::Layout(LayoutOp::Flex {
-                            direction: fission_ir::FlexDirection::Row,
-                            wrap: fission_ir::FlexWrap::NoWrap,
-                            flex_grow: 1.0,
-                            flex_shrink: 0.0,
-                            padding: [0.0; 4],
-                            gap: None,
-                            line_gap: None,
-                            align_items: fission_ir::op::AlignItems::Center,
-                            justify_content: justify,
-                        }),
-                    );
-                    flex_builder.add_child(child_id);
-                    flex_builder.build(cx)
-                }
+            for shadow in &resolved_style.inset_shadows {
+                let shadow_id = IrBuilder::new(
+                    cx.next_node_id(),
+                    Op::Paint(PaintOp::DrawRect {
+                        fill: None,
+                        stroke: None,
+                        corner_radius: resolved_style.corner_radius,
+                        shadow: Some(*shadow),
+                        corner_radii: None,
+                        border_sides: None,
+                    }),
+                )
+                .build(cx);
+                button_builder.add_child(shadow_id);
+            }
+
+            if let Some(focus_ring) = resolved_style.focus_ring.clone() {
+                let focus_ring_id = IrBuilder::new(
+                    cx.next_node_id(),
+                    Op::Paint(PaintOp::DrawRect {
+                        fill: None,
+                        stroke: Some(focus_ring),
+                        corner_radius: resolved_style.corner_radius,
+                        shadow: None,
+                        corner_radii: None,
+                        border_sides: None,
+                    }),
+                )
+                .build(cx);
+                button_builder.add_child(focus_ring_id);
+            }
+
+            let content_id = if let Some(content) = &self.icon_content {
+                Some(content.lower_with_style(cx, &resolved_style, final_id))
+            } else if let Some(content) = &self.content {
+                Some(content.lower_with_style(cx, &resolved_style, final_id))
+            } else if let Some(child_widget) = &self.child {
+                Some(
+                    if let Ok(mut text_widget) = child_widget.clone().into_text() {
+                        text_widget.color = Some(resolved_style.text_color);
+                        text_widget.font_size = Some(resolved_style.font_size);
+                        text_widget.font_weight = Some(resolved_style.font_weight);
+                        text_widget.line_height = resolved_style.line_height;
+                        text_widget.letter_spacing = resolved_style.letter_spacing;
+                        text_widget.lower(cx)
+                    } else {
+                        child_widget.lower(cx)
+                    },
+                )
+            } else {
+                None
             };
-            button_builder.add_child(aligned_id);
-        }
+            if let Some(child_id) = content_id {
+                let aligned_id = match self.content_align {
+                    ButtonContentAlign::Center => {
+                        // Centre the content within the button's box. A centring column is at
+                        // least the button's minimum size and otherwise hugs its content; an
+                        // alignment node would grow to whatever height a parent offers, so a
+                        // button in a tall row or overlay became that tall.
+                        let mut centre_builder = IrBuilder::new(
+                            cx.next_node_id(),
+                            Op::Layout(LayoutOp::Flex {
+                                direction: fission_ir::FlexDirection::Column,
+                                wrap: fission_ir::FlexWrap::NoWrap,
+                                flex_grow: 0.0,
+                                flex_shrink: 1.0,
+                                padding: [0.0; 4],
+                                gap: None,
+                                line_gap: None,
+                                align_items: fission_ir::op::AlignItems::Center,
+                                justify_content: fission_ir::op::JustifyContent::Center,
+                            }),
+                        );
+                        centre_builder.add_child(child_id);
+                        centre_builder.build(cx)
+                    }
+                    ButtonContentAlign::Start | ButtonContentAlign::End => {
+                        let justify = match self.content_align {
+                            ButtonContentAlign::Start => fission_ir::op::JustifyContent::Start,
+                            ButtonContentAlign::End => fission_ir::op::JustifyContent::End,
+                            ButtonContentAlign::Center => fission_ir::op::JustifyContent::Center,
+                        };
+                        // The row hugs its content. A button given a width, or stretched by its
+                        // parent, still hands the row its full width through tight constraints,
+                        // so start and end alignment apply; an unsized button no longer grows to
+                        // whatever width is offered.
+                        let mut flex_builder = IrBuilder::new(
+                            cx.next_node_id(),
+                            Op::Layout(LayoutOp::Flex {
+                                direction: fission_ir::FlexDirection::Row,
+                                wrap: fission_ir::FlexWrap::NoWrap,
+                                flex_grow: 0.0,
+                                flex_shrink: 0.0,
+                                padding: [0.0; 4],
+                                gap: None,
+                                line_gap: None,
+                                align_items: fission_ir::op::AlignItems::Center,
+                                justify_content: justify,
+                            }),
+                        );
+                        flex_builder.add_child(child_id);
+                        flex_builder.build(cx)
+                    }
+                };
+                button_builder.add_child(aligned_id);
+            }
 
-        let button_node_id = button_builder.build(cx);
+            let button_node_id = button_builder.build(cx);
 
-        if let Some(op) = semantics_op {
-            let mut semantics_builder = InternalIrBuilder::new(final_id, Op::Semantics(op));
-            semantics_builder.add_child(button_node_id);
-            let res_id = semantics_builder.build(cx);
-            cx.pop_scope();
-            return res_id;
-        }
+            if let Some(op) = semantics_op {
+                let mut semantics_builder = IrBuilder::new(final_id, Op::Semantics(op));
+                semantics_builder.add_child(button_node_id);
+                let res_id = semantics_builder.build(cx);
+                return res_id;
+            }
 
-        cx.pop_scope();
-        button_node_id
+            button_node_id
+        })
     }
 }
 
@@ -1722,6 +1768,7 @@ fn default_button_semantics() -> Semantics {
         hyperlink: None,
         popover_target: None,
         actions: ActionSet::default(),
+        key_actions: Vec::new(),
         canvas_target: None,
         action_scope_id: None,
         focusable: true,

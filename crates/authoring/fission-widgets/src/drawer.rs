@@ -1,9 +1,9 @@
 use crate::motion_support::{
-    dedupe, exit_for, fade_in, push_enter_with_exit, slide_x_in, slide_y_in, slot_id,
-    SLOT_BACKDROP, SLOT_FOCUS_SCOPE, SLOT_PANEL,
+    dedupe, exit_for, fade_in, presence_active, push_enter_with_exit, resolve_motion, slide_x_in,
+    slide_y_in, slot_id, SLOT_BACKDROP, SLOT_FOCUS_SCOPE, SLOT_PANEL,
 };
 use fission_core::motion::{MotionTrack, Presence};
-use fission_core::op::{BoxShadow, Color};
+use fission_core::op::{BoxShadow, Color, CornerRadii};
 use fission_core::ui::{Container, SemanticsRegion, Widget, ZStack};
 use fission_core::{ActionEnvelope, WidgetId};
 use serde::{Deserialize, Serialize};
@@ -21,13 +21,17 @@ pub enum DrawerSide {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 /// Optional motion presets owned by [`Drawer`].
 ///
-/// Drawers render without motion unless [`Drawer::motion`] is set. Presets
+/// Drawers play their default motion unless [`Drawer::motion`] chooses another
+/// preset, `Some(DrawerMotion::None)` turns it off, or the app sets
+/// `Env::widget_motion` to `Off`. Presets
 /// lower to native presence tracks for the stable `backdrop` and `panel` slots.
 ///
 /// ```rust,ignore
 /// let motion = Some(DrawerMotion::FromSide + DrawerMotion::Fade);
 /// ```
 pub enum DrawerMotion {
+    /// No drawer-owned motion.
+    None,
     /// Curated default: side slide plus fade.
     Default,
     /// Fade the backdrop and panel.
@@ -141,6 +145,7 @@ impl DrawerMotion {
                     item.append_plan(side, width, plan);
                 }
             }
+            Self::None => {}
             Self::Custom {
                 backdrop,
                 panel_enter,
@@ -220,7 +225,7 @@ pub struct Drawer {
     pub content: Widget,
     /// Preferred logical panel width, clamped to the viewport.
     pub width: Option<f32>,
-    /// Optional explicit drawer motion. `None` emits no drawer-owned motion declarations.
+    /// Drawer motion. `None` plays the default motion unless the app turns widget motion off.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub motion: Option<DrawerMotion>,
 }
@@ -242,24 +247,24 @@ impl From<Drawer> for Widget {
             this.width.unwrap_or(300.0)
         };
         let width = this.width.unwrap_or(300.0).min(max_panel_width);
-        if !this.is_open && this.motion.is_none() {
+        let motion = resolve_motion(
+            &this.motion,
+            DrawerMotion::Default,
+            DrawerMotion::None,
+            view.env(),
+        );
+        if !this.is_open && !(motion.is_some() && presence_active(slot_id(this.id, SLOT_PANEL))) {
             return fission_core::ui::widgets::Spacer::default().into();
         }
-        let motion_plan = this
-            .motion
-            .as_ref()
-            .map(|motion| motion.plan(this.side, width));
+        let motion_plan = motion.as_ref().map(|motion| motion.plan(this.side, width));
 
         // Dismissal belongs only to the logical open state. The visual scrim
         // may remain mounted for exit motion, but it must stop owning input on
         // the first closing build.
         let backdrop_visual: Widget = Container::new(fission_core::ui::widgets::Spacer::default())
-            .bg(Color {
-                r: 0,
-                g: 0,
-                b: 0,
-                a: 128,
-            })
+            // The scrim tints the app behind the panel, so it has to come from
+            // the design system rather than assuming a black backdrop.
+            .bg(tokens.colors.on_background.with_alpha(128))
             .flex_grow(1.0)
             .into();
         let mut backdrop: Widget = if this.is_open {
@@ -288,8 +293,17 @@ impl From<Drawer> for Widget {
         }
 
         // Drawer Content
+        // Rounded along the edge the drawer slides away from, square against the
+        // one it is docked to -- the shape every platform's drawer uses, and one
+        // a single corner radius could not express until the IR grew per-corner
+        // radii.
+        let panel_radii = match this.side {
+            DrawerSide::Left => CornerRadii::right(tokens.radii.large),
+            DrawerSide::Right => CornerRadii::left(tokens.radii.large),
+        };
         let panel_surface: Widget = Container::new(this.content.clone())
             .bg(tokens.colors.surface)
+            .border_radii(panel_radii)
             .width(width)
             // Height fills parent (Positioned top/bottom 0)
             .shadow(tokens.elevations.level3.unwrap_or(BoxShadow {

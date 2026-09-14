@@ -1,4 +1,4 @@
-use fission_core::internal::BuildCtx;
+use fission_core::authoring::BuildCtx;
 use fission_core::op::{AlignItems, Length, TextAlign};
 use fission_core::ui::{Column, Container, Icon, Text, WidgetKind};
 use fission_core::{build, Env, GlobalState, LayoutSize, RuntimeState, View, Widget};
@@ -45,8 +45,8 @@ fn supplied_icon_uses_empty_state_recipe_defaults_without_losing_explicit_overri
         b: 86,
         a: 255,
     };
-    env.theme.components.empty_state.icon_style.icon_size = Some(17.0);
-    env.theme.components.empty_state.icon_style.text_color = Some(recipe_color);
+    env.theme.components_mut().empty_state.icon_style.icon_size = Some(17.0);
+    env.theme.components_mut().empty_state.icon_style.text_color = Some(recipe_color);
 
     let widget = build_empty_state_with_icon(
         &env,
@@ -91,7 +91,15 @@ fn supplied_icon_uses_empty_state_recipe_defaults_without_losing_explicit_overri
 }
 
 fn panel(widget: &Widget) -> &Container {
-    fission_core::internal::widget_as_container(widget).expect("empty-state panel")
+    // The panel is wrapped in a semantics region that announces why the region
+    // is empty, so unwrap that first.
+    let surface = match widget.kind() {
+        fission_core::ui::WidgetKind::SemanticsRegion(region) => {
+            region.child.as_ref().expect("empty-state surface")
+        }
+        _ => widget,
+    };
+    fission_core::internal::widget_as_container(surface).expect("empty-state panel")
 }
 
 fn sections(panel: &Container) -> &Column {
@@ -143,13 +151,13 @@ fn empty_state_uses_a_bounded_token_driven_panel() {
 #[test]
 fn empty_state_composes_the_theme_owned_narrow_surface_below_its_breakpoint() {
     let mut env = Env::default();
-    env.theme.components.empty_state.surface_style.padding = Some([9.0, 11.0, 13.0, 15.0]);
+    env.theme.components_mut().empty_state.surface_style.padding = Some([9.0, 11.0, 13.0, 15.0]);
     env.theme
-        .components
+        .components_mut()
         .empty_state
         .narrow_surface_style
         .min_height = Some(127.0);
-    env.theme.components.empty_state.narrow_breakpoint = 500.0;
+    env.theme.components_mut().empty_state.narrow_breakpoint = 500.0;
     env.viewport_size = LayoutSize::new(499.0, 700.0);
 
     let widget = build_empty_state(&env, None, None);

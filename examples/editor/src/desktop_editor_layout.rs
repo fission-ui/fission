@@ -6,7 +6,7 @@ use crate::layout::{
 };
 use crate::menu_bar::MenuBar;
 use crate::model::EditorState;
-use crate::palette::BORDER_COLOR;
+use crate::palette::EditorPalette;
 use crate::status_bar::StatusBar;
 use fission::core::ui::{Column, Container, Row, Widget};
 use fission::widgets::Spacer;
@@ -16,6 +16,7 @@ pub(crate) struct DesktopEditorLayout;
 impl From<DesktopEditorLayout> for Widget {
     fn from(_layout: DesktopEditorLayout) -> Self {
         let (_, view) = fission::build::current::<EditorState>();
+        let palette = EditorPalette::from_theme(&view.env().theme);
         let viewport = view.viewport_size();
         let sidebar_width = view.state().sidebar_width.min(
             (viewport.width - EDITOR_HORIZONTAL_RESERVE)
@@ -33,7 +34,7 @@ impl From<DesktopEditorLayout> for Widget {
             workspace.push(
                 Container::new(Spacer::default())
                     .width(DIVIDER_THICKNESS)
-                    .bg(BORDER_COLOR)
+                    .bg(palette.border_color)
                     .flex_shrink(0.0)
                     .into(),
             );

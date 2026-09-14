@@ -7,12 +7,12 @@ use fission_layout::{LayoutInputNode, LayoutSnapshot, TextMeasurer};
 use std::collections::HashMap;
 use std::sync::Arc;
 
-pub struct InternalLoweringCx<'a> {
-    pub env: &'a Env,
-    pub runtime_state: &'a RuntimeState,
-    pub ir: CoreIR,
-    pub measurer: Option<&'a Arc<dyn TextMeasurer>>,
-    pub layout: Option<&'a LayoutSnapshot>,
+pub struct LoweringContext<'a> {
+    pub(crate) env: &'a Env,
+    pub(crate) runtime_state: &'a RuntimeState,
+    pub(crate) ir: CoreIR,
+    pub(crate) measurer: Option<&'a Arc<dyn TextMeasurer>>,
+    pub(crate) layout: Option<&'a LayoutSnapshot>,
     id_stack: Vec<(WidgetId, u32)>,
     form_field_stack: Vec<FormFieldContext>,
     global_seq: u32,
@@ -29,7 +29,7 @@ pub(crate) struct FormFieldContext {
     pub invalid_message: Option<String>,
 }
 
-impl<'a> InternalLoweringCx<'a> {
+impl<'a> LoweringContext<'a> {
     pub fn new(
         env: &'a Env,
         runtime_state: &'a RuntimeState,
@@ -48,6 +48,68 @@ impl<'a> InternalLoweringCx<'a> {
             form_field_stack: Vec::new(),
             global_seq: 0,
         }
+    }
+
+    /// The environment the tree is lowered against: theme, locale, viewport
+    /// and layout direction.
+    pub fn env(&self) -> &'a Env {
+        self.env
+    }
+
+    /// Runtime state such as scroll offsets and viewport transforms.
+    pub fn runtime_state(&self) -> &'a RuntimeState {
+        self.runtime_state
+    }
+
+    /// The text measurer, when the host supplies one, for widgets that size
+    /// themselves around text.
+    pub fn measurer(&self) -> Option<&'a Arc<dyn TextMeasurer>> {
+        self.measurer
+    }
+
+    /// The layout from the previous frame, when the host supplies one.
+    pub fn layout(&self) -> Option<&'a LayoutSnapshot> {
+        self.layout
+    }
+
+    /// The IR lowered so far, for reading back what children emitted.
+    ///
+    /// Nodes are added through [`IrBuilder`], never by editing this directly,
+    /// so every node gets the structural hash diffing relies on.
+    pub fn ir(&self) -> &CoreIR {
+        &self.ir
+    }
+
+    /// Attaches a render object to `node` for the controller or renderer that
+    /// reads it.
+    pub fn set_render_object(&mut self, node: WidgetId, object: fission_ir::AnyRenderObject) {
+        self.ir.custom_render_objects.insert(node, object);
+    }
+
+    /// Marks `root` as the root of the lowered tree.
+    pub fn set_root(&mut self, root: WidgetId) {
+        self.ir.set_root(root);
+    }
+
+    /// Finishes lowering and returns the IR.
+    pub fn into_ir(self) -> CoreIR {
+        self.ir
+    }
+
+    /// Runs `lower` inside an identity scope rooted at `node_id`, then restores
+    /// the surrounding scope.
+    ///
+    /// Ids allocated inside derive from `node_id`, so they stay stable however
+    /// the surrounding tree changes, and siblings lowered after this call keep
+    /// the ids they would have had without it. Identity scopes only decide
+    /// automatically derived descendant ids; they do not affect layout,
+    /// rendering, permissions or event isolation. `lower` may return a
+    /// `Result`, and an error returned with `?` still leaves the scope.
+    pub fn with_scope<R>(&mut self, node_id: WidgetId, lower: impl FnOnce(&mut Self) -> R) -> R {
+        self.push_scope(node_id);
+        let result = lower(self);
+        self.pop_scope();
+        result
     }
 
     pub fn next_node_id(&mut self) -> WidgetId {
@@ -70,11 +132,14 @@ impl<'a> InternalLoweringCx<'a> {
         }
     }
 
-    pub fn push_scope(&mut self, node_id: WidgetId) {
+    /// Starts an identity scope rooted at `node_id`. Widgets use
+    /// [`with_scope`](Self::with_scope), which cannot leave a scope open.
+    pub(crate) fn push_scope(&mut self, node_id: WidgetId) {
         self.id_stack.push((node_id, 0));
     }
 
-    pub fn pop_scope(&mut self) {
+    /// Ends the identity scope started by the matching [`push_scope`](Self::push_scope).
+    pub(crate) fn pop_scope(&mut self) {
         self.id_stack
             .pop()
             .expect("InternalLowering stack underflow");
@@ -98,11 +163,7 @@ impl<'a> InternalLoweringCx<'a> {
         widget_id.into()
     }
 
-    pub fn insert_node(&mut self, node_id: WidgetId, op: Op, children: Vec<WidgetId>) -> WidgetId {
-        self.insert_node_with_composite(node_id, op, CompositeStyle::default(), children)
-    }
-
-    pub fn insert_node_with_composite(
+    pub(crate) fn insert_node_with_composite(
         &mut self,
         node_id: WidgetId,
         op: Op,
@@ -137,14 +198,14 @@ impl<'a> InternalLoweringCx<'a> {
     }
 }
 
-pub struct InternalIrBuilder {
+pub struct IrBuilder {
     node_id: WidgetId,
     op: Op,
     composite: CompositeStyle,
     children: Vec<WidgetId>,
 }
 
-impl InternalIrBuilder {
+impl IrBuilder {
     pub fn new(node_id: WidgetId, op: Op) -> Self {
         Self {
             node_id,
@@ -170,14 +231,15 @@ impl InternalIrBuilder {
         self.children.extend(children);
     }
 
-    pub fn build(self, cx: &mut InternalLoweringCx) -> WidgetId {
+    pub fn build(mut self, cx: &mut LoweringContext) -> WidgetId {
+        crate::accessible_names::name_from_content(&cx.ir, &mut self.op, &self.children);
         cx.insert_node_with_composite(self.node_id, self.op, self.composite, self.children);
         self.node_id
     }
 }
 
-pub fn wrap_zstack_child(cx: &mut InternalLoweringCx, child_id: WidgetId) -> WidgetId {
-    let mut item = InternalIrBuilder::new(
+pub fn wrap_zstack_child(cx: &mut LoweringContext, child_id: WidgetId) -> WidgetId {
+    let mut item = IrBuilder::new(
         cx.next_node_id(),
         Op::Layout(LayoutOp::GridItem {
             row_start: GridPlacement::Line(1),
@@ -654,24 +716,42 @@ pub fn build_layout_tree(ir: &CoreIR, _env: &Env) -> Vec<LayoutInputNode> {
                 (LayoutOp::AbsoluteFill, None, None, 0.0, 0.0)
             }
 
-            _ => (
-                LayoutOp::Box {
-                    width: None,
-                    height: None,
-                    min_width: None,
-                    max_width: None,
-                    min_height: None,
-                    max_height: None,
-                    padding: [0.0; 4],
-                    flex_grow: 0.0,
-                    flex_shrink: 1.0,
-                    aspect_ratio: None,
-                },
-                None,
-                None,
-                0.0,
-                1.0,
-            ),
+            _ => {
+                // A semantics wrapper describes the control inside it. When that control is a box
+                // with its own width, the wrapper takes only its width, so a stretching column does
+                // not stretch the wrapper, and with it the control's accessible and hit-test
+                // bounds, past what is drawn. Heights stay with the wrapper's own layout.
+                let (width, min_width, max_width) = match (&node.op, node.children.as_slice()) {
+                    (Op::Semantics(_), [child]) => match ir.nodes.get(child).map(|c| &c.op) {
+                        Some(Op::Layout(LayoutOp::Box {
+                            width: Some(width),
+                            min_width,
+                            max_width,
+                            ..
+                        })) => (Some(*width), *min_width, *max_width),
+                        _ => (None, None, None),
+                    },
+                    _ => (None, None, None),
+                };
+                (
+                    LayoutOp::Box {
+                        width,
+                        height: None,
+                        min_width,
+                        max_width,
+                        min_height: None,
+                        max_height: None,
+                        padding: [0.0; 4],
+                        flex_grow: 0.0,
+                        flex_shrink: 1.0,
+                        aspect_ratio: None,
+                    },
+                    width,
+                    None,
+                    0.0,
+                    1.0,
+                )
+            }
         };
 
         input_nodes.push(LayoutInputNode {
@@ -689,4 +769,65 @@ pub fn build_layout_tree(ir: &CoreIR, _env: &Env) -> Vec<LayoutInputNode> {
     }
 
     input_nodes
+}
+
+#[cfg(test)]
+mod identity_scope_tests {
+    use super::LoweringContext;
+    use crate::{Env, RuntimeState, WidgetId};
+
+    #[test]
+    fn nested_scopes_restore_the_surrounding_scope_for_later_siblings() {
+        let env = Env::default();
+        let runtime = RuntimeState::default();
+        let root = WidgetId::explicit("scope.root");
+
+        let mut nested = LoweringContext::new(&env, &runtime, None, None);
+        let (first, second) = nested.with_scope(root, |cx| {
+            let first = cx.next_node_id();
+            cx.with_scope(first, |cx| {
+                let _ = cx.next_node_id();
+                cx.with_scope(WidgetId::explicit("scope.inner"), |cx| {
+                    let _ = cx.next_node_id();
+                    let _ = cx.next_node_id();
+                });
+                let _ = cx.next_node_id();
+            });
+            (first, cx.next_node_id())
+        });
+        let after_nested = nested.next_node_id();
+
+        let mut flat = LoweringContext::new(&env, &runtime, None, None);
+        let (flat_first, flat_second) =
+            flat.with_scope(root, |cx| (cx.next_node_id(), cx.next_node_id()));
+        let after_flat = flat.next_node_id();
+
+        assert_eq!(first, flat_first);
+        assert_eq!(
+            second, flat_second,
+            "a sibling after nested scopes keeps its id"
+        );
+        assert_eq!(
+            after_nested, after_flat,
+            "the outer scope is restored when it ends"
+        );
+    }
+
+    #[test]
+    fn a_failed_lowering_still_leaves_its_scope() {
+        let env = Env::default();
+        let runtime = RuntimeState::default();
+        let mut cx = LoweringContext::new(&env, &runtime, None, None);
+        let mut reference = LoweringContext::new(&env, &runtime, None, None);
+
+        let failed: Result<WidgetId, &str> =
+            cx.with_scope(WidgetId::explicit("scope.fails"), |cx| {
+                let _ = cx.next_node_id();
+                Err::<(), &str>("lowering failed")?;
+                Ok(cx.next_node_id())
+            });
+
+        assert!(failed.is_err());
+        assert_eq!(cx.next_node_id(), reference.next_node_id());
+    }
 }

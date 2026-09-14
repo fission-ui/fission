@@ -1,5 +1,5 @@
 use fission::prelude::*;
-use fission_core::internal::BuildCtx;
+use fission_core::authoring::BuildCtx;
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 struct State {

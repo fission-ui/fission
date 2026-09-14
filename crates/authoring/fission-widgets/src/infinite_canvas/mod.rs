@@ -16,9 +16,8 @@ mod vector_layer;
 
 use std::collections::BTreeSet;
 use std::hash::{Hash, Hasher};
-use std::sync::Arc;
 
-use fission_core::internal::{InternalLowerer, InternalLoweringCx, InternalRenderNode};
+use fission_core::authoring::{LowerWidget, LoweringContext};
 use fission_core::ui::{
     IgnorePointer, InteractiveViewer, ViewportBoundary, ViewportClip, ViewportPanAxis,
     ViewportTransform, ViewportZoomPolicy,
@@ -120,16 +119,12 @@ impl Default for InfiniteCanvas {
 
 impl From<InfiniteCanvas> for Widget {
     fn from(canvas: InfiniteCanvas) -> Self {
-        fission_core::internal::custom_render_widget(InternalRenderNode {
-            debug_tag: "InfiniteCanvas".into(),
-            lowerer: Some(Arc::new(canvas)),
-            render_object: None,
-        })
+        fission_core::authoring::custom_widget("InfiniteCanvas", canvas)
     }
 }
 
-impl InternalLowerer for InfiniteCanvas {
-    fn lower_dyn(&self, cx: &mut InternalLoweringCx) -> WidgetId {
+impl LowerWidget for InfiniteCanvas {
+    fn lower_dyn(&self, cx: &mut LoweringContext) -> WidgetId {
         let canvas_id = self.id.unwrap_or_else(|| cx.next_node_id());
         let resolved = self.resolved_widget(cx, canvas_id);
         fission_core::internal::lower_widget(&resolved, cx)
@@ -148,17 +143,17 @@ impl InternalLowerer for InfiniteCanvas {
 }
 
 impl InfiniteCanvas {
-    fn resolved_widget(&self, cx: &InternalLoweringCx<'_>, canvas_id: WidgetId) -> Widget {
+    fn resolved_widget(&self, cx: &LoweringContext<'_>, canvas_id: WidgetId) -> Widget {
         let transform = self
             .transform
-            .or_else(|| cx.runtime_state.viewport.transform(canvas_id))
+            .or_else(|| cx.runtime_state().viewport.transform(canvas_id))
             .unwrap_or(self.initial_transform)
             .normalized();
         let viewport = cx
-            .layout
+            .layout()
             .and_then(|layout| layout.get_node_rect(canvas_id))
             .map(|rect| rect.size)
-            .unwrap_or(cx.env.viewport_size);
+            .unwrap_or(cx.env().viewport_size);
         let visible_world = visible_world_rect(
             viewport.width,
             viewport.height,
@@ -167,7 +162,7 @@ impl InfiniteCanvas {
             transform.scale,
             self.render_overscan.max(0.0),
         );
-        let selection_color = cx.env.theme.tokens.colors.primary;
+        let selection_color = cx.env().theme.tokens.colors.primary;
 
         let mut world_children = Vec::new();
         if let Some(layer) = &self.world_background {
@@ -378,15 +373,15 @@ mod tests {
         .into();
         let env = Env::default();
         let runtime = RuntimeState::default();
-        let mut cx = fission_core::internal::InternalLoweringCx::new(&env, &runtime, None, None);
+        let mut cx = fission_core::internal::LoweringContext::new(&env, &runtime, None, None);
 
         let root = fission_core::internal::lower_widget(&widget, &mut cx);
 
         assert_eq!(root, WidgetId::derived(canvas_id.as_u128(), &[0xCA4A5]));
-        let wrapper = cx.ir.nodes.get(&root).expect("canvas wrapper");
+        let wrapper = cx.ir().nodes.get(&root).expect("canvas wrapper");
         assert_eq!(wrapper.children.len(), 1);
         assert_ne!(wrapper.children[0], root);
-        assert!(cx.ir.nodes.contains_key(&canvas_id));
+        assert!(cx.ir().nodes.contains_key(&canvas_id));
     }
 
     #[test]
@@ -401,10 +396,10 @@ mod tests {
         .into();
         let env = Env::default();
         let runtime = RuntimeState::default();
-        let mut cx = fission_core::internal::InternalLoweringCx::new(&env, &runtime, None, None);
+        let mut cx = fission_core::internal::LoweringContext::new(&env, &runtime, None, None);
 
         let root = fission_core::internal::lower_widget(&widget, &mut cx);
-        let stack = cx.ir.nodes.get(&root).expect("canvas stack");
+        let stack = cx.ir().nodes.get(&root).expect("canvas stack");
         assert_eq!(stack.children.len(), 2);
         assert_ne!(stack.children[0], stack.children[1]);
     }

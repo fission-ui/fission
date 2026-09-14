@@ -2,7 +2,7 @@
 
 use crate::layout::TOOLTIP_MAX_WIDTH;
 use crate::model::*;
-use crate::palette::{TOOLTIP_BG, TOOLTIP_BORDER, TRANSPARENT};
+use crate::palette::EditorPalette;
 use fission::prelude::*;
 use fission::widgets::Spacer;
 
@@ -11,35 +11,31 @@ pub struct HoverTooltip;
 impl From<HoverTooltip> for Widget {
     fn from(_component: HoverTooltip) -> Self {
         let (ctx, view) = fission::build::current::<EditorState>();
+        let palette = EditorPalette::from_theme(&view.env().theme);
         let tokens = &view.env().theme.tokens;
-        if !view.state().show_hover || view.state().hover_info.is_none() {
+        let Some(info) = view
+            .state()
+            .hover_info
+            .as_ref()
+            .filter(|_| view.state().show_hover)
+        else {
             return Spacer {
                 height: Some(tokens.spacing.none),
                 ..Default::default()
             }
             .into();
-        }
-
-        let info = view.state().hover_info.as_ref().unwrap();
+        };
         let (hover_x, hover_y) = view.state().hover_position;
 
-        let dismiss = ctx.bind(
-            DismissHover,
-            reduce_with!(
-                (|s: &mut EditorState, _, _| {
-                    s.show_hover = false;
-                    s.hover_info = None;
-                })
-            ),
-        );
+        let dismiss = ctx.bind(DismissHover, reduce_with!(on_dismiss_hover));
 
         let tooltip_card = Container::new(
             Text::new(info.as_str())
                 .size(tokens.typography.font_size_sm)
                 .color(tokens.colors.text_primary),
         )
-        .bg(TOOLTIP_BG)
-        .border(TOOLTIP_BORDER, 1.0)
+        .bg(palette.tooltip_bg)
+        .border(palette.tooltip_border, 1.0)
         .border_radius(tokens.radii.medium)
         .padding_all(tokens.spacing.s)
         .max_width(TOOLTIP_MAX_WIDTH)
@@ -56,7 +52,7 @@ impl From<HoverTooltip> for Widget {
         let backdrop = GestureDetector {
             on_tap: Some(dismiss),
             child: Container::new(Spacer::default())
-                .bg(TRANSPARENT)
+                .bg(palette.transparent)
                 .flex_grow(1.0)
                 .into(),
             ..Default::default()

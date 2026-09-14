@@ -1,5 +1,5 @@
 use crate::state::{navigate_to, AnimationGalleryState, NavigateTo};
-use crate::style::{color, BLUE, BORDER, CYAN, INK, MUTED, SURFACE, TEAL, VIOLET};
+use crate::style;
 use crate::ui;
 use crate::widgets;
 use fission::build::BuildCtxHandle;
@@ -31,30 +31,35 @@ impl From<OverviewCard<'_>> for Widget {
                         Container::new(
                             Text::new(card.summary.glyph)
                                 .size(typography.body_large_size)
-                                .color(BLUE),
+                                .color(style::primary()),
                         )
                         .height(GLYPH_HEIGHT)
                         .padding_all(tokens.spacing.m)
                         .border_radius(tokens.radii.xl)
-                        .bg(card.summary.tint)
-                        .border(color(190, 204, 244, 255), 1.0),
+                        .bg(card.summary.tint.color())
+                        .border(style::border_strong(), 1.0),
                         Text::new(card.summary.title)
                             .size(typography.body_large_size)
-                            .color(INK),
+                            .color(style::text_primary()),
                         Text::new(card.summary.subtitle)
                             .size(typography.font_size_sm)
-                            .color(MUTED),
+                            .color(style::text_muted()),
                         ui::ColorDots {
-                            colors: &[TEAL, VIOLET, BLUE, CYAN],
+                            colors: &[
+                                style::success(),
+                                style::secondary(),
+                                style::primary(),
+                                style::info()
+                            ],
                         },
                     ],
                     ..Default::default()
                 })
                 .padding_all(tokens.spacing.s)
                 .width_length(Length::percent(100.0))
-                .border(BORDER, 1.0)
+                .border(style::border(), 1.0)
                 .border_radius(tokens.radii.xl)
-                .bg(SURFACE)
+                .bg(style::surface())
                 .into(),
             ),
             ..Default::default()

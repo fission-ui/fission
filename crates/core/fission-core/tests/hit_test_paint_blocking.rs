@@ -53,6 +53,8 @@ fn backdrop_scene() -> (CoreIR, LayoutSnapshot, WidgetId, WidgetId) {
             stroke: None,
             corner_radius: 0.0,
             shadow: None,
+            corner_radii: None,
+            border_sides: None,
         }),
         vec![],
     );
@@ -68,6 +70,8 @@ fn backdrop_scene() -> (CoreIR, LayoutSnapshot, WidgetId, WidgetId) {
             stroke: None,
             corner_radius: 0.0,
             shadow: None,
+            corner_radii: None,
+            border_sides: None,
         }),
         vec![],
     );

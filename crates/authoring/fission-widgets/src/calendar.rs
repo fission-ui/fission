@@ -1,7 +1,8 @@
 use crate::stack::{HStack, VStack};
 use chrono::{Datelike, Local, NaiveDate};
-use fission_core::ui::{Button, ButtonVariant, Container, Text, Widget};
+use fission_core::ui::{Button, ButtonVariant, Container, SemanticsRegion, Text, Widget};
 use fission_core::ActionEnvelope;
+use fission_ir::Role;
 use std::sync::Arc;
 
 /// Controlled month calendar with navigation and day-selection actions.
@@ -70,8 +71,10 @@ impl From<Calendar> for Widget {
             (this.year, this.month + 1)
         };
 
+        // The flexible spacers around the title separate it from the arrows; fixed gaps on top of
+        // them made the header wider than a calendar with small cells, pushing the next arrow out.
         let header = HStack {
-            spacing: Some(8.0),
+            spacing: Some(0.0),
             children: vec![
                 Button {
                     variant: ButtonVariant::Ghost,
@@ -189,10 +192,14 @@ impl From<Calendar> for Widget {
         }
         .into();
 
+        // The header spreads its navigation apart with growing spacers, so without a width the
+        // calendar grows to whatever is offered, such as a whole window inside a popover. It is as
+        // wide as its seven day columns.
         let mut c = Container::new(VStack {
             spacing: Some(8.0),
             children: vec![header, labels, day_grid],
         })
+        .width(cell_size * 7.0 + padding * 2.0)
         .padding_all(padding)
         .bg(theme.bg_color)
         .border(theme.border_color, 1.0)
@@ -202,6 +209,11 @@ impl From<Calendar> for Widget {
             c = c.shadow(s);
         }
 
-        c.into()
+        // A month view is a grid of dates. Without the role a reader meets an
+        // undifferentiated run of numbers with no way to tell rows from columns.
+        SemanticsRegion::new(c)
+            .role(Role::Table)
+            .label("Calendar")
+            .into()
     }
 }

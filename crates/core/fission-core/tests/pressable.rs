@@ -1,4 +1,4 @@
-use fission_core::internal::BuildCtx;
+use fission_core::authoring::BuildCtx;
 use fission_core::{
     build, BoxStyle, Column, Env, Length, MotionDeclarationKind, MotionPhase, MotionPropertyId,
     MotionTransition, Pressable, PressableRole, PressableStyle, RuntimeState, Text, Widget,
@@ -233,10 +233,10 @@ fn pressable_paint_style_interpolates_through_runtime_motion() {
     runtime.tick(50).expect("advance pressable transition");
     let (widget, _) = build_once(&runtime.runtime_state);
     let mut lowering =
-        fission_core::internal::InternalLoweringCx::new(&env, &runtime.runtime_state, None, None);
+        fission_core::internal::LoweringContext::new(&env, &runtime.runtime_state, None, None);
     let root = fission_core::internal::lower_widget(&widget, &mut lowering);
-    lowering.ir.root = Some(root);
-    let ir = lowering.ir;
+    lowering.set_root(root);
+    let ir = lowering.into_ir();
     let color = ir.nodes.values().find_map(|node| match &node.op {
         Op::Paint(fission_ir::PaintOp::DrawRect {
             fill: Some(Fill::Solid(color)),

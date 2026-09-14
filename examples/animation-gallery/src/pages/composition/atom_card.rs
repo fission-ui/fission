@@ -1,5 +1,5 @@
 use crate::state::AnimationGalleryState;
-use crate::style::{BORDER, INK, MUTED, SURFACE};
+use crate::style;
 use fission::prelude::*;
 
 const BODY_HEIGHT: f32 = 116.0;
@@ -22,7 +22,7 @@ impl From<AtomCard<'_>> for Widget {
             children: widgets![
                 Text::new(card.title)
                     .size(typography.font_size_sm)
-                    .color(INK),
+                    .color(style::text_primary()),
                 Scroll {
                     direction: FlexDirection::Column,
                     height: Some(BODY_HEIGHT),
@@ -30,7 +30,7 @@ impl From<AtomCard<'_>> for Widget {
                     child: Some(
                         Text::new(card.body)
                             .size(typography.font_size_xs)
-                            .color(MUTED)
+                            .color(style::text_muted())
                             .into(),
                     ),
                     ..Default::default()
@@ -43,9 +43,9 @@ impl From<AtomCard<'_>> for Widget {
             ..Default::default()
         })
         .padding_all(tokens.spacing.s)
-        .border(BORDER, 1.0)
+        .border(style::border(), 1.0)
         .border_radius(tokens.radii.large)
-        .bg(SURFACE)
+        .bg(style::surface())
         .into()
     }
 }

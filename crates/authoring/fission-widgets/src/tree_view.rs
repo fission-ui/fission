@@ -1,10 +1,14 @@
 use crate::stack::{HStack, VStack};
 use crate::Icon;
-use fission_core::ui::{Button, ButtonContentAlign, ButtonVariant, Container, Text, Widget};
+use fission_core::ui::{
+    Button, ButtonContentAlign, ButtonStyleOverride, ButtonVariant, Container, SemanticsRegion,
+    Text, Widget,
+};
 use fission_core::{
     build::{BuildCtxHandle, ViewHandle},
     ActionEnvelope,
 };
+use fission_ir::{Role, SemanticOrientation, Semantics};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
@@ -46,10 +50,14 @@ impl From<TreeView> for Widget {
             this.build_recursive(item, 0, &mut nodes, &ctx, view);
         }
 
-        VStack {
+        // The tree owns one tab stop and moves an inner cursor, so the runtime's
+        // composite navigation takes over arrow keys, Home/End and typeahead.
+        SemanticsRegion::new(VStack {
             spacing: Some(0.0),
             children: nodes,
-        }
+        })
+        .role(Role::Tree)
+        .orientation(SemanticOrientation::Vertical)
         .into()
     }
 }
@@ -115,7 +123,9 @@ impl TreeView {
             children: row_children,
         })
         .padding_all(8.0)
-        .height(40.0)
+        // At least a comfortable row, and taller when a long or translated label wraps; a fixed
+        // height let a wrapped label spill over the next row.
+        .min_height(40.0)
         .bg(if is_selected {
             theme.selected_bg
         } else {
@@ -130,6 +140,7 @@ impl TreeView {
         .flex_grow(1.0)
         .into();
 
+        let has_children = !item.children.is_empty();
         nodes.push(
             Button {
                 variant: ButtonVariant::Ghost,
@@ -137,7 +148,22 @@ impl TreeView {
                 child: Some(row_content),
                 on_press: item.on_select.clone(),
                 padding: Some([0.0; 4]),
-                height: Some(40.0), // Force button height
+                // The row is rounded, so the button's hover fill and focus ring follow the same
+                // corners instead of drawing a square outline around a rounded row.
+                style: Some(ButtonStyleOverride {
+                    corner_radius: Some(tokens.radii.medium),
+                    ..Default::default()
+                }),
+                semantics: Some(Semantics {
+                    role: Role::TreeItem,
+                    label: Some(item.label.clone()),
+                    selected: Some(is_selected),
+                    // Only a row that owns children has an expanded state;
+                    // announcing one on a leaf implies it can be opened.
+                    expanded: has_children.then_some(is_expanded),
+                    focusable: true,
+                    ..Default::default()
+                }),
                 ..Default::default()
             }
             .into(),

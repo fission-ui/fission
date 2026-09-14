@@ -1,4 +1,4 @@
-use fission_core::internal::BuildCtx;
+use fission_core::authoring::BuildCtx;
 use fission_core::{build, GlobalState, View, WidgetId};
 use fission_widgets::combobox::Combobox;
 use serde::{Deserialize, Serialize};
@@ -19,6 +19,7 @@ fn test_combobox_build() {
 
     let combo = Combobox {
         id: WidgetId::explicit("test"),
+        semantics_identifier: None,
         value: "abc".into(),
         items: vec!["abcd".into(), "abce".into()],
         is_open: true,

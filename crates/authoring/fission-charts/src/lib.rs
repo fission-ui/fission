@@ -21,9 +21,9 @@ pub use components::{
     DataZoomType, MarkArea, MarkLine, MarkPoint, VisualMap, VisualMapType,
 };
 pub use interaction::{
-    ChartBrush, ChartBrushType, ChartEmphasis, ChartEmphasisFocus, ChartHit, ChartHitKind,
-    ChartInteraction, ChartInteractionEvent, ChartInteractionKind, ChartLegendSelectionMode,
-    ChartSelectionMode, ChartToolAction, ChartTooltipTrigger,
+    ChartBrush, ChartBrushSelection, ChartBrushType, ChartEmphasis, ChartEmphasisFocus, ChartHit,
+    ChartHitKind, ChartHover, ChartInteraction, ChartInteractionEvent, ChartInteractionKind,
+    ChartLegendSelectionMode, ChartSelectionMode, ChartToolAction, ChartTooltipTrigger,
 };
 pub use series::bar::{BarOrientation, BarSeries};
 pub use series::boxplot::BoxplotSeries;

@@ -1,14 +1,15 @@
 use crate::layout::ACTIVITY_BAR_WIDTH;
 use crate::model::*;
-use crate::palette::{ACTIVITY_BAR_BG, BRIGHT_TEXT, DIM_TEXT, TRANSPARENT};
+use crate::palette::EditorPalette;
+use fission::core::reduce_with;
 use fission::core::ui::{Align, Button, ButtonVariant, Column, Container, Widget};
-use fission::core::{reduce_with, ActionEnvelope};
 
 pub(crate) struct ActivityBar;
 
 impl From<ActivityBar> for Widget {
     fn from(_component: ActivityBar) -> Self {
         let (ctx, view) = fission::build::current::<EditorState>();
+        let palette = EditorPalette::from_theme(&view.env().theme);
         let tokens = &view.env().theme.tokens;
 
         let section_icons = vec![
@@ -34,29 +35,21 @@ impl From<ActivityBar> for Widget {
             ),
         ];
 
-        let set_section_id = ctx
-            .bind(
-                SetSidebarSection(SidebarSection::Explorer),
-                reduce_with!(
-                    (|s: &mut EditorState, a: SetSidebarSection, _| {
-                        if s.sidebar_visible && s.sidebar_section == a.0 {
-                            s.sidebar_visible = false;
-                        } else {
-                            s.sidebar_section = a.0;
-                            s.sidebar_visible = true;
-                        }
-                    })
-                ),
-            )
-            .id;
-
         let mut icons = Vec::new();
         for (icon_svg, section, _label) in &section_icons {
             let is_active =
                 view.state().sidebar_visible && view.state().sidebar_section == *section;
-            let color = if is_active { BRIGHT_TEXT } else { DIM_TEXT };
+            let color = if is_active {
+                palette.bright_text
+            } else {
+                palette.dim_text
+            };
 
-            let indicator_color = if is_active { BRIGHT_TEXT } else { TRANSPARENT };
+            let indicator_color = if is_active {
+                palette.bright_text
+            } else {
+                palette.transparent
+            };
 
             icons.push(
                 Button {
@@ -70,10 +63,10 @@ impl From<ActivityBar> for Widget {
                         .border(indicator_color, 0.0)
                         .into(),
                     ),
-                    on_press: Some(ActionEnvelope {
-                        id: set_section_id,
-                        payload: serde_json::to_vec(&SetSidebarSection(*section)).unwrap(),
-                    }),
+                    on_press: Some(ctx.bind(
+                        SetSidebarSection(*section),
+                        reduce_with!(on_select_sidebar_section),
+                    )),
                     width: Some(ACTIVITY_BAR_WIDTH),
                     height: Some(ACTIVITY_BAR_WIDTH),
                     padding: Some([tokens.spacing.none; 4]),
@@ -88,7 +81,7 @@ impl From<ActivityBar> for Widget {
             ..Default::default()
         })
         .width(ACTIVITY_BAR_WIDTH)
-        .bg(ACTIVITY_BAR_BG)
+        .bg(palette.activity_bar_bg)
         .flex_shrink(0.0)
         .into()
     }

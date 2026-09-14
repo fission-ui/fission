@@ -33,23 +33,133 @@ impl EditorState {
         }
     }
 
+    /// Opens `path` in a tab. An already open file is focused straight away;
+    /// otherwise the read is queued and the tab appears when it completes.
     pub fn open_file(&mut self, path: String) {
-        // Check if already open
         if let Some(idx) = self.open_tabs.iter().position(|t| t.path == path) {
             self.active_tab = idx;
             self.update_breadcrumb();
             return;
         }
+        let already_queued = self
+            .pending_fs
+            .iter()
+            .any(|request| matches!(&request.op, FsOp::Open { path: queued } if *queued == path));
+        if !already_queued {
+            self.queue_fs(FsOp::Open { path });
+        }
+    }
 
-        let file_size = std::fs::metadata(&path).map(|meta| meta.len()).unwrap_or(0);
-        let document_mode = classify_document_mode_for_size(file_size);
+    /// Queues a file operation for `EditorApp` to run through `FS_JOB`.
+    pub fn queue_fs(&mut self, op: FsOp) -> u64 {
+        let id = self.next_fs_id;
+        self.next_fs_id += 1;
+        self.pending_fs.push(FsRequest { id, op });
+        id
+    }
 
-        // Store the file's modification time for external-change detection
-        if let Ok(meta) = std::fs::metadata(&path) {
-            if let Ok(mtime) = meta.modified() {
-                self.file_mtimes.insert(path.clone(), mtime);
+    /// Applies a completed file operation.
+    pub fn apply_fs_outcome(&mut self, outcome: FsOutcome) {
+        self.pending_fs.retain(|request| request.id != outcome.id);
+        match outcome.result {
+            FsResult::Opened {
+                path,
+                size,
+                content,
+                window,
+            } => self.apply_opened(path, size, content, window),
+            FsResult::Saved { path, all } => {
+                if let Some(tab) = self.open_tabs.iter_mut().find(|tab| tab.path == path) {
+                    tab.is_dirty = false;
+                }
+                self.status_message = Some(if all {
+                    "All files saved".to_string()
+                } else {
+                    format!("Saved {}", path)
+                });
+            }
+            FsResult::CreatedFile { path } => {
+                if let Some(parent) = Path::new(&path).parent() {
+                    self.tree_expanded
+                        .insert(parent.to_string_lossy().to_string());
+                }
+                self.status_message = Some(format!("Created {}", path));
+                self.request_tree_refresh();
+                self.tree_selected = Some(path.clone());
+                self.open_file(path);
+            }
+            FsResult::CreatedFolder { path } => {
+                self.status_message = Some(format!("Created folder {}", path));
+                self.request_tree_refresh();
+                self.tree_selected = Some(path.clone());
+                if let Some(parent) = Path::new(&path).parent() {
+                    self.tree_expanded
+                        .insert(parent.to_string_lossy().to_string());
+                }
+                self.start_rename(path);
+            }
+            FsResult::Renamed { from, to } => {
+                let new_name = Path::new(&to)
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .unwrap_or(&to)
+                    .to_string();
+                for tab in &mut self.open_tabs {
+                    if tab.path == from {
+                        tab.path = to.clone();
+                        tab.title = new_name.clone();
+                    }
+                }
+                if let Some(buf) = self.file_contents.remove(&from) {
+                    self.file_contents.insert(to.clone(), buf);
+                }
+                if self.tree_expanded.remove(&from) {
+                    self.tree_expanded.insert(to.clone());
+                }
+                if self.tree_selected.as_deref() == Some(&from) {
+                    self.tree_selected = Some(to.clone());
+                }
+                self.request_tree_refresh();
+                self.update_breadcrumb();
+                self.status_message = Some(format!("Renamed to '{}'", new_name));
+            }
+            FsResult::Deleted { path } => {
+                let removed = |candidate: &str| Path::new(candidate).starts_with(&path);
+                self.open_tabs.retain(|tab| !removed(&tab.path));
+                self.active_tab = self.active_tab.min(self.open_tabs.len().saturating_sub(1));
+                self.file_contents.retain(|open, _| !removed(open));
+                self.tree_expanded.retain(|expanded| !removed(expanded));
+                if self.tree_selected.as_deref().is_some_and(removed) {
+                    self.tree_selected = None;
+                }
+                let name = Path::new(&path)
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .unwrap_or(&path)
+                    .to_string();
+                self.request_tree_refresh();
+                self.update_breadcrumb();
+                self.status_message = Some(format!("Deleted '{}'", name));
             }
         }
+    }
+
+    /// Records a failed file operation.
+    pub fn apply_fs_failure(&mut self, failure: FsFailure) {
+        self.pending_fs.retain(|request| request.id != failure.id);
+        self.status_message = Some(failure.message);
+    }
+
+    /// Opens a file the filesystem job has read, in a new tab.
+    fn apply_opened(
+        &mut self,
+        path: String,
+        size: u64,
+        loaded: Option<String>,
+        window: Option<FileWindow>,
+    ) {
+        let file_size = size;
+        let document_mode = classify_document_mode_for_size(file_size);
 
         let ext = Path::new(&path)
             .extension()
@@ -67,32 +177,16 @@ impl EditorState {
             .unwrap_or(&path)
             .to_string();
 
-        let (content, backing) = match document_mode {
-            DocumentMode::Huge => {
+        let (content, backing) = match (window, loaded) {
+            (Some(window), _) => {
+                // The job already read the first window, so the source starts from it.
                 let source = Arc::new(Mutex::new(FileWindowSource::new(path.clone(), file_size)));
-                let window = source
-                    .lock()
-                    .ok()
-                    .and_then(|mut src| src.current_window().ok())
-                    .unwrap_or(FileWindow {
-                        start_byte: 0,
-                        end_byte: 0,
-                        size_bytes: file_size,
-                        start_line: 0,
-                        end_line: 0,
-                        content: String::new(),
-                        has_more_before: false,
-                        has_more_after: false,
-                    });
                 (
                     window.content.clone(),
                     DocumentBacking::FileWindow { source, window },
                 )
             }
-            DocumentMode::Normal | DocumentMode::Large => (
-                std::fs::read_to_string(&path).unwrap_or_else(|_| String::new()),
-                DocumentBacking::InMemory,
-            ),
+            (None, loaded) => (loaded.unwrap_or_default(), DocumentBacking::InMemory),
         };
 
         let buffer = fission::text_engine::TextBuffer::from_str(&content);
@@ -266,98 +360,84 @@ impl EditorState {
     pub fn save_active_file(&mut self) {
         if let Some(tab) = self.open_tabs.get(self.active_tab) {
             let path = tab.path.clone();
-            let huge_reload = self
-                .file_contents
-                .get(&path)
-                .and_then(|buf| match &buf.backing {
-                    DocumentBacking::FileWindow { source, window } => {
-                        Some((source.clone(), window.start_line))
-                    }
-                    DocumentBacking::InMemory => None,
-                });
-
-            let save_ok = if let Some((source, _)) = &huge_reload {
-                source
-                    .lock()
-                    .ok()
-                    .and_then(|mut src| src.save_with_patches().ok())
-                    .is_some()
-            } else if let Some(buf) = self.file_contents.get(&path) {
-                std::fs::write(&path, buf.content()).is_ok()
-            } else {
-                false
-            };
-
-            if save_ok {
-                if let Some((source, start_line)) = huge_reload {
-                    let reloaded = source
-                        .lock()
-                        .ok()
-                        .and_then(|mut src| src.load_window_for_line(start_line).ok());
-                    if let Some(reloaded) = reloaded {
-                        if let Some(buf) = self.file_contents.get_mut(&path) {
-                            if let DocumentBacking::FileWindow { window, .. } = &mut buf.backing {
-                                *window = reloaded.clone();
-                            }
-                            buf.sync_content(&reloaded.content);
-                        }
-                    }
-                }
+            if self.save_windowed(&path) {
                 if let Some(tab) = self.open_tabs.get_mut(self.active_tab) {
                     tab.is_dirty = false;
                 }
                 self.status_message = Some(format!("Saved {}", path));
-            } else {
-                self.status_message = Some(format!("Failed to save {}", path));
+            } else if let Some(buf) = self.file_contents.get(&path) {
+                let content = buf.content();
+                self.queue_fs(FsOp::Save {
+                    path,
+                    content,
+                    all: false,
+                });
             }
         }
     }
 
     pub fn save_all_files(&mut self) {
+        let mut queued = false;
         for i in 0..self.open_tabs.len() {
-            if self.open_tabs[i].is_dirty {
-                let path = self.open_tabs[i].path.clone();
-                let huge_reload =
-                    self.file_contents
-                        .get(&path)
-                        .and_then(|buf| match &buf.backing {
-                            DocumentBacking::FileWindow { source, window } => {
-                                Some((source.clone(), window.start_line))
-                            }
-                            DocumentBacking::InMemory => None,
-                        });
-                let save_ok = if let Some((source, _)) = &huge_reload {
-                    source
-                        .lock()
-                        .ok()
-                        .and_then(|mut src| src.save_with_patches().ok())
-                        .is_some()
-                } else if let Some(buf) = self.file_contents.get(&path) {
-                    std::fs::write(&path, buf.content()).is_ok()
-                } else {
-                    false
-                };
-                if save_ok {
-                    if let Some((source, start_line)) = huge_reload {
-                        let reloaded = source
-                            .lock()
-                            .ok()
-                            .and_then(|mut src| src.load_window_for_line(start_line).ok());
-                        if let Some(reloaded) = reloaded {
-                            if let Some(buf) = self.file_contents.get_mut(&path) {
-                                if let DocumentBacking::FileWindow { window, .. } = &mut buf.backing
-                                {
-                                    *window = reloaded.clone();
-                                }
-                                buf.sync_content(&reloaded.content);
-                            }
-                        }
-                    }
-                    self.open_tabs[i].is_dirty = false;
-                }
+            if !self.open_tabs[i].is_dirty {
+                continue;
+            }
+            let path = self.open_tabs[i].path.clone();
+            if self.save_windowed(&path) {
+                self.open_tabs[i].is_dirty = false;
+            } else if let Some(buf) = self.file_contents.get(&path) {
+                let content = buf.content();
+                self.queue_fs(FsOp::Save {
+                    path,
+                    content,
+                    all: true,
+                });
+                queued = true;
             }
         }
-        self.status_message = Some("All files saved".into());
+        if !queued {
+            self.status_message = Some("All files saved".into());
+        }
+    }
+
+    /// Saves a huge file shown a window at a time, returning whether `path` is
+    /// such a file.
+    ///
+    /// These saves stay here rather than in `FS_JOB`: the pending edits live in
+    /// the shared `FileWindowSource`, which cannot be serialized into a job.
+    fn save_windowed(&mut self, path: &str) -> bool {
+        let Some((source, start_line)) =
+            self.file_contents
+                .get(path)
+                .and_then(|buf| match &buf.backing {
+                    DocumentBacking::FileWindow { source, window } => {
+                        Some((source.clone(), window.start_line))
+                    }
+                    DocumentBacking::InMemory => None,
+                })
+        else {
+            return false;
+        };
+        let saved = source
+            .lock()
+            .ok()
+            .and_then(|mut src| src.save_with_patches().ok())
+            .is_some();
+        if !saved {
+            self.status_message = Some(format!("Failed to save {}", path));
+            return true;
+        }
+        let reloaded = source
+            .lock()
+            .ok()
+            .and_then(|mut src| src.load_window_for_line(start_line).ok());
+        if let (Some(reloaded), Some(buf)) = (reloaded, self.file_contents.get_mut(path)) {
+            if let DocumentBacking::FileWindow { window, .. } = &mut buf.backing {
+                *window = reloaded.clone();
+            }
+            buf.sync_content(&reloaded.content);
+        }
+        true
     }
 
     pub fn run_search(&mut self) {
@@ -541,102 +621,17 @@ impl EditorState {
 
     /// Create a new file on disk and open it in a tab.
     #[allow(dead_code)]
+    /// Creates an empty file at `path`, or at the first free `path-N`, then
+    /// opens it.
     pub fn create_file(&mut self, path: String) {
-        if let Some(parent) = Path::new(&path).parent() {
-            let _ = std::fs::create_dir_all(parent);
-            self.tree_expanded
-                .insert(parent.to_string_lossy().to_string());
-        }
-        match std::fs::write(&path, "") {
-            Ok(_) => {
-                self.status_message = Some(format!("Created {}", path));
-                self.request_tree_refresh();
-                self.tree_selected = Some(path.clone());
-                self.open_file(path);
-            }
-            Err(e) => {
-                self.status_message = Some(format!("Failed to create file: {}", e));
-            }
-        }
+        let taken = self.open_tabs.iter().map(|tab| tab.path.clone()).collect();
+        self.queue_fs(FsOp::CreateFile { base: path, taken });
     }
 
-    /// Create a directory on disk.
-    #[allow(dead_code)]
+    /// Creates a folder at `path`, or at the first free `path-N`, then starts
+    /// renaming it.
     pub fn create_folder(&mut self, path: String) {
-        match std::fs::create_dir_all(&path) {
-            Ok(_) => {
-                self.status_message = Some(format!("Created folder {}", path));
-                self.request_tree_refresh();
-                self.tree_selected = Some(path.clone());
-                if let Some(parent) = Path::new(&path).parent() {
-                    self.tree_expanded
-                        .insert(parent.to_string_lossy().to_string());
-                }
-                self.start_rename(path);
-            }
-            Err(e) => {
-                self.status_message = Some(format!("Failed to create folder: {}", e));
-            }
-        }
-    }
-
-    /// Delete a file or folder from disk. If the file is open, close its tab.
-    #[allow(dead_code)]
-    pub fn delete_file(&mut self, path: String) {
-        let p = Path::new(&path);
-        let result = if p.is_dir() {
-            std::fs::remove_dir_all(&path)
-        } else {
-            std::fs::remove_file(&path)
-        };
-        match result {
-            Ok(_) => {
-                // Close tab if open
-                if let Some(idx) = self.open_tabs.iter().position(|t| t.path == path) {
-                    self.close_tab(idx);
-                }
-                self.file_contents.remove(&path);
-                self.request_tree_refresh();
-                self.status_message = Some(format!("Deleted {}", path));
-            }
-            Err(e) => {
-                self.status_message = Some(format!("Failed to delete: {}", e));
-            }
-        }
-    }
-
-    /// Rename a file/folder on disk and update any open tabs that reference it.
-    #[allow(dead_code)]
-    pub fn rename_file(&mut self, old: String, new_name: String) {
-        let old_path = Path::new(&old);
-        let new_path = if let Some(parent) = old_path.parent() {
-            parent.join(&new_name)
-        } else {
-            PathBuf::from(&new_name)
-        };
-        let new_path_str = new_path.to_string_lossy().to_string();
-
-        match std::fs::rename(&old, &new_path) {
-            Ok(_) => {
-                // Update open tabs
-                for tab in &mut self.open_tabs {
-                    if tab.path == old {
-                        tab.path = new_path_str.clone();
-                        tab.title = new_name.clone();
-                    }
-                }
-                // Move buffer content
-                if let Some(buf) = self.file_contents.remove(&old) {
-                    self.file_contents.insert(new_path_str.clone(), buf);
-                }
-                self.request_tree_refresh();
-                self.status_message = Some(format!("Renamed to {}", new_name));
-                self.update_breadcrumb();
-            }
-            Err(e) => {
-                self.status_message = Some(format!("Failed to rename: {}", e));
-            }
-        }
+        self.queue_fs(FsOp::CreateFolder { base: path });
     }
 
     /// Update the breadcrumb path segments from the active tab's path
@@ -667,8 +662,8 @@ impl EditorState {
         self.rename_input = name;
     }
 
-    /// Confirm the rename: move the file/folder on disk, update any open tabs,
-    /// and refresh the tree.
+    /// Confirm the rename: queues the move on disk, after which open tabs and
+    /// the tree follow the new path.
     pub fn confirm_rename(&mut self) {
         if let Some(old_path) = self.renaming_path.take() {
             let new_name = self.rename_input.trim().to_string();
@@ -681,40 +676,8 @@ impl EditorState {
                 .parent()
                 .unwrap_or(Path::new("."))
                 .to_path_buf();
-            let new_path = parent.join(&new_name);
-            let new_path_str = new_path.to_string_lossy().to_string();
-            if new_path.exists() {
-                self.status_message = Some(format!("Cannot rename: '{}' already exists", new_name));
-                return;
-            }
-            match std::fs::rename(&old_path, &new_path) {
-                Ok(()) => {
-                    // Update open tabs that reference the old path
-                    for tab in &mut self.open_tabs {
-                        if tab.path == old_path {
-                            tab.path = new_path_str.clone();
-                            tab.title = new_name.clone();
-                        }
-                    }
-                    // Move the buffer entry
-                    if let Some(buf) = self.file_contents.remove(&old_path) {
-                        self.file_contents.insert(new_path_str.clone(), buf);
-                    }
-                    // Update tree expanded set
-                    if self.tree_expanded.remove(&old_path) {
-                        self.tree_expanded.insert(new_path_str.clone());
-                    }
-                    if self.tree_selected.as_deref() == Some(&old_path) {
-                        self.tree_selected = Some(new_path_str.clone());
-                    }
-                    self.request_tree_refresh();
-                    self.update_breadcrumb();
-                    self.status_message = Some(format!("Renamed to '{}'", new_name));
-                }
-                Err(e) => {
-                    self.status_message = Some(format!("Rename failed: {}", e));
-                }
-            }
+            let to = parent.join(&new_name).to_string_lossy().to_string();
+            self.queue_fs(FsOp::Rename { from: old_path, to });
         }
     }
 
@@ -816,49 +779,6 @@ impl EditorState {
                 self.mark_active_tab_dirty();
                 self.notify_buffer_changed(&path);
                 self.status_message = Some("Pasted".into());
-            }
-        }
-    }
-
-    /// Check open files for external modifications.
-    ///
-    /// For each open tab, compare the file's current mtime against the stored
-    /// value.  If the file was modified externally and the buffer is clean,
-    /// reload its contents automatically.  If the buffer is dirty, set a
-    /// status-bar warning instead of silently overwriting the user's edits.
-    #[allow(dead_code)]
-    pub fn check_external_changes(&mut self) {
-        for tab in &self.open_tabs {
-            let path = &tab.path;
-            let Ok(meta) = std::fs::metadata(path) else {
-                continue;
-            };
-            let Ok(current_mtime) = meta.modified() else {
-                continue;
-            };
-
-            let changed = match self.file_mtimes.get(path) {
-                Some(stored) => current_mtime != *stored,
-                None => false,
-            };
-
-            if !changed {
-                continue;
-            }
-
-            // Update stored mtime regardless of dirty state
-            self.file_mtimes.insert(path.clone(), current_mtime);
-
-            if tab.is_dirty {
-                self.status_message = Some(format!("File changed on disk: {}", path));
-            } else {
-                // Reload content from disk
-                if let Ok(new_content) = std::fs::read_to_string(path) {
-                    if let Some(buf) = self.file_contents.get_mut(path) {
-                        buf.sync_content(&new_content);
-                        self.notify_buffer_changed(path);
-                    }
-                }
             }
         }
     }

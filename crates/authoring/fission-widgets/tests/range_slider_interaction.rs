@@ -1,9 +1,10 @@
+use fission_core::authoring::lower_widget;
 use fission_core::event::{KeyCode, KeyEvent, PointerButton, PointerEvent, PointerId, PointerKind};
 use fission_core::input::range_slider::{
     prepare_range_slider_change, RangeSliderChangeSource, RangeSliderController,
     RangeSliderControllerContext, RangeSliderStateMap, RangeSliderThumb,
 };
-use fission_core::internal::{build_layout_tree, lower_widget};
+use fission_core::internal::build_layout_tree;
 use fission_core::{
     ActionEnvelope, ActionId, ActionInput, Env, InputEvent, InteractionStateMap, RuntimeState,
     ScrollStateMap,
@@ -24,17 +25,17 @@ fn lower(range: RangeSlider) -> (fission_ir::CoreIR, fission_layout::LayoutSnaps
     let widget = range.into();
     let env = Env::default();
     let runtime = RuntimeState::default();
-    let mut cx = fission_core::internal::InternalLoweringCx::new(&env, &runtime, None, None);
+    let mut cx = fission_core::internal::LoweringContext::new(&env, &runtime, None, None);
     let root = lower_widget(&widget, &mut cx);
-    cx.ir.root = Some(root);
-    let input = build_layout_tree(&cx.ir, &env);
+    cx.set_root(root);
+    let input = build_layout_tree(cx.ir(), &env);
     let mut engine = LayoutEngine::new();
     engine.rebuild(&input).unwrap();
     let snapshot = engine
         .compute_layout(&input, root, LayoutSize::new(400.0, 80.0), &|_| 0.0)
         .unwrap();
     assert_eq!(root, expected_root);
-    (cx.ir, snapshot, root)
+    (cx.into_ir(), snapshot, root)
 }
 
 fn range() -> RangeSlider {
@@ -59,7 +60,7 @@ fn ordinary_instances_receive_distinct_implicit_control_ids() {
     let widgets = fission_core::build::enter(&mut build_ctx, &view, || {
         vec![RangeSlider::default().into(), RangeSlider::default().into()]
     });
-    let mut cx = fission_core::internal::InternalLoweringCx::new(&env, &runtime, None, None);
+    let mut cx = fission_core::internal::LoweringContext::new(&env, &runtime, None, None);
     let first = lower_widget(&widgets[0], &mut cx);
     let second = lower_widget(&widgets[1], &mut cx);
     assert_ne!(first, second);

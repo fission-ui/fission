@@ -60,7 +60,7 @@ fn test_modal_layout_cramping() {
     // Helper to find container rect by text (text paint -> text layout -> container).
     let find_container_rect = |text: &str| -> fission_layout::LayoutRect {
         for (_id, node) in &ir.nodes {
-            if let fission_ir::Op::Paint(fission_ir::PaintOp::DrawText { text: t, .. }) = &node.op {
+            if let Some(t) = node.op.text() {
                 if t == text {
                     let text_layout_id = node.parent.expect("text layout parent");
                     let container_id = ir
@@ -153,7 +153,7 @@ fn test_compose_form_spacing() {
 
     let find_y = |text: &str| -> f32 {
         for (id, node) in &ir.nodes {
-            if let fission_ir::Op::Paint(fission_ir::PaintOp::DrawText { text: t, .. }) = &node.op {
+            if let Some(t) = node.op.text() {
                 if t == text {
                     return snap.get_node_geometry(*id).unwrap().rect.y();
                 }
@@ -255,10 +255,9 @@ fn test_multi_modal_stacking() {
     // Expected: Content -> Backdrop1 -> Modal1 -> Backdrop2 -> Modal2
 
     let mut order = Vec::new();
-    for op in dl.ops {
-        match op {
-            fission_render::DisplayOp::DrawText { text, .. } => order.push(text),
-            _ => {}
+    for op in &dl.ops {
+        if let Some(text) = op.text() {
+            order.push(text.into_owned());
         }
     }
 

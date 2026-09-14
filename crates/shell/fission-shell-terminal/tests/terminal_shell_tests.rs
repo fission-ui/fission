@@ -155,10 +155,13 @@ fn terminal_verifier_documents_supported_and_unsupported_ir_shapes() {
                 start: (0.0, 0.0),
                 end: (1.0, 1.0),
                 stops: vec![(0.0, Color::BLACK), (1.0, Color::WHITE)],
+                extend: Default::default(),
             }),
             stroke: None,
             corner_radius: 0.0,
             shadow: None,
+            corner_radii: None,
+            border_sides: None,
         }),
         Vec::new(),
     );

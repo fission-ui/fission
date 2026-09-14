@@ -1,13 +1,15 @@
 use crate::motion_support::{
-    dedupe, exit_for, fade_in, push_enter_with_exit, scale_in, slide_y_in, slot_id, SLOT_SURFACE,
+    dedupe, exit_for, fade_in, push_enter_with_exit, resolve_motion, scale_in, slide_y_in, slot_id,
+    SLOT_SURFACE,
 };
 use crate::stack::HStack;
 use crate::Icon;
 use fission_core::motion::{MotionTrack, Presence};
 use fission_core::op::Color;
-use fission_core::ui::{Button, ButtonVariant, Container, Text, Widget};
+use fission_core::ui::{Button, ButtonVariant, Container, SemanticsRegion, Text, Widget};
 use fission_core::{ActionEnvelope, WidgetId};
 use fission_icons::material;
+use fission_ir::{Role, Semantics};
 use serde::{Deserialize, Serialize};
 use std::ops::Add;
 
@@ -21,6 +23,8 @@ use std::ops::Add;
 /// let motion = Some(ToastMotion::Fade + ToastMotion::SlideFromTop);
 /// ```
 pub enum ToastMotion {
+    /// No toast-owned motion.
+    None,
     /// Curated default toast motion.
     Default,
     /// Fade the toast surface.
@@ -94,6 +98,7 @@ impl ToastMotion {
                     item.append_plan(plan);
                 }
             }
+            Self::None => {}
             Self::Custom {
                 enter,
                 exit,
@@ -146,15 +151,40 @@ pub enum ToastKind {
     Error,
 }
 
+/// How long a toast stays on screen before it asks to close.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ToastDuration {
+    /// A few seconds, long enough to read a short notification.
+    #[default]
+    Default,
+    /// Stays until closed, for a message the reader has to act on.
+    Persistent,
+    /// Stays for the given number of milliseconds.
+    Millis(u64),
+}
+
+impl ToastDuration {
+    /// The default time a toast stays on screen.
+    pub const DEFAULT_MILLIS: u64 = 5_000;
+
+    fn millis(self) -> Option<u64> {
+        match self {
+            Self::Default => Some(Self::DEFAULT_MILLIS),
+            Self::Persistent => None,
+            Self::Millis(millis) => Some(millis),
+        }
+    }
+}
+
 /// A notification message with an icon, text, and close button.
 ///
 /// Toasts are typically positioned at the top or bottom of the screen by the
 /// application. The icon and color are determined by `kind`: Info (primary),
 /// Success (check), Warning (orange triangle), or Error (red circle).
 ///
-/// The toast renders with an elevated shadow and rounded corners. It does not
-/// auto-dismiss -- the application must manage its lifecycle and remove it
-/// when `on_close` fires or after a timeout.
+/// The toast renders with an elevated shadow and rounded corners. When it has an
+/// `on_close` action it dispatches it after its [`ToastDuration`], as well as
+/// from the close button, so the application removes the toast in one place.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Toast {
     /// Stable identity used for retained motion and independent instances.
@@ -163,23 +193,45 @@ pub struct Toast {
     pub kind: ToastKind,
     /// User-facing notification text.
     pub message: String,
-    /// Optional action dispatched from the close button.
+    /// Optional action dispatched from the close button and when the duration elapses.
     pub on_close: Option<ActionEnvelope>,
-    /// Optional explicit toast motion. `None` emits no toast-owned motion declarations.
+    /// How long the toast stays before dispatching `on_close`.
+    #[serde(default)]
+    pub duration: ToastDuration,
+    /// Toast motion. `None` plays the default motion unless the app turns widget motion off.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub motion: Option<ToastMotion>,
 }
 
 impl From<Toast> for Widget {
     fn from(component: Toast) -> Self {
-        let (_, view) = fission_core::build::current::<()>();
+        let (ctx, view) = fission_core::build::current::<()>();
         let mut component = component;
         if let Some(id) = fission_core::build::current_widget_id() {
             component.id = id;
         }
         let this = &component;
 
+        // A toast that can close asks to close once its duration has elapsed. The timer belongs to
+        // this toast's identity, so it stops when the application removes the toast.
+        if let (Some(on_close), Some(millis)) = (this.on_close.clone(), this.duration.millis()) {
+            ctx.with_resources(|resources| {
+                resources.timer(
+                    fission_core::registry::TimerResource::new(
+                        fission_core::registry::ResourceKey::widget(
+                            "fission.toast.dismiss",
+                            this.id,
+                        ),
+                        std::time::Duration::from_millis(millis),
+                        (),
+                    )
+                    .on_tick(on_close),
+                )
+            });
+        }
+
         let tokens = &view.env().theme.tokens;
+        let recipe = view.env().theme.recipe(fission_theme::recipes::Toast);
 
         let (icon_path, icon_color) = match this.kind {
             ToastKind::Info => (material::action::info::regular(), tokens.colors.primary),
@@ -187,14 +239,11 @@ impl From<Toast> for Widget {
                 material::action::check_circle::regular(),
                 tokens.colors.on_background,
             ),
+            // Previously a literal orange, which ignored the design system and
+            // could not meet contrast on a surface the system chose.
             ToastKind::Warning => (
                 material::action::report_problem::regular(),
-                Color {
-                    r: 255,
-                    g: 152,
-                    b: 0,
-                    a: 255,
-                },
+                tokens.colors.warning,
             ),
             ToastKind::Error => (material::alert::error::regular(), tokens.colors.error),
         };
@@ -205,13 +254,20 @@ impl From<Toast> for Widget {
                 Icon::svg(icon_path).color(icon_color).size(20.0).into(),
                 Text::new(this.message.clone())
                     .color(tokens.colors.on_surface)
-                    .flex_grow(1.0)
                     .into(),
                 Button {
+                    // The close control is a button named for what it does; a wrapping region
+                    // would expose a generic node in its place.
+                    semantics: Some(Semantics {
+                        role: Role::Button,
+                        label: Some("Dismiss notification".into()),
+                        focusable: true,
+                        ..Semantics::default()
+                    }),
                     variant: ButtonVariant::Ghost,
                     child: Some(
                         Icon::svg(material::navigation::close::regular())
-                            .size(16.0)
+                            .size(tokens.spacing.m)
                             .into(),
                     ),
                     on_press: this.on_close.clone(),
@@ -223,9 +279,26 @@ impl From<Toast> for Widget {
         .into();
 
         let mut toast: Widget = Container::new(content)
-            .bg(tokens.colors.surface)
-            .border(tokens.colors.border, 1.0)
-            .border_radius(tokens.radii.medium)
+            .bg_fill(
+                recipe
+                    .base
+                    .background
+                    .clone()
+                    .unwrap_or(fission_core::op::Fill::Solid(tokens.colors.surface)),
+            )
+            .border(
+                recipe
+                    .base
+                    .border
+                    .as_ref()
+                    .and_then(|border| match border.fill {
+                        fission_core::op::Fill::Solid(color) => Some(color),
+                        _ => None,
+                    })
+                    .unwrap_or(tokens.colors.border),
+                recipe.base.border.as_ref().map_or(1.0, |b| b.width),
+            )
+            .border_radius(recipe.base.radius.unwrap_or(tokens.radii.medium))
             .shadow(
                 tokens
                     .elevations
@@ -243,10 +316,27 @@ impl From<Toast> for Widget {
                         offset: (0.0, 6.0),
                     }),
             )
-            .padding_all(12.0)
+            .padding_all(tokens.spacing.s)
+            // A toast hugs its message up to a readable width rather than spanning the window.
+            .max_width(420.0)
             .into();
 
-        if let Some(motion) = &this.motion {
+        // A toast appears without the reader asking for it, so it has to
+        // announce itself. Role::Alert is what carries that to AccessKit and to
+        // an ARIA live region; without it a toast is silent, which is the whole
+        // point of the widget lost.
+        toast = SemanticsRegion::new(toast)
+            .role(Role::Alert)
+            .label(this.message.clone())
+            .into();
+
+        let motion = resolve_motion(
+            &this.motion,
+            ToastMotion::Default,
+            ToastMotion::None,
+            view.env(),
+        );
+        if let Some(motion) = &motion {
             let plan = motion.plan();
             toast = Presence {
                 id: slot_id(this.id, SLOT_SURFACE),

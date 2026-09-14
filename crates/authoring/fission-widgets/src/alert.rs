@@ -5,7 +5,7 @@ use fission_core::ui::{
     ZStack,
 };
 use fission_icons::material;
-use fission_ir::{LayoutDirection, Role};
+use fission_ir::Role;
 use fission_theme::{AlertTheme, ResolvedComponentStyle};
 use serde::{Deserialize, Serialize};
 
@@ -167,14 +167,13 @@ impl From<AlertLayout> for Widget {
                 .into(),
         );
         let action = component.action;
+        // Logical [start, end, top, bottom]: the trailing action sits at the
+        // end of the row, whichever physical edge that is.
         let mut padding = style.padding_box(tokens.spacing.s, tokens.spacing.s);
         if action.is_some() {
             let reserve = theme.action_style.width.unwrap_or(64.0)
                 + theme.action_style.inset_end.unwrap_or(tokens.spacing.s);
-            match view.env().layout_direction {
-                LayoutDirection::LeftToRight => padding[1] = padding[1].max(reserve),
-                LayoutDirection::RightToLeft => padding[0] = padding[0].max(reserve),
-            }
+            padding[1] = padding[1].max(reserve);
         }
         let row: Widget = Row {
             gap: style.gap,
@@ -186,15 +185,10 @@ impl From<AlertLayout> for Widget {
         let mut layers = vec![row];
         if let Some(action) = action {
             let action_style = &theme.action_style;
-            let (left, right) = match view.env().layout_direction {
-                LayoutDirection::LeftToRight => (None, Some(action_style.inset_end.unwrap_or(8.0))),
-                LayoutDirection::RightToLeft => (Some(action_style.inset_end.unwrap_or(8.0)), None),
-            };
             layers.push(
                 Positioned {
-                    left,
+                    end: Some(action_style.inset_end.unwrap_or(8.0)),
                     top: Some(action_style.inset_top.unwrap_or(8.0)),
-                    right,
                     width: action_style.width,
                     child: Some(AlertActionRegion { child: action }.into()),
                     ..Default::default()

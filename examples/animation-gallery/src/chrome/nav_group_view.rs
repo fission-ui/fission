@@ -1,4 +1,5 @@
 use super::*;
+use crate::style;
 
 pub(super) struct NavGroupView<'a> {
     pub(super) ctx: &'a BuildCtxHandle<AnimationGalleryState>,
@@ -12,7 +13,7 @@ impl From<NavGroupView<'_>> for Widget {
         let tokens = &view.env().theme.tokens;
         let mut children = vec![Text::new(group.group.title)
             .size(tokens.typography.font_size_xs)
-            .color(MUTED)
+            .color(style::text_muted())
             .into()];
         for item in group.group.items {
             children.push(

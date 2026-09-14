@@ -169,10 +169,12 @@ pub enum PointerEvent {
     },
 }
 
-/// Platform-independent key code for keyboard events.
+/// Platform-independent key codes and modifier bits.
 ///
-/// Named keys map directly to their function. Printable characters use
-/// `Char(char)`.
+/// These live in [`fission_ir`] rather than here because a semantic node can
+/// declare a key binding, so the IR itself has to name keys. They are
+/// re-exported from this module because keyboard handling is otherwise an
+/// event-layer concern and that is where callers look for them.
 ///
 /// # Example
 ///
@@ -182,34 +184,7 @@ pub enum PointerEvent {
 ///     modifiers: 0,
 /// });
 /// ```
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub enum KeyCode {
-    Space,
-    Enter,
-    Escape,
-    Backspace,
-    Delete,
-    Tab,
-    Left,
-    Right,
-    Up,
-    Down,
-    Home,
-    End,
-    PageUp,
-    PageDown,
-    /// A printable character.
-    Char(char),
-}
-
-/// Shift modifier bit.
-pub const MOD_SHIFT: u8 = 1;
-/// Alt/Option modifier bit.
-pub const MOD_ALT: u8 = 2;
-/// Control modifier bit.
-pub const MOD_CTRL: u8 = 4;
-/// Super/Meta/Command modifier bit.
-pub const MOD_SUPER: u8 = 8;
+pub use fission_ir::{KeyBinding, KeyCode, MOD_ALT, MOD_CTRL, MOD_SHIFT, MOD_SUPER};
 
 /// A keyboard key press or release event.
 ///

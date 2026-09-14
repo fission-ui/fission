@@ -78,6 +78,15 @@ impl<'a, S: GlobalState> View<'a, S> {
         &self.env.i18n
     }
 
+    /// Returns the translation of `key` for the current locale, or `key` itself
+    /// when the active translations do not define it.
+    ///
+    /// Falling back to the key keeps a missing translation visible and
+    /// searchable instead of rendering an empty label.
+    pub fn tr(&self, key: &str) -> String {
+        self.env().tr(key)
+    }
+
     pub fn get_rect(&self, id: WidgetId) -> Option<LayoutRect> {
         let node_id: WidgetId = id.into();
         self.layout.and_then(|l| l.get_node_rect(node_id))

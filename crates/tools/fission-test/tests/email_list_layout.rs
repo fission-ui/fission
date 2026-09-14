@@ -55,7 +55,7 @@ fn test_email_list_row_layout() {
     // Find Text nodes
     let mut text_rects = Vec::new();
     for (id, node) in &ir.nodes {
-        if let fission_ir::Op::Paint(fission_ir::PaintOp::DrawText { text, .. }) = &node.op {
+        if let Some(text) = node.op.text() {
             let geom = snap.get_node_geometry(*id).unwrap();
             text_rects.push((text.clone(), geom.rect));
         }

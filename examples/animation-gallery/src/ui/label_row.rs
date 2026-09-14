@@ -1,6 +1,6 @@
 use crate::layout::LABEL_DOT_SIZE;
 use crate::state::AnimationGalleryState;
-use crate::style::{MUTED, TEAL};
+use crate::style;
 use fission::prelude::*;
 
 pub struct LabelRow<'a> {
@@ -18,10 +18,10 @@ impl From<LabelRow<'_>> for Widget {
                     .width(LABEL_DOT_SIZE)
                     .height(LABEL_DOT_SIZE)
                     .border_radius(LABEL_DOT_SIZE / 2.0)
-                    .bg(TEAL),
+                    .bg(style::success()),
                 Text::new(row.label)
                     .size(tokens.typography.font_size_xs)
-                    .color(MUTED),
+                    .color(style::text_muted()),
             ],
             ..Default::default()
         }

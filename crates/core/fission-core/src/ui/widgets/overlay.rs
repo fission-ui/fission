@@ -1,5 +1,5 @@
-use crate::internal::InternalLower;
-use crate::lowering::{wrap_zstack_child, InternalIrBuilder, InternalLoweringCx};
+use crate::authoring::Lower;
+use crate::lowering::{wrap_zstack_child, IrBuilder, LoweringContext};
 use crate::ui::{Text, TextContent, Widget};
 use fission_ir::{LayoutOp, Op, WidgetId};
 use serde::{Deserialize, Serialize};
@@ -48,75 +48,74 @@ impl Default for Overlay {
     }
 }
 
-impl InternalLower for Overlay {
-    fn lower(&self, cx: &mut InternalLoweringCx) -> WidgetId {
+impl Lower for Overlay {
+    fn lower(&self, cx: &mut LoweringContext) -> WidgetId {
         let id = self.id.map(Into::into).unwrap_or_else(|| cx.next_node_id());
 
-        cx.push_scope(id);
+        let root = cx.with_scope(id, |cx| {
+            // Build overlay child in its own scope to avoid ID collisions
+            // with the content tree.
+            let overlay_scope = cx.next_node_id();
+            let overlay_child_id = cx.with_scope(overlay_scope, |cx| self.overlay.lower(cx));
+            let mut overlay_fill =
+                IrBuilder::new(cx.next_node_id(), Op::Layout(LayoutOp::AbsoluteFill));
+            overlay_fill.add_child(overlay_child_id);
+            let overlay_fill_id = overlay_fill.build(cx);
 
-        // Build overlay child in its own scope to avoid ID collisions
-        // with the content tree.
-        let overlay_scope = cx.next_node_id();
-        cx.push_scope(overlay_scope);
-        let overlay_child_id = self.overlay.lower(cx);
-        cx.pop_scope();
-        let mut overlay_fill =
-            InternalIrBuilder::new(cx.next_node_id(), Op::Layout(LayoutOp::AbsoluteFill));
-        overlay_fill.add_child(overlay_child_id);
-        let overlay_fill_id = overlay_fill.build(cx);
+            // Stack container: content first, overlay second.
+            let stack_id = cx.next_node_id();
+            let content_id = self.content.lower(cx);
+            let (content_wrapped, overlay_wrapped) = cx.with_scope(stack_id, |cx| {
+                let content_wrapped = wrap_zstack_child(cx, content_id);
+                let overlay_wrapped = wrap_zstack_child(cx, overlay_fill_id);
+                (content_wrapped, overlay_wrapped)
+            });
 
-        // Stack container: content first, overlay second.
-        let stack_id = cx.next_node_id();
-        let content_id = self.content.lower(cx);
-        cx.push_scope(stack_id);
-        let content_wrapped = wrap_zstack_child(cx, content_id);
-        let overlay_wrapped = wrap_zstack_child(cx, overlay_fill_id);
-        cx.pop_scope();
+            let mut stack = IrBuilder::new(stack_id, Op::Layout(LayoutOp::ZStack));
+            stack.add_child(content_wrapped);
+            stack.add_child(overlay_wrapped);
+            let stack_id = stack.build(cx);
 
-        let mut stack = InternalIrBuilder::new(stack_id, Op::Layout(LayoutOp::ZStack));
-        stack.add_child(content_wrapped);
-        stack.add_child(overlay_wrapped);
-        let stack_id = stack.build(cx);
+            // Ensure the stack fills available space so overlay AbsoluteFill can cover
+            // the full viewport even when content is small.
+            let mut stack_wrapper = IrBuilder::new(
+                cx.next_node_id(),
+                Op::Layout(LayoutOp::Box {
+                    width: None,
+                    height: None,
+                    min_width: None,
+                    max_width: None,
+                    min_height: None,
+                    max_height: None,
+                    padding: [0.0; 4],
+                    flex_grow: 1.0,
+                    flex_shrink: 1.0,
+                    aspect_ratio: None,
+                }),
+            );
+            stack_wrapper.add_child(stack_id);
+            let stack_wrapper_id = stack_wrapper.build(cx);
 
-        // Ensure the stack fills available space so overlay AbsoluteFill can cover
-        // the full viewport even when content is small.
-        let mut stack_wrapper = InternalIrBuilder::new(
-            cx.next_node_id(),
-            Op::Layout(LayoutOp::Box {
-                width: None,
-                height: None,
-                min_width: None,
-                max_width: None,
-                min_height: None,
-                max_height: None,
-                padding: [0.0; 4],
-                flex_grow: 1.0,
-                flex_shrink: 1.0,
-                aspect_ratio: None,
-            }),
-        );
-        stack_wrapper.add_child(stack_id);
-        let stack_wrapper_id = stack_wrapper.build(cx);
+            // Wrap ZStack in a Flex container with flex_grow = 1.0
+            // Flex defaults to stretching children, unlike Box which centers.
+            let mut root = IrBuilder::new(
+                id,
+                Op::Layout(LayoutOp::Flex {
+                    direction: fission_ir::FlexDirection::Column,
+                    wrap: fission_ir::FlexWrap::NoWrap,
+                    flex_grow: 1.0,
+                    flex_shrink: 1.0,
+                    padding: [0.0; 4],
+                    gap: None,
+                    line_gap: None,
+                    align_items: fission_ir::op::AlignItems::Stretch,
+                    justify_content: fission_ir::op::JustifyContent::Start,
+                }),
+            );
+            root.add_child(stack_wrapper_id);
 
-        // Wrap ZStack in a Flex container with flex_grow = 1.0
-        // Flex defaults to stretching children, unlike Box which centers.
-        let mut root = InternalIrBuilder::new(
-            id,
-            Op::Layout(LayoutOp::Flex {
-                direction: fission_ir::FlexDirection::Column,
-                wrap: fission_ir::FlexWrap::NoWrap,
-                flex_grow: 1.0,
-                flex_shrink: 1.0,
-                padding: [0.0; 4],
-                gap: None,
-                line_gap: None,
-                align_items: fission_ir::op::AlignItems::Stretch,
-                justify_content: fission_ir::op::JustifyContent::Start,
-            }),
-        );
-        root.add_child(stack_wrapper_id);
-
-        cx.pop_scope();
+            root
+        });
 
         root.build(cx)
     }

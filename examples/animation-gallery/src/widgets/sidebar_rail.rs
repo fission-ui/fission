@@ -1,5 +1,5 @@
 use crate::state::AnimationGalleryState;
-use crate::style::{BORDER, INK, MUTED, SURFACE};
+use crate::style;
 use fission::prelude::*;
 
 const COLLAPSED_WIDTH: f32 = 120.0;
@@ -20,13 +20,13 @@ impl From<SidebarRail> for Widget {
             children: widgets![
                 Text::new("Inbox")
                     .size(tokens.typography.font_size_sm)
-                    .color(INK),
+                    .color(style::text_primary()),
                 Text::new("Archive")
                     .size(tokens.typography.font_size_sm)
-                    .color(MUTED),
+                    .color(style::text_muted()),
                 Text::new("Settings")
                     .size(tokens.typography.font_size_sm)
-                    .color(MUTED),
+                    .color(style::text_muted()),
             ],
             ..Default::default()
         })
@@ -34,8 +34,8 @@ impl From<SidebarRail> for Widget {
         .height(RAIL_HEIGHT)
         .padding_all(tokens.spacing.s)
         .border_radius(tokens.radii.xl)
-        .border(BORDER, 1.0)
-        .bg(SURFACE)
+        .border(style::border(), 1.0)
+        .bg(style::surface())
         .into()
     }
 }

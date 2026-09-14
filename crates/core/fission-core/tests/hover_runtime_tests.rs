@@ -241,3 +241,37 @@ fn clear_hover_state_dispatches_exit_once() -> Result<()> {
 
     Ok(())
 }
+
+#[test]
+fn hover_follows_layout_changes_beneath_a_stationary_pointer() -> Result<()> {
+    let mut runtime = Runtime::default();
+    register_hover_reducers(&mut runtime)?;
+    let (ir, layout) = build_hover_ir();
+    let inner_id = WidgetId::explicit("inner");
+    let outer_id = WidgetId::explicit("outer");
+
+    move_pointer(&mut runtime, &ir, &layout, 20.0, 20.0);
+    assert!(runtime.runtime_state.interaction.is_hovered(inner_id));
+
+    // The inner element moves away while the pointer stays still, as after a rebuild that
+    // reorders content or reuses an identity.
+    let mut moved = layout.clone();
+    moved.nodes.insert(
+        inner_id,
+        LayoutNodeGeometry {
+            rect: LayoutRect::new(60.0, 60.0, 30.0, 30.0),
+            content_size: LayoutSize::new(30.0, 30.0),
+        },
+    );
+    runtime.post_layout_hook(&ir, &moved);
+
+    assert!(
+        !runtime.runtime_state.interaction.is_hovered(inner_id),
+        "a widget that moved out from under the pointer is no longer hovered"
+    );
+    assert!(runtime.runtime_state.interaction.is_hovered(outer_id));
+    let hover = runtime.get_app_state::<HoverState>().expect("hover state");
+    assert_eq!(hover.inner_exit, 1, "the widget that left is exited once");
+    assert_eq!(hover.outer_exit, 0);
+    Ok(())
+}

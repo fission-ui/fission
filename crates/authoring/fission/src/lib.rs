@@ -381,7 +381,7 @@ pub use fission_core::{
 };
 
 // Core env types
-pub use fission_core::env::{Env, LayoutDirection, MotionPreference};
+pub use fission_core::env::{Env, LayoutDirection, MotionPreference, WidgetMotion};
 
 // IR op types (Color, LayoutOp, PaintOp, etc.)
 pub use fission_ir::op;
@@ -525,8 +525,9 @@ pub mod prelude {
     pub use fission_3d::*;
     #[cfg(feature = "charts")]
     pub use fission_charts::*;
-    #[cfg(feature = "store")]
-    pub use fission_store::*;
+
+    // Store items reach the prelude through `fission_core::public`, which
+    // re-exports `fission_store` whenever the `store` feature is on.
     #[cfg(any(feature = "store-sqlite-native", feature = "store-sqlite-web"))]
     pub use fission_store_sqlite::*;
 
@@ -551,7 +552,7 @@ pub mod prelude {
     pub use fission_widgets::*;
 
     // Actions
-    pub use fission_core::env::{Env, LayoutDirection, MotionPreference};
+    pub use fission_core::env::{Env, LayoutDirection, MotionPreference, WidgetMotion};
     pub use fission_core::event::{
         InputEvent, KeyCode, KeyEvent, PointerButton, PointerEvent, PointerId, PointerKind,
         PointerPhase, ScrollDeltaMode,

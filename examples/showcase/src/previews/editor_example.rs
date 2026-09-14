@@ -15,7 +15,6 @@ impl From<EditorExample> for Widget {
             EditorApp,
         )
         .with_state(editor_example::embedded_state)
-        .with_env(editor_example::configure_embedded_env)
         .into()
     }
 }

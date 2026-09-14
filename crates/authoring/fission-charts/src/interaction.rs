@@ -128,6 +128,8 @@ impl ChartBrush {
         }
     }
 
+    /// The region the brush shows before anyone drags one, in fractions of the
+    /// plot. Dragging across the plot replaces it, and a click clears it.
     pub fn preview_rect(mut self, x: f32, y: f32, width: f32, height: f32) -> Self {
         self.preview_rect = Some((x, y, width, height));
         self
@@ -320,5 +322,150 @@ impl ChartInteractionEvent {
 impl Action for ChartInteractionEvent {
     fn static_id() -> ActionId {
         ActionId::from_name("fission_charts::ChartInteractionEvent")
+    }
+}
+
+/// A pointer position over a chart, in the chart's local coordinates, and the
+/// series item under it if there is one.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ChartHover {
+    pub x: f32,
+    pub y: f32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hit: Option<ChartHit>,
+}
+
+impl ChartHover {
+    /// A hover at `x`, `y` with no item under it; axis tooltips still show.
+    pub fn at(x: f32, y: f32) -> Self {
+        Self { x, y, hit: None }
+    }
+}
+
+/// Records a pointer move over a chart in the chart's own hover state.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct ChartHoverChanged;
+
+impl Action for ChartHoverChanged {
+    fn static_id() -> ActionId {
+        ActionId::from_name("fission_charts::ChartHoverChanged")
+    }
+}
+
+/// Clears a chart's hover state when the pointer leaves it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct ChartHoverCleared;
+
+impl Action for ChartHoverCleared {
+    fn static_id() -> ActionId {
+        ActionId::from_name("fission_charts::ChartHoverCleared")
+    }
+}
+
+/// Records a press on a legend entry in the chart's own legend state.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct ChartLegendToggled {
+    /// The pressed entry's series name.
+    pub series: String,
+    /// Every series name, in order, for isolating one series.
+    pub all: Vec<String>,
+    pub mode: ChartLegendSelectionMode,
+}
+
+impl Action for ChartLegendToggled {
+    fn static_id() -> ActionId {
+        ActionId::from_name("fission_charts::ChartLegendToggled")
+    }
+}
+
+/// Changes a chart's data-zoom window, or starts or ends a drag of it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) enum ChartZoomChanged {
+    /// Shows `start` to `end` percent of the category range.
+    Window {
+        start: f32,
+        end: f32,
+    },
+    /// A drag of the slider window began at `anchor_x`, with the window at `start` to `end`.
+    DragStarted {
+        anchor_x: f32,
+        start: f32,
+        end: f32,
+    },
+    DragEnded,
+}
+
+impl Action for ChartZoomChanged {
+    fn static_id() -> ActionId {
+        ActionId::from_name("fission_charts::ChartZoomChanged")
+    }
+}
+
+/// Moves a chart's keyboard selection to a category, or clears it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct ChartKeyboardSelected(pub Option<usize>);
+
+impl Action for ChartKeyboardSelected {
+    fn static_id() -> ActionId {
+        ActionId::from_name("fission_charts::ChartKeyboardSelected")
+    }
+}
+
+/// Starts, extends or ends a drag of a chart's brush, in fractions of the plot.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) enum ChartBrushChanged {
+    /// A drag began at `x`, `y`.
+    Started { x: f32, y: f32 },
+    /// The drag now covers this region.
+    Moved {
+        x: f32,
+        y: f32,
+        width: f32,
+        height: f32,
+    },
+    /// The drag finished. A region too small to see is cleared.
+    Ended,
+}
+
+impl Action for ChartBrushChanged {
+    fn static_id() -> ActionId {
+        ActionId::from_name("fission_charts::ChartBrushChanged")
+    }
+}
+
+/// The items a brush covers, sent to a chart's brush callback when a drag ends.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ChartBrushSelection {
+    /// Stable retained identity of the chart that was brushed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_id: Option<fission_core::WidgetId>,
+    /// The brushed region in fractions of the plot: x, y, width and height.
+    /// `None` when the drag cleared the brush.
+    pub region: Option<(f32, f32, f32, f32)>,
+    /// The series items inside the region, in series then data order.
+    pub items: Vec<ChartHit>,
+}
+
+impl ChartBrushSelection {
+    /// Versioned schema name used by component-bound brush input.
+    pub const EVENT_TYPE: &'static str = "fission.chart.brush.v1";
+
+    /// Decodes the brush selection accompanying a chart's brush callback.
+    pub fn from_action_input(
+        input: &fission_core::ActionInput,
+    ) -> Option<(fission_core::WidgetId, Self)> {
+        let (source, mut selection): (_, Self) =
+            input.decode_component_interaction(Self::EVENT_TYPE)?;
+        if selection.source_id.is_some_and(|encoded| encoded != source) {
+            return None;
+        }
+        selection.source_id = Some(source);
+        Some((source, selection))
+    }
+}
+
+impl Action for ChartBrushSelection {
+    fn static_id() -> ActionId {
+        ActionId::from_name("fission_charts::ChartBrushSelection")
     }
 }

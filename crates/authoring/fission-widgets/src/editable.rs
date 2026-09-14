@@ -1,4 +1,4 @@
-use fission_core::ui::{Button, ButtonVariant, Text, TextInput, Widget};
+use fission_core::ui::{Button, ButtonVariant, SemanticsRegion, Text, TextInput, Widget};
 use fission_core::{ActionEnvelope, WidgetId};
 use serde::{Deserialize, Serialize};
 
@@ -53,7 +53,10 @@ impl From<Editable> for Widget {
             }
             .into()
         } else {
-            Button {
+            // In its resting state this is a value you can edit, not a plain
+            // button. Saying so, and reporting the value, is the difference
+            // between "Edit name, Ada" and an unexplained press target.
+            SemanticsRegion::new(Button {
                 variant: ButtonVariant::Ghost,
                 child: Some(
                     Text::new(if this.value.is_empty() {
@@ -65,7 +68,9 @@ impl From<Editable> for Widget {
                 ),
                 on_press: this.on_edit.clone(),
                 ..Default::default()
-            }
+            })
+            .label(format!("Edit {}", this.placeholder))
+            .value(this.value.clone())
             .into()
         }
     }

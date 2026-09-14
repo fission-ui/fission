@@ -1,3 +1,8 @@
+#[path = "runtime_hover.rs"]
+mod runtime_hover;
+#[path = "runtime_text_focus.rs"]
+mod text_focus;
+
 use crate::action::{Action, ActionEnvelope, ActionId, GlobalState};
 use crate::async_runtime::ServiceStopPayload;
 use crate::effect::{
@@ -18,7 +23,7 @@ use crate::{
 use anyhow::{anyhow, Context, Result};
 use fission_diagnostics::prelude as diag;
 use fission_ir::{CoreIR, FlexDirection, FocusPolicy, LayoutOp, Op, WidgetId};
-use fission_layout::{LayoutPoint, LayoutRect, LayoutSize, LayoutSnapshot, TextMeasurer};
+use fission_layout::{LayoutPoint, LayoutRect, LayoutSnapshot, TextMeasurer};
 use serde_json;
 use std::any::TypeId;
 use std::collections::{HashMap, HashSet};
@@ -1213,6 +1218,13 @@ impl Runtime {
     /// so an unmounted widget's state cannot affect the replacement tree's
     /// first frame.
     pub fn reconcile_ir(&mut self, ir: &CoreIR) {
+        // A text field that has left the tree, such as one in a closed dialog, drops its editing
+        // session, so when it returns it is new rather than already visited and flagged invalid.
+        // Text meant to survive removal is kept by its restoration id, not its session.
+        self.runtime_state
+            .text_edit
+            .states
+            .retain(|id, _| ir.nodes.contains_key(id));
         self.runtime_state.viewport.reconcile(ir);
         self.runtime_state.range_slider.reconcile(ir);
         crate::selection::reconcile_selection_state(&mut self.runtime_state.selectable_text, ir);
@@ -1255,7 +1267,8 @@ impl Runtime {
         // yet adopted the pre-layout reconciliation hook. Production shells
         // call `reconcile_ir` before layout, making this pass idempotent.
         self.reconcile_ir(ir);
-        let mut needs_follow_up_frame = self.apply_pending_scroll_into_view(ir, layout);
+        let mut needs_follow_up_frame = self.refresh_hover_state(ir, layout);
+        needs_follow_up_frame |= self.apply_pending_scroll_into_view(ir, layout);
         needs_follow_up_frame |= self.reveal_new_active_descendants(ir, layout);
         needs_follow_up_frame |= self.apply_pending_selection_regions(ir);
         needs_follow_up_frame |= self.apply_pending_text_editing(ir, layout);
@@ -1539,6 +1552,7 @@ impl Runtime {
         use crate::ui::custom_render::downcast_render_object;
 
         self.reconcile_focus(ir)?;
+        crate::input::update_focus_modality(&mut self.runtime_state.interaction, &event);
         let cancelled_pointer_sequence = crate::input::gesture::cancel_unavailable_pointer_sequence(
             ir,
             &mut self.runtime_state.gesture,
@@ -1815,11 +1829,9 @@ impl Runtime {
                         .find(|entry| {
                             entry.trigger == fission_ir::semantics::ActionTrigger::Default
                         })
-                        .and_then(|entry| {
-                            entry.payload_data.as_ref().map(|payload| ActionEnvelope {
-                                id: ActionId::from_u128(entry.action_id),
-                                payload: payload.clone(),
-                            })
+                        .map(|entry| ActionEnvelope {
+                            id: ActionId::from_u128(entry.action_id),
+                            payload: entry.payload_data.clone().unwrap_or_default(),
                         }),
                     _ => None,
                 });
@@ -2138,293 +2150,339 @@ impl Runtime {
             InputEvent::Keyboard(KeyEvent::Down {
                 key_code,
                 modifiers,
-            }) => match key_code {
-                KeyCode::Tab => {
-                    let reverse = (modifiers & 1) != 0;
-                    let old_focus = self.runtime_state.interaction.focused;
-                    if let Some((controller, popup, dismiss)) = old_focus.and_then(|focused| {
-                        crate::hit_test::controlled_popup_dismissal_for_descendant(ir, focused)
-                    }) {
-                        self.runtime_state
-                            .interaction
-                            .clear_active_descendant(controller);
-                        let next = crate::hit_test::next_focus_outside_controlled_popup(
-                            ir, controller, popup, reverse,
-                        );
-                        if let Some(frame) = self
-                            .focus_barriers
-                            .iter_mut()
-                            .rev()
-                            .find(|frame| frame.id == popup)
-                        {
-                            // Tab is an explicit traversal out of a transient
-                            // popup. Preserve that destination when the next
-                            // rebuild removes the popup's focus barrier instead
-                            // of restoring the control that originally opened it.
-                            frame.restore_target = next;
-                        }
-                        let input = crate::input::scoped_action_input(ir, popup, ActionInput::None);
-                        self.dispatch_node_with_input(
-                            ActionEnvelope {
-                                id: ActionId::from_u128(dismiss.action_id),
-                                payload: dismiss.payload_data.unwrap_or_default(),
-                            },
-                            popup,
-                            &input,
-                        )?;
-                        if next != old_focus {
-                            self.set_focused_widget(ir, next, crate::TextEditSource::Keyboard)?;
-                        }
-                    } else {
-                        let next = find_next_focus_node(
-                            ir,
-                            self.runtime_state.interaction.focused,
-                            reverse,
-                        );
-                        if next != old_focus {
-                            self.set_focused_widget(ir, next, crate::TextEditSource::Keyboard)?;
-                        }
-                    }
-                }
-                KeyCode::Escape => {
-                    if let Some((node_id, action)) = crate::hit_test::topmost_semantics_action(
+            }) => {
+                // A node that declared a key asked for it explicitly, so it is
+                // consulted before the framework's own handling of that key.
+                // Tab is excluded: focus traversal is a property of the whole
+                // tree rather than of any one node, and letting a widget claim
+                // it would let that widget trap focus for the entire app.
+                if !matches!(key_code, KeyCode::Tab) {
+                    if let Some((node_id, action)) = crate::hit_test::declared_key_action(
                         ir,
-                        fission_ir::ActionTrigger::Dismiss,
+                        self.runtime_state.interaction.focused,
+                        &key_code,
+                        modifiers,
                     ) {
-                        if let Some(focused) = self.runtime_state.interaction.focused {
-                            if let Some((controller, popup, _)) =
-                                crate::hit_test::controlled_popup_dismissal_for_descendant(
-                                    ir, focused,
-                                )
-                            {
-                                if node_id == popup {
-                                    self.runtime_state
-                                        .interaction
-                                        .clear_active_descendant(controller);
-                                    self.set_focused_widget(
-                                        ir,
-                                        Some(controller),
-                                        crate::TextEditSource::Keyboard,
-                                    )?;
-                                }
-                            }
-                        }
-                        let envelope = ActionEnvelope {
-                            id: ActionId::from_u128(action.action_id),
-                            payload: action.payload_data.unwrap_or_default(),
-                        };
                         let input =
                             crate::input::scoped_action_input(ir, node_id, ActionInput::None);
-                        return self.dispatch_node_with_input(envelope, node_id, &input);
+                        self.dispatch_node_with_input(
+                            ActionEnvelope {
+                                id: ActionId::from_u128(action.action_id),
+                                payload: action.payload_data.unwrap_or_default(),
+                            },
+                            node_id,
+                            &input,
+                        )?;
+                        return Ok(());
                     }
                 }
-                KeyCode::Up | KeyCode::Down | KeyCode::Left | KeyCode::Right => {
-                    let reverse = matches!(key_code, KeyCode::Up | KeyCode::Left);
-                    let old_focus = self.runtime_state.interaction.focused;
-                    if matches!(key_code, KeyCode::Up | KeyCode::Down) {
-                        if let Some((controller, action)) = old_focus.and_then(|focused| {
-                            crate::hit_test::collapsed_popup_open_action(ir, focused)
+                match key_code {
+                    KeyCode::Tab => {
+                        let reverse = (modifiers & 1) != 0;
+                        let old_focus = self.runtime_state.interaction.focused;
+                        if let Some((controller, popup, dismiss)) = old_focus.and_then(|focused| {
+                            crate::hit_test::controlled_popup_dismissal_for_descendant(ir, focused)
                         }) {
-                            let input = crate::input::scoped_action_input(
-                                ir,
-                                controller,
-                                ActionInput::None,
+                            self.runtime_state
+                                .interaction
+                                .clear_active_descendant(controller);
+                            let next = crate::hit_test::next_focus_outside_controlled_popup(
+                                ir, controller, popup, reverse,
                             );
-                            return self.dispatch_node_with_input(
-                                ActionEnvelope {
-                                    id: ActionId::from_u128(action.action_id),
-                                    payload: action.payload_data.unwrap_or_default(),
-                                },
-                                controller,
-                                &input,
-                            );
-                        }
-                        if let Some(focused) = old_focus {
-                            let runtime_active =
-                                self.runtime_state.interaction.active_descendant(focused);
-                            if let Some((controller, target)) =
-                                crate::hit_test::editable_combobox_popup_navigation_target(
-                                    ir,
-                                    focused,
-                                    runtime_active,
-                                    reverse,
-                                )
+                            if let Some(frame) = self
+                                .focus_barriers
+                                .iter_mut()
+                                .rev()
+                                .find(|frame| frame.id == popup)
                             {
-                                self.runtime_state
-                                    .interaction
-                                    .set_active_descendant(controller, target);
-                                if old_focus != Some(controller) {
-                                    self.set_focused_widget(
-                                        ir,
-                                        Some(controller),
-                                        crate::TextEditSource::Keyboard,
-                                    )?;
-                                }
-                                self.update_focused_ime_state(ir, layout);
-                                return Ok(());
+                                // Tab is an explicit traversal out of a transient
+                                // popup. Preserve that destination when the next
+                                // rebuild removes the popup's focus barrier instead
+                                // of restoring the control that originally opened it.
+                                frame.restore_target = next;
+                            }
+                            let input =
+                                crate::input::scoped_action_input(ir, popup, ActionInput::None);
+                            self.dispatch_node_with_input(
+                                ActionEnvelope {
+                                    id: ActionId::from_u128(dismiss.action_id),
+                                    payload: dismiss.payload_data.unwrap_or_default(),
+                                },
+                                popup,
+                                &input,
+                            )?;
+                            if next != old_focus {
+                                self.set_focused_widget(ir, next, crate::TextEditSource::Keyboard)?;
+                            }
+                        } else {
+                            let next = find_next_focus_node(
+                                ir,
+                                self.runtime_state.interaction.focused,
+                                reverse,
+                            );
+                            if next != old_focus {
+                                self.set_focused_widget(ir, next, crate::TextEditSource::Keyboard)?;
                             }
                         }
                     }
-                    let semantic_navigation = if let Some(focused) = old_focus {
-                        let dir = match key_code {
-                            KeyCode::Up => FocusDirection::Up,
-                            KeyCode::Down => FocusDirection::Down,
-                            KeyCode::Left => FocusDirection::Left,
-                            KeyCode::Right => FocusDirection::Right,
-                            _ => unreachable!(),
-                        };
-                        let popup_entry = if matches!(key_code, KeyCode::Up | KeyCode::Down) {
-                            crate::hit_test::controlled_popup_entry_target(ir, focused, reverse)
+                    KeyCode::Escape => {
+                        // An open context menu is the topmost surface, so Escape closes it first.
+                        if self.runtime_state.context_menu.owner.is_some() {
+                            self.runtime_state.context_menu.close();
+                            return Ok(());
+                        }
+                        if let Some((node_id, action)) = crate::hit_test::topmost_semantics_action(
+                            ir,
+                            fission_ir::ActionTrigger::Dismiss,
+                        ) {
+                            if let Some(focused) = self.runtime_state.interaction.focused {
+                                if let Some((controller, popup, _)) =
+                                    crate::hit_test::controlled_popup_dismissal_for_descendant(
+                                        ir, focused,
+                                    )
+                                {
+                                    if node_id == popup {
+                                        self.runtime_state
+                                            .interaction
+                                            .clear_active_descendant(controller);
+                                        self.set_focused_widget(
+                                            ir,
+                                            Some(controller),
+                                            crate::TextEditSource::Keyboard,
+                                        )?;
+                                    }
+                                }
+                            }
+                            let envelope = ActionEnvelope {
+                                id: ActionId::from_u128(action.action_id),
+                                payload: action.payload_data.unwrap_or_default(),
+                            };
+                            let input =
+                                crate::input::scoped_action_input(ir, node_id, ActionInput::None);
+                            return self.dispatch_node_with_input(envelope, node_id, &input);
+                        }
+                    }
+                    KeyCode::Up | KeyCode::Down | KeyCode::Left | KeyCode::Right => {
+                        let reverse = matches!(key_code, KeyCode::Up | KeyCode::Left);
+                        let old_focus = self.runtime_state.interaction.focused;
+                        if matches!(key_code, KeyCode::Up | KeyCode::Down) {
+                            if let Some((controller, action)) = old_focus.and_then(|focused| {
+                                crate::hit_test::collapsed_popup_open_action(ir, focused)
+                            }) {
+                                let input = crate::input::scoped_action_input(
+                                    ir,
+                                    controller,
+                                    ActionInput::None,
+                                );
+                                return self.dispatch_node_with_input(
+                                    ActionEnvelope {
+                                        id: ActionId::from_u128(action.action_id),
+                                        payload: action.payload_data.unwrap_or_default(),
+                                    },
+                                    controller,
+                                    &input,
+                                );
+                            }
+                            if let Some(focused) = old_focus {
+                                let runtime_active =
+                                    self.runtime_state.interaction.active_descendant(focused);
+                                if let Some((controller, target)) =
+                                    crate::hit_test::editable_combobox_popup_navigation_target(
+                                        ir,
+                                        focused,
+                                        runtime_active,
+                                        reverse,
+                                    )
+                                {
+                                    self.runtime_state
+                                        .interaction
+                                        .set_active_descendant(controller, target);
+                                    if old_focus != Some(controller) {
+                                        self.set_focused_widget(
+                                            ir,
+                                            Some(controller),
+                                            crate::TextEditSource::Keyboard,
+                                        )?;
+                                    }
+                                    self.update_focused_ime_state(ir, layout);
+                                    return Ok(());
+                                }
+                            }
+                        }
+                        let semantic_navigation = if let Some(focused) = old_focus {
+                            let dir = match key_code {
+                                KeyCode::Up => FocusDirection::Up,
+                                KeyCode::Down => FocusDirection::Down,
+                                KeyCode::Left => FocusDirection::Left,
+                                KeyCode::Right => FocusDirection::Right,
+                                _ => unreachable!(),
+                            };
+                            let popup_entry = if matches!(key_code, KeyCode::Up | KeyCode::Down) {
+                                crate::hit_test::controlled_popup_entry_target(ir, focused, reverse)
+                            } else {
+                                crate::hit_test::SemanticFocusNavigation::NotApplicable
+                            };
+                            match popup_entry {
+                                crate::hit_test::SemanticFocusNavigation::NotApplicable => {
+                                    crate::hit_test::composite_focus_target(
+                                        ir,
+                                        focused,
+                                        Some(dir),
+                                        None,
+                                    )
+                                }
+                                result => result,
+                            }
                         } else {
                             crate::hit_test::SemanticFocusNavigation::NotApplicable
                         };
-                        match popup_entry {
+                        let next = match semantic_navigation {
+                            crate::hit_test::SemanticFocusNavigation::Handled(Some(target)) => {
+                                Some(target)
+                            }
+                            crate::hit_test::SemanticFocusNavigation::Handled(None) => old_focus,
                             crate::hit_test::SemanticFocusNavigation::NotApplicable => {
+                                if let Some(focused) = old_focus {
+                                    let dir = match key_code {
+                                        KeyCode::Up => FocusDirection::Up,
+                                        KeyCode::Down => FocusDirection::Down,
+                                        KeyCode::Left => FocusDirection::Left,
+                                        KeyCode::Right => FocusDirection::Right,
+                                        _ => unreachable!(),
+                                    };
+                                    find_neighbor_focus_node(ir, layout, focused, dir).or_else(
+                                        || find_next_focus_node(ir, Some(focused), reverse),
+                                    )
+                                } else {
+                                    find_next_focus_node(ir, None, reverse)
+                                }
+                            }
+                        };
+                        if next != old_focus {
+                            self.set_focused_widget(ir, next, crate::TextEditSource::Keyboard)?;
+                        }
+                    }
+                    KeyCode::Home | KeyCode::End => {
+                        if let Some(focused) = self.runtime_state.interaction.focused {
+                            let boundary = if key_code == KeyCode::Home {
+                                crate::hit_test::CompositeMove::First
+                            } else {
+                                crate::hit_test::CompositeMove::Last
+                            };
+                            if let crate::hit_test::SemanticFocusNavigation::Handled(Some(next)) =
                                 crate::hit_test::composite_focus_target(
                                     ir,
                                     focused,
-                                    Some(dir),
                                     None,
+                                    Some(boundary),
                                 )
-                            }
-                            result => result,
-                        }
-                    } else {
-                        crate::hit_test::SemanticFocusNavigation::NotApplicable
-                    };
-                    let next = match semantic_navigation {
-                        crate::hit_test::SemanticFocusNavigation::Handled(Some(target)) => {
-                            Some(target)
-                        }
-                        crate::hit_test::SemanticFocusNavigation::Handled(None) => old_focus,
-                        crate::hit_test::SemanticFocusNavigation::NotApplicable => {
-                            if let Some(focused) = old_focus {
-                                let dir = match key_code {
-                                    KeyCode::Up => FocusDirection::Up,
-                                    KeyCode::Down => FocusDirection::Down,
-                                    KeyCode::Left => FocusDirection::Left,
-                                    KeyCode::Right => FocusDirection::Right,
-                                    _ => unreachable!(),
-                                };
-                                find_neighbor_focus_node(ir, layout, focused, dir)
-                                    .or_else(|| find_next_focus_node(ir, Some(focused), reverse))
-                            } else {
-                                find_next_focus_node(ir, None, reverse)
-                            }
-                        }
-                    };
-                    if next != old_focus {
-                        self.set_focused_widget(ir, next, crate::TextEditSource::Keyboard)?;
-                    }
-                }
-                KeyCode::Home | KeyCode::End => {
-                    if let Some(focused) = self.runtime_state.interaction.focused {
-                        let boundary = if key_code == KeyCode::Home {
-                            crate::hit_test::CompositeMove::First
-                        } else {
-                            crate::hit_test::CompositeMove::Last
-                        };
-                        if let crate::hit_test::SemanticFocusNavigation::Handled(Some(next)) =
-                            crate::hit_test::composite_focus_target(
-                                ir,
-                                focused,
-                                None,
-                                Some(boundary),
-                            )
-                        {
-                            if next != focused {
-                                self.set_focused_widget(
-                                    ir,
-                                    Some(next),
-                                    crate::TextEditSource::Keyboard,
-                                )?;
-                            }
-                        }
-                    }
-                }
-                KeyCode::Char(character)
-                    if modifiers
-                        & (crate::event::MOD_ALT
-                            | crate::event::MOD_CTRL
-                            | crate::event::MOD_SUPER)
-                        == 0 =>
-                {
-                    if let Some(focused) = self.runtime_state.interaction.focused {
-                        if let crate::hit_test::SemanticFocusNavigation::Handled(Some(next)) =
-                            crate::hit_test::composite_typeahead_target(ir, focused, character)
-                        {
-                            if next != focused {
-                                self.set_focused_widget(
-                                    ir,
-                                    Some(next),
-                                    crate::TextEditSource::Keyboard,
-                                )?;
-                            }
-                        }
-                    }
-                }
-                KeyCode::Enter | KeyCode::Space => {
-                    if let Some(focused_id) = self.runtime_state.interaction.focused {
-                        let mut current_id = Some(focused_id);
-                        while let Some(node_id) = current_id {
-                            if let Some(node) = ir.nodes.get(&node_id) {
-                                if let Op::Semantics(semantics) = &node.op {
-                                    let action_entry = semantics
-                                        .actions
-                                        .entries
-                                        .iter()
-                                        .find(|entry| {
-                                            entry.trigger
-                                                == fission_ir::semantics::ActionTrigger::Default
-                                        })
-                                        .and_then(|entry| {
-                                            entry.payload_data.as_ref().map(|payload| {
-                                                ActionEnvelope {
-                                                    id: ActionId::from_u128(entry.action_id),
-                                                    payload: payload.clone(),
-                                                }
-                                            })
-                                        });
-                                    let hyperlink = semantics.hyperlink.clone();
-                                    if action_entry.is_some() || hyperlink.is_some() {
-                                        let input = crate::input::scoped_action_input(
-                                            ir,
-                                            node_id,
-                                            ActionInput::None,
-                                        );
-                                        let navigation_already_bound =
-                                            action_entry.as_ref().is_some_and(|entry| {
-                                                entry.id == crate::NavigationRequested::static_id()
-                                            });
-                                        if let Some(envelope) = action_entry {
-                                            self.dispatch_node_with_input(
-                                                envelope, node_id, &input,
-                                            )?;
-                                        }
-                                        if let Some(hyperlink) =
-                                            hyperlink.filter(|_| !navigation_already_bound)
-                                        {
-                                            self.dispatch_node_with_input(
-                                                crate::NavigationRequested::new(
-                                                    crate::NavigationCommand::Open(hyperlink),
-                                                )
-                                                .into(),
-                                                node_id,
-                                                &input,
-                                            )?;
-                                        }
-                                        return Ok(());
-                                    }
+                            {
+                                if next != focused {
+                                    self.set_focused_widget(
+                                        ir,
+                                        Some(next),
+                                        crate::TextEditSource::Keyboard,
+                                    )?;
                                 }
-                                current_id = node.parent;
-                            } else {
-                                break;
                             }
                         }
                     }
+                    KeyCode::Char(character)
+                        if modifiers
+                            & (crate::event::MOD_ALT
+                                | crate::event::MOD_CTRL
+                                | crate::event::MOD_SUPER)
+                            == 0 =>
+                    {
+                        if let Some(focused) = self.runtime_state.interaction.focused {
+                            if let crate::hit_test::SemanticFocusNavigation::Handled(Some(next)) =
+                                crate::hit_test::composite_typeahead_target(ir, focused, character)
+                            {
+                                if next != focused {
+                                    self.set_focused_widget(
+                                        ir,
+                                        Some(next),
+                                        crate::TextEditSource::Keyboard,
+                                    )?;
+                                }
+                            }
+                        }
+                    }
+                    KeyCode::Enter | KeyCode::Space => {
+                        if let Some(focused_id) = self.runtime_state.interaction.focused {
+                            // A text field takes Enter and Space as input: Space is typed and Enter
+                            // submits through the field's own actions. Activating a surrounding
+                            // control would act on it and move focus out of the field.
+                            let edits_text = ir.nodes.get(&focused_id).is_some_and(|node| {
+                                matches!(&node.op, Op::Semantics(semantics) if semantics.supports_text_editing())
+                            });
+                            let mut current_id = (!edits_text).then_some(focused_id);
+                            while let Some(node_id) = current_id {
+                                if let Some(node) = ir.nodes.get(&node_id) {
+                                    if let Op::Semantics(semantics) = &node.op {
+                                        let action_entry = semantics
+                                            .actions
+                                            .entries
+                                            .iter()
+                                            .find(|entry| {
+                                                entry.trigger
+                                                    == fission_ir::semantics::ActionTrigger::Default
+                                            })
+                                            // An action without a payload is
+                                            // still an action. Requiring one
+                                            // here made Enter and Space do
+                                            // nothing on every control whose
+                                            // handler takes no data, which is
+                                            // most of them.
+                                            .map(|entry| ActionEnvelope {
+                                                id: ActionId::from_u128(entry.action_id),
+                                                payload: entry
+                                                    .payload_data
+                                                    .clone()
+                                                    .unwrap_or_default(),
+                                            });
+                                        let hyperlink = semantics.hyperlink.clone();
+                                        if action_entry.is_some() || hyperlink.is_some() {
+                                            let input = crate::input::scoped_action_input(
+                                                ir,
+                                                node_id,
+                                                ActionInput::None,
+                                            );
+                                            let navigation_already_bound =
+                                                action_entry.as_ref().is_some_and(|entry| {
+                                                    entry.id
+                                                        == crate::NavigationRequested::static_id()
+                                                });
+                                            if let Some(envelope) = action_entry {
+                                                self.dispatch_node_with_input(
+                                                    envelope, node_id, &input,
+                                                )?;
+                                            }
+                                            if let Some(hyperlink) =
+                                                hyperlink.filter(|_| !navigation_already_bound)
+                                            {
+                                                self.dispatch_node_with_input(
+                                                    crate::NavigationRequested::new(
+                                                        crate::NavigationCommand::Open(hyperlink),
+                                                    )
+                                                    .into(),
+                                                    node_id,
+                                                    &input,
+                                                )?;
+                                            }
+                                            return Ok(());
+                                        }
+                                    }
+                                    current_id = node.parent;
+                                } else {
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    _ => {}
                 }
-                _ => {}
-            },
+            }
             InputEvent::Keyboard(KeyEvent::DownWithText {
                 key_code: _,
                 modifiers,
@@ -2598,36 +2656,6 @@ impl Runtime {
         Ok(())
     }
 
-    pub fn clear_hover_state(&mut self, ir: &CoreIR, point: Option<LayoutPoint>) -> Result<bool> {
-        use crate::input::hover::HoverController;
-        use crate::input::ControllerContext;
-
-        let input_time = self.clock().current_time();
-        let dispatched_actions = {
-            let layout = &LayoutSnapshot::new(LayoutSize::ZERO);
-            let mut ctx = ControllerContext {
-                ir,
-                layout,
-                text_edit: &mut self.runtime_state.text_edit,
-                selectable_text: &mut self.runtime_state.selectable_text,
-                context_menu: &mut self.runtime_state.context_menu,
-                interaction: &mut self.runtime_state.interaction,
-                scroll: &mut self.runtime_state.scroll,
-                viewport: &self.runtime_state.viewport,
-                gesture: &mut self.runtime_state.gesture,
-                editing_convention: self.editing_convention,
-                current_time: input_time,
-                clipboard: self.clipboard_backend.as_ref(),
-                measurer: self.measurer.as_ref(),
-                dispatched_actions: Vec::new(),
-            };
-            let changed = HoverController::clear(&mut ctx, point);
-            (changed, ctx.dispatched_actions)
-        };
-        self.dispatch_input_actions(dispatched_actions.1)?;
-        Ok(dispatched_actions.0)
-    }
-
     fn dispatch_input_actions(
         &mut self,
         dispatched_actions: Vec<(WidgetId, ActionEnvelope, ActionInput)>,
@@ -2761,40 +2789,6 @@ impl Runtime {
         Some(rect)
     }
 
-    fn clear_text_pending_on_blur(
-        &mut self,
-        old_focus: Option<WidgetId>,
-        new_focus: Option<WidgetId>,
-    ) {
-        if old_focus == new_focus {
-            return;
-        }
-        if let Some(old_id) = old_focus {
-            if let Some(st) = self.runtime_state.text_edit.states.get_mut(&old_id) {
-                st.pending_model_sync = false;
-                st.clear_preedit();
-            }
-        }
-    }
-
-    fn text_input_value(&self, ir: &CoreIR, id: WidgetId) -> crate::TextEditingValue {
-        self.runtime_state
-            .text_edit
-            .get(id)
-            .map(|state| state.editing_value())
-            .unwrap_or_else(|| {
-                let text = ir
-                    .nodes
-                    .get(&id)
-                    .and_then(|node| match &node.op {
-                        Op::Semantics(semantics) => semantics.value.clone(),
-                        _ => None,
-                    })
-                    .unwrap_or_default();
-                crate::TextEditingValue::from_text(text)
-            })
-    }
-
     fn dispatch_text_session_action(
         &mut self,
         ir: &CoreIR,
@@ -2857,6 +2851,13 @@ impl Runtime {
         }
 
         self.runtime_state.interaction.set_focused(next);
+        // Focus rings follow the way focus moved: keyboard navigation shows them, a click hides
+        // them, and programmatic focus keeps whichever the user was last using.
+        match source {
+            crate::TextEditSource::Keyboard => self.runtime_state.interaction.focus_visible = true,
+            crate::TextEditSource::Pointer => self.runtime_state.interaction.focus_visible = false,
+            _ => {}
+        }
         if let Some(new_id) = next {
             let select_all = ir
                 .custom_render_objects

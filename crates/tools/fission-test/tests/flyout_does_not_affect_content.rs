@@ -1,7 +1,7 @@
 use anyhow::Result;
+use fission_core::authoring::BuildCtx;
+use fission_core::authoring::LoweringContext;
 use fission_core::env::Env;
-use fission_core::internal::BuildCtx;
-use fission_core::internal::InternalLoweringCx;
 use fission_core::ui::{Grid, GridItem, TextInput, Widget};
 use fission_core::Runtime;
 use fission_core::{build, op::GridTrack, View, WidgetId, WidgetIdExt};
@@ -137,10 +137,10 @@ fn flyout_does_not_shift_content() -> Result<()> {
         (node, portals)
     };
 
-    let mut cx = InternalLoweringCx::new(&env, &runtime.runtime_state, None, None);
+    let mut cx = LoweringContext::new(&env, &runtime.runtime_state, None, None);
     let root_id = fission_core::internal::lower_widget(&node_tree, &mut cx);
-    cx.ir.root = Some(root_id);
-    let ir1 = cx.ir;
+    cx.set_root(root_id);
+    let ir1 = cx.into_ir();
 
     let viewport = fission_layout::LayoutSize {
         width: 1024.0,
@@ -157,9 +157,6 @@ fn flyout_does_not_shift_content() -> Result<()> {
         &env,
     )?;
     let snap1 = pipe.last_snapshot.clone().expect("snapshot1");
-
-    let anchor_node = WidgetId::derived(WidgetId::explicit("test_menu").as_u128(), &[]);
-    let anchor_rect1 = snap1.get_node_rect(anchor_node).expect("anchor rect1");
 
     // Frame 2: open
     {
@@ -207,15 +204,15 @@ fn flyout_does_not_shift_content() -> Result<()> {
             .into()
         };
 
-        let mut cx = InternalLoweringCx::new(
+        let mut cx = LoweringContext::new(
             &env,
             &runtime.runtime_state,
             None,
             pipe.last_snapshot.as_ref(),
         );
         let root_id = fission_core::internal::lower_widget(&final_root, &mut cx);
-        cx.ir.root = Some(root_id);
-        let ir2 = cx.ir;
+        cx.set_root(root_id);
+        let ir2 = cx.into_ir();
 
         let _ = pipe.render(
             ir2.clone(),
@@ -229,6 +226,21 @@ fn flyout_does_not_shift_content() -> Result<()> {
         )?;
         let snap2 = pipe.last_snapshot.clone().expect("snapshot2");
 
+        // Take the anchor from the flyout rather than re-deriving an id from
+        // the widget's identity, which couples the test to whichever path salt
+        // the composite uses for its trigger. The node exists in both frames;
+        // only the flyout that points at it is new.
+        let anchor_node = ir2
+            .nodes
+            .values()
+            .find_map(|node| match &node.op {
+                fission_ir::Op::Layout(fission_ir::LayoutOp::Flyout { anchor, .. }) => {
+                    Some(*anchor)
+                }
+                _ => None,
+            })
+            .expect("flyout anchor");
+        let anchor_rect1 = snap1.get_node_rect(anchor_node).expect("anchor rect1");
         let anchor_rect2 = snap2.get_node_rect(anchor_node).expect("anchor rect2");
 
         // The anchor's geometry must be IDENTICAL to frame 1.

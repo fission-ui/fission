@@ -1,5 +1,5 @@
-use crate::internal::InternalLower;
-use crate::lowering::{InternalIrBuilder, InternalLoweringCx};
+use crate::authoring::Lower;
+use crate::lowering::{IrBuilder, LoweringContext};
 use crate::ui::Widget;
 use fission_ir::{
     op::{ResponsiveCondition, ResponsiveQuery},
@@ -121,18 +121,19 @@ impl Responsive {
     }
 }
 
-impl InternalLower for Responsive {
-    fn lower(&self, cx: &mut InternalLoweringCx) -> WidgetId {
+impl Lower for Responsive {
+    fn lower(&self, cx: &mut LoweringContext) -> WidgetId {
         let id = self.id.unwrap_or_else(|| cx.next_node_id());
-        cx.push_scope(id);
-        let mut children = Vec::with_capacity(self.cases.len() + 1);
-        for case in &self.cases {
-            children.push(case.child.lower(cx));
-        }
-        children.push(self.fallback.lower(cx));
-        cx.pop_scope();
+        let children = cx.with_scope(id, |cx| {
+            let mut children = Vec::with_capacity(self.cases.len() + 1);
+            for case in &self.cases {
+                children.push(case.child.lower(cx));
+            }
+            children.push(self.fallback.lower(cx));
+            children
+        });
 
-        let mut builder = InternalIrBuilder::new(
+        let mut builder = IrBuilder::new(
             id,
             Op::Layout(LayoutOp::Responsive {
                 query: self.query,

@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use fission_core::internal::BuildCtx;
+use fission_core::authoring::BuildCtx;
 use fission_core::{
     ActionEnvelope, ActionRegistry, BuildCtxHandle, Env, GlobalState, Runtime, View, ViewHandle,
     WidgetId,

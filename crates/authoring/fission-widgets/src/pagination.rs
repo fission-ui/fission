@@ -3,7 +3,7 @@ use fission_core::op::{BoxAlignment, LineCap, LineJoin, Stroke};
 use fission_core::ui::{
     Button, ButtonStyleOverride, ButtonVariant, Container, Text, TextContent, Widget,
 };
-use fission_core::{ActionEnvelope, LayoutDirection, Semantics};
+use fission_core::{ActionEnvelope, Semantics};
 use fission_icons::material;
 use fission_theme::ResolvedComponentStyle;
 use std::sync::Arc;
@@ -144,46 +144,38 @@ impl From<PaginationControl> for Widget {
         };
 
         let (child, label) = match component.kind {
-            PaginationControlKind::Previous => {
-                let icon = if view.env().layout_direction == LayoutDirection::RightToLeft {
-                    material::navigation::chevron_right::regular()
-                } else {
-                    material::navigation::chevron_left::regular()
-                };
-                (
-                    Icon::svg(icon)
-                        .size(style.icon_size.unwrap_or(tokens.spacing.m))
-                        .color(style.text_color.unwrap_or(tokens.colors.text_primary))
-                        .into(),
-                    TextContent::KeyWithFallback {
-                        key: "fission.pagination.previous".into(),
-                        fallback: "Previous page".into(),
-                    }
-                    .resolve(view.env()),
+            PaginationControlKind::Previous => (
+                Icon::svg_directional(
+                    material::navigation::chevron_left::regular(),
+                    material::navigation::chevron_right::regular(),
                 )
-            }
+                .size(style.icon_size.unwrap_or(tokens.spacing.m))
+                .color(style.text_color.unwrap_or(tokens.colors.text_primary))
+                .into(),
+                TextContent::KeyWithFallback {
+                    key: "fission.pagination.previous".into(),
+                    fallback: "Previous page".into(),
+                }
+                .resolve(view.env()),
+            ),
             PaginationControlKind::Page(page) => {
                 let page = page.to_string();
                 (Text::new(page.clone()).into(), page)
             }
-            PaginationControlKind::Next => {
-                let icon = if view.env().layout_direction == LayoutDirection::RightToLeft {
-                    material::navigation::chevron_left::regular()
-                } else {
-                    material::navigation::chevron_right::regular()
-                };
-                (
-                    Icon::svg(icon)
-                        .size(style.icon_size.unwrap_or(tokens.spacing.m))
-                        .color(style.text_color.unwrap_or(tokens.colors.text_primary))
-                        .into(),
-                    TextContent::KeyWithFallback {
-                        key: "fission.pagination.next".into(),
-                        fallback: "Next page".into(),
-                    }
-                    .resolve(view.env()),
+            PaginationControlKind::Next => (
+                Icon::svg_directional(
+                    material::navigation::chevron_right::regular(),
+                    material::navigation::chevron_left::regular(),
                 )
-            }
+                .size(style.icon_size.unwrap_or(tokens.spacing.m))
+                .color(style.text_color.unwrap_or(tokens.colors.text_primary))
+                .into(),
+                TextContent::KeyWithFallback {
+                    key: "fission.pagination.next".into(),
+                    fallback: "Next page".into(),
+                }
+                .resolve(view.env()),
+            ),
         };
 
         Button {

@@ -1,5 +1,5 @@
 pub mod render;
-use fission_core::internal::{InternalLowerer, InternalLoweringCx, InternalRenderNode};
+use fission_core::authoring::{IrBuilder, LowerWidget, LoweringContext};
 use fission_core::op::Color;
 use fission_core::ui::{Container, Widget};
 
@@ -73,13 +73,10 @@ impl Scene3D {
 impl From<Scene3D> for Widget {
     fn from(component: Scene3D) -> Self {
         let this = &component;
-        let mut container = Container::new(fission_core::internal::custom_render_widget(
-            InternalRenderNode {
-                debug_tag: "fission_3d::Scene3D".into(),
-                lowerer: Some(std::sync::Arc::new(Scene3DInternalLowerer {
-                    scene: this.clone(),
-                })),
-                render_object: None,
+        let mut container = Container::new(fission_core::authoring::custom_widget(
+            "fission_3d::Scene3D",
+            Scene3DInternalLowerer {
+                scene: this.clone(),
             },
         ));
         if let Some(w) = this.width {
@@ -103,18 +100,18 @@ pub struct Scene3DInternalLowerer {
     pub scene: Scene3D,
 }
 
-impl InternalLowerer for Scene3DInternalLowerer {
-    fn lower_dyn(&self, cx: &mut InternalLoweringCx) -> fission_ir::WidgetId {
+impl LowerWidget for Scene3DInternalLowerer {
+    fn lower_dyn(&self, cx: &mut LoweringContext) -> fission_ir::WidgetId {
         let node_id = cx.next_node_id();
 
         let w = self
             .scene
             .width
-            .unwrap_or_else(|| (cx.env.viewport_size.width - 264.0).max(400.0));
+            .unwrap_or_else(|| (cx.env().viewport_size.width - 264.0).max(400.0));
         let h = self
             .scene
             .height
-            .unwrap_or_else(|| (cx.env.viewport_size.height - 200.0).max(300.0));
+            .unwrap_or_else(|| (cx.env().viewport_size.height - 200.0).max(300.0));
 
         // In a real implementation, this would emit an EmbedKind::Surface3D
         // and fission-shell-desktop would intercept it to render a wgpu scene
@@ -128,6 +125,6 @@ impl InternalLowerer for Scene3DInternalLowerer {
             height: Some(h),
         });
 
-        cx.insert_node(node_id, op, vec![])
+        IrBuilder::new(node_id, op).build(cx)
     }
 }

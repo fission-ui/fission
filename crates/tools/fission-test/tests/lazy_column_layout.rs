@@ -43,7 +43,7 @@ fn test_lazy_column_vertical_stacking() -> Result<()> {
     // Find the text items
     let mut items = Vec::new();
     for (id, node) in &ir.nodes {
-        if let fission_ir::Op::Paint(fission_ir::PaintOp::DrawText { text, .. }) = &node.op {
+        if let Some(text) = node.op.text() {
             if text.starts_with("Item") {
                 if let Some(geom) = snap.get_node_geometry(*id) {
                     items.push((text.clone(), geom.rect));

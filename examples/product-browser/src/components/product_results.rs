@@ -24,10 +24,11 @@ impl From<ProductResults> for Widget {
                     children: vec![
                         CircularProgress {
                             id: WidgetId::explicit(&format!("product-browser.loading.{instance}")),
+                            label: None,
                             ..Default::default()
                         }
                         .into(),
-                        Text::new("Loading products...")
+                        Text::new(view.tr("product_browser.results.loading"))
                             .color(tokens.colors.text_secondary)
                             .into(),
                     ],
@@ -43,7 +44,7 @@ impl From<ProductResults> for Widget {
                 child: Column {
                     gap: Some(tokens.spacing.m),
                     children: vec![
-                        Text::new("Products could not be loaded")
+                        Text::new(view.tr("product_browser.results.failed"))
                             .size(tokens.typography.font_size_xl)
                             .weight(tokens.typography.font_weight_bold)
                             .color(tokens.colors.text_primary)
@@ -70,7 +71,7 @@ impl From<ProductResults> for Widget {
 
         if page.products.is_empty() {
             return Center {
-                child: Text::new("No products match the current filters")
+                child: Text::new(view.tr("product_browser.results.empty"))
                     .color(tokens.colors.text_secondary)
                     .into(),
             }

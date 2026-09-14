@@ -19,10 +19,10 @@ impl From<TextLabModal> for Widget {
         let tokens = &view.env().theme.tokens;
 
         let set_modal_to = with_reducer!(ctx, SetModalTo(String::new()), set_modal_to);
-        let set_modal_to_id = set_modal_to.id;
+        let pick_recipient = set_modal_to.clone();
         let set_modal_subject = with_reducer!(ctx, SetModalSubject, set_modal_subject);
         let set_modal_body = with_reducer!(ctx, SetModalBody, set_modal_body);
-        let set_show_modal_id = with_reducer!(ctx, SetShowModal(false), set_show_modal).id;
+        let close_modal = with_reducer!(ctx, SetShowModal(false), set_show_modal);
         let apply_modal = with_reducer!(ctx, ApplyModal, apply_modal);
 
         let modal_options = [
@@ -35,10 +35,6 @@ impl From<TextLabModal> for Widget {
         let modal_has_exact = modal_options
             .iter()
             .any(|value| value.eq_ignore_ascii_case(view.state().modal_to.trim()));
-        let close_modal = ActionEnvelope {
-            id: set_show_modal_id,
-            payload: serde_json::to_vec(&SetShowModal(false)).unwrap(),
-        };
 
         let content: Widget = if view.state().show_modal {
             FocusScope {
@@ -55,6 +51,7 @@ impl From<TextLabModal> for Widget {
                             helper: None,
                             child: Combobox {
                                 id: WidgetId::explicit("text_lab_modal_to"),
+                                semantics_identifier: Some("text-lab.modal.to".into()),
                                 value: view.state().modal_to.clone(),
                                 items: modal_items,
                                 is_open: !view.state().modal_to.trim().is_empty()
@@ -62,9 +59,8 @@ impl From<TextLabModal> for Widget {
                                 width: None,
                                 max_popup_height: Some(POPUP_MAX_HEIGHT),
                                 on_input: Some(set_modal_to),
-                                on_select: Some(Arc::new(move |value| ActionEnvelope {
-                                    id: set_modal_to_id,
-                                    payload: serde_json::to_vec(&SetModalTo(value)).unwrap(),
+                                on_select: Some(Arc::new(move |value| {
+                                    pick_recipient.with_action(&SetModalTo(value))
                                 })),
                                 on_toggle: None,
                             }

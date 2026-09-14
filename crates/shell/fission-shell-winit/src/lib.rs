@@ -22,7 +22,7 @@ macro_rules! eprintln {
 
 use anyhow::Result;
 use base64::Engine;
-use fission_core::internal::BuildCtx;
+use fission_core::authoring::BuildCtx;
 use std::collections::{HashMap, VecDeque};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
@@ -55,9 +55,9 @@ use winit::{
     window::{CursorIcon, Theme as WindowTheme, Window, WindowAttributes, WindowId},
 };
 
+use fission_core::authoring::LoweringContext;
 use fission_core::env::{VideoStatus, WindowInsets};
 use fission_core::internal::downcast_render_object;
-use fission_core::internal::InternalLoweringCx;
 use fission_core::ui::VideoAudioOptions;
 use fission_core::{
     Action, ActionEnvelope, ActionId, ActionRegistry, DeepLink, DeepLinkConfig, DeepLinkReceived,
@@ -72,11 +72,10 @@ use fission_diagnostics::prelude as diag;
 use fission_ir::semantics::{ActionTrigger, MouseCursor, Role, Semantics};
 use fission_ir::{CoreIR, Op, WidgetId};
 use fission_layout::{LayoutEngine, LayoutSize};
-use fission_render::{LayoutPoint, LayoutRect, Renderer as _};
+use fission_render::{LayoutPoint, LayoutRect};
+use fission_render_vello::gpu::GpuSceneRenderer;
 use fission_render_vello::parley::FontContext;
-use fission_render_vello::{
-    workload_profile_for_encoded_scene, RetainedSceneCache, VelloRenderer, VelloTextMeasurer,
-};
+use fission_render_vello::VelloTextMeasurer;
 use fission_shell::async_host::{
     AsyncMessage, AsyncRegistry, RunningServiceHandle, ServiceControlMessage,
 };
@@ -96,9 +95,10 @@ use fission_test_driver::{TestEvent, TestPointerKind, TestPointerPhase, TestScro
 use pollster::block_on;
 #[cfg(not(target_arch = "wasm32"))]
 use std::time::Instant;
-use vello::util::{RenderContext, RenderSurface};
-use vello::wgpu;
-use vello::{AaSupport, Renderer as VelloSceneRenderer, RendererOptions, Scene};
+mod gpu_context;
+mod semantic_records;
+use gpu_context::{DeviceHandle, RenderContext, RenderSurface};
+use semantic_records::*;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::{closure::Closure, Clamped, JsCast, JsValue};
 #[cfg(target_arch = "wasm32")]
@@ -118,15 +118,12 @@ mod renderer_diagnostics;
 #[cfg(target_arch = "wasm32")]
 use renderer_diagnostics::renderer_request_from_value;
 use renderer_diagnostics::{emit_renderer_report, RendererReport, RendererRequest};
-mod software_fonts;
-mod software_renderer;
+mod native_surface;
 #[cfg(target_arch = "wasm32")]
 mod web_console;
 mod web_input;
 #[cfg(target_arch = "wasm32")]
 mod web_links;
-use software_renderer::SoftwareRenderer;
-mod native_surface;
 use native_surface::NativeSurfaceRegistry;
 mod navigation;
 pub use navigation::{WebNavigationConfig, WebRouteStrategy};
@@ -430,7 +427,7 @@ struct RenderState<'w> {
 
 enum MainRenderer {
     Vello {
-        renderer: VelloSceneRenderer,
+        renderer: GpuSceneRenderer,
         texture_compositor: TextureLayerCompositor,
     },
     Software,
@@ -497,8 +494,6 @@ impl WebCanvasPresenter {
 struct WebGpuPresenter {
     render_cx: RenderContext,
     render_state: RenderState<'static>,
-    scene: Scene,
-    retained_scene_cache: RetainedSceneCache,
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -657,9 +652,11 @@ fn create_render_state<'w>(
 
     let device_handle = &render_cx.devices[surface.dev_id];
     #[cfg(target_os = "ios")]
-    device_handle.device.on_uncaptured_error(Box::new(|error| {
-        eprintln!("wgpu uncaptured error: {error}");
-    }));
+    device_handle
+        .device
+        .on_uncaptured_error(std::sync::Arc::new(|error| {
+            eprintln!("wgpu uncaptured error: {error}");
+        }));
     let surface_caps = surface.surface.get_capabilities(device_handle.adapter());
     surface.config.present_mode =
         preferred_native_present_mode(&surface_caps.present_modes, linux_wayland);
@@ -685,15 +682,9 @@ fn create_render_state<'w>(
     );
 
     let request = native_renderer_request();
-    let supports_indirect_execution = device_handle
-        .adapter()
-        .get_downlevel_capabilities()
-        .flags
-        .contains(wgpu::DownlevelFlags::INDIRECT_EXECUTION);
     let (main_renderer, renderer_report) = create_native_main_renderer(
         device_handle,
         request,
-        supports_indirect_execution,
         viewport.physical_size.width,
         viewport.physical_size.height,
         viewport.scale_factor,
@@ -731,10 +722,7 @@ fn present_startup_clear_frame(
     window: &Window,
     clear_color: wgpu::Color,
 ) -> anyhow::Result<()> {
-    let surface_texture = render_state
-        .surface
-        .surface
-        .get_current_texture()
+    let surface_texture = acquire_surface_texture(&render_state.surface.surface)
         .map_err(|error| anyhow::anyhow!("failed to get startup surface texture: {error}"))?;
     let target_view = surface_texture
         .texture
@@ -761,6 +749,7 @@ fn present_startup_clear_frame(
             depth_stencil_attachment: None,
             timestamp_writes: None,
             occlusion_query_set: None,
+            multiview_mask: None,
         });
     }
     device_handle.queue.submit(Some(encoder.finish()));
@@ -816,6 +805,16 @@ fn is_linux_wayland_event_loop(event_loop: &EventLoopWindowTarget) -> bool {
 #[cfg(not(target_os = "linux"))]
 fn is_linux_wayland_event_loop(_event_loop: &EventLoopWindowTarget) -> bool {
     false
+}
+
+fn theme_background_render_color(env: &Env) -> fission_render::Color {
+    let background = env.theme.tokens.colors.background;
+    fission_render::Color {
+        r: background.r,
+        g: background.g,
+        b: background.b,
+        a: background.a,
+    }
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -878,9 +877,8 @@ fn query_param(search: &str, name: &str) -> Option<String> {
 
 #[cfg(not(target_arch = "wasm32"))]
 fn create_native_main_renderer(
-    device_handle: &vello::util::DeviceHandle,
+    device_handle: &DeviceHandle,
     request: RendererRequest,
-    supports_indirect_execution: bool,
     width: u32,
     height: u32,
     scale_factor: f64,
@@ -893,35 +891,40 @@ fn create_native_main_renderer(
         adapter_info.device_type,
         &adapter_info.name,
     );
-    if matches!(request, RendererRequest::NativeSoftware) || auto_software_adapter {
-        return Ok((
+    let software = |active: &str, reason: String| {
+        (
             MainRenderer::Software,
             RendererReport::new(
-                "native-software-upload",
+                active,
                 request,
-                backend,
-                adapter,
-                Some(
-                    if auto_software_adapter {
-                        "windows_software_adapter"
-                    } else {
-                        "forced_by_renderer_request"
-                    }
-                    .to_string(),
-                ),
+                backend.clone(),
+                adapter.clone(),
+                Some(reason),
                 width,
                 height,
                 scale_factor,
             ),
+        )
+    };
+    // Both CPU requests render through vello_cpu now; they differ only in how they are reported.
+    if matches!(request, RendererRequest::NativeSoftware) || auto_software_adapter {
+        return Ok(software(
+            "native-software-upload",
+            if auto_software_adapter {
+                "windows_software_adapter"
+            } else {
+                "forced_by_renderer_request"
+            }
+            .to_string(),
         ));
     }
+    if matches!(request, RendererRequest::NativeVelloCpu) {
+        return Ok(software("native-vello-cpu", "forced_cpu_vello".to_string()));
+    }
 
-    let cpu_requested = matches!(request, RendererRequest::NativeVelloCpu);
-    match create_vello_main_renderer(device_handle, cpu_requested, supports_indirect_execution) {
+    match create_vello_main_renderer(device_handle) {
         Ok(renderer) => {
-            let active = if cpu_requested {
-                "native-vello-cpu"
-            } else if cfg!(target_os = "ios") || cfg!(target_os = "macos") {
+            let active = if cfg!(target_os = "ios") || cfg!(target_os = "macos") {
                 "metal-vello"
             } else {
                 "native-vello"
@@ -933,15 +936,7 @@ fn create_native_main_renderer(
                     request,
                     backend,
                     adapter,
-                    if matches!(request, RendererRequest::NativeVelloCpu) {
-                        Some("forced_cpu_vello".to_string())
-                    } else if !supports_indirect_execution {
-                        Some("direct_dispatch_fallback".to_string())
-                    } else if cpu_requested {
-                        Some("missing_indirect_execution".to_string())
-                    } else {
-                        None
-                    },
+                    None,
                     width,
                     height,
                     scale_factor,
@@ -951,59 +946,26 @@ fn create_native_main_renderer(
         Err(gpu_error) if request.is_explicit_gpu() => Err(anyhow::anyhow!(
             "requested native Vello GPU renderer but initialization failed: {gpu_error}"
         )),
-        Err(gpu_error) => match create_vello_main_renderer(device_handle, true, true) {
-            Ok(renderer) => Ok((
-                renderer,
-                RendererReport::new(
-                    "native-vello-cpu",
-                    request,
-                    backend,
-                    adapter,
-                    Some(format!("gpu_vello_init_failed:{gpu_error}")),
-                    width,
-                    height,
-                    scale_factor,
-                ),
-            )),
-            Err(cpu_error) => Ok((
-                MainRenderer::Software,
-                RendererReport::new(
-                    "native-software-upload",
-                    request,
-                    backend,
-                    adapter,
-                    Some(format!(
-                        "gpu_vello_init_failed:{gpu_error};cpu_vello_init_failed:{cpu_error}"
-                    )),
-                    width,
-                    height,
-                    scale_factor,
-                ),
-            )),
-        },
+        Err(gpu_error) => Ok(software(
+            "native-vello-cpu",
+            format!("gpu_vello_init_failed:{gpu_error}"),
+        )),
     }
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-fn create_vello_main_renderer(
-    device_handle: &vello::util::DeviceHandle,
-    use_cpu: bool,
-    use_indirect_dispatch: bool,
-) -> anyhow::Result<MainRenderer> {
-    let renderer = VelloSceneRenderer::new(
-        &device_handle.device,
-        RendererOptions {
-            use_cpu,
-            use_indirect_dispatch,
-            antialiasing_support: AaSupport::all(),
-            num_init_threads: None,
-            pipeline_cache: None,
-        },
-    )
-    .map_err(|error| anyhow::anyhow!("failed to create vello renderer: {error}"))?;
-
-    let texture_compositor =
-        TextureLayerCompositor::new(&device_handle.device, wgpu::TextureFormat::Rgba8Unorm);
+fn create_vello_main_renderer(device_handle: &DeviceHandle) -> anyhow::Result<MainRenderer> {
+    // vello_gpu reports pipeline failures as device errors rather than returning them, so
+    // creation runs inside a validation scope to let a broken adapter fall back to the CPU.
+    let device = &device_handle.device;
+    let validation_scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
+    let renderer = GpuSceneRenderer::new(device, wgpu::TextureFormat::Rgba8Unorm);
+    let texture_compositor = TextureLayerCompositor::new(device, wgpu::TextureFormat::Rgba8Unorm);
+    if let Some(error) = block_on(validation_scope.pop()) {
+        return Err(anyhow::anyhow!(
+            "failed to create vello_gpu renderer: {error}"
+        ));
+    }
     Ok(MainRenderer::Vello {
         renderer,
         texture_compositor,
@@ -1061,6 +1023,7 @@ fn preferred_surface_alpha_mode(
         .unwrap_or(wgpu::CompositeAlphaMode::Opaque)
 }
 
+#[cfg(any(target_arch = "wasm32", test))]
 fn preferred_web_surface_alpha_mode(
     supported: &[wgpu::CompositeAlphaMode],
 ) -> wgpu::CompositeAlphaMode {
@@ -1084,22 +1047,67 @@ fn preferred_web_surface_alpha_mode(
         .unwrap_or(wgpu::CompositeAlphaMode::Opaque)
 }
 
+/// Why a surface texture could not be acquired for a frame.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SurfaceAcquireError {
+    Timeout,
+    Occluded,
+    Outdated,
+    Lost,
+    Validation,
+}
+
+impl std::fmt::Display for SurfaceAcquireError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Timeout => "timed out",
+            Self::Occluded => "occluded",
+            Self::Outdated => "outdated",
+            Self::Lost => "lost",
+            Self::Validation => "rejected by validation",
+        })
+    }
+}
+
+/// Acquire the next surface texture.
+///
+/// A suboptimal texture is still presentable, so it is used for this frame; the surface is
+/// reconfigured when it next resizes rather than dropping a frame for it.
+fn acquire_surface_texture(
+    surface: &wgpu::Surface<'_>,
+) -> Result<wgpu::SurfaceTexture, SurfaceAcquireError> {
+    match surface.get_current_texture() {
+        wgpu::CurrentSurfaceTexture::Success(texture)
+        | wgpu::CurrentSurfaceTexture::Suboptimal(texture) => Ok(texture),
+        wgpu::CurrentSurfaceTexture::Timeout => Err(SurfaceAcquireError::Timeout),
+        wgpu::CurrentSurfaceTexture::Occluded => Err(SurfaceAcquireError::Occluded),
+        wgpu::CurrentSurfaceTexture::Outdated => Err(SurfaceAcquireError::Outdated),
+        wgpu::CurrentSurfaceTexture::Lost => Err(SurfaceAcquireError::Lost),
+        wgpu::CurrentSurfaceTexture::Validation => Err(SurfaceAcquireError::Validation),
+    }
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum SurfaceAcquireRecovery {
     Reconfigure,
     Retry,
-    Exit,
 }
 
+/// How a frame recovers from a failed acquisition.
+///
+/// wgpu 29 no longer reports running out of memory here, so every failure is recoverable. A
+/// validation failure most often means the configuration no longer suits the surface, so it is
+/// reconfigured like an outdated one.
 #[cfg(not(target_arch = "wasm32"))]
-fn surface_acquire_recovery(error: &wgpu::SurfaceError) -> SurfaceAcquireRecovery {
+fn surface_acquire_recovery(error: &SurfaceAcquireError) -> SurfaceAcquireRecovery {
     match error {
-        wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated => {
-            SurfaceAcquireRecovery::Reconfigure
+        SurfaceAcquireError::Lost
+        | SurfaceAcquireError::Outdated
+        | SurfaceAcquireError::Validation => SurfaceAcquireRecovery::Reconfigure,
+        SurfaceAcquireError::Timeout | SurfaceAcquireError::Occluded => {
+            SurfaceAcquireRecovery::Retry
         }
-        wgpu::SurfaceError::Timeout | wgpu::SurfaceError::Other => SurfaceAcquireRecovery::Retry,
-        wgpu::SurfaceError::OutOfMemory => SurfaceAcquireRecovery::Exit,
     }
 }
 
@@ -1132,9 +1140,11 @@ async fn create_webgpu_presenter(
     };
     let main_renderer = {
         let device_handle = &render_cx.devices[dev_id];
-        device_handle.device.on_uncaptured_error(Box::new(|error| {
-            eprintln!("webgpu uncaptured error: {error}");
-        }));
+        device_handle
+            .device
+            .on_uncaptured_error(std::sync::Arc::new(|error| {
+                eprintln!("webgpu uncaptured error: {error}");
+            }));
         create_validated_webgpu_main_renderer(device_handle, request).await?
     };
 
@@ -1207,33 +1217,20 @@ async fn create_webgpu_presenter(
     Ok(WebGpuPresenter {
         render_cx,
         render_state,
-        scene: Scene::new(),
-        retained_scene_cache: RetainedSceneCache::default(),
     })
 }
 
 #[cfg(target_arch = "wasm32")]
 fn create_webgpu_main_renderer(
-    device_handle: &vello::util::DeviceHandle,
+    device_handle: &DeviceHandle,
     request: RendererRequest,
-    use_indirect_dispatch: bool,
 ) -> anyhow::Result<MainRenderer> {
     if matches!(request, RendererRequest::Canvas2dSoftware) {
         return Err(anyhow::anyhow!(
             "webgpu renderer disabled by renderer request"
         ));
     }
-    let renderer = VelloSceneRenderer::new(
-        &device_handle.device,
-        RendererOptions {
-            use_cpu: false,
-            use_indirect_dispatch,
-            antialiasing_support: AaSupport::all(),
-            num_init_threads: None,
-            pipeline_cache: None,
-        },
-    )
-    .map_err(|error| anyhow::anyhow!("failed to create webgpu Vello renderer: {error}"))?;
+    let renderer = GpuSceneRenderer::new(&device_handle.device, wgpu::TextureFormat::Rgba8Unorm);
     let texture_compositor =
         TextureLayerCompositor::new(&device_handle.device, wgpu::TextureFormat::Rgba8Unorm);
     Ok(MainRenderer::Vello {
@@ -1244,66 +1241,55 @@ fn create_webgpu_main_renderer(
 
 #[cfg(target_arch = "wasm32")]
 async fn create_validated_webgpu_main_renderer(
-    device_handle: &vello::util::DeviceHandle,
+    device_handle: &DeviceHandle,
     request: RendererRequest,
 ) -> anyhow::Result<MainRenderer> {
     let device = &device_handle.device;
-    let mut failures = Vec::new();
+    let validation_scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
+    let out_of_memory_scope = device.push_error_scope(wgpu::ErrorFilter::OutOfMemory);
+    let internal_scope = device.push_error_scope(wgpu::ErrorFilter::Internal);
 
-    for use_indirect_dispatch in [true, false] {
-        device.push_error_scope(wgpu::ErrorFilter::Validation);
-        device.push_error_scope(wgpu::ErrorFilter::OutOfMemory);
-        device.push_error_scope(wgpu::ErrorFilter::Internal);
+    let result = match create_webgpu_main_renderer(device_handle, request) {
+        Ok(mut renderer) => preflight_webgpu_main_renderer(device_handle, &mut renderer)
+            .await
+            .map(|()| renderer),
+        Err(error) => Err(error),
+    };
 
-        let result =
-            match create_webgpu_main_renderer(device_handle, request, use_indirect_dispatch) {
-                Ok(mut renderer) => preflight_webgpu_main_renderer(device_handle, &mut renderer)
-                    .await
-                    .map(|()| renderer),
-                Err(error) => Err(error),
-            };
-
-        let mut gpu_errors = Vec::new();
-        for stage in ["internal", "out-of-memory", "validation"] {
-            if let Some(error) = device.pop_error_scope().await {
-                gpu_errors.push(format!("{stage}: {error}"));
-            }
-        }
-
-        match (result, gpu_errors.is_empty()) {
-            (Ok(renderer), true) => {
-                log::info!(
-                    "Fission WebGPU Vello pixel preflight passed: indirect_dispatch={use_indirect_dispatch}"
-                );
-                return Ok(renderer);
-            }
-            (result, _) => {
-                let mode = if use_indirect_dispatch {
-                    "indirect"
-                } else {
-                    "direct"
-                };
-                let mut reasons = Vec::new();
-                if let Err(error) = result {
-                    reasons.push(error.to_string());
-                }
-                reasons.extend(gpu_errors);
-                let failure = format!("{mode} dispatch: {}", reasons.join("; "));
-                log::warn!("Fission WebGPU Vello pixel preflight failed: {failure}");
-                failures.push(failure);
-            }
+    let mut gpu_errors = Vec::new();
+    // Scopes form a stack, so they are popped innermost first.
+    for (stage, scope) in [
+        ("internal", internal_scope),
+        ("out-of-memory", out_of_memory_scope),
+        ("validation", validation_scope),
+    ] {
+        if let Some(error) = scope.pop().await {
+            gpu_errors.push(format!("{stage}: {error}"));
         }
     }
 
-    Err(anyhow::anyhow!(
-        "webgpu Vello pixel preflight failed: {}",
-        failures.join(" | ")
-    ))
+    match (result, gpu_errors.is_empty()) {
+        (Ok(renderer), true) => {
+            log::info!("Fission WebGPU Vello pixel preflight passed");
+            Ok(renderer)
+        }
+        (result, _) => {
+            let mut reasons = Vec::new();
+            if let Err(error) = result {
+                reasons.push(error.to_string());
+            }
+            reasons.extend(gpu_errors);
+            Err(anyhow::anyhow!(
+                "webgpu Vello pixel preflight failed: {}",
+                reasons.join("; ")
+            ))
+        }
+    }
 }
 
 #[cfg(target_arch = "wasm32")]
 async fn preflight_webgpu_main_renderer(
-    device_handle: &vello::util::DeviceHandle,
+    device_handle: &DeviceHandle,
     renderer: &mut MainRenderer,
 ) -> anyhow::Result<()> {
     let MainRenderer::Vello { renderer, .. } = renderer else {
@@ -1322,63 +1308,34 @@ async fn preflight_webgpu_main_renderer(
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::Rgba8Unorm,
-            usage: wgpu::TextureUsages::STORAGE_BINDING
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT
                 | wgpu::TextureUsages::TEXTURE_BINDING
                 | wgpu::TextureUsages::COPY_SRC,
             view_formats: &[],
         });
     let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-    let mut scene = Scene::new();
-    scene.fill(
-        vello::peniko::Fill::NonZero,
-        vello::kurbo::Affine::IDENTITY,
-        vello::peniko::Color::WHITE,
-        None,
-        &vello::kurbo::Rect::new(0.0, 0.0, 16.0, 16.0),
-    );
-    let workload_profile = vello::RenderWorkloadProfile {
-        target: vello::TargetProfile {
-            width_px: 16,
-            height_px: 16,
-            scale_factor: 1.0,
-            dirty_tiles: None,
-        },
-        coverage: vello::TileCoverageProfile {
-            tile_width: 16,
-            tile_height: 16,
-            target_tiles: 1,
-            visible_tiles: 1,
-            total_draw_tile_coverage: 1,
-            total_path_tile_coverage: 1,
-            max_ops_per_tile: 1,
-            max_blend_depth: 0,
-        },
-        scene: vello::SceneComplexityProfile {
-            draw_ops: 1,
-            path_ops: 1,
-            path_points: 4,
-            estimated_path_segments: 4,
-            ..Default::default()
-        },
-        ..Default::default()
-    };
+    let measurer = Arc::new(VelloTextMeasurer::new(Arc::new(Mutex::new(
+        FontContext::new(),
+    ))));
+    let preflight_scene = fission_render::RenderScene::new(LayoutRect::new(0.0, 0.0, 16.0, 16.0));
     renderer
-        .render_to_texture_with_workload_profile(
+        .render(
             &device_handle.device,
             &device_handle.queue,
-            &scene,
+            &preflight_scene,
+            measurer,
+            1.0,
             &view,
-            &vello::RenderParams {
-                base_color: vello::peniko::Color::BLACK,
-                width: 16,
-                height: 16,
-                antialiasing_method: vello::AaConfig::Area,
-            },
-            Some(&workload_profile),
+            16,
+            16,
+            Some(fission_render::Color {
+                r: 255,
+                g: 255,
+                b: 255,
+                a: 255,
+            }),
         )
-        .map_err(|error| {
-            anyhow::anyhow!("webgpu profiled Vello preflight submission failed: {error}")
-        })?;
+        .map_err(|error| anyhow::anyhow!("webgpu Vello preflight submission failed: {error}"))?;
 
     const BYTES_PER_ROW: u32 = 256;
     const HEIGHT: u32 = 16;
@@ -3403,6 +3360,21 @@ fn parse_key_code(key: &str) -> KeyCode {
 /// TestEvent::KeyDown / TestEvent::TextInput.
 ///
 /// Returns `true` if the app key handler consumed the event.
+/// Reports a frame the renderer could not draw. The frame is skipped and the app keeps running;
+/// the first few failures are logged, then one in every few hundred so a persistent failure
+/// cannot flood the log.
+fn report_frame_failure(stage: &str, error: &dyn std::fmt::Display) {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static FAILURES: AtomicU64 = AtomicU64::new(0);
+    let count = FAILURES.fetch_add(1, Ordering::Relaxed);
+    if count < 5 || count.is_multiple_of(600) {
+        #[cfg(target_arch = "wasm32")]
+        log::error!("fission-shell-winit: failed to {stage}; skipping frame ({count}): {error}");
+        #[cfg(not(target_arch = "wasm32"))]
+        eprintln!("fission-shell-winit: failed to {stage}; skipping frame ({count}): {error}");
+    }
+}
+
 fn fission_key_down_event(code: KeyCode, modifiers: u8, produced_text: Option<&str>) -> InputEvent {
     produced_text.filter(|text| !text.is_empty()).map_or_else(
         || {
@@ -3649,369 +3621,6 @@ fn clipped_visible_rect_for_node(
     }
 
     Some(visible)
-}
-
-fn bounds_from_rect(rect: LayoutRect) -> fission_test_driver::Bounds {
-    fission_test_driver::Bounds {
-        x: rect.x(),
-        y: rect.y(),
-        width: rect.width(),
-        height: rect.height(),
-    }
-}
-
-fn visibility_state(
-    visual: Option<LayoutRect>,
-    visible: Option<LayoutRect>,
-) -> fission_test_driver::VisibilityState {
-    let Some(visual) = visual else {
-        return fission_test_driver::VisibilityState::Hidden;
-    };
-    let Some(visible) = visible else {
-        return fission_test_driver::VisibilityState::Hidden;
-    };
-    if visible.width() <= 0.0 || visible.height() <= 0.0 {
-        return fission_test_driver::VisibilityState::Hidden;
-    }
-    let fully_visible = (visible.x() - visual.x()).abs() < 0.5
-        && (visible.y() - visual.y()).abs() < 0.5
-        && (visible.width() - visual.width()).abs() < 0.5
-        && (visible.height() - visual.height()).abs() < 0.5;
-    if fully_visible {
-        fission_test_driver::VisibilityState::FullyVisible
-    } else {
-        fission_test_driver::VisibilityState::PartiallyVisible
-    }
-}
-
-fn is_semantic_node(ir: &CoreIR, id: WidgetId) -> bool {
-    ir.nodes
-        .get(&id)
-        .is_some_and(|node| matches!(node.op, fission_ir::Op::Semantics(_)))
-}
-
-fn nearest_semantic_parent(ir: &CoreIR, id: WidgetId) -> Option<WidgetId> {
-    let mut current = ir.nodes.get(&id).and_then(|node| node.parent);
-    while let Some(parent_id) = current {
-        if is_semantic_node(ir, parent_id) {
-            return Some(parent_id);
-        }
-        current = ir.nodes.get(&parent_id).and_then(|node| node.parent);
-    }
-    None
-}
-
-fn is_descendant_of(ir: &CoreIR, node_id: WidgetId, ancestor_id: WidgetId) -> bool {
-    let mut current = Some(node_id);
-    while let Some(current_id) = current {
-        if current_id == ancestor_id {
-            return true;
-        }
-        current = ir.nodes.get(&current_id).and_then(|node| node.parent);
-    }
-    false
-}
-
-#[derive(Clone)]
-struct SemanticRecord {
-    id: WidgetId,
-    semantics: Semantics,
-    node: fission_test_driver::SemanticNode,
-}
-
-fn collect_semantic_records(
-    ir: &CoreIR,
-    snap: &fission_layout::LayoutSnapshot,
-    scroll: &fission_core::ScrollStateMap,
-) -> Vec<SemanticRecord> {
-    let mut semantic_ids: Vec<WidgetId> = ir
-        .nodes
-        .iter()
-        .filter_map(|(id, node)| {
-            (matches!(node.op, fission_ir::Op::Semantics(_))
-                && !fission_core::hit_test::is_interaction_inert(ir, *id))
-            .then_some(*id)
-        })
-        .collect();
-    semantic_ids.sort_by_key(|id| id.as_u128());
-
-    let mut semantic_children: HashMap<WidgetId, Vec<String>> = HashMap::new();
-    for id in &semantic_ids {
-        if let Some(parent_id) = nearest_semantic_parent(ir, *id) {
-            semantic_children
-                .entry(parent_id)
-                .or_default()
-                .push(id.to_string());
-        }
-    }
-
-    semantic_ids
-        .into_iter()
-        .filter_map(|id| {
-            let node = ir.nodes.get(&id)?;
-            let fission_ir::Op::Semantics(semantics) = &node.op else {
-                return None;
-            };
-            let logical = snap
-                .get_node_rect(id)
-                .unwrap_or_else(|| LayoutRect::new(0.0, 0.0, 0.0, 0.0));
-            let visual = visual_rect_for_node(ir, snap, scroll, id);
-            let visible = clipped_visible_rect_for_node(ir, snap, scroll, id);
-            let visibility = visibility_state(visual, visible);
-            let visible_bounds = visible.map(bounds_from_rect);
-            let legacy_bounds = visible_bounds.unwrap_or(fission_test_driver::Bounds {
-                x: 0.0,
-                y: 0.0,
-                width: 0.0,
-                height: 0.0,
-            });
-            let value_present = semantics
-                .value
-                .as_deref()
-                .map(|value| !value.is_empty())
-                .unwrap_or(false);
-            let value = if semantics.masked {
-                None
-            } else {
-                semantics.value.clone()
-            };
-            let semantic_node = fission_test_driver::SemanticNode {
-                identifier: semantics.identifier.clone(),
-                widget_id: id.to_string(),
-                stable_node_id: id.to_string(),
-                parent: nearest_semantic_parent(ir, id).map(|parent| parent.to_string()),
-                children: semantic_children.remove(&id).unwrap_or_default(),
-                role: format!("{:?}", semantics.role),
-                label: semantics.label.clone(),
-                value,
-                value_present,
-                focusable: semantics.focusable,
-                sequential_focusable: semantics.is_sequentially_focusable(),
-                text_editable: semantics.supports_text_editing(),
-                disabled: semantics.disabled,
-                read_only: semantics.read_only,
-                checked: semantics.checked,
-                selected: semantics.selected,
-                expanded: semantics.expanded,
-                has_popup: semantics.has_popup.map(|value| format!("{value:?}")),
-                orientation: semantics.orientation.map(|value| format!("{value:?}")),
-                modal: semantics.modal,
-                required: semantics.required,
-                invalid: matches!(
-                    semantics.validation_state,
-                    fission_ir::TextFieldValidationState::Invalid
-                ),
-                controls: semantics.controls.iter().map(ToString::to_string).collect(),
-                labelled_by: semantics
-                    .labelled_by
-                    .iter()
-                    .map(ToString::to_string)
-                    .collect(),
-                described_by: semantics
-                    .described_by
-                    .iter()
-                    .map(ToString::to_string)
-                    .collect(),
-                active_descendant: semantics.active_descendant.map(|id| id.to_string()),
-                actions: semantics
-                    .actions
-                    .entries
-                    .iter()
-                    .map(|entry| format!("{:?}", entry.trigger))
-                    .collect(),
-                text_selection: semantics.text_selection,
-                masked: semantics.masked,
-                scrollable_x: semantics.scrollable_x,
-                scrollable_y: semantics.scrollable_y,
-                logical_bounds: bounds_from_rect(logical),
-                visible_bounds,
-                visibility,
-                x: legacy_bounds.x,
-                y: legacy_bounds.y,
-                width: legacy_bounds.width,
-                height: legacy_bounds.height,
-            };
-            Some(SemanticRecord {
-                id,
-                semantics: semantics.clone(),
-                node: semantic_node,
-            })
-        })
-        .collect()
-}
-
-fn selector_matches(record: &SemanticRecord, selector: &fission_test_driver::Selector) -> bool {
-    match selector {
-        fission_test_driver::Selector::SemanticIdentifier { identifier }
-        | fission_test_driver::Selector::AccessibilityIdentifier { identifier } => {
-            record.node.identifier.as_deref() == Some(identifier.as_str())
-        }
-        fission_test_driver::Selector::TestId { test_id } => {
-            record.node.identifier.as_deref() == Some(test_id.as_str())
-        }
-        fission_test_driver::Selector::WidgetId { widget_id } => {
-            record.id == parse_widget_selector(widget_id)
-        }
-        fission_test_driver::Selector::RoleLabel { role, label } => {
-            record.node.role.eq_ignore_ascii_case(role)
-                && record.node.label.as_deref() == Some(label.as_str())
-        }
-        fission_test_driver::Selector::Label { label } => {
-            record.node.label.as_deref() == Some(label.as_str())
-        }
-    }
-}
-
-fn parse_widget_selector(widget_id: &str) -> WidgetId {
-    let trimmed = widget_id
-        .strip_prefix("WidgetId(")
-        .and_then(|value| value.strip_suffix(')'))
-        .unwrap_or(widget_id)
-        .trim_start_matches("0x");
-    if trimmed.len() == 32 {
-        if let Ok(raw) = u128::from_str_radix(trimmed, 16) {
-            return WidgetId::from_u128(raw);
-        }
-    }
-    WidgetId::explicit(widget_id)
-}
-
-fn selector_failure(
-    query: fission_test_driver::SelectorQuery,
-    kind: fission_test_driver::SelectorFailureKind,
-    message: impl Into<String>,
-    records: Vec<(SemanticRecord, Option<String>)>,
-) -> fission_test_driver::TestResponse {
-    fission_test_driver::TestResponse::SelectorError {
-        failure: fission_test_driver::SelectorFailure {
-            kind,
-            selector: query,
-            candidates: records
-                .into_iter()
-                .take(50)
-                .map(
-                    |(record, rejected_reason)| fission_test_driver::SelectorCandidate {
-                        node: record.node,
-                        rejected_reason,
-                    },
-                )
-                .collect(),
-            message: message.into(),
-        },
-    }
-}
-
-fn resolve_selector_record(
-    pipeline: &Pipeline,
-    scroll: &fission_core::ScrollStateMap,
-    query: &fission_test_driver::SelectorQuery,
-) -> std::result::Result<SemanticRecord, fission_test_driver::TestResponse> {
-    let (Some(ir), Some(snap)) = (&pipeline.prev_ir, &pipeline.last_snapshot) else {
-        return Err(selector_failure(
-            query.clone(),
-            fission_test_driver::SelectorFailureKind::StaleFrame,
-            "no frame rendered yet",
-            Vec::new(),
-        ));
-    };
-
-    let all = collect_semantic_records(ir, snap, scroll);
-    let scoped = if let Some(scope_query) = &query.scope {
-        let scope = resolve_selector_record(pipeline, scroll, scope_query)?;
-        all.into_iter()
-            .filter(|record| is_descendant_of(ir, record.id, scope.id))
-            .collect()
-    } else {
-        all
-    };
-
-    let matched: Vec<SemanticRecord> = scoped
-        .iter()
-        .filter(|record| selector_matches(record, &query.selector))
-        .cloned()
-        .collect();
-    if matched.is_empty() {
-        return Err(selector_failure(
-            query.clone(),
-            fission_test_driver::SelectorFailureKind::NoMatch,
-            "selector did not match any semantic node",
-            scoped
-                .into_iter()
-                .map(|record| (record, Some("selector did not match".into())))
-                .collect(),
-        ));
-    }
-
-    let visible_matched: Vec<SemanticRecord> = matched
-        .iter()
-        .filter(|record| {
-            query.include_hidden
-                || record.node.visibility != fission_test_driver::VisibilityState::Hidden
-        })
-        .cloned()
-        .collect();
-    if visible_matched.is_empty() {
-        return Err(selector_failure(
-            query.clone(),
-            fission_test_driver::SelectorFailureKind::FoundButNotVisible,
-            "selector matched node(s), but none are visible",
-            matched
-                .into_iter()
-                .map(|record| (record, Some("matched but hidden".into())))
-                .collect(),
-        ));
-    }
-
-    if let Some(index) = query.index {
-        return visible_matched.get(index).cloned().ok_or_else(|| {
-            selector_failure(
-                query.clone(),
-                fission_test_driver::SelectorFailureKind::NoMatch,
-                format!("selector matched fewer than {} node(s)", index + 1),
-                visible_matched
-                    .into_iter()
-                    .map(|record| (record, Some("candidate index out of range".into())))
-                    .collect(),
-            )
-        });
-    }
-
-    if query.include_hidden && visible_matched.len() > 1 {
-        let laid_out = visible_matched
-            .iter()
-            .filter(|record| {
-                record.node.logical_bounds.width > 0.0 || record.node.logical_bounds.height > 0.0
-            })
-            .cloned()
-            .collect::<Vec<_>>();
-        if let [record] = laid_out.as_slice() {
-            return Ok(record.clone());
-        }
-    }
-
-    if visible_matched.len() > 1 {
-        return Err(selector_failure(
-            query.clone(),
-            fission_test_driver::SelectorFailureKind::Ambiguous,
-            "selector matched multiple semantic nodes; provide index or scope",
-            visible_matched
-                .into_iter()
-                .map(|record| (record, Some("ambiguous match".into())))
-                .collect(),
-        ));
-    }
-
-    Ok(visible_matched.into_iter().next().unwrap())
-}
-
-fn selector_center(record: &SemanticRecord) -> Option<LayoutPoint> {
-    let bounds = record.node.visible_bounds?;
-    (bounds.width > 0.0 && bounds.height > 0.0).then(|| {
-        LayoutPoint::new(
-            bounds.x + bounds.width / 2.0,
-            bounds.y + bounds.height / 2.0,
-        )
-    })
 }
 
 fn dispatch_semantics_action(
@@ -5467,10 +5076,6 @@ where
         let mut web_renderer_reported = false;
         #[cfg(target_arch = "wasm32")]
         let mut web_rendered_frames: u64 = 0;
-        #[cfg(not(target_arch = "wasm32"))]
-        let mut scene = Scene::new();
-        #[cfg(not(target_arch = "wasm32"))]
-        let mut retained_scene_cache = RetainedSceneCache::default();
 
         #[cfg(not(target_os = "android"))]
         platform_window.request_redraw();
@@ -5571,6 +5176,9 @@ where
             .checked_sub(min_frame)
             .unwrap_or_else(Instant::now);
         let mut redraw_pending = false;
+        // Set while the window is covered and its surface cannot be acquired. Redraws pause
+        // until the window is visible again instead of retrying every frame.
+        let mut surface_occluded = false;
         let mut last_frame_time = Instant::now();
         let mut test_animations_paused = false;
         let mut pending_test_clock_advance_ms: Option<u64> = None;
@@ -5651,7 +5259,6 @@ where
             composite: true,
         };
         let mut vello_image_cache_generation = fission_render_vello::image_cache_generation();
-        let mut software_image_cache_generation = software_renderer::image_cache_generation();
         #[cfg(not(target_arch = "wasm32"))]
         let mut navigation_history = navigation::NavigationHistory::new(env.current_route.clone());
 
@@ -5661,6 +5268,20 @@ where
             #[cfg(target_arch = "wasm32")]
             let _keep_motion_preference_listener_alive = &web_motion_preference_listener;
             elwt.set_control_flow(ControlFlow::Wait);
+            // A covered window receives no redraws, so live test commands waiting on a frame run
+            // one through this event instead.
+            let event = match event {
+                Event::UserEvent(TestEvent::HeadlessFrame) => {
+                    let Some(window_id) = platform_window.active_window_id() else {
+                        return;
+                    };
+                    Event::WindowEvent {
+                        window_id,
+                        event: WindowEvent::RedrawRequested,
+                    }
+                }
+                other => other,
+            };
             let debug_android_events = cfg!(target_os = "android")
                 && std::env::var_os("FISSION_DEBUG_ANDROID_EVENTS").is_some();
 
@@ -6859,6 +6480,8 @@ where
                         );
                         window.request_redraw();
                     }
+                    // Mapped to a redraw before dispatch.
+                    TestEvent::HeadlessFrame => {}
                     TestEvent::Wake => {
                         #[cfg(target_arch = "wasm32")]
                         {
@@ -7171,6 +6794,13 @@ where
                         elwt.set_control_flow(ControlFlow::Wait);
                         return;
                     };
+                    // Queued test events are drained before the pending screenshot is read: the
+                    // drain holds the test event handler, which owns that screenshot slot.
+                    #[cfg(target_os = "android")]
+                    drain_pending_test_events();
+                    if surface_occluded && pending_screenshot_response_tx.is_some() {
+                        let _ = event_proxy.send_event(TestEvent::HeadlessFrame);
+                    }
                     #[cfg(feature = "tray")]
                     if let Some(tray) = active_tray.as_ref() {
                         if tray.minimize_behavior() == tray::WindowMinimizeBehavior::HideToTray
@@ -7180,8 +6810,6 @@ where
                             tray::hide_window_to_tray(window, tray.app_switcher_policy());
                         }
                     }
-                    #[cfg(target_os = "android")]
-                    drain_pending_test_events();
                     for command in runtime.take_pending_navigation() {
                         #[cfg(target_arch = "wasm32")]
                         match navigation::apply_browser_navigation(
@@ -7603,20 +7231,10 @@ where
 
                     let next_vello_image_generation =
                         fission_render_vello::image_cache_generation();
-                    let next_software_image_generation =
-                        software_renderer::image_cache_generation();
-                    let image_cache_changed = next_vello_image_generation
-                        != vello_image_cache_generation
-                        || next_software_image_generation != software_image_cache_generation;
+                    let image_cache_changed =
+                        next_vello_image_generation != vello_image_cache_generation;
                     if image_cache_changed {
                         vello_image_cache_generation = next_vello_image_generation;
-                        software_image_cache_generation = next_software_image_generation;
-                        #[cfg(not(target_arch = "wasm32"))]
-                        retained_scene_cache.clear();
-                        #[cfg(target_arch = "wasm32")]
-                        if let Some(WebRenderer::WebGpu(presenter)) = web_renderer.as_mut() {
-                            presenter.retained_scene_cache.clear();
-                        }
                         invalidations.mark_paint();
                         let stats = fission_render_vello::image_cache_stats();
                         diag::emit(
@@ -7637,25 +7255,6 @@ where
                                 offscreen_skips: stats.offscreen_skips,
                             },
                         );
-                        let stats = software_renderer::image_cache_stats();
-                        diag::emit(
-                            diag::DiagCategory::Raster,
-                            diag::DiagLevel::Debug,
-                            diag::DiagEventKind::ImageCacheSummary {
-                                renderer: "software".to_string(),
-                                entries: stats.entries,
-                                weighted_bytes: stats.weighted_bytes,
-                                max_bytes: stats.max_bytes,
-                                pending: stats.pending,
-                                hits: stats.hits,
-                                misses: stats.misses,
-                                loads_started: stats.loads_started,
-                                loads_completed: stats.loads_completed,
-                                loads_failed: stats.loads_failed,
-                                evictions: stats.evictions,
-                                offscreen_skips: 0,
-                            },
-                        );
                         request_redraw_logged(
                             &window,
                             elwt,
@@ -7666,8 +7265,7 @@ where
                             "image_cache",
                         );
                     }
-                    let image_cache_pending = fission_render_vello::image_cache_has_pending()
-                        || software_renderer::image_cache_has_pending();
+                    let image_cache_pending = fission_render_vello::image_cache_has_pending();
 
                     // When a frame_hook is registered, ensure the event loop
                     // wakes at least every 2 seconds so the hook fires even
@@ -7934,6 +7532,15 @@ where
                             frame_trace.note_redraw_reason("system_theme_changed");
                             window.request_redraw();
                             redraw_pending = true;
+                        }
+                        WindowEvent::Occluded(occluded) => {
+                            surface_occluded = occluded;
+                            if !occluded {
+                                invalidations.mark_paint();
+                                frame_trace.note_redraw_reason("window_unoccluded");
+                                window.request_redraw();
+                                redraw_pending = true;
+                            }
                         }
                         WindowEvent::RedrawRequested => {
                             if debug_android_events {
@@ -8451,7 +8058,7 @@ where
                                 .into();
 
                                 let ir = {
-                                    let mut lower_cx = InternalLoweringCx::new(
+                                    let mut lower_cx = LoweringContext::new(
                                         &env,
                                         &runtime.runtime_state,
                                         runtime.measurer.as_ref(),
@@ -8464,8 +8071,8 @@ where
                                         &mut lower_cx,
                                         shell_root_id,
                                     );
-                                    lower_cx.ir.root = Some(root_id);
-                                    lower_cx.ir
+                                    lower_cx.set_root(root_id);
+                                    lower_cx.into_ir()
                                 };
 
                                 match runtime.reconcile_focus(&ir) {
@@ -8552,8 +8159,8 @@ where
                                                     .expect(
                                                     "retained render scene missing before render",
                                                 );
-                                                let rgba =
-                                                    SoftwareRenderer::render_with_text_measurer(
+                                                let Ok(rgba) =
+                                                    fission_render_vello::cpu::render_to_rgba8(
                                                         retained_scene,
                                                         render_target_size.0,
                                                         render_target_size.1,
@@ -8563,12 +8170,19 @@ where
                                                             b: env.theme.tokens.colors.background.b,
                                                             a: env.theme.tokens.colors.background.a,
                                                         },
-                                                        scale_factor as f32,
+                                                        scale_factor,
                                                         measurer.clone(),
                                                     )
-                                                    .expect(
-                                                        "failed to rasterize software web frame",
-                                                    );
+                                                    .inspect_err(|error| {
+                                                        report_frame_failure(
+                                                            "rasterize software web frame",
+                                                            error,
+                                                        )
+                                                    })
+                                                else {
+                                                    diag::end_frame(diag::FrameStats::default());
+                                                    return;
+                                                };
 
                                                 if let Err(err) = presenter.present(
                                                     &rgba,
@@ -8629,12 +8243,9 @@ where
                                                         render_target_size;
                                                 }
 
-                                                let surface_texture = match presenter
-                                                    .render_state
-                                                    .surface
-                                                    .surface
-                                                    .get_current_texture()
-                                                {
+                                                let surface_texture = match acquire_surface_texture(
+                                                    &presenter.render_state.surface.surface,
+                                                ) {
                                                     Ok(texture) => texture,
                                                     Err(err) => {
                                                         eprintln!(
@@ -8647,7 +8258,7 @@ where
                                                 let device_handle = &presenter.render_cx.devices
                                                     [presenter.render_state.surface.dev_id];
 
-                                                let clear_color = vello::wgpu::Color {
+                                                let clear_color = wgpu::Color {
                                                     r: env.theme.tokens.colors.background.r as f64
                                                         / 255.0,
                                                     g: env.theme.tokens.colors.background.g as f64
@@ -8688,93 +8299,36 @@ where
                                                             || !texture_plans_fit_limits
                                                             || has_active_scroll_offsets
                                                         {
-                                                            let render_params =
-                                                                    vello::RenderParams {
-                                                                        base_color:
-                                                                            vello::peniko::Color::from_rgba8(
-                                                                                env.theme
-                                                                                    .tokens
-                                                                                    .colors
-                                                                                    .background
-                                                                                    .r,
-                                                                                env.theme
-                                                                                    .tokens
-                                                                                    .colors
-                                                                                    .background
-                                                                                    .g,
-                                                                                env.theme
-                                                                                    .tokens
-                                                                                    .colors
-                                                                                    .background
-                                                                                    .b,
-                                                                                env.theme
-                                                                                    .tokens
-                                                                                    .colors
-                                                                                    .background
-                                                                                    .a,
-                                                                            ),
-                                                                        width: render_target_size.0,
-                                                                        height: render_target_size.1,
-                                                                        antialiasing_method:
-                                                                            vello::AaConfig::Area,
-                                                                    };
-
-                                                            presenter.scene.reset();
                                                             let retained_scene = pipeline
-                                                                    .retained_scene()
-                                                                    .expect(
-                                                                        "retained render scene missing before render",
-                                                                    );
-                                                            let mut renderer_wrapper =
-                                                                VelloRenderer::new(
-                                                                    &mut presenter.scene,
-                                                                    measurer.clone(),
-                                                                    &mut presenter
-                                                                        .retained_scene_cache,
-                                                                    scale_factor,
-                                                                );
-                                                            renderer_wrapper
-                                                                    .render_scene(retained_scene)
-                                                                    .expect(
-                                                                        "failed to encode retained scene",
-                                                                    );
-                                                            let workload_profile =
-                                                                workload_profile_for_encoded_scene(
-                                                                    retained_scene,
-                                                                    &presenter.scene,
-                                                                    render_target_size.0,
-                                                                    render_target_size.1,
-                                                                    scale_factor,
+                                                                .retained_scene()
+                                                                .expect(
+                                                                    "retained render scene missing before render",
                                                                 );
                                                             if web_rendered_frames == 0 {
-                                                                let encoding =
-                                                                    presenter.scene.encoding();
                                                                 log::info!(
-                                                                    "Fission WebGPU first content frame: roots={}, paths={}, draws={}, glyph_runs={}, glyphs={}, target={}x{}",
+                                                                    "Fission WebGPU first content frame: roots={}, target={}x{}",
                                                                     retained_scene.roots.len(),
-                                                                    encoding.n_paths,
-                                                                    encoding.draw_tags.len(),
-                                                                    encoding.resources.glyph_runs.len(),
-                                                                    encoding.resources.glyphs.len(),
                                                                     render_target_size.0,
                                                                     render_target_size.1,
                                                                 );
                                                             }
                                                             renderer
-                                                                .render_to_texture_with_workload_profile(
+                                                                .render(
                                                                     &device_handle.device,
                                                                     &device_handle.queue,
-                                                                    &presenter.scene,
+                                                                    retained_scene,
+                                                                    measurer.clone(),
+                                                                    scale_factor,
                                                                     &presenter
                                                                         .render_state
                                                                         .surface
                                                                         .target_view,
-                                                                    &render_params,
-                                                                    Some(&workload_profile),
+                                                                    render_target_size.0,
+                                                                    render_target_size.1,
+                                                                    Some(theme_background_render_color(&env)),
                                                                 )
-                                                                .expect(
-                                                                    "failed to render webgpu frame",
-                                                                );
+                                                                .inspect_err(|error| report_frame_failure("render webgpu frame", error))
+.ok();
                                                         } else {
                                                             let force_full_compositor_redraw =
                                                                 invalidations.build
@@ -8786,8 +8340,6 @@ where
                                                                             &device_handle.device,
                                                                             &device_handle.queue,
                                                                             renderer,
-                                                                            &mut presenter
-                                                                                .retained_scene_cache,
                                                                             measurer.clone(),
                                                                             scale_factor,
                                                                             render_target_size.0,
@@ -8802,9 +8354,8 @@ where
                                                                                 .surface
                                                                                 .target_view,
                                                                         )
-                                                                        .expect(
-                                                                            "failed to composite webgpu texture layers",
-                                                                        );
+                                                                        .inspect_err(|error| report_frame_failure("composite webgpu texture layers", error))
+.ok();
                                                         }
                                                     }
                                                     MainRenderer::Software => {}
@@ -8842,6 +8393,7 @@ where
                                                             depth_stencil_attachment: None,
                                                             timestamp_writes: None,
                                                             occlusion_query_set: None,
+                                                            multiview_mask: None,
                                                         },
                                                     );
                                                 }
@@ -8935,11 +8487,9 @@ where
                                     {
                                         let render_state =
                                             render_state.as_mut().expect("render state");
-                                        let surface_texture = match render_state
-                                            .surface
-                                            .surface
-                                            .get_current_texture()
-                                        {
+                                        let surface_texture = match acquire_surface_texture(
+                                            &render_state.surface.surface,
+                                        ) {
                                             Ok(texture) => texture,
                                             Err(error) => {
                                                 match surface_acquire_recovery(&error) {
@@ -8994,28 +8544,75 @@ where
                                                             );
                                                     }
                                                     SurfaceAcquireRecovery::Retry => {
-                                                        eprintln!(
+                                                        if matches!(
+                                                            error,
+                                                            SurfaceAcquireError::Occluded
+                                                        ) {
+                                                            if !surface_occluded {
+                                                                eprintln!(
+                                                                    "render surface is occluded; pausing redraws until the window is visible"
+                                                                );
+                                                            }
+                                                            surface_occluded = true;
+                                                        } else {
+                                                            eprintln!(
                                                                 "render surface acquisition was {error}; retrying"
                                                             );
-                                                    }
-                                                    SurfaceAcquireRecovery::Exit => {
-                                                        eprintln!(
-                                                                "render surface ran out of memory; exiting"
-                                                            );
-                                                        elwt.exit();
-                                                        diag::end_frame(diag::FrameStats::default());
-                                                        return;
+                                                        }
                                                     }
                                                 }
-                                                request_redraw_logged(
-                                                    &window,
-                                                    elwt,
-                                                    &mut last_redraw_at,
-                                                    min_frame,
-                                                    &mut redraw_pending,
-                                                    &mut frame_trace,
-                                                    "surface_acquire_recovery",
-                                                );
+                                                if !surface_occluded {
+                                                    request_redraw_logged(
+                                                        &window,
+                                                        elwt,
+                                                        &mut last_redraw_at,
+                                                        min_frame,
+                                                        &mut redraw_pending,
+                                                        &mut frame_trace,
+                                                        "surface_acquire_recovery",
+                                                    );
+                                                }
+                                                // A covered window cannot present, but live test commands
+                                                // waiting on this frame are still answered: a pump once the
+                                                // frame is built, a screenshot from a software rendering of it.
+                                                if surface_occluded {
+                                                    if let (Some(path), Some(tx)) = (
+                                                        pending_screenshot_path.take(),
+                                                        pending_screenshot_response_tx.take(),
+                                                    ) {
+                                                        pending_capture_settle = false;
+                                                        let response = if path == "__pump__" {
+                                                            fission_test_driver::TestResponse::Ok {}
+                                                        } else {
+                                                            let background =
+                                                                env.theme.tokens.colors.background;
+                                                            covered_window_screenshot(
+                                                                pipeline.retained_scene().map(|scene| {
+                                                                    fission_render_vello::cpu::render_to_rgba8(
+                                                                        scene,
+                                                                        render_target_size.0,
+                                                                        render_target_size.1,
+                                                                        fission_render::Color {
+                                                                            r: background.r,
+                                                                            g: background.g,
+                                                                            b: background.b,
+                                                                            a: background.a,
+                                                                        },
+                                                                        scale_factor,
+                                                                        measurer.clone(),
+                                                                    )
+                                                                }),
+                                                                render_target_size,
+                                                                layout_size_to_image_dimensions(
+                                                                    target_viewport,
+                                                                ),
+                                                                (path != "__capture__")
+                                                                    .then_some(path.as_str()),
+                                                            )
+                                                        };
+                                                        let _ = tx.send(response);
+                                                    }
+                                                }
                                                 diag::end_frame(diag::FrameStats::default());
                                                 return;
                                             }
@@ -9023,7 +8620,7 @@ where
                                         let device_handle =
                                             &render_cx.devices[render_state.surface.dev_id];
 
-                                        let clear_color = vello::wgpu::Color {
+                                        let clear_color = wgpu::Color {
                                             r: env.theme.tokens.colors.background.r as f64 / 255.0,
                                             g: env.theme.tokens.colors.background.g as f64 / 255.0,
                                             b: env.theme.tokens.colors.background.b as f64 / 255.0,
@@ -9062,68 +8659,32 @@ where
                                                     || !texture_plans_fit_limits
                                                     || has_active_scroll_offsets
                                                 {
-                                                    let render_params = vello::RenderParams {
-                                                        base_color:
-                                                            vello::peniko::Color::from_rgba8(
-                                                                env.theme
-                                                                    .tokens
-                                                                    .colors
-                                                                    .background
-                                                                    .r,
-                                                                env.theme
-                                                                    .tokens
-                                                                    .colors
-                                                                    .background
-                                                                    .g,
-                                                                env.theme
-                                                                    .tokens
-                                                                    .colors
-                                                                    .background
-                                                                    .b,
-                                                                env.theme
-                                                                    .tokens
-                                                                    .colors
-                                                                    .background
-                                                                    .a,
-                                                            ),
-                                                        width: render_target_size.0,
-                                                        height: render_target_size.1,
-                                                        antialiasing_method: vello::AaConfig::Area,
-                                                    };
-
-                                                    scene.reset();
                                                     let retained_scene = pipeline
                                                         .retained_scene()
                                                         .expect(
                                                             "retained render scene missing before render",
                                                         );
-                                                    let mut renderer_wrapper = VelloRenderer::new(
-                                                        &mut scene,
-                                                        measurer.clone(),
-                                                        &mut retained_scene_cache,
-                                                        scale_factor,
-                                                    );
-                                                    renderer_wrapper
-                                                        .render_scene(retained_scene)
-                                                        .expect("failed to encode retained scene");
-                                                    let workload_profile =
-                                                        workload_profile_for_encoded_scene(
-                                                            retained_scene,
-                                                            &scene,
-                                                            render_target_size.0,
-                                                            render_target_size.1,
-                                                            scale_factor,
-                                                        );
                                                     renderer
-                                                        .render_to_texture_with_workload_profile(
+                                                        .render(
                                                             &device_handle.device,
                                                             &device_handle.queue,
-                                                            &scene,
+                                                            retained_scene,
+                                                            measurer.clone(),
+                                                            scale_factor,
                                                             &render_state.surface.target_view,
-                                                            &render_params,
-                                                            Some(&workload_profile),
+                                                            render_target_size.0,
+                                                            render_target_size.1,
+                                                            Some(theme_background_render_color(
+                                                                &env,
+                                                            )),
                                                         )
-                                                        .expect("failed to render");
+                                                        .inspect_err(|error| {
+                                                            report_frame_failure(
+                                                                "render frame",
+                                                                error,
+                                                            )
+                                                        })
+                                                        .ok();
                                                 } else {
                                                     let force_full_compositor_redraw = invalidations
                                                         .build
@@ -9134,7 +8695,6 @@ where
                                                             &device_handle.device,
                                                             &device_handle.queue,
                                                             renderer,
-                                                            &mut retained_scene_cache,
                                                             measurer.clone(),
                                                             scale_factor,
                                                             render_target_size.0,
@@ -9147,9 +8707,13 @@ where
                                                             clear_color,
                                                             &render_state.surface.target_view,
                                                         )
-                                                        .expect(
-                                                            "failed to composite texture layers",
-                                                        );
+                                                        .inspect_err(|error| {
+                                                            report_frame_failure(
+                                                                "composite texture layers",
+                                                                error,
+                                                            )
+                                                        })
+                                                        .ok();
                                                 }
                                             }
                                             MainRenderer::Software => {
@@ -9158,8 +8722,8 @@ where
                                                     .expect(
                                                     "retained render scene missing before render",
                                                 );
-                                                let rgba =
-                                                    SoftwareRenderer::render_with_text_measurer(
+                                                let Ok(rgba) =
+                                                    fission_render_vello::cpu::render_to_rgba8(
                                                         retained_scene,
                                                         render_target_size.0,
                                                         render_target_size.1,
@@ -9169,10 +8733,19 @@ where
                                                             b: env.theme.tokens.colors.background.b,
                                                             a: env.theme.tokens.colors.background.a,
                                                         },
-                                                        scale_factor as f32,
+                                                        scale_factor,
                                                         measurer.clone(),
                                                     )
-                                                    .expect("failed to rasterize software frame");
+                                                    .inspect_err(|error| {
+                                                        report_frame_failure(
+                                                            "rasterize software frame",
+                                                            error,
+                                                        )
+                                                    })
+                                                else {
+                                                    diag::end_frame(diag::FrameStats::default());
+                                                    return;
+                                                };
                                                 device_handle.queue.write_texture(
                                                     wgpu::TexelCopyTextureInfo {
                                                         texture: &render_state
@@ -10172,7 +9745,6 @@ fn register_packaged_fonts(
     font_cx: &Arc<Mutex<FontContext>>,
     fonts: &'static [fission_theme::PackagedFont],
 ) {
-    software_fonts::register_packaged_fonts(fonts);
     let mut font_cx = font_cx.lock().unwrap();
     for font in fonts {
         let axes = font
@@ -10292,7 +9864,7 @@ fn gpu_screenshot(
         .map_async(wgpu::MapMode::Read, move |result| {
             let _ = tx.send(result);
         });
-    let _ = device.poll(wgpu::PollType::Wait);
+    let _ = device.poll(wgpu::PollType::wait_indefinitely());
 
     match rx.recv() {
         Ok(Ok(())) => {}
@@ -10321,6 +9893,57 @@ fn gpu_screenshot(
     drop(data);
     staging.unmap();
 
+    rgba_screenshot_response(
+        rgba,
+        texture_width,
+        texture_height,
+        output_width,
+        output_height,
+        path,
+    )
+}
+
+/// Answers a screenshot of a covered window, which cannot present, from a software rendering of the
+/// retained scene.
+fn covered_window_screenshot<E: std::fmt::Display>(
+    rendered: Option<Result<Vec<u8>, E>>,
+    render_size: (u32, u32),
+    output_size: (u32, u32),
+    path: Option<&str>,
+) -> fission_test_driver::TestResponse {
+    match rendered {
+        None => fission_test_driver::TestResponse::Error {
+            message: "nothing has been rendered yet".into(),
+        },
+        Some(Err(error)) => fission_test_driver::TestResponse::Error {
+            message: format!("software screenshot failed: {error}"),
+        },
+        Some(Ok(_)) if output_size.0 == 0 || output_size.1 == 0 => {
+            fission_test_driver::TestResponse::Error {
+                message: "zero-size viewport".into(),
+            }
+        }
+        Some(Ok(rgba)) => rgba_screenshot_response(
+            rgba,
+            render_size.0,
+            render_size.1,
+            output_size.0,
+            output_size.1,
+            path,
+        ),
+    }
+}
+
+/// Scales captured RGBA pixels to the output size, then writes them to `path` as a PNG or returns
+/// them in the response.
+fn rgba_screenshot_response(
+    rgba: Vec<u8>,
+    texture_width: u32,
+    texture_height: u32,
+    output_width: u32,
+    output_height: u32,
+    path: Option<&str>,
+) -> fission_test_driver::TestResponse {
     let (rgba, width, height) = if texture_width == output_width && texture_height == output_height
     {
         (rgba, texture_width, texture_height)
@@ -10554,7 +10177,6 @@ fn native_window_size_for_logical_viewport(size: LayoutSize) -> winit::dpi::Logi
 
 #[cfg(test)]
 mod tests {
-    use super::wgpu::PresentMode;
     use super::{
         animation_redraw_interval, build_window_attributes, clamp_copy_extent_to_texture,
         classify_web_text_value, collect_semantic_records, collect_startup_deep_links_from,
@@ -10589,6 +10211,7 @@ mod tests {
     use fission_ir::{CoreIR, FlexDirection, LayoutOp, Op, Role, Semantics};
     use fission_layout::{LayoutNodeGeometry, LayoutRect, LayoutSize, LayoutSnapshot};
     use fission_test_driver::{TestPointerKind, TestPointerPhase, TestScrollDeltaMode};
+    use wgpu::PresentMode;
 
     #[test]
     fn key_down_preserves_produced_text_independently_of_logical_key() {
@@ -10755,7 +10378,7 @@ mod tests {
 
     #[test]
     fn surface_alpha_mode_always_comes_from_the_supported_set() {
-        use super::wgpu::CompositeAlphaMode::{Inherit, Opaque, PostMultiplied, PreMultiplied};
+        use wgpu::CompositeAlphaMode::{Inherit, Opaque, PostMultiplied, PreMultiplied};
 
         assert_eq!(
             preferred_surface_alpha_mode(&[Opaque, Inherit]),
@@ -10780,7 +10403,7 @@ mod tests {
 
     #[test]
     fn web_surface_prefers_opaque_composition() {
-        use super::wgpu::CompositeAlphaMode::{Inherit, Opaque, PostMultiplied, PreMultiplied};
+        use wgpu::CompositeAlphaMode::{Inherit, Opaque, PostMultiplied, PreMultiplied};
 
         assert_eq!(
             preferred_web_surface_alpha_mode(&[PreMultiplied, Opaque, PostMultiplied]),
@@ -10796,7 +10419,7 @@ mod tests {
 
     #[test]
     fn windows_auto_uses_software_for_cpu_and_warp_adapters() {
-        use super::wgpu::DeviceType::{Cpu, IntegratedGpu};
+        use wgpu::DeviceType::{Cpu, IntegratedGpu};
 
         assert!(should_auto_select_native_software(
             RendererRequest::Auto,
@@ -10820,7 +10443,7 @@ mod tests {
 
     #[test]
     fn native_software_auto_selection_preserves_platform_hardware_and_explicit_choices() {
-        use super::wgpu::DeviceType::{Cpu, IntegratedGpu};
+        use wgpu::DeviceType::{Cpu, IntegratedGpu};
 
         assert!(!should_auto_select_native_software(
             RendererRequest::Auto,
@@ -10856,27 +10479,27 @@ mod tests {
 
     #[test]
     fn recoverable_surface_acquisition_errors_never_crash_the_app() {
-        use super::wgpu::SurfaceError;
+        use super::SurfaceAcquireError;
 
         assert_eq!(
-            surface_acquire_recovery(&SurfaceError::Lost),
+            surface_acquire_recovery(&SurfaceAcquireError::Lost),
             SurfaceAcquireRecovery::Reconfigure
         );
         assert_eq!(
-            surface_acquire_recovery(&SurfaceError::Outdated),
+            surface_acquire_recovery(&SurfaceAcquireError::Outdated),
             SurfaceAcquireRecovery::Reconfigure
         );
         assert_eq!(
-            surface_acquire_recovery(&SurfaceError::Timeout),
+            surface_acquire_recovery(&SurfaceAcquireError::Timeout),
             SurfaceAcquireRecovery::Retry
         );
         assert_eq!(
-            surface_acquire_recovery(&SurfaceError::Other),
+            surface_acquire_recovery(&SurfaceAcquireError::Occluded),
             SurfaceAcquireRecovery::Retry
         );
         assert_eq!(
-            surface_acquire_recovery(&SurfaceError::OutOfMemory),
-            SurfaceAcquireRecovery::Exit
+            surface_acquire_recovery(&SurfaceAcquireError::Validation),
+            SurfaceAcquireRecovery::Reconfigure
         );
     }
 
@@ -10999,6 +10622,8 @@ mod tests {
                 stroke: None,
                 corner_radius: 0.0,
                 shadow: None,
+                corner_radii: None,
+                border_sides: None,
             }),
             Vec::new(),
         );

@@ -365,6 +365,10 @@ pub struct PortalEntry {
     pub seq: u64,
     /// Optional stable identity.
     pub id: Option<WidgetId>,
+    /// The widget this portal is positioned against, when it is anchored. A portal anchored to
+    /// a widget inside another portal is ordered after that portal, so it draws above it and
+    /// Escape reaches it first.
+    pub anchor: Option<WidgetId>,
     /// The portal's widget tree.
     pub node: Widget,
 }

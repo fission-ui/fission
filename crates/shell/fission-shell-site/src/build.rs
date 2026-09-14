@@ -18,8 +18,8 @@ use crate::site::{
 };
 use crate::tabs::expand_mdx_tabs;
 use anyhow::{bail, Context, Result};
-use fission_core::internal::BuildCtx;
-use fission_core::internal::InternalLoweringCx;
+use fission_core::authoring::BuildCtx;
+use fission_core::authoring::LoweringContext;
 use fission_core::registry::{VideoRegistration, WebRegistration};
 use fission_core::ui::{Column, Overlay, ZStack};
 use fission_core::{Env, MotionDeclaration, RuntimeState, View, Widget, WidgetId};
@@ -1019,9 +1019,9 @@ fn render_node_to_html(
     route_structured_data: Vec<String>,
 ) -> Result<String> {
     let runtime = RuntimeState::default();
-    let mut lowering = InternalLoweringCx::new(env, &runtime, None, None);
+    let mut lowering = LoweringContext::new(env, &runtime, None, None);
     let root = fission_core::internal::lower_widget(&node, &mut lowering);
-    lowering.ir.set_root(root);
+    lowering.set_root(root);
 
     let defaults = crate::DocumentMetadata::new(title, description.clone());
     let metadata = if let Some(resolve_metadata) = &site.document_metadata_resolver {
@@ -1113,7 +1113,7 @@ fn render_node_to_html(
         font_faces: site.document.font_faces(),
         ..Default::default()
     };
-    Ok(render_ir_to_html_with_styles(&lowering.ir, &render_options, styles)?.html)
+    Ok(render_ir_to_html_with_styles(lowering.ir(), &render_options, styles)?.html)
 }
 
 fn detect_duplicate_routes(routes: &[ContentRoute]) -> Result<()> {

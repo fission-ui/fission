@@ -1,6 +1,8 @@
 use crate::components::Sidebar;
 use crate::features::{BrowserModal, ComposeModal, ContactsModal, SettingsModal};
 use crate::inbox_shell::InboxShell;
+use crate::model::detail::set_toast_visible;
+use crate::model::list::set_mobile_menu_open;
 use crate::model::{InboxState, SetMobileMenuOpen, ToggleToast};
 use fission::core::ui::{Text, Widget};
 use fission::core::{reduce_with, WidgetId};
@@ -39,14 +41,9 @@ impl From<InboxApp> for Widget {
                     id: WidgetId::explicit("mobile_drawer"),
                     side: DrawerSide::Left,
                     is_open: true,
-                    on_dismiss: Some(ctx.bind(
-                        SetMobileMenuOpen(false),
-                        reduce_with!(
-                            (|state: &mut InboxState, action: SetMobileMenuOpen, _| {
-                                state.show_mobile_menu = action.0
-                            })
-                        ),
-                    )),
+                    on_dismiss: Some(
+                        ctx.bind(SetMobileMenuOpen(false), reduce_with!(set_mobile_menu_open)),
+                    ),
                     dismiss_semantics_identifier: Some("inbox.mobile-drawer.dismiss".into()),
                     content: Sidebar.into(),
                     width: Some(MOBILE_DRAWER_WIDTH),
@@ -64,12 +61,8 @@ impl From<InboxApp> for Widget {
                     .toast_message
                     .clone()
                     .unwrap_or_else(|| "Action completed successfully".into()),
-                on_close: Some(ctx.bind(
-                    ToggleToast(false),
-                    reduce_with!(
-                        (|state: &mut InboxState, _: ToggleToast, _| state.show_toast = false)
-                    ),
-                )),
+                on_close: Some(ctx.bind(ToggleToast(false), reduce_with!(set_toast_visible))),
+                duration: fission::widgets::ToastDuration::Default,
                 motion: None,
             };
             ctx.register_portal(

@@ -14,7 +14,10 @@
 //! ```
 
 pub use fission_ir::op::{BoxShadow, Color, Fill, LineCap, LineJoin, Stroke};
+use fission_ir::LayoutDirection;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
+use std::sync::Arc;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DesignMode {
@@ -222,7 +225,7 @@ pub struct PackagedFont {
     pub axes: &'static [FontVariationAxis],
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum ComponentSize {
     Sm,
     #[default]
@@ -419,6 +422,12 @@ impl ResolvedComponentStyle {
         merged
     }
 
+    /// Returns `[start, end, top, bottom]` padding in reading order.
+    ///
+    /// Component recipes describe spacing logically: a select trigger reserves
+    /// room at the end for its chevron, not "on the right". Resolve to physical
+    /// edges with [`padding_box_for`](Self::padding_box_for) at the point the
+    /// value reaches layout.
     pub fn padding_box(&self, fallback_x: f32, fallback_y: f32) -> [f32; 4] {
         self.padding.unwrap_or([
             self.padding_x.unwrap_or(fallback_x),
@@ -426,6 +435,24 @@ impl ResolvedComponentStyle {
             self.padding_y.unwrap_or(fallback_y),
             self.padding_y.unwrap_or(fallback_y),
         ])
+    }
+
+    /// Returns `[left, right, top, bottom]` padding for a reading order.
+    ///
+    /// Mirrors the inline edges of [`padding_box`](Self::padding_box) under a
+    /// right-to-left layout. Controls should call this once, where the recipe
+    /// meets layout, instead of every widget branching on direction itself.
+    pub fn padding_box_for(
+        &self,
+        direction: LayoutDirection,
+        fallback_x: f32,
+        fallback_y: f32,
+    ) -> [f32; 4] {
+        let [start, end, top, bottom] = self.padding_box(fallback_x, fallback_y);
+        match direction {
+            LayoutDirection::LeftToRight => [start, end, top, bottom],
+            LayoutDirection::RightToLeft => [end, start, top, bottom],
+        }
     }
 
     pub fn outer_shadows(&self) -> Vec<BoxShadow> {
@@ -447,6 +474,116 @@ impl ResolvedComponentStyle {
     }
 }
 
+/// A component's complete design-system recipe, resolved from its DSP entry.
+///
+/// Every `/components/<name>` block in a design system lowers into one of
+/// these, generically. A widget reads its recipe by name and asks for the parts
+/// it needs, so adding design authority to a widget is two steps — write the
+/// recipe in each design system, then read it — rather than also hand-writing a
+/// theme struct, a token fallback, a field on [`ComponentTheme`], and a bespoke
+/// emitter in the codegen.
+///
+/// Sub-objects in the recipe become [`parts`](Self::parts) keyed by their JSON
+/// name, `sizes` becomes density variants, `states` becomes interaction states,
+/// and plain numbers become [`scalars`](Self::scalars).
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct ComponentRecipe {
+    /// Style declared directly on the recipe, outside any sub-object.
+    #[serde(default)]
+    pub base: ResolvedComponentStyle,
+    /// Named anatomy, keyed as the design system names it: `item`, `surface`,
+    /// `indicator`, `title`, and so on.
+    #[serde(default)]
+    pub parts: BTreeMap<String, ResolvedComponentStyle>,
+    /// Density variants from the recipe's `sizes` block.
+    #[serde(default)]
+    pub sizes: BTreeMap<ComponentSize, ResolvedComponentStyle>,
+    /// Interaction states from the recipe's `states` block.
+    #[serde(default)]
+    pub states: ComponentStateStyles,
+    /// Plain numeric values that are not styles, such as `max_visible`,
+    /// `overlap` or `narrow_breakpoint`.
+    #[serde(default)]
+    pub scalars: BTreeMap<String, f32>,
+}
+
+impl ComponentRecipe {
+    /// This recipe layered over `inherited`, field by field.
+    ///
+    /// The base style, each part, each size and each state keep whatever this
+    /// recipe leaves unset, and scalars this recipe does not declare stay
+    /// inherited. A design system that changes one property of a component
+    /// therefore keeps the rest of that component's anatomy instead of
+    /// replacing it with empty styles.
+    pub fn merged_over(&self, inherited: &ComponentRecipe) -> ComponentRecipe {
+        let mut parts = inherited.parts.clone();
+        for (name, style) in &self.parts {
+            let merged = parts
+                .get(name)
+                .map_or_else(|| style.clone(), |base| base.merge(style));
+            parts.insert(name.clone(), merged);
+        }
+        let mut sizes = inherited.sizes.clone();
+        for (size, style) in &self.sizes {
+            let merged = sizes
+                .get(size)
+                .map_or_else(|| style.clone(), |base| base.merge(style));
+            sizes.insert(*size, merged);
+        }
+        let mut scalars = inherited.scalars.clone();
+        scalars.extend(
+            self.scalars
+                .iter()
+                .map(|(name, value)| (name.clone(), *value)),
+        );
+        ComponentRecipe {
+            base: inherited.base.merge(&self.base),
+            parts,
+            sizes,
+            states: inherited.states.merged_with(&self.states),
+            scalars,
+        }
+    }
+
+    /// Returns a named part, or an empty style when the design system does not
+    /// declare one.
+    ///
+    /// Returning a default rather than `None` keeps widget code linear: ask for
+    /// the part, then fall back per field with `unwrap_or`, so a design system
+    /// can declare as much or as little as it wants.
+    ///
+    /// Prefer [`Recipe::part`], which only accepts the component's own part keys.
+    pub fn part_named(&self, name: &str) -> &ResolvedComponentStyle {
+        static EMPTY: std::sync::OnceLock<ResolvedComponentStyle> = std::sync::OnceLock::new();
+        self.parts
+            .get(name)
+            .unwrap_or_else(|| EMPTY.get_or_init(ResolvedComponentStyle::default))
+    }
+
+    /// Returns a named part only when the design system declares it.
+    pub fn try_part_named(&self, name: &str) -> Option<&ResolvedComponentStyle> {
+        self.parts.get(name)
+    }
+
+    /// Returns the density variant for `size`, falling back to the base style.
+    pub fn size(&self, size: ComponentSize) -> ResolvedComponentStyle {
+        self.sizes
+            .get(&size)
+            .map(|style| self.base.merge(style))
+            .unwrap_or_else(|| self.base.clone())
+    }
+
+    /// Returns the base style with `state`'s overlay applied.
+    pub fn state(&self, state: ComponentState) -> ResolvedComponentStyle {
+        self.base.merge(&self.states.resolve(state))
+    }
+
+    /// Returns a scalar declared on the recipe.
+    pub fn scalar_named(&self, name: &str) -> Option<f32> {
+        self.scalars.get(name).copied()
+    }
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ComponentStateStyles {
     pub default: ResolvedComponentStyle,
@@ -459,6 +596,30 @@ pub struct ComponentStateStyles {
 }
 
 impl ComponentStateStyles {
+    /// `overlay`'s states layered over these: each state keeps whatever the
+    /// overlay leaves unset, and states the overlay omits stay inherited.
+    pub fn merged_with(&self, overlay: &Self) -> Self {
+        fn state(
+            base: &Option<ResolvedComponentStyle>,
+            overlay: &Option<ResolvedComponentStyle>,
+        ) -> Option<ResolvedComponentStyle> {
+            match (base, overlay) {
+                (Some(base), Some(overlay)) => Some(base.merge(overlay)),
+                (base, None) => base.clone(),
+                (None, overlay) => overlay.clone(),
+            }
+        }
+        Self {
+            default: self.default.merge(&overlay.default),
+            hover: state(&self.hover, &overlay.hover),
+            active: state(&self.active, &overlay.active),
+            focus: state(&self.focus, &overlay.focus),
+            disabled: state(&self.disabled, &overlay.disabled),
+            error: state(&self.error, &overlay.error),
+            selected: state(&self.selected, &overlay.selected),
+        }
+    }
+
     pub fn resolve(&self, state: ComponentState) -> ResolvedComponentStyle {
         let overlay = match state {
             ComponentState::Default => None,
@@ -1005,8 +1166,9 @@ impl Default for ElevationTokens {
             }),
             level4: None,
             level5: None,
+            // A ring around the focused control, like the error ring.
             focus: Some(BoxShadow {
-                spread_radius: 0.0,
+                spread_radius: 3.0,
                 inset: false,
                 color: Color {
                     r: 20,
@@ -3554,6 +3716,21 @@ pub struct ComponentTheme {
     pub select: SelectTheme,
     #[serde(default)]
     pub empty_state: EmptyStateTheme,
+    /// Every component recipe the active design system declares, by name.
+    ///
+    /// This is the generic path. A widget with no hand-written theme struct
+    /// still gets full design authority by reading its recipe from here, which
+    /// is why adding authority to a widget no longer requires touching this
+    /// crate or the codegen at all.
+    ///
+    /// The named fields above predate it and stay for the components that were
+    /// already migrated; new components should use this.
+    ///
+    /// Shared rather than owned: a `Theme` is cloned per SSR request and per
+    /// site document, and the recipe set is around 140 KB. Cloning a theme
+    /// bumps a refcount instead of deep-copying every recipe.
+    #[serde(default)]
+    pub recipes: Arc<BTreeMap<String, ComponentRecipe>>,
 }
 
 impl ComponentTheme {
@@ -3577,12 +3754,18 @@ impl ComponentTheme {
             progress: ProgressTheme::from_tokens(tokens),
             tooltip: TooltipTheme::from_tokens(tokens),
             card: CardTheme::from_tokens(tokens),
+            recipes: Arc::new(BTreeMap::new()),
             code: CodeTheme::from_tokens(tokens),
             empty_state: EmptyStateTheme::from_tokens(tokens),
             feature_icon: FeatureIconTheme::from_tokens(tokens),
         }
     }
 }
+
+mod recipe_keys;
+pub use recipe_keys::{
+    recipes, NoParts, NoScalars, Recipe, RecipeKey, RecipePartKey, RecipeScalarKey,
+};
 
 /// The top-level theme combining primitive [`Tokens`] and derived [`ComponentTheme`].
 ///
@@ -3593,7 +3776,16 @@ impl ComponentTheme {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Theme {
     pub tokens: Tokens,
-    pub components: ComponentTheme,
+    /// Component themes, shared rather than owned.
+    ///
+    /// `ComponentTheme` is around 40 KB — `MenuTheme` alone is 11 KB — and a
+    /// `Theme` is cloned per SSR request and per generated site document.
+    /// Owning it inline made every clone a 40 KB copy and made the type large
+    /// enough that constructing one overflowed a 2 MB thread stack.
+    ///
+    /// Read through the `Arc` as before; use
+    /// [`components_mut`](Theme::components_mut) to change one.
+    pub components: Arc<ComponentTheme>,
     #[serde(default)]
     pub design_system: ResolvedDesignSystem,
 }
@@ -3605,6 +3797,12 @@ impl Default for Theme {
 }
 
 impl Theme {
+    /// Returns the component themes for mutation, copying them only if this
+    /// theme's set is shared with another.
+    pub fn components_mut(&mut self) -> &mut ComponentTheme {
+        Arc::make_mut(&mut self.components)
+    }
+
     pub fn dark() -> Self {
         FissionDefaultDesignSystem::theme(DesignMode::Dark)
     }
@@ -3615,7 +3813,7 @@ impl Theme {
             return generated.clone();
         }
 
-        let components = ComponentTheme::from_tokens(&tokens);
+        let components = Arc::new(ComponentTheme::from_tokens(&tokens));
         Self {
             tokens,
             components,

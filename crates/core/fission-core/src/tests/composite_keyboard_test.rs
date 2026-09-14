@@ -1198,3 +1198,101 @@ fn focus_barrier_enters_a_roving_popup_without_adding_items_to_tab_order() {
         "a selected option is the preferred barrier entry target"
     );
 }
+
+#[test]
+fn tree_navigation_moves_between_rows_and_supports_typeahead() {
+    let mut ir = CoreIR::default();
+    for (name, label) in [("src", "src"), ("assets", "assets"), ("readme", "readme")] {
+        add_item(
+            &mut ir,
+            name,
+            Role::TreeItem,
+            label,
+            Some(false),
+            false,
+            false,
+        );
+    }
+    add_semantics(
+        &mut ir,
+        "tree",
+        Semantics {
+            role: Role::Tree,
+            focusable: false,
+            ..Default::default()
+        },
+        vec![id("src"), id("assets"), id("readme")],
+    );
+    finish_root(&mut ir, vec![id("tree")]);
+
+    let mut runtime = Runtime::default();
+    runtime
+        .runtime_state
+        .interaction
+        .set_focused(Some(id("src")));
+
+    key(&mut runtime, &ir, KeyCode::Down);
+    assert_eq!(
+        runtime.runtime_state.interaction.focused,
+        Some(id("assets"))
+    );
+    key(&mut runtime, &ir, KeyCode::End);
+    assert_eq!(
+        runtime.runtime_state.interaction.focused,
+        Some(id("readme"))
+    );
+    key(&mut runtime, &ir, KeyCode::Home);
+    assert_eq!(runtime.runtime_state.interaction.focused, Some(id("src")));
+
+    // A tree is a list of names, so typing jumps like a menu does.
+    key(&mut runtime, &ir, KeyCode::Char('a'));
+    assert_eq!(
+        runtime.runtime_state.interaction.focused,
+        Some(id("assets"))
+    );
+}
+
+#[test]
+fn toolbar_navigation_is_horizontal_without_typeahead() {
+    let mut ir = CoreIR::default();
+    for (name, label) in [("bold", "Bold"), ("italic", "Italic")] {
+        add_item(&mut ir, name, Role::Button, label, None, false, false);
+    }
+    add_semantics(
+        &mut ir,
+        "toolbar",
+        Semantics {
+            role: Role::Toolbar,
+            focusable: false,
+            ..Default::default()
+        },
+        vec![id("bold"), id("italic")],
+    );
+    finish_root(&mut ir, vec![id("toolbar")]);
+
+    let mut runtime = Runtime::default();
+    runtime
+        .runtime_state
+        .interaction
+        .set_focused(Some(id("bold")));
+
+    key(&mut runtime, &ir, KeyCode::Right);
+    assert_eq!(
+        runtime.runtime_state.interaction.focused,
+        Some(id("italic"))
+    );
+    key(&mut runtime, &ir, KeyCode::Down);
+    assert_eq!(
+        runtime.runtime_state.interaction.focused,
+        Some(id("italic")),
+        "a cross-axis arrow must not move focus in a horizontal toolbar"
+    );
+
+    // Typing belongs to whatever the toolbar acts on, not the toolbar.
+    key(&mut runtime, &ir, KeyCode::Char('b'));
+    assert_eq!(
+        runtime.runtime_state.interaction.focused,
+        Some(id("italic")),
+        "a toolbar must not steal characters for typeahead"
+    );
+}

@@ -392,6 +392,7 @@ fn web_smart_hint_needs_advisory(autocorrect: bool, hint_enabled: bool) -> bool 
     autocorrect && !hint_enabled
 }
 
+#[cfg(any(target_os = "android", target_os = "ios", test))]
 fn mobile_ime_configuration(config: &TextInputConfig) -> winit::window::ImeConfiguration {
     use winit::window::{ImeAction, ImeCapitalization, ImeConfiguration, ImeInputType};
 

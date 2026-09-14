@@ -5,7 +5,8 @@ use serde::{Deserialize, Serialize};
 pub struct ScatterSeries {
     pub name: String,
     pub data: Vec<(f32, f32)>, // x, y
-    pub color: Color,
+    /// The series colour; `None` takes the theme palette colour for its position.
+    pub color: Option<Color>,
 }
 
 impl ScatterSeries {
@@ -13,7 +14,7 @@ impl ScatterSeries {
         Self {
             name: name.into(),
             data: Vec::new(),
-            color: Color::BLUE,
+            color: None,
         }
     }
 
@@ -23,7 +24,7 @@ impl ScatterSeries {
     }
 
     pub fn color(mut self, color: Color) -> Self {
-        self.color = color;
+        self.color = Some(color);
         self
     }
 }

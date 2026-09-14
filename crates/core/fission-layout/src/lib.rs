@@ -38,11 +38,16 @@ use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 use std::sync::{Arc, Mutex};
 
+mod geometry;
 mod paragraph;
+mod spotlight;
+use geometry::{intersect_rect, union_rect};
+mod stack;
 pub use paragraph::{
     LineMetric, ParagraphCaretStop, ParagraphCluster, ParagraphGlyph, ParagraphSelectionBox,
     ResolvedParagraphLayout, RichTextInlineBox, RichTextLayoutInfo,
 };
+use spotlight::spotlight_regions;
 
 mod flyout;
 mod grid_tracks;
@@ -219,19 +224,39 @@ fn resolve_box_style(
     style: &BoxStyle,
     constraints: BoxConstraints,
     viewport: LayoutSize,
+    direction: LayoutDirection,
 ) -> LayoutOp {
     let horizontal_reference = constraints.max_w;
     let vertical_reference = constraints.max_h;
+    let resolve_edges = |edges: &[Length; 4], directional: bool| {
+        let (inline_start, inline_end) = (
+            resolve_length(&edges[0], horizontal_reference, viewport).unwrap_or(0.0),
+            resolve_length(&edges[1], horizontal_reference, viewport).unwrap_or(0.0),
+        );
+        // Directional edges arrive as [start, end, ..]; map them onto physical
+        // left and right for the active reading order.
+        let (left, right) = match (directional, direction) {
+            (true, LayoutDirection::RightToLeft) => (inline_end, inline_start),
+            _ => (inline_start, inline_end),
+        };
+        [
+            left,
+            right,
+            resolve_length(&edges[2], vertical_reference, viewport).unwrap_or(0.0),
+            resolve_length(&edges[3], vertical_reference, viewport).unwrap_or(0.0),
+        ]
+    };
+    // Directional spacing replaces physical spacing rather than merging, so a
+    // box has exactly one source of inner spacing.
     let padding = style
-        .padding
+        .padding_directional
         .as_ref()
-        .map(|padding| {
-            [
-                resolve_length(&padding[0], horizontal_reference, viewport).unwrap_or(0.0),
-                resolve_length(&padding[1], horizontal_reference, viewport).unwrap_or(0.0),
-                resolve_length(&padding[2], vertical_reference, viewport).unwrap_or(0.0),
-                resolve_length(&padding[3], vertical_reference, viewport).unwrap_or(0.0),
-            ]
+        .map(|edges| resolve_edges(edges, true))
+        .or_else(|| {
+            style
+                .padding
+                .as_ref()
+                .map(|edges| resolve_edges(edges, false))
         })
         .unwrap_or([0.0; 4]);
     let fit_content_limit = |length: &Option<Length>, reference| match length {
@@ -1670,22 +1695,6 @@ fn layout_input_fingerprint(node: &LayoutInputNode) -> u64 {
     hasher.finish()
 }
 
-fn intersect_rect(left: LayoutRect, right: LayoutRect) -> LayoutRect {
-    let x = left.x().max(right.x());
-    let y = left.y().max(right.y());
-    let right_edge = left.right().min(right.right());
-    let bottom_edge = left.bottom().min(right.bottom());
-    LayoutRect::new(x, y, (right_edge - x).max(0.0), (bottom_edge - y).max(0.0))
-}
-
-fn union_rect(left: LayoutRect, right: LayoutRect) -> LayoutRect {
-    let x = left.x().min(right.x());
-    let y = left.y().min(right.y());
-    let right_edge = left.right().max(right.right());
-    let bottom_edge = left.bottom().max(right.bottom());
-    LayoutRect::new(x, y, right_edge - x, bottom_edge - y)
-}
-
 /// An axis-aligned rectangle: an origin point plus a size.
 ///
 /// `LayoutRect` is the final output for every node after layout: it says exactly
@@ -1748,41 +1757,6 @@ impl LayoutRect {
     pub fn contains(&self, p: LayoutPoint) -> bool {
         p.x >= self.x() && p.x < self.right() && p.y >= self.y() && p.y < self.bottom()
     }
-}
-
-fn spotlight_regions(
-    bounds: LayoutRect,
-    target: Option<LayoutRect>,
-    padding: LayoutUnit,
-) -> [LayoutRect; 5] {
-    let zero = LayoutRect::new(bounds.x(), bounds.y(), 0.0, 0.0);
-    let Some(target) = target else {
-        return [bounds, zero, zero, zero, zero];
-    };
-
-    let padding = if padding.is_finite() {
-        padding.max(0.0)
-    } else {
-        0.0
-    };
-    let left = (target.x() - padding).clamp(bounds.x(), bounds.right());
-    let top = (target.y() - padding).clamp(bounds.y(), bounds.bottom());
-    let right = (target.right() + padding).clamp(bounds.x(), bounds.right());
-    let bottom = (target.bottom() + padding).clamp(bounds.y(), bounds.bottom());
-
-    if right <= left || bottom <= top {
-        return [bounds, zero, zero, zero, zero];
-    }
-
-    let hole_width = right - left;
-    let hole_height = bottom - top;
-    [
-        LayoutRect::new(bounds.x(), bounds.y(), bounds.width(), top - bounds.y()),
-        LayoutRect::new(bounds.x(), bottom, bounds.width(), bounds.bottom() - bottom),
-        LayoutRect::new(bounds.x(), top, left - bounds.x(), hole_height),
-        LayoutRect::new(left + hole_width, top, bounds.right() - right, hole_height),
-        LayoutRect::new(left, top, hole_width, hole_height),
-    ]
 }
 
 /// The computed geometry of a single layout node.
@@ -2350,7 +2324,7 @@ impl LayoutEngine {
         Ok(snapshot)
     }
 
-    /// InternalLower-level layout that skips scroll diagnostics.
+    /// Lower-level layout that skips scroll diagnostics.
     ///
     /// Same as [`compute_layout`](LayoutEngine::compute_layout) but does not emit
     /// diagnostic events. Useful when you need the snapshot but not the debug output.
@@ -2655,8 +2629,12 @@ impl LayoutEngine {
                 let resolved_style;
                 let op = match &node.op {
                     LayoutOp::StyledBox { style, .. } => {
-                        resolved_style =
-                            resolve_box_style(style, constraints, snapshot.viewport_size);
+                        resolved_style = resolve_box_style(
+                            style,
+                            constraints,
+                            snapshot.viewport_size,
+                            self.layout_direction,
+                        );
                         &resolved_style
                     }
                     op => op,
@@ -2947,7 +2925,12 @@ impl LayoutEngine {
                 flex_grow,
                 flex_shrink,
             } => {
-                let mut op = resolve_box_style(style, constraints, self.active_viewport);
+                let mut op = resolve_box_style(
+                    style,
+                    constraints,
+                    self.active_viewport,
+                    self.layout_direction,
+                );
                 if let LayoutOp::Box {
                     flex_grow: resolved_grow,
                     flex_shrink: resolved_shrink,
@@ -3152,7 +3135,9 @@ impl LayoutEngine {
                     base_child_constraints.min_h = 0.0;
                 }
                 let mut max_child = LayoutSize::ZERO;
-                let mut measured_children: Vec<(WidgetId, BoxConstraints, LayoutSize)> = Vec::new();
+                let styled_box = matches!(node.op, LayoutOp::StyledBox { .. });
+                let mut measured_children: Vec<(WidgetId, BoxConstraints, LayoutSize, bool, bool)> =
+                    Vec::new();
                 if !rich_text_inline_children {
                     for child_id in &flow_children {
                         let (child_width, child_height, child_max_width, child_max_height) = self
@@ -3181,6 +3166,7 @@ impl LayoutEngine {
                                         style,
                                         base_child_constraints,
                                         self.active_viewport,
+                                        self.layout_direction,
                                     );
                                     match resolved {
                                         LayoutOp::Box {
@@ -3266,7 +3252,23 @@ impl LayoutEngine {
                         )?;
                         max_child.width = max_child.width.max(child_size.width);
                         max_child.height = max_child.height.max(child_size.height);
-                        measured_children.push((*child_id, child_constraints, child_size));
+                        // A container that stretches its content cannot stretch a child that
+                        // sets its own size, so it centres that child on that axis instead of
+                        // leaving it in the top-left corner. Low-level boxes keep start
+                        // placement because widgets position children in them with padding.
+                        let centre_width = styled_box
+                            && !stretch_width
+                            && (child_width.is_some() || child_max_width.is_some());
+                        let centre_height = styled_box
+                            && !stretch_height
+                            && (child_height.is_some() || child_max_height.is_some());
+                        measured_children.push((
+                            *child_id,
+                            child_constraints,
+                            child_size,
+                            centre_width,
+                            centre_height,
+                        ));
                     }
                 }
                 let padded = LayoutSize::new(
@@ -3303,10 +3305,16 @@ impl LayoutEngine {
                 }
                 let size = local.constrain(padded);
                 if record {
-                    for (child_id, child_constraints, child_size) in measured_children {
+                    for (child_id, child_constraints, child_size, centre_width, centre_height) in
+                        measured_children
+                    {
                         let inner_width = (size.width - padding[0] - padding[1]).max(0.0);
                         let inner_height = (size.height - padding[2] - padding[3]).max(0.0);
-                        let offset = |available: f32, child: f32| match box_alignment {
+                        let offset = |available: f32, child: f32, centre: bool| match box_alignment
+                        {
+                            fission_ir::op::BoxAlignment::Stretch if centre => {
+                                ((available - child) / 2.0).max(0.0)
+                            }
                             fission_ir::op::BoxAlignment::Start
                             | fission_ir::op::BoxAlignment::Stretch => 0.0,
                             fission_ir::op::BoxAlignment::Center => {
@@ -3318,8 +3326,12 @@ impl LayoutEngine {
                             child_id,
                             child_constraints,
                             LayoutPoint::new(
-                                origin.x + padding[0] + offset(inner_width, child_size.width),
-                                origin.y + padding[2] + offset(inner_height, child_size.height),
+                                origin.x
+                                    + padding[0]
+                                    + offset(inner_width, child_size.width, centre_width),
+                                origin.y
+                                    + padding[2]
+                                    + offset(inner_height, child_size.height, centre_height),
                             ),
                             out,
                             constraints_out,
@@ -4683,6 +4695,8 @@ impl LayoutEngine {
             }
             LayoutOp::ZStack => {
                 let mut max_child = LayoutSize::ZERO;
+                let mut max_in_flow_child = LayoutSize::ZERO;
+                let mut has_in_flow_child = false;
                 for child_id in &flow_children {
                     let child_size = self.layout_node_constraints(
                         *child_id,
@@ -4697,23 +4711,17 @@ impl LayoutEngine {
                     )?;
                     max_child.width = max_child.width.max(child_size.width);
                     max_child.height = max_child.height.max(child_size.height);
+                    if !self.is_positioned_stack_child(*child_id) {
+                        has_in_flow_child = true;
+                        max_in_flow_child.width = max_in_flow_child.width.max(child_size.width);
+                        max_in_flow_child.height = max_in_flow_child.height.max(child_size.height);
+                    }
                 }
-                let size = if constraints.is_width_bounded() || constraints.is_height_bounded() {
-                    constraints.constrain(LayoutSize::new(
-                        if constraints.is_width_bounded() {
-                            constraints.max_w
-                        } else {
-                            max_child.width
-                        },
-                        if constraints.is_height_bounded() {
-                            constraints.max_h
-                        } else {
-                            max_child.height
-                        },
-                    ))
-                } else {
-                    max_child
-                };
+                let size = stack::stack_size(
+                    constraints,
+                    max_child,
+                    has_in_flow_child.then_some(max_in_flow_child),
+                );
                 for child_id in &flow_children {
                     let child_constraints = BoxConstraints::loose(size.width, size.height);
                     let child_origin = LayoutPoint::new(origin.x, origin.y);
@@ -4979,11 +4987,32 @@ impl LayoutEngine {
             LayoutOp::Transform { .. }
             | LayoutOp::InteractiveViewport { .. }
             | LayoutOp::Clip { .. } => {
+                // A camera viewport shows content that can be larger than itself, so its content
+                // keeps its natural size instead of being squeezed into the viewport. It is still
+                // at least as large as the viewport, so layers that fill the view keep filling it.
+                let child_constraints = if matches!(node.op, LayoutOp::InteractiveViewport { .. }) {
+                    BoxConstraints {
+                        min_w: if constraints.is_width_bounded() {
+                            constraints.max_w
+                        } else {
+                            constraints.min_w
+                        },
+                        max_w: f32::INFINITY,
+                        min_h: if constraints.is_height_bounded() {
+                            constraints.max_h
+                        } else {
+                            constraints.min_h
+                        },
+                        max_h: f32::INFINITY,
+                    }
+                } else {
+                    constraints
+                };
                 let mut child_size = LayoutSize::ZERO;
                 if let Some(child_id) = node.children_ids.first() {
                     child_size = self.layout_node_constraints(
                         *child_id,
-                        constraints,
+                        child_constraints,
                         origin,
                         out,
                         constraints_out,

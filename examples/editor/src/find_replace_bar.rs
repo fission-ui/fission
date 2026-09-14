@@ -1,8 +1,8 @@
 use crate::layout::{FIND_BAR_HEIGHT, TOOLBAR_CONTROL_SIZE};
 use crate::model::*;
-use crate::palette::{BRIGHT_TEXT, DIM_TEXT, FIND_BAR_BG, FLYOUT_BORDER};
+use crate::palette::EditorPalette;
 use fission::core::ui::{Button, ButtonVariant, Container, Icon, Row, Text, TextInput, Widget};
-use fission::core::{reduce_with, ReducerContext};
+use fission::core::{reduce_with, ActionEnvelope};
 use fission::icons::material;
 use fission::widgets::Spacer;
 
@@ -11,8 +11,10 @@ pub(crate) struct FindReplaceBar;
 impl From<FindReplaceBar> for Widget {
     fn from(_component: FindReplaceBar) -> Self {
         let (ctx, view) = fission::build::current::<EditorState>();
+        let palette = EditorPalette::from_theme(&view.env().theme);
         let tokens = &view.env().theme.tokens;
-        if !view.state().show_find_replace {
+        let state = view.state();
+        if !state.show_find_replace {
             return Spacer {
                 height: Some(0.0),
                 ..Default::default()
@@ -20,235 +22,148 @@ impl From<FindReplaceBar> for Widget {
             .into();
         }
 
-        let update_find = ctx.bind(
-            UpdateFindQuery,
-            reduce_with!(
-                (|s: &mut EditorState,
-                  _a: UpdateFindQuery,
-                  ctx: &mut ReducerContext<EditorState>| {
-                    let Some(change) = ctx.input.text_change() else {
-                        return;
-                    };
-                    s.find_query = change.new_text.clone();
-                    s.find_next(); // Auto-search as you type
-                })
-            ),
-        );
-
-        let update_replace = ctx.bind(
-            UpdateReplaceQuery,
-            reduce_with!(
-                (|s: &mut EditorState,
-                  _a: UpdateReplaceQuery,
-                  ctx: &mut ReducerContext<EditorState>| {
-                    if let Some(change) = ctx.input.text_change() {
-                        s.replace_query = change.new_text.clone();
-                    }
-                })
-            ),
-        );
-
-        let close_find = ctx.bind(
-            ToggleFindReplace,
-            reduce_with!(
-                (|s: &mut EditorState, _, _| {
-                    s.show_find_replace = false;
-                })
-            ),
-        );
-
-        let find_next = ctx.bind(
-            FindNext,
-            reduce_with!(
-                (|s: &mut EditorState, _, _| {
-                    s.find_next();
-                })
-            ),
-        );
-
-        let find_prev = ctx.bind(
-            FindPrevious,
-            reduce_with!(
-                (|s: &mut EditorState, _, _| {
-                    s.find_previous();
-                })
-            ),
-        );
-
-        let replace_one = ctx.bind(
-            ReplaceOne,
-            reduce_with!(
-                (|s: &mut EditorState, _, _| {
-                    s.replace_one();
-                })
-            ),
-        );
-
-        let replace_all_action = ctx.bind(
-            ReplaceAll,
-            reduce_with!(
-                (|s: &mut EditorState, _, _| {
-                    s.replace_all();
-                })
-            ),
-        );
-
-        // Match count display
-        let total = view.state().find_matches.len();
-        let current = if total > 0 {
-            view.state().find_match_index + 1
-        } else {
-            0
-        };
-        let match_label = if view.state().find_query.is_empty() {
-            "No results".to_string()
-        } else if total == 0 {
+        let total = state.find_matches.len();
+        let match_label = if state.find_query.is_empty() || total == 0 {
             "No results".to_string()
         } else {
-            format!("{} of {}", current, total)
+            format!("{} of {}", state.find_match_index + 1, total)
         };
 
-        let find_input = Container::new(TextInput {
-            id: Some(fission::WidgetId::explicit("find_input")),
-            value: view.state().find_query.clone(),
-            placeholder: Some("Find".into()),
-            on_input: Some(update_find),
+        let inputs = Container::new(Row {
+            children: vec![
+                Container::new(TextInput {
+                    id: Some(fission::WidgetId::explicit("find_input")),
+                    value: state.find_query.clone(),
+                    placeholder: Some("Find".into()),
+                    on_input: Some(ctx.bind(UpdateFindQuery, reduce_with!(on_update_find_query))),
+                    ..Default::default()
+                })
+                .flex_grow(1.0)
+                .into(),
+                Container::new(TextInput {
+                    id: Some(fission::WidgetId::explicit("replace_input")),
+                    value: state.replace_query.clone(),
+                    placeholder: Some("Replace".into()),
+                    on_input: Some(
+                        ctx.bind(UpdateReplaceQuery, reduce_with!(on_update_replace_query)),
+                    ),
+                    ..Default::default()
+                })
+                .flex_grow(1.0)
+                .into(),
+            ],
+            align_items: fission::op::AlignItems::Center,
+            flex_grow: 1.0,
             ..Default::default()
         })
+        .border(palette.flyout_border, 1.0)
+        .border_radius(tokens.radii.small)
         .flex_grow(1.0)
-        .into();
-
-        let replace_input = Container::new(TextInput {
-            id: Some(fission::WidgetId::explicit("replace_input")),
-            value: view.state().replace_query.clone(),
-            placeholder: Some("Replace".into()),
-            on_input: Some(update_replace),
-            ..Default::default()
-        })
-        .flex_grow(1.0)
-        .into();
-
-        let match_text: Widget = Text::new(match_label.clone())
-            .size(tokens.typography.font_size_xs)
-            .color(DIM_TEXT)
-            .into();
-
-        let btn_prev = Button {
-            variant: ButtonVariant::Ghost,
-            child: Some(
-                Icon::svg(material::navigation::chevron_left::round())
-                    .size(tokens.typography.font_size_lg)
-                    .color(BRIGHT_TEXT)
-                    .into(),
-            ),
-            on_press: Some(find_prev),
-            height: Some(TOOLBAR_CONTROL_SIZE),
-            width: Some(TOOLBAR_CONTROL_SIZE),
-            padding: Some([tokens.spacing.none; 4]),
-            ..Default::default()
-        }
-        .into();
-
-        let btn_next = Button {
-            variant: ButtonVariant::Ghost,
-            child: Some(
-                Icon::svg(material::navigation::chevron_right::round())
-                    .size(tokens.typography.font_size_lg)
-                    .color(BRIGHT_TEXT)
-                    .into(),
-            ),
-            on_press: Some(find_next),
-            height: Some(TOOLBAR_CONTROL_SIZE),
-            width: Some(TOOLBAR_CONTROL_SIZE),
-            padding: Some([tokens.spacing.none; 4]),
-            ..Default::default()
-        }
-        .into();
-
-        let btn_replace = Button {
-            variant: ButtonVariant::Ghost,
-            child: Some(
-                Text::new("Replace")
-                    .size(tokens.typography.font_size_xs)
-                    .color(BRIGHT_TEXT)
-                    .into(),
-            ),
-            on_press: Some(replace_one),
-            height: Some(TOOLBAR_CONTROL_SIZE),
-            padding: Some([
-                tokens.spacing.none,
-                tokens.spacing.s,
-                tokens.spacing.none,
-                tokens.spacing.s,
-            ]),
-            ..Default::default()
-        }
-        .into();
-
-        let btn_replace_all = Button {
-            variant: ButtonVariant::Ghost,
-            child: Some(
-                Text::new("Replace All")
-                    .size(tokens.typography.font_size_xs)
-                    .color(BRIGHT_TEXT)
-                    .into(),
-            ),
-            on_press: Some(replace_all_action),
-            height: Some(TOOLBAR_CONTROL_SIZE),
-            padding: Some([
-                tokens.spacing.none,
-                tokens.spacing.s,
-                tokens.spacing.none,
-                tokens.spacing.s,
-            ]),
-            ..Default::default()
-        }
-        .into();
-
-        let btn_close = Button {
-            variant: ButtonVariant::Ghost,
-            child: Some(
-                Icon::svg(material::navigation::close::round())
-                    .size(tokens.typography.font_size_lg)
-                    .color(BRIGHT_TEXT)
-                    .into(),
-            ),
-            on_press: Some(close_find),
-            height: Some(TOOLBAR_CONTROL_SIZE),
-            width: Some(TOOLBAR_CONTROL_SIZE),
-            padding: Some([tokens.spacing.none; 4]),
-            ..Default::default()
-        }
         .into();
 
         Container::new(Row {
             children: vec![
-                Container::new(Row {
-                    children: vec![find_input, replace_input],
-                    align_items: fission::op::AlignItems::Center,
-                    flex_grow: 1.0,
-                    ..Default::default()
-                })
-                .border(FLYOUT_BORDER, 1.0)
-                .border_radius(tokens.radii.small)
-                .flex_grow(1.0)
+                inputs,
+                Container::new(
+                    Text::new(match_label)
+                        .size(tokens.typography.font_size_xs)
+                        .color(palette.dim_text),
+                )
+                .padding_all(tokens.spacing.xs)
                 .into(),
-                Container::new(match_text)
-                    .padding_all(tokens.spacing.xs)
-                    .into(),
-                btn_prev,
-                btn_next,
-                btn_replace,
-                btn_replace_all,
-                btn_close,
+                FindBarIconButton {
+                    icon: material::navigation::chevron_left::round(),
+                    action: ctx.bind(FindPrevious, reduce_with!(on_find_previous)),
+                }
+                .into(),
+                FindBarIconButton {
+                    icon: material::navigation::chevron_right::round(),
+                    action: ctx.bind(FindNext, reduce_with!(on_find_next)),
+                }
+                .into(),
+                FindBarTextButton {
+                    label: "Replace",
+                    action: ctx.bind(ReplaceOne, reduce_with!(on_replace_one)),
+                }
+                .into(),
+                FindBarTextButton {
+                    label: "Replace All",
+                    action: ctx.bind(ReplaceAll, reduce_with!(on_replace_all)),
+                }
+                .into(),
+                FindBarIconButton {
+                    icon: material::navigation::close::round(),
+                    action: ctx.bind(ToggleFindReplace, reduce_with!(on_close_find_replace)),
+                }
+                .into(),
             ],
             align_items: fission::op::AlignItems::Center,
             ..Default::default()
         })
         .height(FIND_BAR_HEIGHT)
-        .bg(FIND_BAR_BG)
+        .bg(palette.find_bar_bg)
         .padding_all(tokens.spacing.xs)
         .flex_shrink(0.0)
+        .into()
+    }
+}
+
+struct FindBarIconButton {
+    icon: &'static str,
+    action: ActionEnvelope,
+}
+
+impl From<FindBarIconButton> for Widget {
+    fn from(button: FindBarIconButton) -> Self {
+        let (_, view) = fission::build::current::<EditorState>();
+        let palette = EditorPalette::from_theme(&view.env().theme);
+        let tokens = &view.env().theme.tokens;
+        Button {
+            variant: ButtonVariant::Ghost,
+            child: Some(
+                Icon::svg(button.icon)
+                    .size(tokens.typography.font_size_lg)
+                    .color(palette.bright_text)
+                    .into(),
+            ),
+            on_press: Some(button.action),
+            height: Some(TOOLBAR_CONTROL_SIZE),
+            width: Some(TOOLBAR_CONTROL_SIZE),
+            padding: Some([tokens.spacing.none; 4]),
+            ..Default::default()
+        }
+        .into()
+    }
+}
+
+struct FindBarTextButton {
+    label: &'static str,
+    action: ActionEnvelope,
+}
+
+impl From<FindBarTextButton> for Widget {
+    fn from(button: FindBarTextButton) -> Self {
+        let (_, view) = fission::build::current::<EditorState>();
+        let palette = EditorPalette::from_theme(&view.env().theme);
+        let tokens = &view.env().theme.tokens;
+        Button {
+            variant: ButtonVariant::Ghost,
+            child: Some(
+                Text::new(button.label)
+                    .size(tokens.typography.font_size_xs)
+                    .color(palette.bright_text)
+                    .into(),
+            ),
+            on_press: Some(button.action),
+            height: Some(TOOLBAR_CONTROL_SIZE),
+            padding: Some([
+                tokens.spacing.none,
+                tokens.spacing.s,
+                tokens.spacing.none,
+                tokens.spacing.s,
+            ]),
+            ..Default::default()
+        }
         .into()
     }
 }

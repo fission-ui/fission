@@ -3,7 +3,7 @@ use crate::state::{
     current_composition_atoms, reset_timeline, toggle_play, AnimationGalleryState, MotionAtom,
     MotionChoice, MotionPolicy, ResetTimeline, TogglePlay,
 };
-use crate::style::MUTED;
+use crate::style;
 use crate::ui;
 use fission::build::BuildCtxHandle;
 use fission::prelude::*;
@@ -31,7 +31,7 @@ impl From<ModalPreview<'_>> for Widget {
                         "Real Modal widget. Use the playback control to mount its portal and run enter motion.",
                     )
                     .size(view.env().theme.tokens.typography.font_size_sm)
-                    .color(MUTED),
+                    .color(style::text_muted()),
                     ui::SmallButton {
                         ctx: preview.ctx,
                         label: "Open real modal",

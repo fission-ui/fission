@@ -1,5 +1,5 @@
-use crate::internal::InternalLower;
-use crate::lowering::{InternalIrBuilder, InternalLoweringCx};
+use crate::authoring::Lower;
+use crate::lowering::{IrBuilder, LoweringContext};
 use crate::ui::Widget;
 use fission_ir::{LayoutOp, Op, WidgetId};
 use serde::{Deserialize, Serialize};
@@ -21,17 +21,15 @@ impl Default for SafeArea {
 
 impl SafeArea {}
 
-impl InternalLower for SafeArea {
-    fn lower(&self, cx: &mut InternalLoweringCx) -> WidgetId {
+impl Lower for SafeArea {
+    fn lower(&self, cx: &mut LoweringContext) -> WidgetId {
         let id = self.id.map(Into::into).unwrap_or_else(|| cx.next_node_id());
         let insets = &cx.env.window_insets;
 
-        cx.push_scope(id);
-        let child_id = self.child.lower(cx);
-        cx.pop_scope();
+        let child_id = cx.with_scope(id, |cx| self.child.lower(cx));
 
         // SafeArea is just a Box with padding derived from window_insets
-        let mut builder = InternalIrBuilder::new(
+        let mut builder = IrBuilder::new(
             id,
             Op::Layout(LayoutOp::Box {
                 width: None,

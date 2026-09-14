@@ -1,6 +1,8 @@
 use crate::layout::{INPUT_HEIGHT, SEARCH_ACTION_HEIGHT, SEARCH_ACTION_WIDTH, SEARCH_RESULT_LIMIT};
-use crate::model::{EditorState, ExecuteSearch, OpenFile, UpdateSearchQuery};
-use crate::palette::{DIM_TEXT, INPUT_BG, INPUT_BORDER, PANEL_TEXT};
+use crate::model::{
+    on_execute_search, on_update_search_query, EditorState, ExecuteSearch, UpdateSearchQuery,
+};
+use crate::palette::EditorPalette;
 use crate::search_result_item::SearchResultItem;
 use fission::prelude::*;
 use fission::widgets::{HStack, VStack};
@@ -10,32 +12,12 @@ pub struct SearchPanel;
 impl From<SearchPanel> for Widget {
     fn from(_component: SearchPanel) -> Self {
         let (ctx, view) = fission::build::current::<EditorState>();
+        let palette = EditorPalette::from_theme(&view.env().theme);
         let tokens = &view.env().theme.tokens;
 
-        let update_query = ctx.bind(
-            UpdateSearchQuery,
-            reduce_with!(
-                (|s: &mut EditorState,
-                  _a: UpdateSearchQuery,
-                  ctx: &mut ReducerContext<EditorState>| {
-                    if let Some(change) = ctx.input.text_change() {
-                        s.search_query = change.new_text.clone();
-                    }
-                })
-            ),
-        );
+        let update_query = ctx.bind(UpdateSearchQuery, reduce_with!(on_update_search_query));
 
-        let execute = ctx.bind(
-            ExecuteSearch,
-            reduce_with!((|s: &mut EditorState, _, _| s.run_search())),
-        );
-
-        let open_id = ctx
-            .bind(
-                OpenFile(String::new()),
-                reduce_with!((|s: &mut EditorState, a: OpenFile, _| s.open_file(a.0))),
-            )
-            .id;
+        let execute = ctx.bind(ExecuteSearch, reduce_with!(on_execute_search));
 
         let search_row = Container::new(HStack {
             spacing: Some(tokens.spacing.none),
@@ -53,7 +35,7 @@ impl From<SearchPanel> for Widget {
                     child: Some(
                         Text::new("Go")
                             .size(tokens.typography.font_size_xs)
-                            .color(PANEL_TEXT)
+                            .color(palette.panel_text)
                             .into(),
                     ),
                     on_press: Some(execute),
@@ -64,8 +46,8 @@ impl From<SearchPanel> for Widget {
                 },
             ],
         })
-        .bg(INPUT_BG)
-        .border(INPUT_BORDER, 1.0)
+        .bg(palette.input_bg)
+        .border(palette.input_border, 1.0)
         .border_radius(tokens.radii.small)
         .height(INPUT_HEIGHT)
         .into();
@@ -76,7 +58,7 @@ impl From<SearchPanel> for Widget {
             children.push(
                 Text::new(format!("{} results", view.state().search_results.len()))
                     .size(tokens.typography.font_size_xs)
-                    .color(DIM_TEXT)
+                    .color(palette.dim_text)
                     .into(),
             );
 
@@ -86,7 +68,7 @@ impl From<SearchPanel> for Widget {
                 .iter()
                 .take(SEARCH_RESULT_LIMIT)
                 .cloned()
-                .map(|result| SearchResultItem { result, open_id }.into())
+                .map(|result| SearchResultItem { result }.into())
                 .collect();
 
             children.push(
@@ -110,7 +92,7 @@ impl From<SearchPanel> for Widget {
             children.push(
                 Text::new("No results found")
                     .size(tokens.typography.font_size_sm)
-                    .color(DIM_TEXT)
+                    .color(palette.dim_text)
                     .into(),
             );
         }

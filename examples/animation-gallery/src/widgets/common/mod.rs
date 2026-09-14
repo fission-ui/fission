@@ -27,7 +27,7 @@ pub use timeline_control::TimelineControl;
 pub use widget_page::WidgetPage;
 
 use crate::state::{AnimationGalleryState, MotionChoice, MotionPolicy};
-use fission::prelude::*;
+use crate::style;
 
 pub const STANDARD_MOTIONS: &[MotionChoice] = &[
     MotionChoice::None,
@@ -79,7 +79,7 @@ pub struct WidgetSummary {
     pub title: &'static str,
     pub subtitle: &'static str,
     pub glyph: &'static str,
-    pub tint: Color,
+    pub tint: style::Tint,
 }
 
 #[derive(Clone, Copy)]

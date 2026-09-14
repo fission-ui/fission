@@ -2,7 +2,6 @@ use crate::layout::*;
 use crate::pages;
 use crate::routes::{self, NavGroup, NavItem};
 use crate::state::{navigate_to, AnimationGalleryState, NavigateTo};
-use crate::style::*;
 use crate::widgets::common::PolicyControl;
 use fission::build::BuildCtxHandle;
 use fission::widgets::Wrap;

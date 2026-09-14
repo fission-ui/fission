@@ -28,6 +28,28 @@ pub enum MotionPreference {
     Reduced,
 }
 
+/// Whether widgets play their built-in motion when an app leaves it unset.
+///
+/// Unlike [`MotionPreference`], shells never change this: it is the app's own
+/// choice. Widgets whose `motion` is set explicitly still play it; use
+/// [`MotionPreference::Reduced`] to make every animation instant.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WidgetMotion {
+    /// Widgets without explicit motion play their subtle built-in motion.
+    #[default]
+    Standard,
+    /// Widgets without explicit motion render without animation.
+    Off,
+}
+
+impl WidgetMotion {
+    /// Returns whether widgets play their built-in motion by default.
+    pub const fn is_on(self) -> bool {
+        matches!(self, Self::Standard)
+    }
+}
+
 impl MotionPreference {
     /// Returns whether declarative motion must be reduced for this environment.
     pub const fn is_reduced(self) -> bool {
@@ -191,6 +213,8 @@ pub struct Env {
     pub layout_direction: LayoutDirection,
     /// App-wide accessibility preference for declarative motion.
     pub motion_preference: MotionPreference,
+    /// App-wide default for widgets' built-in motion. Shells never override it.
+    pub widget_motion: WidgetMotion,
     /// Current light/dark appearance reported by the host platform.
     ///
     /// Applications that offer a "System" preference can select their generated
@@ -214,6 +238,7 @@ impl Default for Env {
             theme: Theme::default(),
             layout_direction: LayoutDirection::default(),
             motion_preference: MotionPreference::default(),
+            widget_motion: WidgetMotion::default(),
             system_theme_mode: DesignMode::Light,
             i18n: I18nRegistry::new(),
             locale: Locale::default(),
@@ -233,6 +258,7 @@ impl std::fmt::Debug for Env {
             .field("theme", &self.theme)
             .field("layout_direction", &self.layout_direction)
             .field("motion_preference", &self.motion_preference)
+            .field("widget_motion", &self.widget_motion)
             .field("system_theme_mode", &self.system_theme_mode)
             .field("locale", &self.locale)
             .field("window", &self.window)
@@ -245,11 +271,23 @@ impl std::fmt::Debug for Env {
 }
 
 impl Env {
+    /// Returns the translation of `key` for the current locale, or `key` itself
+    /// when the active translations do not define it.
+    ///
+    /// Falling back to the key keeps a missing translation visible and
+    /// searchable instead of rendering an empty label.
+    pub fn tr(&self, key: &str) -> String {
+        self.i18n
+            .get(&self.locale, key)
+            .map_or_else(|| key.to_string(), str::to_string)
+    }
+
     pub fn new(measurer: Arc<dyn fission_layout::TextMeasurer>) -> Self {
         Self {
             theme: Theme::default(),
             layout_direction: LayoutDirection::default(),
             motion_preference: MotionPreference::default(),
+            widget_motion: WidgetMotion::default(),
             system_theme_mode: DesignMode::Light,
             i18n: I18nRegistry::new(),
             locale: Locale::default(),
@@ -543,6 +581,9 @@ pub enum TextSelectionHandleKind {
 
 #[derive(Clone, Debug, Default)]
 pub struct TextInputAffordanceState {
+    /// Whether selection handles are shown. Handles belong to touch and stylus input; a mouse or
+    /// keyboard selection shows only the highlight.
+    pub touch_handles: bool,
     pub toolbar_visible: bool,
     pub toolbar_anchor: Option<LayoutPoint>,
     pub caret_handle: Option<LayoutPoint>,
@@ -984,8 +1025,14 @@ pub struct InteractionStateMap {
     pub hovered: HashMap<WidgetId, bool>,
     pub hover_path: Vec<WidgetId>,
     pub hover_rich_text_annotation: Option<HoveredRichTextAnnotation>,
+    /// Last mouse or stylus position over the window, used to refresh hover after the tree or
+    /// layout changes beneath a stationary pointer.
+    pub pointer_position: Option<LayoutPoint>,
     pub pressed: HashMap<WidgetId, bool>,
     pub focused: Option<WidgetId>,
+    /// Whether focus should be drawn: true after keyboard focus movement, false after pointer
+    /// focus, and unchanged by programmatic focus.
+    pub focus_visible: bool,
     active_descendants: HashMap<WidgetId, WidgetId>,
     pub cursor: MouseCursor,
     pub last_down_point: Option<LayoutPoint>,
@@ -1006,6 +1053,12 @@ impl InteractionStateMap {
     }
     pub fn is_focused(&self, id: WidgetId) -> bool {
         self.focused == Some(id) || self.active_descendants.values().any(|target| *target == id)
+    }
+
+    /// Whether `id` is focused and its focus should be drawn, as it is after keyboard
+    /// navigation but not after a click.
+    pub fn is_focus_visible(&self, id: WidgetId) -> bool {
+        self.focus_visible && self.is_focused(id)
     }
 
     /// Returns the runtime-owned active descendant for a composite controller.

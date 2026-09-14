@@ -1,23 +1,17 @@
 use crate::diagnostic_item::DiagnosticItem;
-use crate::model::{DiagSeverity, EditorState, OpenFile};
-use crate::palette::{DIM_TEXT, TERMINAL_BG};
+use crate::model::{DiagSeverity, EditorState};
+use crate::palette::EditorPalette;
 use fission::core::ui::{Container, Scroll, Text, Widget};
-use fission::core::{reduce_with, FlexDirection};
+use fission::core::FlexDirection;
 use fission::widgets::VStack;
 
 pub struct DiagnosticsPanel;
 
 impl From<DiagnosticsPanel> for Widget {
     fn from(_component: DiagnosticsPanel) -> Self {
-        let (ctx, view) = fission::build::current::<EditorState>();
+        let (_, view) = fission::build::current::<EditorState>();
+        let palette = EditorPalette::from_theme(&view.env().theme);
         let tokens = &view.env().theme.tokens;
-
-        let open_id = ctx
-            .bind(
-                OpenFile(String::new()),
-                reduce_with!((|s: &mut EditorState, a: OpenFile, _| s.open_file(a.0))),
-            )
-            .id;
 
         let mut all_diags: Vec<(&String, &crate::model::Diagnostic)> = view
             .state()
@@ -39,9 +33,9 @@ impl From<DiagnosticsPanel> for Widget {
             return Container::new(
                 Text::new("No problems detected")
                     .size(tokens.typography.font_size_sm)
-                    .color(DIM_TEXT),
+                    .color(palette.dim_text),
             )
-            .bg(TERMINAL_BG)
+            .bg(palette.terminal_bg)
             .padding_all(tokens.spacing.s)
             .flex_grow(1.0)
             .into();
@@ -53,7 +47,6 @@ impl From<DiagnosticsPanel> for Widget {
                 DiagnosticItem {
                     path: path.clone(),
                     diagnostic: diagnostic.clone(),
-                    open_id,
                 }
                 .into()
             })
@@ -73,7 +66,7 @@ impl From<DiagnosticsPanel> for Widget {
             flex_shrink: 1.0,
             ..Default::default()
         })
-        .bg(TERMINAL_BG)
+        .bg(palette.terminal_bg)
         .padding_all(tokens.spacing.xs)
         .flex_grow(1.0)
         .into()

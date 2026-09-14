@@ -33,6 +33,8 @@ fn test_display_list_serialization() {
         shadow: None, // Added
         bounds: rect,
         node_id: None,
+        corner_radii: None,
+        border_sides: None,
     };
 
     let mut list = DisplayList::new(rect);
@@ -64,6 +66,8 @@ fn test_renderer_consumes_display_list() {
         shadow: None, // Added
         bounds: LayoutRect::new(10.0, 10.0, 50.0, 50.0),
         node_id: None,
+        corner_radii: None,
+        border_sides: None,
     });
 
     renderer.render(&dl).expect("Render failed");

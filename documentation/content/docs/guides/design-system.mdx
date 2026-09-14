@@ -55,14 +55,51 @@ fn main() {
     let manifest_dir = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
     let dsp_path = manifest_dir.join("design/dsp.json");
 
-    fission_design_system_codegen::generate(fission_design_system_codegen::Config {
-        dsp_path,
-        out_file: "app_design_system.rs".into(),
-        type_name: "AppDesignSystem".into(),
-        crate_path: "fission::theme".into(),
-    })
+    fission_design_system_codegen::generate(
+        fission_design_system_codegen::Config::new(dsp_path)
+            .out_file("app_design_system.rs")
+            .type_name("AppDesignSystem")
+            .crate_path("fission::theme"),
+    )
     .expect("failed to generate design system");
 }
+```
+
+`Config` is built with methods rather than a struct literal, so new options can be added without
+breaking your `build.rs`:
+
+| Method | Default | Purpose |
+| --- | --- | --- |
+| `Config::new(dsp_path)` | — | The `dsp.json` to generate from. |
+| `.out_file(name)` | `app_design_system.rs` | File written under `OUT_DIR`. |
+| `.type_name(name)` | `AppDesignSystem` | Name of the generated design system type. |
+| `.crate_path(path)` | `fission_theme` | Path the generated code uses to reach the theme crate. Use `fission::theme` through the `fission` facade. |
+| `.inherit_from(path)` | `{crate_path}::FissionDefaultDesignSystem` | Design system whose component recipes fill in any recipe this one omits. |
+| `.require_complete_components()` | off | Fail the build when a required component recipe is missing instead of inheriting it. |
+
+An application design system only needs to declare the components it changes. Every recipe it
+leaves out is taken from the system named by `inherit_from`, so widgets never fall back to empty
+styling. Call `require_complete_components()` when the design system must stand alone.
+
+### Migrating from the `Config` struct literal
+
+Earlier releases constructed `Config` with a struct literal. `Config` is now `#[non_exhaustive]`,
+so replace the literal with the builder:
+
+```rust
+// Before
+fission_design_system_codegen::Config {
+    dsp_path,
+    out_file: "app_design_system.rs".into(),
+    type_name: "AppDesignSystem".into(),
+    crate_path: "fission::theme".into(),
+}
+
+// After
+fission_design_system_codegen::Config::new(dsp_path)
+    .out_file("app_design_system.rs")
+    .type_name("AppDesignSystem")
+    .crate_path("fission::theme")
 ```
 
 Add the generator as a build dependency:

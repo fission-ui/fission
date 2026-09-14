@@ -1,4 +1,4 @@
-use fission_core::internal::{BuildCtx, InternalLoweringCx};
+use fission_core::authoring::{BuildCtx, LoweringContext};
 use fission_core::ui::{Overlay, TextInput, ZStack};
 use fission_core::{
     build, ActionEnvelope, ActionId, Env, GlobalState, InputEvent, KeyCode, KeyEvent, Runtime,
@@ -62,10 +62,10 @@ fn build_runtime_widget(runtime: &Runtime, build: impl FnOnce() -> Widget) -> Co
         .into(),
     }
     .into();
-    let mut lower = InternalLoweringCx::new(&env, &runtime.runtime_state, None, None);
+    let mut lower = LoweringContext::new(&env, &runtime.runtime_state, None, None);
     let root_id = fission_core::internal::lower_widget(&root, &mut lower);
-    lower.ir.root = Some(root_id);
-    lower.ir
+    lower.set_root(root_id);
+    lower.into_ir()
 }
 
 fn runtime_combobox(combobox_id: WidgetId) -> ComboboxLayout {
@@ -119,6 +119,7 @@ fn closed_combobox_exposes_editable_popup_semantics_and_opens_on_focus() {
     let (ir, portals) = build_widget(|| {
         Combobox {
             id: combobox_id,
+            semantics_identifier: None,
             value: "Av".into(),
             items: vec!["Avery".into(), "Ava".into()],
             is_open: false,
@@ -258,6 +259,7 @@ fn open_combobox_uses_a_bounded_listbox_with_stable_options() {
     let (ir, portals) = build_widget(|| {
         Combobox {
             id: combobox_id,
+            semantics_identifier: None,
             value: "Avery".into(),
             items: vec!["Ava".into(), "Avery".into(), "Avril".into()],
             is_open: true,
@@ -324,18 +326,26 @@ fn open_combobox_uses_a_bounded_listbox_with_stable_options() {
         }
         op => panic!("expected bounded combobox popup surface, got {op:?}"),
     }
-    let scroll = surface
-        .children
-        .iter()
-        .find_map(|id| match &popup.nodes[id].op {
-            Op::Layout(LayoutOp::Scroll {
-                height,
-                show_scrollbar,
-                ..
-            }) => Some((*height, *show_scrollbar)),
-            _ => None,
-        })
-        .expect("combobox popup should contain a scroll viewport");
+    // Searched through descendants, not just direct children: `Scroll` emits a
+    // semantic region declaring the axis it scrolls, so the layout node sits
+    // one level below the surface. What matters here is that the popup bounds
+    // a scroll viewport, not how many nodes separate them.
+    let mut stack: Vec<_> = surface.children.clone();
+    let mut scroll = None;
+    while let Some(id) = stack.pop() {
+        let node = &popup.nodes[&id];
+        if let Op::Layout(LayoutOp::Scroll {
+            height,
+            show_scrollbar,
+            ..
+        }) = &node.op
+        {
+            scroll = Some((*height, *show_scrollbar));
+            break;
+        }
+        stack.extend(node.children.iter().copied());
+    }
+    let scroll = scroll.expect("combobox popup should contain a scroll viewport");
     assert_eq!(scroll, (Some(64.0), true));
 }
 
@@ -345,6 +355,7 @@ fn combobox_keeps_side_placement_when_a_matching_label_is_ambiguous() {
     let (_, portals) = build_widget(|| {
         Combobox {
             id: combobox_id,
+            semantics_identifier: None,
             value: "Avery".into(),
             items: vec!["Avery".into(), "Avery".into()],
             is_open: true,
@@ -368,6 +379,7 @@ fn empty_combobox_never_claims_an_open_popup() {
     let (ir, portals) = build_widget(|| {
         Combobox {
             id: combobox_id,
+            semantics_identifier: None,
             value: String::new(),
             items: Vec::new(),
             is_open: true,

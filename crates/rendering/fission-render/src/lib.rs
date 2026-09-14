@@ -25,12 +25,26 @@ pub enum Fill {
         start: (f32, f32),
         end: (f32, f32),
         stops: Vec<(f32, Color)>,
+        #[serde(default)]
+        extend: fission_ir::GradientExtend,
     },
     /// A gradient whose center and radius are normalized to the painted bounds.
     RadialGradient {
         center: (f32, f32),
         radius: f32,
         stops: Vec<(f32, Color)>,
+        #[serde(default)]
+        extend: fission_ir::GradientExtend,
+    },
+    /// A gradient sweeping around a center point, normalized to the painted
+    /// bounds. Angles are radians, clockwise from the positive x axis.
+    SweepGradient {
+        center: (f32, f32),
+        start_angle: f32,
+        end_angle: f32,
+        stops: Vec<(f32, Color)>,
+        #[serde(default)]
+        extend: fission_ir::GradientExtend,
     },
 }
 
@@ -55,6 +69,47 @@ pub struct Stroke {
     pub dash_array: Option<Vec<f32>>,
     pub line_cap: LineCap,
     pub line_join: LineJoin,
+}
+
+/// Strokes for the four edges of a box, in physical order.
+///
+/// The render-level counterpart of [`fission_ir::BorderSides`], carrying this
+/// crate's [`Stroke`] so a backend never has to reach back into the IR.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct BorderSides {
+    pub top: Option<Stroke>,
+    pub right: Option<Stroke>,
+    pub bottom: Option<Stroke>,
+    pub left: Option<Stroke>,
+}
+
+impl BorderSides {
+    /// The same stroke on every edge.
+    pub fn uniform(stroke: Stroke) -> Self {
+        Self {
+            top: Some(stroke.clone()),
+            right: Some(stroke.clone()),
+            bottom: Some(stroke.clone()),
+            left: Some(stroke),
+        }
+    }
+
+    /// Whether no edge carries a stroke.
+    pub fn is_empty(&self) -> bool {
+        self.top.is_none() && self.right.is_none() && self.bottom.is_none() && self.left.is_none()
+    }
+
+    /// The single stroke shared by all four edges, if there is one.
+    ///
+    /// Lets a backend take its uniform stroke path when the edges agree rather
+    /// than always drawing four of them.
+    pub fn as_uniform(&self) -> Option<&Stroke> {
+        let top = self.top.as_ref()?;
+        (self.right.as_ref() == Some(top)
+            && self.bottom.as_ref() == Some(top)
+            && self.left.as_ref() == Some(top))
+        .then_some(top)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -129,6 +184,9 @@ pub enum DisplayOp {
         corner_radius: LayoutUnit,
         bounds: LayoutRect,
         node_id: Option<WidgetId>,
+        /// Per-corner override. Replaces `corner_radius` when present.
+        #[serde(default)]
+        corner_radii: Option<fission_ir::CornerRadii>,
     },
     DrawRect {
         rect: LayoutRect,
@@ -138,6 +196,12 @@ pub enum DisplayOp {
         shadow: Option<BoxShadow>,
         bounds: LayoutRect,
         node_id: Option<WidgetId>,
+        /// Per-corner override. Replaces `corner_radius` when present.
+        #[serde(default)]
+        corner_radii: Option<fission_ir::CornerRadii>,
+        /// Per-edge strokes. Replaces `stroke` when present.
+        #[serde(default)]
+        border_sides: Option<BorderSides>,
     },
     DrawText {
         text: String,
@@ -207,6 +271,28 @@ pub enum DisplayOp {
     },
 }
 
+impl DisplayOp {
+    /// Returns the text this op draws, if it draws any.
+    ///
+    /// The display-list counterpart of [`fission_ir::PaintOp::text`]. Whether a
+    /// widget produced one unstyled string or styled runs is an implementation
+    /// detail of that widget, so callers asking what the user reads should go
+    /// through this rather than matching a single variant.
+    pub fn text(&self) -> Option<std::borrow::Cow<'_, str>> {
+        match self {
+            Self::DrawText { text, .. } => Some(std::borrow::Cow::Borrowed(text.as_str())),
+            Self::DrawRichText { runs, .. } => match runs.as_slice() {
+                [] => None,
+                [run] => Some(std::borrow::Cow::Borrowed(run.text.as_str())),
+                runs => Some(std::borrow::Cow::Owned(
+                    runs.iter().map(|run| run.text.as_str()).collect(),
+                )),
+            },
+            _ => None,
+        }
+    }
+}
+
 pub fn embed_surface_id(kind: &EmbedKind, widget_id: WidgetId) -> u64 {
     let kind_tag = match kind {
         EmbedKind::Video => 0xF151_0000_0000_0001,
@@ -258,6 +344,14 @@ pub enum LayerClip {
 pub struct LayerStyle {
     pub clip: Option<LayerClip>,
     pub opacity: f32,
+    /// How this layer's pixels combine with what is already painted beneath it.
+    ///
+    /// Carried through to the backend even when the active backend cannot honour
+    /// it. A backend that only does source-over renders the layer normally; the
+    /// information is not discarded on the way down, so a backend that can blend
+    /// gets it without another pass through the pipeline.
+    #[serde(default)]
+    pub blend_mode: fission_ir::BlendMode,
     pub transform: Option<[LayoutUnit; 16]>,
     pub transform_clip: bool,
     pub cache_key: Option<u64>,
@@ -269,6 +363,7 @@ impl Default for LayerStyle {
         Self {
             clip: None,
             opacity: 1.0,
+            blend_mode: fission_ir::BlendMode::Normal,
             transform: None,
             transform_clip: true,
             cache_key: None,

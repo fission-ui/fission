@@ -1,6 +1,6 @@
 use crate::motion_support::{
-    dedupe, exit_for, fade_in, push_enter_with_exit, scale_in, slide_x_in, slide_y_in, slot_id,
-    SLOT_BACKDROP, SLOT_FOCUS_SCOPE, SLOT_SURFACE,
+    dedupe, exit_for, fade_in, presence_active, push_enter_with_exit, resolve_motion, scale_in,
+    slide_x_in, slide_y_in, slot_id, SLOT_BACKDROP, SLOT_FOCUS_SCOPE, SLOT_SURFACE,
 };
 use crate::stack::{HStack, VStack};
 use crate::Icon;
@@ -10,7 +10,7 @@ use fission_core::ui::{
     Align, Button, ButtonContent, ButtonVariant, Container, Row, Scroll, SemanticsRegion, Text,
     TextContent, Widget, ZStack,
 };
-use fission_core::{ActionEnvelope, LayoutDirection, WidgetId};
+use fission_core::{ActionEnvelope, WidgetId};
 use fission_ir::{FlexDirection, Role};
 use fission_theme::{ButtonHierarchy, ComponentSize, ComponentState};
 use serde::{Deserialize, Serialize};
@@ -23,7 +23,9 @@ const MODAL_CLOSE_ID_PATH: u32 = 0xC1_05_E;
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 /// Optional motion presets owned by [`Modal`].
 ///
-/// Modals render without motion unless [`Modal::motion`] is set. Presets lower
+/// Modals play their default motion unless [`Modal::motion`] chooses another
+/// preset, `Some(ModalMotion::None)` turns it off, or the app sets
+/// `Env::widget_motion` to `Off`. Presets lower
 /// to native [`Presence`] and [`MotionTrack`] values for the stable `backdrop`
 /// and `surface` slots.
 ///
@@ -31,6 +33,8 @@ const MODAL_CLOSE_ID_PATH: u32 = 0xC1_05_E;
 /// let motion = Some(ModalMotion::FromTop + ModalMotion::Fade + ModalMotion::Scale);
 /// ```
 pub enum ModalMotion {
+    /// No modal-owned motion.
+    None,
     /// Curated default modal motion.
     Default,
     /// Fade the backdrop and surface.
@@ -149,6 +153,7 @@ impl ModalMotion {
                     item.append_plan(plan, duration_ms, initial_scale);
                 }
             }
+            Self::None => {}
             Self::Custom {
                 backdrop,
                 surface_enter,
@@ -263,7 +268,7 @@ pub struct Modal {
     pub actions: Vec<ModalAction>,
     /// Preferred logical width, clamped to the available viewport.
     pub width: Option<f32>,
-    /// Optional explicit modal motion. `None` emits no modal-owned motion declarations.
+    /// Modal motion. `None` plays the default motion unless the app turns widget motion off.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub motion: Option<ModalMotion>,
 }
@@ -670,6 +675,15 @@ impl ModalContent {
 
 impl From<ModalContent> for Widget {
     fn from(content: ModalContent) -> Self {
+        content.into_widget_with_inline_gutter([0.0, 0.0])
+    }
+}
+
+impl ModalContent {
+    /// Builds the scrolling body with `gutter` (`[left, right]`) of padding inside the scroll
+    /// viewport, so the overlay scrollbar sits in that gutter rather than over the content.
+    fn into_widget_with_inline_gutter(self, gutter: [f32; 2]) -> Widget {
+        let content = self;
         let (_, view) = fission_core::build::current::<()>();
         let style = &view.env().theme.components.modal.content_style;
         let mut inner = Container::new(content.child).padding(style.padding_box(0.0, 0.0));
@@ -687,7 +701,11 @@ impl From<ModalContent> for Widget {
         inner = inner.shadows(style.outer_shadows());
 
         Scroll {
-            child: Some(inner.into()),
+            child: Some(
+                Container::new(inner)
+                    .padding([gutter[0], gutter[1], 0.0, 0.0])
+                    .into(),
+            ),
             direction: FlexDirection::Column,
             show_scrollbar: content.show_scrollbar,
             flex_grow: 0.0,
@@ -882,7 +900,7 @@ pub struct ModalLayout {
     pub surface_semantics_identifier: Option<String>,
     /// Preferred logical width, clamped to the available viewport.
     pub width: Option<f32>,
-    /// Optional explicit modal motion.
+    /// Modal motion. `None` plays the default motion unless the app turns widget motion off.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub motion: Option<ModalMotion>,
 }
@@ -989,7 +1007,15 @@ impl From<ModalRecipe> for Widget {
         if let Some(id) = fission_core::build::current_widget_id() {
             component.id = id;
         }
-        if !component.is_open && component.motion.is_none() {
+        component.motion = resolve_motion(
+            &component.motion,
+            ModalMotion::Default,
+            ModalMotion::None,
+            view.env(),
+        );
+        if !component.is_open
+            && !(component.motion.is_some() && presence_active(slot_id(component.id, SLOT_SURFACE)))
+        {
             return fission_core::ui::widgets::spacer::Spacer::default().into();
         }
 
@@ -1128,10 +1154,6 @@ impl From<ModalRecipe> for Widget {
             Widget::from(close_button)
         });
 
-        let mut main_children = vec![Widget::from(ModalHeaderRegion {
-            header: component.header,
-        })];
-        main_children.push(component.content.into());
         let footer = component
             .footer
             .filter(|footer| !footer.actions.is_empty() || !footer.children.is_empty());
@@ -1139,11 +1161,25 @@ impl From<ModalRecipe> for Widget {
         if footer.is_some() {
             main_padding[3] = 0.0;
         }
+        // The horizontal padding is applied inside the header and the scroll viewport rather than
+        // around them, so the body's scrollbar runs along the surface edge beside the content.
+        let inline_gutter = [main_padding[0], main_padding[1]];
+        let main_children = vec![
+            Container::new(ModalHeaderRegion {
+                header: component.header,
+            })
+            .padding([inline_gutter[0], inline_gutter[1], 0.0, 0.0])
+            .flex_shrink(0.0)
+            .into(),
+            component
+                .content
+                .into_widget_with_inline_gutter(inline_gutter),
+        ];
         let main_region: Widget = Container::new(VStack {
             spacing: Some(container_style.gap.unwrap_or(tokens.spacing.m)),
             children: main_children,
         })
-        .padding(main_padding)
+        .padding([0.0, 0.0, main_padding[2], main_padding[3]])
         .into();
         let mut surface_children = vec![main_region];
         if let Some(footer) = footer {
@@ -1158,17 +1194,12 @@ impl From<ModalRecipe> for Widget {
             let close_style = &theme.close_button_style;
             let inset_top = close_style.inset_top.unwrap_or(tokens.spacing.s);
             let inset_end = close_style.inset_end.unwrap_or(tokens.spacing.s);
-            let (left, right) = if view.env().layout_direction == LayoutDirection::RightToLeft {
-                (Some(inset_end), None)
-            } else {
-                (None, Some(inset_end))
-            };
+
             ZStack {
                 children: vec![
                     flow,
                     fission_core::ui::Positioned {
-                        left,
-                        right,
+                        end: Some(inset_end),
                         top: Some(inset_top),
                         child: Some(close_control),
                         ..Default::default()

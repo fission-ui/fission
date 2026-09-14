@@ -22,6 +22,9 @@ pub struct ChartModel {
     pub y_domain: (f32, f32),
     pub series: Vec<ResolvedSeries>,
     pub diagnostics: Vec<ChartDiagnostic>,
+    /// Positions in `series` hidden through the legend. Hidden series keep
+    /// their position, and so their colour, but are not drawn or measured.
+    pub hidden: std::collections::BTreeSet<usize>,
 }
 
 #[derive(Debug, Clone)]
@@ -143,8 +146,21 @@ impl ChartModel {
         let mut x_categories = resolve_x_categories(&x_axis, &resolved);
         let y_categories = resolve_y_categories(&y_axis, &resolved);
         apply_data_zoom(chart.data_zoom.as_ref(), &mut resolved, &mut x_categories);
+        let names: Vec<String> = resolved.iter().map(ResolvedSeries::name).collect();
+        let hidden: std::collections::BTreeSet<usize> = names
+            .iter()
+            .enumerate()
+            .filter(|(_, name)| chart.hidden_series.contains(name))
+            .map(|(index, _)| index)
+            .collect();
+        let visible: Vec<ResolvedSeries> = resolved
+            .iter()
+            .enumerate()
+            .filter(|(index, _)| !hidden.contains(index))
+            .map(|(_, series)| series.clone())
+            .collect();
         let (x_domain, y_domain) =
-            resolve_domains(&x_axis, &y_axis, &x_categories, &y_categories, &resolved);
+            resolve_domains(&x_axis, &y_axis, &x_categories, &y_categories, &visible);
 
         Self {
             title: chart.title.clone(),
@@ -156,7 +172,13 @@ impl ChartModel {
             y_domain,
             series: resolved,
             diagnostics,
+            hidden,
         }
+    }
+
+    /// Whether the series at `index` is hidden through the legend.
+    pub fn is_hidden(&self, index: usize) -> bool {
+        self.hidden.contains(&index)
     }
 
     pub fn has_cartesian_series(&self) -> bool {
@@ -505,5 +527,41 @@ fn unsupported(series_name: &str, message: &str) -> ChartDiagnostic {
     ChartDiagnostic {
         series_name: Some(series_name.to_string()),
         message: message.to_string(),
+    }
+}
+
+impl ResolvedSeries {
+    /// The series name shown in the legend and tooltips.
+    pub fn name(&self) -> String {
+        match self {
+            ResolvedSeries::Line(s) => s.source.name.clone(),
+            ResolvedSeries::Bar(s) => s.source.name.clone(),
+            ResolvedSeries::Scatter(s) => s.name.clone(),
+            ResolvedSeries::Pie(s) => s.name.clone(),
+            ResolvedSeries::Bubble(s) => s.name.clone(),
+            ResolvedSeries::Boxplot(s) => s.name.clone(),
+            ResolvedSeries::Candlestick(s) => s.name.clone(),
+            ResolvedSeries::Heatmap(s) => s.name.clone(),
+            ResolvedSeries::CalendarHeatmap(s) => s.name.clone(),
+            ResolvedSeries::Lines(s) => s.name.clone(),
+            ResolvedSeries::Graph(s) => s.name.clone(),
+            ResolvedSeries::Tree(s) => s.name.clone(),
+            ResolvedSeries::Treemap(s) => s.name.clone(),
+            ResolvedSeries::Radar(s) => s.name.clone(),
+            ResolvedSeries::Funnel(s) => s.name.clone(),
+            ResolvedSeries::Gauge(s) => s.name.clone(),
+            ResolvedSeries::Map(s) => s.name.clone(),
+            ResolvedSeries::Sankey(s) => s.name.clone(),
+            ResolvedSeries::Parallel(s) => s.name.clone(),
+            ResolvedSeries::Sunburst(s) => s.name.clone(),
+            ResolvedSeries::ThemeRiver(s) => s.name.clone(),
+            ResolvedSeries::PictorialBar(s) => s.name.clone(),
+            ResolvedSeries::EffectScatter(s) => s.name.clone(),
+            ResolvedSeries::Liquidfill(s) => s.name.clone(),
+            ResolvedSeries::Wordcloud(s) => s.name.clone(),
+            ResolvedSeries::PolarBar(s) => s.name.clone(),
+            ResolvedSeries::PolarLine(s) => s.name.clone(),
+            ResolvedSeries::SingleAxis(s) => s.name.clone(),
+        }
     }
 }

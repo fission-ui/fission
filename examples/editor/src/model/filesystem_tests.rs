@@ -1,4 +1,4 @@
-use super::test_support::{cleanup, temp_file};
+use super::test_support::{cleanup, run_pending_fs, temp_file};
 use super::*;
 
 #[test]
@@ -144,6 +144,7 @@ fn test_multiline_find_matches() {
         "hello world\nhello rust\ngoodbye hello",
     );
     state.open_file(path.clone());
+    run_pending_fs(&mut state);
 
     state.find_query = "hello".to_string();
     state.find_next();
@@ -167,6 +168,7 @@ fn test_open_empty_file() {
     state.root_path = std::env::temp_dir();
     let path = temp_file("test_empty.txt", "");
     state.open_file(path.clone());
+    run_pending_fs(&mut state);
 
     let buf = state.file_contents.get(&path).unwrap();
     assert_eq!(buf.content(), "");
@@ -198,6 +200,7 @@ fn test_single_line_file() {
     state.root_path = std::env::temp_dir();
     let path = temp_file("test_single_line.txt", "only one line");
     state.open_file(path.clone());
+    run_pending_fs(&mut state);
 
     let buf = state.file_contents.get(&path).unwrap();
     assert_eq!(buf.content().lines().count(), 1);
@@ -228,6 +231,7 @@ fn test_cursor_at_end_of_file() {
     state.root_path = std::env::temp_dir();
     let path = temp_file("test_cursor_eof.txt", "line1\nline2\nline3");
     state.open_file(path.clone());
+    run_pending_fs(&mut state);
 
     // Move cursor to the last line
     state.go_to_line(3);
@@ -267,6 +271,7 @@ fn test_open_five_files_close_middle_adjusts_active_tab() {
 
     for p in &paths {
         state.open_file(p.clone());
+        run_pending_fs(&mut state);
     }
     assert_eq!(state.open_tabs.len(), 5);
     assert_eq!(state.active_tab, 4); // last opened is active
@@ -307,6 +312,7 @@ fn test_close_all_tabs_one_by_one() {
 
     for p in &paths {
         state.open_file(p.clone());
+        run_pending_fs(&mut state);
     }
 
     // Close all tabs from the end
@@ -332,8 +338,11 @@ fn test_close_first_tab_when_active() {
     let p1 = temp_file("test_close_first_1.txt", "b");
     let p2 = temp_file("test_close_first_2.txt", "c");
     state.open_file(p0.clone());
+    run_pending_fs(&mut state);
     state.open_file(p1.clone());
+    run_pending_fs(&mut state);
     state.open_file(p2.clone());
+    run_pending_fs(&mut state);
 
     // Activate first tab then close it
     state.active_tab = 0;
@@ -360,6 +369,7 @@ fn test_replace_all_expanding_pattern_no_infinite_loop() {
     state.root_path = std::env::temp_dir();
     let path = temp_file("test_replace_expand.txt", "a b a c a");
     state.open_file(path.clone());
+    run_pending_fs(&mut state);
 
     state.find_query = "a".to_string();
     state.replace_query = "aa".to_string();
@@ -382,6 +392,7 @@ fn test_replace_one_expanding_pattern_terminates() {
     state.root_path = std::env::temp_dir();
     let path = temp_file("test_replace_one_expand.txt", "x x x");
     state.open_file(path.clone());
+    run_pending_fs(&mut state);
 
     state.find_query = "x".to_string();
     state.replace_query = "xx".to_string();
@@ -636,8 +647,11 @@ fn test_select_tab_switches_active_buffer() {
     let p1 = temp_file("test_select_tab_1.txt", "one");
     let p2 = temp_file("test_select_tab_2.txt", "two");
     state.open_file(p0.clone());
+    run_pending_fs(&mut state);
     state.open_file(p1.clone());
+    run_pending_fs(&mut state);
     state.open_file(p2.clone());
+    run_pending_fs(&mut state);
 
     assert_eq!(state.active_tab, 2);
 
@@ -779,6 +793,7 @@ fn test_navigate_diagnostic_moves_cursor() {
         "fn main() {\n    let x = 1;\n    let y = 2;\n}",
     );
     state.open_file(path.clone());
+    run_pending_fs(&mut state);
 
     state.go_to_line(2);
     let buf = state.file_contents.get(&path).unwrap();
@@ -793,6 +808,7 @@ fn test_update_file_content_marks_dirty() {
     state.root_path = std::env::temp_dir();
     let path = temp_file("test_update_content.txt", "original");
     state.open_file(path.clone());
+    run_pending_fs(&mut state);
     assert!(!state.open_tabs[0].is_dirty);
 
     if let Some(buf) = state.file_contents.get_mut(&path) {
@@ -818,6 +834,7 @@ fn test_scroll_offset_resets_on_open_file() {
 
     let path = temp_file("test_scroll_reset.txt", "content");
     state.open_file(path.clone());
+    run_pending_fs(&mut state);
 
     assert_eq!(
         state.scroll_offset_y, 0.0,
@@ -837,6 +854,7 @@ fn test_paste_at_beginning_of_file() {
     state.root_path = std::env::temp_dir();
     let path = temp_file("test_paste_beginning.txt", "existing content");
     state.open_file(path.clone());
+    run_pending_fs(&mut state);
 
     if let Some(buf) = state.file_contents.get_mut(&path) {
         buf.set_caret_line_col(0, 0);
@@ -860,6 +878,7 @@ fn test_cut_last_line_adjusts_cursor() {
     state.root_path = std::env::temp_dir();
     let path = temp_file("test_cut_last.txt", "line1\nline2\nline3");
     state.open_file(path.clone());
+    run_pending_fs(&mut state);
 
     if let Some(buf) = state.file_contents.get_mut(&path) {
         buf.set_caret_line_col(2, 0); // last line
@@ -891,6 +910,7 @@ fn test_find_across_multiple_lines() {
     let content = "first line has foo\nsecond line no match\nthird foo and fourth foo";
     let path = temp_file("test_find_multi.txt", content);
     state.open_file(path.clone());
+    run_pending_fs(&mut state);
 
     state.find_query = "foo".to_string();
     state.find_next();
@@ -909,6 +929,7 @@ fn test_replace_all_multiline() {
     state.root_path = std::env::temp_dir();
     let path = temp_file("test_replace_multi.txt", "abc\ndef\nabc\nghi");
     state.open_file(path.clone());
+    run_pending_fs(&mut state);
 
     state.find_query = "abc".to_string();
     state.replace_query = "XYZ".to_string();
@@ -992,12 +1013,14 @@ fn test_paste_no_tabs_does_not_panic() {
 fn test_save_active_no_tabs_does_not_panic() {
     let mut state = EditorState::default();
     state.save_active_file();
+    run_pending_fs(&mut state);
 }
 
 #[test]
 fn test_save_all_no_tabs_sets_message() {
     let mut state = EditorState::default();
     state.save_all_files();
+    run_pending_fs(&mut state);
     assert!(state
         .status_message
         .as_ref()
@@ -1015,6 +1038,7 @@ fn test_file_buffer_revision_starts_at_zero() {
     state.root_path = std::env::temp_dir();
     let path = temp_file("test_version.txt", "versioned");
     state.open_file(path.clone());
+    run_pending_fs(&mut state);
 
     let buf = state.file_contents.get(&path).unwrap();
     assert_eq!(buf.buffer.revision(), 0);
@@ -1034,6 +1058,8 @@ fn test_open_nonexistent_file_gets_empty_content() {
     std::fs::remove_file(&path).ok();
 
     state.open_file(path.clone());
+
+    run_pending_fs(&mut state);
 
     assert_eq!(state.open_tabs.len(), 1);
     let buf = state.file_contents.get(&path).unwrap();
@@ -1115,4 +1141,52 @@ fn test_completion_kind_str() {
     assert_eq!(completion_kind_str(Some(25)), "type_param");
     assert_eq!(completion_kind_str(None), "unknown");
     assert_eq!(completion_kind_str(Some(999)), "unknown");
+}
+
+#[test]
+fn deleting_from_the_context_menu_removes_the_file_and_its_tab() {
+    let mut state = EditorState {
+        root_path: std::env::temp_dir(),
+        ..EditorState::default()
+    };
+    let path = temp_file("test_delete_from_context_menu.txt", "bye");
+    state.open_file(path.clone());
+    run_pending_fs(&mut state);
+    assert!(state.open_tabs.iter().any(|tab| tab.path == path));
+
+    state.context_menu_visible = true;
+    state.context_menu_target = Some(path.clone());
+    state.run_command(EditorCommand::Delete);
+    run_pending_fs(&mut state);
+
+    assert!(!std::path::Path::new(&path).exists());
+    assert!(state.open_tabs.iter().all(|tab| tab.path != path));
+    assert!(!state.context_menu_visible);
+    assert!(state.context_menu_target.is_none());
+}
+
+#[test]
+fn running_a_command_closes_the_surface_that_offered_it() {
+    let mut state = EditorState {
+        active_menu: Some("View".into()),
+        ..EditorState::default()
+    };
+    let sidebar_was_visible = state.sidebar_visible;
+    state.run_command(EditorCommand::ToggleSidebar);
+    assert!(state.active_menu.is_none());
+    assert_ne!(state.sidebar_visible, sidebar_was_visible);
+
+    state.run_command(EditorCommand::CommandPalette);
+    assert!(state.show_command_palette);
+    state.command_query = "save".into();
+    state.run_command(EditorCommand::CommandPalette);
+    assert!(!state.show_command_palette);
+    assert!(state.command_query.is_empty());
+}
+
+#[test]
+fn every_palette_command_matches_an_empty_query() {
+    assert!(PALETTE_COMMANDS.iter().all(|command| command.matches("")));
+    assert!(EditorCommand::SaveAll.matches("all open"));
+    assert!(!EditorCommand::Save.matches("terminal"));
 }

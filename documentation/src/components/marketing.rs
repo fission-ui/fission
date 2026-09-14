@@ -844,6 +844,7 @@ impl From<DetailShowcase> for Widget {
                 (0.0, tokens.colors.surface.with_alpha(246)),
                 (1.0, tokens.colors.surface_sunken.with_alpha(242)),
             ],
+            extend: Default::default(),
         })
         .border(tokens.colors.border, 1.0)
         .border_radius(tokens.radii.xxl)
@@ -1106,6 +1107,7 @@ impl From<ProofBand> for Widget {
                 (0.0, tokens.colors.primary_subtle.with_alpha(200)),
                 (1.0, tokens.colors.surface_sunken),
             ],
+            extend: Default::default(),
         })
         .border(tokens.colors.border, 1.0)
         .border_radius(tokens.radii.xxl)

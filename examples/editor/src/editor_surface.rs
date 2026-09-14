@@ -1,4 +1,5 @@
 use crate::editor_welcome_screen::EditorWelcomeScreen;
+use crate::highlight;
 use crate::layout::{
     ACTIVITY_BAR_WIDTH, BREADCRUMB_HEIGHT, DIVIDER_THICKNESS, EDITOR_HORIZONTAL_RESERVE,
     FIND_REPLACE_REGION_HEIGHT, MENU_BAR_HEIGHT, MINIMAP_WIDTH, MIN_EDITOR_HEIGHT,
@@ -6,10 +7,11 @@ use crate::layout::{
     TAB_BAR_HEIGHT, TERMINAL_HEIGHT_FRACTION,
 };
 use crate::minimap::Minimap;
+use crate::model::{on_update_cursor_position, on_update_editor_document};
 use crate::model::{EditorState, UpdateCursorPosition, UpdateEditorDocument};
-use crate::palette::{BORDER_COLOR, BRIGHT_TEXT, EDITOR_SELECTION, WELCOME_BG};
+use crate::palette::EditorPalette;
+use fission::core::reduce_with;
 use fission::core::ui::{Container, Row, TextInput, Widget};
-use fission::core::{reduce_with, ReducerContext};
 use fission::widgets::{Spacer, VStack};
 use fission::WidgetId;
 
@@ -18,6 +20,7 @@ pub struct EditorSurface;
 impl From<EditorSurface> for Widget {
     fn from(_component: EditorSurface) -> Self {
         let (ctx, view) = fission::build::current::<EditorState>();
+        let palette = EditorPalette::from_theme(&view.env().theme);
         let tokens = &view.env().theme.tokens;
 
         let sidebar_width = view.state().sidebar_width.min(
@@ -65,27 +68,7 @@ impl From<EditorSurface> for Widget {
 
         let update_document = ctx.bind(
             UpdateEditorDocument,
-            reduce_with!(
-                (|s: &mut EditorState,
-                  _a: UpdateEditorDocument,
-                  ctx: &mut ReducerContext<EditorState>| {
-                    let Some(change) = ctx.input.text_change() else {
-                        return;
-                    };
-                    if let Some(tab) = s.open_tabs.get(s.active_tab) {
-                        let path = tab.path.clone();
-                        if let Some(buf) = s.file_contents.get_mut(&path) {
-                            if !buf.is_editable() {
-                                s.status_message = Some("This document is not editable".into());
-                                return;
-                            }
-                            buf.replace_document(&change.new_text);
-                        }
-                        s.mark_active_tab_dirty();
-                        s.notify_buffer_changed(&path);
-                    }
-                })
-            ),
+            reduce_with!(on_update_editor_document),
         );
 
         let update_cursor = ctx.bind(
@@ -93,19 +76,19 @@ impl From<EditorSurface> for Widget {
                 caret: 0,
                 anchor: 0,
             },
-            reduce_with!(
-                (|s: &mut EditorState, a: UpdateCursorPosition, _| {
-                    if let Some((_tab, buf)) = s.active_buffer_mut() {
-                        buf.clear_preedit();
-                        buf.set_selection_offsets(a.caret, a.anchor);
-                    }
-                })
-            ),
+            reduce_with!(on_update_cursor_position),
         );
+
+        let value = buffer.display_content();
+        let font_size = tokens.typography.font_size_sm;
+        let line_height = font_size * tokens.typography.line_height_normal;
+        let styled_runs =
+            highlight::highlighted_runs(&value, buffer.language, &palette, font_size, line_height);
 
         let editor_input: Widget = TextInput {
             id: Some(WidgetId::explicit(&format!("editor_input_{}", path))),
-            value: buffer.display_content(),
+            value,
+            styled_runs,
             on_input: Some(update_document),
             on_cursor_change: Some(update_cursor),
             width: Some(editor_viewport_width),
@@ -115,13 +98,11 @@ impl From<EditorSurface> for Widget {
             capture_tab: true,
             auto_indent: true,
             read_only: !buffer.is_editable(),
-            font_size: Some(tokens.typography.font_size_sm),
-            line_height: Some(
-                tokens.typography.font_size_sm * tokens.typography.line_height_normal,
-            ),
-            text_color: Some(BRIGHT_TEXT),
-            cursor_color: Some(fission::op::Color::WHITE),
-            selection_color: Some(EDITOR_SELECTION),
+            font_size: Some(font_size),
+            line_height: Some(line_height),
+            text_color: Some(palette.bright_text),
+            cursor_color: Some(palette.bright_text),
+            selection_color: Some(palette.editor_selection),
             spell_check: false,
             smart_dashes: false,
             smart_quotes: false,
@@ -138,7 +119,7 @@ impl From<EditorSurface> for Widget {
 
         let minimap_separator = Container::new(Spacer::default())
             .width(DIVIDER_THICKNESS)
-            .bg(BORDER_COLOR)
+            .bg(palette.border_color)
             .flex_shrink(0.0)
             .into();
 
@@ -159,7 +140,7 @@ impl From<EditorSurface> for Widget {
         .into();
 
         Container::new(editor_column)
-            .bg(WELCOME_BG)
+            .bg(palette.welcome_bg)
             .flex_grow(1.0)
             .flex_shrink(1.0)
             .into()

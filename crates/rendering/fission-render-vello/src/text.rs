@@ -12,12 +12,11 @@ use fission_layout::{
 use fission_render::TextStyle as RenderTextStyle;
 use parley::layout::{Affinity, Cursor, Layout, PositionedLayoutItem};
 use parley::style::{
-    FontFeature as ParleyFontFeature, FontSettings, FontStack, FontStyle as ParleyFontStyle,
-    FontVariation as ParleyFontVariation, FontWeight, LineHeight, OverflowWrap, StyleProperty,
-    WordBreakStrength,
+    FontFamily, FontFeatures, FontStyle as ParleyFontStyle, FontVariations, FontWeight, Language,
+    LineHeight, OverflowWrap, StyleProperty, WordBreak,
 };
-use parley::InlineBox;
 use parley::{FontContext, LayoutContext};
+use parley::{InlineBox, InlineBoxKind};
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -333,7 +332,7 @@ impl VelloTextMeasurer {
         let mut builder = layout_cx.ranged_builder(&mut font_cx, text, 1.0, false);
 
         builder.push_default(StyleProperty::FontSize(font_size));
-        builder.push_default(StyleProperty::FontStack(FontStack::Source(Cow::Owned(
+        builder.push_default(StyleProperty::FontFamily(FontFamily::Source(Cow::Owned(
             self.default_family.clone(),
         ))));
 
@@ -581,13 +580,14 @@ impl VelloTextMeasurer {
 
         let mut builder = layout_cx.ranged_builder(&mut font_cx, text, 1.0, false);
         builder.push_default(StyleProperty::FontSize(base_size));
-        builder.push_default(StyleProperty::FontStack(FontStack::Source(Cow::Owned(
+        builder.push_default(StyleProperty::FontFamily(FontFamily::Source(Cow::Owned(
             self.default_family.clone(),
         ))));
         let brush = ParleyBrush([base_color.r, base_color.g, base_color.b, base_color.a]);
         builder.push_default(StyleProperty::Brush(brush));
         for inline_box in inline_boxes {
             builder.push_inline_box(InlineBox {
+                kind: InlineBoxKind::InFlow,
                 id: inline_box.id,
                 index: inline_box.index,
                 width: inline_box.width,
@@ -605,12 +605,15 @@ impl VelloTextMeasurer {
                     style.typography.font_fallback.iter().map(String::as_str),
                 );
                 builder.push(
-                    StyleProperty::FontStack(FontStack::Source(Cow::Owned(stack))),
+                    StyleProperty::FontFamily(FontFamily::Source(Cow::Owned(stack))),
                     range.clone(),
                 );
             }
             if let Some(locale) = &style.locale {
-                builder.push(StyleProperty::Locale(Some(locale.as_str())), range.clone());
+                builder.push(
+                    StyleProperty::Locale(Language::parse(locale).ok()),
+                    range.clone(),
+                );
             }
             builder.push(
                 StyleProperty::FontWeight(FontWeight::new(style.font_weight as f32)),
@@ -641,16 +644,16 @@ impl VelloTextMeasurer {
             let (word_break, overflow_wrap) = match style.typography.line_break {
                 fission_ir::op::TextLineBreakPolicy::Auto
                 | fission_ir::op::TextLineBreakPolicy::Normal => {
-                    (WordBreakStrength::Normal, OverflowWrap::Normal)
+                    (WordBreak::Normal, OverflowWrap::Normal)
                 }
                 fission_ir::op::TextLineBreakPolicy::Strict => {
-                    (WordBreakStrength::KeepAll, OverflowWrap::Normal)
+                    (WordBreak::KeepAll, OverflowWrap::Normal)
                 }
                 fission_ir::op::TextLineBreakPolicy::Loose => {
-                    (WordBreakStrength::Normal, OverflowWrap::Anywhere)
+                    (WordBreak::Normal, OverflowWrap::Anywhere)
                 }
                 fission_ir::op::TextLineBreakPolicy::Anywhere => {
-                    (WordBreakStrength::BreakAll, OverflowWrap::Anywhere)
+                    (WordBreak::BreakAll, OverflowWrap::Anywhere)
                 }
             };
             builder.push(StyleProperty::WordBreak(word_break), range.clone());
@@ -709,9 +712,7 @@ impl VelloTextMeasurer {
                     .collect::<Vec<_>>()
                     .join(", ");
                 builder.push(
-                    StyleProperty::FontFeatures(FontSettings::<ParleyFontFeature>::Source(
-                        Cow::Owned(source),
-                    )),
+                    StyleProperty::FontFeatures(FontFeatures::Source(Cow::Owned(source))),
                     range.clone(),
                 );
             }
@@ -724,9 +725,7 @@ impl VelloTextMeasurer {
                     .collect::<Vec<_>>()
                     .join(", ");
                 builder.push(
-                    StyleProperty::FontVariations(FontSettings::<ParleyFontVariation>::Source(
-                        Cow::Owned(source),
-                    )),
+                    StyleProperty::FontVariations(FontVariations::Source(Cow::Owned(source))),
                     range.clone(),
                 );
             }

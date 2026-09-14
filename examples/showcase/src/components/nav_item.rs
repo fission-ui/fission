@@ -1,4 +1,3 @@
-use crate::i18n::message;
 use crate::state::{on_navigate, Navigate, ShowcaseState};
 use fission::op::Fill;
 use fission::prelude::*;
@@ -16,7 +15,7 @@ impl From<NavItem> for Widget {
         let selected = view.state().current_path == component.path
             || (component.path == "/" && view.state().current_path.starts_with("/examples/"));
         let navigate = with_reducer!(ctx, Navigate(component.path.into()), on_navigate);
-        let label = message(view.env(), component.label_key);
+        let label = view.env().tr(component.label_key);
         let identifier = format!(
             "showcase.nav.{}",
             component.label_key.trim_start_matches("showcase.nav.")

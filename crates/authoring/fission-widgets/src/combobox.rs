@@ -232,6 +232,29 @@ pub struct Combobox {
     pub on_select: Option<Arc<dyn Fn(String) -> ActionEnvelope + Send + Sync>>,
     /// Action requesting a popup open-state change.
     pub on_toggle: Option<ActionEnvelope>,
+    /// Stable identifier exposed on the editable field's semantics node.
+    ///
+    /// Give this to any combobox an automated test, an accessibility audit, or
+    /// a deep link needs to address. Without it the field can only be found by
+    /// role, which is ambiguous on a screen with more than one text input.
+    pub semantics_identifier: Option<String>,
+}
+
+impl Default for Combobox {
+    fn default() -> Self {
+        Self {
+            id: WidgetId::explicit("combobox"),
+            value: String::new(),
+            items: Vec::new(),
+            is_open: false,
+            width: None,
+            max_popup_height: None,
+            on_input: None,
+            on_select: None,
+            on_toggle: None,
+            semantics_identifier: None,
+        }
+    }
 }
 
 impl std::fmt::Debug for Combobox {
@@ -279,6 +302,9 @@ impl From<Combobox> for Widget {
         let mut input = ComboboxInput::new(component.value);
         input.input.on_input = component.on_input;
         input.input.width = component.width;
+        if let Some(identifier) = component.semantics_identifier {
+            input.input.semantics_identifier = Some(identifier);
+        }
 
         ComboboxRecipe {
             id: component.id,

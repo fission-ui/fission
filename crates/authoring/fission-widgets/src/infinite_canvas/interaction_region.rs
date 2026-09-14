@@ -1,7 +1,6 @@
 use std::hash::{Hash, Hasher};
-use std::sync::Arc;
 
-use fission_core::internal::{InternalLowerer, InternalLoweringCx, InternalRenderNode};
+use fission_core::authoring::{IrBuilder, LowerWidget, LoweringContext};
 use fission_core::ui::Widget;
 use fission_core::{ActionEnvelope, WidgetId};
 use fission_ir::{ActionEntry, ActionSet, ActionTrigger, CanvasTarget, Op, Role, Semantics};
@@ -16,11 +15,11 @@ pub(crate) struct CanvasInteractionRegion {
     pub on_drag: Option<ActionEnvelope>,
 }
 
-impl InternalLowerer for CanvasInteractionRegion {
-    fn lower_dyn(&self, cx: &mut InternalLoweringCx) -> WidgetId {
-        cx.push_scope(self.id);
-        let child = fission_core::internal::lower_widget(&self.child, cx);
-        cx.pop_scope();
+impl LowerWidget for CanvasInteractionRegion {
+    fn lower_dyn(&self, cx: &mut LoweringContext) -> WidgetId {
+        let child = cx.with_scope(self.id, |cx| {
+            fission_core::internal::lower_widget(&self.child, cx)
+        });
         let mut entries = Vec::new();
         if let Some(action) = &self.on_activate {
             entries.push(entry(action, ActionTrigger::Default));
@@ -32,7 +31,7 @@ impl InternalLowerer for CanvasInteractionRegion {
                 entry(action, ActionTrigger::DragEnd),
             ]);
         }
-        cx.insert_node(
+        let mut node = IrBuilder::new(
             self.id,
             Op::Semantics(Semantics {
                 role: Role::Generic,
@@ -43,8 +42,9 @@ impl InternalLowerer for CanvasInteractionRegion {
                 draggable: self.on_drag.is_some(),
                 ..Semantics::default()
             }),
-            vec![child],
-        )
+        );
+        node.add_child(child);
+        node.build(cx)
     }
 
     fn widget_id(&self) -> Option<WidgetId> {
@@ -72,11 +72,7 @@ fn hash_action(action: &Option<ActionEnvelope>, hasher: &mut impl Hasher) {
 
 impl From<CanvasInteractionRegion> for Widget {
     fn from(region: CanvasInteractionRegion) -> Self {
-        fission_core::internal::custom_render_widget(InternalRenderNode {
-            debug_tag: "InfiniteCanvasInteractionRegion".into(),
-            lowerer: Some(Arc::new(region)),
-            render_object: None,
-        })
+        fission_core::authoring::custom_widget("InfiniteCanvasInteractionRegion", region)
     }
 }
 

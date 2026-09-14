@@ -108,6 +108,9 @@ impl Axis {
         self
     }
 
+    /// Turns category labels `degrees` counter-clockwise. Positive angles slant
+    /// labels up to the right so each ends at its tick, which fits long labels
+    /// under narrow categories; the plot leaves room below for them.
     pub fn label_rotate(mut self, degrees: f32) -> Self {
         self.label_rotate = Some(degrees);
         self

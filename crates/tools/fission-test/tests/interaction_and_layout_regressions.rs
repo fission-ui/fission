@@ -107,7 +107,7 @@ fn test_email_list_width() {
 
     let mut list_rect = None;
     for (id, node) in &ir.nodes {
-        if let fission_ir::Op::Paint(fission_ir::PaintOp::DrawText { text, .. }) = &node.op {
+        if let Some(text) = node.op.text() {
             if text == "List" {
                 // Find parent container via geometry logic? Or assume Container wraps Text.
                 // We want the SplitView pane size.

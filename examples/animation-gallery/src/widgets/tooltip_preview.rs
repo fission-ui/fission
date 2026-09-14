@@ -2,7 +2,7 @@ use super::common::{policy_allows_motion, preview_active, PreviewShell};
 use crate::state::{
     current_composition_atoms, AnimationGalleryState, MotionAtom, MotionChoice, MotionPolicy,
 };
-use crate::style::MUTED;
+use crate::style;
 use fission::prelude::*;
 use fission::widgets::{Tooltip, TooltipMotion};
 
@@ -21,7 +21,7 @@ impl From<TooltipPreview<'_>> for Widget {
                 children: widgets![
                     Text::new("Real Tooltip widget. Play forces it visible; hover also works.",)
                         .size(tokens.typography.font_size_sm)
-                        .color(MUTED),
+                        .color(style::text_muted()),
                     Tooltip {
                         id: WidgetId::explicit("gallery.real.tooltip"),
                         child: Button {

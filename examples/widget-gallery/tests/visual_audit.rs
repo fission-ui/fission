@@ -68,6 +68,8 @@ impl From<AllWidgets> for Widget {
                 Tag {
                     label: "Rust".into(),
                     on_close: None,
+                    on_press: None,
+                    selected: false,
                 }
                 .into(),
                 Avatar {
@@ -183,9 +185,14 @@ impl From<AllWidgets> for Widget {
                     description: None,
                 }
                 .into(),
-                ProgressBar { value: 0.65 }.into(),
+                ProgressBar {
+                    value: 0.65,
+                    label: None,
+                }
+                .into(),
                 Spinner {
                     id: WidgetId::explicit("sp"),
+                    label: None,
                     color: None,
                     motion: Some(SpinnerMotion::Default),
                 }

@@ -8,9 +8,10 @@ use fission_charts::{
     PolarLineSeries, RadarSeries, SankeySeries, ScatterSeries, SingleAxisSeries, SunburstSeries,
     ThemeRiverSeries, TreeSeries, TreemapNode, TreemapSeries, WordcloudSeries,
 };
+use fission_charts::{ChartHit, ChartHover, ChartTheme, ChartTooltipTrigger};
 use fission_core::{
     env::Env,
-    internal::{InternalLowerer, InternalLoweringCx},
+    internal::{LowerWidget, LoweringContext},
     MotionPropertyId, MotionValue, WidgetId,
 };
 use fission_ir::op::{Color, Fill, LayoutOp, PaintOp};
@@ -54,11 +55,10 @@ fn lower_chart_with_animation_progress(
         ),
         MotionValue::Scalar(progress),
     );
-    let mut cx = InternalLoweringCx::new(&env, &runtime_state, None, None);
+    let mut cx = LoweringContext::new(&env, &runtime_state, None, None);
     let root_id = cx.next_node_id();
-    cx.push_scope(root_id);
-    lowerer.lower_dyn(&mut cx);
-    cx.ir
+    cx.with_scope(root_id, |cx| lowerer.lower_dyn(cx));
+    cx.into_ir()
 }
 
 fn max_rect_height_for_fill(ir: &fission_ir::CoreIR, target: Color) -> f32 {
@@ -479,12 +479,11 @@ fn chart_theme_follows_dark_fission_env() {
         a: 255,
     };
     let runtime_state = fission_core::RuntimeState::default();
-    let mut cx = InternalLoweringCx::new(&env, &runtime_state, None, None);
+    let mut cx = LoweringContext::new(&env, &runtime_state, None, None);
     let root_id = cx.next_node_id();
-    cx.push_scope(root_id);
-    lowerer.lower_dyn(&mut cx);
+    cx.with_scope(root_id, |cx| lowerer.lower_dyn(cx));
 
-    let has_dark_surface = cx.ir.nodes.values().any(|node| {
+    let has_dark_surface = cx.ir().nodes.values().any(|node| {
         matches!(
             &node.op,
             fission_ir::Op::Paint(PaintOp::DrawRect {
@@ -566,13 +565,12 @@ fn map_lines_tree_sunburst_and_theme_river_lower_to_paths() {
     let lowerer = ChartInternalLowerer { chart };
     let env = Env::default();
     let runtime_state = fission_core::RuntimeState::default();
-    let mut cx = InternalLoweringCx::new(&env, &runtime_state, None, None);
+    let mut cx = LoweringContext::new(&env, &runtime_state, None, None);
     let root_id = cx.next_node_id();
-    cx.push_scope(root_id);
-    lowerer.lower_dyn(&mut cx);
+    cx.with_scope(root_id, |cx| lowerer.lower_dyn(cx));
 
     let path_count = cx
-        .ir
+        .ir()
         .nodes
         .values()
         .filter(|node| matches!(node.op, fission_ir::Op::Paint(PaintOp::DrawPath { .. })))
@@ -606,19 +604,18 @@ fn mark_components_lower_to_paint_nodes() {
     let lowerer = ChartInternalLowerer { chart };
     let env = Env::default();
     let runtime_state = fission_core::RuntimeState::default();
-    let mut cx = InternalLoweringCx::new(&env, &runtime_state, None, None);
+    let mut cx = LoweringContext::new(&env, &runtime_state, None, None);
     let root_id = cx.next_node_id();
-    cx.push_scope(root_id);
-    lowerer.lower_dyn(&mut cx);
+    cx.with_scope(root_id, |cx| lowerer.lower_dyn(cx));
 
     let path_count = cx
-        .ir
+        .ir()
         .nodes
         .values()
         .filter(|node| matches!(node.op, fission_ir::Op::Paint(PaintOp::DrawPath { .. })))
         .count();
     let rect_count = cx
-        .ir
+        .ir()
         .nodes
         .values()
         .filter(|node| matches!(node.op, fission_ir::Op::Paint(PaintOp::DrawRect { .. })))
@@ -644,21 +641,24 @@ fn test_chart_lowering() {
 
     let env = Env::default();
     let runtime_state = fission_core::RuntimeState::default();
-    let mut cx = InternalLoweringCx::new(&env, &runtime_state, None, None);
+    let mut cx = LoweringContext::new(&env, &runtime_state, None, None);
 
     let root_id = cx.next_node_id();
-    cx.push_scope(root_id);
+    let generated_id = cx.with_scope(root_id, |cx| lowerer.lower_dyn(cx));
 
-    let generated_id = lowerer.lower_dyn(&mut cx);
-
-    let ir = cx.ir;
+    let ir = cx.into_ir();
     let root_node = ir.nodes.get(&generated_id).expect("Root node should exist");
 
-    // Root should be a ZStack
-    match &root_node.op {
-        fission_ir::Op::Layout(LayoutOp::ZStack) => {}
-        _ => panic!("Expected ZStack LayoutOp for Chart"),
-    }
+    // The root describes the chart and holds its drawing stack.
+    let fission_ir::Op::Semantics(semantics) = &root_node.op else {
+        panic!("Expected the chart root to carry semantics");
+    };
+    assert_eq!(semantics.role, fission_ir::Role::Image);
+    let stack = ir
+        .nodes
+        .get(&root_node.children[0])
+        .expect("chart drawing stack");
+    assert!(matches!(stack.op, fission_ir::Op::Layout(LayoutOp::ZStack)));
 
     assert!(
         ir.nodes.len() > 10,
@@ -678,4 +678,466 @@ fn test_chart_lowering() {
         .values()
         .any(|n| matches!(n.op, fission_ir::Op::Paint(PaintOp::DrawPath { .. })));
     assert!(has_paths, "Line chart should generate DrawPath PaintOps");
+}
+
+fn lower_chart(chart: Chart) -> fission_ir::CoreIR {
+    let lowerer = ChartInternalLowerer { chart };
+    let env = Env::default();
+    let runtime_state = fission_core::RuntimeState::default();
+    let mut cx = LoweringContext::new(&env, &runtime_state, None, None);
+    let root_id = cx.next_node_id();
+    cx.with_scope(root_id, |cx| lowerer.lower_dyn(cx));
+    cx.into_ir()
+}
+
+fn count_text(ir: &fission_ir::CoreIR, wanted: &str) -> usize {
+    ir.nodes
+        .values()
+        .filter(|node| node.op.text().is_some_and(|text| text == wanted))
+        .count()
+}
+
+/// Revenue and orders by weekday, 800 by 400 points, so the plot spans x 70 to
+/// 756 and y 38 to 346.
+fn weekday_chart(trigger: ChartTooltipTrigger) -> Chart {
+    Chart::new()
+        .width(800.0)
+        .height(400.0)
+        .x_axis(Axis::category(vec!["Mon", "Tue", "Wed"]))
+        .y_axis(Axis::value())
+        .series(vec![
+            LineSeries::new("Revenue")
+                .data(vec![120.0, 200.0, 150.0])
+                .into(),
+            BarSeries::new("Orders").data(vec![30.0, 45.0, 12.0]).into(),
+        ])
+        .interaction(ChartInteraction::tooltips(trigger))
+}
+
+#[test]
+fn axis_tooltip_lists_every_series_at_the_hovered_category() {
+    let idle = lower_chart(weekday_chart(ChartTooltipTrigger::Axis));
+    // x 400 falls in the middle category band, "Tue".
+    let hovered =
+        lower_chart(weekday_chart(ChartTooltipTrigger::Axis).hover(ChartHover::at(400.0, 200.0)));
+
+    assert_eq!(count_text(&idle, "Revenue"), 0);
+    assert_eq!(count_text(&hovered, "Revenue"), 1);
+    assert_eq!(count_text(&hovered, "Orders"), 1);
+    assert_eq!(count_text(&hovered, "45"), 1);
+    assert_eq!(count_text(&hovered, "200"), count_text(&idle, "200") + 1);
+    assert_eq!(count_text(&hovered, "Tue"), count_text(&idle, "Tue") + 1);
+}
+
+#[test]
+fn item_tooltip_shows_only_the_hit_item() {
+    let hover = ChartHover {
+        x: 400.0,
+        y: 300.0,
+        hit: Some(ChartHit::series_item(1, "Orders", 1, None, Some(45.0))),
+    };
+    let hovered = lower_chart(weekday_chart(ChartTooltipTrigger::Item).hover(hover));
+
+    assert_eq!(count_text(&hovered, "Orders"), 1);
+    assert_eq!(count_text(&hovered, "45"), 1);
+    assert_eq!(count_text(&hovered, "Revenue"), 0);
+}
+
+#[test]
+fn hover_outside_the_plot_draws_no_feedback() {
+    let idle = lower_chart(weekday_chart(ChartTooltipTrigger::Axis));
+    let outside =
+        lower_chart(weekday_chart(ChartTooltipTrigger::Axis).hover(ChartHover::at(10.0, 10.0)));
+    assert_eq!(outside.nodes.len(), idle.nodes.len());
+}
+
+#[test]
+fn series_without_colours_draw_in_palette_order() {
+    let theme = ChartTheme::light();
+    let chart = Chart::new()
+        .width(640.0)
+        .height(360.0)
+        .theme(theme.clone())
+        .x_axis(Axis::category(vec!["Q1", "Q2", "Q3"]))
+        .y_axis(Axis::value())
+        .series(vec![
+            LineSeries::new("North").data(vec![3.0, 5.0, 4.0]).into(),
+            LineSeries::new("South").data(vec![2.0, 4.0, 6.0]).into(),
+        ]);
+    let ir = lower_chart(chart);
+
+    assert!(!longest_stroked_path_for_color(&ir, theme.palette[0]).is_empty());
+    assert!(!longest_stroked_path_for_color(&ir, theme.palette[1]).is_empty());
+}
+
+#[test]
+fn an_explicit_series_colour_wins_over_the_palette() {
+    let theme = ChartTheme::light();
+    let chosen = Color {
+        r: 12,
+        g: 34,
+        b: 56,
+        a: 255,
+    };
+    let chart = Chart::new()
+        .width(640.0)
+        .height(360.0)
+        .theme(theme.clone())
+        .x_axis(Axis::category(vec!["Q1", "Q2"]))
+        .y_axis(Axis::value())
+        .series(vec![LineSeries::new("North")
+            .data(vec![3.0, 5.0])
+            .color(chosen)
+            .into()]);
+    let ir = lower_chart(chart);
+
+    assert!(!longest_stroked_path_for_color(&ir, chosen).is_empty());
+    assert!(longest_stroked_path_for_color(&ir, theme.palette[0]).is_empty());
+}
+
+#[test]
+fn hidden_series_are_not_drawn_but_keep_their_colour_and_legend_entry() {
+    let theme = ChartTheme::light();
+    let chart = |hidden: Vec<String>| {
+        Chart::new()
+            .width(640.0)
+            .height(360.0)
+            .theme(theme.clone())
+            .legend(fission_charts::Legend::top_right())
+            .x_axis(Axis::category(vec!["Q1", "Q2", "Q3"]))
+            .y_axis(Axis::value())
+            .series(vec![
+                LineSeries::new("North").data(vec![3.0, 5.0, 4.0]).into(),
+                LineSeries::new("South").data(vec![20.0, 40.0, 60.0]).into(),
+                LineSeries::new("East").data(vec![2.0, 1.0, 3.0]).into(),
+            ])
+            .hidden_series(hidden)
+    };
+
+    let shown = lower_chart(chart(Vec::new()));
+    let hidden = lower_chart(chart(vec!["South".to_string()]));
+
+    assert!(!longest_stroked_path_for_color(&shown, theme.palette[1]).is_empty());
+    assert!(longest_stroked_path_for_color(&hidden, theme.palette[1]).is_empty());
+    // East keeps the third palette colour although South is hidden.
+    assert!(!longest_stroked_path_for_color(&hidden, theme.palette[2]).is_empty());
+    assert_eq!(count_text(&hidden, "South"), 1);
+
+    let model = ChartModel::from_chart(&chart(vec!["South".to_string()]));
+    assert!(model.is_hidden(1));
+    assert!(
+        model.y_domain.1 < 20.0,
+        "hiding South rescales the value axis"
+    );
+}
+
+fn shadowed_rects(ir: &fission_ir::CoreIR) -> usize {
+    ir.nodes
+        .values()
+        .filter(|node| {
+            matches!(
+                &node.op,
+                fission_ir::Op::Paint(PaintOp::DrawRect {
+                    shadow: Some(_),
+                    ..
+                })
+            )
+        })
+        .count()
+}
+
+#[test]
+fn emphasis_lifts_only_the_hovered_bar() {
+    let sales = || {
+        Chart::new()
+            .width(640.0)
+            .height(360.0)
+            .x_axis(Axis::category(vec!["Q1", "Q2", "Q3"]))
+            .y_axis(Axis::value())
+            .series(vec![BarSeries::new("Sales")
+                .data(vec![4.0, 6.0, 5.0])
+                .into()])
+            .interaction(ChartInteraction::new().emphasis(fission_charts::ChartEmphasis::data()))
+    };
+    let hover = ChartHover {
+        x: 320.0,
+        y: 200.0,
+        hit: Some(ChartHit::series_item(0, "Sales", 1, None, Some(6.0))),
+    };
+
+    let idle = lower_chart(sales());
+    let hovered = lower_chart(sales().hover(hover));
+
+    assert_eq!(shadowed_rects(&hovered), shadowed_rects(&idle) + 1);
+}
+
+#[test]
+fn tooltip_card_uses_the_theme_tooltip_shadow() {
+    let themed_shadow = !Env::default()
+        .theme
+        .components
+        .tooltip
+        .style
+        .shadows
+        .is_empty();
+    let idle = lower_chart(weekday_chart(ChartTooltipTrigger::Axis));
+    let hovered =
+        lower_chart(weekday_chart(ChartTooltipTrigger::Axis).hover(ChartHover::at(400.0, 200.0)));
+
+    assert_eq!(
+        shadowed_rects(&hovered),
+        shadowed_rects(&idle) + usize::from(themed_shadow)
+    );
+}
+
+#[test]
+fn data_zoom_slider_draws_handles_at_both_window_edges() {
+    let theme = ChartTheme::light();
+    let chart = Chart::new()
+        .width(640.0)
+        .height(360.0)
+        .theme(theme.clone())
+        .x_axis(Axis::category(vec!["Jan", "Feb", "Mar", "Apr"]))
+        .y_axis(Axis::value())
+        .series(vec![LineSeries::new("Visits")
+            .data(vec![3.0, 5.0, 4.0, 6.0])
+            .into()])
+        .data_zoom(
+            fission_charts::DataZoom::new()
+                .start_percent(25.0)
+                .end_percent(75.0),
+        );
+    let ir = lower_chart(chart);
+    let handles = ir
+        .nodes
+        .values()
+        .filter(|node| {
+            matches!(
+                &node.op,
+                fission_ir::Op::Paint(PaintOp::DrawRect { fill: Some(Fill::Solid(fill)), .. }) if *fill == theme.axis_line
+            )
+        })
+        .count();
+    assert!(
+        handles >= 2,
+        "expected both slider handles, found {handles}"
+    );
+}
+
+#[test]
+fn charts_describe_themselves_to_assistive_technology() {
+    let ir = lower_chart(
+        weekday_chart(ChartTooltipTrigger::Axis)
+            .interaction(ChartInteraction::new().keyboard_focus(true)),
+    );
+    let semantics = ir
+        .nodes
+        .values()
+        .find_map(|node| match &node.op {
+            fission_ir::Op::Semantics(semantics) => Some(semantics),
+            _ => None,
+        })
+        .expect("chart semantics");
+
+    assert_eq!(semantics.role, fission_ir::Role::Image);
+    assert_eq!(semantics.label.as_deref(), Some("Chart"));
+    assert_eq!(
+        semantics.value.as_deref(),
+        Some("2 series across 3 categories")
+    );
+    assert!(semantics.focusable && semantics.sequential_focusable);
+}
+
+#[test]
+fn update_animation_draws_values_from_the_motion_state() {
+    assert!(!ChartAnimation::default().animate_updates);
+    let theme = ChartTheme::light();
+    let chart_id = WidgetId::explicit("update-animated-chart");
+    let chart = || {
+        Chart::new()
+            .id(chart_id)
+            .width(640.0)
+            .height(360.0)
+            .theme(theme.clone())
+            .x_axis(Axis::category(vec!["A", "B"]))
+            .y_axis(Axis::value())
+            .series(vec![LineSeries::new("Load").data(vec![10.0, 10.0]).into()])
+            .animation(ChartAnimation::enter(ChartAnimationKind::Grow).updates(true))
+    };
+    let lower = |eased_second_point: Option<f32>| {
+        let lowerer = ChartInternalLowerer { chart: chart() };
+        let env = Env::default();
+        let mut runtime_state = fission_core::RuntimeState::default();
+        runtime_state.motion.values.insert(
+            (
+                WidgetId::derived(chart_id.as_u128(), &[0xC4A7_A11A]),
+                MotionPropertyId::custom("fission_charts::progress"),
+            ),
+            MotionValue::Scalar(1.0),
+        );
+        if let Some(eased) = eased_second_point {
+            runtime_state.motion.values.insert(
+                (
+                    WidgetId::derived(chart_id.as_u128(), &[0xC4A7_DA7A]),
+                    MotionPropertyId::custom("fission_charts::value::0::1"),
+                ),
+                MotionValue::Scalar(eased),
+            );
+        }
+        let mut cx = LoweringContext::new(&env, &runtime_state, None, None);
+        let root_id = cx.next_node_id();
+        cx.with_scope(root_id, |cx| lowerer.lower_dyn(cx));
+        cx.into_ir()
+    };
+
+    let settled = longest_stroked_path_for_color(&lower(None), theme.palette[0]);
+    let easing = longest_stroked_path_for_color(&lower(Some(4.0)), theme.palette[0]);
+    assert!(!settled.is_empty());
+    assert_ne!(settled, easing, "an eased value moves the drawn line");
+}
+
+#[test]
+fn crowded_category_labels_are_thinned_but_keep_the_first() {
+    let labels: Vec<String> = (1..=40).map(|day| format!("Day {day:02}")).collect();
+    let chart = Chart::new()
+        .width(640.0)
+        .height(360.0)
+        .x_axis(Axis::category(labels.iter().map(String::as_str).collect()))
+        .y_axis(Axis::value())
+        .series(vec![LineSeries::new("Visits")
+            .data((1..=40).map(|day| day as f32).collect())
+            .into()]);
+    let ir = lower_chart(chart);
+    let drawn = labels
+        .iter()
+        .filter(|label| count_text(&ir, label) > 0)
+        .count();
+
+    assert_eq!(count_text(&ir, "Day 01"), 1);
+    assert!(drawn < 40, "expected thinned labels, drew {drawn}");
+    assert!(
+        drawn >= 5,
+        "expected a readable number of labels, drew {drawn}"
+    );
+}
+
+fn line_chart_with_points(count: usize, colour: Color) -> Chart {
+    let labels: Vec<String> = (0..count).map(|index| format!("{index}")).collect();
+    Chart::new()
+        .width(640.0)
+        .height(360.0)
+        .x_axis(Axis::category(labels.iter().map(String::as_str).collect()))
+        .y_axis(Axis::value())
+        .series(vec![LineSeries::new("Signal")
+            .data(
+                (0..count)
+                    .map(|index| ((index * 37) % 101) as f32)
+                    .collect(),
+            )
+            .color(colour)
+            .into()])
+}
+
+#[test]
+fn dense_lines_are_thinned_to_the_plot_width_without_symbols() {
+    let colour = Color {
+        r: 12,
+        g: 34,
+        b: 56,
+        a: 255,
+    };
+    let dense = lower_chart(line_chart_with_points(5000, colour));
+    let segments = longest_stroked_path_for_color(&dense, colour)
+        .matches(" L ")
+        .count();
+
+    assert!(
+        segments > 100,
+        "the line keeps its shape: {segments} segments"
+    );
+    assert!(
+        segments < 640,
+        "one point per pixel at most: {segments} segments"
+    );
+    assert_eq!(max_rect_height_for_fill(&dense, colour), 0.0, "no symbols");
+
+    let sparse = lower_chart(line_chart_with_points(12, colour));
+    assert_eq!(
+        longest_stroked_path_for_color(&sparse, colour)
+            .matches(" L ")
+            .count(),
+        11
+    );
+    assert!(
+        max_rect_height_for_fill(&sparse, colour) > 0.0,
+        "symbols shown"
+    );
+}
+
+fn month_chart(axis: Axis) -> fission_ir::CoreIR {
+    lower_chart(
+        Chart::new()
+            .width(640.0)
+            .height(360.0)
+            .x_axis(axis)
+            .y_axis(Axis::value())
+            .series(vec![BarSeries::new("Sales")
+                .data((1..=12).map(|month| month as f32).collect())
+                .into()]),
+    )
+}
+
+fn month_label_boxes(ir: &fission_ir::CoreIR) -> Vec<(f32, f32)> {
+    ir.nodes
+        .values()
+        .filter_map(|node| {
+            let fission_ir::Op::Paint(PaintOp::DrawText { text, .. }) = &node.op else {
+                return None;
+            };
+            if !text.starts_with("Month") {
+                return None;
+            }
+            let parent = ir.nodes.get(&node.parent?)?;
+            let fission_ir::Op::Layout(LayoutOp::Positioned { top: Some(top), .. }) = parent.op
+            else {
+                return None;
+            };
+            Some((
+                parent
+                    .composite
+                    .rotation
+                    .as_ref()
+                    .map_or(0.0, |angle| angle.base),
+                top,
+            ))
+        })
+        .collect()
+}
+
+#[test]
+fn rotated_category_labels_turn_about_their_ticks_below_a_shorter_plot() {
+    let labels: Vec<String> = (1..=12).map(|month| format!("Month {month:02}")).collect();
+    let names: Vec<&str> = labels.iter().map(String::as_str).collect();
+
+    let upright = month_label_boxes(&month_chart(Axis::category(names.clone())));
+    let rotated = month_label_boxes(&month_chart(Axis::category(names).label_rotate(45.0)));
+
+    assert!(!rotated.is_empty());
+    assert!(
+        rotated
+            .iter()
+            .all(|(angle, _)| (angle + std::f32::consts::FRAC_PI_4).abs() < 1e-3),
+        "{rotated:?}"
+    );
+    assert!(upright.iter().all(|(angle, _)| *angle == 0.0));
+    assert!(
+        rotated.len() >= upright.len(),
+        "slanted labels need less room across each category"
+    );
+    let upright_top = upright.iter().map(|(_, top)| *top).fold(f32::MAX, f32::min);
+    let rotated_top = rotated.iter().map(|(_, top)| *top).fold(f32::MAX, f32::min);
+    assert!(
+        rotated_top < upright_top,
+        "the plot ends higher to leave room for slanted labels"
+    );
 }

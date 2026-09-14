@@ -13,7 +13,8 @@ pub struct BarSeries {
     pub name: String,
     pub data: Vec<f32>,
     pub encode: Option<Encode>,
-    pub color: Color,
+    /// The series colour; `None` takes the theme palette colour for its position.
+    pub color: Option<Color>,
     pub stack: Option<String>,
     pub border_radius: Option<f32>,
     pub orientation: BarOrientation,
@@ -26,7 +27,7 @@ impl BarSeries {
             name: name.into(),
             data: Vec::new(),
             encode: None,
-            color: Color::BLUE,
+            color: None,
             stack: None,
             border_radius: None,
             orientation: BarOrientation::Vertical,
@@ -45,7 +46,7 @@ impl BarSeries {
     }
 
     pub fn color(mut self, color: Color) -> Self {
-        self.color = color;
+        self.color = Some(color);
         self
     }
 

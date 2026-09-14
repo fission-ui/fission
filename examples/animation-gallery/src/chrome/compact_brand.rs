@@ -1,4 +1,5 @@
 use super::*;
+use crate::style;
 
 pub(super) struct CompactBrand;
 
@@ -17,24 +18,24 @@ impl From<CompactBrand> for Widget {
                         Container::new(
                             Text::new("F")
                                 .size(typography.font_size_xl)
-                                .color(fission::op::Color::WHITE),
+                                .color(style::on_primary()),
                         )
                         .width(COMPACT_BRAND_MARK_SIZE)
                         .height(COMPACT_BRAND_MARK_SIZE)
                         .padding_all(tokens.spacing.m)
                         .border_radius(tokens.radii.large)
-                        .bg(color(6, 17, 57, 255))
+                        .bg(style::primary())
                         .into(),
                         Column {
                             gap: Some(tokens.spacing.xs),
                             children: vec![
                                 Text::new("Fission")
                                     .size(typography.font_size_xl)
-                                    .color(INK)
+                                    .color(style::text_primary())
                                     .into(),
                                 Text::new("Animation Gallery")
                                     .size(typography.font_size_lg)
-                                    .color(BLUE)
+                                    .color(style::primary())
                                     .into(),
                             ],
                             ..Default::default()
@@ -46,15 +47,15 @@ impl From<CompactBrand> for Widget {
                 .into(),
                 Text::new("Calm, explicit, deterministic motion for Fission apps.")
                     .size(typography.font_size_sm)
-                    .color(MUTED)
+                    .color(style::text_muted())
                     .into(),
             ],
             ..Default::default()
         })
         .padding_all(tokens.spacing.m)
-        .border(BORDER, 1.0)
+        .border(style::border(), 1.0)
         .border_radius(tokens.radii.xl)
-        .bg(SURFACE)
+        .bg(style::surface())
         .into()
     }
 }

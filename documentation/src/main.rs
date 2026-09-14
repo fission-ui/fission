@@ -242,6 +242,7 @@ mod tests {
 
                 if in_fence
                     && !matches!(fence_lang.as_str(), "md" | "mdx" | "markdown")
+                    && !uses_hash_comments(&fence_lang)
                     && looks_like_markdown_section(line)
                 {
                     failures.push(format!(
@@ -278,6 +279,39 @@ mod tests {
                 files.push(path);
             }
         }
+    }
+
+    /// Whether `#` opens a comment in this fence's language.
+    ///
+    /// The heading heuristic below exists to catch a Markdown section that an
+    /// unclosed fence swallowed. In a language where `#` starts a comment, a
+    /// line beginning `# ` is ordinary sample code, so applying the heuristic
+    /// there reports every commented example as malformed.
+    fn uses_hash_comments(lang: &str) -> bool {
+        matches!(
+            lang,
+            "bash"
+                | "conf"
+                | "dockerfile"
+                | "env"
+                | "gitignore"
+                | "ini"
+                | "make"
+                | "makefile"
+                | "perl"
+                | "properties"
+                | "py"
+                | "python"
+                | "r"
+                | "rb"
+                | "ruby"
+                | "sh"
+                | "shell"
+                | "toml"
+                | "yaml"
+                | "yml"
+                | "zsh"
+        )
     }
 
     fn looks_like_markdown_section(line: &str) -> bool {

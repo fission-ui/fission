@@ -4,6 +4,7 @@ use std::path::PathBuf;
 
 mod activity_bar;
 mod breadcrumb;
+mod command_menu;
 mod command_palette;
 mod command_palette_item;
 mod compact_editor_layout;
@@ -27,8 +28,10 @@ mod editor_workspace;
 mod file_tree;
 mod file_tree_entry;
 mod find_replace_bar;
+mod flyout_overlay;
 mod git_panel;
 mod git_status_item;
+mod highlight;
 mod hover_tooltip;
 mod layout;
 mod lsp;
@@ -50,8 +53,8 @@ pub use editor_app::EditorApp;
 #[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
 use model::*;
 pub use model::{
-    run_git_status, run_tree_scan, EditorState, GitStatusRequest, GitStatusResult, TreeScanRequest,
-    TreeScanResult, GIT_STATUS_JOB, TREE_SCAN_JOB,
+    run_fs_job, run_git_status, run_tree_scan, EditorState, FsRequest, GitStatusRequest,
+    GitStatusResult, TreeScanRequest, TreeScanResult, FS_JOB, GIT_STATUS_JOB, TREE_SCAN_JOB,
 };
 
 pub fn embedded_state() -> EditorState {
@@ -64,10 +67,6 @@ pub fn embedded_state() -> EditorState {
     state.refresh_git_status();
     state.ensure_terminal_session();
     state
-}
-
-pub fn configure_embedded_env(_state: &EditorState, env: &mut fission::core::Env) {
-    env.theme = fission::theme::Theme::dark();
 }
 
 #[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
@@ -95,6 +94,9 @@ pub fn run_desktop() -> anyhow::Result<()> {
             });
             asyncs.register_job(GIT_STATUS_JOB, |request: GitStatusRequest, _| async move {
                 run_git_status(request)
+            });
+            asyncs.register_job(FS_JOB, |request: FsRequest, _| async move {
+                run_fs_job(request)
             });
         })
         .with_sync_env(move |_state: &EditorState, env: &mut fission::core::Env| {

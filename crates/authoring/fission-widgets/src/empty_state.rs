@@ -1,6 +1,7 @@
 use fission_core::op::{AlignItems, Length, TextAlign};
-use fission_core::ui::{Column, Container, Text, Widget, WidgetKind};
+use fission_core::ui::{Column, Container, SemanticsRegion, Text, Widget, WidgetKind};
 use fission_ir::op::Fill;
+use fission_ir::Role;
 use serde::{Deserialize, Serialize};
 
 /// A centered placeholder displayed when a view has no content.
@@ -66,7 +67,7 @@ impl From<EmptyState> for Widget {
 
         let title_style = &theme.title_style;
         header.push(
-            Text::new(component.title)
+            Text::new(component.title.clone())
                 .size(title_style.font_size.unwrap_or(typography.font_size_base))
                 .weight(
                     title_style
@@ -163,6 +164,12 @@ impl From<EmptyState> for Widget {
             surface = surface.border_dash(dash.clone());
         }
 
-        surface.into()
+        // An empty region has to say why it is empty; otherwise a reader meets
+        // silence and cannot tell the content failed to load from there being
+        // none.
+        SemanticsRegion::new(surface)
+            .role(Role::Status)
+            .label(component.title.clone())
+            .into()
     }
 }

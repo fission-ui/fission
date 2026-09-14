@@ -1,4 +1,5 @@
 use super::*;
+use crate::style;
 
 pub(super) struct CompactNavPanel<'a> {
     pub(super) ctx: &'a BuildCtxHandle<AnimationGalleryState>,
@@ -49,7 +50,7 @@ impl From<CompactNavPanel<'_>> for Widget {
             children: vec![
                 Text::new("Routes")
                     .size(tokens.typography.font_size_xs)
-                    .color(MUTED)
+                    .color(style::text_muted())
                     .into(),
                 Wrap {
                     direction: FlexDirection::Row,
@@ -63,9 +64,9 @@ impl From<CompactNavPanel<'_>> for Widget {
         })
         .width_length(Length::percent(100.0))
         .padding_all(tokens.spacing.m)
-        .border(BORDER, 1.0)
+        .border(style::border(), 1.0)
         .border_radius(tokens.radii.xl)
-        .bg(SURFACE)
+        .bg(style::surface())
         .into()
     }
 }

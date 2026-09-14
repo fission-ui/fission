@@ -40,7 +40,7 @@ let sparkline: Widget = CustomWidget {
 | --- | --- | --- | --- |
 | `width` | `Option<f32>` | Fixed width for the root box. | `None` leaves width to parent constraints. |
 | `height` | `Option<f32>` | Fixed height for the root box. | `None` leaves height to parent constraints. |
-| `painter` | `Arc<dyn Fn(&mut InternalLoweringCx) -> Vec<WidgetId> + Send + Sync>` | Closure that emits child IR ids directly into the lowering context. | Required. This is the advanced part of the public contract. |
+| `painter` | `Arc<dyn Fn(&mut LoweringContext) -> Vec<WidgetId> + Send + Sync>` | Closure that emits child IR ids directly into the lowering context. | Required. This is the advanced part of the public contract. |
 
 ## Behavior and escape-hatch guidance
 

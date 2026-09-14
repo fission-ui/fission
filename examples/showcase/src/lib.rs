@@ -43,6 +43,9 @@ macro_rules! register_example_jobs {
         $asyncs.register_job(editor_example::GIT_STATUS_JOB, |request, _| async move {
             editor_example::run_git_status(request)
         });
+        $asyncs.register_job(editor_example::FS_JOB, |request, _| async move {
+            editor_example::run_fs_job(request)
+        });
         $asyncs.register_job(
             pokemon_card_store_example::CATALOG_JOB,
             |_request, _| async move {
@@ -63,7 +66,7 @@ pub fn run_desktop() -> Result<()> {
         .with_async(|asyncs| register_example_jobs!(asyncs))
         .with_sync_env(|state: &ShowcaseState, env: &mut Env| {
             env.locale = state.locale.clone();
-            env.theme = ShowcaseDesignSystem::theme(state.theme_mode);
+            env.theme = state.design_system.theme(state.theme_mode);
         })
         .run()
 }
@@ -78,7 +81,7 @@ fn web_app() -> WebApp<ShowcaseState, ShowcaseApp> {
         .with_async(|asyncs| register_example_jobs!(asyncs))
         .with_sync_env(|state: &ShowcaseState, env: &mut Env| {
             env.locale = state.locale.clone();
-            env.theme = ShowcaseDesignSystem::theme(state.theme_mode);
+            env.theme = state.design_system.theme(state.theme_mode);
         })
 }
 

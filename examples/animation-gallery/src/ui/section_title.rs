@@ -1,5 +1,5 @@
 use crate::state::AnimationGalleryState;
-use crate::style::INK;
+use crate::style;
 use fission::prelude::*;
 
 pub struct SectionTitle<'a> {
@@ -11,7 +11,7 @@ impl From<SectionTitle<'_>> for Widget {
         let (_, view) = fission::build::current::<AnimationGalleryState>();
         Text::new(title.title)
             .size(view.env().theme.tokens.typography.font_size_sm)
-            .color(INK)
+            .color(style::text_primary())
             .into()
     }
 }

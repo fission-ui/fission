@@ -1,5 +1,5 @@
-use crate::internal::InternalLower;
-use crate::lowering::{InternalIrBuilder, InternalLoweringCx};
+use crate::authoring::Lower;
+use crate::lowering::{IrBuilder, LoweringContext};
 use crate::motion::{
     color, fill as motion_fill, px, scalar, shadows as motion_shadows, Motion, MotionExpr,
     MotionPredicate, MotionPropertyId, MotionStartValue, MotionTrack, MotionTransition,
@@ -269,13 +269,13 @@ impl Pressable {
         self
     }
 
-    fn resolved_style(&self, cx: &InternalLoweringCx<'_>, id: WidgetId) -> PressableStyle {
+    fn resolved_style(&self, cx: &LoweringContext<'_>, id: WidgetId) -> PressableStyle {
         if self.disabled {
             return self.style.merged(self.disabled_style.as_ref());
         }
         if cx.runtime_state.interaction.is_pressed(id) {
             self.style.merged(self.pressed_style.as_ref())
-        } else if cx.runtime_state.interaction.is_focused(id) {
+        } else if cx.runtime_state.interaction.is_focus_visible(id) {
             self.style.merged(self.focused_style.as_ref())
         } else if cx.runtime_state.interaction.is_hovered(id) {
             self.style.merged(self.hover_style.as_ref())
@@ -472,7 +472,7 @@ impl Pressable {
 
     fn animated_style(
         &self,
-        cx: &InternalLoweringCx<'_>,
+        cx: &LoweringContext<'_>,
         id: WidgetId,
         mut style: PressableStyle,
     ) -> PressableStyle {
@@ -782,79 +782,91 @@ impl Default for Pressable {
     }
 }
 
-impl InternalLower for Pressable {
-    fn lower(&self, cx: &mut InternalLoweringCx) -> WidgetId {
+impl Lower for Pressable {
+    fn lower(&self, cx: &mut LoweringContext) -> WidgetId {
         let id = self.id.unwrap_or_else(|| cx.next_node_id());
         let layout_id = cx.next_node_id();
         let style = self.animated_style(cx, id, self.resolved_style(cx, id));
-        cx.push_scope(layout_id);
-
-        let mut layout_style = self.layout.clone();
-        layout_style.padding = style.padding.clone().or(layout_style.padding);
-        let margin_style = split_box_margin(&mut layout_style);
-        let position = layout_style.position.take();
-        let grid = layout_style.grid.take();
-        let flex_grow = layout_style
-            .flex_grow
-            .map(|value| value.0)
-            .unwrap_or(self.flex_grow);
-        let flex_shrink = layout_style
-            .flex_shrink
-            .map(|value| value.0)
-            .unwrap_or(self.flex_shrink);
-        let mut layout = InternalIrBuilder::new(
-            layout_id,
-            Op::Layout(LayoutOp::StyledBox {
-                style: layout_style,
-                flex_grow,
-                flex_shrink,
-            }),
-        )
-        .composite(CompositeStyle {
-            opacity: self
-                .transition
-                .is_none()
-                .then(|| style.opacity.map(CompositeScalar::new))
-                .flatten(),
-            scale: self
-                .transition
-                .is_none()
-                .then(|| style.scale.map(CompositeScalar::new))
-                .flatten(),
-            ..Default::default()
-        });
-
-        for shadow in style.shadows.as_deref().unwrap_or_default() {
-            layout.add_child(
-                InternalIrBuilder::new(
-                    cx.next_node_id(),
-                    Op::Paint(PaintOp::DrawRect {
-                        fill: None,
-                        stroke: None,
-                        corner_radius: style.corner_radius.unwrap_or(0.0),
-                        shadow: Some(*shadow),
+        let (margin_style, position, grid, flex_grow, flex_shrink, layout_id) =
+            cx.with_scope(layout_id, |cx| {
+                let mut layout_style = self.layout.clone();
+                layout_style.padding = style.padding.clone().or(layout_style.padding);
+                let margin_style = split_box_margin(&mut layout_style);
+                let position = layout_style.position.take();
+                let grid = layout_style.grid.take();
+                let flex_grow = layout_style
+                    .flex_grow
+                    .map(|value| value.0)
+                    .unwrap_or(self.flex_grow);
+                let flex_shrink = layout_style
+                    .flex_shrink
+                    .map(|value| value.0)
+                    .unwrap_or(self.flex_shrink);
+                let mut layout = IrBuilder::new(
+                    layout_id,
+                    Op::Layout(LayoutOp::StyledBox {
+                        style: layout_style,
+                        flex_grow,
+                        flex_shrink,
                     }),
                 )
-                .build(cx),
-            );
-        }
-        if style.background.is_some() || style.border.is_some() {
-            layout.add_child(
-                InternalIrBuilder::new(
-                    cx.next_node_id(),
-                    Op::Paint(PaintOp::DrawRect {
-                        fill: style.background,
-                        stroke: style.border,
-                        corner_radius: style.corner_radius.unwrap_or(0.0),
-                        shadow: None,
-                    }),
+                .composite(CompositeStyle {
+                    opacity: self
+                        .transition
+                        .is_none()
+                        .then(|| style.opacity.map(CompositeScalar::new))
+                        .flatten(),
+                    scale: self
+                        .transition
+                        .is_none()
+                        .then(|| style.scale.map(CompositeScalar::new))
+                        .flatten(),
+                    ..Default::default()
+                });
+
+                for shadow in style.shadows.as_deref().unwrap_or_default() {
+                    layout.add_child(
+                        IrBuilder::new(
+                            cx.next_node_id(),
+                            Op::Paint(PaintOp::DrawRect {
+                                fill: None,
+                                stroke: None,
+                                corner_radius: style.corner_radius.unwrap_or(0.0),
+                                shadow: Some(*shadow),
+                                corner_radii: None,
+                                border_sides: None,
+                            }),
+                        )
+                        .build(cx),
+                    );
+                }
+                if style.background.is_some() || style.border.is_some() {
+                    layout.add_child(
+                        IrBuilder::new(
+                            cx.next_node_id(),
+                            Op::Paint(PaintOp::DrawRect {
+                                fill: style.background,
+                                stroke: style.border,
+                                corner_radius: style.corner_radius.unwrap_or(0.0),
+                                shadow: None,
+                                corner_radii: None,
+                                border_sides: None,
+                            }),
+                        )
+                        .build(cx),
+                    );
+                }
+                layout.add_child(self.child.lower(cx));
+                let layout_id = layout.build(cx);
+                (
+                    margin_style,
+                    position,
+                    grid,
+                    flex_grow,
+                    flex_shrink,
+                    layout_id,
                 )
-                .build(cx),
-            );
-        }
-        layout.add_child(self.child.lower(cx));
-        let layout_id = layout.build(cx);
-        cx.pop_scope();
+            });
 
         let mut semantics = Semantics {
             role: self.role.semantics_role(),
@@ -876,12 +888,12 @@ impl InternalLower for Pressable {
                 });
             }
         }
-        let mut semantics_node = InternalIrBuilder::new(id, Op::Semantics(semantics));
+        let mut semantics_node = IrBuilder::new(id, Op::Semantics(semantics));
         semantics_node.add_child(layout_id);
         let mut content_id = semantics_node.build(cx);
 
         if let Some(margin_style) = margin_style {
-            let mut outer = InternalIrBuilder::new(
+            let mut outer = IrBuilder::new(
                 cx.next_node_id(),
                 Op::Layout(LayoutOp::StyledBox {
                     style: margin_style,
@@ -893,7 +905,7 @@ impl InternalLower for Pressable {
             content_id = outer.build(cx);
         }
         if let Some(position) = position {
-            let mut outer = InternalIrBuilder::new(
+            let mut outer = IrBuilder::new(
                 cx.next_node_id(),
                 Op::Layout(LayoutOp::PositionedLengths {
                     left: position.left,
@@ -908,7 +920,7 @@ impl InternalLower for Pressable {
             content_id = outer.build(cx);
         }
         if let Some(grid) = grid {
-            let mut outer = InternalIrBuilder::new(
+            let mut outer = IrBuilder::new(
                 cx.next_node_id(),
                 Op::Layout(LayoutOp::GridItem {
                     row_start: grid.row_start,
@@ -930,7 +942,12 @@ impl From<Pressable> for Widget {
         let id = pressable
             .id
             .or_else(crate::build::current_widget_id)
-            .or_else(|| crate::build::next_implicit_widget_id(Pressable::MOTION_SALT))
+            .or_else(|| {
+                crate::build::next_implicit_widget_id_for(
+                    Pressable::MOTION_SALT,
+                    pressable.on_press.as_ref(),
+                )
+            })
             .unwrap_or_else(|| WidgetId::explicit("fission.core.pressable"));
         pressable.id = Some(id);
         let transition = pressable.transition.clone();

@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 
+use fission_core::authoring::BuildCtx;
 use fission_core::env::{
     ContextMenuState, InteractionStateMap, ScrollStateMap, SelectableTextStateMap, TextEditStateMap,
 };
@@ -9,7 +10,7 @@ use fission_core::input::{
     prepare_scoped_text_input_change, prepare_text_input_change, ControllerContext,
     InputController, TextEditingConvention,
 };
-use fission_core::internal::{self, BuildCtx};
+use fission_core::internal;
 use fission_core::ui::{Column, TextInput, Widget};
 use fission_core::{
     build, Action, ActionEnvelope, ActionId, ActionInput, Env, GlobalState, ReducerContext,

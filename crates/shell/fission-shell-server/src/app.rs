@@ -4,7 +4,7 @@ use crate::{
     VerifiedServerAction, WasmIsland, WebRoute, WebRouteMode,
 };
 use anyhow::Result;
-use fission_core::internal::BuildCtx;
+use fission_core::authoring::BuildCtx;
 use fission_core::registry::{VideoRegistration, WebRegistration};
 use fission_core::{
     Action, ActionEnvelope, ActionId, ActionInput, Effect, Env, GlobalState, MotionDeclaration,

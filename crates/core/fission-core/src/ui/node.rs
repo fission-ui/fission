@@ -1,5 +1,5 @@
 use super::custom_render::CustomRenderObject;
-use super::traits::{InternalLower, InternalLowerer};
+use super::traits::{Lower, LowerWidget};
 #[cfg(feature = "interactive-canvas")]
 use super::widgets::InteractiveViewer;
 use super::widgets::{
@@ -9,7 +9,7 @@ use super::widgets::{
     SelectionRegion, SemanticsRegion, Slider, Spacer, Switch, Text, TextInput, Transform, Video,
     ZStack,
 };
-use crate::lowering::{FormFieldContext, InternalLoweringCx};
+use crate::lowering::{FormFieldContext, LoweringContext};
 use fission_ir::{CoreIR, Op, Role, StructuralOp, TextFieldValidationState, WidgetId};
 use serde::{Deserialize, Serialize};
 use std::hash::{Hash, Hasher};
@@ -338,8 +338,15 @@ impl Widget {
             }
             #[cfg(feature = "interactive-canvas")]
             WidgetKind::InteractiveViewer(InteractiveViewer { child, .. }) => child.visit(visitor),
-            WidgetKind::Custom(_)
-            | WidgetKind::Text(_)
+            WidgetKind::Custom(widget) => {
+                if let Some(lowerer) = &widget.lowerer {
+                    for child in lowerer.children() {
+                        child.visit(visitor)?;
+                    }
+                }
+                ControlFlow::Continue(())
+            }
+            WidgetKind::Text(_)
             | WidgetKind::Image(_)
             | WidgetKind::Video(_)
             | WidgetKind::Checkbox(_)
@@ -865,7 +872,7 @@ pub trait WidgetIdExt: Into<Widget> + Sized {
 impl<T> WidgetIdExt for T where T: Into<Widget> {}
 
 impl Widget {
-    pub(crate) fn lower(&self, cx: &mut InternalLoweringCx) -> WidgetId {
+    pub(crate) fn lower(&self, cx: &mut LoweringContext) -> WidgetId {
         let has_form_field_context =
             self.form_field_relationships.is_some() && retained_form_control_count(self) == 1;
         if let Some(relationships) = self
@@ -880,10 +887,8 @@ impl Widget {
         }
         let root = match &*self.kind {
             WidgetKind::Identified { id, child } => {
-                cx.push_scope(*id);
-                let child_id = child.lower(cx);
-                cx.pop_scope();
-                let mut builder = crate::lowering::InternalIrBuilder::new(
+                let child_id = cx.with_scope(*id, |cx| child.lower(cx));
+                let mut builder = crate::lowering::IrBuilder::new(
                     (*id).into(),
                     Op::Structural(StructuralOp::Group {
                         stable_hash: id.as_u128() as u64,
@@ -935,10 +940,8 @@ impl Widget {
                     .as_ref()
                     .expect("CustomWidget lowerer must be set");
                 let wrapper = lowerer.widget_id().unwrap_or_else(|| cx.next_node_id());
-                cx.push_scope(wrapper);
-                let child_id = lowerer.lower_dyn(cx);
-                cx.pop_scope();
-                let mut builder = crate::lowering::InternalIrBuilder::new(
+                let child_id = cx.with_scope(wrapper, |cx| lowerer.lower_dyn(cx));
+                let mut builder = crate::lowering::IrBuilder::new(
                     wrapper,
                     Op::Structural(StructuralOp::Group {
                         stable_hash: lowerer.stable_key(),
@@ -998,6 +1001,33 @@ impl From<FocusScope> for Widget {
 }
 impl From<SelectionRegion> for Widget {
     fn from(w: SelectionRegion) -> Self {
+        // Like selectable text, an open desktop menu opens above all content at the pointer
+        // instead of inside the region, where ancestors would clip it and later content cover it.
+        if !w.excluded && w.controls.context_menu.enabled {
+            if let (Some(owner), Some(runtime)) = (w.id, crate::build::try_current_runtime_state())
+            {
+                let pointer_kind = runtime
+                    .selectable_text
+                    .region(owner)
+                    .map(|state| state.pointer_kind)
+                    .unwrap_or_default();
+                if !w
+                    .controls
+                    .platform_style
+                    .uses_touch_affordances(pointer_kind)
+                {
+                    let selection_present = runtime
+                        .selectable_text
+                        .region_selection(owner)
+                        .is_some_and(|selection| !selection.is_collapsed());
+                    crate::ui::widgets::context_menu::lift_text_menu_into_portal(
+                        owner,
+                        &w.controls.context_menu,
+                        selection_present,
+                    );
+                }
+            }
+        }
         Self::from_kind(WidgetKind::SelectionRegion(w))
     }
 }
@@ -1008,6 +1038,28 @@ impl From<Clip> for Widget {
 }
 impl From<Text> for Widget {
     fn from(w: Text) -> Self {
+        // As for text fields, only explicit identities lift the menu; text without one draws its
+        // menu in place.
+        if w.selectable && w.context_menu.enabled {
+            if let (Some(owner), Some(runtime)) = (w.id, crate::build::try_current_runtime_state())
+            {
+                let touch = runtime.selectable_text.region(owner).is_some_and(|state| {
+                    matches!(
+                        state.pointer_kind,
+                        crate::event::PointerKind::Touch | crate::event::PointerKind::Stylus
+                    )
+                });
+                if !touch {
+                    let selection_present = w.selection_range.is_some()
+                        || runtime.selectable_text.region_selection(owner).is_some();
+                    crate::ui::widgets::context_menu::lift_text_menu_into_portal(
+                        owner,
+                        &w.context_menu,
+                        selection_present,
+                    );
+                }
+            }
+        }
         Self::from_kind(WidgetKind::Text(w))
     }
 }
@@ -1032,9 +1084,9 @@ impl From<Button> for Widget {
         let current_widget_id = crate::build::current_widget_id();
         let inherited_root_id = crate::build::current_identity()
             .filter(|identity| Some(*identity) == current_widget_id);
-        let button_id =
-            w.id.or(inherited_root_id)
-                .or_else(|| crate::build::next_implicit_widget_id(Button::MOTION_SALT));
+        let button_id = w.id.or(inherited_root_id).or_else(|| {
+            crate::build::next_implicit_widget_id_for(Button::MOTION_SALT, w.on_press.as_ref())
+        });
         let Some(button_id) = button_id else {
             // Implicit identities and motion declarations are build-scoped.
             return Self::from_kind(WidgetKind::Button(w));
@@ -1046,6 +1098,27 @@ impl From<Button> for Widget {
 }
 impl From<TextInput> for Widget {
     fn from(w: TextInput) -> Self {
+        // Only a field with an explicit identity can lift its menu while building. Allocating an
+        // implicit one here would take it from a sequence shared with every other implicit widget,
+        // so content appearing earlier in the build would change the field's identity and drop its
+        // focus. A field without an identity draws its menu in place when it is lowered.
+        if w.context_menu.enabled {
+            if let (Some(input_id), Some(runtime)) =
+                (w.id, crate::build::try_current_runtime_state())
+            {
+                let selection_present = runtime
+                    .text_edit
+                    .get(input_id)
+                    .is_some_and(|state| state.caret != state.anchor);
+                crate::ui::widgets::context_menu::lift_text_input_menu_into_portal(
+                    input_id,
+                    &w.context_menu,
+                    selection_present,
+                    !w.value.is_empty(),
+                    w.enabled && !w.read_only,
+                );
+            }
+        }
         Self::from_kind(WidgetKind::TextInput(w))
     }
 }
@@ -1090,7 +1163,8 @@ impl From<Overlay> for Widget {
     }
 }
 impl From<ContextMenuRegion> for Widget {
-    fn from(w: ContextMenuRegion) -> Self {
+    fn from(mut w: ContextMenuRegion) -> Self {
+        crate::ui::widgets::context_menu::lift_open_menu_into_portal(&mut w);
         Self::from_kind(WidgetKind::ContextMenuRegion(w))
     }
 }
@@ -1120,18 +1194,48 @@ impl From<Responsive> for Widget {
         Self::from_kind(WidgetKind::Responsive(w))
     }
 }
+/// The identity a toggle's motion is tracked under: its explicit id, the
+/// identity its build scope gives it, or an implicit one. `None` outside a build.
+fn toggle_motion_id(
+    explicit: Option<WidgetId>,
+    implicit: impl FnOnce() -> Option<WidgetId>,
+) -> Option<WidgetId> {
+    let current_widget_id = crate::build::current_widget_id();
+    let inherited =
+        crate::build::current_identity().filter(|identity| Some(*identity) == current_widget_id);
+    explicit.or(inherited).or_else(implicit)
+}
+
 impl From<Checkbox> for Widget {
-    fn from(w: Checkbox) -> Self {
+    fn from(mut w: Checkbox) -> Self {
+        if let Some(id) = toggle_motion_id(w.id, || {
+            crate::build::next_implicit_widget_id_for(0x70C4_EC01, w.on_toggle.as_ref())
+        }) {
+            w.id = Some(id);
+            w.register_motion_declarations(id);
+        }
         Self::from_kind(WidgetKind::Checkbox(w))
     }
 }
 impl From<Switch> for Widget {
-    fn from(w: Switch) -> Self {
+    fn from(mut w: Switch) -> Self {
+        if let Some(id) = toggle_motion_id(w.id, || {
+            crate::build::next_implicit_widget_id_for(0x7057_1C01, w.on_toggle.as_ref())
+        }) {
+            w.id = Some(id);
+            w.register_motion_declarations(id);
+        }
         Self::from_kind(WidgetKind::Switch(w))
     }
 }
 impl From<Radio> for Widget {
-    fn from(w: Radio) -> Self {
+    fn from(mut w: Radio) -> Self {
+        if let Some(id) = toggle_motion_id(w.id, || {
+            crate::build::next_implicit_widget_id_for(0x70AD_1001, w.on_select.as_ref())
+        }) {
+            w.id = Some(id);
+            w.register_motion_declarations(id);
+        }
         Self::from_kind(WidgetKind::Radio(w))
     }
 }
@@ -1175,10 +1279,10 @@ impl From<Icon> for Widget {
 pub struct InternalRenderNode {
     pub debug_tag: String,
     #[serde(skip)]
-    pub lowerer: Option<Arc<dyn InternalLowerer>>,
+    pub lowerer: Option<Arc<dyn LowerWidget>>,
     /// Optional render object that participates in hit-testing, event handling,
     /// and painting.  When `None`, the node behaves exactly as before (lowering
-    /// only via `InternalLowerer`).
+    /// only via `LowerWidget`).
     #[serde(skip)]
     pub render_object: Option<Arc<dyn CustomRenderObject>>,
 }

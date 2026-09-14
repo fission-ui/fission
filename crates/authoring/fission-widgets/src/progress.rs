@@ -1,5 +1,6 @@
 use fission_core::op::Fill;
-use fission_core::ui::{Container, GridItem, Widget};
+use fission_core::ui::{Container, GridItem, SemanticsRegion, Widget};
+use fission_ir::Role;
 use serde::{Deserialize, Serialize};
 
 /// A determinate progress bar showing completion from 0% to 100%.
@@ -14,6 +15,9 @@ use serde::{Deserialize, Serialize};
 pub struct ProgressBar {
     /// Completion fraction; values outside `0.0..=1.0` are clamped for paint.
     pub value: f32,
+    /// Accessible name describing what is progressing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
 }
 
 impl From<ProgressBar> for Widget {
@@ -67,12 +71,23 @@ impl From<ProgressBar> for Widget {
         }
         .into();
 
-        Container::new(fission_core::ui::ZStack {
-            children: vec![track, bar_grid],
-            ..Default::default()
-        })
-        .height(height)
-        .flex_grow(1.0)
-        .into()
+        // A bar that only paints a fraction tells a sighted user everything and
+        // a screen-reader user nothing. Report the value, its bounds, and a
+        // readable percentage.
+        let mut semantics = SemanticsRegion::new(
+            Container::new(fission_core::ui::ZStack {
+                children: vec![track, bar_grid],
+                ..Default::default()
+            })
+            .height(height)
+            .flex_grow(1.0),
+        )
+        .role(Role::ProgressBar)
+        .value(format!("{}%", progress_pct.round() as i32))
+        .range(0.0, 100.0, progress_pct);
+        if let Some(label) = this.label.clone() {
+            semantics = semantics.label(label);
+        }
+        semantics.into()
     }
 }

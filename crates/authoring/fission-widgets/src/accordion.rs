@@ -1,16 +1,21 @@
 use crate::motion_support::{
-    collapse_y_in, dedupe, exit_for, fade_in, push_enter_with_exit, slot_id, SLOT_INDICATOR,
-    SLOT_PANEL,
+    collapse_y_in, dedupe, exit_for, fade_in, presence_active, push_enter_with_exit,
+    resolve_motion, slot_id, SLOT_CONTENT, SLOT_HEADER, SLOT_INDICATOR, SLOT_PANEL,
 };
 use crate::stack::{HStack, VStack};
+use crate::Icon;
 use fission_core::motion::{
     deg, Motion, MotionEasing, MotionPropertyId, MotionStartValue, MotionTrack, MotionTransition,
     Presence,
 };
+use fission_core::op::Fill;
 use fission_core::ui::{
-    Button, ButtonContentAlign, ButtonVariant, Container, Text, TextContent, Widget,
+    Button, ButtonContentAlign, ButtonVariant, Container, SemanticsRegion, Text, TextContent,
+    Widget,
 };
 use fission_core::{ActionEnvelope, WidgetId};
+use fission_icons::material;
+use fission_ir::{Role, Semantics};
 use serde::{Deserialize, Serialize};
 use std::ops::Add;
 
@@ -27,6 +32,8 @@ use std::ops::Add;
 /// );
 /// ```
 pub enum AccordionMotion {
+    /// No accordion-owned motion.
+    None,
     /// Curated default: collapse, fade, and chevron rotation.
     Default,
     /// Animate panel height.
@@ -120,6 +127,7 @@ impl AccordionMotion {
                     item.append_plan(expanded, plan);
                 }
             }
+            Self::None => {}
             Self::Custom {
                 panel_enter,
                 panel_exit,
@@ -190,7 +198,7 @@ pub struct AccordionItem {
 pub struct Accordion {
     /// Collapsible sections in display order.
     pub items: Vec<AccordionItem>,
-    /// Optional explicit accordion motion. `None` emits no accordion-owned motion declarations.
+    /// Accordion motion. `None` plays the default motion unless the app turns widget motion off.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub motion: Option<AccordionMotion>,
 }
@@ -201,9 +209,19 @@ impl From<Accordion> for Widget {
         let this = &component;
 
         let tokens = &view.env().theme.tokens;
+        let recipe = view.env().theme.recipe(fission_theme::recipes::Accordion);
+        let header_style = recipe.part(fission_theme::recipes::AccordionPart::Header);
+        let panel_style = recipe.part(fission_theme::recipes::AccordionPart::Panel);
+        let indicator_style = recipe.part(fission_theme::recipes::AccordionPart::Indicator);
         let base_id = fission_core::build::current_widget_id()
             .unwrap_or_else(|| WidgetId::explicit("fission.widgets.accordion.motion"));
 
+        let motion = resolve_motion(
+            &this.motion,
+            AccordionMotion::Default,
+            AccordionMotion::None,
+            view.env(),
+        );
         let mut children = Vec::new();
 
         for (index, item) in this.items.iter().enumerate() {
@@ -211,21 +229,41 @@ impl From<Accordion> for Widget {
                 WidgetId::derived(base_id.as_u128(), &[index as u32]),
                 SLOT_PANEL,
             );
+            // The presence wrapper owns panel_id, so the panel's semantics node
+            // needs an identity of its own for the header to point at.
+            let panel_semantics_id = slot_id(
+                WidgetId::derived(base_id.as_u128(), &[index as u32]),
+                SLOT_CONTENT,
+            );
             let indicator_id = slot_id(
                 WidgetId::derived(base_id.as_u128(), &[index as u32]),
                 SLOT_INDICATOR,
             );
-            let motion_plan = this
-                .motion
+            let motion_plan = motion.as_ref().map(|motion| motion.plan(item.is_expanded));
+            // One square chevron that rotates about its centre. Swapping glyphs while also
+            // rotating showed the wrong glyph mid-turn, and a text glyph is not centred in its
+            // box, so the turn looked tilted.
+            // The recipe's font size described the old text glyph; an icon needs an icon size.
+            let indicator_size = indicator_style
+                .icon_size
+                .unwrap_or(tokens.spacing.m.max(16.0));
+            let rotates = motion_plan
                 .as_ref()
-                .map(|motion| motion.plan(item.is_expanded));
-            let mut indicator: Widget = Text {
-                content: TextContent::Literal(if item.is_expanded { "▼" } else { "▶" }.into()),
-                font_size: Some(12.0),
-                color: Some(tokens.colors.text_secondary),
-                ..Default::default()
-            }
-            .into();
+                .is_some_and(|plan| !plan.indicator.is_empty());
+            // Without rotation motion, the expanded state shows the upward chevron directly.
+            let chevron = if item.is_expanded && !rotates {
+                material::navigation::expand_less::regular()
+            } else {
+                material::navigation::expand_more::regular()
+            };
+            let mut indicator: Widget = Icon::svg(chevron)
+                .size(indicator_size)
+                .color(
+                    indicator_style
+                        .text_color
+                        .unwrap_or(tokens.colors.text_secondary),
+                )
+                .into();
             if let Some(plan) = &motion_plan {
                 if !plan.indicator.is_empty() {
                     indicator = Motion {
@@ -238,13 +276,33 @@ impl From<Accordion> for Widget {
                 }
             }
             // Header
+            let header_id = slot_id(
+                WidgetId::derived(base_id.as_u128(), &[index as u32]),
+                SLOT_HEADER,
+            );
             children.push(
                 Button {
+                    // A disclosure header is a button that states whether its panel is open and
+                    // which panel it controls, so a reader knows what pressing it does and can
+                    // jump to the revealed content. The button carries these itself; a wrapping
+                    // region would expose a generic node in its place.
+                    id: Some(header_id),
+                    semantics: Some(Semantics {
+                        role: Role::Button,
+                        label: Some(item.title.clone()),
+                        expanded: Some(item.is_expanded),
+                        controls: vec![panel_semantics_id],
+                        focusable: true,
+                        ..Semantics::default()
+                    }),
                     variant: ButtonVariant::Ghost,
                     content_align: ButtonContentAlign::Start,
+                    // The bordered header surface is the button's content; theme padding around it
+                    // would inset the header from the full-width panel below.
+                    padding: Some([0.0; 4]),
                     child: Some(
                         Container::new(HStack {
-                            spacing: Some(8.0),
+                            spacing: Some(header_style.gap.unwrap_or(tokens.spacing.s)),
                             children: vec![
                                 // Expand icon (chevron)
                                 indicator,
@@ -258,9 +316,16 @@ impl From<Accordion> for Widget {
                                 .into(),
                             ],
                         })
-                        .padding_all(tokens.spacing.m)
-                        .bg(tokens.colors.surface)
+                        .padding(header_style.padding_box(tokens.spacing.m, tokens.spacing.m))
+                        .bg_fill(
+                            header_style
+                                .background
+                                .clone()
+                                .unwrap_or(Fill::Solid(tokens.colors.surface)),
+                        )
                         .border(tokens.colors.border, 1.0)
+                        // Fill the header row so the bordered surface spans the accordion.
+                        .flex_grow(1.0)
                         .into(),
                     ),
                     on_press: item.on_toggle.clone(),
@@ -268,14 +333,32 @@ impl From<Accordion> for Widget {
                 }
                 .into(),
             );
+            // A column does not stretch the header button, so give it the full width.
+            let header = children.pop().expect("header just pushed");
+            children.push(
+                Container::new(header)
+                    .width_length(fission_core::op::Length::percent(100.0))
+                    .into(),
+            );
 
             // Content
-            if item.is_expanded || this.motion.is_some() {
-                let mut panel: Widget = Container::new(item.content.clone())
-                    .padding_all(tokens.spacing.m)
-                    .bg(tokens.colors.background)
-                    .border(tokens.colors.border, 1.0)
-                    .into();
+            if item.is_expanded || (motion.is_some() && presence_active(panel_id)) {
+                let mut panel: Widget = SemanticsRegion::new(
+                    Container::new(item.content.clone())
+                        .width_length(fission_core::op::Length::percent(100.0))
+                        .padding(panel_style.padding_box(tokens.spacing.m, tokens.spacing.m))
+                        .bg_fill(
+                            panel_style
+                                .background
+                                .clone()
+                                .unwrap_or(Fill::Solid(tokens.colors.background)),
+                        )
+                        .border(tokens.colors.border, 1.0),
+                )
+                .id(panel_semantics_id)
+                .role(Role::Group)
+                .labelled_by(vec![header_id])
+                .into();
                 if let Some(plan) = &motion_plan {
                     panel = Presence {
                         id: panel_id,
@@ -289,7 +372,12 @@ impl From<Accordion> for Widget {
                     }
                     .into();
                 }
-                children.push(panel);
+                // Like the header, the panel spans the accordion; a column does not stretch it.
+                children.push(
+                    Container::new(panel)
+                        .width_length(fission_core::op::Length::percent(100.0))
+                        .into(),
+                );
             }
         }
 

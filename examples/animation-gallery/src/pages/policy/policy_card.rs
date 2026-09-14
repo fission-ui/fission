@@ -1,5 +1,5 @@
 use crate::state::AnimationGalleryState;
-use crate::style::{color, BLUE, BORDER, INK, MUTED, SOFT_BLUE, SURFACE};
+use crate::style;
 use fission::prelude::*;
 
 const SWATCH_HEIGHT: f32 = 44.0;
@@ -23,23 +23,30 @@ impl From<PolicyCard<'_>> for Widget {
                     .height(SWATCH_HEIGHT)
                     .border_radius(tokens.radii.large)
                     .bg(if card.active {
-                        SOFT_BLUE
+                        style::primary_subtle()
                     } else {
-                        color(244, 246, 250, 255)
+                        style::surface_sunken()
                     }),
                 Text::new(card.title)
                     .size(typography.body_medium_size)
-                    .color(INK),
+                    .color(style::text_primary()),
                 Text::new(card.body)
                     .size(typography.font_size_sm)
-                    .color(MUTED),
+                    .color(style::text_muted()),
             ],
             ..Default::default()
         })
         .padding_all(tokens.spacing.s)
-        .border(if card.active { BLUE } else { BORDER }, 1.0)
+        .border(
+            if card.active {
+                style::primary()
+            } else {
+                style::border()
+            },
+            1.0,
+        )
         .border_radius(tokens.radii.xl)
-        .bg(SURFACE)
+        .bg(style::surface())
         .into()
     }
 }

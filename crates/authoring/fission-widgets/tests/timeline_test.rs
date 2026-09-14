@@ -1,4 +1,4 @@
-use fission_core::internal::BuildCtx;
+use fission_core::authoring::BuildCtx;
 use fission_core::ui::{Container, Spacer, Text};
 use fission_core::{build, GlobalState, View, WidgetId};
 use fission_ir::op::Color;
@@ -34,7 +34,12 @@ fn test_timeline_structure() {
     };
 
     let node = build::enter(&mut ctx, &view, || timeline.into());
-    assert_eq!(fission_core::internal::widget_kind_name(&node), "Column");
+    // A timeline is an ordered list of events, so it lowers through a semantics
+    // region carrying Role::List rather than a bare column.
+    assert_eq!(
+        fission_core::internal::widget_kind_name(&node),
+        "SemanticsRegion"
+    );
 }
 
 #[test]

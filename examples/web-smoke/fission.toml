@@ -39,6 +39,12 @@ certificate_thumbprint_env = "WINDOWS_CERTIFICATE_THUMBPRINT"
 certificate_base64_env = "WINDOWS_CERTIFICATE_BASE64"
 certificate_password_env = "WINDOWS_CERTIFICATE_PASSWORD"
 
+[package.macos]
+bundle_id = "com.example.web_smoke"
+marketing_version = "0.14.1"
+build_number = "1"
+minimum_os = "13.0"
+
 [distribution.play_store]
 package_name = "com.example.web_smoke"
 default_track = "internal"

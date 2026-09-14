@@ -1,6 +1,6 @@
 use crate::layout::ACTIVE_INDICATOR_THICKNESS;
 use crate::model::EditorState;
-use crate::palette::{BRIGHT_TEXT, DIM_TEXT, TRANSPARENT};
+use crate::palette::EditorPalette;
 use fission::prelude::*;
 use fission::widgets::{Spacer, VStack};
 
@@ -14,6 +14,7 @@ pub struct TerminalPanelTab {
 impl From<TerminalPanelTab> for Widget {
     fn from(tab: TerminalPanelTab) -> Self {
         let (_, view) = fission::build::current::<EditorState>();
+        let palette = EditorPalette::from_theme(&view.env().theme);
         let tokens = &view.env().theme.tokens;
 
         Button {
@@ -26,12 +27,20 @@ impl From<TerminalPanelTab> for Widget {
                         Container::new(
                             Text::new(tab.label)
                                 .size(tokens.typography.font_size_xs)
-                                .color(if tab.active { BRIGHT_TEXT } else { DIM_TEXT }),
+                                .color(if tab.active {
+                                    palette.bright_text
+                                } else {
+                                    palette.dim_text
+                                }),
                         )
                         .padding_all(tokens.spacing.s),
                         Container::new(Spacer::default())
                             .height(ACTIVE_INDICATOR_THICKNESS)
-                            .bg(if tab.active { BRIGHT_TEXT } else { TRANSPARENT }),
+                            .bg(if tab.active {
+                                palette.bright_text
+                            } else {
+                                palette.transparent
+                            }),
                     ],
                 }
                 .into(),

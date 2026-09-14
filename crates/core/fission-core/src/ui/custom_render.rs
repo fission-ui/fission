@@ -5,10 +5,9 @@
 //! core IR enum variants.
 
 use crate::action::ActionEnvelope;
-use crate::internal::InternalLowerer;
+use crate::authoring::LowerWidget;
 use crate::ui::node::InternalRenderNode;
 use crate::ui::Widget;
-use fission_ir::op::PaintOp;
 use fission_ir::{AnyRenderObject, WidgetId};
 use fission_layout::{LayoutPoint, LayoutRect};
 use std::fmt::Debug;
@@ -112,13 +111,6 @@ impl CustomEventResult {
 /// Implementors are stored behind `Arc<dyn CustomRenderObject>` so they must
 /// be `Send + Sync`.  The trait is object-safe.
 pub trait CustomRenderObject: Send + Sync + Debug {
-    /// Returns range-slider configuration when this object owns a retained
-    /// two-thumb range control.
-    #[doc(hidden)]
-    fn range_slider_config(&self) -> Option<&crate::input::range_slider::RangeSliderRuntimeConfig> {
-        None
-    }
-
     /// Whether this render object should be treated as runtime-dynamic by the
     /// retained pipeline even when the surrounding widget tree is otherwise
     /// static.
@@ -172,16 +164,6 @@ pub trait CustomRenderObject: Send + Sync + Debug {
     fn blur_actions(&self, _node_id: WidgetId) -> Vec<(WidgetId, ActionEnvelope)> {
         Vec::new()
     }
-
-    /// Produce paint operations for this custom content.
-    ///
-    /// The returned `PaintOp`s are appended to the display list at the
-    /// position corresponding to this node.  An empty vec means the node
-    /// paints nothing extra (it might still have children that paint).
-    fn paint(&self, node_rect: LayoutRect) -> Vec<PaintOp> {
-        let _ = node_rect;
-        Vec::new()
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -211,13 +193,13 @@ pub fn downcast_render_object(any: &AnyRenderObject) -> Option<&Arc<dyn CustomRe
 #[derive(Clone)]
 pub struct CustomRender {
     debug_tag: String,
-    lowerer: Arc<dyn InternalLowerer>,
+    lowerer: Arc<dyn LowerWidget>,
     render_object: Option<Arc<dyn CustomRenderObject>>,
 }
 
 impl CustomRender {
     /// Creates a custom-render-backed widget.
-    pub fn new(debug_tag: impl Into<String>, lowerer: Arc<dyn InternalLowerer>) -> Self {
+    pub fn new(debug_tag: impl Into<String>, lowerer: Arc<dyn LowerWidget>) -> Self {
         Self {
             debug_tag: debug_tag.into(),
             lowerer,

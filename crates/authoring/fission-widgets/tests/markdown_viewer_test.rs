@@ -1,4 +1,4 @@
-use fission_core::internal::BuildCtx;
+use fission_core::authoring::BuildCtx;
 use fission_core::{build, Env, GlobalState, RuntimeState, View, Widget};
 use fission_ir::op::{ImageSource, PaintOp};
 use fission_ir::Op;

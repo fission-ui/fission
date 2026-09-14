@@ -199,3 +199,71 @@ fn two_closed_animated_popovers_leave_the_background_interactive() -> Result<()>
 
     Ok(())
 }
+
+fn open_first(driver: &mut TestDriver<State>) -> Result<()> {
+    driver.tap_point(80.0, 42.0)?;
+    driver.pump()?;
+    assert!(
+        driver
+            .harness
+            .runtime
+            .get_app_state::<State>()
+            .expect("state")
+            .first_open,
+        "the trigger opens the popover"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_click_anywhere_outside_an_open_popover_closes_it_without_reaching_content() -> Result<()> {
+    let mut driver = TestDriver::new(TestHarness::new(State::default()).with_root_widget(Root {
+        include_second: false,
+    }));
+    driver.pump()?;
+    open_first(&mut driver)?;
+
+    driver.tap_point(700.0, 550.0)?;
+    driver.pump()?;
+
+    let state = driver
+        .harness
+        .runtime
+        .get_app_state::<State>()
+        .expect("state");
+    assert!(!state.first_open, "a click far outside closes the popover");
+    assert_eq!(state.first_dismissals, 1);
+    assert_eq!(
+        state.background_presses, 0,
+        "the dismissing click does not also press the content beneath"
+    );
+    Ok(())
+}
+
+#[test]
+fn escape_closes_an_open_popover() -> Result<()> {
+    use fission_core::event::{InputEvent, KeyCode, KeyEvent};
+
+    let mut driver = TestDriver::new(TestHarness::new(State::default()).with_root_widget(Root {
+        include_second: false,
+    }));
+    driver.pump()?;
+    open_first(&mut driver)?;
+
+    driver
+        .harness
+        .send_event(InputEvent::Keyboard(KeyEvent::Down {
+            key_code: KeyCode::Escape,
+            modifiers: 0,
+        }))?;
+    driver.pump()?;
+
+    let state = driver
+        .harness
+        .runtime
+        .get_app_state::<State>()
+        .expect("state");
+    assert!(!state.first_open, "Escape closes the popover");
+    assert_eq!(state.first_dismissals, 1);
+    Ok(())
+}

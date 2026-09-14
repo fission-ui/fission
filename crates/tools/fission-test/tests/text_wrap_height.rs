@@ -48,7 +48,7 @@ fn text_wrap_increases_layout_height() {
 
     let mut subject_rect = None;
     for (id, node) in &ir.nodes {
-        if let fission_ir::Op::Paint(fission_ir::PaintOp::DrawText { text, .. }) = &node.op {
+        if let Some(text) = node.op.text() {
             if text.starts_with("This is a very long subject") {
                 subject_rect = Some(snap.get_node_rect(*id).unwrap());
                 break;

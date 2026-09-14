@@ -1,4 +1,4 @@
-use fission_core::internal::BuildCtx;
+use fission_core::authoring::BuildCtx;
 use fission_core::ui::{Container, Responsive, ResponsiveCase, Spacer};
 use fission_core::{build, Env, Length, RuntimeState, Widget, WidgetId};
 use fission_ir::op::{BackdropFilter, BoxShadow, Color, LayoutOp, Op, PaintOp};

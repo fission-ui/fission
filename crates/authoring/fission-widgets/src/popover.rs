@@ -1,5 +1,6 @@
 use crate::motion_support::{
-    dedupe, exit_for, fade_in, push_enter_with_exit, scale_in, slot_id, SLOT_SURFACE,
+    dedupe, exit_for, fade_in, presence_active, push_enter_with_exit, resolve_motion, scale_in,
+    slot_id, SLOT_SURFACE,
 };
 use crate::FlyoutOptions;
 use fission_core::motion::{MotionTrack, Presence};
@@ -20,6 +21,8 @@ use std::ops::Add;
 /// let motion = Some(PopoverMotion::Fade + PopoverMotion::Scale);
 /// ```
 pub enum PopoverMotion {
+    /// No popover-owned motion.
+    None,
     /// Curated default popover motion.
     Default,
     /// Fade the popover surface.
@@ -87,6 +90,7 @@ impl PopoverMotion {
                     item.append_plan(plan);
                 }
             }
+            Self::None => {}
             Self::Custom {
                 surface_enter,
                 surface_exit,
@@ -157,7 +161,7 @@ pub struct Popover {
     pub trigger: Widget,
     /// Content rendered in the flyout layer while open or retained by motion.
     pub content: Widget,
-    /// Optional explicit popover motion. `None` emits no popover-owned motion declarations.
+    /// Popover motion. `None` plays the default motion unless the app turns widget motion off.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub motion: Option<PopoverMotion>,
 }
@@ -172,7 +176,7 @@ pub(crate) fn popover_with_options(
     mut component: Popover,
     flyout_options: FlyoutOptions,
 ) -> Widget {
-    let (ctx, _) = fission_core::build::current::<()>();
+    let (ctx, view) = fission_core::build::current::<()>();
     if let Some(id) = fission_core::build::current_widget_id() {
         component.id = id;
     }
@@ -181,13 +185,22 @@ pub(crate) fn popover_with_options(
     // Derive stable anchor ID
     let anchor_id = WidgetId::derived(this.id.as_u128(), &[0]);
 
+    // The anchor may be stretched by its parent; the trigger keeps its own size at the start of
+    // it instead of being stretched or centred.
     let trigger_wrapper = Container::new(this.trigger.clone())
+        .align_child(fission_ir::op::BoxAlignment::Start)
         .flex_shrink(0.0)
         .id(anchor_id);
 
-    if this.is_open || this.motion.is_some() {
+    let motion = resolve_motion(
+        &this.motion,
+        PopoverMotion::Default,
+        PopoverMotion::None,
+        view.env(),
+    );
+    if this.is_open || (motion.is_some() && presence_active(slot_id(this.id, SLOT_SURFACE))) {
         let mut content_node = this.content.clone();
-        if let Some(motion) = &this.motion {
+        if let Some(motion) = &motion {
             let plan = motion.plan();
             content_node = Presence {
                 id: slot_id(this.id, SLOT_SURFACE),
@@ -208,11 +221,17 @@ pub(crate) fn popover_with_options(
         if let (true, Some(on_close)) = (this.is_open, this.on_close.clone()) {
             let backdrop: Widget = SemanticsRegion {
                 actions: fission_ir::ActionSet {
-                    entries: vec![fission_ir::ActionEntry {
-                        trigger: fission_ir::ActionTrigger::Default,
+                    entries: [
+                        fission_ir::ActionTrigger::Default,
+                        fission_ir::ActionTrigger::Dismiss,
+                    ]
+                    .into_iter()
+                    .map(|trigger| fission_ir::ActionEntry {
+                        trigger,
                         action_id: on_close.id.as_u128(),
-                        payload_data: Some(on_close.payload),
-                    }],
+                        payload_data: Some(on_close.payload.clone()),
+                    })
+                    .collect(),
                 },
                 focusable: Some(false),
                 sequential_focusable: false,
@@ -251,15 +270,17 @@ pub(crate) fn popover_with_options(
             }
             .into();
 
-            ctx.register_portal_with_layer(
+            ctx.register_anchored_portal(
                 fission_core::PortalLayer::Flyout,
                 Some(this.id),
+                anchor_id,
                 overlay,
             );
         } else {
-            ctx.register_portal_with_layer(
+            ctx.register_anchored_portal(
                 fission_core::PortalLayer::Flyout,
                 Some(this.id),
+                anchor_id,
                 flyout_node,
             );
         }

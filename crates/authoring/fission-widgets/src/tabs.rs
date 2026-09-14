@@ -1,10 +1,10 @@
 use crate::motion_support::{
-    dedupe, exit_for, fade_in, push_enter_with_exit, slide_x_in, slot_id, SLOT_CONTENT,
-    SLOT_INDICATOR,
+    dedupe, exit_for, fade_in, push_enter_with_exit, resolve_motion, slide_x_in, slot_id,
+    SLOT_CONTENT, SLOT_INDICATOR,
 };
 use crate::stack::VStack;
 use crate::Badge;
-use fission_core::internal::{InternalIrBuilder, InternalLowerer, InternalLoweringCx};
+use fission_core::authoring::{IrBuilder, LowerWidget, LoweringContext};
 use fission_core::motion::{follow_x_and_width, Motion, MotionTrack, Presence};
 use fission_core::op::{
     AlignItems, BoxAlignment, BoxStyle, Fill, FlexDirection, FlexWrap, JustifyContent, LayoutOp,
@@ -21,7 +21,6 @@ use fission_theme::ResolvedComponentStyle;
 pub use fission_theme::TabPresentation;
 use serde::{Deserialize, Serialize};
 use std::ops::Add;
-use std::sync::Arc;
 
 const TAB_LIST_ID_SALT: u32 = 0x5441_424c;
 const TAB_PANEL_ID_SALT: u32 = 0x5041_4e4c;
@@ -39,6 +38,8 @@ const IMPLICIT_TABS_ID_SALT: u32 = 0x5441_4253;
 /// let motion = Some(TabsMotion::Indicator + TabsMotion::SlideContent);
 /// ```
 pub enum TabsMotion {
+    /// No tabs-owned motion.
+    None,
     /// Curated default: indicator plus fading content.
     Default,
     /// Animate the active indicator toward the active tab trigger.
@@ -127,6 +128,7 @@ impl TabsMotion {
                     item.append_plan(active_trigger, plan);
                 }
             }
+            Self::None => {}
             Self::Custom {
                 indicator,
                 content_enter,
@@ -214,7 +216,7 @@ pub struct Tabs {
     pub items: Vec<TabItem>,
     /// Design-system size used for tab typography, spacing, and indicator style.
     pub size: ComponentSize,
-    /// Optional explicit tabs motion. `None` emits no tabs-owned motion declarations.
+    /// Tabs motion. `None` plays the default motion unless the app turns widget motion off.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub motion: Option<TabsMotion>,
 }
@@ -387,7 +389,7 @@ impl From<TabTrigger> for Widget {
         let theme = &view.env().theme.components.tabs;
         let interaction = &view.runtime().interaction;
         let is_pressed = interaction.is_pressed(trigger.id);
-        let is_focused = interaction.is_focused(trigger.id);
+        let is_focused = interaction.is_focus_visible(trigger.id);
         let selected = trigger.selected && !trigger.disabled;
         let state = if trigger.disabled {
             ComponentState::Disabled
@@ -664,61 +666,57 @@ struct TabListSurface {
 
 impl From<TabListSurface> for Widget {
     fn from(surface: TabListSurface) -> Self {
-        fission_core::internal::custom_render_widget(fission_core::internal::InternalRenderNode {
-            debug_tag: "Tabs.TabList".into(),
-            lowerer: Some(Arc::new(surface)),
-            render_object: None,
-        })
+        fission_core::authoring::custom_widget("Tabs.TabList", surface)
     }
 }
 
-impl InternalLowerer for TabListSurface {
-    fn lower_dyn(&self, cx: &mut InternalLoweringCx) -> WidgetId {
-        cx.push_scope(self.id);
-        let layout_id = cx.next_node_id();
-        cx.push_scope(layout_id);
+impl LowerWidget for TabListSurface {
+    fn lower_dyn(&self, cx: &mut LoweringContext) -> WidgetId {
+        let layout_id = cx.with_scope(self.id, |cx| {
+            let layout_id = cx.next_node_id();
 
-        let mut row = InternalIrBuilder::new(
-            cx.next_node_id(),
-            Op::Layout(LayoutOp::Flex {
-                direction: FlexDirection::Row,
-                wrap: FlexWrap::NoWrap,
-                flex_grow: 0.0,
-                flex_shrink: 1.0,
-                padding: [0.0; 4],
-                gap: Some(self.style.gap.unwrap_or(14.0)),
-                line_gap: None,
-                align_items: AlignItems::Center,
-                justify_content: JustifyContent::Start,
-            }),
-        );
-        for child in &self.children {
-            row.add_child(fission_core::internal::lower_widget(child, cx));
-        }
-        let row_id = row.build(cx);
+            cx.with_scope(layout_id, |cx| {
+                let mut row = IrBuilder::new(
+                    cx.next_node_id(),
+                    Op::Layout(LayoutOp::Flex {
+                        direction: FlexDirection::Row,
+                        wrap: FlexWrap::NoWrap,
+                        flex_grow: 0.0,
+                        flex_shrink: 1.0,
+                        padding: [0.0; 4],
+                        gap: Some(self.style.gap.unwrap_or(14.0)),
+                        line_gap: None,
+                        align_items: AlignItems::Center,
+                        justify_content: JustifyContent::Start,
+                    }),
+                );
+                for child in &self.children {
+                    row.add_child(fission_core::internal::lower_widget(child, cx));
+                }
+                let row_id = row.build(cx);
 
-        let mut layout = InternalIrBuilder::new(
-            layout_id,
-            Op::Layout(LayoutOp::StyledBox {
-                style: recipe_box_style(&self.style, [2.0; 4], BoxAlignment::Start, None),
-                flex_grow: 0.0,
-                flex_shrink: 1.0,
-            }),
-        )
-        .composite(recipe_composite_style(&self.style));
-        append_recipe_paint(
-            &mut layout,
-            cx,
-            &self.style,
-            Some(self.fallback_background.clone()),
-        );
-        layout.add_child(row_id);
-        let layout_id = layout.build(cx);
+                let mut layout = IrBuilder::new(
+                    layout_id,
+                    Op::Layout(LayoutOp::StyledBox {
+                        style: recipe_box_style(&self.style, [2.0; 4], BoxAlignment::Start, None),
+                        flex_grow: 0.0,
+                        flex_shrink: 1.0,
+                    }),
+                )
+                .composite(recipe_composite_style(&self.style));
+                append_recipe_paint(
+                    &mut layout,
+                    cx,
+                    &self.style,
+                    Some(self.fallback_background.clone()),
+                );
+                layout.add_child(row_id);
 
-        cx.pop_scope();
-        cx.pop_scope();
+                layout.build(cx)
+            })
+        });
 
-        let mut semantics = InternalIrBuilder::new(
+        let mut semantics = IrBuilder::new(
             self.id,
             Op::Semantics(Semantics {
                 role: Role::TabList,
@@ -758,57 +756,53 @@ struct TabTriggerSurface {
 
 impl From<TabTriggerSurface> for Widget {
     fn from(surface: TabTriggerSurface) -> Self {
-        fission_core::internal::custom_render_widget(fission_core::internal::InternalRenderNode {
-            debug_tag: "Tabs.Tab".into(),
-            lowerer: Some(Arc::new(surface)),
-            render_object: None,
-        })
+        fission_core::authoring::custom_widget("Tabs.Tab", surface)
     }
 }
 
-impl InternalLowerer for TabTriggerSurface {
-    fn lower_dyn(&self, cx: &mut InternalLoweringCx) -> WidgetId {
-        cx.push_scope(self.id);
-        let layout_id = cx.next_node_id();
-        cx.push_scope(layout_id);
+impl LowerWidget for TabTriggerSurface {
+    fn lower_dyn(&self, cx: &mut LoweringContext) -> WidgetId {
+        let layout_id = cx.with_scope(self.id, |cx| {
+            let layout_id = cx.next_node_id();
 
-        let mut content = InternalIrBuilder::new(
-            cx.next_node_id(),
-            Op::Layout(LayoutOp::Flex {
-                direction: FlexDirection::Row,
-                wrap: FlexWrap::NoWrap,
-                flex_grow: 0.0,
-                flex_shrink: 1.0,
-                padding: [0.0; 4],
-                gap: Some(self.style.gap.unwrap_or(0.0)),
-                line_gap: None,
-                align_items: AlignItems::Center,
-                justify_content: JustifyContent::Center,
-            }),
-        );
-        content.add_child(fission_core::internal::lower_widget(&self.child, cx));
-        let content_id = content.build(cx);
+            cx.with_scope(layout_id, |cx| {
+                let mut content = IrBuilder::new(
+                    cx.next_node_id(),
+                    Op::Layout(LayoutOp::Flex {
+                        direction: FlexDirection::Row,
+                        wrap: FlexWrap::NoWrap,
+                        flex_grow: 0.0,
+                        flex_shrink: 1.0,
+                        padding: [0.0; 4],
+                        gap: Some(self.style.gap.unwrap_or(0.0)),
+                        line_gap: None,
+                        align_items: AlignItems::Center,
+                        justify_content: JustifyContent::Center,
+                    }),
+                );
+                content.add_child(fission_core::internal::lower_widget(&self.child, cx));
+                let content_id = content.build(cx);
 
-        let mut layout = InternalIrBuilder::new(
-            layout_id,
-            Op::Layout(LayoutOp::StyledBox {
-                style: recipe_box_style(
-                    &self.style,
-                    [10.0, 10.0, 0.0, 0.0],
-                    BoxAlignment::Center,
-                    Some(38.0),
-                ),
-                flex_grow: 0.0,
-                flex_shrink: 1.0,
-            }),
-        )
-        .composite(recipe_composite_style(&self.style));
-        append_recipe_paint(&mut layout, cx, &self.style, None);
-        layout.add_child(content_id);
-        let layout_id = layout.build(cx);
+                let mut layout = IrBuilder::new(
+                    layout_id,
+                    Op::Layout(LayoutOp::StyledBox {
+                        style: recipe_box_style(
+                            &self.style,
+                            [10.0, 10.0, 0.0, 0.0],
+                            BoxAlignment::Center,
+                            Some(38.0),
+                        ),
+                        flex_grow: 0.0,
+                        flex_shrink: 1.0,
+                    }),
+                )
+                .composite(recipe_composite_style(&self.style));
+                append_recipe_paint(&mut layout, cx, &self.style, None);
+                layout.add_child(content_id);
 
-        cx.pop_scope();
-        cx.pop_scope();
+                layout.build(cx)
+            })
+        });
 
         let mut actions = ActionSet::default();
         if !self.disabled {
@@ -820,7 +814,7 @@ impl InternalLowerer for TabTriggerSurface {
                 });
             }
         }
-        let mut semantics = InternalIrBuilder::new(
+        let mut semantics = IrBuilder::new(
             self.id,
             Op::Semantics(Semantics {
                 role: Role::Tab,
@@ -886,21 +880,23 @@ fn recipe_box_style(
 }
 
 fn append_recipe_paint(
-    layout: &mut InternalIrBuilder,
-    cx: &mut InternalLoweringCx,
+    layout: &mut IrBuilder,
+    cx: &mut LoweringContext,
     style: &ResolvedComponentStyle,
     fallback_background: Option<Fill>,
 ) {
     let radius = style.radius.unwrap_or(0.0);
     for shadow in &style.shadows {
         layout.add_child(
-            InternalIrBuilder::new(
+            IrBuilder::new(
                 cx.next_node_id(),
                 Op::Paint(PaintOp::DrawRect {
                     fill: None,
                     stroke: None,
                     corner_radius: radius,
                     shadow: Some(shadow.to_box_shadow()),
+                    corner_radii: None,
+                    border_sides: None,
                 }),
             )
             .build(cx),
@@ -917,13 +913,15 @@ fn append_recipe_paint(
     });
     if fill.is_some() || stroke.is_some() {
         layout.add_child(
-            InternalIrBuilder::new(
+            IrBuilder::new(
                 cx.next_node_id(),
                 Op::Paint(PaintOp::DrawRect {
                     fill,
                     stroke,
                     corner_radius: radius,
                     shadow: None,
+                    corner_radii: None,
+                    border_sides: None,
                 }),
             )
             .build(cx),
@@ -965,10 +963,14 @@ impl From<Tabs> for Widget {
         };
         let active_index = resolved_active_index.unwrap_or(0);
         let active_trigger = WidgetId::derived(base_id.as_u128(), &[active_index as u32, 0]);
-        let motion_plan = this
-            .motion
-            .as_ref()
-            .map(|motion| motion.plan(active_trigger));
+        let (_, view) = fission_core::build::current::<()>();
+        let motion = resolve_motion(
+            &this.motion,
+            TabsMotion::Default,
+            TabsMotion::None,
+            view.env(),
+        );
+        let motion_plan = motion.as_ref().map(|motion| motion.plan(active_trigger));
         let indicator_slot = slot_id(base_id, SLOT_INDICATOR);
         let tab_triggers = this
             .items

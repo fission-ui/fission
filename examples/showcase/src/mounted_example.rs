@@ -1,5 +1,5 @@
 use fission::prelude::*;
-use fission_core::internal::BuildCtx;
+use fission_core::authoring::BuildCtx;
 use fission_core::scoped_action_handlers::{
     clear_scoped_action_handlers, register_scoped_action_handler,
 };

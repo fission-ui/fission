@@ -5,11 +5,12 @@ use fission_core::motion::{
 use fission_core::WidgetId;
 
 pub(crate) const SLOT_BACKDROP: u32 = 0xBACC_DA7A;
-pub(crate) const SLOT_SURFACE: u32 = 0x5AFA_CE;
-pub(crate) const SLOT_PANEL: u32 = 0xCAFE_2A1;
+pub(crate) const SLOT_SURFACE: u32 = 0x005A_FACE;
+pub(crate) const SLOT_PANEL: u32 = 0x0CAF_E2A1;
+pub(crate) const SLOT_HEADER: u32 = 0x0CAF_E2A2;
 pub(crate) const SLOT_FOCUS_SCOPE: u32 = 0xF0C0_5C0E;
-pub(crate) const SLOT_INDICATOR: u32 = 0x1D1_CA70;
-pub(crate) const SLOT_CONTENT: u32 = 0xC017_E17;
+pub(crate) const SLOT_INDICATOR: u32 = 0x01D1_CA70;
+pub(crate) const SLOT_CONTENT: u32 = 0x0C01_7E17;
 
 pub(crate) fn slot_id(parent: WidgetId, slot: u32) -> WidgetId {
     WidgetId::derived(parent.as_u128(), &[slot])
@@ -76,4 +77,29 @@ pub(crate) fn push_enter_with_exit(
 ) {
     exit.extend(exit_for(std::slice::from_ref(&track)));
     enter.push(track);
+}
+
+/// The motion a widget plays: its explicit preset, nothing for an explicit
+/// `none` preset, or its curated `default` when the preset is unset and the app
+/// has not turned built-in widget motion off.
+pub(crate) fn resolve_motion<M: Clone + PartialEq>(
+    explicit: &Option<M>,
+    default: M,
+    none: M,
+    env: &fission_core::Env,
+) -> Option<M> {
+    match explicit {
+        Some(motion) if *motion == none => None,
+        Some(motion) => Some(motion.clone()),
+        None => env.widget_motion.is_on().then_some(default),
+    }
+}
+
+/// Whether the presence `id` is still mounted from an earlier build: entering,
+/// shown, or playing its exit. A closed widget stays in the tree only while
+/// this holds, so its exit can finish without keeping a hidden popup mounted.
+pub(crate) fn presence_active(id: WidgetId) -> bool {
+    fission_core::build::try_current_runtime_state()
+        .and_then(|runtime| runtime.motion.presence.get(&id).copied())
+        .is_some_and(|phase| phase != fission_core::motion::PresencePhase::Hidden)
 }

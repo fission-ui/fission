@@ -1,4 +1,5 @@
-use fission_core::internal::{build_layout_tree, BuildCtx, InternalLoweringCx};
+use fission_core::authoring::{BuildCtx, LoweringContext};
+use fission_core::internal::build_layout_tree;
 use fission_core::ui::{Column, Scroll, Text, Widget};
 use fission_core::{
     build, ActionEnvelope, ActionId, Env, GlobalState, InputEvent, KeyCode, KeyEvent,
@@ -56,10 +57,10 @@ fn implicit_tabs_ids_are_unique_across_sibling_instances() {
         }
         .into()
     });
-    let mut lowering = InternalLoweringCx::new(&env, &runtime, None, None);
+    let mut lowering = LoweringContext::new(&env, &runtime, None, None);
     let root = fission_core::internal::lower_widget(&node, &mut lowering);
-    lowering.ir.root = Some(root);
-    let ir = lowering.ir;
+    lowering.set_root(root);
+    let ir = lowering.into_ir();
 
     let first = semantics_for_identifier(&ir, "implicit.first").0;
     let second = semantics_for_identifier(&ir, "implicit.second").0;
@@ -219,7 +220,7 @@ fn tabs_consume_track_and_active_tab_recipe_without_zero_height_underline() {
     };
 
     let mut env = Env::default();
-    let tabs_theme = &mut env.theme.components.tabs;
+    let tabs_theme = &mut &mut env.theme.components_mut().tabs;
     tabs_theme.indicator_height = 0.0;
     tabs_theme.track_style = ResolvedComponentStyle {
         background: Some(track_fill.clone()),
@@ -342,8 +343,8 @@ fn tabs_keep_the_legacy_underline_for_themes_that_request_it() {
         a: 255,
     };
     let mut env = Env::default();
-    env.theme.components.tabs.indicator_height = 3.0;
-    env.theme.components.tabs.active_color = indicator;
+    env.theme.components_mut().tabs.indicator_height = 3.0;
+    env.theme.components_mut().tabs.active_color = indicator;
 
     let tabs = Tabs {
         items: vec![actionable_tab("General", "underline.general")],
@@ -619,7 +620,7 @@ fn tabs_resolve_hover_style_against_the_stable_trigger_id() {
     let first_id = WidgetId::derived(base_id.as_u128(), &[0, 0]);
     let hover_fill = gradient(Color::WHITE, Color::GREEN);
     let mut env = Env::default();
-    env.theme.components.tabs.states.hover = Some(ResolvedComponentStyle {
+    env.theme.components_mut().tabs.states.hover = Some(ResolvedComponentStyle {
         background: Some(hover_fill.clone()),
         ..Default::default()
     });
@@ -748,10 +749,10 @@ fn lower_widget(
     let view = View::new(&state, runtime, env, None);
     let mut ctx = BuildCtx::<State>::new();
     let node = build::enter(&mut ctx, &view, build_widget);
-    let mut lowering = InternalLoweringCx::new(env, runtime, None, None);
+    let mut lowering = LoweringContext::new(env, runtime, None, None);
     let root = fission_core::internal::lower_widget(&node, &mut lowering);
-    lowering.ir.root = Some(root);
-    lowering.ir
+    lowering.set_root(root);
+    lowering.into_ir()
 }
 
 fn lower_tabs(tabs: Tabs, env: &Env, runtime: &RuntimeState, id: Option<WidgetId>) -> CoreIR {
@@ -762,10 +763,10 @@ fn lower_tabs(tabs: Tabs, env: &Env, runtime: &RuntimeState, id: Option<WidgetId
         Some(id) => tabs.id(id),
         None => tabs.into(),
     });
-    let mut lowering = InternalLoweringCx::new(env, runtime, None, None);
+    let mut lowering = LoweringContext::new(env, runtime, None, None);
     let root = fission_core::internal::lower_widget(&node, &mut lowering);
-    lowering.ir.root = Some(root);
-    lowering.ir
+    lowering.set_root(root);
+    lowering.into_ir()
 }
 
 fn tab(title: &str) -> TabItem {
@@ -880,6 +881,7 @@ fn gradient(start: Color, end: Color) -> Fill {
         start: (0.0, 0.0),
         end: (1.0, 1.0),
         stops: vec![(0.0, start), (1.0, end)],
+        extend: Default::default(),
     }
 }
 

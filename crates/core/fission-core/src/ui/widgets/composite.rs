@@ -1,5 +1,5 @@
-use crate::internal::InternalLower;
-use crate::lowering::{InternalIrBuilder, InternalLoweringCx};
+use crate::authoring::Lower;
+use crate::lowering::{IrBuilder, LoweringContext};
 use crate::ui::Widget;
 use fission_ir::{CompositeScalar, CompositeStyle, Op, StructuralOp, WidgetId};
 use serde::{Deserialize, Serialize};
@@ -91,22 +91,19 @@ impl Composite {
     }
 }
 
-impl InternalLower for Composite {
-    fn lower(&self, cx: &mut InternalLoweringCx) -> WidgetId {
+impl Lower for Composite {
+    fn lower(&self, cx: &mut LoweringContext) -> WidgetId {
         let id = self.id.map(Into::into).unwrap_or_else(|| cx.next_node_id());
 
-        cx.push_scope(id);
-        let child_id = self.child.lower(cx);
-        cx.pop_scope();
+        let child_id = cx.with_scope(id, |cx| self.child.lower(cx));
 
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
         id.hash(&mut hasher);
         self.style.hash(&mut hasher);
         let stable_hash = hasher.finish();
 
-        let mut builder =
-            InternalIrBuilder::new(id, Op::Structural(StructuralOp::Group { stable_hash }))
-                .composite(self.style.clone());
+        let mut builder = IrBuilder::new(id, Op::Structural(StructuralOp::Group { stable_hash }))
+            .composite(self.style.clone());
         builder.add_child(child_id);
         builder.build(cx)
     }

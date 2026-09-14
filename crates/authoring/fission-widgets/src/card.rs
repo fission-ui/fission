@@ -1,6 +1,6 @@
 use fission_core::op::Fill;
 use fission_core::ui::{CardPattern, Container, Positioned, Spacer, Widget, ZStack};
-use fission_core::{LayoutDirection, WidgetId};
+use fission_core::WidgetId;
 use serde::{Deserialize, Serialize};
 
 const IMPLICIT_CARD_ID_SALT: u32 = 0x4341_5244;
@@ -129,17 +129,12 @@ impl From<CardSurface> for Widget {
                 CardSurfacePadding::None => {}
             }
             let margin = indicator_style.margin.unwrap_or([0.0; 4]);
-            let (left, right) = match view.env().layout_direction {
-                LayoutDirection::LeftToRight => (Some(0.0), None),
-                LayoutDirection::RightToLeft => (None, Some(0.0)),
-            };
             let indicator = Container::new(Spacer::default()).bg_fill(indicator_fill);
             ZStack {
                 children: vec![
                     content.into(),
                     Positioned {
-                        left,
-                        right,
+                        start: Some(0.0),
                         top: Some(margin[2].max(0.0)),
                         bottom: Some(margin[3].max(0.0)),
                         width: Some(indicator_width),

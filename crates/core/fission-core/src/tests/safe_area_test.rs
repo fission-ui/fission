@@ -1,6 +1,6 @@
+use crate::authoring::Lower;
 use crate::env::{Env, RuntimeState, WindowInsets};
-use crate::internal::InternalLower;
-use crate::lowering::{build_layout_tree, InternalLoweringCx};
+use crate::lowering::{build_layout_tree, LoweringContext};
 use crate::ui::widgets::container::Container;
 use crate::ui::widgets::safe_area::SafeArea;
 use fission_layout::{LayoutEngine, LayoutSize};
@@ -23,7 +23,7 @@ fn test_safe_area_layout() {
         ..Default::default()
     };
 
-    let mut cx = InternalLoweringCx::new(&env, &runtime_state, None, None);
+    let mut cx = LoweringContext::new(&env, &runtime_state, None, None);
     let root_id = safe_area.lower(&mut cx);
 
     let input_nodes = build_layout_tree(&cx.ir, &env);

@@ -11,7 +11,10 @@ fn load_bundle(locale: &str, yaml: &str) -> anyhow::Result<TranslationBundle> {
 
 pub(crate) fn create_env() -> anyhow::Result<Env> {
     let mut env = Env::default();
-    for bundle in inbox_example::translation_bundles() {
+    for bundle in inbox_example::translation_bundles()
+        .into_iter()
+        .chain(todo_design_system_example::translation_bundles())
+    {
         env.i18n.add_bundle(bundle);
     }
     env.i18n
@@ -20,8 +23,4 @@ pub(crate) fn create_env() -> anyhow::Result<Env> {
         .add_bundle(load_bundle("es-ES", include_str!("../i18n/es-ES.yaml"))?);
     env.locale = Locale::from("en-US");
     Ok(env)
-}
-
-pub(crate) fn message(env: &Env, key: &str) -> String {
-    env.i18n.get(&env.locale, key).unwrap_or(key).to_string()
 }

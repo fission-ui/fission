@@ -32,7 +32,7 @@ This is intentionally an advanced shape. The public app-authoring path remains `
 | --- | --- | --- | --- |
 | `width` | `Option<f32>` | Fixed width of the canvas box. | `None` leaves width to the parent constraints. |
 | `height` | `Option<f32>` | Fixed height of the canvas box. | `None` leaves height to the parent constraints. |
-| `painter` | `Fn(&mut InternalLoweringCx) -> Vec<WidgetId>` | Closure that emits child IR ids to group inside the canvas box. | Required. This is an advanced lowering hook, not normal app authoring. |
+| `painter` | `Fn(&mut LoweringContext) -> Vec<WidgetId>` | Closure that emits child IR ids to group inside the canvas box. | Required. This is an advanced lowering hook, not normal app authoring. |
 
 ## Behavior and advice
 

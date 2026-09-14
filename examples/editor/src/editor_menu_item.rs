@@ -1,6 +1,6 @@
 use crate::layout::MENU_ITEM_HEIGHT;
 use crate::model::EditorState;
-use crate::palette::BRIGHT_TEXT;
+use crate::palette::EditorPalette;
 use fission::prelude::*;
 
 pub struct EditorMenuItem {
@@ -20,6 +20,7 @@ impl EditorMenuItem {
 impl From<EditorMenuItem> for Widget {
     fn from(item: EditorMenuItem) -> Self {
         let (_, view) = fission::build::current::<EditorState>();
+        let palette = EditorPalette::from_theme(&view.env().theme);
         let tokens = &view.env().theme.tokens;
         let identifier = item.label.to_lowercase().replace([' ', '/'], "-");
 
@@ -29,7 +30,7 @@ impl From<EditorMenuItem> for Widget {
             child: Some(
                 Text::new(item.label)
                     .size(tokens.typography.font_size_xs)
-                    .color(BRIGHT_TEXT)
+                    .color(palette.bright_text)
                     .into(),
             ),
             on_press: Some(item.action),

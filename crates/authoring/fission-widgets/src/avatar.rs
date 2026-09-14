@@ -1,4 +1,3 @@
-use fission_core::env::LayoutDirection;
 use fission_core::op::Fill;
 use fission_core::ui::{
     Align, Container, Image, Positioned, Row, SemanticsRegion, Text, TextContent, Widget,
@@ -194,14 +193,9 @@ impl From<AvatarGroup> for Widget {
                 children.push(surface);
             } else {
                 let overlap = overlap.min(size);
-                let (left, right) = match view.env().layout_direction {
-                    LayoutDirection::LeftToRight => (Some(-overlap), None),
-                    LayoutDirection::RightToLeft => (None, Some(-overlap)),
-                };
                 children.push(
                     Container::new(Positioned {
-                        left,
-                        right,
+                        start: Some(-overlap),
                         top: Some(0.0),
                         child: Some(surface),
                         ..Default::default()
@@ -249,14 +243,9 @@ impl From<AvatarGroup> for Widget {
                 children.push(overflow);
             } else {
                 let overlap = overlap.min(overflow_size);
-                let (left, right) = match view.env().layout_direction {
-                    LayoutDirection::LeftToRight => (Some(-overlap), None),
-                    LayoutDirection::RightToLeft => (None, Some(-overlap)),
-                };
                 children.push(
                     Container::new(Positioned {
-                        left,
-                        right,
+                        start: Some(-overlap),
                         top: Some(0.0),
                         child: Some(overflow),
                         ..Default::default()

@@ -4,7 +4,7 @@ version = "0.14.1"
 edition = "2021"
 license = "Apache-2.0"
 repository = "https://github.com/fission-ui/fission"
-description = "Vello renderer backend for Fission display lists"
+description = "Vello GPU and CPU renderer backends for Fission display lists"
 categories = ["rendering", "graphics", "gui"]
 keywords = ["fission", "vello", "gpu-accelerated", "rendering", "cross-platform"]
 
@@ -19,12 +19,13 @@ fission-render = { path = "../fission-render", version = "0.14.1" }
 fission-layout = { path = "../../core/fission-layout", version = "0.14.1" }
 fission-ir = { path = "../../core/fission-ir", version = "0.14.1" }
 anyhow = "1.0"
-vello = { package = "fission-vello", version = "0.6.0-fission.3", features = ["wgpu"] }
-parley = "0.7.0"
+vello_cpu = { package = "fission-vello-cpu", version = "0.2.0-fission.1", path = "../../../third_party/vello/vello_cpu" }
+vello_gpu = { package = "fission-vello-gpu", version = "0.2.0-fission.1", path = "../../../third_party/vello/vello_gpu" }
+wgpu = { version = "29.0.3", default-features = false, features = ["std", "wgsl"] }
+parley = "0.11.1"
 fission-diagnostics = { path = "../../tools/fission-diagnostics", version = "0.14.1" }
 image = "0.24"
 lazy_static = "1.5.0"
-peniko = "0.5"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 ureq = "2"

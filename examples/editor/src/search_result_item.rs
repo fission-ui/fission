@@ -1,17 +1,17 @@
 use crate::layout::SEARCH_CONTEXT_PREVIEW_CHARS;
-use crate::model::{EditorState, OpenFile, SearchResult};
-use crate::palette::{DIM_TEXT, PANEL_TEXT};
+use crate::model::{on_open_file, EditorState, OpenFile, SearchResult};
+use crate::palette::EditorPalette;
 use fission::prelude::*;
 use fission::widgets::VStack;
 
 pub(crate) struct SearchResultItem {
     pub result: SearchResult,
-    pub open_id: ActionId,
 }
 
 impl From<SearchResultItem> for Widget {
     fn from(item: SearchResultItem) -> Self {
-        let (_ctx, view) = fission::build::current::<EditorState>();
+        let (ctx, view) = fission::build::current::<EditorState>();
+        let palette = EditorPalette::from_theme(&view.env().theme);
         let tokens = &view.env().theme.tokens;
         let filename = item
             .result
@@ -30,7 +30,7 @@ impl From<SearchResultItem> for Widget {
                     children: widgets![
                         Text::new(label)
                             .size(tokens.typography.font_size_sm)
-                            .color(PANEL_TEXT),
+                            .color(palette.panel_text),
                         Text::new(
                             item.result
                                 .context
@@ -39,15 +39,12 @@ impl From<SearchResultItem> for Widget {
                                 .collect::<String>(),
                         )
                         .size(tokens.typography.font_size_xs)
-                        .color(DIM_TEXT),
+                        .color(palette.dim_text),
                     ],
                 }
                 .into(),
             ),
-            on_press: Some(ActionEnvelope {
-                id: item.open_id,
-                payload: serde_json::to_vec(&OpenFile(item.result.path)).unwrap(),
-            }),
+            on_press: Some(ctx.bind(OpenFile(item.result.path), reduce_with!(on_open_file))),
             padding: Some([
                 tokens.spacing.xs,
                 tokens.spacing.xs,

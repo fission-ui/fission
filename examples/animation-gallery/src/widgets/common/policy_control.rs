@@ -1,5 +1,5 @@
 use crate::state::{select_policy, AnimationGalleryState, MotionPolicy, SelectPolicy};
-use crate::style::MUTED;
+use crate::style;
 use crate::ui;
 use fission::build::BuildCtxHandle;
 use fission::prelude::*;
@@ -21,7 +21,7 @@ impl From<PolicyControl<'_>> for Widget {
             children: widgets![
                 Text::new("Motion Policy")
                     .size(tokens.typography.font_size_sm)
-                    .color(MUTED),
+                    .color(style::text_muted()),
                 ui::ChoiceButton {
                     ctx: control.ctx,
                     label: "Full",

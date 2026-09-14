@@ -11,12 +11,60 @@ pub(crate) enum PreviewViewport {
     Mobile,
 }
 
+/// The design system previews render with.
+///
+/// Every mounted example keeps the host's theme, so switching here re-skins all
+/// of them at once, which is what the generic component recipes make possible.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) enum DesignSystemChoice {
+    #[default]
+    Fission,
+    Material3,
+    Fluent2,
+    Cupertino,
+    LiquidGlass,
+}
+
+impl DesignSystemChoice {
+    /// Every choice, in the order the picker shows them.
+    pub(crate) const ALL: [Self; 5] = [
+        Self::Fission,
+        Self::Material3,
+        Self::Fluent2,
+        Self::Cupertino,
+        Self::LiquidGlass,
+    ];
+
+    /// The translation key for this choice's label.
+    pub(crate) fn label_key(self) -> &'static str {
+        match self {
+            Self::Fission => "showcase.workbench.design_system.fission",
+            Self::Material3 => "showcase.workbench.design_system.material3",
+            Self::Fluent2 => "showcase.workbench.design_system.fluent2",
+            Self::Cupertino => "showcase.workbench.design_system.cupertino",
+            Self::LiquidGlass => "showcase.workbench.design_system.liquid_glass",
+        }
+    }
+
+    /// The theme for this design system in `mode`.
+    pub(crate) fn theme(self, mode: DesignMode) -> Theme {
+        match self {
+            Self::Fission => crate::ShowcaseDesignSystem::theme(mode),
+            Self::Material3 => fission::theme::FissionMaterialDesign3DesignSystem::theme(mode),
+            Self::Fluent2 => fission::theme::FissionFluent2DesignSystem::theme(mode),
+            Self::Cupertino => fission::theme::FissionCupertinoDesignSystem::theme(mode),
+            Self::LiquidGlass => fission::theme::FissionLiquidGlassDesignSystem::theme(mode),
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct ShowcaseState {
     pub(crate) current_path: String,
     pub(crate) search: String,
     pub(crate) target_filter: TargetFilter,
     pub(crate) theme_mode: DesignMode,
+    pub(crate) design_system: DesignSystemChoice,
     pub(crate) locale: Locale,
     pub(crate) preview_viewport: PreviewViewport,
     pub(crate) preview_generation: u64,
@@ -29,6 +77,7 @@ impl Default for ShowcaseState {
             search: String::new(),
             target_filter: TargetFilter::All,
             theme_mode: DesignMode::Light,
+            design_system: DesignSystemChoice::default(),
             locale: Locale::from("en-US"),
             preview_viewport: PreviewViewport::Desktop,
             preview_generation: 0,
@@ -62,6 +111,11 @@ pub(crate) fn on_filter_changed(state: &mut ShowcaseState, filter: TargetFilter)
 #[fission_reducer(SetTheme)]
 pub(crate) fn on_set_theme(state: &mut ShowcaseState, theme: DesignMode) {
     state.theme_mode = theme;
+}
+
+#[fission_reducer(SetDesignSystem)]
+pub(crate) fn on_set_design_system(state: &mut ShowcaseState, choice: DesignSystemChoice) {
+    state.design_system = choice;
 }
 
 #[fission_reducer(SetLocale)]

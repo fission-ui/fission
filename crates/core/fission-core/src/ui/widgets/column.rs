@@ -1,5 +1,5 @@
-use crate::internal::InternalLower;
-use crate::lowering::{InternalIrBuilder, InternalLoweringCx};
+use crate::authoring::Lower;
+use crate::lowering::{IrBuilder, LoweringContext};
 use crate::Widget;
 use fission_ir::op::{AlignItems, FlexWrap, JustifyContent};
 use fission_ir::{FlexDirection, LayoutOp, Op, Semantics, WidgetId};
@@ -98,37 +98,36 @@ impl Column {
     }
 }
 
-impl InternalLower for Column {
-    fn lower(&self, cx: &mut InternalLoweringCx) -> WidgetId {
+impl Lower for Column {
+    fn lower(&self, cx: &mut LoweringContext) -> WidgetId {
         let layout_id = self.id.map(Into::into).unwrap_or_else(|| cx.next_node_id());
 
-        cx.push_scope(layout_id);
+        let builder = cx.with_scope(layout_id, |cx| {
+            let mut builder = IrBuilder::new(
+                layout_id,
+                Op::Layout(LayoutOp::Flex {
+                    direction: FlexDirection::Column,
+                    wrap: self.wrap,
+                    flex_grow: self.flex_grow,
+                    flex_shrink: self.flex_shrink,
+                    padding: [0.0; 4],
+                    gap: self.gap,
+                    line_gap: self.line_gap,
+                    align_items: self.align_items,
+                    justify_content: self.justify_content,
+                }),
+            );
+            for child in &self.children {
+                builder.add_child(child.lower(cx));
+            }
 
-        let mut builder = InternalIrBuilder::new(
-            layout_id,
-            Op::Layout(LayoutOp::Flex {
-                direction: FlexDirection::Column,
-                wrap: self.wrap,
-                flex_grow: self.flex_grow,
-                flex_shrink: self.flex_shrink,
-                padding: [0.0; 4],
-                gap: self.gap,
-                line_gap: self.line_gap,
-                align_items: self.align_items,
-                justify_content: self.justify_content,
-            }),
-        );
-        for child in &self.children {
-            builder.add_child(child.lower(cx));
-        }
-
-        cx.pop_scope();
+            builder
+        });
 
         let layout_id = builder.build(cx);
 
         if let Some(s) = &self.semantics {
-            let mut semantics_builder =
-                InternalIrBuilder::new(cx.next_node_id(), Op::Semantics(s.clone()));
+            let mut semantics_builder = IrBuilder::new(cx.next_node_id(), Op::Semantics(s.clone()));
             semantics_builder.add_child(layout_id);
             return semantics_builder.build(cx);
         }

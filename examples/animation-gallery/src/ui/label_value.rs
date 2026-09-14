@@ -1,6 +1,6 @@
 use crate::layout::LABEL_COLUMN_WIDTH;
 use crate::state::AnimationGalleryState;
-use crate::style::{INK, MUTED};
+use crate::style;
 use fission::prelude::*;
 
 pub struct LabelValue<'a> {
@@ -18,12 +18,12 @@ impl From<LabelValue<'_>> for Widget {
                 Container::new(
                     Text::new(value.label)
                         .size(tokens.typography.font_size_xs)
-                        .color(MUTED),
+                        .color(style::text_muted()),
                 )
                 .width(LABEL_COLUMN_WIDTH),
                 Text::new(value.value)
                     .size(tokens.typography.font_size_xs)
-                    .color(INK),
+                    .color(style::text_primary()),
             ],
             ..Default::default()
         }
