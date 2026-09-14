@@ -1,8 +1,8 @@
 <style>
   .fission-crates-enhanced-grid {
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 1.25rem;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0;
   }
 
   .fission-crates-enhanced-grid > * {
@@ -17,12 +17,13 @@
   .fission-crate-copy-button {
     appearance: none;
     min-height: 2.35rem;
-    border: 1px solid var(--atlas-line, currentColor);
-    border-radius: 0;
-    background: var(--atlas-surface, transparent);
-    color: var(--atlas-muted, inherit);
+    border: 0;
+    border-radius: 0.6rem;
+    background: transparent;
+    color: var(--fs-color-text-secondary, inherit);
     cursor: pointer;
-    font: 650 0.78rem "Space Grotesk", system-ui, sans-serif;
+    font: 600 0.82rem inherit;
+    font-family: inherit;
   }
 
   .fission-crate-filter-button {
@@ -31,22 +32,21 @@
 
   .fission-crate-filter-button:hover,
   .fission-crate-filter-button[data-active="true"] {
-    border-color: var(--atlas-blue, currentColor);
-    background: var(--atlas-surface-2, transparent);
-    color: var(--atlas-blue, inherit);
+    background: var(--fs-color-primary-subtle, transparent);
+    color: var(--fs-color-primary, inherit);
   }
 
   .fission-crate-filter-button:focus-visible,
   .fission-crate-copy-button:focus-visible,
   .fission-crate-sort:focus-visible,
   .fission-crate-search-input:focus-visible {
-    outline: 3px solid var(--atlas-violet, currentColor);
+    outline: 3px solid var(--fs-color-focus-ring, currentColor);
     outline-offset: 3px;
   }
 
   .fission-crate-copy-button {
     padding: 0.45rem 0.8rem;
-    color: var(--atlas-blue, inherit);
+    color: var(--fs-color-primary, inherit);
   }
 
   .fission-crate-empty-state {

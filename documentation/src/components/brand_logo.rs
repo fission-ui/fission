@@ -6,22 +6,12 @@ use fission::prelude::*;
 #[derive(Clone, Debug)]
 pub(super) struct BrandLogo {
     size: f32,
-    centered: bool,
     route: &'static str,
 }
 
 impl BrandLogo {
     pub(super) fn new(size: f32) -> Self {
-        Self {
-            size,
-            centered: false,
-            route: "/",
-        }
-    }
-
-    pub(super) fn centered(mut self) -> Self {
-        self.centered = true;
-        self
+        Self { size, route: "/" }
     }
 
     pub(super) fn route(mut self, route: &'static str) -> Self {
@@ -49,11 +39,7 @@ impl From<BrandLogo> for Widget {
             Some(0.0),
             FlexWrap::NoWrap,
             AlignItems::Center,
-            if brand.centered {
-                JustifyContent::Center
-            } else {
-                JustifyContent::Start
-            },
+            JustifyContent::Start,
         )
         .into()
     }

@@ -1,5 +1,5 @@
 use super::brand_logo::BrandLogo;
-use super::home_widgets::{nav_inset, Cta, SearchPill, ThemeToggle};
+use super::home_widgets::{nav_inset, Cta, ExternalNavLink, SearchPill, ThemeToggle};
 use super::state::DocsState;
 use fission::op::{AlignItems, Fill, FlexWrap, JustifyContent};
 use fission::prelude::*;
@@ -13,18 +13,8 @@ struct NavItem {
 
 const NAV_ITEMS: &[NavItem] = &[
     NavItem {
-        label: "Why Fission",
-        href: "/#why",
-        children: &[],
-    },
-    NavItem {
-        label: "Who it helps",
-        href: "/#value",
-        children: &[],
-    },
-    NavItem {
-        label: "How it works",
-        href: "/#approach",
+        label: "Product",
+        href: "/product/overview/",
         children: &[],
     },
     NavItem {
@@ -46,18 +36,13 @@ const NAV_ITEMS: &[NavItem] = &[
 
 const MOBILE_MENU_CHILDREN: &[NavItem] = &[
     NavItem {
-        label: "Why Fission",
-        href: "/#why",
-        children: &[],
-    },
-    NavItem {
-        label: "Who it helps",
-        href: "/#value",
+        label: "Product",
+        href: "/product/overview/",
         children: &[],
     },
     NavItem {
         label: "How it works",
-        href: "/#approach",
+        href: "/#how",
         children: &[],
     },
     NavItem {
@@ -244,8 +229,11 @@ impl From<HomePageNav> for Widget {
                 .into(),
                 Row {
                     children: vec![
+                        SearchPill.into(),
                         ThemeToggle.into(),
-                        Cta::new("Start building", "/docs/learn/quickstart/", false).into(),
+                        ExternalNavLink::new("GitHub", "https://github.com/fission-ui/fission")
+                            .into(),
+                        Cta::new("Get started", "/docs/learn/quickstart/", true).into(),
                     ],
                     gap: Some(tokens.spacing.m),
                     justify_content: JustifyContent::End,

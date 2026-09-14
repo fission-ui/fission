@@ -3,12 +3,13 @@ mod crates;
 mod footer;
 mod home;
 mod home_nav;
-mod home_sections;
 mod home_widgets;
+mod landing;
+mod landing_sections;
 mod localized;
 mod marketing;
+mod page_kit;
 mod state;
-mod value_home;
 
 pub(crate) use crates::{CrateDetailPage, CrateDirectoryPage};
 pub(crate) use footer::DocsFooter;

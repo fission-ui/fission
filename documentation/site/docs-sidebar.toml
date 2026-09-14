@@ -81,6 +81,11 @@ href = "/docs/guides/layout-and-widgets/"
 level = 2
 
 [[items]]
+title = "Advanced widget authoring"
+href = "/docs/guides/advanced-widget-authoring/"
+level = 2
+
+[[items]]
 title = "Input, events, text, and environment"
 href = "/docs/guides/input-events-text-and-env/"
 level = 2
