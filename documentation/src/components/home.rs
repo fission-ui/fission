@@ -1,6 +1,9 @@
 use super::home_nav::HomePageNav;
 use super::landing::LandingHero;
-use super::landing_sections::{CtaBand, DeliverySection, FoundationSection, TargetsSection};
+use super::landing_sections::{
+    CtaBand, DeliverySection, FoundationSection, GallerySection, StartSection, TargetsSection,
+    WriteOnceSection,
+};
 use super::state::DocsState;
 use fission::op::{AlignItems, Fill, JustifyContent};
 use fission::prelude::*;
@@ -47,8 +50,11 @@ impl From<HomePage> for Widget {
                         children: vec![
                             LandingHero.into(),
                             FoundationSection.into(),
+                            WriteOnceSection.into(),
                             TargetsSection.into(),
+                            GallerySection.into(),
                             DeliverySection.into(),
+                            StartSection.into(),
                             CtaBand.into(),
                         ],
                         gap: Some(0.0),

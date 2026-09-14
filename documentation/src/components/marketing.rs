@@ -1,7 +1,10 @@
 use super::home_nav::HomePageNav;
 use super::home_widgets::{site_semantics, Cta, NavLink, SemanticColumn, SemanticRow};
 use super::landing::{centred_band, landing_width};
-use super::landing_sections::{card, LandingSection};
+use super::page_kit::{
+    body_text, code_block, divided_list, heading_block, list_row, screenshot, split, steps,
+    CallToAction, HeadingAlign, Section,
+};
 use super::state::DocsState;
 use fission::op::{AlignItems, Fill, FlexWrap, JustifyContent};
 use fission::prelude::*;
@@ -540,7 +543,13 @@ impl From<ProductMarketingPage> for Widget {
                         FeatureSection { copy }.into(),
                         DetailSection { copy }.into(),
                         WorkflowSection { copy }.into(),
-                        ProductCallToAction { copy }.into(),
+                        CallToAction {
+                            title: copy.proof_label,
+                            body: copy.proof_body,
+                            primary: (copy.proof_cta_label, copy.proof_cta_href),
+                            secondary: Some(("Read the docs", "/docs/")),
+                        }
+                        .into(),
                     ],
                     Some(0.0),
                     AlignItems::Stretch,
@@ -556,7 +565,7 @@ impl From<ProductMarketingPage> for Widget {
     }
 }
 
-/// The product hero follows the home page hero: copy beside a visual on a tinted band.
+/// The product hero follows the home page hero: copy beside real content on a tinted band.
 #[derive(Clone, Copy, Debug)]
 struct ProductHero {
     kind: MarketingPageKind,
@@ -612,7 +621,7 @@ impl From<ProductHero> for Widget {
             "site-product-hero",
             Container::new(SemanticRow::new(
                 "site-landing-hero-main",
-                vec![copy_column.into(), ProductVisual { kind: hero.kind }.into()],
+                vec![copy_column.into(), product_visual(tokens, hero.kind)],
                 Some(tokens.spacing.xxxl),
                 FlexWrap::Wrap,
                 AlignItems::Center,
@@ -643,6 +652,100 @@ impl From<ProductHero> for Widget {
     }
 }
 
+const STATIC_SITE_CONFIG: &str = "# fission.toml for this documentation site
+[site]
+base_url = \"https://fission.rs\"
+generate_sitemap = true
+
+[[site.routes]]
+kind = \"content\"
+path = \"/docs\"
+source = \"content/docs\"
+template = \"fission::site::documentation\"
+
+$ fission site build --project-dir documentation";
+
+const SERVER_SITE_COMMANDS: &str = "# render every route, then serve locally
+fission server check --project-dir my-shop
+fission server routes --project-dir my-shop
+fission server serve --project-dir my-shop
+
+# build the server binary and browser assets
+fission server build --project-dir my-shop";
+
+const LIFECYCLE_COMMANDS: &str = "# find and run on real devices
+fission devices
+fission run --target android --device <device-id>
+
+# package the site for any static host
+fission package --project-dir documentation \\
+  --target site --format static --release";
+
+/// The hero's right-hand side: a real screenshot, real configuration or real chart output.
+fn product_visual(tokens: &Tokens, kind: MarketingPageKind) -> Widget {
+    let (width, height) = (560.0, 350.0);
+    match kind {
+        MarketingPageKind::Overview => screenshot(
+            tokens,
+            "/img/examples/widget-gallery.png",
+            width,
+            height,
+            "The widget gallery example",
+        ),
+        MarketingPageKind::CrossPlatformApps => screenshot(
+            tokens,
+            "/img/examples/inbox.png",
+            width,
+            height,
+            "The inbox example on desktop",
+        ),
+        MarketingPageKind::TerminalApps => screenshot(
+            tokens,
+            "/img/examples/terminal.png",
+            width,
+            width * 700.0 / 1100.0,
+            "The terminal example",
+        ),
+        MarketingPageKind::DeveloperTools => screenshot(
+            tokens,
+            "/img/examples/editor.png",
+            width,
+            height,
+            "The editor example",
+        ),
+        MarketingPageKind::DesignSystems => screenshot(
+            tokens,
+            "/img/examples/widget-gallery.png",
+            width,
+            height,
+            "Built-in widgets styled by one set of design tokens",
+        ),
+        MarketingPageKind::StaticSites => {
+            code_block(tokens, "site-product-code:static", STATIC_SITE_CONFIG)
+        }
+        MarketingPageKind::ServerSites => {
+            code_block(tokens, "site-product-code:server", SERVER_SITE_COMMANDS)
+        }
+        MarketingPageKind::ProductionLifecycle => {
+            code_block(tokens, "site-product-code:lifecycle", LIFECYCLE_COMMANDS)
+        }
+        MarketingPageKind::Charts => Row {
+            children: [
+                "/img/charts/line-gradient-area.png",
+                "/img/charts/bar-horizontal.png",
+                "/img/charts/sankey-energy.png",
+                "/img/charts/analytics-device-donut.png",
+            ]
+            .into_iter()
+            .map(|src| screenshot(tokens, src, 272.0, 204.0, ""))
+            .collect(),
+            semantics: Some(site_semantics("site-kit-thumbs")),
+            ..Default::default()
+        }
+        .into(),
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 struct ProductNavStrip;
 
@@ -664,25 +767,16 @@ impl From<ProductNavStrip> for Widget {
         let strip = Row {
             children: links
                 .into_iter()
-                .map(|(label, href)| {
-                    Container::new(NavLink::new(label, href))
-                        .padding([
-                            tokens.spacing.m,
-                            tokens.spacing.m,
-                            tokens.spacing.s,
-                            tokens.spacing.s,
-                        ])
-                        .into()
-                })
+                .map(|(label, href)| NavLink::new(label, href).into())
                 .collect(),
-            gap: Some(tokens.spacing.s),
+            gap: Some(tokens.spacing.xl),
             wrap: FlexWrap::Wrap,
             justify_content: JustifyContent::Center,
             align_items: AlignItems::Center,
             semantics: Some(site_semantics("site-product-nav-strip")),
             ..Default::default()
         };
-        Container::new(centred_band("site-landing-band", strip.into()))
+        Container::new(centred_band("site-kit-band", strip.into()))
             .padding([
                 tokens.spacing.xl,
                 tokens.spacing.xl,
@@ -694,46 +788,37 @@ impl From<ProductNavStrip> for Widget {
     }
 }
 
-/// A card with a small label, a heading, body copy and an optional link.
-fn copy_card(
-    tokens: &Tokens,
-    identifier: &'static str,
-    label: String,
-    title: &'static str,
-    body: &'static str,
-    link: Option<(&'static str, &'static str)>,
-) -> Widget {
-    let mut children: Vec<Widget> = vec![
-        Text::new(label)
-            .size(tokens.typography.font_size_xs)
-            .weight(tokens.typography.font_weight_bold)
-            .color(tokens.colors.primary)
-            .into(),
-        Text::new(title)
-            .size(tokens.typography.font_size_lg)
-            .weight(tokens.typography.font_weight_bold)
-            .color(tokens.colors.heading)
-            .into(),
-        Text::new(body)
-            .size(tokens.typography.font_size_base)
-            .line_height(tokens.typography.font_size_base * tokens.typography.line_height_relaxed)
-            .color(tokens.colors.text_secondary)
-            .into(),
-    ];
-    if let Some((label, href)) = link {
-        children.push(NavLink::new(label, href).into());
-    }
-    card(tokens, identifier, children)
-}
-
-fn card_grid(tokens: &Tokens, cards: Vec<Widget>) -> Widget {
+/// Open text columns: a small label, a heading and an explanation.
+fn text_columns(tokens: &Tokens, features: &[FeatureCopy]) -> Widget {
     SemanticRow::new(
-        "site-landing-feature-grid",
-        cards,
-        Some(tokens.spacing.l),
+        "site-kit-columns",
+        features
+            .iter()
+            .map(|feature| {
+                Column {
+                    children: vec![
+                        Text::new(feature.label.to_uppercase())
+                            .size(tokens.typography.font_size_xs)
+                            .weight(tokens.typography.font_weight_bold)
+                            .color(tokens.colors.primary)
+                            .into(),
+                        Text::new(feature.title)
+                            .size(tokens.typography.font_size_lg)
+                            .weight(tokens.typography.font_weight_bold)
+                            .color(tokens.colors.heading)
+                            .into(),
+                        body_text(tokens, feature.body),
+                    ],
+                    gap: Some(tokens.spacing.s),
+                    ..Default::default()
+                }
+                .into()
+            })
+            .collect(),
+        Some(tokens.spacing.xl),
         FlexWrap::Wrap,
-        AlignItems::Stretch,
-        JustifyContent::Center,
+        AlignItems::Start,
+        JustifyContent::SpaceBetween,
     )
     .into()
 }
@@ -747,29 +832,15 @@ impl From<FeatureSection> for Widget {
     fn from(section: FeatureSection) -> Self {
         let (_ctx, view) = fission::build::current::<DocsState>();
         let tokens = &view.env().theme.tokens;
-        let cards = section
-            .copy
-            .features
-            .iter()
-            .map(|feature| {
-                copy_card(
-                    tokens,
-                    "site-product-feature-card",
-                    feature.label.to_uppercase(),
-                    feature.title,
-                    feature.body,
-                    None,
-                )
-            })
-            .collect();
-        LandingSection {
+        Section {
             identifier: "site-product-features",
-            anchor: "features",
+            anchor: Some("features"),
             eyebrow: section.copy.feature_label,
             title: section.copy.feature_title,
             lead: section.copy.feature_body,
-            content: card_grid(tokens, cards),
+            align: HeadingAlign::Center,
             tinted: false,
+            content: vec![text_columns(tokens, section.copy.features)],
         }
         .into()
     }
@@ -784,29 +855,42 @@ impl From<DetailSection> for Widget {
     fn from(section: DetailSection) -> Self {
         let (_ctx, view) = fission::build::current::<DocsState>();
         let tokens = &view.env().theme.tokens;
-        let cards = section
+        let heading = heading_block(
+            tokens,
+            Some("details"),
+            section.copy.details_label,
+            section.copy.details_title,
+            section.copy.details_body,
+            false,
+        );
+        let rows = section
             .copy
             .details
             .iter()
             .map(|detail| {
-                copy_card(
+                list_row(
                     tokens,
-                    "site-product-detail-card",
-                    detail.label.to_uppercase(),
+                    detail.label,
                     detail.title,
                     detail.body,
                     Some((detail.link_label, detail.href)),
                 )
             })
             .collect();
-        LandingSection {
+        Section {
             identifier: "site-product-details",
-            anchor: "details",
-            eyebrow: section.copy.details_label,
-            title: section.copy.details_title,
-            lead: section.copy.details_body,
-            content: card_grid(tokens, cards),
+            anchor: None,
+            eyebrow: "",
+            title: "",
+            lead: "",
+            align: HeadingAlign::Start,
             tinted: true,
+            content: vec![split(
+                tokens,
+                "site-kit-split",
+                heading,
+                divided_list(tokens, "site-kit-list", rows),
+            )],
         }
         .into()
     }
@@ -821,420 +905,22 @@ impl From<WorkflowSection> for Widget {
     fn from(section: WorkflowSection) -> Self {
         let (_ctx, view) = fission::build::current::<DocsState>();
         let tokens = &view.env().theme.tokens;
-        let cards = section
+        let items: Vec<(&'static str, &'static str)> = section
             .copy
             .workflow
             .iter()
-            .enumerate()
-            .map(|(index, step)| {
-                copy_card(
-                    tokens,
-                    "site-product-workflow-step",
-                    format!("STEP {:02}", index + 1),
-                    step.label,
-                    step.body,
-                    None,
-                )
-            })
+            .map(|step| (step.label, step.body))
             .collect();
-        LandingSection {
+        Section {
             identifier: "site-product-workflow",
-            anchor: "workflow",
+            anchor: Some("workflow"),
             eyebrow: section.copy.workflow_label,
             title: section.copy.workflow_title,
             lead: "",
-            content: card_grid(tokens, cards),
+            align: HeadingAlign::Center,
             tinted: false,
+            content: vec![steps(tokens, "site-kit-steps", &items)],
         }
         .into()
-    }
-}
-
-/// The closing call to action, matching the home page's gradient band.
-#[derive(Clone, Copy, Debug)]
-struct ProductCallToAction {
-    copy: PageCopy,
-}
-
-impl From<ProductCallToAction> for Widget {
-    fn from(band: ProductCallToAction) -> Self {
-        let (_ctx, view) = fission::build::current::<DocsState>();
-        let tokens = &view.env().theme.tokens;
-        let inner = Container::new(SemanticRow::new(
-            "site-landing-cta",
-            vec![
-                Column {
-                    children: vec![
-                        Text::new(band.copy.proof_label)
-                            .size(tokens.typography.heading_size)
-                            .weight(tokens.typography.font_weight_bold)
-                            .color(Color::WHITE)
-                            .into(),
-                        Text::new(band.copy.proof_body)
-                            .size(tokens.typography.font_size_base)
-                            .line_height(
-                                tokens.typography.font_size_base
-                                    * tokens.typography.line_height_relaxed,
-                            )
-                            .color(Color::WHITE.with_alpha(220))
-                            .max_width(680.0)
-                            .into(),
-                    ],
-                    gap: Some(tokens.spacing.xs),
-                    flex_shrink: 1.0,
-                    ..Default::default()
-                }
-                .into(),
-                Row {
-                    children: vec![Cta::new(
-                        band.copy.proof_cta_label,
-                        band.copy.proof_cta_href,
-                        false,
-                    )
-                    .into()],
-                    semantics: Some(site_semantics("site-landing-cta-actions")),
-                    ..Default::default()
-                }
-                .into(),
-            ],
-            Some(tokens.spacing.l),
-            FlexWrap::Wrap,
-            AlignItems::Center,
-            JustifyContent::SpaceBetween,
-        ))
-        .width_length(Length::percent(100.0))
-        .max_width(landing_width(tokens))
-        .padding_all(tokens.spacing.xl)
-        .bg_fill(Fill::LinearGradient {
-            start: (0.0, 0.0),
-            end: (1.0, 0.0),
-            stops: vec![(0.0, tokens.colors.primary), (1.0, tokens.colors.secondary)],
-            extend: Default::default(),
-        })
-        .border_radius(tokens.radii.xxl);
-        Container::new(centred_band("site-landing-band", inner.into()))
-            .padding([
-                tokens.spacing.xl,
-                tokens.spacing.xl,
-                tokens.spacing.l,
-                tokens.spacing.xxxl,
-            ])
-            .width_length(Length::percent(100.0))
-            .into()
-    }
-}
-
-#[derive(Clone, Copy, Debug)]
-struct ProductVisual {
-    kind: MarketingPageKind,
-}
-
-impl From<ProductVisual> for Widget {
-    fn from(visual: ProductVisual) -> Self {
-        let (_ctx, view) = fission::build::current::<DocsState>();
-        let tokens = &view.env().theme.tokens;
-        let child: Widget = match visual.kind {
-            MarketingPageKind::Charts => ChartVisual.into(),
-            MarketingPageKind::TerminalApps => ScreenshotVisual {
-                title: "Terminal example",
-                src: "/img/examples/terminal.png",
-                aspect: 700.0 / 1100.0,
-            }
-            .into(),
-            MarketingPageKind::StaticSites => VisualStack::new(
-                "Static site build",
-                &[
-                    ("Custom route", "/product/overview/"),
-                    ("Content route", "/docs/learn/quickstart/"),
-                    ("Generated", "HTML  CSS  search  sitemap"),
-                ],
-            )
-            .into(),
-            MarketingPageKind::ServerSites => VisualStack::new(
-                "Server site",
-                &[
-                    ("Route", "ServerPrivate / Revalidated"),
-                    ("Data", "jobs  cache  sessions"),
-                    ("Actions", "signed reducer dispatch"),
-                    ("Browser", "worker  island  assets"),
-                ],
-            )
-            .into(),
-            MarketingPageKind::ProductionLifecycle => VisualStack::new(
-                "Release pipeline",
-                &[
-                    ("Preflight", "SDKs  signing  credentials"),
-                    ("Package", "artifact-manifest.json"),
-                    ("Publish", "stores  hosts  releases"),
-                    ("Receipt", "CI-readable output"),
-                ],
-            )
-            .into(),
-            MarketingPageKind::DeveloperTools => ScreenshotVisual {
-                title: "Editor example",
-                src: "/img/examples/editor.png",
-                aspect: 800.0 / 1280.0,
-            }
-            .into(),
-            MarketingPageKind::DesignSystems => VisualStack::new(
-                "Design system",
-                &[
-                    ("DSP JSON", "tokens and components"),
-                    ("Codegen", "typed Rust theme"),
-                    ("Runtime", "Env selects active theme"),
-                    ("Surfaces", "widgets and charts"),
-                ],
-            )
-            .into(),
-            MarketingPageKind::CrossPlatformApps => ScreenshotVisual {
-                title: "Inbox example",
-                src: "/img/examples/inbox.png",
-                aspect: 800.0 / 1280.0,
-            }
-            .into(),
-            MarketingPageKind::Overview => VisualStack::new(
-                "Platform map",
-                &[
-                    ("App model", "State / reducers / widgets"),
-                    (
-                        "Targets",
-                        "macOS / Windows / Linux / Web / Android / iOS / Terminal / Static / SSR",
-                    ),
-                    ("Lifecycle", "Package / sign / release / receipts"),
-                ],
-            )
-            .into(),
-        };
-
-        Container::new(child)
-            .width(tokens.spacing.xxxxl * 4.35)
-            .flex_shrink(1.0)
-            .padding_all(tokens.spacing.l)
-            .bg_fill(Fill::Solid(tokens.colors.surface_sunken))
-            .border_radius(tokens.radii.xxl)
-            .into()
-    }
-}
-
-#[derive(Clone, Copy, Debug)]
-struct ChartVisual;
-
-impl From<ChartVisual> for Widget {
-    fn from(_visual: ChartVisual) -> Self {
-        let (_ctx, view) = fission::build::current::<DocsState>();
-        let tokens = &view.env().theme.tokens;
-        Column {
-            children: vec![
-                VisualHeader {
-                    title: "Chart views",
-                }
-                .into(),
-                Row {
-                    children: vec![
-                        ChartThumb {
-                            src: "/img/charts/line-gradient-area.png",
-                        }
-                        .into(),
-                        ChartThumb {
-                            src: "/img/charts/bar-horizontal.png",
-                        }
-                        .into(),
-                    ],
-                    gap: Some(tokens.spacing.s),
-                    wrap: FlexWrap::Wrap,
-                    ..Default::default()
-                }
-                .into(),
-                Row {
-                    children: vec![
-                        ChartThumb {
-                            src: "/img/charts/sankey-energy.png",
-                        }
-                        .into(),
-                        ChartThumb {
-                            src: "/img/charts/surface3d-wave.png",
-                        }
-                        .into(),
-                    ],
-                    gap: Some(tokens.spacing.s),
-                    wrap: FlexWrap::Wrap,
-                    ..Default::default()
-                }
-                .into(),
-            ],
-            gap: Some(tokens.spacing.m),
-            ..Default::default()
-        }
-        .into()
-    }
-}
-
-/// A real screenshot of an example app, framed like the other product visuals.
-#[derive(Clone, Copy, Debug)]
-struct ScreenshotVisual {
-    title: &'static str,
-    src: &'static str,
-    /// Height divided by width of the source image.
-    aspect: f32,
-}
-
-impl From<ScreenshotVisual> for Widget {
-    fn from(visual: ScreenshotVisual) -> Self {
-        let (_ctx, view) = fission::build::current::<DocsState>();
-        let tokens = &view.env().theme.tokens;
-        let width = tokens.spacing.xxxxl * 4.35 - tokens.spacing.l * 2.0;
-        Column {
-            children: vec![
-                VisualHeader {
-                    title: visual.title,
-                }
-                .into(),
-                Container::new(Image::asset(visual.src).size(width, width * visual.aspect))
-                    .border_radius(tokens.radii.large)
-                    .into(),
-            ],
-            gap: Some(tokens.spacing.m),
-            ..Default::default()
-        }
-        .into()
-    }
-}
-
-#[derive(Clone, Copy, Debug)]
-struct VisualStack {
-    title: &'static str,
-    rows: &'static [(&'static str, &'static str)],
-}
-
-impl VisualStack {
-    fn new(title: &'static str, rows: &'static [(&'static str, &'static str)]) -> Self {
-        Self { title, rows }
-    }
-}
-
-impl From<VisualStack> for Widget {
-    fn from(stack: VisualStack) -> Self {
-        let (_ctx, view) = fission::build::current::<DocsState>();
-        let tokens = &view.env().theme.tokens;
-        Column {
-            children: std::iter::once(VisualHeader { title: stack.title }.into())
-                .chain(
-                    stack
-                        .rows
-                        .iter()
-                        .map(|(label, body)| VisualRow { label, body }.into()),
-                )
-                .collect(),
-            gap: Some(tokens.spacing.m),
-            ..Default::default()
-        }
-        .into()
-    }
-}
-
-#[derive(Clone, Copy, Debug)]
-struct VisualHeader {
-    title: &'static str,
-}
-
-impl From<VisualHeader> for Widget {
-    fn from(header: VisualHeader) -> Self {
-        let (_ctx, view) = fission::build::current::<DocsState>();
-        let tokens = &view.env().theme.tokens;
-        Row {
-            children: vec![
-                VisualDot {
-                    color: tokens.colors.error,
-                }
-                .into(),
-                VisualDot {
-                    color: tokens.colors.warning,
-                }
-                .into(),
-                VisualDot {
-                    color: tokens.colors.success,
-                }
-                .into(),
-                Text::new(header.title)
-                    .size(tokens.typography.font_size_sm)
-                    .family(tokens.typography.font_family_mono.clone())
-                    .color(tokens.colors.text_secondary)
-                    .into(),
-            ],
-            gap: Some(tokens.spacing.s),
-            align_items: AlignItems::Center,
-            ..Default::default()
-        }
-        .into()
-    }
-}
-
-#[derive(Clone, Copy, Debug)]
-struct VisualRow {
-    label: &'static str,
-    body: &'static str,
-}
-
-impl From<VisualRow> for Widget {
-    fn from(row: VisualRow) -> Self {
-        let (_ctx, view) = fission::build::current::<DocsState>();
-        let tokens = &view.env().theme.tokens;
-        Container::new(Row {
-            children: vec![
-                Text::new(row.label)
-                    .size(tokens.typography.font_size_sm)
-                    .weight(tokens.typography.font_weight_bold)
-                    .color(tokens.colors.heading)
-                    .into(),
-                Text::new(row.body)
-                    .size(tokens.typography.font_size_sm)
-                    .family(tokens.typography.font_family_mono.clone())
-                    .color(tokens.colors.text_secondary)
-                    .into(),
-            ],
-            gap: Some(tokens.spacing.m),
-            wrap: FlexWrap::Wrap,
-            justify_content: JustifyContent::SpaceBetween,
-            ..Default::default()
-        })
-        .padding([0.0, 0.0, tokens.spacing.xs, tokens.spacing.xs])
-        .into()
-    }
-}
-
-#[derive(Clone, Copy, Debug)]
-struct ChartThumb {
-    src: &'static str,
-}
-
-impl From<ChartThumb> for Widget {
-    fn from(thumb: ChartThumb) -> Self {
-        let (_ctx, view) = fission::build::current::<DocsState>();
-        let tokens = &view.env().theme.tokens;
-        Container::new(
-            Image::asset(thumb.src).size(tokens.spacing.xxxxl * 1.85, tokens.spacing.xxxxl * 1.05),
-        )
-        .padding_all(tokens.spacing.xs)
-        .bg_fill(Fill::Solid(tokens.colors.on_surface.with_alpha(245)))
-        .border_radius(tokens.radii.large)
-        .into()
-    }
-}
-
-#[derive(Clone, Copy, Debug)]
-struct VisualDot {
-    color: Color,
-}
-
-impl From<VisualDot> for Widget {
-    fn from(dot: VisualDot) -> Self {
-        let (_ctx, view) = fission::build::current::<DocsState>();
-        let tokens = &view.env().theme.tokens;
-        Container::new(Text::new(" "))
-            .width(tokens.spacing.s)
-            .height(tokens.spacing.s)
-            .bg_fill(Fill::Solid(dot.color))
-            .border_radius(tokens.radii.full)
-            .into()
     }
 }

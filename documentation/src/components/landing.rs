@@ -1,7 +1,7 @@
 //! The home page hero: headline, calls to action, install command and a composite of real
 //! screenshots of Fission examples on several surfaces.
 
-use super::home_widgets::{site_semantics, Cta, NavLink, SemanticColumn, SemanticRow};
+use super::home_widgets::{site_semantics, Cta, SemanticColumn, SemanticRow};
 use super::state::DocsState;
 use fission::op::{AlignItems, BoxShadow, Fill, FlexWrap, JustifyContent};
 use fission::prelude::*;
@@ -333,9 +333,4 @@ impl From<SurfaceLabel> for Widget {
         )
         .into()
     }
-}
-
-/// A "Read the docs" style text link, kept here so sections can share it.
-pub(super) fn text_link(label: &'static str, href: &'static str) -> Widget {
-    NavLink::new(label, href).into()
 }

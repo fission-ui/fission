@@ -199,8 +199,6 @@ impl From<FeaturedCrate> for Widget {
         .width_length(Length::percent(100.0))
         .max_width(landing_width(tokens))
         .padding_all(tokens.spacing.xl)
-        .bg_fill(Fill::Solid(tokens.colors.surface_sunken))
-        .border_radius(tokens.radii.xxl)
         .into()
     }
 }
@@ -630,7 +628,7 @@ impl From<CrateCard> for Widget {
         Container::new(Column {
             children: vec![
                 SemanticRow::new(
-                    format!("site-route:{href}"),
+                    "crate-card-heading",
                     vec![
                         Text::new(item.name.clone())
                             .size(tokens.typography.font_size_lg)
@@ -704,10 +702,7 @@ impl From<CrateCard> for Widget {
             semantics: Some(site_semantics(format!("crate-card:{}", item.name))),
             ..Default::default()
         })
-        .padding_all(tokens.spacing.l)
-        .bg(tokens.colors.surface_raised)
-        .border_radius(tokens.radii.xl)
-        .min_height(240.0)
+        .padding([0.0, 0.0, tokens.spacing.l, tokens.spacing.l])
         .into()
     }
 }
@@ -1231,9 +1226,6 @@ impl From<CrateMetadata> for Widget {
             semantics: Some(site_semantics("crate-metadata")),
             ..Default::default()
         })
-        .padding_all(tokens.spacing.l)
-        .bg(tokens.colors.surface_sunken)
-        .border_radius(tokens.radii.xl)
         .into()
     }
 }

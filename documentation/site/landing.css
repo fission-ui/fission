@@ -440,3 +440,202 @@
   background: transparent !important;
   color: var(--fs-color-text-muted) !important;
 }
+
+/* Page kit: open columns, splits, steps, galleries and divided lists. Named nodes are block
+   wrappers around the flex row or column the widget produced. */
+.fission-site-kit-band {
+  box-sizing: border-box;
+  width: 100% !important;
+}
+
+.fission-site-kit-columns,
+.fission-site-kit-steps,
+.fission-site-kit-gallery,
+.fission-site-kit-targets,
+.fission-site-kit-split {
+  width: 100% !important;
+}
+
+.fission-site-kit-columns > .fission-site-row,
+.fission-site-kit-steps > .fission-site-row {
+  display: grid !important;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  gap: 2.5rem 3rem !important;
+  width: 100% !important;
+}
+
+.fission-site-kit-gallery > .fission-site-row {
+  display: grid !important;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 2rem !important;
+  width: 100% !important;
+}
+
+.fission-site-kit-targets > .fission-site-row {
+  display: grid !important;
+  grid-template-columns: repeat(9, minmax(0, 1fr));
+  gap: 1.5rem 1rem !important;
+  width: 100% !important;
+}
+
+.fission-site-kit-split > .fission-site-row {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr);
+  gap: clamp(2rem, 5vw, 4.5rem) !important;
+  align-items: center !important;
+  width: 100% !important;
+}
+
+.fission-site-kit-columns > .fission-site-row > *,
+.fission-site-kit-steps > .fission-site-row > *,
+.fission-site-kit-gallery > .fission-site-row > *,
+.fission-site-kit-targets > .fission-site-row > *,
+.fission-site-kit-split > .fission-site-row > * {
+  width: auto !important;
+  min-width: 0 !important;
+  max-width: none !important;
+}
+
+/* Screenshots scale with their column. */
+[data-fission-semantics="site-kit-screenshot"] .fission-site-box,
+[data-fission-semantics="site-kit-screenshot"] .fission-site-img {
+  width: 100% !important;
+  height: auto !important;
+}
+
+/* Divided lists: a hairline between rows, none above the first. */
+[data-fission-semantics="site-kit-list-row"] {
+  padding: 1.25rem 0 !important;
+  border-top: 1px solid var(--fs-color-border);
+}
+
+[data-fission-semantics="site-kit-list-row"]:first-child,
+.fission-site-kit-list > .fission-site-column > :first-child [data-fission-semantics="site-kit-list-row"] {
+  border-top: 0;
+}
+
+@media (max-width: 1000px) {
+  .fission-site-kit-split > .fission-site-row,
+  .fission-site-kit-gallery > .fission-site-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .fission-site-kit-targets > .fission-site-row {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .fission-site-kit-targets > .fission-site-row {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+/* Gallery screenshots share one shape so captions line up. */
+.fission-site-kit-gallery [data-fission-semantics="site-kit-screenshot"] .fission-site-img {
+  aspect-ratio: 16 / 10;
+  object-fit: cover;
+  object-position: top left;
+}
+
+/* A two-by-two grid of chart images inside a product hero. */
+.fission-site-kit-thumbs {
+  width: 100% !important;
+}
+
+.fission-site-kit-thumbs > .fission-site-row {
+  display: grid !important;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem !important;
+  width: 100% !important;
+}
+
+.fission-site-kit-thumbs > .fission-site-row > * {
+  width: auto !important;
+  min-width: 0 !important;
+}
+
+.fission-site-kit-thumbs [data-fission-semantics="site-kit-screenshot"] .fission-site-img {
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+}
+
+/* Crates: results read as a divided list and the featured crate sits on a tinted band. */
+.fission-crates-enhanced-grid {
+  gap: 0 !important;
+}
+
+[data-fission-semantics^="crate-card:"] {
+  border-top: 1px solid var(--fs-color-border);
+}
+
+.fission-crates-enhanced-grid > :first-child [data-fission-semantics^="crate-card:"],
+.fission-crates-enhanced-grid > [data-fission-semantics^="crate-card:"]:first-child {
+  border-top: 0;
+}
+
+.fission-site-crate-band:has([data-fission-semantics="crate-featured"]) {
+  padding-block: 3rem !important;
+  background: var(--fs-color-surface-sunken);
+}
+
+/* Blog index: the featured post is an open text block and posts are a divided list with the date
+   beside the title, summary and tags. */
+.fission-site-blog-featured-card,
+.fission-site-blog-featured-card:hover {
+  padding: 0 0 2.5rem !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  transform: none !important;
+}
+
+.fission-site-blog-post-list > .fission-site-column {
+  grid-template-columns: minmax(0, 1fr) !important;
+  gap: 0 !important;
+}
+
+.fission-site-blog-card,
+.fission-site-blog-card:hover {
+  height: auto !important;
+  padding: 1.75rem 0 !important;
+  border-top: 1px solid var(--fs-color-border) !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  transform: none !important;
+}
+
+.fission-site-blog-card > .fission-site-column {
+  display: grid !important;
+  grid-template-columns: 11rem minmax(0, 1fr);
+  column-gap: 2rem !important;
+  row-gap: 0.5rem !important;
+  align-items: start !important;
+}
+
+.fission-site-blog-card > .fission-site-column > :first-child {
+  grid-column: 1;
+  grid-row: 1 / span 5;
+}
+
+.fission-site-blog-card > .fission-site-column > :not(:first-child) {
+  grid-column: 2;
+}
+
+@media (max-width: 640px) {
+  .fission-site-blog-card > .fission-site-column {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .fission-site-blog-card > .fission-site-column > :first-child,
+  .fission-site-blog-card > .fission-site-column > :not(:first-child) {
+    grid-column: 1;
+    grid-row: auto;
+  }
+}
+
+/* Only site-* identifiers become classes, so the featured crate band is matched by its semantics
+   attribute. */
+[data-fission-semantics="crate-band"]:has([data-fission-semantics="crate-featured"]) {
+  padding-block: 3rem !important;
+  background: var(--fs-color-surface-sunken);
+}

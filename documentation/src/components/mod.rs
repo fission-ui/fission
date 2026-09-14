@@ -8,6 +8,7 @@ mod landing;
 mod landing_sections;
 mod localized;
 mod marketing;
+mod page_kit;
 mod state;
 
 pub(crate) use crates::{CrateDetailPage, CrateDirectoryPage};
