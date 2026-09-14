@@ -8,14 +8,14 @@ use fission::op::{AlignItems, Fill, FlexWrap, JustifyContent, TextAlign};
 use fission::prelude::*;
 
 /// A centred section with a heading, a lead paragraph and its content, lined up to the page width.
-struct LandingSection {
-    identifier: &'static str,
-    anchor: &'static str,
-    eyebrow: &'static str,
-    title: &'static str,
-    lead: &'static str,
-    content: Widget,
-    tinted: bool,
+pub(super) struct LandingSection {
+    pub(super) identifier: &'static str,
+    pub(super) anchor: &'static str,
+    pub(super) eyebrow: &'static str,
+    pub(super) title: &'static str,
+    pub(super) lead: &'static str,
+    pub(super) content: Widget,
+    pub(super) tinted: bool,
 }
 
 impl From<LandingSection> for Widget {
@@ -71,7 +71,7 @@ impl From<LandingSection> for Widget {
 }
 
 /// A bordered card used by every landing section.
-fn card(tokens: &Tokens, identifier: &'static str, children: Vec<Widget>) -> Widget {
+pub(super) fn card(tokens: &Tokens, identifier: &'static str, children: Vec<Widget>) -> Widget {
     Container::new(SemanticColumn::new(
         identifier,
         children,
@@ -85,7 +85,7 @@ fn card(tokens: &Tokens, identifier: &'static str, children: Vec<Widget>) -> Wid
     .into()
 }
 
-fn icon_heading(
+pub(super) fn icon_heading(
     tokens: &Tokens,
     icon: &'static str,
     title: &'static str,
@@ -132,7 +132,7 @@ fn icon_heading(
 }
 
 /// Monospaced code shown on a dark panel, identical in light and dark themes.
-fn code_panel(tokens: &Tokens, identifier: &'static str, code: &'static str) -> Widget {
+pub(super) fn code_panel(tokens: &Tokens, identifier: &'static str, code: &'static str) -> Widget {
     Container::new(
         Text::new(code)
             .size(tokens.typography.font_size_sm)
@@ -157,7 +157,7 @@ fn code_panel(tokens: &Tokens, identifier: &'static str, code: &'static str) -> 
     .into()
 }
 
-fn chip(tokens: &Tokens, icon: &'static str, label: &'static str) -> Widget {
+pub(super) fn chip(tokens: &Tokens, icon: &'static str, label: &'static str) -> Widget {
     Container::new(Row {
         children: vec![
             Icon::svg(icon)

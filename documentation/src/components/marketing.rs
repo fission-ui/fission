@@ -1,7 +1,7 @@
 use super::home_nav::HomePageNav;
-use super::home_widgets::{
-    content_width, site_semantics, Cta, NavLink, Pill, SemanticColumn, SemanticRow,
-};
+use super::home_widgets::{site_semantics, Cta, NavLink, SemanticColumn, SemanticRow};
+use super::landing::{centred_band, landing_width};
+use super::landing_sections::{card, LandingSection};
 use super::state::DocsState;
 use fission::op::{AlignItems, Fill, FlexWrap, JustifyContent};
 use fission::prelude::*;
@@ -528,37 +528,23 @@ impl From<ProductMarketingPage> for Widget {
         Container::new(Column {
             children: vec![
                 HomePageNav.into(),
-                Row {
-                    children: vec![Container::new(SemanticColumn::new(
-                        "site-product-page",
-                        vec![
-                            MarketingHero {
-                                kind: component.kind,
-                                copy,
-                            }
-                            .into(),
-                            ProductNavStrip.into(),
-                            FeatureShowcase { copy }.into(),
-                            DetailShowcase { copy }.into(),
-                            WorkflowShowcase { copy }.into(),
-                            ProofBand { copy }.into(),
-                        ],
-                        Some(tokens.spacing.xxxl),
-                        AlignItems::Stretch,
-                    ))
-                    .max_width(content_width(tokens))
-                    .flex_grow(1.0)
-                    .flex_shrink(1.0)
-                    .padding([
-                        tokens.spacing.xl,
-                        tokens.spacing.xl,
-                        tokens.spacing.xl,
-                        tokens.spacing.xxxxl,
-                    ])
-                    .into()],
-                    justify_content: JustifyContent::Center,
-                    ..Default::default()
-                }
+                SemanticColumn::new(
+                    "site-product-page",
+                    vec![
+                        ProductHero {
+                            kind: component.kind,
+                            copy,
+                        }
+                        .into(),
+                        ProductNavStrip.into(),
+                        FeatureSection { copy }.into(),
+                        DetailSection { copy }.into(),
+                        WorkflowSection { copy }.into(),
+                        ProductCallToAction { copy }.into(),
+                    ],
+                    Some(0.0),
+                    AlignItems::Stretch,
+                )
                 .into(),
             ],
             gap: Some(tokens.spacing.none),
@@ -570,82 +556,89 @@ impl From<ProductMarketingPage> for Widget {
     }
 }
 
+/// The product hero follows the home page hero: copy beside a visual on a tinted band.
 #[derive(Clone, Copy, Debug)]
-struct MarketingHero {
+struct ProductHero {
     kind: MarketingPageKind,
     copy: PageCopy,
 }
 
-impl From<MarketingHero> for Widget {
-    fn from(hero: MarketingHero) -> Self {
+impl From<ProductHero> for Widget {
+    fn from(hero: ProductHero) -> Self {
         let (_ctx, view) = fission::build::current::<DocsState>();
         let tokens = &view.env().theme.tokens;
-
-        Container::new(SemanticRow::new(
-            "site-product-hero",
+        let copy_column = SemanticColumn::new(
+            "site-product-hero-copy",
             vec![
-                Container::new(Column {
+                Text::new(hero.copy.eyebrow.to_uppercase())
+                    .size(tokens.typography.font_size_sm)
+                    .weight(tokens.typography.font_weight_bold)
+                    .color(tokens.colors.primary)
+                    .into(),
+                Text::new(hero.copy.title)
+                    .size(tokens.typography.heading1_size)
+                    .line_height(
+                        tokens.typography.heading1_size * tokens.typography.line_height_heading,
+                    )
+                    .weight(tokens.typography.font_weight_bold)
+                    .color(tokens.colors.heading)
+                    .max_width(640.0)
+                    .semantics_identifier("site-product-hero-title")
+                    .into(),
+                Text::new(hero.copy.body)
+                    .size(tokens.typography.body_large_size)
+                    .line_height(
+                        tokens.typography.body_large_size * tokens.typography.line_height_relaxed,
+                    )
+                    .color(tokens.colors.text_secondary)
+                    .max_width(600.0)
+                    .into(),
+                Row {
                     children: vec![
-                        Pill::new(hero.copy.eyebrow).into(),
-                        Text::new(hero.copy.title)
-                            .size(tokens.typography.heading1_size)
-                            .family(tokens.typography.font_family_sans.clone())
-                            .line_height(
-                                tokens.typography.heading1_size
-                                    * tokens.typography.line_height_heading,
-                            )
-                            .weight(tokens.typography.font_weight_bold)
-                            .color(tokens.colors.heading)
-                            .max_width(tokens.spacing.xxxxl * 5.4)
-                            .flex_shrink(1.0)
-                            .semantics_identifier("site-product-hero-title")
-                            .into(),
-                        Text::new(hero.copy.body)
-                            .size(tokens.typography.font_size_lg)
-                            .line_height(
-                                tokens.typography.font_size_lg
-                                    * tokens.typography.line_height_relaxed,
-                            )
-                            .color(tokens.colors.text_secondary)
-                            .max_width(tokens.spacing.xxxxl * 5.2)
-                            .flex_shrink(1.0)
-                            .semantics_identifier("site-product-hero-body")
-                            .into(),
-                        SemanticRow::new(
-                            "site-product-hero-ctas",
-                            vec![
-                                Cta::new(hero.copy.primary_label, hero.copy.primary_href, true)
-                                    .into(),
-                                Cta::new(
-                                    hero.copy.secondary_label,
-                                    hero.copy.secondary_href,
-                                    false,
-                                )
-                                .into(),
-                            ],
-                            Some(tokens.spacing.m),
-                            FlexWrap::Wrap,
-                            AlignItems::Center,
-                            JustifyContent::Start,
-                        )
-                        .into(),
+                        Cta::new(hero.copy.primary_label, hero.copy.primary_href, true).into(),
+                        Cta::new(hero.copy.secondary_label, hero.copy.secondary_href, false).into(),
                     ],
-                    gap: Some(tokens.spacing.l),
-                    // Keeps the eyebrow pill and buttons at their own width.
-                    align_items: AlignItems::Start,
+                    gap: Some(tokens.spacing.m),
+                    wrap: FlexWrap::Wrap,
+                    align_items: AlignItems::Center,
                     ..Default::default()
-                })
-                .width(tokens.spacing.xxxxl * 5.45)
-                .flex_shrink(1.0)
+                }
                 .into(),
-                ProductVisual { kind: hero.kind }.into(),
             ],
-            Some(tokens.spacing.xxl),
-            FlexWrap::Wrap,
-            AlignItems::Center,
-            JustifyContent::SpaceBetween,
+            Some(tokens.spacing.l),
+            AlignItems::Start,
+        );
+        Container::new(centred_band(
+            "site-product-hero",
+            Container::new(SemanticRow::new(
+                "site-landing-hero-main",
+                vec![copy_column.into(), ProductVisual { kind: hero.kind }.into()],
+                Some(tokens.spacing.xxxl),
+                FlexWrap::Wrap,
+                AlignItems::Center,
+                JustifyContent::SpaceBetween,
+            ))
+            .width_length(Length::percent(100.0))
+            .max_width(landing_width(tokens))
+            .into(),
         ))
-        .padding([tokens.spacing.xxl, 0.0, tokens.spacing.xxl, 0.0])
+        .padding([
+            tokens.spacing.xl,
+            tokens.spacing.xl,
+            tokens.spacing.xxxl,
+            tokens.spacing.xxxl,
+        ])
+        .width_length(Length::percent(100.0))
+        .bg_fill(Fill::LinearGradient {
+            start: (0.0, 0.0),
+            end: (1.0, 1.0),
+            stops: vec![
+                (0.0, tokens.colors.primary_subtle),
+                (0.55, tokens.colors.background),
+                (1.0, tokens.colors.primary_subtle),
+            ],
+            extend: Default::default(),
+        })
         .into()
     }
 }
@@ -668,11 +661,22 @@ impl From<ProductNavStrip> for Widget {
             ("Design", "/product/design-systems/"),
             ("Charts", "/product/charts/"),
         ];
-
-        Container::new(Row {
+        let strip = Row {
             children: links
                 .into_iter()
-                .map(|(label, href)| ProductNavStripLink { label, href }.into())
+                .map(|(label, href)| {
+                    Container::new(NavLink::new(label, href))
+                        .padding([
+                            tokens.spacing.m,
+                            tokens.spacing.m,
+                            tokens.spacing.s,
+                            tokens.spacing.s,
+                        ])
+                        .bg_fill(Fill::Solid(tokens.colors.surface_raised))
+                        .border(tokens.colors.border, 1.0)
+                        .border_radius(tokens.radii.medium)
+                        .into()
+                })
                 .collect(),
             gap: Some(tokens.spacing.s),
             wrap: FlexWrap::Wrap,
@@ -680,442 +684,248 @@ impl From<ProductNavStrip> for Widget {
             align_items: AlignItems::Center,
             semantics: Some(site_semantics("site-product-nav-strip")),
             ..Default::default()
-        })
-        .padding_all(tokens.spacing.m)
-        .bg_fill(Fill::Solid(tokens.colors.surface.with_alpha(232)))
-        .border(tokens.colors.border, 1.0)
-        .border_radius(tokens.radii.xl)
-        .into()
-    }
-}
-
-#[derive(Clone, Copy, Debug)]
-struct ProductNavStripLink {
-    label: &'static str,
-    href: &'static str,
-}
-
-impl From<ProductNavStripLink> for Widget {
-    fn from(link: ProductNavStripLink) -> Self {
-        let (_ctx, view) = fission::build::current::<DocsState>();
-        let tokens = &view.env().theme.tokens;
-        Container::new(NavLink::new(link.label, link.href))
+        };
+        Container::new(centred_band("site-landing-band", strip.into()))
             .padding([
-                tokens.spacing.m,
-                tokens.spacing.m,
-                tokens.spacing.s,
-                tokens.spacing.s,
+                tokens.spacing.xl,
+                tokens.spacing.xl,
+                tokens.spacing.l,
+                tokens.spacing.l,
             ])
-            .bg_fill(Fill::Solid(tokens.colors.surface_raised))
+            .width_length(Length::percent(100.0))
+            .bg_fill(Fill::Solid(tokens.colors.surface))
             .border(tokens.colors.border, 1.0)
-            .border_radius(tokens.radii.full)
             .into()
     }
 }
 
+/// A card with a small label, a heading, body copy and an optional link.
+fn copy_card(
+    tokens: &Tokens,
+    identifier: &'static str,
+    label: String,
+    title: &'static str,
+    body: &'static str,
+    link: Option<(&'static str, &'static str)>,
+) -> Widget {
+    let mut children: Vec<Widget> = vec![
+        Text::new(label)
+            .size(tokens.typography.font_size_xs)
+            .weight(tokens.typography.font_weight_bold)
+            .color(tokens.colors.primary)
+            .into(),
+        Text::new(title)
+            .size(tokens.typography.font_size_lg)
+            .weight(tokens.typography.font_weight_bold)
+            .color(tokens.colors.heading)
+            .into(),
+        Text::new(body)
+            .size(tokens.typography.font_size_base)
+            .line_height(tokens.typography.font_size_base * tokens.typography.line_height_relaxed)
+            .color(tokens.colors.text_secondary)
+            .into(),
+    ];
+    if let Some((label, href)) = link {
+        children.push(NavLink::new(label, href).into());
+    }
+    card(tokens, identifier, children)
+}
+
+fn card_grid(tokens: &Tokens, cards: Vec<Widget>) -> Widget {
+    SemanticRow::new(
+        "site-landing-feature-grid",
+        cards,
+        Some(tokens.spacing.l),
+        FlexWrap::Wrap,
+        AlignItems::Stretch,
+        JustifyContent::Center,
+    )
+    .into()
+}
+
 #[derive(Clone, Copy, Debug)]
-struct FeatureShowcase {
+struct FeatureSection {
     copy: PageCopy,
 }
 
-impl From<FeatureShowcase> for Widget {
-    fn from(showcase: FeatureShowcase) -> Self {
+impl From<FeatureSection> for Widget {
+    fn from(section: FeatureSection) -> Self {
         let (_ctx, view) = fission::build::current::<DocsState>();
         let tokens = &view.env().theme.tokens;
-
-        SemanticRow::new(
-            "site-product-feature-showcase",
-            vec![
-                Column {
-                    children: vec![
-                        Text::new(showcase.copy.feature_label)
-                            .size(tokens.typography.font_size_sm)
-                            .weight(tokens.typography.font_weight_bold)
-                            .color(tokens.colors.secondary)
-                            .into(),
-                        Text::new(showcase.copy.feature_title)
-                            .size(tokens.typography.heading2_size)
-                            .family(tokens.typography.font_family_sans.clone())
-                            .line_height(
-                                tokens.typography.heading2_size
-                                    * tokens.typography.line_height_heading,
-                            )
-                            .weight(tokens.typography.font_weight_bold)
-                            .color(tokens.colors.heading)
-                            .into(),
-                        Text::new(showcase.copy.feature_body)
-                            .size(tokens.typography.body_large_size)
-                            .line_height(
-                                tokens.typography.body_large_size
-                                    * tokens.typography.line_height_relaxed,
-                            )
-                            .color(tokens.colors.text_secondary)
-                            .into(),
-                    ],
-                    gap: Some(tokens.spacing.m),
-                    flex_grow: 1.0,
-                    ..Default::default()
-                }
-                .into(),
-                Row {
-                    children: showcase
-                        .copy
-                        .features
-                        .iter()
-                        .map(|feature| FeatureCard { copy: *feature }.into())
-                        .collect(),
-                    gap: Some(tokens.spacing.m),
-                    wrap: FlexWrap::Wrap,
-                    align_items: AlignItems::Stretch,
-                    justify_content: JustifyContent::End,
-                    flex_grow: 1.0,
-                    ..Default::default()
-                }
-                .into(),
-            ],
-            Some(tokens.spacing.xxl),
-            FlexWrap::Wrap,
-            AlignItems::Stretch,
-            JustifyContent::SpaceBetween,
-        )
+        let cards = section
+            .copy
+            .features
+            .iter()
+            .map(|feature| {
+                copy_card(
+                    tokens,
+                    "site-product-feature-card",
+                    feature.label.to_uppercase(),
+                    feature.title,
+                    feature.body,
+                    None,
+                )
+            })
+            .collect();
+        LandingSection {
+            identifier: "site-product-features",
+            anchor: "features",
+            eyebrow: section.copy.feature_label,
+            title: section.copy.feature_title,
+            lead: section.copy.feature_body,
+            content: card_grid(tokens, cards),
+            tinted: false,
+        }
         .into()
     }
 }
 
 #[derive(Clone, Copy, Debug)]
-struct DetailShowcase {
+struct DetailSection {
     copy: PageCopy,
 }
 
-impl From<DetailShowcase> for Widget {
-    fn from(showcase: DetailShowcase) -> Self {
+impl From<DetailSection> for Widget {
+    fn from(section: DetailSection) -> Self {
         let (_ctx, view) = fission::build::current::<DocsState>();
         let tokens = &view.env().theme.tokens;
-        Container::new(Column {
-            children: vec![
-                Column {
-                    children: vec![
-                        Text::new(showcase.copy.details_label)
-                            .size(tokens.typography.font_size_sm)
-                            .weight(tokens.typography.font_weight_bold)
-                            .color(tokens.colors.primary)
-                            .into(),
-                        Text::new(showcase.copy.details_title)
-                            .size(tokens.typography.heading_size)
-                            .family(tokens.typography.font_family_sans.clone())
-                            .line_height(
-                                tokens.typography.heading_size
-                                    * tokens.typography.line_height_heading,
-                            )
-                            .weight(tokens.typography.font_weight_bold)
-                            .color(tokens.colors.heading)
-                            .into(),
-                        Text::new(showcase.copy.details_body)
-                            .size(tokens.typography.body_large_size)
-                            .line_height(
-                                tokens.typography.body_large_size
-                                    * tokens.typography.line_height_relaxed,
-                            )
-                            .color(tokens.colors.text_secondary)
-                            .max_width(tokens.spacing.xxxxl * 6.2)
-                            .flex_shrink(1.0)
-                            .into(),
-                    ],
-                    gap: Some(tokens.spacing.m),
-                    ..Default::default()
-                }
-                .into(),
-                Row {
-                    children: showcase
-                        .copy
-                        .details
-                        .iter()
-                        .map(|detail| DetailCard { copy: *detail }.into())
-                        .collect(),
-                    gap: Some(tokens.spacing.m),
-                    wrap: FlexWrap::Wrap,
-                    align_items: AlignItems::Stretch,
-                    justify_content: JustifyContent::SpaceBetween,
-                    ..Default::default()
-                }
-                .into(),
-            ],
-            gap: Some(tokens.spacing.l),
-            ..Default::default()
-        })
-        .padding_all(tokens.spacing.xl)
-        .bg_fill(Fill::LinearGradient {
-            start: (0.0, 0.0),
-            end: (1.0, 1.0),
-            stops: vec![
-                (0.0, tokens.colors.surface.with_alpha(246)),
-                (1.0, tokens.colors.surface_sunken.with_alpha(242)),
-            ],
-            extend: Default::default(),
-        })
-        .border(tokens.colors.border, 1.0)
-        .border_radius(tokens.radii.xxl)
+        let cards = section
+            .copy
+            .details
+            .iter()
+            .map(|detail| {
+                copy_card(
+                    tokens,
+                    "site-product-detail-card",
+                    detail.label.to_uppercase(),
+                    detail.title,
+                    detail.body,
+                    Some((detail.link_label, detail.href)),
+                )
+            })
+            .collect();
+        LandingSection {
+            identifier: "site-product-details",
+            anchor: "details",
+            eyebrow: section.copy.details_label,
+            title: section.copy.details_title,
+            lead: section.copy.details_body,
+            content: card_grid(tokens, cards),
+            tinted: true,
+        }
         .into()
     }
 }
 
 #[derive(Clone, Copy, Debug)]
-struct DetailCard {
-    copy: DetailCopy,
-}
-
-impl From<DetailCard> for Widget {
-    fn from(card: DetailCard) -> Self {
-        let (_ctx, view) = fission::build::current::<DocsState>();
-        let tokens = &view.env().theme.tokens;
-        Container::new(Column {
-            children: vec![
-                Text::new(card.copy.label)
-                    .size(tokens.typography.font_size_xs)
-                    .family(tokens.typography.font_family_mono.clone())
-                    .weight(tokens.typography.font_weight_bold)
-                    .color(tokens.colors.secondary)
-                    .into(),
-                Text::new(card.copy.title)
-                    .size(tokens.typography.font_size_lg)
-                    .weight(tokens.typography.font_weight_bold)
-                    .color(tokens.colors.heading)
-                    .into(),
-                Text::new(card.copy.body)
-                    .size(tokens.typography.body_medium_size)
-                    .line_height(
-                        tokens.typography.body_medium_size * tokens.typography.line_height_relaxed,
-                    )
-                    .color(tokens.colors.text_secondary)
-                    .flex_shrink(1.0)
-                    .into(),
-                NavLink::new(card.copy.link_label, card.copy.href).into(),
-            ],
-            gap: Some(tokens.spacing.m),
-            semantics: Some(site_semantics("site-product-detail-card")),
-            ..Default::default()
-        })
-        .width(tokens.spacing.xxxxl * 3.25)
-        .min_height(tokens.spacing.xxxxl * 2.35)
-        .flex_shrink(1.0)
-        .padding_all(tokens.spacing.l)
-        .bg_fill(Fill::Solid(tokens.colors.surface_raised))
-        .border(tokens.colors.border, 1.0)
-        .border_radius(tokens.radii.xl)
-        .into()
-    }
-}
-
-#[derive(Clone, Copy, Debug)]
-struct FeatureCard {
-    copy: FeatureCopy,
-}
-
-impl From<FeatureCard> for Widget {
-    fn from(card: FeatureCard) -> Self {
-        let (_ctx, view) = fission::build::current::<DocsState>();
-        let tokens = &view.env().theme.tokens;
-        Container::new(Column {
-            children: vec![
-                Text::new(card.copy.label)
-                    .size(tokens.typography.font_size_xs)
-                    .family(tokens.typography.font_family_mono.clone())
-                    .weight(tokens.typography.font_weight_bold)
-                    .color(tokens.colors.primary)
-                    .into(),
-                Text::new(card.copy.title)
-                    .size(tokens.typography.heading_size)
-                    .weight(tokens.typography.font_weight_bold)
-                    .color(tokens.colors.heading)
-                    .into(),
-                Text::new(card.copy.body)
-                    .size(tokens.typography.body_medium_size)
-                    .line_height(
-                        tokens.typography.body_medium_size * tokens.typography.line_height_relaxed,
-                    )
-                    .color(tokens.colors.text_secondary)
-                    .flex_shrink(1.0)
-                    .into(),
-            ],
-            gap: Some(tokens.spacing.m),
-            semantics: Some(site_semantics("site-product-feature-card")),
-            ..Default::default()
-        })
-        .width(tokens.spacing.xxxxl * 3.1)
-        .min_height(tokens.spacing.xxxxl * 2.05)
-        .flex_shrink(1.0)
-        .padding_all(tokens.spacing.l)
-        .bg_fill(Fill::Solid(tokens.colors.surface_raised))
-        .border(tokens.colors.border, 1.0)
-        .border_radius(tokens.radii.xl)
-        .into()
-    }
-}
-
-#[derive(Clone, Copy, Debug)]
-struct WorkflowShowcase {
+struct WorkflowSection {
     copy: PageCopy,
 }
 
-impl From<WorkflowShowcase> for Widget {
-    fn from(showcase: WorkflowShowcase) -> Self {
+impl From<WorkflowSection> for Widget {
+    fn from(section: WorkflowSection) -> Self {
         let (_ctx, view) = fission::build::current::<DocsState>();
         let tokens = &view.env().theme.tokens;
-        Container::new(Column {
-            children: vec![
-                Row {
-                    children: vec![
-                        Text::new(showcase.copy.workflow_label)
-                            .size(tokens.typography.font_size_sm)
-                            .weight(tokens.typography.font_weight_bold)
-                            .color(tokens.colors.primary)
-                            .into(),
-                        Text::new(showcase.copy.workflow_title)
-                            .size(tokens.typography.heading_size)
-                            .weight(tokens.typography.font_weight_bold)
-                            .color(tokens.colors.heading)
-                            .into(),
-                    ],
-                    gap: Some(tokens.spacing.l),
-                    wrap: FlexWrap::Wrap,
-                    align_items: AlignItems::Center,
-                    ..Default::default()
-                }
-                .into(),
-                Row {
-                    children: showcase
-                        .copy
-                        .workflow
-                        .iter()
-                        .enumerate()
-                        .map(|(index, step)| {
-                            WorkflowStep {
-                                index: index + 1,
-                                copy: *step,
-                            }
-                            .into()
-                        })
-                        .collect(),
-                    gap: Some(tokens.spacing.m),
-                    wrap: FlexWrap::Wrap,
-                    align_items: AlignItems::Stretch,
-                    justify_content: JustifyContent::SpaceBetween,
-                    ..Default::default()
-                }
-                .into(),
-            ],
-            gap: Some(tokens.spacing.l),
-            ..Default::default()
-        })
-        .padding_all(tokens.spacing.xl)
-        .bg_fill(Fill::Solid(tokens.colors.surface))
-        .border(tokens.colors.border, 1.0)
-        .border_radius(tokens.radii.xxl)
+        let cards = section
+            .copy
+            .workflow
+            .iter()
+            .enumerate()
+            .map(|(index, step)| {
+                copy_card(
+                    tokens,
+                    "site-product-workflow-step",
+                    format!("STEP {:02}", index + 1),
+                    step.label,
+                    step.body,
+                    None,
+                )
+            })
+            .collect();
+        LandingSection {
+            identifier: "site-product-workflow",
+            anchor: "workflow",
+            eyebrow: section.copy.workflow_label,
+            title: section.copy.workflow_title,
+            lead: "",
+            content: card_grid(tokens, cards),
+            tinted: false,
+        }
         .into()
     }
 }
 
+/// The closing call to action, matching the home page's gradient band.
 #[derive(Clone, Copy, Debug)]
-struct WorkflowStep {
-    index: usize,
-    copy: StepCopy,
-}
-
-impl From<WorkflowStep> for Widget {
-    fn from(step: WorkflowStep) -> Self {
-        let (_ctx, view) = fission::build::current::<DocsState>();
-        let tokens = &view.env().theme.tokens;
-        Container::new(Column {
-            children: vec![
-                Text::new(format!("{:02}", step.index))
-                    .size(tokens.typography.font_size_xs)
-                    .family(tokens.typography.font_family_mono.clone())
-                    .weight(tokens.typography.font_weight_bold)
-                    .color(tokens.colors.primary)
-                    .into(),
-                Text::new(step.copy.label)
-                    .size(tokens.typography.font_size_lg)
-                    .weight(tokens.typography.font_weight_bold)
-                    .color(tokens.colors.heading)
-                    .into(),
-                Text::new(step.copy.body)
-                    .size(tokens.typography.font_size_sm)
-                    .line_height(
-                        tokens.typography.font_size_sm * tokens.typography.line_height_normal,
-                    )
-                    .color(tokens.colors.text_secondary)
-                    .into(),
-            ],
-            gap: Some(tokens.spacing.s),
-            semantics: Some(site_semantics("site-product-workflow-step")),
-            ..Default::default()
-        })
-        .width(tokens.spacing.xxxxl * 3.05)
-        .min_height(tokens.spacing.xxxxl * 1.35)
-        .flex_shrink(1.0)
-        .padding_all(tokens.spacing.l)
-        .bg_fill(Fill::Solid(tokens.colors.surface_raised))
-        .border(tokens.colors.border, 1.0)
-        .border_radius(tokens.radii.large)
-        .into()
-    }
-}
-
-#[derive(Clone, Copy, Debug)]
-struct ProofBand {
+struct ProductCallToAction {
     copy: PageCopy,
 }
 
-impl From<ProofBand> for Widget {
-    fn from(band: ProofBand) -> Self {
+impl From<ProductCallToAction> for Widget {
+    fn from(band: ProductCallToAction) -> Self {
         let (_ctx, view) = fission::build::current::<DocsState>();
         let tokens = &view.env().theme.tokens;
-        Container::new(SemanticRow::new(
-            "site-product-proof",
+        let inner = Container::new(SemanticRow::new(
+            "site-landing-cta",
             vec![
                 Column {
                     children: vec![
                         Text::new(band.copy.proof_label)
-                            .size(tokens.typography.heading1_size)
-                            .family(tokens.typography.font_family_sans.clone())
-                            .line_height(
-                                tokens.typography.heading1_size
-                                    * tokens.typography.line_height_heading,
-                            )
+                            .size(tokens.typography.heading_size)
                             .weight(tokens.typography.font_weight_bold)
                             .color(Color::WHITE)
                             .into(),
                         Text::new(band.copy.proof_body)
-                            .size(tokens.typography.body_large_size)
+                            .size(tokens.typography.font_size_base)
                             .line_height(
-                                tokens.typography.body_large_size
+                                tokens.typography.font_size_base
                                     * tokens.typography.line_height_relaxed,
                             )
                             .color(Color::WHITE.with_alpha(220))
+                            .max_width(680.0)
                             .into(),
                     ],
-                    gap: Some(tokens.spacing.m),
-                    flex_grow: 1.0,
+                    gap: Some(tokens.spacing.xs),
+                    flex_shrink: 1.0,
                     ..Default::default()
                 }
                 .into(),
-                Cta::new(band.copy.proof_cta_label, band.copy.proof_cta_href, false).into(),
+                Row {
+                    children: vec![Cta::new(
+                        band.copy.proof_cta_label,
+                        band.copy.proof_cta_href,
+                        false,
+                    )
+                    .into()],
+                    semantics: Some(site_semantics("site-landing-cta-actions")),
+                    ..Default::default()
+                }
+                .into(),
             ],
-            Some(tokens.spacing.xl),
+            Some(tokens.spacing.l),
             FlexWrap::Wrap,
             AlignItems::Center,
             JustifyContent::SpaceBetween,
         ))
+        .width_length(Length::percent(100.0))
+        .max_width(landing_width(tokens))
         .padding_all(tokens.spacing.xl)
-        // Matches the home page's closing call to action.
         .bg_fill(Fill::LinearGradient {
             start: (0.0, 0.0),
             end: (1.0, 0.0),
             stops: vec![(0.0, tokens.colors.primary), (1.0, tokens.colors.secondary)],
             extend: Default::default(),
         })
-        .border_radius(tokens.radii.xxl)
-        .into()
+        .border_radius(tokens.radii.xxl);
+        Container::new(centred_band("site-landing-band", inner.into()))
+            .padding([
+                tokens.spacing.xl,
+                tokens.spacing.xl,
+                tokens.spacing.l,
+                tokens.spacing.xxxl,
+            ])
+            .width_length(Length::percent(100.0))
+            .into()
     }
 }
 
