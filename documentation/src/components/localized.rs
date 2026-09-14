@@ -1,7 +1,7 @@
 use super::brand_logo::BrandLogo;
-use super::home_widgets::{page_fill, SemanticRow};
+use super::home_widgets::SemanticRow;
 use super::state::DocsState;
-use fission::op::{AlignItems, FlexWrap, JustifyContent};
+use fission::op::{AlignItems, Fill, FlexWrap, JustifyContent};
 use fission::prelude::*;
 
 #[derive(Clone, Debug)]
@@ -16,7 +16,7 @@ impl From<LocalizedLandingPage> for Widget {
             gap: Some(0.0),
             ..Default::default()
         })
-        .bg_fill(page_fill(tokens))
+        .bg_fill(Fill::Solid(tokens.colors.background))
         .into()
     }
 }
