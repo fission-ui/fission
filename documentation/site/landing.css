@@ -195,10 +195,10 @@
   box-sizing: border-box;
   height: 100%;
   padding: clamp(1.25rem, 3vw, 2rem) !important;
-  border: 1px solid var(--fs-color-border) !important;
+  border: 0 !important;
   border-radius: 1.25rem !important;
-  background: var(--fs-color-surface-raised) !important;
-  box-shadow: 0 10px 30px color-mix(in srgb, var(--fs-color-heading) 6%, transparent);
+  background: var(--fs-color-surface-sunken) !important;
+  box-shadow: none;
   transition: border-color 150ms ease, transform 150ms ease;
 }
 
@@ -209,7 +209,7 @@
 
 .fission-site-blog-featured-card:hover,
 .fission-site-blog-card:hover {
-  border-color: var(--fs-color-primary) !important;
+  background: var(--fs-color-primary-subtle) !important;
   transform: translateY(-2px);
 }
 
@@ -250,7 +250,6 @@
 .fission-site-blog-adjacent-posts {
   margin-top: 3rem;
   padding-top: 2rem;
-  border-top: 1px solid var(--fs-color-border);
 }
 
 .fission-site-blog-pagination {
@@ -287,7 +286,6 @@
 
 .fission-site-footer-legal {
   padding-top: 1.5rem;
-  border-top: 1px solid var(--fs-color-border);
 }
 
 .fission-site-footer .fission-site-route-link,
@@ -413,4 +411,32 @@
   [data-fission-semantics="crate-featured"] > .fission-site-row {
     grid-template-columns: minmax(0, 1fr);
   }
+}
+
+/* One hairline separates the footer from the page; nothing inside it is boxed. */
+.fission-site-footer {
+  border-top: 1px solid var(--fs-color-border);
+}
+
+/* The blog template wraps each card in its own box and draws tags as pills; the card's tint is
+   the only surface, and tags read as plain text. */
+.fission-site-blog-post-list > .fission-site-column > .fission-site-box,
+.fission-site-box:has(> .fission-site-blog-featured-card),
+.fission-site-box:has(> .fission-site-blog-card) {
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.fission-site-blog-card .fission-site-row > .fission-site-box-stretch-auto-width,
+.fission-site-blog-featured-card .fission-site-row > .fission-site-box-stretch-auto-width,
+.fission-site-blog-post .fission-site-row > .fission-site-box-stretch-auto-width,
+.fission-site-blog-taxonomy .fission-site-box {
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  color: var(--fs-color-text-muted) !important;
 }

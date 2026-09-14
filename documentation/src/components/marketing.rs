@@ -672,9 +672,6 @@ impl From<ProductNavStrip> for Widget {
                             tokens.spacing.s,
                             tokens.spacing.s,
                         ])
-                        .bg_fill(Fill::Solid(tokens.colors.surface_raised))
-                        .border(tokens.colors.border, 1.0)
-                        .border_radius(tokens.radii.medium)
                         .into()
                 })
                 .collect(),
@@ -693,8 +690,6 @@ impl From<ProductNavStrip> for Widget {
                 tokens.spacing.l,
             ])
             .width_length(Length::percent(100.0))
-            .bg_fill(Fill::Solid(tokens.colors.surface))
-            .border(tokens.colors.border, 1.0)
             .into()
     }
 }
@@ -1015,8 +1010,7 @@ impl From<ProductVisual> for Widget {
             .width(tokens.spacing.xxxxl * 4.35)
             .flex_shrink(1.0)
             .padding_all(tokens.spacing.l)
-            .bg_fill(Fill::Solid(tokens.colors.surface_raised.with_alpha(246)))
-            .border(tokens.colors.border, 1.0)
+            .bg_fill(Fill::Solid(tokens.colors.surface_sunken))
             .border_radius(tokens.radii.xxl)
             .into()
     }
@@ -1096,7 +1090,6 @@ impl From<ScreenshotVisual> for Widget {
                 }
                 .into(),
                 Container::new(Image::asset(visual.src).size(width, width * visual.aspect))
-                    .border(tokens.colors.border, 1.0)
                     .border_radius(tokens.radii.large)
                     .into(),
             ],
@@ -1204,10 +1197,7 @@ impl From<VisualRow> for Widget {
             justify_content: JustifyContent::SpaceBetween,
             ..Default::default()
         })
-        .padding_all(tokens.spacing.m)
-        .bg_fill(Fill::Solid(tokens.colors.surface))
-        .border(tokens.colors.border, 1.0)
-        .border_radius(tokens.radii.large)
+        .padding([0.0, 0.0, tokens.spacing.xs, tokens.spacing.xs])
         .into()
     }
 }

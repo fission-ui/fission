@@ -166,8 +166,7 @@ impl From<InstallCommand> for Widget {
             tokens.spacing.m,
             tokens.spacing.m,
         ])
-        .bg_fill(Fill::Solid(tokens.colors.surface_raised))
-        .border(tokens.colors.border, 1.0)
+        .bg_fill(Fill::Solid(tokens.colors.surface_sunken))
         .border_radius(tokens.radii.large)
         .into()
     }
@@ -252,7 +251,6 @@ impl From<SurfaceComposite> for Widget {
                     SurfaceLabel { label }.into(),
                     Container::new(Image::asset(image).size(width, height))
                         .bg_fill(Fill::Solid(tokens.colors.surface_raised))
-                        .border(tokens.colors.border, 1.0)
                         .border_radius(tokens.radii.large)
                         .shadow(BoxShadow {
                             spread_radius: 0.0,
@@ -331,12 +329,8 @@ impl From<SurfaceLabel> for Widget {
             Text::new(component.label)
                 .size(tokens.typography.font_size_xs)
                 .weight(tokens.typography.font_weight_semibold)
-                .color(tokens.colors.text_primary),
+                .color(tokens.colors.text_secondary),
         )
-        .padding([tokens.spacing.s, tokens.spacing.s, 2.0, 2.0])
-        .bg_fill(Fill::Solid(tokens.colors.surface_raised))
-        .border(tokens.colors.border, 1.0)
-        .border_radius(tokens.radii.full)
         .into()
     }
 }

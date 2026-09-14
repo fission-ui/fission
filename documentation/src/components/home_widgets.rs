@@ -222,7 +222,7 @@ impl From<SearchPill> for Widget {
                         .color(tokens.colors.text_muted),
                 )
                 .padding([tokens.spacing.s, tokens.spacing.s, 2.0, 2.0])
-                .border(tokens.colors.border_strong, 1.0)
+                .bg_fill(Fill::Solid(tokens.colors.surface_sunken))
                 .border_radius(tokens.radii.medium)
                 .into(),
             ],
@@ -255,18 +255,11 @@ impl From<Cta> for Widget {
     fn from(component: Cta) -> Self {
         let (_ctx, view) = fission::build::current::<DocsState>();
         let tokens = &view.env().theme.tokens;
-        let (background, foreground, border) = if component.primary {
-            (
-                tokens.colors.primary,
-                tokens.colors.on_primary,
-                tokens.colors.primary,
-            )
+        // Secondary buttons are a quiet tint rather than an outline.
+        let (background, foreground) = if component.primary {
+            (tokens.colors.primary, tokens.colors.on_primary)
         } else {
-            (
-                tokens.colors.surface_raised,
-                tokens.colors.text_primary,
-                tokens.colors.border,
-            )
+            (tokens.colors.surface_sunken, tokens.colors.text_primary)
         };
         Container::new(
             Text::new(component.label)
@@ -282,7 +275,6 @@ impl From<Cta> for Widget {
             tokens.spacing.m,
         ])
         .bg_fill(Fill::Solid(background))
-        .border(border, 1.0)
         .border_radius(tokens.radii.full)
         .into()
     }
@@ -362,8 +354,7 @@ impl From<CodeCard> for Widget {
             ..Default::default()
         })
         .padding_all(tokens.spacing.m)
-        .bg_fill(Fill::Solid(tokens.colors.surface_raised))
-        .border(tokens.colors.border_strong, 1.0)
+        .bg_fill(Fill::Solid(tokens.colors.surface_sunken))
         .border_radius(tokens.radii.xl)
         .into()
     }

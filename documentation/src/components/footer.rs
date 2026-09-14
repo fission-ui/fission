@@ -104,8 +104,7 @@ impl From<DocsFooter> for Widget {
             tokens.spacing.xxl,
             tokens.spacing.xl,
         ])
-        .bg_fill(Fill::Solid(tokens.colors.surface))
-        .border(tokens.colors.border, 1.0)
+        .bg_fill(Fill::Solid(tokens.colors.background))
         .into()
     }
 }

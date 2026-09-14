@@ -80,7 +80,6 @@ pub(super) fn card(tokens: &Tokens, identifier: &'static str, children: Vec<Widg
     ))
     .padding_all(tokens.spacing.l)
     .bg_fill(Fill::Solid(tokens.colors.surface_raised))
-    .border(tokens.colors.border, 1.0)
     .border_radius(tokens.radii.xl)
     .into()
 }
@@ -173,15 +172,6 @@ pub(super) fn chip(tokens: &Tokens, icon: &'static str, label: &'static str) -> 
         align_items: AlignItems::Center,
         ..Default::default()
     })
-    .padding([
-        tokens.spacing.m,
-        tokens.spacing.m,
-        tokens.spacing.s,
-        tokens.spacing.s,
-    ])
-    .bg_fill(Fill::Solid(tokens.colors.surface))
-    .border(tokens.colors.border, 1.0)
-    .border_radius(tokens.radii.medium)
     .into()
 }
 
@@ -262,9 +252,8 @@ impl From<FoundationSection> for Widget {
             .bg_fill(Fill::Solid(if primary {
                 tokens.colors.primary
             } else {
-                tokens.colors.surface
+                tokens.colors.surface_sunken
             }))
-            .border(tokens.colors.border, if primary { 0.0 } else { 1.0 })
             .border_radius(tokens.radii.medium)
             .into()
         };
@@ -433,9 +422,6 @@ impl From<TargetsSection> for Widget {
             })
             .padding_all(tokens.spacing.m)
             .width(tokens.spacing.xxxxl * 1.15)
-            .bg_fill(Fill::Solid(tokens.colors.surface_raised))
-            .border(tokens.colors.border, 1.0)
-            .border_radius(tokens.radii.large)
             .into()
         };
         let model = Container::new(SemanticColumn::new(
@@ -460,8 +446,7 @@ impl From<TargetsSection> for Widget {
             AlignItems::Center,
         ))
         .padding_all(tokens.spacing.l)
-        .bg_fill(Fill::Solid(tokens.colors.surface_raised))
-        .border(tokens.colors.primary, 1.0)
+        .bg_fill(Fill::Solid(tokens.colors.primary_subtle))
         .border_radius(tokens.radii.xl)
         .into();
 
@@ -584,10 +569,7 @@ impl From<DeliverySection> for Widget {
         ))
         .width_length(Length::percent(100.0))
         .max_width(landing_width(tokens))
-        .padding_all(tokens.spacing.xl)
-        .bg_fill(Fill::Solid(tokens.colors.surface_raised))
-        .border(tokens.colors.border, 1.0)
-        .border_radius(tokens.radii.xxl);
+        .padding([0.0, 0.0, tokens.spacing.l, tokens.spacing.l]);
         Container::new(centred_band("site-landing-band", strip.into()))
             .padding([
                 tokens.spacing.xl,

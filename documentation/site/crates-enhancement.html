@@ -17,9 +17,9 @@
   .fission-crate-copy-button {
     appearance: none;
     min-height: 2.35rem;
-    border: 1px solid var(--fs-color-border, currentColor);
+    border: 0;
     border-radius: 0.6rem;
-    background: var(--fs-color-surface-raised, transparent);
+    background: transparent;
     color: var(--fs-color-text-secondary, inherit);
     cursor: pointer;
     font: 600 0.82rem inherit;
@@ -32,7 +32,6 @@
 
   .fission-crate-filter-button:hover,
   .fission-crate-filter-button[data-active="true"] {
-    border-color: var(--fs-color-primary, currentColor);
     background: var(--fs-color-primary-subtle, transparent);
     color: var(--fs-color-primary, inherit);
   }

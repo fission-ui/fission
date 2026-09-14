@@ -119,9 +119,8 @@ impl From<LocalizedButton> for Widget {
         .bg_fill(Fill::Solid(if button.primary {
             tokens.colors.primary
         } else {
-            tokens.colors.surface_raised
+            tokens.colors.surface_sunken
         }))
-        .border(tokens.colors.border, if button.primary { 0.0 } else { 1.0 })
         .border_radius(tokens.radii.full)
         .into()
     }

@@ -199,8 +199,7 @@ impl From<FeaturedCrate> for Widget {
         .width_length(Length::percent(100.0))
         .max_width(landing_width(tokens))
         .padding_all(tokens.spacing.xl)
-        .bg_fill(Fill::Solid(tokens.colors.surface_raised))
-        .border(tokens.colors.border, 1.0)
+        .bg_fill(Fill::Solid(tokens.colors.surface_sunken))
         .border_radius(tokens.radii.xxl)
         .into()
     }
@@ -246,9 +245,6 @@ impl From<CategoryLegend> for Widget {
                             .semantics_identifier(format!("crate-category-filter:{id}")),
                     )
                     .padding([10.0, 14.0, 10.0, 14.0])
-                    .bg(tokens.colors.surface_raised)
-                    .border(tokens.colors.border, 1.0)
-                    .border_radius(tokens.radii.medium)
                     .into()
                 })
                 .collect(),
@@ -376,8 +372,7 @@ impl From<CrateSearchBox> for Widget {
                 .into(),
                 Container::new(Text::new("/").size(12.0).color(tokens.colors.text_muted))
                     .padding_all(tokens.spacing.s)
-                    .bg(tokens.colors.primary_subtle)
-                    .border(tokens.colors.border, 1.0)
+                    .bg(tokens.colors.surface_sunken)
                     .border_radius(tokens.radii.small)
                     .into(),
             ],
@@ -391,7 +386,6 @@ impl From<CrateSearchBox> for Widget {
         .min_height_length(Length::points(64.0))
         .padding_lengths(Length::all(Length::points(tokens.spacing.m)))
         .bg(tokens.colors.surface_raised)
-        .border(tokens.colors.border, 1.0)
         .border_radius(tokens.radii.xl)
         .into()
     }
@@ -457,10 +451,6 @@ impl From<PlatformLegend> for Widget {
         })
         .width_length(Length::percent(100.0))
         .max_width(landing_width(tokens))
-        .padding_all(tokens.spacing.m)
-        .bg(tokens.colors.surface_raised)
-        .border(tokens.colors.border, 1.0)
-        .border_radius(tokens.radii.xl)
         .into()
     }
 }
@@ -506,8 +496,7 @@ impl From<CrateResults> for Widget {
                 ..Default::default()
             })
             .padding_all(tokens.spacing.xxxl)
-            .bg(tokens.colors.surface)
-            .border(tokens.colors.border, 1.0)
+            .bg(tokens.colors.surface_sunken)
             .border_radius(tokens.radii.large)
             .into();
         }
@@ -717,7 +706,6 @@ impl From<CrateCard> for Widget {
         })
         .padding_all(tokens.spacing.l)
         .bg(tokens.colors.surface_raised)
-        .border(tokens.colors.border, 1.0)
         .border_radius(tokens.radii.xl)
         .min_height(240.0)
         .into()
@@ -756,10 +744,6 @@ impl From<CrateTaxonomyPreview> for Widget {
                             .size(11.0)
                             .color(tokens.colors.text_secondary),
                     )
-                    .padding([4.0, 7.0, 4.0, 7.0])
-                    .bg(tokens.colors.surface_sunken)
-                    .border(tokens.colors.border, 1.0)
-                    .border_radius(tokens.radii.small)
                     .into()
                 })
                 .collect(),
@@ -812,10 +796,8 @@ impl From<PlatformPill> for Widget {
         .padding(if pill.large {
             [10.0, 14.0, 10.0, 14.0]
         } else {
-            [5.0, 8.0, 5.0, 8.0]
+            [0.0, 0.0, 0.0, 0.0]
         })
-        .bg(tokens.colors.primary_subtle)
-        .border(tokens.colors.border, 1.0)
         .border_radius(tokens.radii.medium)
         .into()
     }
@@ -1016,8 +998,7 @@ impl From<InstallCommand> for Widget {
             ..Default::default()
         })
         .padding_all(tokens.spacing.l)
-        .bg(tokens.colors.surface_raised)
-        .border(tokens.colors.border, 1.0)
+        .bg(tokens.colors.surface_sunken)
         .border_radius(tokens.radii.xl)
         .into()
     }
@@ -1082,10 +1063,7 @@ impl From<PlatformSupport> for Widget {
                                 ))),
                                 ..Default::default()
                             })
-                            .padding_all(tokens.spacing.m)
-                            .bg(tokens.colors.background)
-                            .border(tokens.colors.border, 1.0)
-                            .border_radius(tokens.radii.large)
+                            .padding_all(tokens.spacing.s)
                             .min_width(120.0)
                             .into()
                         })
@@ -1100,10 +1078,6 @@ impl From<PlatformSupport> for Widget {
             semantics: Some(site_semantics("crate-platform-support")),
             ..Default::default()
         })
-        .padding_all(tokens.spacing.l)
-        .bg(tokens.colors.surface_raised)
-        .border(tokens.colors.border, 1.0)
-        .border_radius(tokens.radii.xl)
         .into()
     }
 }
@@ -1258,8 +1232,7 @@ impl From<CrateMetadata> for Widget {
             ..Default::default()
         })
         .padding_all(tokens.spacing.l)
-        .bg(tokens.colors.surface_raised)
-        .border(tokens.colors.border, 1.0)
+        .bg(tokens.colors.surface_sunken)
         .border_radius(tokens.radii.xl)
         .into()
     }
@@ -1436,12 +1409,7 @@ impl From<MetadataPillField> for Widget {
                         if mono {
                             text = text.family(tokens.typography.font_family_mono.clone());
                         }
-                        Container::new(text)
-                            .padding([5.0, 8.0, 5.0, 8.0])
-                            .bg(tokens.colors.surface_sunken)
-                            .border(tokens.colors.border, 1.0)
-                            .border_radius(tokens.radii.small)
-                            .into()
+                        Container::new(text).into()
                     })
                     .collect(),
                 gap: Some(tokens.spacing.xs),
