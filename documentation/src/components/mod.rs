@@ -10,7 +10,6 @@ mod landing_sections;
 mod localized;
 mod marketing;
 mod state;
-mod value_home;
 
 pub(crate) use crates::{CrateDetailPage, CrateDirectoryPage};
 pub(crate) use footer::DocsFooter;
