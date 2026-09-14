@@ -1,6 +1,6 @@
 use super::home_nav::HomePageNav;
 use super::home_widgets::{
-    content_width, page_fill, site_semantics, Cta, NavLink, Pill, SemanticColumn, SemanticRow,
+    content_width, site_semantics, Cta, NavLink, Pill, SemanticColumn, SemanticRow,
 };
 use super::state::DocsState;
 use fission::op::{AlignItems, Fill, FlexWrap, JustifyContent};
@@ -549,7 +549,12 @@ impl From<ProductMarketingPage> for Widget {
                     .max_width(content_width(tokens))
                     .flex_grow(1.0)
                     .flex_shrink(1.0)
-                    .padding([0.0, 0.0, tokens.spacing.xxl, tokens.spacing.xxxxl])
+                    .padding([
+                        tokens.spacing.xl,
+                        tokens.spacing.xl,
+                        tokens.spacing.xl,
+                        tokens.spacing.xxxxl,
+                    ])
                     .into()],
                     justify_content: JustifyContent::Center,
                     ..Default::default()
@@ -560,7 +565,7 @@ impl From<ProductMarketingPage> for Widget {
             flex_grow: 1.0,
             ..Default::default()
         })
-        .bg_fill(page_fill(tokens))
+        .bg_fill(Fill::Solid(tokens.colors.background))
         .into()
     }
 }
@@ -583,11 +588,11 @@ impl From<MarketingHero> for Widget {
                     children: vec![
                         Pill::new(hero.copy.eyebrow).into(),
                         Text::new(hero.copy.title)
-                            .size(tokens.typography.display_md_size)
-                            .family(tokens.typography.font_family_serif.clone())
+                            .size(tokens.typography.heading1_size)
+                            .family(tokens.typography.font_family_sans.clone())
                             .line_height(
-                                tokens.typography.display_md_size
-                                    * tokens.typography.line_height_display,
+                                tokens.typography.heading1_size
+                                    * tokens.typography.line_height_heading,
                             )
                             .weight(tokens.typography.font_weight_bold)
                             .color(tokens.colors.heading)
@@ -626,6 +631,8 @@ impl From<MarketingHero> for Widget {
                         .into(),
                     ],
                     gap: Some(tokens.spacing.l),
+                    // Keeps the eyebrow pill and buttons at their own width.
+                    align_items: AlignItems::Start,
                     ..Default::default()
                 })
                 .width(tokens.spacing.xxxxl * 5.45)
@@ -677,7 +684,7 @@ impl From<ProductNavStrip> for Widget {
         .padding_all(tokens.spacing.m)
         .bg_fill(Fill::Solid(tokens.colors.surface.with_alpha(232)))
         .border(tokens.colors.border, 1.0)
-        .border_radius(tokens.radii.full)
+        .border_radius(tokens.radii.xl)
         .into()
     }
 }
@@ -728,7 +735,7 @@ impl From<FeatureShowcase> for Widget {
                             .into(),
                         Text::new(showcase.copy.feature_title)
                             .size(tokens.typography.heading2_size)
-                            .family(tokens.typography.font_family_serif.clone())
+                            .family(tokens.typography.font_family_sans.clone())
                             .line_height(
                                 tokens.typography.heading2_size
                                     * tokens.typography.line_height_heading,
@@ -795,7 +802,7 @@ impl From<DetailShowcase> for Widget {
                             .into(),
                         Text::new(showcase.copy.details_title)
                             .size(tokens.typography.heading_size)
-                            .family(tokens.typography.font_family_serif.clone())
+                            .family(tokens.typography.font_family_sans.clone())
                             .line_height(
                                 tokens.typography.heading_size
                                     * tokens.typography.line_height_heading,
@@ -1070,13 +1077,13 @@ impl From<ProofBand> for Widget {
                     children: vec![
                         Text::new(band.copy.proof_label)
                             .size(tokens.typography.heading1_size)
-                            .family(tokens.typography.font_family_serif.clone())
+                            .family(tokens.typography.font_family_sans.clone())
                             .line_height(
                                 tokens.typography.heading1_size
                                     * tokens.typography.line_height_heading,
                             )
                             .weight(tokens.typography.font_weight_bold)
-                            .color(tokens.colors.heading)
+                            .color(Color::WHITE)
                             .into(),
                         Text::new(band.copy.proof_body)
                             .size(tokens.typography.body_large_size)
@@ -1084,7 +1091,7 @@ impl From<ProofBand> for Widget {
                                 tokens.typography.body_large_size
                                     * tokens.typography.line_height_relaxed,
                             )
-                            .color(tokens.colors.text_secondary)
+                            .color(Color::WHITE.with_alpha(220))
                             .into(),
                     ],
                     gap: Some(tokens.spacing.m),
@@ -1092,7 +1099,7 @@ impl From<ProofBand> for Widget {
                     ..Default::default()
                 }
                 .into(),
-                Cta::new(band.copy.proof_cta_label, band.copy.proof_cta_href, true).into(),
+                Cta::new(band.copy.proof_cta_label, band.copy.proof_cta_href, false).into(),
             ],
             Some(tokens.spacing.xl),
             FlexWrap::Wrap,
@@ -1100,16 +1107,13 @@ impl From<ProofBand> for Widget {
             JustifyContent::SpaceBetween,
         ))
         .padding_all(tokens.spacing.xl)
+        // Matches the home page's closing call to action.
         .bg_fill(Fill::LinearGradient {
             start: (0.0, 0.0),
-            end: (1.0, 1.0),
-            stops: vec![
-                (0.0, tokens.colors.primary_subtle.with_alpha(200)),
-                (1.0, tokens.colors.surface_sunken),
-            ],
+            end: (1.0, 0.0),
+            stops: vec![(0.0, tokens.colors.primary), (1.0, tokens.colors.secondary)],
             extend: Default::default(),
         })
-        .border(tokens.colors.border, 1.0)
         .border_radius(tokens.radii.xxl)
         .into()
     }
@@ -1126,15 +1130,11 @@ impl From<ProductVisual> for Widget {
         let tokens = &view.env().theme.tokens;
         let child: Widget = match visual.kind {
             MarketingPageKind::Charts => ChartVisual.into(),
-            MarketingPageKind::TerminalApps => VisualStack::new(
-                "fission ui",
-                &[
-                    ("Dashboard", "doctor running..."),
-                    ("Logs", "47 checks passed"),
-                    ("Settings", "theme: dark  density: compact"),
-                    ("Command", "non-blocking session attached"),
-                ],
-            )
+            MarketingPageKind::TerminalApps => ScreenshotVisual {
+                title: "Terminal example",
+                src: "/img/examples/terminal.png",
+                aspect: 700.0 / 1100.0,
+            }
             .into(),
             MarketingPageKind::StaticSites => VisualStack::new(
                 "Static site build",
@@ -1165,14 +1165,11 @@ impl From<ProductVisual> for Widget {
                 ],
             )
             .into(),
-            MarketingPageKind::DeveloperTools => VisualStack::new(
-                "Inspector view",
-                &[
-                    ("Widget tree", "routes / screens / components"),
-                    ("Core IR", "layout / semantics / paint"),
-                    ("Runtime", "actions / reducers / resources"),
-                ],
-            )
+            MarketingPageKind::DeveloperTools => ScreenshotVisual {
+                title: "Editor example",
+                src: "/img/examples/editor.png",
+                aspect: 800.0 / 1280.0,
+            }
             .into(),
             MarketingPageKind::DesignSystems => VisualStack::new(
                 "Design system",
@@ -1184,16 +1181,11 @@ impl From<ProductVisual> for Widget {
                 ],
             )
             .into(),
-            MarketingPageKind::CrossPlatformApps => VisualStack::new(
-                "Target matrix",
-                &[
-                    ("Desktop", "macOS  Windows  Linux"),
-                    ("Mobile", "Android  iOS"),
-                    ("Web", "WASM browser shell"),
-                    ("Document", "Static site  SSR"),
-                    ("Terminal", "Terminal app shell"),
-                ],
-            )
+            MarketingPageKind::CrossPlatformApps => ScreenshotVisual {
+                title: "Inbox example",
+                src: "/img/examples/inbox.png",
+                aspect: 800.0 / 1280.0,
+            }
             .into(),
             MarketingPageKind::Overview => VisualStack::new(
                 "Platform map",
@@ -1265,6 +1257,38 @@ impl From<ChartVisual> for Widget {
                     ..Default::default()
                 }
                 .into(),
+            ],
+            gap: Some(tokens.spacing.m),
+            ..Default::default()
+        }
+        .into()
+    }
+}
+
+/// A real screenshot of an example app, framed like the other product visuals.
+#[derive(Clone, Copy, Debug)]
+struct ScreenshotVisual {
+    title: &'static str,
+    src: &'static str,
+    /// Height divided by width of the source image.
+    aspect: f32,
+}
+
+impl From<ScreenshotVisual> for Widget {
+    fn from(visual: ScreenshotVisual) -> Self {
+        let (_ctx, view) = fission::build::current::<DocsState>();
+        let tokens = &view.env().theme.tokens;
+        let width = tokens.spacing.xxxxl * 4.35 - tokens.spacing.l * 2.0;
+        Column {
+            children: vec![
+                VisualHeader {
+                    title: visual.title,
+                }
+                .into(),
+                Container::new(Image::asset(visual.src).size(width, width * visual.aspect))
+                    .border(tokens.colors.border, 1.0)
+                    .border_radius(tokens.radii.large)
+                    .into(),
             ],
             gap: Some(tokens.spacing.m),
             ..Default::default()

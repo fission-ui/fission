@@ -110,7 +110,24 @@
   color: #ffffff !important;
 }
 
+/* Product pages share the home page's hero layout: copy beside the visual. */
+.fission-site-product-hero > .fission-site-row {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center !important;
+  gap: clamp(2rem, 4vw, 4rem) !important;
+  width: 100% !important;
+}
+
+.fission-site-product-hero > .fission-site-row > * {
+  width: auto !important;
+  min-width: 0 !important;
+}
+
 @media (max-width: 1180px) {
+  .fission-site-product-hero > .fission-site-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
   .fission-site-landing-hero-main > .fission-site-row,
   .fission-site-landing-targets-flow > .fission-site-row {
     grid-template-columns: minmax(0, 1fr);

@@ -789,178 +789,6 @@ body::before {
   border-bottom: 1px solid var(--ink);
 }
 
-/* Product pages carry the homepage's editorial system into the retained
-   routes: one continuous story, not a stack of unrelated dashboard cards. */
-.fission-site-product-page {
-  width: 100% !important;
-  max-width: none !important;
-  padding: 0 0 var(--editorial-space) !important;
-  background: var(--paper) !important;
-}
-
-.fission-site-product-page > .fission-site-column {
-  gap: 0 !important;
-}
-
-.fission-site-product-hero,
-.fission-site-product-nav-strip,
-.fission-site-product-feature-showcase,
-.fission-site-product-detail-showcase,
-.fission-site-product-workflow,
-.fission-site-product-proof {
-  border-radius: 0 !important;
-  box-shadow: none !important;
-}
-
-.fission-site-product-hero,
-.fission-site-product-nav-strip,
-.fission-site-product-feature-showcase,
-.fission-site-product-detail-showcase,
-.fission-site-product-workflow,
-.fission-site-product-proof {
-  box-sizing: border-box;
-  width: min(100%, var(--editorial-max)) !important;
-  margin: 0 auto !important;
-}
-
-.fission-site-product-hero {
-  min-height: calc(78svh - 5rem);
-  padding: clamp(5rem, 9vw, 9rem) var(--editorial-gutter) !important;
-}
-
-.fission-site-product-hero > .fission-site-row {
-  display: grid !important;
-  grid-template-columns: minmax(0, 1.35fr) minmax(20rem, 0.65fr);
-  gap: clamp(2rem, 5vw, 5rem) !important;
-  width: 100% !important;
-}
-
-.fission-site-product-hero-title .fission-site-text-run {
-  max-width: 17ch !important;
-  font-size: clamp(3.8rem, 4.8vw, 5rem) !important;
-  font-weight: 560 !important;
-  line-height: 0.96 !important;
-  letter-spacing: -0.06em !important;
-}
-
-.fission-site-product-hero-body .fission-site-text-run {
-  max-width: 43rem;
-  font-size: clamp(1.1rem, 1.55vw, 1.34rem) !important;
-  line-height: 1.62 !important;
-}
-
-.fission-site-product-hero > .fission-site-row > .fission-site-box:last-child {
-  position: relative;
-  overflow: hidden;
-  padding: clamp(1.5rem, 3vw, 2.5rem) !important;
-  border: 1px solid var(--line) !important;
-  border-radius: 0 !important;
-  background: transparent !important;
-}
-
-.fission-site-product-hero > .fission-site-row > .fission-site-box:last-child::before {
-  position: absolute;
-  inset: 1.25rem;
-  border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--line));
-  border-radius: 50%;
-  content: "";
-  pointer-events: none;
-}
-
-.fission-site-product-nav-strip {
-  overflow-x: auto;
-  padding: 1rem var(--editorial-gutter) !important;
-  border: 0 !important;
-  border-top: 1px solid var(--ink) !important;
-  border-bottom: 1px solid var(--line) !important;
-  background: transparent !important;
-}
-
-.fission-site-product-nav-strip > .fission-site-row {
-  justify-content: flex-start !important;
-  flex-wrap: nowrap !important;
-}
-
-.fission-site-product-nav-strip > .fission-site-row > .fission-site-box {
-  flex: 0 0 auto;
-  padding: 0.45rem 0 !important;
-  border: 0 !important;
-  border-radius: 0 !important;
-  background: transparent !important;
-}
-
-.fission-site-product-feature-showcase,
-.fission-site-product-detail-showcase,
-.fission-site-product-workflow,
-.fission-site-product-proof {
-  padding: var(--editorial-space) var(--editorial-gutter) !important;
-  border: 0 !important;
-  border-top: 1px solid var(--line) !important;
-  background: transparent !important;
-}
-
-.fission-site-product-feature-showcase > .fission-site-row {
-  display: grid !important;
-  grid-template-columns: minmax(15rem, 0.52fr) minmax(0, 1fr);
-  gap: clamp(3rem, 8vw, 9rem) !important;
-  width: 100% !important;
-}
-
-.fission-site-product-feature-showcase > .fission-site-row > .fission-site-row,
-.fission-site-product-detail-showcase > .fission-site-column > .fission-site-row,
-.fission-site-product-workflow > .fission-site-column > .fission-site-row:last-child {
-  display: grid !important;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0 !important;
-  width: 100% !important;
-  border-top: 1px solid var(--ink);
-}
-
-[data-fission-semantics="site-product-feature-card"],
-[data-fission-semantics="site-product-detail-card"],
-[data-fission-semantics="site-product-workflow-step"] {
-  width: 100% !important;
-  min-height: 18rem;
-  padding: 1.8rem clamp(1.25rem, 2.5vw, 2.5rem) 2.5rem !important;
-  border: 0 !important;
-  border-right: 1px solid var(--line) !important;
-  border-radius: 0 !important;
-  background: transparent !important;
-}
-
-[data-fission-semantics="site-product-feature-card"]:last-child,
-[data-fission-semantics="site-product-detail-card"]:last-child,
-[data-fission-semantics="site-product-workflow-step"]:last-child {
-  border-right: 0 !important;
-}
-
-.fission-site-product-detail-showcase > .fission-site-column,
-.fission-site-product-workflow > .fission-site-column {
-  gap: clamp(3rem, 6vw, 6rem) !important;
-}
-
-.fission-site-product-detail-showcase > .fission-site-column > .fission-site-box:first-child {
-  max-width: 66rem;
-}
-
-.fission-site-product-workflow > .fission-site-column > .fission-site-row:first-child {
-  display: grid !important;
-  grid-template-columns: minmax(12rem, 0.36fr) minmax(0, 1fr);
-  gap: clamp(2rem, 7vw, 7rem) !important;
-  width: 100% !important;
-}
-
-.fission-site-product-proof {
-  border-top-color: var(--ink) !important;
-  background:
-    linear-gradient(90deg, color-mix(in srgb, var(--accent) 7%, transparent), transparent 52%),
-    transparent !important;
-}
-
-.fission-site-product-proof > .fission-site-row {
-  gap: clamp(3rem, 8vw, 9rem) !important;
-}
-
 .fission-site-footer {
   width: 100% !important;
   padding: clamp(5rem, 9vw, 8rem) var(--editorial-gutter) 2rem !important;
@@ -1015,15 +843,6 @@ body::before {
   .fission-site-main-nav > .fission-site-row,
   .fission-site-doc-nav > .fission-site-row {
     gap: 1rem !important;
-  }
-
-  .fission-site-product-hero > .fission-site-row,
-  .fission-site-product-feature-showcase > .fission-site-row {
-    grid-template-columns: 1fr;
-  }
-
-  .fission-site-product-hero > .fission-site-row > .fission-site-box:last-child {
-    max-width: 44rem;
   }
 
   .fission-site-doc-layout > .fission-site-row {
@@ -1171,52 +990,6 @@ body::before {
     grid-row: auto;
   }
 
-  .fission-site-product-hero,
-  .fission-site-product-nav-strip,
-  .fission-site-product-feature-showcase,
-  .fission-site-product-detail-showcase,
-  .fission-site-product-workflow,
-  .fission-site-product-proof {
-    padding-right: 1.25rem !important;
-    padding-left: 1.25rem !important;
-  }
-
-  .fission-site-product-hero {
-    min-height: 0;
-    padding-top: 4rem !important;
-    padding-bottom: 4rem !important;
-  }
-
-  .fission-site-product-hero > .fission-site-row > .fission-site-box:first-child,
-  .fission-site-product-hero > .fission-site-row > .fission-site-box:first-child > .fission-site-column,
-  .fission-site-product-hero-title,
-  .fission-site-product-hero-body {
-    width: calc(100vw - 7.25rem) !important;
-    min-width: 0 !important;
-    max-width: calc(100vw - 7.25rem) !important;
-  }
-
-  .fission-site-product-hero-title .fission-site-text-run {
-    font-size: clamp(3rem, 13vw, 3.5rem) !important;
-  }
-
-  .fission-site-product-feature-showcase > .fission-site-row > .fission-site-row,
-  .fission-site-product-detail-showcase > .fission-site-column > .fission-site-row,
-  .fission-site-product-workflow > .fission-site-column > .fission-site-row:last-child,
-  .fission-site-product-workflow > .fission-site-column > .fission-site-row:first-child {
-    grid-template-columns: 1fr;
-  }
-
-  [data-fission-semantics="site-product-feature-card"],
-  [data-fission-semantics="site-product-detail-card"],
-  [data-fission-semantics="site-product-workflow-step"] {
-    min-height: 0;
-    padding-right: 0 !important;
-    padding-left: 0 !important;
-    border-right: 0 !important;
-    border-bottom: 1px solid var(--line) !important;
-  }
-
   .fission-site-footer {
     padding-inline: 1.25rem !important;
   }
@@ -1336,12 +1109,6 @@ body::before {
 .fission-site-blog-index-title .fission-site-text-run { max-width: 18ch !important; }
 .fission-site-blog-featured-card::before,
 .fission-site-blog-featured-card::after { display: none !important; }
-
-.fission-site-product-hero-title .fission-site-text-run { max-width: 20ch !important; }
-.fission-site-product-hero > .fission-site-row > .fission-site-box:last-child {
-  border: 0 !important;
-  background: transparent !important;
-}
 
 @media (min-width: 60.01rem) {
   .fission-site-doc-header .fission-site-sidebar-toggle { display: none !important; }
