@@ -181,6 +181,11 @@ href = "/reference/testing/live-test-commands/"
 level = 1
 
 [[items]]
+title = "LiveTest command API"
+href = "/reference/core/live-test-command-api/"
+level = 1
+
+[[items]]
 title = "GoldenOptions"
 href = "/reference/testing/golden-options/"
 level = 1
