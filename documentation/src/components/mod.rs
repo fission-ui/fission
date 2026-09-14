@@ -3,7 +3,6 @@ mod crates;
 mod footer;
 mod home;
 mod home_nav;
-mod home_sections;
 mod home_widgets;
 mod landing;
 mod landing_sections;

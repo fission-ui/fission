@@ -1,10 +1,10 @@
 use super::home_nav::HomePageNav;
-use super::home_sections::PlatformAtlas;
-use super::home_widgets::{page_fill, site_semantics, SemanticRow};
+use super::home_widgets::{site_semantics, SemanticColumn, SemanticRow};
+use super::landing::{centred_band, landing_width};
 use super::localized::LocalizedNav;
 use super::state::DocsState;
 use crate::registry::{RegistryCrate, PLATFORMS};
-use fission::op::{AlignItems, FlexWrap, JustifyContent, TextAlign};
+use fission::op::{AlignItems, Fill, FlexWrap, JustifyContent, TextAlign};
 use fission::prelude::*;
 
 const PHONE_BREAKPOINT: f32 = 720.0;
@@ -38,11 +38,11 @@ impl From<CrateDirectoryPage> for Widget {
             .cloned();
         let mut children = vec![navigation, CrateDirectoryHero { crate_count }.into()];
         if let Some(item) = featured {
-            children.push(FeaturedCrate { item }.into());
+            children.push(crate_band(tokens, FeaturedCrate { item }.into()));
         }
         children.extend([
-            CategoryLegend.into(),
-            PlatformLegend.into(),
+            crate_band(tokens, CategoryLegend.into()),
+            crate_band(tokens, PlatformLegend.into()),
             Container::new(Column {
                 children: vec![
                     CrateDirectoryToolbar { crate_count }.into(),
@@ -55,26 +55,26 @@ impl From<CrateDirectoryPage> for Widget {
                 semantics: Some(site_semantics("crate-results")),
                 ..Default::default()
             })
-            .width_length(Length::clamp(
-                Length::points(280.0),
-                Length::percent(100.0),
-                Length::points(1304.0),
-            ))
-            .padding_lengths([
-                Length::points(tokens.spacing.xxl),
-                Length::points(tokens.spacing.xl),
-                Length::points(tokens.spacing.xxxxl),
-                Length::points(tokens.spacing.xl),
-            ])
+            .width_length(Length::percent(100.0))
+            .max_width(landing_width(tokens))
             .into(),
         ]);
+        let results = children.pop().expect("results block");
+        children.push(crate_band(tokens, results));
+        children.push(
+            Spacer {
+                height: Some(tokens.spacing.xxxl),
+                ..Default::default()
+            }
+            .into(),
+        );
         Container::new(Column {
             children,
             gap: Some(0.0),
             semantics: Some(site_semantics("crate-directory-page")),
             ..Default::default()
         })
-        .bg_fill(page_fill(tokens))
+        .bg_fill(Fill::Solid(tokens.colors.background))
         .into()
     }
 }
@@ -115,10 +115,10 @@ impl From<FeaturedCrate> for Widget {
                         })
                         .into(),
                         Text::new("Put native Apple maps inside a Fission application.")
-                            .size(tokens.typography.heading1_size)
+                            .size(tokens.typography.heading2_size)
                             .weight(tokens.typography.font_weight_bold)
                             .line_height(
-                                tokens.typography.heading1_size
+                                tokens.typography.heading2_size
                                     * tokens.typography.line_height_heading,
                             )
                             .color(tokens.colors.heading)
@@ -157,7 +157,8 @@ impl From<FeaturedCrate> for Widget {
                                         .semantics_identifier(format!("site-route:{href}")),
                                 )
                                 .padding([tokens.spacing.l, tokens.spacing.l, tokens.spacing.m, tokens.spacing.m])
-                                .bg_fill(fission::op::Fill::Solid(tokens.colors.primary))
+                                .bg_fill(Fill::Solid(tokens.colors.primary))
+                                .border_radius(tokens.radii.medium)
                                 .into(),
                                 Text::new(format!("cargo add {}", item.name))
                                     .size(tokens.typography.font_size_sm)
@@ -195,19 +196,27 @@ impl From<FeaturedCrate> for Widget {
             AlignItems::Stretch,
             JustifyContent::SpaceBetween,
         ))
-        .width_length(Length::clamp(
-            Length::points(280.0),
-            Length::percent(100.0),
-            Length::points(1400.0),
-        ))
-        .padding_lengths([
-            Length::points(tokens.spacing.xxxl),
-            Length::points(tokens.spacing.xl),
-            Length::points(tokens.spacing.xxxl),
-            Length::points(tokens.spacing.xl),
-        ])
+        .width_length(Length::percent(100.0))
+        .max_width(landing_width(tokens))
+        .padding_all(tokens.spacing.xl)
+        .bg_fill(Fill::Solid(tokens.colors.surface_raised))
+        .border(tokens.colors.border, 1.0)
+        .border_radius(tokens.radii.xxl)
         .into()
     }
+}
+
+/// Centres a crates-page block on the page and gives it the landing section spacing.
+fn crate_band(tokens: &Tokens, child: Widget) -> Widget {
+    Container::new(centred_band("crate-band", child))
+        .padding([
+            tokens.spacing.xl,
+            tokens.spacing.xl,
+            tokens.spacing.l,
+            tokens.spacing.l,
+        ])
+        .width_length(Length::percent(100.0))
+        .into()
 }
 
 #[derive(Clone, Debug)]
@@ -237,7 +246,9 @@ impl From<CategoryLegend> for Widget {
                             .semantics_identifier(format!("crate-category-filter:{id}")),
                     )
                     .padding([10.0, 14.0, 10.0, 14.0])
+                    .bg(tokens.colors.surface_raised)
                     .border(tokens.colors.border, 1.0)
+                    .border_radius(tokens.radii.medium)
                     .into()
                 })
                 .collect(),
@@ -247,12 +258,8 @@ impl From<CategoryLegend> for Widget {
             semantics: Some(site_semantics("crate-category-legend")),
             ..Default::default()
         })
-        .width_length(Length::clamp(
-            Length::points(280.0),
-            Length::percent(100.0),
-            Length::points(1304.0),
-        ))
-        .padding_lengths(Length::all(Length::points(tokens.spacing.m)))
+        .width_length(Length::percent(100.0))
+        .max_width(landing_width(tokens))
         .into()
     }
 }
@@ -264,111 +271,15 @@ struct CrateDirectoryHero {
 
 impl From<CrateDirectoryHero> for Widget {
     fn from(hero: CrateDirectoryHero) -> Widget {
-        Responsive::new(CrateHeroDesktop {
-            crate_count: hero.crate_count,
-        })
-        .id(WidgetId::explicit("crates.hero.responsive"))
-        .case(ResponsiveCase::max_width(
-            PHONE_BREAKPOINT,
-            CrateHeroPhone {
-                crate_count: hero.crate_count,
-            },
-        ))
-        .into()
-    }
-}
-
-#[derive(Clone, Debug)]
-struct CrateHeroDesktop {
-    crate_count: usize,
-}
-
-impl From<CrateHeroDesktop> for Widget {
-    fn from(hero: CrateHeroDesktop) -> Widget {
         let (_ctx, view) = fission::build::current::<DocsState>();
         let tokens = &view.env().theme.tokens;
-        Container::new(SemanticRow::new(
-            "crate-directory-hero",
-            vec![
-                Container::new(CrateHeroContent::new(hero.crate_count, false))
-                    .flex_grow(1.0)
-                    .flex_shrink(1.0)
-                    .into(),
-                Container::new(PlatformAtlas)
-                    .width_length(Length::clamp(
-                        Length::points(360.0),
-                        Length::percent(42.0),
-                        Length::points(520.0),
-                    ))
-                    .flex_shrink(1.0)
-                    .into(),
-            ],
-            Some(tokens.spacing.xxxl),
-            FlexWrap::NoWrap,
-            AlignItems::Center,
-            JustifyContent::SpaceBetween,
-        ))
-        .width_length(Length::clamp(
-            Length::points(280.0),
-            Length::percent(100.0),
-            Length::points(1400.0),
-        ))
-        .padding_lengths([
-            Length::points(tokens.spacing.xxxl),
-            Length::points(tokens.spacing.xl),
-            Length::points(tokens.spacing.xxl),
-            Length::points(tokens.spacing.xl),
-        ])
-        .into()
-    }
-}
-
-#[derive(Clone, Debug)]
-struct CrateHeroPhone {
-    crate_count: usize,
-}
-
-impl From<CrateHeroPhone> for Widget {
-    fn from(hero: CrateHeroPhone) -> Widget {
-        let (_ctx, view) = fission::build::current::<DocsState>();
-        let tokens = &view.env().theme.tokens;
-        Container::new(CrateHeroContent::new(hero.crate_count, true))
-            .width_length(Length::percent(100.0))
-            .padding_lengths([
-                Length::points(tokens.spacing.xl),
-                Length::points(tokens.spacing.l),
-                Length::points(tokens.spacing.xxxl),
-                Length::points(tokens.spacing.l),
-            ])
-            .into()
-    }
-}
-
-#[derive(Clone, Debug)]
-struct CrateHeroContent {
-    crate_count: usize,
-    compact: bool,
-}
-
-impl CrateHeroContent {
-    fn new(crate_count: usize, compact: bool) -> Self {
-        Self {
-            crate_count,
-            compact,
-        }
-    }
-}
-
-impl From<CrateHeroContent> for Widget {
-    fn from(hero: CrateHeroContent) -> Widget {
-        let (_ctx, view) = fission::build::current::<DocsState>();
-        let tokens = &view.env().theme.tokens;
+        let compact = view.env().viewport_size.width < PHONE_BREAKPOINT;
         let indexed_count = if view.env().locale.0 == "es-ES" {
             format!("{} crates indexados", hero.crate_count)
         } else {
             format!("{} indexed crates", hero.crate_count)
         };
-        SemanticRow::new(
+        let copy = SemanticColumn::new(
             "crate-directory-copy",
             vec![
                 Text::new(TextContent::Key("crates.eyebrow".into()))
@@ -376,42 +287,61 @@ impl From<CrateHeroContent> for Widget {
                     .weight(tokens.typography.font_weight_bold)
                     .color(tokens.colors.primary)
                     .into(),
-                Column {
-                    children: vec![
-                        Text::new(TextContent::Key("crates.title".into()))
-                            .size(if hero.compact { 46.0 } else { 68.0 })
-                            .line_height(if hero.compact { 48.0 } else { 70.0 })
-                            .weight(tokens.typography.font_weight_bold)
-                            .color(tokens.colors.heading)
-                            .max_width(900.0)
-                            .semantics_identifier("crate-directory-title")
-                            .into(),
-                        Text::new(TextContent::Key("crates.body".into()))
-                            .size(if hero.compact { 17.0 } else { 20.0 })
-                            .line_height(if hero.compact { 27.0 } else { 32.0 })
-                            .color(tokens.colors.text_secondary)
-                            .max_width(740.0)
-                            .semantics_identifier("crate-directory-body")
-                            .into(),
-                        CrateSearchBox.into(),
-                        Text::new(indexed_count)
-                            .size(tokens.typography.font_size_sm)
-                            .weight(tokens.typography.font_weight_bold)
-                            .color(tokens.colors.secondary)
-                            .semantics_identifier("crate-directory-count")
-                            .into(),
-                    ],
-                    gap: Some(tokens.spacing.l),
-                    ..Default::default()
-                }
-                .into(),
+                Text::new(TextContent::Key("crates.title".into()))
+                    .size(if compact {
+                        tokens.typography.heading2_size
+                    } else {
+                        tokens.typography.heading1_size
+                    })
+                    .line_height(
+                        tokens.typography.heading1_size * tokens.typography.line_height_heading,
+                    )
+                    .weight(tokens.typography.font_weight_bold)
+                    .color(tokens.colors.heading)
+                    .text_align(TextAlign::Center)
+                    .max_width(760.0)
+                    .semantics_identifier("crate-directory-title")
+                    .into(),
+                Text::new(TextContent::Key("crates.body".into()))
+                    .size(tokens.typography.body_large_size)
+                    .line_height(
+                        tokens.typography.body_large_size * tokens.typography.line_height_relaxed,
+                    )
+                    .color(tokens.colors.text_secondary)
+                    .text_align(TextAlign::Center)
+                    .max_width(680.0)
+                    .semantics_identifier("crate-directory-body")
+                    .into(),
+                CrateSearchBox.into(),
+                Text::new(indexed_count)
+                    .size(tokens.typography.font_size_sm)
+                    .weight(tokens.typography.font_weight_semibold)
+                    .color(tokens.colors.text_secondary)
+                    .semantics_identifier("crate-directory-count")
+                    .into(),
             ],
-            Some(tokens.spacing.xxxl),
-            FlexWrap::Wrap,
-            AlignItems::Start,
-            JustifyContent::SpaceBetween,
-        )
-        .into()
+            Some(tokens.spacing.l),
+            AlignItems::Center,
+        );
+        Container::new(centred_band("crate-directory-hero", copy.into()))
+            .padding([
+                tokens.spacing.xl,
+                tokens.spacing.xl,
+                tokens.spacing.xxxl,
+                tokens.spacing.xxxl,
+            ])
+            .width_length(Length::percent(100.0))
+            .bg_fill(Fill::LinearGradient {
+                start: (0.0, 0.0),
+                end: (1.0, 1.0),
+                stops: vec![
+                    (0.0, tokens.colors.primary_subtle),
+                    (0.55, tokens.colors.background),
+                    (1.0, tokens.colors.primary_subtle),
+                ],
+                extend: Default::default(),
+            })
+            .into()
     }
 }
 
@@ -460,9 +390,9 @@ impl From<CrateSearchBox> for Widget {
         .max_width(650.0)
         .min_height_length(Length::points(64.0))
         .padding_lengths(Length::all(Length::points(tokens.spacing.m)))
-        .bg(tokens.colors.surface)
-        .border(tokens.colors.primary, 2.0)
-        .border_radius(tokens.radii.large)
+        .bg(tokens.colors.surface_raised)
+        .border(tokens.colors.border, 1.0)
+        .border_radius(tokens.radii.xl)
         .into()
     }
 }
@@ -525,15 +455,12 @@ impl From<PlatformLegend> for Widget {
             semantics: Some(site_semantics("crate-platform-legend")),
             ..Default::default()
         })
-        .width_length(Length::clamp(
-            Length::points(280.0),
-            Length::percent(100.0),
-            Length::points(1304.0),
-        ))
-        .padding_lengths(Length::all(Length::points(tokens.spacing.m)))
-        .bg(tokens.colors.surface)
+        .width_length(Length::percent(100.0))
+        .max_width(landing_width(tokens))
+        .padding_all(tokens.spacing.m)
+        .bg(tokens.colors.surface_raised)
         .border(tokens.colors.border, 1.0)
-        .border_radius(tokens.radii.large)
+        .border_radius(tokens.radii.xl)
         .into()
     }
 }
@@ -717,7 +644,7 @@ impl From<CrateCard> for Widget {
                     format!("site-route:{href}"),
                     vec![
                         Text::new(item.name.clone())
-                            .size(tokens.typography.heading_size)
+                            .size(tokens.typography.font_size_lg)
                             .weight(tokens.typography.font_weight_bold)
                             .color(tokens.colors.heading)
                             .semantics_identifier(format!("site-route:{href}"))
@@ -789,10 +716,10 @@ impl From<CrateCard> for Widget {
             ..Default::default()
         })
         .padding_all(tokens.spacing.l)
-        .bg(tokens.colors.surface)
+        .bg(tokens.colors.surface_raised)
         .border(tokens.colors.border, 1.0)
-        .border_radius(tokens.radii.large)
-        .min_height(260.0)
+        .border_radius(tokens.radii.xl)
+        .min_height(240.0)
         .into()
     }
 }
@@ -917,25 +844,20 @@ impl From<CrateDetailPage> for Widget {
         Container::new(Column {
             children: vec![
                 navigation,
-                Container::new(CrateDetailContent { item: page.item })
-                    .width_length(Length::clamp(
-                        Length::points(280.0),
-                        Length::percent(100.0),
-                        Length::points(1304.0),
-                    ))
-                    .padding_lengths([
-                        Length::points(tokens.spacing.xxl),
-                        Length::points(tokens.spacing.xl),
-                        Length::points(tokens.spacing.xxxxl),
-                        Length::points(tokens.spacing.xl),
-                    ])
-                    .into(),
+                crate_band(
+                    tokens,
+                    Container::new(CrateDetailContent { item: page.item })
+                        .width_length(Length::percent(100.0))
+                        .max_width(landing_width(tokens))
+                        .padding([0.0, 0.0, tokens.spacing.xl, tokens.spacing.xxxl])
+                        .into(),
+                ),
             ],
             gap: Some(0.0),
             semantics: Some(site_semantics("crate-detail-page")),
             ..Default::default()
         })
-        .bg_fill(page_fill(tokens))
+        .bg_fill(Fill::Solid(tokens.colors.background))
         .into()
     }
 }
@@ -1008,8 +930,10 @@ impl From<CrateDetailHeader> for Widget {
         Column {
             children: vec![
                 Text::new(header.item.name.clone())
-                    .size(52.0)
-                    .line_height(55.0)
+                    .size(tokens.typography.heading1_size)
+                    .line_height(
+                        tokens.typography.heading1_size * tokens.typography.line_height_heading,
+                    )
                     .weight(tokens.typography.font_weight_bold)
                     .color(tokens.colors.heading)
                     .into(),
@@ -1092,9 +1016,9 @@ impl From<InstallCommand> for Widget {
             ..Default::default()
         })
         .padding_all(tokens.spacing.l)
-        .bg(tokens.colors.surface)
+        .bg(tokens.colors.surface_raised)
         .border(tokens.colors.border, 1.0)
-        .border_radius(tokens.radii.large)
+        .border_radius(tokens.radii.xl)
         .into()
     }
 }
@@ -1159,9 +1083,9 @@ impl From<PlatformSupport> for Widget {
                                 ..Default::default()
                             })
                             .padding_all(tokens.spacing.m)
-                            .bg(tokens.colors.surface)
+                            .bg(tokens.colors.background)
                             .border(tokens.colors.border, 1.0)
-                            .border_radius(tokens.radii.medium)
+                            .border_radius(tokens.radii.large)
                             .min_width(120.0)
                             .into()
                         })
@@ -1177,9 +1101,9 @@ impl From<PlatformSupport> for Widget {
             ..Default::default()
         })
         .padding_all(tokens.spacing.l)
-        .bg(tokens.colors.primary_subtle)
+        .bg(tokens.colors.surface_raised)
         .border(tokens.colors.border, 1.0)
-        .border_radius(tokens.radii.large)
+        .border_radius(tokens.radii.xl)
         .into()
     }
 }
@@ -1334,9 +1258,9 @@ impl From<CrateMetadata> for Widget {
             ..Default::default()
         })
         .padding_all(tokens.spacing.l)
-        .bg(tokens.colors.surface)
+        .bg(tokens.colors.surface_raised)
         .border(tokens.colors.border, 1.0)
-        .border_radius(tokens.radii.large)
+        .border_radius(tokens.radii.xl)
         .into()
     }
 }
