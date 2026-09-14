@@ -227,17 +227,17 @@ body::before {
 }
 
 .fission-site-home-actions > .fission-site-row > .fission-site-box:last-child {
-  border: 1px solid var(--ink) !important;
-  border-radius: 0 !important;
+  border: 0 !important;
+  border-radius: 999px !important;
   background: var(--accent-gradient) !important;
+}
+
+.fission-site-home-actions > .fission-site-row > .fission-site-box:last-child .fission-site-text-run {
+  color: #ffffff !important;
 }
 
 .fission-site-home-actions > .fission-site-row > .fission-site-box:last-child:hover {
   filter: saturate(1.08) brightness(0.96);
-}
-
-.fission-site-home-actions > .fission-site-row > .fission-site-box:last-child:hover .fission-site-text-run {
-  color: var(--paper) !important;
 }
 
 .fission-site-theme-toggle,
@@ -1723,22 +1723,6 @@ body::before {
 .fission-site-home-header,
 .fission-site-doc-header {
   position: static !important;
-}
-
-.fission-site-home-actions > .fission-site-row > .fission-site-box:last-child {
-  border-color: var(--line-strong) !important;
-  background: transparent !important;
-}
-
-.fission-site-home-actions > .fission-site-row > .fission-site-box:last-child .fission-site-text-run {
-  color: var(--ink) !important;
-}
-
-.fission-site-home-actions > .fission-site-row > .fission-site-box:last-child:hover {
-  background: var(--ink) !important;
-}
-.fission-site-home-actions > .fission-site-row > .fission-site-box:last-child:hover .fission-site-text-run {
-  color: var(--paper) !important;
 }
 
 .fission-site-theme-toggle {

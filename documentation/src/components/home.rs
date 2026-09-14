@@ -1,11 +1,8 @@
 use super::home_nav::HomePageNav;
-use super::home_widgets::page_fill;
+use super::landing::LandingHero;
+use super::landing_sections::{CtaBand, DeliverySection, FoundationSection, TargetsSection};
 use super::state::DocsState;
-use super::value_home::{
-    AudienceSection, ComparisonSection, HomePageHero, HowItWorksSection, OutcomesSection,
-    StartSection, WhySection,
-};
-use fission::op::{AlignItems, JustifyContent};
+use fission::op::{AlignItems, Fill, JustifyContent};
 use fission::prelude::*;
 use std::sync::Arc;
 
@@ -48,20 +45,17 @@ impl From<HomePage> for Widget {
                 Row {
                     children: vec![Container::new(Column {
                         children: vec![
-                            HomePageHero.into(),
-                            WhySection.into(),
-                            OutcomesSection.into(),
-                            AudienceSection.into(),
-                            HowItWorksSection.into(),
-                            ComparisonSection.into(),
-                            StartSection.into(),
+                            LandingHero.into(),
+                            FoundationSection.into(),
+                            TargetsSection.into(),
+                            DeliverySection.into(),
+                            CtaBand.into(),
                         ],
                         gap: Some(0.0),
                         align_items: AlignItems::Center,
                         ..Default::default()
                     })
                     .width_length(Length::percent(100.0))
-                    .padding([0.0, 0.0, tokens.spacing.xxl, 0.0])
                     .into()],
                     justify_content: JustifyContent::Center,
                     ..Default::default()
@@ -72,7 +66,7 @@ impl From<HomePage> for Widget {
             flex_grow: 1.0,
             ..Default::default()
         })
-        .bg_fill(page_fill(tokens))
+        .bg_fill(Fill::Solid(tokens.colors.background))
         .into()
     }
 }
