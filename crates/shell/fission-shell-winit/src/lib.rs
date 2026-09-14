@@ -6794,6 +6794,10 @@ where
                         elwt.set_control_flow(ControlFlow::Wait);
                         return;
                     };
+                    // Queued test events are drained before the pending screenshot is read: the
+                    // drain holds the test event handler, which owns that screenshot slot.
+                    #[cfg(target_os = "android")]
+                    drain_pending_test_events();
                     if surface_occluded && pending_screenshot_response_tx.is_some() {
                         let _ = event_proxy.send_event(TestEvent::HeadlessFrame);
                     }
@@ -6806,8 +6810,6 @@ where
                             tray::hide_window_to_tray(window, tray.app_switcher_policy());
                         }
                     }
-                    #[cfg(target_os = "android")]
-                    drain_pending_test_events();
                     for command in runtime.take_pending_navigation() {
                         #[cfg(target_arch = "wasm32")]
                         match navigation::apply_browser_navigation(
