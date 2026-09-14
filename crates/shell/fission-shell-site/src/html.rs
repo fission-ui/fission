@@ -749,7 +749,7 @@ impl InteractionPseudo {
     fn selector(self) -> &'static str {
         match self {
             Self::Hover => ":hover",
-            Self::Focused => ":focus",
+            Self::Focused => ":focus-visible",
             Self::Pressed => ":active",
         }
     }

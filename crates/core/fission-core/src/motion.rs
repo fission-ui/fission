@@ -270,7 +270,8 @@ pub enum MotionPredicate {
     Hovered(WidgetId),
     /// True when the widget is currently pressed.
     Pressed(WidgetId),
-    /// True when the widget is currently focused.
+    /// True when the widget is focused and its focus is drawn: after keyboard navigation, not
+    /// after a click. Focus styles branch on this, so they match the static focus ring.
     Focused(WidgetId),
     /// True when the widget is disabled.
     Disabled(WidgetId),
@@ -499,7 +500,7 @@ impl<'a> MotionEvalInput<'a> {
         match predicate {
             MotionPredicate::Hovered(id) => self.runtime.interaction.is_hovered(*id),
             MotionPredicate::Pressed(id) => self.runtime.interaction.is_pressed(*id),
-            MotionPredicate::Focused(id) => self.runtime.interaction.is_focused(*id),
+            MotionPredicate::Focused(id) => self.runtime.interaction.is_focus_visible(*id),
             MotionPredicate::Disabled(_) => false,
         }
     }
