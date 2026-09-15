@@ -119,12 +119,6 @@ pub enum FileSystemLocation {
     },
 }
 
-impl Default for FileSystemLocation {
-    fn default() -> Self {
-        Self::Path(FileSystemPath::root())
-    }
-}
-
 impl FileSystemLocation {
     pub fn path(path: impl Into<String>) -> Self {
         Self::Path(FileSystemPath::new(path))
@@ -215,7 +209,7 @@ pub enum FileSystemEntryKind {
     Other,
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FileSystemEntry {
     pub name: String,
     pub location: FileSystemLocation,
@@ -225,7 +219,7 @@ pub struct FileSystemEntry {
     pub modified_millis: Option<u64>,
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ListDirectoryRequest {
     pub location: FileSystemLocation,
 }
@@ -235,17 +229,17 @@ pub struct ListDirectoryResult {
     pub entries: Vec<FileSystemEntry>,
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StatEntryRequest {
     pub location: FileSystemLocation,
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StatEntryResult {
     pub entry: FileSystemEntry,
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ReadFileRequest {
     pub location: FileSystemLocation,
 }
@@ -272,7 +266,7 @@ impl Default for FileWriteSource {
     }
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WriteFileRequest {
     pub location: FileSystemLocation,
     pub source: FileWriteSource,
@@ -287,13 +281,13 @@ pub struct WriteFileResult {
     pub byte_len: u64,
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CreateDirectoryRequest {
     pub location: FileSystemLocation,
     pub recursive: bool,
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RemoveEntryRequest {
     pub location: FileSystemLocation,
     pub recursive: bool,
