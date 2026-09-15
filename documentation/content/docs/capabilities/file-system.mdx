@@ -88,6 +88,6 @@ Call `forget_directory` to delete a persisted browser handle, and `release` when
 
 ## Error handling
 
-All operations return `FileSystemError { code, message }`. Treat cancellation separately from failure: picker cancellation is a successful result with no directory. Common error codes include `unsupported`, `permission_denied`, `invalid_handle`, `invalid_path`, `not_found`, `not_a_file`, and operation-specific I/O failures.
+All operations return `FileSystemError { code, message }`. Treat cancellation separately from failure: picker cancellation is a successful result with no directory. Common error codes include `unsupported`, `unsupported_path_namespace`, `permission_denied`, `invalid_handle`, `invalid_path`, `not_found`, `not_a_file`, and operation-specific I/O failures.
 
 For the complete type and operation list, see the [File system reference](/reference/capabilities/file-system/) and [capability matrix](/docs/capabilities/matrix/).
