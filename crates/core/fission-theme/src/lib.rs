@@ -1399,6 +1399,8 @@ impl ButtonTheme {
                 fill: fission_ir::op::Fill::Solid(tokens.colors.focus_ring),
                 width: 1.0,
                 dash_array: None,
+                dash_offset: 0.0,
+                trim: None,
                 line_cap: fission_ir::op::LineCap::Round,
                 line_join: fission_ir::op::LineJoin::Round,
             }),

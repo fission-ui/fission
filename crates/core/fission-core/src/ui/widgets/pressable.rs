@@ -509,6 +509,8 @@ impl Pressable {
                     fill: Fill::Solid(Color::TRANSPARENT),
                     width: 0.0,
                     dash_array: None,
+                    dash_offset: 0.0,
+                    trim: None,
                     line_cap: fission_ir::op::LineCap::Butt,
                     line_join: fission_ir::op::LineJoin::Miter,
                 });

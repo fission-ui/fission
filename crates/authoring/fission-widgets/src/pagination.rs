@@ -244,6 +244,8 @@ fn button_override(style: &ResolvedComponentStyle) -> ButtonStyleOverride {
             fill: border.fill.clone(),
             width: border.width,
             dash_array: None,
+            dash_offset: 0.0,
+            trim: None,
             line_cap: LineCap::Butt,
             line_join: LineJoin::Miter,
         }),

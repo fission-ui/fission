@@ -1,7 +1,7 @@
 use crate::build_support::{
-    escape_attr, escape_text, first_h1, normalize_site_asset_href, normalize_site_link_href,
-    page_asset_href_for_route, resolve_project_path, search_script_href_for_route,
-    stylesheet_href_for_route, title_from_path, validate_generated_internal_links,
+    escape_attr, escape_text, finish_generated_links, first_h1, normalize_site_asset_href,
+    normalize_site_link_href, page_asset_href_for_route, resolve_project_path,
+    search_script_href_for_route, stylesheet_href_for_route, title_from_path,
 };
 use crate::document::{
     extract_page_links, ContentRoute, DocumentationPage, SidebarLink, SiteNavLink, SitePageState,
@@ -325,7 +325,7 @@ pub fn build_site(options: &SiteBuildOptions, site: &FissionSite) -> Result<Site
     write_sitemap_if_needed(options, &routes)?;
     write_robots_if_needed(options)?;
     eprintln!("Validating generated internal links...");
-    validate_generated_internal_links(&options.output_dir)?;
+    finish_generated_links(&options.output_dir)?;
 
     Ok(SiteBuildReport {
         output_dir: options.output_dir.clone(),

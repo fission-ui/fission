@@ -207,6 +207,8 @@ impl HoverScene<'_> {
             .unwrap_or(self.pointer.x);
         let dashed = Stroke {
             dash_array: Some(vec![POINTER_DASH, POINTER_DASH]),
+            dash_offset: 0.0,
+            trim: None,
             ..stroke(self.theme.axis_line, 1.0)
         };
         if pointer_type == AxisPointerType::Shadow && self.category.is_some() {

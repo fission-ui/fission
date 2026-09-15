@@ -714,7 +714,7 @@ impl {krate}::DesignSystem for {type_name} {{
                 elevation_rest: {elevation_rest},
                 elevation_hover: {elevation_hover},
                 elevation_pressed: {elevation_pressed},
-                focus_stroke: Some({krate}::Stroke {{ fill: {krate}::Fill::Solid({focus}), width: 2.0, dash_array: None, line_cap: {krate}::LineCap::Round, line_join: {krate}::LineJoin::Round }}),
+                focus_stroke: Some({krate}::Stroke {{ fill: {krate}::Fill::Solid({focus}), width: 2.0, dash_array: None, dash_offset: 0.0, trim: None, line_cap: {krate}::LineCap::Round, line_join: {krate}::LineJoin::Round }}),
                 icon_size: {icon_size},
                 font_weight: {font_weight},
                 line_height: {line_height},
