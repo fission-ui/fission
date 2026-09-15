@@ -34,7 +34,9 @@ pub struct GalleryState {
     pub foundation_loading: bool,
     pub loading_presses: u32,
     pub density: fission::theme::Density,
-    pub ember_look: bool,
+    pub look: usize,
+    pub native_look: bool,
+    pub native_preview: usize,
     pub dark_mode: bool,
 }
 
@@ -82,8 +84,10 @@ impl Default for GalleryState {
             hit_target_presses: 0,
             foundation_loading: false,
             loading_presses: 0,
-            density: fission::theme::Density::Comfortable,
-            ember_look: false,
+            density: fission::theme::Density::Compact,
+            look: 0,
+            native_look: false,
+            native_preview: 0,
             dark_mode: false,
         }
     }

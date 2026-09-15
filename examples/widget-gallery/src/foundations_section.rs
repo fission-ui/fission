@@ -17,7 +17,17 @@ fn set_density(state: &mut GalleryState, index: usize) {
 
 #[fission_reducer(SetLook)]
 fn set_look(state: &mut GalleryState, index: usize) {
-    state.ember_look = index == 1;
+    state.look = index.min(2);
+}
+
+#[fission_reducer(ToggleNativeLook)]
+fn toggle_native_look(state: &mut GalleryState) {
+    state.native_look = !state.native_look;
+}
+
+#[fission_reducer(SetNativePreview)]
+fn set_native_preview(state: &mut GalleryState, index: usize) {
+    state.native_preview = index.min(3);
 }
 
 #[fission_reducer(SetMode)]
@@ -148,13 +158,35 @@ impl From<LookSwitcher> for Widget {
             let action = with_reducer!(ctx, SetMode(0), set_mode);
             move |index| action.with_action(&SetMode(index))
         });
+        let toggle_native = with_reducer!(ctx, ToggleNativeLook, toggle_native_look);
+        let set_native_preview = std::sync::Arc::new({
+            let action = with_reducer!(ctx, SetNativePreview(0), set_native_preview);
+            move |index| action.with_action(&SetNativePreview(index))
+        });
+        // Progressive disclosure: the platform preview appears only once the
+        // native look is on.
+        let native_preview: Widget = if state.native_look {
+            SegmentedControl {
+                options: vec![
+                    "This device".into(),
+                    "Apple".into(),
+                    "Android".into(),
+                    "Windows".into(),
+                ],
+                selected_index: state.native_preview,
+                on_change: Some(set_native_preview),
+            }
+            .into()
+        } else {
+            Spacer::default().into()
+        };
 
         VStack {
             spacing: Some(tokens.spacing.ms),
             children: widgets![
                 Text::new(
-                    "Graphite is Fission's default design system. Ember ships as a preset \
-                     for later."
+                    "Tidewater is Fission's default design system. Graphite and Ember ship \
+                     as presets."
                 )
                 .color(tokens.colors.text_secondary),
                 Wrap {
@@ -163,8 +195,8 @@ impl From<LookSwitcher> for Widget {
                     run_spacing: Some(tokens.spacing.s),
                     children: widgets![
                         SegmentedControl {
-                            options: vec!["Graphite".into(), "Ember".into()],
-                            selected_index: usize::from(state.ember_look),
+                            options: vec!["Tidewater".into(), "Graphite".into(), "Ember".into()],
+                            selected_index: state.look,
                             on_change: Some(set_look),
                         },
                         SegmentedControl {
@@ -174,6 +206,19 @@ impl From<LookSwitcher> for Widget {
                         },
                     ],
                 },
+                HStack {
+                    spacing: Some(tokens.spacing.s),
+                    children: widgets![
+                        Switch {
+                            checked: state.native_look,
+                            on_toggle: Some(toggle_native),
+                            ..Default::default()
+                        }
+                        .semantics_identifier("gallery.foundations.native_look"),
+                        Text::new("Native platform look").color(tokens.colors.text_primary),
+                    ],
+                },
+                native_preview,
             ],
         }
         .into()
@@ -194,7 +239,7 @@ impl From<DensityDemo> for Widget {
         let selected_index = DENSITIES
             .iter()
             .position(|density| *density == state.density)
-            .unwrap_or(1);
+            .unwrap_or(0);
         let sizing = &tokens.sizing;
 
         VStack {

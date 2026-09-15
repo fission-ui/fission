@@ -29,6 +29,10 @@ fn systems() -> Vec<(&'static str, Theme)> {
             "ember",
             fission_theme::FissionEmberDesignSystem::theme(DesignMode::Light),
         ),
+        (
+            "graphite",
+            fission_theme::FissionGraphiteDesignSystem::theme(DesignMode::Light),
+        ),
     ]
 }
 

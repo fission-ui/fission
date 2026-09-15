@@ -65,6 +65,12 @@ impl TextInput {
     ) -> WidgetId {
         let controls = &self.selection_controls;
         let diameter = controls.handle_radius * 2.0;
+        let handle_fill = controls
+            .handle_fill
+            .unwrap_or(cx.env.theme.tokens.colors.accent);
+        let handle_stroke = controls
+            .handle_stroke
+            .unwrap_or(cx.env.theme.tokens.colors.surface);
         let handle_node = Button {
             id: Some(text_input_selection_handle_id(input_id, kind).into()),
             semantics: Some(Semantics {
@@ -78,16 +84,8 @@ impl TextInput {
                     height: Some(diameter),
                     ..Default::default()
                 })
-                .bg_fill(Fill::Solid(controls.handle_fill))
-                .border(
-                    controls.handle_stroke.unwrap_or(IrColor {
-                        r: 0,
-                        g: 0,
-                        b: 0,
-                        a: 0,
-                    }),
-                    controls.handle_stroke_width,
-                )
+                .bg_fill(Fill::Solid(handle_fill))
+                .border(handle_stroke, controls.handle_stroke_width)
                 .border_radius(controls.handle_radius)
                 .into(),
             ),

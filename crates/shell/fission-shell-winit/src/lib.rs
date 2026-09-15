@@ -4424,6 +4424,24 @@ where
         self
     }
 
+    /// Chooses Fission's own look on every platform (the default) or the host
+    /// platform's native look: Cupertino on macOS and iOS, Material Design 3 on
+    /// Android, Fluent 2 on Windows. Other platforms keep Fission's look.
+    ///
+    /// The choice is recorded on `Env::platform_look`, so an app's
+    /// `with_sync_env` can re-apply it when the system switches light and dark.
+    pub fn with_platform_look(
+        mut self,
+        look: fission_theme::PlatformLook,
+        mode: fission_theme::DesignMode,
+    ) -> Self {
+        let platform = self.env.host_platform;
+        register_packaged_fonts(&self.measurer.font_cx(), look.font_faces(platform));
+        self.env.platform_look = look;
+        self.env.theme = look.theme(platform, mode);
+        self
+    }
+
     /// Registers packaged application font faces with both text measurement
     /// and rendering before the first frame.
     pub fn with_fonts(self, fonts: &'static [fission_theme::PackagedFont]) -> Self {

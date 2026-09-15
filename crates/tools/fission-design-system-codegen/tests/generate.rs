@@ -141,6 +141,7 @@ fn bundled_packages_declare_the_complete_component_recipes() {
         "default",
         "cupertino",
         "ember",
+        "graphite",
         "fluent2",
         "liquid-glass",
         "material3",

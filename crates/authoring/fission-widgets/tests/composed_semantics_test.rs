@@ -351,8 +351,8 @@ fn menu_and_select_use_compact_bounded_popup_anatomy() {
             assert_eq!(*height, None, "trigger height should not be pinned");
             assert_eq!(
                 *min_height,
-                Some(36.0),
-                "the trigger should reserve the md control height"
+                Some(32.0),
+                "the trigger should reserve the compact md control height"
             );
         }
         op => panic!("expected a compact select trigger box, got {op:?}"),

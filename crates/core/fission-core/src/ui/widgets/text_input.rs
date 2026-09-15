@@ -1379,15 +1379,13 @@ impl Lower for TextInput {
         }
 
         if let Some((start, end)) = preedit_range {
+            // Text still being composed by an input method: underlined over a faint
+            // wash of the design system's accent.
+            let composing_background = cx.env.theme.tokens.colors.accent.with_alpha(48);
             runs = split_runs_for_range(&runs, start, end, |style| {
                 style.underline = true;
                 if style.background_color.is_none() {
-                    style.background_color = Some(IrColor {
-                        r: 100,
-                        g: 130,
-                        b: 190,
-                        a: 48,
-                    });
+                    style.background_color = Some(composing_background);
                 }
             });
         }

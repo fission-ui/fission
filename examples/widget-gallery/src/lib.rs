@@ -39,10 +39,23 @@ pub fn run_desktop() -> anyhow::Result<()> {
             } else {
                 fission::theme::DesignMode::Light
             };
-            let theme = if state.ember_look {
-                fission::theme::FissionEmberDesignSystem::theme_ref(mode)
+            let theme = if state.native_look {
+                // Preview another platform's native look from this machine.
+                let platform = match state.native_preview {
+                    1 => fission::theme::HostPlatform::MacOs,
+                    2 => fission::theme::HostPlatform::Android,
+                    3 => fission::theme::HostPlatform::Windows,
+                    _ => env.host_platform,
+                };
+                env.platform_look = fission::theme::PlatformLook::Native;
+                fission::theme::PlatformLook::Native.theme_ref(platform, mode)
             } else {
-                fission::theme::FissionDefaultDesignSystem::theme_ref(mode)
+                env.platform_look = fission::theme::PlatformLook::Unified;
+                match state.look {
+                    1 => fission::theme::FissionGraphiteDesignSystem::theme_ref(mode),
+                    2 => fission::theme::FissionEmberDesignSystem::theme_ref(mode),
+                    _ => fission::theme::FissionDefaultDesignSystem::theme_ref(mode),
+                }
             };
             env.theme = theme.with_density(state.density);
         })

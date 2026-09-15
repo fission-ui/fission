@@ -3501,6 +3501,8 @@ impl ComponentTheme {
 
 mod density;
 pub use density::Density;
+mod platform_look;
+pub use platform_look::{HostPlatform, PlatformLook};
 mod recipe_keys;
 pub use recipe_keys::{
     recipes, NoParts, NoScalars, Recipe, RecipeKey, RecipePartKey, RecipeScalarKey,
@@ -3598,6 +3600,14 @@ pub mod presets {
         ));
     }
 
+    /// Graphite: ink-black primary actions on zinc neutrals with one blue accent.
+    pub mod graphite {
+        include!(concat!(
+            env!("OUT_DIR"),
+            "/generated_graphite_design_system.rs"
+        ));
+    }
+
     /// Ember: the orange of the Fission logo on warm stone neutrals.
     pub mod ember {
         include!(concat!(
@@ -3610,6 +3620,7 @@ pub mod presets {
 pub use presets::cupertino::FissionCupertinoDesignSystem;
 pub use presets::ember::FissionEmberDesignSystem;
 pub use presets::fluent2::FissionFluent2DesignSystem;
+pub use presets::graphite::FissionGraphiteDesignSystem;
 pub use presets::liquid_glass::FissionLiquidGlassDesignSystem;
 pub use presets::material3::FissionMaterialDesign3DesignSystem;
 

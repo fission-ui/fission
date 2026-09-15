@@ -22,7 +22,8 @@ fn default_design_system_declares_the_foundation_groups() {
 
     assert_eq!(tokens.sizing.min_pointer_target, 24.0);
     assert_eq!(tokens.sizing.min_touch_target, 48.0);
-    assert_eq!(tokens.sizing.control_md, 36.0);
+    // Declared at 36px; Fission starts one density step smaller.
+    assert_eq!(tokens.sizing.control_md, 32.0);
     assert_eq!(tokens.sizing.icon_md, 20.0);
     assert_eq!(tokens.opacity.hover_layer, 0.08);
     assert_eq!(tokens.opacity.pressed_layer, 0.12);

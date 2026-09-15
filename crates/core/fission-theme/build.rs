@@ -29,6 +29,11 @@ fn main() {
         "generated_ember_design_system.rs",
         "FissionEmberDesignSystem",
     );
+    generate(
+        "graphite",
+        "generated_graphite_design_system.rs",
+        "FissionGraphiteDesignSystem",
+    );
     // A partial design system that inherits from the default one, so tests can
     // check what inheritance keeps. It is not part of the crate's API.
     fission_design_system_codegen::generate(

@@ -1,5 +1,5 @@
-//! Density moves control heights one step from a design system's declared,
-//! comfortable sizes, for Fission's own design system and any other.
+//! Density moves control heights one step at a time from a design system's
+//! declared, comfortable sizes. Fission's own design system starts compact.
 
 use fission_theme::{
     ComponentSize, Density, DesignMode, DesignSystem, FissionDefaultDesignSystem,
@@ -24,20 +24,29 @@ fn input_md(theme: &Theme) -> f32 {
         .expect("medium input height")
 }
 
-#[test]
-fn the_default_design_system_is_comfortable() {
-    let theme = FissionDefaultDesignSystem::theme(DesignMode::Light);
+fn default_theme() -> Theme {
+    FissionDefaultDesignSystem::theme(DesignMode::Light)
+}
 
-    assert_eq!(theme.tokens.density, Density::Comfortable);
-    assert_eq!(button_md(&theme), 36.0);
-    assert_eq!(input_md(&theme), 36.0);
-    assert_eq!(theme.tokens.sizing.control_md, 36.0);
+#[test]
+fn the_default_design_system_starts_compact() {
+    let theme = default_theme();
+
+    assert_eq!(theme.tokens.density, Density::Compact);
+    assert_eq!(button_md(&theme), 32.0);
+    assert_eq!(input_md(&theme), 32.0);
+    assert_eq!(theme.tokens.sizing.control_md, 32.0);
     assert_eq!(theme.tokens.sizing.density_step, 4.0);
+
+    // The DSP file declares comfortable sizes; one step up recovers them.
+    let comfortable = theme.with_density(Density::Comfortable);
+    assert_eq!(button_md(&comfortable), 36.0);
+    assert_eq!(input_md(&comfortable), 36.0);
 }
 
 #[test]
 fn compact_and_spacious_move_controls_one_step() {
-    let comfortable = FissionDefaultDesignSystem::theme(DesignMode::Light);
+    let comfortable = default_theme().with_density(Density::Comfortable);
     let compact = comfortable.with_density(Density::Compact);
     let spacious = comfortable.with_density(Density::Spacious);
 
@@ -60,7 +69,7 @@ fn compact_and_spacious_move_controls_one_step() {
 
 #[test]
 fn heights_never_drop_below_the_pointer_target() {
-    let mut theme = FissionDefaultDesignSystem::theme(DesignMode::Light);
+    let mut theme = default_theme().with_density(Density::Comfortable);
     theme.tokens.sizing.density_step = 40.0;
 
     let compact = theme.with_density(Density::Compact);
@@ -74,8 +83,8 @@ fn heights_never_drop_below_the_pointer_target() {
 
 #[test]
 fn display_components_keep_their_declared_size() {
-    let comfortable = FissionDefaultDesignSystem::theme(DesignMode::Light);
-    let compact = comfortable.with_density(Density::Compact);
+    let compact = default_theme();
+    let comfortable = compact.with_density(Density::Comfortable);
 
     assert_eq!(compact.components.badge, comfortable.components.badge);
     assert_eq!(compact.components.progress, comfortable.components.progress);
@@ -92,6 +101,11 @@ fn display_components_keep_their_declared_size() {
 #[test]
 fn another_design_system_gets_density_from_its_own_sizes() {
     let material = FissionMaterialDesign3DesignSystem::theme(DesignMode::Light);
+    assert_eq!(
+        material.tokens.density,
+        Density::Comfortable,
+        "a design system without a default density keeps its declared sizes"
+    );
     let declared = button_md(&material);
 
     let compact = material.with_density(Density::Compact);
@@ -101,17 +115,17 @@ fn another_design_system_gets_density_from_its_own_sizes() {
 
 #[test]
 fn the_same_theme_at_the_same_density_is_shared() {
-    let theme = FissionDefaultDesignSystem::theme(DesignMode::Light);
+    let theme = default_theme();
 
-    let first = theme.with_density(Density::Compact);
-    let second = theme.with_density(Density::Compact);
+    let first = theme.with_density(Density::Spacious);
+    let second = theme.with_density(Density::Spacious);
 
     assert!(
         std::sync::Arc::ptr_eq(&first.components, &second.components),
         "reapplying density every frame must not rebuild the component themes"
     );
     assert!(std::sync::Arc::ptr_eq(
-        &theme.with_density(Density::Comfortable).components,
+        &theme.with_density(Density::Compact).components,
         &theme.components
     ));
 }

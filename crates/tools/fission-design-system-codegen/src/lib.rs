@@ -346,14 +346,26 @@ impl {krate}::DesignSystem for {type_name} {{
                     patterns: <{type_placeholder} as {krate}::DesignSystem>::patterns().to_vec(),
                     assets: <{type_placeholder} as {krate}::DesignSystem>::assets().clone(),
                 }};
-                {krate}::Theme {{
-                    tokens,
-                    components,
-                    design_system,
-                }}
+                {finish}
             }}"#,
-            type_placeholder = "Self"
+            type_placeholder = "Self",
+            finish = self.theme_finish_expr(krate)?,
         ))
+    }
+
+    /// The generated theme, moved to the design system's declared default density.
+    ///
+    /// Control sizes are declared once, at comfortable density. A design system
+    /// whose apps should start smaller or larger sets `sizing.default_density`
+    /// to `compact` or `spacious`; anything else keeps the declared sizes.
+    fn theme_finish_expr(&self, krate: &str) -> Result<String> {
+        let theme = format!("{krate}::Theme {{ tokens, components, design_system }}");
+        let density = self.string_token_optional("sizing.default_density", "comfortable")?;
+        Ok(match density.trim().to_ascii_lowercase().as_str() {
+            "compact" => format!("({theme}).with_density({krate}::Density::Compact)"),
+            "spacious" => format!("({theme}).with_density({krate}::Density::Spacious)"),
+            _ => theme,
+        })
     }
 
     fn color_tokens_expr(&self, krate: &str, mode: Mode) -> Result<String> {
@@ -2540,7 +2552,10 @@ impl {krate}::DesignSystem for {type_name} {{
         base: Option<&str>,
     ) -> Result<String> {
         // An inheriting design system starts from its base's recipes, so every
-        // component it does not declare still has one.
+        // component it does not declare still has one. It takes them at the
+        // base's declared (comfortable) sizes: the base's theme may already be
+        // moved to its default density, and the inheriting theme applies its
+        // own default density once, after merging.
         let initial = match base {
             Some(base) => {
                 let mode = match mode {
@@ -2548,7 +2563,7 @@ impl {krate}::DesignSystem for {type_name} {{
                     Mode::Dark => "Dark",
                 };
                 format!(
-                    "(*<{base} as {krate}::DesignSystem>::theme_ref({krate}::DesignMode::{mode}).components.recipes).clone()"
+                    "(*<{base} as {krate}::DesignSystem>::theme_ref({krate}::DesignMode::{mode}).with_density({krate}::Density::Comfortable).components.recipes).clone()"
                 )
             }
             None => "std::collections::BTreeMap::new()".into(),
