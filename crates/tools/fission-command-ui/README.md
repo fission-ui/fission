@@ -17,7 +17,7 @@ The classic command-line interface remains supported. The UI command is an addit
 
 ## Documentation
 
-See [Building terminal user interfaces](https://fission.rs/docs/guides/terminal-user-interfaces/) and the CLI reference at [fission.rs](https://fission.rs/docs/reference/cli/overview/).
+See [Building terminal user interfaces](https://fission.rs/docs/guides/terminal-user-interfaces/) and the CLI reference at [fission.rs](https://fission.rs/reference/cli/overview/).
 
 ## License
 

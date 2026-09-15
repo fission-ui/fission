@@ -12,7 +12,7 @@ Static-site command implementation for the `fission` command.
 
 ## Documentation
 
-See [Static sites](https://fission.rs/docs/guides/static-sites/) and the CLI reference at [fission.rs](https://fission.rs/docs/reference/cli/overview/).
+See [Static sites](https://fission.rs/docs/guides/static-sites/) and the CLI reference at [fission.rs](https://fission.rs/reference/cli/overview/).
 
 ## License
 

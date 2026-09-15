@@ -19,7 +19,7 @@ The command should feel like one lifecycle tool, not separate platform scripts. 
 
 ## Documentation
 
-See the CLI reference at [fission.rs](https://fission.rs/docs/reference/cli/overview/).
+See the CLI reference at [fission.rs](https://fission.rs/reference/cli/overview/).
 
 ## License
 
