@@ -14,6 +14,7 @@ pub(crate) fn create_env() -> anyhow::Result<Env> {
     for bundle in inbox_example::translation_bundles()
         .into_iter()
         .chain(todo_design_system_example::translation_bundles())
+        .chain(product_browser_example::translation_bundles())
     {
         env.i18n.add_bundle(bundle);
     }
