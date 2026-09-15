@@ -401,7 +401,10 @@ pub(crate) fn register_android_file_system_capabilities(
                     FileSystemLocation::Path(path) => {
                         let path = PathBuf::from(path.as_str());
                         if request.create_parents {
-                            if let Some(parent) = path.parent() {
+                            if let Some(parent) = path
+                                .parent()
+                                .filter(|parent| !parent.as_os_str().is_empty())
+                            {
                                 std::fs::create_dir_all(parent).map_err(native_io_error)?;
                             }
                         }

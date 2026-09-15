@@ -238,7 +238,10 @@ pub(crate) fn register_native_file_system_operations(
                     }
                 };
                 if request.create_parents {
-                    if let Some(parent) = path.parent() {
+                    if let Some(parent) = path
+                        .parent()
+                        .filter(|parent| !parent.as_os_str().is_empty())
+                    {
                         std::fs::create_dir_all(parent)
                             .map_err(|error| io_error("create_directory_failed", parent, error))?;
                     }
