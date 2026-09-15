@@ -526,6 +526,32 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn native_directory_locations_use_os_join_semantics() {
+        let registry = NativeDirectoryRegistry::default();
+        let directory = registry.insert(NativeDirectoryGrant {
+            root: PathBuf::from("/tmp/project"),
+            name: "project".into(),
+            access: FileSystemAccessMode::ReadWrite,
+            _lease: None,
+        });
+
+        let parent = resolve_location(
+            &registry,
+            &FileSystemLocation::directory(directory.id, "../outside"),
+        )
+        .unwrap();
+        assert_eq!(parent.path, PathBuf::from("/tmp/project/../outside"));
+
+        let absolute = resolve_location(
+            &registry,
+            &FileSystemLocation::directory(directory.id, "/etc/my-app/config.toml"),
+        )
+        .unwrap();
+        assert_eq!(absolute.path, PathBuf::from("/etc/my-app/config.toml"));
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn native_paths_leave_symbolic_link_policy_to_the_os() {
         use std::os::unix::fs::symlink;
 
