@@ -408,6 +408,12 @@ impl From<TabTrigger> for Widget {
                 style = style.merge_composing_shadows(focus);
             }
         }
+        // A recipe that declares no corner radius still gets the design system's small
+        // radius, so a focus border or selected fill follows the control's shape instead
+        // of drawing square corners.
+        if style.radius.is_none() {
+            style.radius = Some(view.env().theme.tokens.radii.small);
+        }
         let text_color = style.text_color.unwrap_or(if selected || is_pressed {
             theme.active_color
         } else {
