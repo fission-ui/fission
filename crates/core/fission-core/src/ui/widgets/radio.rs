@@ -67,7 +67,7 @@ impl Lower for Radio {
         let id = self.id.map(Into::into).unwrap_or_else(|| cx.next_node_id());
         let layout_id = cx.with_scope(id, |cx| {
             let tokens = &cx.env.theme.tokens;
-            let size = 18.0;
+            let size = tokens.sizing.icon_md;
             let dot_size = size * 0.5;
             let _radius = size / 2.0;
             let border_color = if self.disabled {
@@ -78,7 +78,7 @@ impl Lower for Radio {
             let active_color = if self.disabled {
                 tokens.colors.text_muted
             } else {
-                tokens.colors.primary
+                tokens.colors.accent
             };
             let text_color = if self.disabled {
                 tokens.colors.text_muted
@@ -330,7 +330,7 @@ impl Radio {
         let ring = if self.disabled {
             colors.text_muted
         } else if self.checked {
-            colors.primary
+            colors.accent
         } else {
             colors.text_secondary
         };

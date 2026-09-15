@@ -36,6 +36,8 @@ extern "C" {}
 extern "C" {}
 
 pub(crate) fn register_ios_operation_capabilities(async_registry: &mut AsyncRegistry) {
+    #[cfg(feature = "filesystem")]
+    crate::ios_file_system::register_ios_file_system_capabilities(async_registry);
     camera::register_camera_capabilities(async_registry, Arc::new(IosCameraHost));
     barcode::register_barcode_scanner_capabilities(async_registry, Arc::new(IosBarcodeScannerHost));
     geolocation::register_geolocation_capabilities(async_registry, Arc::new(IosGeolocationHost));

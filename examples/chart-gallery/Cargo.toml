@@ -12,5 +12,6 @@ anyhow = "1.0"
 lazy_static = "1.4"
 
 [dev-dependencies]
+fission-test = { path = "../../crates/tools/fission-test" }
 fission-test-driver = { path = "../../crates/tools/fission-test-driver" }
 image = "0.25"

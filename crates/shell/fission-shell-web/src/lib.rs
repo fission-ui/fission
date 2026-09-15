@@ -172,6 +172,17 @@ where
         self
     }
 
+    /// Chooses Fission's own look everywhere (the default) or the host
+    /// platform's native look. See `PlatformLook`.
+    pub fn with_platform_look(
+        mut self,
+        look: fission_theme::PlatformLook,
+        mode: fission_theme::DesignMode,
+    ) -> Self {
+        self.inner = self.inner.with_platform_look(look, mode);
+        self
+    }
+
     /// Registers packaged application font faces before the first frame.
     pub fn with_fonts(mut self, fonts: &'static [fission_theme::PackagedFont]) -> Self {
         self.inner = self.inner.with_fonts(fonts);

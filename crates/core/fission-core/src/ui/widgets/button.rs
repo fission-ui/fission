@@ -1,9 +1,9 @@
 use crate::authoring::Lower;
 use crate::lowering::{IrBuilder, LoweringContext};
 use crate::motion::{
-    color, fill as motion_fill, hover_press, px, ripple_effect, scalar, shadows as motion_shadows,
-    MotionEasing, MotionExpr, MotionPhase, MotionPredicate, MotionPropertyId, MotionStartValue,
-    MotionTrack, MotionTransition, MotionValue, RippleFx,
+    color, deg, fill as motion_fill, hover_press, px, ripple_effect, scalar,
+    shadows as motion_shadows, MotionEasing, MotionExpr, MotionPhase, MotionPredicate,
+    MotionPropertyId, MotionStartValue, MotionTrack, MotionTransition, MotionValue, RippleFx,
 };
 use crate::ui::{Icon, Text, TextContent, Widget};
 use crate::{ActionEnvelope, Env, InteractionStateMap};
@@ -18,6 +18,9 @@ use fission_theme::{
 };
 use serde::{Deserialize, Serialize};
 use std::ops::Add;
+
+mod loading;
+use loading::{loading_ring_motion_id, loading_ring_track, lower_loading_indicator};
 
 /// Visual style variant for a [`Button`].
 ///
@@ -373,6 +376,11 @@ pub struct Button {
     /// When `true`, the button is greyed out and its `on_press` action is not
     /// attached.
     pub disabled: bool,
+    /// When `true`, the work this button started is still running. The button
+    /// keeps its size and colour, shows a spinning ring in place of its
+    /// label, ignores presses and reports itself busy to assistive technology.
+    #[serde(default)]
+    pub loading: bool,
     /// Transform and ripple motion composed with recipe state transitions.
     /// `None` shows the default ripple unless the app turns widget motion off.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -460,6 +468,7 @@ impl Default for Button {
             text_color: None,
             content_align: ButtonContentAlign::Center,
             disabled: false,
+            loading: false,
             motion: None,
         }
     }
@@ -736,8 +745,8 @@ impl Button {
         self_id: WidgetId,
         form_field_invalid: bool,
     ) -> ButtonStyleResolved {
-        let is_hovered = interaction.is_hovered(self_id) && !self.disabled;
-        let is_pressed = interaction.is_pressed(self_id) && !self.disabled;
+        let is_hovered = interaction.is_hovered(self_id) && self.accepts_press();
+        let is_pressed = interaction.is_pressed(self_id) && self.accepts_press();
         let is_focused = interaction.is_focus_visible(self_id) && !self.disabled;
         let is_invalid = !self.disabled && (form_field_invalid || self.is_semantically_invalid());
         let is_selected = !self.disabled && self.is_semantically_selected();
@@ -747,6 +756,8 @@ impl Button {
         // ring at the same time.
         let component_state = if self.disabled {
             ComponentState::Disabled
+        } else if self.loading {
+            ComponentState::Loading
         } else if is_invalid {
             ComponentState::Error
         } else if is_pressed {
@@ -1024,7 +1035,7 @@ impl Button {
                 .and_then(|style| style.translate_y)
                 .or(component_style.translate_y)
                 .filter(|offset| offset.is_finite())
-                .unwrap_or(if is_pressed { 1.0 } else { 0.0 }),
+                .unwrap_or(0.0),
         }
     }
 
@@ -1278,6 +1289,14 @@ impl Button {
             tracks.extend(motion.interaction_tracks(id));
         }
         let tracks = crate::motion::dedupe_tracks_later_wins(tracks);
+        if self.loading && !self.disabled {
+            crate::build::try_register_motion(crate::motion::MotionDeclaration {
+                id: loading_ring_motion_id(id),
+                kind: crate::motion::MotionDeclarationKind::Tracks {
+                    tracks: vec![loading_ring_track()],
+                },
+            });
+        }
         if !tracks.is_empty() {
             crate::build::try_register_motion(crate::motion::MotionDeclaration {
                 id,
@@ -1412,6 +1431,11 @@ impl Button {
         style
     }
 
+    /// Whether a press would do anything: not disabled and not already busy.
+    fn accepts_press(&self) -> bool {
+        !self.disabled && !self.loading
+    }
+
     fn should_attach_semantics(&self) -> bool {
         self.semantics.is_some() || self.on_press.is_some() || self.icon_content.is_some()
     }
@@ -1427,10 +1451,11 @@ impl Button {
             .unwrap_or_else(default_button_semantics);
 
         semantics.disabled = self.disabled;
+        semantics.busy = self.loading && !self.disabled;
         semantics.focus_policy = self.focus_policy;
 
         if let Some(action_envelope) = &self.on_press {
-            if !self.disabled {
+            if self.accepts_press() {
                 semantics.actions.entries.push(ActionEntry {
                     trigger: fission_ir::semantics::ActionTrigger::Default,
                     action_id: action_envelope.id.as_u128(),
@@ -1577,10 +1602,16 @@ impl Lower for Button {
         // here so no control has to branch on reading order itself.
         // Theme padding also reserves room for the widest border any state draws; explicit padding
         // is taken as the exact content inset.
+        // An icon-only button is a square as tall as its size, with the icon centred.
+        let square = self.icon_content.is_some()
+            && self.width.is_none()
+            && resolved_style.width.is_none()
+            && self.height.is_none();
         let layout_padding = self.padding.unwrap_or_else(|| {
             let [start, end, top, bottom] = resolved_style.padding;
             let border = resolved_style.layout_border_width;
             let (left, right) = match cx.env.layout_direction {
+                _ if square => (0.0, 0.0),
                 fission_ir::LayoutDirection::LeftToRight => (start, end),
                 fission_ir::LayoutDirection::RightToLeft => (end, start),
             };
@@ -1591,7 +1622,10 @@ impl Lower for Button {
             let mut button_builder = IrBuilder::new(
                 layout_node_id,
                 Op::Layout(LayoutOp::Box {
-                    width: self.width.or(resolved_style.width),
+                    width: self
+                        .width
+                        .or(resolved_style.width)
+                        .or(square.then_some(resolved_style.height)),
                     height: self.height,
                     min_width: self.min_width,
                     max_width: self.max_width.or(resolved_style.max_width),
@@ -1696,6 +1730,38 @@ impl Lower for Button {
             } else {
                 None
             };
+            // While loading, the label stays in layout but is not drawn, so the
+            // button keeps its width, and a spinning ring takes its place.
+            let content_id = match content_id {
+                Some(child_id) if self.loading && !self.disabled => {
+                    let mut hidden = IrBuilder::new(
+                        cx.next_node_id(),
+                        Op::Layout(LayoutOp::Box {
+                            width: None,
+                            height: None,
+                            min_width: None,
+                            max_width: None,
+                            min_height: None,
+                            max_height: None,
+                            padding: [0.0; 4],
+                            flex_grow: 0.0,
+                            flex_shrink: 1.0,
+                            aspect_ratio: None,
+                        }),
+                    )
+                    .composite(CompositeStyle {
+                        opacity: Some(CompositeScalar::new(0.0)),
+                        ..CompositeStyle::default()
+                    });
+                    hidden.add_child(child_id);
+                    Some(hidden.build(cx))
+                }
+                other => other,
+            };
+            if self.loading && !self.disabled {
+                let indicator_id = lower_loading_indicator(cx, &resolved_style, final_id);
+                button_builder.add_child(indicator_id);
+            }
             if let Some(child_id) = content_id {
                 let aligned_id = match self.content_align {
                     ButtonContentAlign::Center => {
@@ -1794,6 +1860,7 @@ fn default_button_semantics() -> Semantics {
         checked: None,
         selected: None,
         expanded: None,
+        busy: false,
         has_popup: None,
         orientation: None,
         modal: false,

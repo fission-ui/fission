@@ -53,7 +53,7 @@ Root fields appear before any table header.
 | Field | Type | Required | Accepted values | Meaning |
 | --- | --- | --- | --- | --- |
 | `targets` | array of strings | Yes for app/package commands | `android`, `ios`, `linux`, `macos`, `ssr`, `static-site`, `terminal`, `web`, `windows` | Declares which generated or packaged hosts belong to the project. Commands use it to reject packaging/running a configured host target that has not been added. |
-| `capabilities` | array of strings | No | `barcode-scanner`, `biometric`, `bluetooth`, `camera`, `geolocation`, `haptics`, `microphone`, `nfc`, `notifications`, `passkeys`, `volume-control`, `wifi` | Declares host capabilities the app intends to use. `fission add-capability` updates this list and generated Android/iOS files where the configuration is deterministic. |
+| `capabilities` | array of strings | No | `barcode-scanner`, `biometric`, `bluetooth`, `camera`, `filesystem`, `geolocation`, `haptics`, `microphone`, `nfc`, `notifications`, `passkeys`, `storage`, `volume-control`, `wifi` | Declares host capabilities the app intends to use. `fission add-capability` updates this list, optional Cargo integrations, and generated Android/iOS files where the configuration is deterministic. |
 
 Clipboard and deep-link APIs are runtime/platform capabilities, but they are not currently accepted values in the root `capabilities` array. Deep-link routes still need product-owned native or web routing configuration, and clipboard currently does not require root manifest declaration.
 

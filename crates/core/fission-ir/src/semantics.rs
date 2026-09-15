@@ -1068,6 +1068,10 @@ pub struct Semantics {
     /// Expansion state for controls that reveal or control another surface.
     #[serde(default)]
     pub expanded: Option<bool>,
+    /// Whether work this node started is still running, such as a button
+    /// waiting for its request. Assistive technology announces it as busy.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub busy: bool,
     /// Kind of popup controlled by this node, when present.
     #[serde(default)]
     pub has_popup: Option<PopupKind>,
@@ -1281,6 +1285,7 @@ impl Default for Semantics {
             checked: None,
             selected: None,
             expanded: None,
+            busy: false,
             has_popup: None,
             orientation: None,
             modal: false,

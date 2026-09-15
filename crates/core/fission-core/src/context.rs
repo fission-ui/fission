@@ -44,6 +44,13 @@ use crate::platform_clipboard::{
     ClipboardContent, ClipboardWriteTextRequest, CLEAR_CLIPBOARD, READ_CLIPBOARD_CONTENT,
     READ_CLIPBOARD_TEXT, WRITE_CLIPBOARD_CONTENT, WRITE_CLIPBOARD_TEXT,
 };
+use crate::platform_filesystem::{
+    CreateDirectoryRequest, DirectoryPermissionRequest, ForgetDirectoryRequest,
+    ListDirectoryRequest, PickDirectoryRequest, ReadFileRequest, ReleaseDirectoryRequest,
+    RemoveEntryRequest, RestoreDirectoryRequest, StatEntryRequest, WriteFileRequest,
+    CREATE_DIRECTORY, DIRECTORY_PERMISSION, FORGET_DIRECTORY, LIST_DIRECTORY, PICK_DIRECTORY,
+    READ_FILE, RELEASE_DIRECTORY, REMOVE_ENTRY, RESTORE_DIRECTORY, STAT_ENTRY, WRITE_FILE,
+};
 use crate::platform_geolocation::{
     GeolocationPermissionRequest, GeolocationPositionRequest, GET_CURRENT_POSITION,
     GET_GEOLOCATION_PERMISSION, REQUEST_GEOLOCATION_PERMISSION,
@@ -331,6 +338,15 @@ impl<'a, S: GlobalState> Effects<'a, S> {
     /// user gestures, so reducers should handle errors as normal outcomes.
     pub fn clipboard(&mut self) -> ClipboardEffects<'_, 'a, S> {
         ClipboardEffects { effects: self }
+    }
+
+    /// Starts a filesystem request.
+    ///
+    /// Native locations use the process filesystem namespace and permissions.
+    /// Directory picking and permission prompts should be dispatched directly
+    /// from a user action on hosts that expose files through opaque handles.
+    pub fn file_system(&mut self) -> FileSystemEffects<'_, 'a, S> {
+        FileSystemEffects { effects: self }
     }
 
     /// Accesses the typed persistent store configured by the active shell.
@@ -1037,6 +1053,57 @@ impl<'a, 'b, S: GlobalState> CameraEffects<'a, 'b, S> {
 /// Convenience builder for standard clipboard host capabilities.
 pub struct ClipboardEffects<'a, 'b, S: GlobalState> {
     effects: &'a mut Effects<'b, S>,
+}
+
+/// Convenience builder for filesystem paths and provider-backed directory handles.
+pub struct FileSystemEffects<'a, 'b, S: GlobalState> {
+    effects: &'a mut Effects<'b, S>,
+}
+
+impl<'a, 'b, S: GlobalState> FileSystemEffects<'a, 'b, S> {
+    pub fn pick_directory(self, request: PickDirectoryRequest) -> EffectBuilder<'a, 'b, S> {
+        self.effects.capability(PICK_DIRECTORY, request)
+    }
+
+    pub fn restore_directory(self, request: RestoreDirectoryRequest) -> EffectBuilder<'a, 'b, S> {
+        self.effects.capability(RESTORE_DIRECTORY, request)
+    }
+
+    pub fn forget_directory(self, request: ForgetDirectoryRequest) -> EffectBuilder<'a, 'b, S> {
+        self.effects.capability(FORGET_DIRECTORY, request)
+    }
+
+    pub fn permission(self, request: DirectoryPermissionRequest) -> EffectBuilder<'a, 'b, S> {
+        self.effects.capability(DIRECTORY_PERMISSION, request)
+    }
+
+    pub fn list(self, request: ListDirectoryRequest) -> EffectBuilder<'a, 'b, S> {
+        self.effects.capability(LIST_DIRECTORY, request)
+    }
+
+    pub fn stat(self, request: StatEntryRequest) -> EffectBuilder<'a, 'b, S> {
+        self.effects.capability(STAT_ENTRY, request)
+    }
+
+    pub fn read(self, request: ReadFileRequest) -> EffectBuilder<'a, 'b, S> {
+        self.effects.capability(READ_FILE, request)
+    }
+
+    pub fn write(self, request: WriteFileRequest) -> EffectBuilder<'a, 'b, S> {
+        self.effects.capability(WRITE_FILE, request)
+    }
+
+    pub fn create_directory(self, request: CreateDirectoryRequest) -> EffectBuilder<'a, 'b, S> {
+        self.effects.capability(CREATE_DIRECTORY, request)
+    }
+
+    pub fn remove(self, request: RemoveEntryRequest) -> EffectBuilder<'a, 'b, S> {
+        self.effects.capability(REMOVE_ENTRY, request)
+    }
+
+    pub fn release(self, request: ReleaseDirectoryRequest) -> EffectBuilder<'a, 'b, S> {
+        self.effects.capability(RELEASE_DIRECTORY, request)
+    }
 }
 
 impl<'a, 'b, S: GlobalState> ClipboardEffects<'a, 'b, S> {

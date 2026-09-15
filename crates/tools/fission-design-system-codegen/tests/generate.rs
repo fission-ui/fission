@@ -25,6 +25,10 @@ fn generates_rust_for_fission_dsp_package() {
 
     assert!(generated.contains("pub struct GeneratedDesignSystem"));
     assert!(generated.contains("impl fission_theme::DesignSystem for GeneratedDesignSystem"));
+    assert!(generated.contains(
+        "#[inline(never)]\n    fn __fission_light_components() -> ::std::sync::Arc<fission_theme::ComponentTheme>"
+    ));
+    assert!(generated.contains("let components = Self::__fission_light_components();"));
     assert!(generated.contains("color.teal.700"));
     assert!(generated.contains("marketing_hero"));
     assert!(generated.contains("fission_theme::ButtonHierarchy::Outline"));
@@ -140,6 +144,8 @@ fn bundled_packages_declare_the_complete_component_recipes() {
     for package in [
         "default",
         "cupertino",
+        "ember",
+        "graphite",
         "fluent2",
         "liquid-glass",
         "material3",

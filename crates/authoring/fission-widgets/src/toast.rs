@@ -5,7 +5,6 @@ use crate::motion_support::{
 use crate::stack::HStack;
 use crate::Icon;
 use fission_core::motion::{MotionTrack, Presence};
-use fission_core::op::Color;
 use fission_core::ui::{Button, ButtonVariant, Container, SemanticsRegion, Text, Widget};
 use fission_core::{ActionEnvelope, WidgetId};
 use fission_icons::material;
@@ -73,29 +72,43 @@ impl ToastMotion {
         }
     }
 
-    fn plan(&self) -> ToastMotionPlan {
+    fn plan(&self, tokens: &fission_theme::Tokens) -> ToastMotionPlan {
         let mut plan = ToastMotionPlan::default();
-        self.append_plan(&mut plan);
+        self.append_plan(&mut plan, tokens);
         plan.normalize()
     }
 
-    fn append_plan(&self, plan: &mut ToastMotionPlan) {
+    /// Motion distances come from the spacing scale and durations from the
+    /// motion tokens, so a design system's pace applies to toasts too.
+    fn append_plan(&self, plan: &mut ToastMotionPlan, tokens: &fission_theme::Tokens) {
+        let travel = tokens.spacing.m;
+        let duration = tokens.motion.duration_fast_ms;
         match self {
             Self::Default => {
-                Self::Fade.append_plan(plan);
-                Self::SlideFromTop.append_plan(plan);
+                Self::Fade.append_plan(plan, tokens);
+                Self::SlideFromTop.append_plan(plan, tokens);
             }
-            Self::Fade => push_enter_with_exit(&mut plan.enter, &mut plan.exit, fade_in(140)),
+            Self::Fade => push_enter_with_exit(&mut plan.enter, &mut plan.exit, fade_in(duration)),
             Self::SlideFromTop => {
-                push_enter_with_exit(&mut plan.enter, &mut plan.exit, slide_y_in(-16.0, 160));
+                push_enter_with_exit(
+                    &mut plan.enter,
+                    &mut plan.exit,
+                    slide_y_in(-travel, duration),
+                );
             }
             Self::SlideFromBottom => {
-                push_enter_with_exit(&mut plan.enter, &mut plan.exit, slide_y_in(16.0, 160));
+                push_enter_with_exit(
+                    &mut plan.enter,
+                    &mut plan.exit,
+                    slide_y_in(travel, duration),
+                );
             }
-            Self::Pop => push_enter_with_exit(&mut plan.enter, &mut plan.exit, scale_in(0.94, 160)),
+            Self::Pop => {
+                push_enter_with_exit(&mut plan.enter, &mut plan.exit, scale_in(0.94, duration))
+            }
             Self::Composition(items) => {
                 for item in items {
-                    item.append_plan(plan);
+                    item.append_plan(plan, tokens);
                 }
             }
             Self::None => {}
@@ -248,10 +261,17 @@ impl From<Toast> for Widget {
             ToastKind::Error => (material::alert::error::regular(), tokens.colors.error),
         };
 
+        let icon_size = recipe
+            .try_part_named("icon")
+            .and_then(|icon| icon.icon_size)
+            .unwrap_or(tokens.sizing.icon_md);
         let content: Widget = HStack {
-            spacing: Some(12.0),
+            spacing: Some(recipe.base.gap.unwrap_or(tokens.spacing.ms)),
             children: vec![
-                Icon::svg(icon_path).color(icon_color).size(20.0).into(),
+                Icon::svg(icon_path)
+                    .color(icon_color)
+                    .size(icon_size)
+                    .into(),
                 Text::new(this.message.clone())
                     .color(tokens.colors.on_surface)
                     .into(),
@@ -306,19 +326,14 @@ impl From<Toast> for Widget {
                     .unwrap_or(fission_core::op::BoxShadow {
                         spread_radius: 0.0,
                         inset: false,
-                        color: Color {
-                            r: 0,
-                            g: 0,
-                            b: 0,
-                            a: 60,
-                        },
-                        blur_radius: 12.0,
-                        offset: (0.0, 6.0),
+                        color: tokens.colors.text_primary.with_alpha(40),
+                        blur_radius: tokens.spacing.ms,
+                        offset: (0.0, tokens.spacing.xs),
                     }),
             )
             .padding_all(tokens.spacing.s)
             // A toast hugs its message up to a readable width rather than spanning the window.
-            .max_width(420.0)
+            .max_width(recipe.base.max_width.unwrap_or(420.0))
             .into();
 
         // A toast appears without the reader asking for it, so it has to
@@ -337,7 +352,7 @@ impl From<Toast> for Widget {
             view.env(),
         );
         if let Some(motion) = &motion {
-            let plan = motion.plan();
+            let plan = motion.plan(&view.env().theme.tokens);
             toast = Presence {
                 id: slot_id(this.id, SLOT_SURFACE),
                 visible: true,

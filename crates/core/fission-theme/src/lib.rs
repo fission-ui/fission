@@ -244,6 +244,9 @@ pub enum ComponentState {
     Disabled,
     Error,
     Selected,
+    /// Work the control started is still running. The control keeps its size,
+    /// ignores presses and reports itself busy to assistive technology.
+    Loading,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -308,6 +311,16 @@ pub struct ComponentBorder {
     pub width: f32,
 }
 
+/// Which edges a component's border strokes.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum BorderEdges {
+    /// Every edge, following the corner radius.
+    #[default]
+    All,
+    /// The bottom edge only, as an underlined tab track or its indicator draws.
+    Bottom,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ComponentMotion {
     pub duration_ms: u64,
@@ -353,6 +366,9 @@ pub struct ResolvedComponentStyle {
     pub translate_y: Option<f32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub border_dash: Option<Vec<f32>>,
+    /// Edges the border strokes; `None` strokes every edge.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub border_edges: Option<BorderEdges>,
 }
 
 impl ResolvedComponentStyle {
@@ -392,6 +408,12 @@ impl ResolvedComponentStyle {
                 .border_dash
                 .clone()
                 .or_else(|| self.border_dash.clone()),
+            // The edges belong to whichever border wins.
+            border_edges: if overlay.border.is_some() {
+                overlay.border_edges
+            } else {
+                self.border_edges
+            },
             shadows: if overlay.shadows.is_empty() {
                 self.shadows.clone()
             } else {
@@ -593,6 +615,11 @@ pub struct ComponentStateStyles {
     pub disabled: Option<ResolvedComponentStyle>,
     pub error: Option<ResolvedComponentStyle>,
     pub selected: Option<ResolvedComponentStyle>,
+    /// Overlay while the control's work is running. When a design system
+    /// leaves it out the control keeps its resting look: the loading
+    /// indicator, not a greyed-out surface, tells the user the press landed.
+    #[serde(default)]
+    pub loading: Option<ResolvedComponentStyle>,
 }
 
 impl ComponentStateStyles {
@@ -617,6 +644,7 @@ impl ComponentStateStyles {
             disabled: state(&self.disabled, &overlay.disabled),
             error: state(&self.error, &overlay.error),
             selected: state(&self.selected, &overlay.selected),
+            loading: state(&self.loading, &overlay.loading),
         }
     }
 
@@ -629,6 +657,7 @@ impl ComponentStateStyles {
             ComponentState::Disabled => self.disabled.as_ref(),
             ComponentState::Error => self.error.as_ref(),
             ComponentState::Selected => self.selected.as_ref(),
+            ComponentState::Loading => self.loading.as_ref(),
         };
         overlay
             .map(|style| self.default.merge(style))
@@ -672,348 +701,181 @@ pub struct ColorTokens {
     pub text_link: Color,
     pub heading: Color,
     pub focus_ring: Color,
+    /// Colour of selection controls in their on state (checkbox, radio,
+    /// switch, slider fill). A design system that omits it uses `primary`.
+    #[serde(default = "default_accent")]
+    pub accent: Color,
+    /// Content drawn on `accent`, such as a check mark or switch thumb. A
+    /// design system that omits it uses `on_primary`.
+    #[serde(default = "default_on_accent")]
+    pub on_accent: Color,
+    // Paired roles. Each fill has a colour for content drawn on it, so a
+    // component picks both from one role and never pairs text with the wrong
+    // ground. Every one is optional: a design system that leaves one out gets
+    // the existing role named in its accessor, so older DSP files keep working.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub card: Option<Color>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub on_card: Option<Color>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub popover: Option<Color>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub on_popover: Option<Color>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub muted: Option<Color>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub on_muted: Option<Color>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub destructive: Option<Color>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub on_destructive: Option<Color>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input: Option<Color>,
+}
+
+/// A fill and the colour for text and icons drawn on it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ColorPair {
+    pub fill: Color,
+    pub on: Color,
+}
+
+/// A colour role that comes as a pair: a fill and its foreground.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum ColorRole {
+    /// The page behind everything.
+    Background,
+    /// A plain surface such as a panel or sheet.
+    Surface,
+    /// A card or grouped block that sits on the page.
+    Card,
+    /// A floating layer such as a menu, popover or tooltip.
+    Popover,
+    /// A quiet fill for secondary content, placeholders and inactive tracks.
+    Muted,
+    /// The main action colour.
+    Primary,
+    /// A secondary action colour.
+    Secondary,
+    /// Selection controls in their on state.
+    Accent,
+    /// Actions that delete or cannot be undone.
+    Destructive,
+}
+
+fn default_accent() -> Color {
+    Color {
+        r: 37,
+        g: 99,
+        b: 235,
+        a: 255,
+    }
+}
+
+fn default_on_accent() -> Color {
+    Color::WHITE
 }
 
 impl Default for ColorTokens {
+    /// The light palette of Fission's default design system.
     fn default() -> Self {
-        Self {
-            primary: Color {
-                r: 103,
-                g: 85,
-                b: 143,
-                a: 255,
-            }, // Purple 40
-            on_primary: Color::WHITE,
-            primary_hover: Color {
-                r: 80,
-                g: 63,
-                b: 118,
-                a: 255,
-            },
-            primary_subtle: Color {
-                r: 244,
-                g: 239,
-                b: 255,
-                a: 255,
-            },
-            secondary: Color {
-                r: 98,
-                g: 91,
-                b: 113,
-                a: 255,
-            },
-            on_secondary: Color::WHITE,
-            surface: Color {
-                r: 255,
-                g: 251,
-                b: 254,
-                a: 255,
-            },
-            on_surface: Color {
-                r: 28,
-                g: 27,
-                b: 31,
-                a: 255,
-            },
-            surface_raised: Color {
-                r: 255,
-                g: 255,
-                b: 255,
-                a: 255,
-            },
-            surface_sunken: Color {
-                r: 248,
-                g: 248,
-                b: 248,
-                a: 255,
-            },
-            background: Color {
-                r: 255,
-                g: 251,
-                b: 254,
-                a: 255,
-            },
-            on_background: Color {
-                r: 28,
-                g: 27,
-                b: 31,
-                a: 255,
-            },
-            error: Color {
-                r: 179,
-                g: 38,
-                b: 30,
-                a: 255,
-            },
-            on_error: Color::WHITE,
-            success: Color {
-                r: 16,
-                g: 185,
-                b: 129,
-                a: 255,
-            },
-            warning: Color {
-                r: 245,
-                g: 158,
-                b: 11,
-                a: 255,
-            },
-            info: Color {
-                r: 14,
-                g: 165,
-                b: 233,
-                a: 255,
-            },
-            border: Color {
-                r: 188,
-                g: 188,
-                b: 188,
-                a: 255,
-            },
-            border_strong: Color {
-                r: 148,
-                g: 148,
-                b: 148,
-                a: 255,
-            },
-            divider: Color {
-                r: 188,
-                g: 188,
-                b: 188,
-                a: 255,
-            },
-            text_primary: Color {
-                r: 28,
-                g: 27,
-                b: 31,
-                a: 255,
-            },
-            text_secondary: Color {
-                r: 86,
-                g: 86,
-                b: 86,
-                a: 255,
-            },
-            text_muted: Color {
-                r: 120,
-                g: 120,
-                b: 120,
-                a: 255,
-            },
-            text_link: Color {
-                r: 103,
-                g: 85,
-                b: 143,
-                a: 255,
-            },
-            heading: Color {
-                r: 28,
-                g: 27,
-                b: 31,
-                a: 255,
-            },
-            focus_ring: Color {
-                r: 103,
-                g: 85,
-                b: 143,
-                a: 255,
-            },
-        }
+        Tokens::default().colors
     }
 }
 
 impl ColorTokens {
+    /// The dark palette of Fission's default design system.
     pub fn dark() -> Self {
-        Self {
-            primary: Color {
-                r: 187,
-                g: 134,
-                b: 252,
-                a: 255,
-            },
-            on_primary: Color {
-                r: 0,
-                g: 0,
-                b: 0,
-                a: 255,
-            },
-            primary_hover: Color {
-                r: 210,
-                g: 178,
-                b: 255,
-                a: 255,
-            },
-            primary_subtle: Color {
-                r: 55,
-                g: 36,
-                b: 86,
-                a: 255,
-            },
-            secondary: Color {
-                r: 3,
-                g: 218,
-                b: 197,
-                a: 255,
-            },
-            on_secondary: Color {
-                r: 0,
-                g: 0,
-                b: 0,
-                a: 255,
-            },
-            surface: Color {
-                r: 30,
-                g: 30,
-                b: 30,
-                a: 255,
-            },
-            on_surface: Color {
-                r: 230,
-                g: 230,
-                b: 230,
-                a: 255,
-            },
-            surface_raised: Color {
-                r: 37,
-                g: 37,
-                b: 37,
-                a: 255,
-            },
-            surface_sunken: Color {
-                r: 12,
-                g: 12,
-                b: 12,
-                a: 255,
-            },
-            background: Color {
-                r: 18,
-                g: 18,
-                b: 18,
-                a: 255,
-            },
-            on_background: Color {
-                r: 230,
-                g: 230,
-                b: 230,
-                a: 255,
-            },
-            error: Color {
-                r: 207,
-                g: 102,
-                b: 121,
-                a: 255,
-            },
-            on_error: Color {
-                r: 0,
-                g: 0,
-                b: 0,
-                a: 255,
-            },
-            success: Color {
-                r: 16,
-                g: 185,
-                b: 129,
-                a: 255,
-            },
-            warning: Color {
-                r: 245,
-                g: 158,
-                b: 11,
-                a: 255,
-            },
-            info: Color {
-                r: 14,
-                g: 165,
-                b: 233,
-                a: 255,
-            },
-            border: Color {
-                r: 60,
-                g: 60,
-                b: 60,
-                a: 255,
-            },
-            border_strong: Color {
-                r: 96,
-                g: 96,
-                b: 96,
-                a: 255,
-            },
-            divider: Color {
-                r: 60,
-                g: 60,
-                b: 60,
-                a: 255,
-            },
-            text_primary: Color {
-                r: 230,
-                g: 230,
-                b: 230,
-                a: 255,
-            },
-            text_secondary: Color {
-                r: 160,
-                g: 160,
-                b: 160,
-                a: 255,
-            },
-            text_muted: Color {
-                r: 120,
-                g: 120,
-                b: 120,
-                a: 255,
-            },
-            text_link: Color {
-                r: 187,
-                g: 134,
-                b: 252,
-                a: 255,
-            },
-            heading: Color {
-                r: 230,
-                g: 230,
-                b: 230,
-                a: 255,
-            },
-            focus_ring: Color {
-                r: 187,
-                g: 134,
-                b: 252,
-                a: 255,
-            },
-        }
+        Tokens::dark().colors
+    }
+
+    /// Card fill; falls back to `surface`.
+    pub fn card(&self) -> Color {
+        self.card.unwrap_or(self.surface)
+    }
+
+    /// Content on a card; falls back to `on_surface`.
+    pub fn on_card(&self) -> Color {
+        self.on_card.unwrap_or(self.on_surface)
+    }
+
+    /// Floating layer fill; falls back to `surface_raised`.
+    pub fn popover(&self) -> Color {
+        self.popover.unwrap_or(self.surface_raised)
+    }
+
+    /// Content on a floating layer; falls back to `on_surface`.
+    pub fn on_popover(&self) -> Color {
+        self.on_popover.unwrap_or(self.on_surface)
+    }
+
+    /// Quiet fill; falls back to `surface_sunken`.
+    pub fn muted(&self) -> Color {
+        self.muted.unwrap_or(self.surface_sunken)
+    }
+
+    /// Content on the quiet fill; falls back to `text_muted`.
+    pub fn on_muted(&self) -> Color {
+        self.on_muted.unwrap_or(self.text_muted)
+    }
+
+    /// Destructive action fill; falls back to `error`.
+    pub fn destructive(&self) -> Color {
+        self.destructive.unwrap_or(self.error)
+    }
+
+    /// Content on a destructive action; falls back to `on_error`.
+    pub fn on_destructive(&self) -> Color {
+        self.on_destructive.unwrap_or(self.on_error)
+    }
+
+    /// Border of text fields and other inputs; falls back to `border`.
+    pub fn input(&self) -> Color {
+        self.input.unwrap_or(self.border)
+    }
+
+    /// The fill for `role` together with the colour for content on it.
+    pub fn pair(&self, role: ColorRole) -> ColorPair {
+        let (fill, on) = match role {
+            ColorRole::Background => (self.background, self.on_background),
+            ColorRole::Surface => (self.surface, self.on_surface),
+            ColorRole::Card => (self.card(), self.on_card()),
+            ColorRole::Popover => (self.popover(), self.on_popover()),
+            ColorRole::Muted => (self.muted(), self.on_muted()),
+            ColorRole::Primary => (self.primary, self.on_primary),
+            ColorRole::Secondary => (self.secondary, self.on_secondary),
+            ColorRole::Accent => (self.accent, self.on_accent),
+            ColorRole::Destructive => (self.destructive(), self.on_destructive()),
+        };
+        ColorPair { fill, on }
     }
 }
 
 /// Standard spacing scale used for padding, margins, and gaps.
 ///
-/// Values: `none` (0), `xs` (4), `s` (8), `m` (16), `l` (24), `xl` (32).
+/// Default values: `none` 0, `xxs` 2, `xs` 4, `s` 8, `ms` 12, `m` 16, `ml` 20,
+/// `l` 24, `xl` 32, `xxl` 48, `xxxl` 64, `xxxxl` 96. A design system can
+/// change every step; `xxs`, `ms` and `ml` are optional in its DSP file.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct SpacingTokens {
-    pub none: f32,  // 0
-    pub xs: f32,    // 4
-    pub s: f32,     // 8
-    pub m: f32,     // 16
-    pub l: f32,     // 24
-    pub xl: f32,    // 32
-    pub xxl: f32,   // 48
-    pub xxxl: f32,  // 64
-    pub xxxxl: f32, // 96
+    pub none: f32,
+    pub xxs: f32,
+    pub xs: f32,
+    pub s: f32,
+    pub ms: f32,
+    pub m: f32,
+    pub ml: f32,
+    pub l: f32,
+    pub xl: f32,
+    pub xxl: f32,
+    pub xxxl: f32,
+    pub xxxxl: f32,
 }
 
 impl Default for SpacingTokens {
     fn default() -> Self {
-        Self {
-            none: 0.0,
-            xs: 4.0,
-            s: 8.0,
-            m: 16.0,
-            l: 24.0,
-            xl: 32.0,
-            xxl: 48.0,
-            xxxl: 64.0,
-            xxxxl: 96.0,
-        }
+        Tokens::default().spacing
     }
 }
 
@@ -1056,43 +918,13 @@ pub struct TypographyTokens {
 
 impl Default for TypographyTokens {
     fn default() -> Self {
-        Self {
-            font_family_sans: "\"Inter\", \"Avenir Next\", \"Segoe UI\", Arial, sans-serif".into(),
-            font_family_serif: "\"Iowan Old Style\", \"Palatino Linotype\", \"Book Antiqua\", Georgia, serif".into(),
-            font_family_mono: "\"SFMono-Regular\", Menlo, Monaco, Consolas, \"Liberation Mono\", \"Courier New\", monospace".into(),
-            font_weight_regular: 400,
-            font_weight_medium: 500,
-            font_weight_semibold: 600,
-            font_weight_bold: 700,
-            font_size_xs: 12.0,
-            font_size_sm: 13.0,
-            font_size_base: 14.0,
-            label_large_size: 15.0,
-            body_medium_size: 15.0,
-            body_large_size: 17.0,
-            font_size_lg: 20.0,
-            font_size_xl: 24.0,
-            heading_size: 28.0,
-            heading2_size: 36.0,
-            heading1_size: 48.0,
-            display_sm_size: 60.0,
-            display_md_size: 72.0,
-            line_height_display: 0.98,
-            line_height_heading: 1.05,
-            line_height_snug: 1.4,
-            line_height_normal: 1.6,
-            line_height_relaxed: 1.68,
-            letter_spacing_tight: -0.01,
-            letter_spacing_normal: 0.0,
-            letter_spacing_label: 0.1,
-            letter_spacing_kicker: 0.14,
-        }
+        Tokens::default().typography
     }
 }
 
 /// Corner radius scale for rounded containers.
 ///
-/// Values: `small` (4), `medium` (8), `large` (12), `full` (9999 -- fully rounded pill).
+/// Values come from the active design system; `full` is a pill.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct RadiusTokens {
     pub none: f32,
@@ -1106,16 +938,19 @@ pub struct RadiusTokens {
 
 impl Default for RadiusTokens {
     fn default() -> Self {
-        Self {
-            none: 0.0,
-            small: 4.0,
-            medium: 8.0,
-            large: 12.0,
-            xl: 16.0,
-            xxl: 24.0,
-            full: 9999.0,
-        }
+        Tokens::default().radii
     }
+}
+
+/// The corner radius for a surface inset `inset` inside a container whose
+/// corners have radius `outer`.
+///
+/// Nested rounded shapes read as one object only when their corners share a
+/// centre: the inner radius is the outer radius less the gap between them. A
+/// pill container (radius at least half its height) keeps pill contents, and a
+/// gap wider than the outer radius leaves square inner corners.
+pub fn concentric_radius(outer: f32, inset: f32) -> f32 {
+    (outer - inset).max(0.0)
 }
 
 /// Box shadow levels for surface elevation.
@@ -1135,51 +970,7 @@ pub struct ElevationTokens {
 
 impl Default for ElevationTokens {
     fn default() -> Self {
-        let black_alpha = |a| Color {
-            r: 0,
-            g: 0,
-            b: 0,
-            a,
-        };
-        Self {
-            level0: None,
-            level1: Some(BoxShadow {
-                spread_radius: 0.0,
-                inset: false,
-                color: black_alpha(40),
-                offset: (0.0, 1.0),
-                blur_radius: 2.0,
-            }),
-            level2: Some(BoxShadow {
-                spread_radius: 0.0,
-                inset: false,
-                color: black_alpha(60),
-                offset: (0.0, 2.0),
-                blur_radius: 4.0,
-            }),
-            level3: Some(BoxShadow {
-                spread_radius: 0.0,
-                inset: false,
-                color: black_alpha(60),
-                offset: (0.0, 4.0),
-                blur_radius: 8.0,
-            }),
-            level4: None,
-            level5: None,
-            // A ring around the focused control, like the error ring.
-            focus: Some(BoxShadow {
-                spread_radius: 3.0,
-                inset: false,
-                color: Color {
-                    r: 20,
-                    g: 184,
-                    b: 166,
-                    a: 82,
-                },
-                offset: (0.0, 0.0),
-                blur_radius: 0.0,
-            }),
-        }
+        Tokens::default().elevations
     }
 }
 
@@ -1200,19 +991,7 @@ pub struct MotionTokens {
 
 impl Default for MotionTokens {
     fn default() -> Self {
-        Self {
-            duration_instant_ms: 0,
-            duration_micro_ms: 120,
-            duration_fast_ms: 160,
-            duration_normal_ms: 200,
-            duration_slow_ms: 300,
-            duration_deliberate_ms: 480,
-            easing_linear: EasingCurve::Linear,
-            easing_standard: EasingCurve::CubicBezier(0.16, 0.84, 0.32, 1.0),
-            easing_in: EasingCurve::CubicBezier(0.4, 0.0, 1.0, 1.0),
-            easing_out: EasingCurve::CubicBezier(0.0, 0.0, 0.2, 1.0),
-            easing_ease: EasingCurve::Ease,
-        }
+        Tokens::default().motion
     }
 }
 
@@ -1223,65 +1002,142 @@ pub struct DataVisualizationTokens {
 
 impl Default for DataVisualizationTokens {
     fn default() -> Self {
-        Self {
-            palette: vec![
-                Color {
-                    r: 20,
-                    g: 184,
-                    b: 166,
-                    a: 255,
-                },
-                Color {
-                    r: 77,
-                    g: 166,
-                    b: 224,
-                    a: 255,
-                },
-                Color {
-                    r: 245,
-                    g: 158,
-                    b: 11,
-                    a: 255,
-                },
-                Color {
-                    r: 244,
-                    g: 63,
-                    b: 94,
-                    a: 255,
-                },
-                Color {
-                    r: 132,
-                    g: 204,
-                    b: 22,
-                    a: 255,
-                },
-                Color {
-                    r: 14,
-                    g: 165,
-                    b: 233,
-                    a: 255,
-                },
-                Color {
-                    r: 168,
-                    g: 85,
-                    b: 247,
-                    a: 255,
-                },
-                Color {
-                    r: 249,
-                    g: 115,
-                    b: 22,
-                    a: 255,
-                },
-            ],
+        Tokens::default().data_visualization
+    }
+}
+
+/// Geometry that is not spacing: hit targets, control heights, icon sizes,
+/// border widths and the focus ring.
+///
+/// `min_pointer_target` and `min_touch_target` are the smallest areas a
+/// control answers to. Hit testing grows a smaller control's hit area to these
+/// sizes without changing how it looks (Fitts's law; WCAG 2.5.8 sets 24px).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct SizingTokens {
+    pub min_pointer_target: f32,
+    pub min_touch_target: f32,
+    pub control_sm: f32,
+    pub control_md: f32,
+    pub control_lg: f32,
+    pub control_xl: f32,
+    pub icon_xs: f32,
+    pub icon_sm: f32,
+    pub icon_md: f32,
+    pub icon_lg: f32,
+    pub icon_xl: f32,
+    pub border_hairline: f32,
+    pub border_thick: f32,
+    pub focus_ring_width: f32,
+    pub focus_ring_offset: f32,
+    /// How far control heights move per density step. See [`Density`].
+    #[serde(default = "default_density_step")]
+    pub density_step: f32,
+}
+
+fn default_density_step() -> f32 {
+    4.0
+}
+
+impl Default for SizingTokens {
+    fn default() -> Self {
+        Tokens::default().sizing
+    }
+}
+
+/// Opacity for disabled content, state layers and scrims.
+///
+/// The `*_layer` values are the opacity of a content-coloured layer drawn over
+/// a surface to show hover, press, focus, selection or dragging.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct OpacityTokens {
+    pub disabled: f32,
+    pub muted: f32,
+    pub scrim: f32,
+    pub hover_layer: f32,
+    pub pressed_layer: f32,
+    pub focus_layer: f32,
+    pub selected_layer: f32,
+    pub dragged_layer: f32,
+}
+
+impl Default for OpacityTokens {
+    fn default() -> Self {
+        Tokens::default().opacity
+    }
+}
+
+/// A window size class, from the narrowest to the widest.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub enum WindowClass {
+    Compact,
+    Medium,
+    Expanded,
+    Large,
+    ExtraLarge,
+}
+
+/// Upper bounds of the window size classes, in logical pixels.
+///
+/// A width below `compact_max` is [`WindowClass::Compact`], below `medium_max`
+/// is [`WindowClass::Medium`], and so on; anything from `large_max` up is
+/// [`WindowClass::ExtraLarge`].
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct BreakpointTokens {
+    pub compact_max: f32,
+    pub medium_max: f32,
+    pub expanded_max: f32,
+    pub large_max: f32,
+}
+
+impl BreakpointTokens {
+    /// The size class of a window or container `width` wide.
+    pub fn class_for(&self, width: f32) -> WindowClass {
+        if width < self.compact_max {
+            WindowClass::Compact
+        } else if width < self.medium_max {
+            WindowClass::Medium
+        } else if width < self.expanded_max {
+            WindowClass::Expanded
+        } else if width < self.large_max {
+            WindowClass::Large
+        } else {
+            WindowClass::ExtraLarge
         }
+    }
+}
+
+impl Default for BreakpointTokens {
+    fn default() -> Self {
+        Tokens::default().breakpoints
+    }
+}
+
+/// Stacking order for floating surfaces. Higher values draw on top.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LayerTokens {
+    pub base: i32,
+    pub raised: i32,
+    pub sticky: i32,
+    pub dropdown: i32,
+    pub overlay: i32,
+    pub modal: i32,
+    pub popover: i32,
+    pub toast: i32,
+    pub tooltip: i32,
+}
+
+impl Default for LayerTokens {
+    fn default() -> Self {
+        Tokens::default().layers
     }
 }
 
 /// The complete set of primitive design tokens.
 ///
-/// Combines [`ColorTokens`], [`SpacingTokens`], [`TypographyTokens`],
-/// [`RadiusTokens`], and [`ElevationTokens`]. The [`Default`] implementation
+/// Combines colors, spacing, typography, radii, elevation, motion, data
+/// visualization, sizing, opacity, breakpoints and layers. The groups added
+/// after the first DSP format (sizing, opacity, breakpoints, layers) are
+/// optional in a design system's tokens file. The [`Default`] implementation
 /// uses the light-mode values generated from the bundled default DSP. Use
 /// [`Tokens::dark()`] for its generated dark-mode values.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -1293,6 +1149,19 @@ pub struct Tokens {
     pub elevations: ElevationTokens,
     pub motion: MotionTokens,
     pub data_visualization: DataVisualizationTokens,
+    #[serde(default)]
+    pub sizing: SizingTokens,
+    #[serde(default)]
+    pub opacity: OpacityTokens,
+    #[serde(default)]
+    pub breakpoints: BreakpointTokens,
+    #[serde(default)]
+    pub layers: LayerTokens,
+    /// The density these tokens and the theme's control recipes are sized for.
+    /// A generated theme is [`Density::Comfortable`]; use
+    /// [`Theme::with_density`] to change it.
+    #[serde(default)]
+    pub density: Density,
 }
 
 impl Default for Tokens {
@@ -3764,6 +3633,10 @@ impl ComponentTheme {
     }
 }
 
+mod density;
+pub use density::Density;
+mod platform_look;
+pub use platform_look::{HostPlatform, PlatformLook};
 mod recipe_keys;
 pub use recipe_keys::{
     recipes, NoParts, NoScalars, Recipe, RecipeKey, RecipePartKey, RecipeScalarKey,
@@ -3860,10 +3733,28 @@ pub mod presets {
             "/generated_cupertino_design_system.rs"
         ));
     }
+
+    /// Graphite: ink-black primary actions on zinc neutrals with one blue accent.
+    pub mod graphite {
+        include!(concat!(
+            env!("OUT_DIR"),
+            "/generated_graphite_design_system.rs"
+        ));
+    }
+
+    /// Ember: the orange of the Fission logo on warm stone neutrals.
+    pub mod ember {
+        include!(concat!(
+            env!("OUT_DIR"),
+            "/generated_ember_design_system.rs"
+        ));
+    }
 }
 
 pub use presets::cupertino::FissionCupertinoDesignSystem;
+pub use presets::ember::FissionEmberDesignSystem;
 pub use presets::fluent2::FissionFluent2DesignSystem;
+pub use presets::graphite::FissionGraphiteDesignSystem;
 pub use presets::liquid_glass::FissionLiquidGlassDesignSystem;
 pub use presets::material3::FissionMaterialDesign3DesignSystem;
 

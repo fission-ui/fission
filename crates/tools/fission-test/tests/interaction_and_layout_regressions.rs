@@ -71,7 +71,6 @@ fn test_stepper_button_layout() {
 fn test_email_list_width() {
     const OUTER_SPLIT_RATIO: f32 = 0.2;
     const INNER_SPLIT_RATIO: f32 = 0.3;
-    const HANDLE_SIZE: f32 = 4.0;
     const DEFAULT_VIEWPORT_WIDTH: f32 = 800.0;
 
     #[derive(Clone)]
@@ -125,8 +124,16 @@ fn test_email_list_width() {
     // Keep the original 0.3 inner split ratio. Under the test harness' 800px
     // viewport, the ratio-correct first pane is about 190px; the old 250px
     // threshold only passes if the regression scenario is softened to 0.4.
-    let outer_second_width = (DEFAULT_VIEWPORT_WIDTH - HANDLE_SIZE) * (1.0 - OUTER_SPLIT_RATIO);
-    let expected_width = (outer_second_width - HANDLE_SIZE) * INNER_SPLIT_RATIO;
+    // The handle is as wide as the design system's split view handle part.
+    let env = fission_core::Env::default();
+    let handle_size = env
+        .theme
+        .recipe(fission_theme::recipes::SplitView)
+        .try_part_named("handle")
+        .and_then(|handle| handle.width.or(handle.height))
+        .unwrap_or(env.theme.tokens.spacing.s);
+    let outer_second_width = (DEFAULT_VIEWPORT_WIDTH - handle_size) * (1.0 - OUTER_SPLIT_RATIO);
+    let expected_width = (outer_second_width - handle_size) * INNER_SPLIT_RATIO;
 
     assert!(
         (rect.width() - expected_width).abs() <= 0.1,

@@ -54,9 +54,19 @@ impl From<DatePicker> for Widget {
             .map(|d| d.format("%Y-%m-%d").to_string())
             .unwrap_or_default();
         let viewport = view.viewport_size();
+        let tokens = &view.env().theme.tokens;
+        let trigger_recipe = view
+            .env()
+            .theme
+            .recipe(fission_theme::recipes::DatePicker)
+            .try_part_named("trigger")
+            .cloned()
+            .unwrap_or_default();
+        let trigger_height = trigger_recipe.height.unwrap_or(tokens.sizing.control_md);
+        let trigger_padding_x = trigger_recipe.padding_x.unwrap_or(tokens.spacing.ms);
         let preferred_width = this.width.unwrap_or(164.0);
         let clamped_width = if viewport.width.is_finite() && viewport.width > 0.0 {
-            preferred_width.min((viewport.width - 48.0).max(120.0))
+            preferred_width.min((viewport.width - tokens.spacing.xxl).max(120.0))
         } else {
             preferred_width
         };
@@ -88,8 +98,8 @@ impl From<DatePicker> for Widget {
             child: Some(Text::new(label_text.clone()).into()),
             on_press: this.on_toggle.clone(),
             width: Some(clamped_width),
-            height: Some(36.0),
-            padding: Some([12.0, 12.0, 8.0, 8.0]),
+            height: Some(trigger_height),
+            padding: Some([trigger_padding_x, trigger_padding_x, 0.0, 0.0]),
             content_align: ButtonContentAlign::Start,
             // A trigger that opens a calendar has to say so, and whether it is
             // currently open, or pressing it appears to do nothing.

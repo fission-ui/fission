@@ -1,0 +1,961 @@
+{
+  "$schema": "https://design-tokens.github.io/community-group/format/",
+  "$comment": "Fission Design System Package (DSP). A self-contained, machine-readable manifest of the Fission visual language — brand metadata, design tokens (Material 3 architecture), component specifications with all variants and states, layout patterns, and an asset manifest. Consumable by design tools, codegen, theming engines, and AI agents. Token references use the W3C Design Tokens format ({namespace.token.path}).",
+
+  "$package": {
+    "name": "fission-ember",
+    "version": "0.2.0",
+    "description": "Visual language for Fission — a cross-platform, GPU-accelerated UI framework for Rust. Mirrors the Material 3 token architecture used by the `fission-theme` crate; brand identity from the docs site (teal) + logo (orange/blue).",
+    "license": "Apache-2.0",
+    "framework": {
+      "name": "fission",
+      "repository": "https://github.com/fission-ui/fission",
+      "theme_crate": "crates/core/fission-theme"
+    },
+    "structure": {
+      "tokens_format": "W3C Design Tokens (with $ref-style references)",
+      "component_format": "anatomy + sizes + hierarchies + states (per-property)",
+      "files": {
+        "tokens": "tokens.json — primitive design tokens (color, type, spacing, radius, elevation, motion)",
+        "css_mirror": "colors_and_type.css — CSS-variable mirror of tokens",
+        "assets": "assets/ — logos, marks, brand glyphs",
+        "fonts": "fonts/ — Inter font family"
+      }
+    }
+  },
+
+  "brand": {
+    "$comment": "Fission brand identity at the meta level.",
+    "name": "Fission",
+    "tagline": "Production-ready Rust user interface.",
+    "long_description": "Build desktop, web, Android, and iOS apps in Rust. One shared runtime; explicit state; explicit side effects; GPU-backed rendering.",
+    "voice": {
+      "register": "technical, precise, deterministic",
+      "person": "second person (you) for developer-facing; third person for runtime behavior; avoid first person plural (we)",
+      "casing": "sentence case for headings; Title Case only for brand and product names; code identifiers preserve source casing",
+      "tone_examples": [
+        "Plain Rust data stays in charge. Product truth is not hidden inside widgets or host callbacks.",
+        "Every durable change has a named cause.",
+        "Fission is strict about where state changes happen, where host work starts, and how rendering is produced.",
+        "Start where your evaluation needs the most signal."
+      ],
+      "forbidden_words": ["blazingly fast", "revolutionary", "supercharged", "unleash", "game-changing", "synergy"],
+      "emoji_policy": "not used",
+      "punctuation_notes": "em-dash (—) used liberally as separator/aside; arrows (→) for CTA hints"
+    },
+    "logo": {
+      "wordmark_dark": { "path": "assets/fission-logo.png", "background": "dark", "format": "png" },
+      "wordmark_light": { "path": null, "$status": "MISSING — request from brand owner" },
+      "mark": { "path": "assets/fission-mark.svg", "background": "any", "format": "svg", "description": "Two crossed elliptical orbits — blue and orange — around an orange nucleus." }
+    }
+  },
+
+  "tokens": {
+    "$comment": "Primitive design tokens. The complete machine-readable spec lives in tokens.json. This block summarises the structure; reference tokens.json for exhaustive values.",
+    "$ref": "./tokens.json",
+    "namespaces": [
+      { "name": "color.brand", "purpose": "Logo-derived signal accents (orange + blue). Decorative only." },
+      { "name": "color.teal", "purpose": "Interactive primary palette. Light: 700; Dark: 400; Focus: 500." },
+      { "name": "color.slate", "purpose": "Neutral ramp (matches Tailwind slate-*)." },
+      { "name": "color.semantic", "purpose": "Status: success, warning, error, info." },
+      { "name": "color.light", "purpose": "Semantic surface tokens for the light theme." },
+      { "name": "color.dark", "purpose": "Semantic surface tokens for the dark theme." },
+      { "name": "typography", "purpose": "Inter (sans), serif fallback (Iowan/Palatino/Georgia), SF Mono (mono). UUI Display/Text scale." },
+      { "name": "spacing", "purpose": "9-step scale: 0/4/8/16/24/32/48/64/96." },
+      { "name": "radius", "purpose": "7-step scale: 0/8/10/14/16/24/9999." },
+      { "name": "elevation", "purpose": "Box shadows. 5 levels + focus." },
+      { "name": "motion", "purpose": "Duration scale + easing curves." }
+    ]
+  },
+
+  "components": {
+    "code_syntax": {
+      "$description": "Token colours for syntax-highlighted source code, so code follows the active theme and mode.",
+      "keyword": { "color": "{color.light.primary}" },
+      "string": { "color": "{color.light.success}" },
+      "comment": { "color": "{color.light.text_muted}" },
+      "number": { "color": "{color.light.warning}" },
+      "type": { "color": "{color.light.secondary}" },
+      "function": { "color": "{color.light.text_link}" },
+      "variable": { "color": "{color.light.text_primary}" },
+      "constant": { "color": "{color.light.info}" },
+      "punctuation": { "color": "{color.light.text_secondary}" },
+      "inserted": { "color": "{color.light.success}" },
+      "deleted": { "color": "{color.light.error}" }
+    },
+    "accordion": {
+      "$description": "Stacked disclosure sections with a header and revealed panel.",
+      "anatomy": ["header*", "indicator*", "panel*"],
+      "header": {
+        "padding": "{spacing.m}",
+        "gap": "{spacing.s}",
+        "background": "{color.light.surface}",
+        "border": "1px solid {color.light.border}",
+        "color": "{color.light.text_primary}"
+      },
+      "indicator": {
+        "color": "{color.light.text_secondary}",
+        "font_size": "{typography.font_size.xs}"
+      },
+      "panel": {
+        "padding": "{spacing.m}",
+        "background": "{color.light.background}",
+        "border": "1px solid {color.light.border}"
+      }
+    },
+    "breadcrumb": {
+      "$description": "Trail of ancestor links with directional separators.",
+      "anatomy": ["item*", "separator*"],
+      "gap": "{spacing.xs}",
+      "separator": {
+        "icon_size": "{spacing.m}",
+        "color": "{color.light.text_muted}"
+      },
+      "item": { "color": "{color.light.text_secondary}", "font_size": "{typography.font_size.base}" },
+      "current": { "color": "{color.light.text_primary}", "font_weight": "{typography.font_weight.medium}" }
+    },
+    "drawer": {
+      "$description": "Edge-anchored panel over a dismissal scrim.",
+      "anatomy": ["scrim", "panel"],
+      "scrim": { "background": "{color.light.on_background}" },
+      "panel": {
+        "background": "{color.light.surface}",
+        "box_shadow": "{elevation.level3}",
+        "width": "320px"
+      }
+    },
+    "popover": {
+      "$description": "Anchored surface holding transient content.",
+      "anatomy": ["surface"],
+      "background": "{color.light.surface}",
+      "border": "1px solid {color.light.border}",
+      "radius": "{radius.medium}",
+      "padding": "{spacing.s}",
+      "box_shadow": "{elevation.level2}"
+    },
+    "markdown": {
+      "$description": "Rendered prose with design-system typography.",
+      "anatomy": ["heading*", "paragraph*", "code*", "quote*"],
+      "gap": "{spacing.s}",
+      "paragraph": {
+        "color": "{color.light.text_primary}",
+        "font_size": "{typography.font_size.base}",
+        "line_height": "22px"
+      },
+      "heading": {
+        "color": "{color.light.heading}",
+        "font_weight": "{typography.font_weight.medium}"
+      },
+      "code": {
+        "background": "{color.light.surface_sunken}",
+        "radius": "{radius.small}",
+        "font_family": "{typography.font_family.mono}",
+        "font_size": "{typography.font_size.xs}"
+      },
+      "quote": {
+        "color": "{color.light.text_secondary}",
+        "border": "2px solid {color.light.border}",
+        "padding_x": "{spacing.s}"
+      }
+    },
+    "colour_picker": {
+      "$description": "Saturation field, hue slider and swatch previews.",
+      "anatomy": ["field", "slider*", "swatch*", "preview"],
+      "padding": "{spacing.s}",
+      "gap": "{spacing.s}",
+      "radius": "{radius.medium}",
+      "field": { "height": "92px", "radius": "{radius.small}" },
+      "swatch": { "size": "20px", "radius": "{radius.small}" },
+      "preview": { "width": "92px", "radius": "{radius.small}" }
+    },
+    "data_table": {
+      "$description": "Scrollable grid of records with selection.",
+      "anatomy": ["header", "row*", "cell*", "selection*"],
+      "border": "1px solid {color.light.border}",
+      "radius": "{radius.small}",
+      "header": {
+        "background": "{color.light.surface}",
+        "color": "{color.light.text_secondary}",
+        "font_size": "{typography.font_size.base}",
+        "font_weight": "{typography.font_weight.medium}",
+        "padding": "{spacing.s}"
+      },
+      "cell": {
+        "color": "{color.light.text_primary}",
+        "font_size": "{typography.font_size.base}",
+        "padding": "{spacing.s}"
+      },
+      "row": { "background": "{color.light.surface}" },
+      "selection": { "width": "40px" },
+      "divider": { "height": "1px", "background": "{color.light.divider}" }
+    },
+    "dropdown": {
+      "$description": "Trigger presenting the current selection.",
+      "anatomy": ["value", "indicator"],
+      "gap": "{spacing.s}",
+      "padding_x": "{spacing.s}",
+      "value": { "color": "{color.light.text_primary}", "font_size": "{typography.font_size.base}" },
+      "indicator": { "icon_size": "18px", "color": "{color.light.text_secondary}" }
+    },
+    "number_input": {
+      "$description": "Numeric field between stepping controls.",
+      "anatomy": ["decrement", "field", "increment"],
+      "gap": "{spacing.xs}",
+      "padding": "2px",
+      "background": "{color.light.background}",
+      "border": "1px solid {color.light.border}",
+      "radius": "{radius.medium}",
+      "stepper": { "size": "36px" }
+    },
+    "range_slider": {
+      "$description": "Two-thumb range over a track.",
+      "anatomy": ["track", "selected", "thumb*"],
+      "track": { "height": "4px", "background": "{color.light.border_strong}" },
+      "selected": { "height": "4px", "background": "{color.light.primary}" },
+      "thumb": { "size": "16px", "radius": "{radius.full}", "background": "{color.light.primary}" }
+    },
+    "split_view": {
+      "$description": "Two panes with a resizable separator.",
+      "anatomy": ["pane*", "handle"],
+      "handle": { "size": "8px", "background": "{color.light.border}" }
+    },
+    "spinner": {
+      "$description": "Indeterminate busy indicator.",
+      "anatomy": ["dot*"],
+      "gap": "6px",
+      "dot": { "size": "8px", "radius": "{radius.full}", "background": "{color.light.primary}" }
+    },
+    "circular_progress": {
+      "$description": "Ring showing determinate or indeterminate progress.",
+      "anatomy": ["track", "indicator"],
+      "size": "40px",
+      "track": { "background": "{color.light.border}" },
+      "indicator": { "background": "{color.light.primary}" },
+      "thickness": "4px"
+    },
+    "refresh_indicator": {
+      "$description": "Pull-to-refresh affordance above scrollable content.",
+      "anatomy": ["indicator"],
+      "indicator": { "size": "28px", "background": "{color.light.surface}", "box_shadow": "{elevation.level2}" }
+    },
+    "file_upload": {
+      "$description": "Browse control beside the current selection.",
+      "anatomy": ["browse", "filename"],
+      "gap": "{spacing.s}",
+      "filename": { "color": "{color.light.text_secondary}", "font_size": "{typography.font_size.base}" }
+    },
+    "hero": {
+      "$description": "Shared-element transition surface.",
+      "anatomy": ["surface"],
+      "radius": "{radius.large}"
+    },
+    "terminal": {
+      "$description": "Embedded character grid with its own key handling.",
+      "anatomy": ["surface"],
+      "background": "{color.light.background}",
+      "color": "{color.light.text_primary}",
+      "font_family": "{typography.font_family.mono}",
+      "font_size": "{typography.font_size.xs}",
+      "padding": "{spacing.xs}"
+    },
+    "time_picker": {
+      "$description": "Hour and minute steppers around a separator.",
+      "anatomy": ["hour", "separator", "minute"],
+      "gap": "{spacing.xs}",
+      "separator": { "color": "{color.light.text_secondary}", "font_size": "{typography.font_size.base}" }
+    },
+    "date_picker": {
+      "$description": "Trigger opening a calendar surface.",
+      "anatomy": ["trigger", "calendar"],
+      "trigger": { "height": "36px", "padding_x": "{spacing.s}" }
+    },
+    "toast": {
+      "$description": "Transient notification surface with a tone icon and dismissal control.",
+      "anatomy": ["icon", "message", "dismiss?"],
+      "background": "{color.light.surface}",
+      "border": "1px solid {color.light.border}",
+      "radius": "{radius.medium}",
+      "padding": "{spacing.s}",
+      "max_width": "420px",
+      "gap": "{spacing.s}",
+      "box_shadow": "{elevation.level3}",
+      "icon": { "icon_size": "{spacing.m}" },
+      "message": {
+        "color": "{color.light.text_primary}",
+        "font_size": "{typography.font_size.base}",
+        "line_height": "20px"
+      },
+      "dismiss": { "icon_size": "{spacing.m}" }
+    },
+    "tag": {
+      "$description": "Removable pill labelling a filter, category or selection.",
+      "anatomy": ["label", "remove?"],
+      "background": "{color.light.surface}",
+      "border": "1px solid {color.light.border}",
+      "radius": "{radius.full}",
+      "height": "24px",
+      "padding_x": "{spacing.xs}",
+      "gap": "{spacing.xs}",
+      "font_size": "{typography.font_size.xs}",
+      "color": "{color.light.text_primary}",
+      "remove": { "size": "20px", "icon_size": "12px", "color": "{color.light.text_secondary}" }
+    },
+    "stat": {
+      "$description": "A caption with the figure it measures.",
+      "anatomy": ["label", "value", "delta?"],
+      "border": "1px solid {color.light.border}",
+      "radius": "{radius.medium}",
+      "padding": "{spacing.m}",
+      "gap": "{spacing.xs}",
+      "label": {
+        "color": "{color.light.text_secondary}",
+        "font_size": "{typography.font_size.xs}",
+        "font_weight": "{typography.font_weight.medium}"
+      },
+      "value": {
+        "color": "{color.light.text_primary}",
+        "font_size": "{typography.font_size.h3}",
+        "font_weight": "{typography.font_weight.medium}"
+      }
+    },
+    "stepper": {
+      "$description": "Ordered progress through a finite workflow.",
+      "anatomy": ["node*", "connector*", "label*"],
+      "gap": "{spacing.s}",
+      "node": {
+        "size": "24px",
+        "radius": "{radius.full}",
+        "background": "{color.light.surface}",
+        "border": "1px solid {color.light.border}",
+        "color": "{color.light.text_secondary}",
+        "font_size": "{typography.font_size.xs}"
+      },
+      "node_active": {
+        "background": "{color.light.primary}",
+        "color": "{color.light.on_primary}"
+      },
+      "connector": { "height": "2px", "background": "{color.light.border}", "width": "22px" },
+      "label": {
+        "color": "{color.light.text_secondary}",
+        "font_size": "{typography.font_size.xs}"
+      },
+      "node_slot": "62px"
+    },
+    "divider": {
+      "$description": "Structural rule between adjacent groups.",
+      "background": "{color.light.divider}",
+      "height": "1px"
+    },
+    "skeleton": {
+      "$description": "Placeholder standing in for content that has not arrived.",
+      "background": "{color.light.placeholder}",
+      "radius": "{radius.small}"
+    },
+    "$comment": "Each component declares anatomy (named slots), sizes, hierarchies (visual variants), and states. Property values reference tokens via {namespace.path} or contain literal CSS values. Sourced from the Untitled UI Figma component matrix and bound to Fission's teal palette.",
+
+    "avatar": {
+      "$description": "An image or accessible initials fallback for a person.",
+      "fallback": { "background": "{color.light.primary}", "color": "{color.light.on_primary}" }
+    },
+
+    "button": {
+      "$source": "Figma /Buttons/Buttons-Button (node 3287:427074)",
+      "$description": "Compact primary action element with a 10px control radius.",
+      "anatomy": ["leading_icon?", "label", "trailing_icon?"],
+      "radius": "{radius.medium}",
+      "font_family": "{typography.font_family.sans}",
+      "font_weight": "{typography.font_weight.medium}",
+      "transition": "background {motion.duration.fast} {motion.easing.standard}, box-shadow {motion.duration.fast} {motion.easing.standard}, border-color {motion.duration.fast} {motion.easing.standard}, color {motion.duration.fast} {motion.easing.standard}",
+      "icon_size": "16px",
+      "padding_y": "0px",
+      "sizes": {
+        "sm": { "height": "32px", "padding_x": "12px", "padding_y": "0px", "gap": "4px", "radius": "{radius.small}", "font_size": "13px", "line_height": "18px", "icon_size": "14px" },
+        "md": { "height": "36px", "padding_x": "14px", "padding_y": "0px", "gap": "6px", "font_size": "14px", "line_height": "20px", "icon_size": "16px" },
+        "lg": { "height": "40px", "padding_x": "16px", "padding_y": "0px", "gap": "6px", "font_size": "14px", "line_height": "20px", "icon_size": "16px" },
+        "xl": { "height": "48px", "padding_x": "20px", "padding_y": "0px", "gap": "6px", "font_size": "16px", "line_height": "24px", "icon_size": "16px" }
+      },
+      "hierarchies": {
+        "primary": {
+          "default":  { "background": "{color.light.primary}", "color": "{color.light.on_primary}", "border": "1px solid transparent", "box_shadow": "none" },
+          "hover":    { "background": "{color.light.primary_hover_surface}", "box_shadow": "none" },
+          "active":   { "background": "{color.light.primary_hover_surface}", "box_shadow": "none" },
+          "focus":    { "border": "1px solid {color.light.focus_ring}", "box_shadow": "0 0 0 3px {color.light.focus_soft}" },
+          "disabled": { "opacity": 0.5, "cursor": "not-allowed" }
+        },
+        "secondary_color": {
+          "default":  { "background": "{color.light.surface}", "color": "{color.light.primary}", "border": "1px solid {color.light.primary_subtle}", "box_shadow": "none" },
+          "hover":    { "background": "{color.light.primary_subtle}", "color": "{color.light.primary_hover}" },
+          "active":   { "background": "{color.light.primary_subtle}" },
+          "focus":    { "border": "1px solid {color.light.focus_ring}", "box_shadow": "0 0 0 3px {color.light.focus_soft}" },
+          "disabled": { "opacity": 0.5 }
+        },
+        "secondary_gray": {
+          "default":  { "background": "{color.light.neutral_subtle}", "color": "{color.light.text_primary}", "border": "1px solid transparent", "box_shadow": "none" },
+          "hover":    { "background": "{color.light.neutral_border}", "color": "{color.light.text_primary}" },
+          "active":   { "background": "{color.light.neutral_border}" },
+          "focus":    { "border": "1px solid {color.light.focus_ring}", "box_shadow": "0 0 0 3px {color.light.focus_soft}" },
+          "disabled": { "opacity": 0.5 }
+        },
+        "outline": {
+          "default":  { "background": "{color.light.control_surface}", "color": "{color.light.text_primary}", "border": "1px solid {color.light.border}", "box_shadow": "none" },
+          "hover":    { "background": "{color.light.control_hover}", "color": "{color.light.text_primary}" },
+          "active":   { "background": "{color.light.control_hover}" },
+          "focus":    { "border": "1px solid {color.light.focus_ring}", "box_shadow": "0 0 0 3px {color.light.focus_soft}" },
+          "disabled": { "opacity": 0.5 }
+        },
+        "tertiary_color": {
+          "default":  { "background": "transparent", "color": "{color.light.primary}",  "border": "1px solid transparent" },
+          "hover":    { "background": "{color.light.primary_subtle}", "color": "{color.light.primary_hover}" },
+          "active":   { "background": "{color.light.primary_subtle}" },
+          "focus":    { "border": "1px solid {color.light.focus_ring}", "box_shadow": "0 0 0 3px {color.light.focus_soft}" },
+          "disabled": { "opacity": 0.5 }
+        },
+        "tertiary_gray": {
+          "default":  { "background": "transparent", "color": "{color.light.text_primary}", "border": "1px solid transparent" },
+          "hover":    { "background": "{color.light.surface_sunken}", "color": "{color.light.text_primary}" },
+          "active":   { "background": "{color.light.surface_sunken}" },
+          "focus":    { "border": "1px solid {color.light.focus_ring}", "box_shadow": "0 0 0 3px {color.light.focus_soft}" },
+          "disabled": { "opacity": 0.5 }
+        },
+        "link_color": {
+          "default":  { "background": "transparent", "color": "{color.light.primary}",  "border": "1px solid transparent", "padding_x": "0", "height": "auto" },
+          "hover":    { "color": "{color.light.primary_hover}", "text_decoration": "underline" },
+          "active":   { "text_decoration": "underline" },
+          "focus":    { "border": "1px solid {color.light.focus_ring}", "box_shadow": "0 0 0 3px {color.light.focus_soft}" },
+          "disabled": { "opacity": 0.5 }
+        },
+        "link_gray": {
+          "default":  { "background": "transparent", "color": "{color.light.text_secondary}", "border": "1px solid transparent", "padding_x": "0", "height": "auto" },
+          "hover":    { "color": "{color.light.text_primary}", "text_decoration": "underline" },
+          "active":   { "text_decoration": "underline" },
+          "focus":    { "border": "1px solid {color.light.focus_ring}", "box_shadow": "0 0 0 3px {color.light.focus_soft}" },
+          "disabled": { "opacity": 0.5 }
+        },
+        "destructive": {
+          "$source": "Figma /Buttons/Buttons-Button-destructive",
+          "default":  { "background": "{color.light.error_surface}", "color": "{color.light.error}", "border": "1px solid transparent", "box_shadow": "none" },
+          "hover":    { "background": "{color.light.error_hover}" },
+          "active":   { "background": "{color.light.error_hover}" },
+          "focus":    { "border": "1px solid {color.light.destructive_focus_border}", "box_shadow": "0 0 0 3px {color.light.error_focus_ring}" },
+          "disabled": { "opacity": 0.5 }
+        }
+      },
+      "css_classes": ["fs-btn", "fs-btn--{size}", "fs-btn--{hierarchy}"]
+    },
+
+    "input": {
+      "$source": "Figma /Inputs/Input + /Inputs/Input-field",
+      "$description": "Single-line text input with optional leading icon, label above, and helper text below.",
+      "anatomy": ["label?", "leading_icon?", "input", "trailing_icon?", "helper_text?", "error_text?"],
+      "radius": "{radius.medium}",
+      "font_family": "{typography.font_family.sans}",
+      "font_size": "{typography.font_size.base}",
+      "font_weight": "{typography.font_weight.regular}",
+      "line_height": "20px",
+      "sizes": {
+        "sm": { "height": "32px", "padding_x": "10px", "padding_y": "3px" },
+        "md": { "height": "36px", "padding_x": "10px", "padding_y": "4px" },
+        "lg": { "height": "40px", "padding_x": "12px", "padding_y": "6px" }
+      },
+      "states": {
+        "default":     { "background": "{color.light.control_surface}", "border": "1px solid {color.light.border}", "color": "{color.light.text_primary}", "box_shadow": "none" },
+        "hover":       { "border": "1px solid {color.light.border_strong}" },
+        "placeholder": { "color": "{color.light.text_secondary}" },
+        "focus":       { "border": "1px solid {color.light.focus_ring}", "box_shadow": "0 0 0 3px {color.light.focus_soft}" },
+        "error":       { "border": "1px solid {color.light.error_control_border}", "box_shadow": "0 0 0 3px {color.light.error_focus_ring}", "$helper_color": "{color.light.error}" },
+        "disabled":    { "background": "{color.light.disabled_control_surface}", "opacity": 0.5, "cursor": "not-allowed" }
+      },
+      "label": { "font_size": "14px", "font_weight": 500, "line_height": "19.25px", "color": "{color.light.text_primary}", "margin_bottom": "6px" },
+      "helper_text": { "font_size": "14px", "color": "{color.light.text_secondary}", "margin_top": "6px" },
+      "css_classes": ["fs-input"]
+    },
+
+    "select": {
+      "$description": "Single-value selection trigger with a retained disclosure indicator.",
+      "anatomy": ["value", "indicator"],
+      "sizes": {
+        "sm": { "height": "32px", "radius": "{radius.small}", "padding": "3px 8px 3px 10px", "gap": "6px", "font_size": "14px", "font_weight": 400, "line_height": "20px", "icon_size": "16px" },
+        "md": { "height": "36px", "radius": "{radius.medium}", "padding": "5px 8px 5px 10px", "gap": "6px", "font_size": "14px", "font_weight": 400, "line_height": "20px", "icon_size": "16px" }
+      },
+      "trigger_states": {
+        "default":  { "background": "{color.light.control_surface}", "color": "{color.light.text_primary}", "border": "1px solid {color.light.border}" },
+        "hover":    { "background": "{color.light.control_hover}" },
+        "focus":    { "border": "1px solid {color.light.focus_ring}", "box_shadow": "0 0 0 3px {color.light.focus_soft}" },
+        "disabled": { "opacity": 0.5 },
+        "error":    { "border": "1px solid {color.light.error_control_border}", "box_shadow": "0 0 0 3px {color.light.error_focus_ring}" }
+      },
+      "placeholder": { "color": "{color.light.text_secondary}" },
+      "indicator": { "color": "{color.light.text_secondary}", "icon_size": "16px", "inset_end": "8px" }
+    },
+
+    "alert": {
+      "$description": "Compact persistent status surface with retained leading, message, and action regions.",
+      "anatomy": ["leading?", "content", "action?"],
+      "surface": {
+        "background": "{color.light.surface}",
+        "border": "1px solid {color.light.border}",
+        "radius": "{radius.medium}",
+        "min_height": "60px",
+        "padding": "8px 10px",
+        "gap": "8px",
+        "box_shadow": "none"
+      },
+      "icon": { "icon_size": "16px", "inset_top": "2px", "translate_y": "2px" },
+      "content": { "gap": "2px" },
+      "title": {
+        "color": "{color.light.text_primary}",
+        "font_size": "{typography.font_size.base}",
+        "font_weight": "{typography.font_weight.medium}",
+        "line_height": "20px"
+      },
+      "description": {
+        "color": "{color.light.text_secondary}",
+        "font_size": "{typography.font_size.base}",
+        "font_weight": "{typography.font_weight.regular}",
+        "line_height": "20px"
+      },
+      "action": { "width": "64px", "inset_top": "8px", "inset_end": "8px" },
+      "tones": {
+        "info": { "background": "{color.light.surface}", "color": "{color.light.info}" },
+        "warning": { "background": "{color.light.surface}", "color": "{color.light.warning}" },
+        "error": { "background": "{color.light.surface}", "color": "{color.light.error}" },
+        "success": { "background": "{color.light.surface}", "color": "{color.light.success}" }
+      }
+    },
+
+    "menu": {
+      "$description": "Compact popup content shared by action menus, selects, and editable option lists.",
+      "anatomy": ["group*", "label?", "item*", "separator*"],
+      "trigger": {
+        "sizes": {
+          "sm": { "height": "32px", "radius": "{radius.small}", "padding": "0px 6px 0px 10px", "gap": "4px", "font_size": "12.8px", "font_weight": 500, "line_height": "19.2px", "icon_size": "14px" },
+          "md": { "height": "36px", "radius": "{radius.medium}", "padding": "0px 8px 0px 10px", "gap": "6px", "font_size": "14px", "font_weight": 500, "line_height": "20px", "icon_size": "16px" }
+        },
+        "states": {
+          "default": { "background": "{color.light.control_surface}", "color": "{color.light.text_primary}", "border": "1px solid {color.light.border}", "box_shadow": "none" },
+          "hover": { "background": "{color.light.control_hover}", "color": "{color.light.text_primary}" },
+          "active": { "background": "{color.light.control_hover}" },
+          "focus": { "border": "1px solid {color.light.focus_ring}", "box_shadow": "0 0 0 3px {color.light.focus_soft}" },
+          "disabled": { "opacity": 0.5 },
+          "selected": { "background": "{color.light.control_hover}", "color": "{color.light.text_primary}" }
+        }
+      },
+      "surface": {
+        "background": "{color.light.surface}",
+        "radius": "{radius.medium}",
+        "width": "208px",
+        "padding": "4px",
+        "gap": "0px",
+        "box_shadow": "0 0 0 1px {color.light.surface_ring}, {elevation.level2}"
+      },
+      "item": {
+        "anatomy": ["leading_icon?", "label", "description?", "trailing_shortcut_or_metadata?", "selected_indicator?"],
+        "states": {
+          "default": { "background": "transparent", "color": "{color.light.text_primary}", "radius": "{radius.small}", "height": "32px", "padding_x": "6px", "padding_y": "4px", "gap": "6px", "font_size": "{typography.font_size.base}", "font_weight": "{typography.font_weight.regular}", "line_height": "20px", "icon_size": "16px" },
+          "hover": { "background": "{color.light.surface_sunken}" },
+          "active": { "background": "{color.light.surface_sunken}" },
+          "focus": { "background": "{color.light.surface_sunken}" },
+          "disabled": { "opacity": 0.5 },
+          "selected": { "background": "{color.light.surface_sunken}" }
+        },
+        "destructive_states": {
+          "default": { "color": "{color.light.error}" },
+          "hover": { "background": "{color.light.error_surface}" },
+          "active": { "background": "{color.light.error_hover}" },
+          "focus": { "background": "{color.light.error_surface}" },
+          "disabled": { "opacity": 0.5 },
+          "selected": { "background": "{color.light.error_surface}" }
+        },
+        "description": { "color": "{color.light.text_secondary}", "font_size": "13px", "font_weight": 400, "line_height": "18px", "gap": "2px" },
+        "shortcut": { "color": "{color.light.text_secondary}", "font_size": "12px", "font_weight": 400, "line_height": "16px", "letter_spacing": "0.4px" },
+        "metadata": { "color": "{color.light.text_secondary}", "font_size": "13px", "font_weight": 400, "line_height": "18px" },
+        "indicator": { "color": "{color.light.text_primary}", "icon_size": "16px", "inset_end": "8px" }
+      },
+      "group_label": { "color": "{color.light.text_secondary}", "height": "24px", "padding_x": "6px", "padding_y": "4px", "font_size": "12px", "font_weight": 500, "line_height": "16px" },
+      "separator": { "border": "1px solid {color.light.divider}", "height": "9px", "padding_y": "4px", "margin": "0px -4px" }
+    },
+
+    "card": {
+      "$description": "Compact grouped-content surface with optional tint or explicit elevation.",
+      "anatomy": ["leading_media?", "header", "body", "footer?"],
+      "radius": "{radius.large}",
+      "border": "1px solid {color.light.border}",
+      "background": "{color.light.surface}",
+      "padding": "{spacing.m}",
+      "sizes": {
+        "sm": { "padding": "12px", "gap": "12px", "font_size": "14px", "line_height": "20px" },
+        "md": { "padding": "16px", "gap": "16px", "font_size": "16px", "line_height": "24px" }
+      },
+      "header": { "gap": "4px" },
+      "content": {},
+      "footer": { "background": "{color.light.surface_half}", "border": "1px solid {color.light.border}", "gap": "8px" },
+      "title": { "color": "{color.light.text_primary}", "font_size": "16px", "font_weight": 500, "line_height": "24px" },
+      "description": { "color": "{color.light.text_secondary}", "font_size": "14px", "font_weight": 400, "line_height": "20px" },
+      "separator": { "border": "1px solid {color.light.border}" },
+      "patterns": {
+        "plain":   { "background": "{color.light.surface}", "box_shadow": "none", "border": "1px solid {color.light.border}" },
+        "raised":  { "background": "{color.light.surface}", "box_shadow": "{elevation.level1}", "border": "1px solid {color.light.border}" },
+        "tinted":  { "background": "{color.light.primary_subtle}", "box_shadow": "none" },
+        "elevated": { "background": "{color.light.surface}", "box_shadow": "{elevation.level2}", "border": "1px solid {color.light.border}" }
+      },
+      "interaction": {
+        "hover":  { "box_shadow": "{elevation.level2}", "$comment": "Only when card is interactive (a link or button surface)." },
+        "selected": {},
+        "selected_indicator": { "background": "{color.light.primary}", "width": "4px" }
+      }
+    },
+
+    "code": {
+      "$description": "Inline machine-readable text with design-system-owned typography and surface treatment.",
+      "background": "{color.light.surface_sunken}",
+      "color": "{color.light.text_primary}",
+      "radius": "{radius.small}",
+      "padding_x": "{spacing.xs}",
+      "padding_y": "2px",
+      "font_size": "{typography.font_size.xs}",
+      "font_family": "{typography.font_family.mono}"
+    },
+
+    "empty_state": {
+      "$description": "Centered guidance for an empty content region and its next action.",
+      "anatomy": ["icon?", "header", "action?"],
+      "surface": { "border": "1px solid {color.light.border}", "border_dash": "4px 4px", "radius": "{radius.large}", "min_height": "160px", "padding": "24px", "gap": "16px" },
+      "narrow_breakpoint": "640px",
+      "narrow_surface": { "min_height": "128px" },
+      "header": { "max_width": "384px", "gap": "8px" },
+      "icon": { "background": "{color.light.surface_sunken}", "size": "32px", "radius": "{radius.medium}", "icon_size": "16px", "margin_bottom": "8px" },
+      "title": { "color": "{color.light.text_primary}", "font_size": "14px", "font_weight": 500, "line_height": "19.6px" },
+      "description": { "color": "{color.light.text_secondary}", "font_size": "14px", "font_weight": 400, "line_height": "23.52px" },
+      "action": { "max_width": "384px", "gap": "10px" }
+    },
+
+    "avatar_group": {
+      "$description": "A compact retained group of overlapping people with an accessible overflow count.",
+      "avatar": { "width": "32px", "height": "32px", "radius": "{radius.full}", "border": "2px solid {color.light.surface}" },
+      "overflow": { "background": "{color.light.surface_sunken}", "color": "{color.light.text_secondary}", "width": "32px", "height": "32px", "radius": "{radius.full}", "border": "2px solid {color.light.surface}", "font_size": "{typography.font_size.xs}", "font_weight": "{typography.font_weight.medium}", "line_height": "16px" },
+      "overlap": "10px",
+      "max_visible": 4
+    },
+
+    "badge": {
+      "$source": "Figma /Badges/Badge (1046:3819) — Size=md, Type=Pill color",
+      "$description": "Inline status pill. Lightest brand tint background + tinted border + brand-700 text.",
+      "anatomy": ["leading_dot?", "label", "leading_avatar?", "trailing_x?"],
+      "sizes": {
+        "sm": { "height": "20px", "padding_x": "8px",  "font_size": "12px", "line_height": "18px" },
+        "md": { "height": "24px", "padding_x": "10px", "font_size": "14px", "line_height": "20px" }
+      },
+      "radius": "{radius.full}",
+      "font_family": "{typography.font_family.sans}",
+      "font_weight": "{typography.font_weight.medium}",
+      "colors": {
+        "brand":   { "background": "{color.light.accent_subtle}",            "border": "1px solid {color.light.accent_border}",     "color": "{color.light.accent_text}" },
+        "gray":    { "background": "{color.light.neutral_subtle}",           "border": "1px solid {color.light.neutral_border}",    "color": "{color.light.neutral_text}" },
+        "success": { "background": "{color.light.success_subtle}",                    "border": "1px solid {color.light.success_border}",              "color": "{color.light.success_text}" },
+        "warning": { "background": "{color.light.warning_subtle}",                    "border": "1px solid {color.light.warning_border}",              "color": "{color.light.warning_text}" },
+        "error":   { "background": "{color.light.error_subtle}",                    "border": "1px solid {color.light.error_border}",              "color": "{color.light.error_text}" },
+        "blue":    { "background": "{color.light.info_subtle}",      "border": "1px solid {color.light.info_border}",              "color": "{color.light.info_text}" },
+        "orange":  { "background": "{color.light.highlight_subtle}",    "border": "1px solid {color.light.highlight_border}",              "color": "{color.light.highlight_text}" }
+      },
+      "css_classes": ["fs-badge", "fs-badge--{color}"]
+    },
+
+    "tabs": {
+      "$source": "Figma /Tabs/Horizontal-tabs",
+      "$description": "Compact segmented tabs with a muted track and raised active item.",
+      "anatomy": ["tab[]"],
+      "tab_anatomy": ["label", "leading_icon?", "trailing_count?"],
+      "sizes": {
+        "sm": { "height": "24px", "padding_x": "10px", "padding_y": "2px", "gap": "4px", "font_size": "13px", "line_height": "20px", "indicator_height": "0px" },
+        "md": { "height": "28px", "padding_x": "12px", "padding_y": "2px", "gap": "6px", "font_size": "14px", "line_height": "20px", "indicator_height": "0px" }
+      },
+      "track": { "background": "{color.light.surface_sunken}", "border": "none", "radius": "{radius.medium}", "height": "36px", "padding": "4px", "gap": "0px" },
+      "states": {
+        "default": { "background": "transparent", "color": "{color.light.tab_inactive}", "border": "1px solid transparent", "radius": "4px" },
+        "hover":   { "background": "{color.light.surface}", "color": "{color.light.text_primary}" },
+        "active":  { "background": "{color.light.tab_active_surface}", "color": "{color.light.text_primary}", "border": "1px solid {color.light.tab_active_border}", "radius": "4px", "font_weight": "{typography.font_weight.medium}", "box_shadow": "{elevation.level1}" },
+        "focus":   { "border": "1px solid {color.light.focus_ring}", "box_shadow": "0 0 0 3px {color.light.focus_soft}" },
+        "disabled": { "opacity": 0.5 }
+      },
+      "variants": {
+        "underline": {
+          "sizes": {
+            "sm": { "height": "44px", "padding_x": "8px", "gap": "4px", "font_size": "13px", "line_height": "20px", "indicator_height": "2px" },
+            "md": { "height": "48px", "padding_x": "12px", "gap": "6px", "font_size": "14px", "line_height": "20px", "indicator_height": "2px" }
+          },
+          "track": { "background": "transparent", "padding": "0px", "gap": "0px" },
+          "states": {
+            "default": { "background": "transparent", "color": "{color.light.tab_inactive}" },
+            "hover": { "color": "{color.light.text_primary}" },
+            "active": { "background": "transparent", "color": "{color.light.primary}", "font_weight": "{typography.font_weight.medium}" },
+            "focus": { "box_shadow": "0 0 0 3px {color.light.focus_soft}" },
+            "disabled": { "opacity": 0.5 }
+          }
+        }
+      },
+      "variants_available": ["underline", "button_brand", "button_gray", "button_border"]
+    },
+
+    "progress_bar": {
+      "$source": "Figma /Progress-indicators/Progress-bar (1085:57382)",
+      "$description": "Horizontal progress indicator. Track + fill, both rounded-full.",
+      "anatomy": ["track", "fill", "label?"],
+      "height": "8px",
+      "radius": "{radius.full}",
+      "track": { "background": "{color.light.border}" },
+      "fill":  { "background": "{color.light.accent}" },
+      "label_patterns": {
+        "right": { "layout": "row", "label_position": "right",  "label_min_width": "32px" },
+        "bottom":{ "layout": "column", "label_position": "bottom_end" }
+      }
+    },
+
+    "feature_icon": {
+      "$source": "Figma /Misc-icons/Featured-icon",
+      "$description": "Pill icon container used as visual anchor for feature blocks, list items, target rows.",
+      "anatomy": ["icon"],
+      "sizes": {
+        "md": { "size": "40px", "radius": "{radius.medium}",  "icon_size": "20px" },
+        "lg": { "size": "48px", "radius": "10px",             "icon_size": "24px" },
+        "xl": { "size": "56px", "radius": "12px",             "icon_size": "28px" }
+      },
+      "tones": {
+        "brand":  { "background": "{color.light.accent_subtle}",          "color": "{color.light.accent_text}",  "border": "1px solid {color.light.accent_border}" },
+        "gray":   { "background": "{color.light.neutral_subtle}",         "color": "{color.light.neutral_text}", "border": "1px solid {color.light.neutral_border}" },
+        "blue":   { "background": "{color.light.info_subtle}",    "color": "{color.light.info_text}",   "border": "1px solid {color.light.info_border}" },
+        "orange": { "background": "{color.light.highlight_subtle}",  "color": "{color.light.highlight_text}", "border": "1px solid {color.light.highlight_border}" }
+      },
+      "box_shadow": "0 1px 2px rgba(10,13,18,0.05)",
+      "css_classes": ["fs-feature-icon", "fs-feature-icon--{tone}"]
+    },
+
+    "pagination": {
+      "$description": "Compact page navigation whose directional controls follow layout direction.",
+      "anatomy": ["previous", "page*", "ellipsis?", "next"],
+      "gap": "{spacing.xs}",
+      "item": {
+        "color": "{color.light.text_primary}",
+        "size": "36px",
+        "padding": "0px",
+        "radius": "{radius.medium}",
+        "font_size": "{typography.font_size.base}",
+        "font_weight": "{typography.font_weight.regular}",
+        "line_height": "20px",
+        "icon_size": "16px",
+        "box_shadow": "none"
+      },
+      "selected": {
+        "background": "{color.light.surface}",
+        "border": "1px solid {color.light.border}",
+        "color": "{color.light.text_primary}",
+        "font_weight": "{typography.font_weight.medium}",
+        "box_shadow": "none"
+      },
+      "ellipsis": {
+        "color": "{color.light.text_muted}",
+        "size": "36px",
+        "font_size": "{typography.font_size.base}",
+        "font_weight": "{typography.font_weight.regular}",
+        "line_height": "20px"
+      }
+    },
+
+    "modal": {
+      "$source": "Fission ModalTheme (fission-theme/src/lib.rs)",
+      "anatomy": ["scrim", "container", "header", "body", "footer?"],
+      "radius": "{radius.large}",
+      "background": "{color.light.surface}",
+      "padding": "{spacing.m}",
+      "gap": "{spacing.m}",
+      "max_width": "384px",
+      "box_shadow": "0 0 0 1px {color.light.surface_ring}",
+      "viewport_margin": "16px",
+      "action_stack_breakpoint": "640px",
+      "motion_duration": "100ms",
+      "motion_initial_scale": 0.95,
+      "scrim": { "background": "rgba(0,0,0,0.1)", "backdrop_filter": "blur(4px)" },
+      "header": { "gap": "8px" },
+      "title": {
+        "color": "{color.light.text_primary}",
+        "font_size": "16px",
+        "font_weight": 500,
+        "line_height": "16px"
+      },
+      "description": {
+        "color": "{color.light.text_secondary}",
+        "font_size": "{typography.font_size.base}",
+        "font_weight": "{typography.font_weight.regular}",
+        "line_height": "20px"
+      },
+      "body": {},
+      "footer": { "background": "{color.light.surface_half}", "border": "1px solid {color.light.border}", "padding": "16px", "margin": "0px -16px -16px", "gap": "{spacing.s}" },
+      "close": { "size": "32px", "padding": "0px", "icon_size": "16px", "inset_top": "8px", "inset_end": "8px" }
+    },
+
+    "tooltip": {
+      "$source": "Fission TooltipTheme",
+      "anatomy": ["bubble", "arrow?"],
+      "radius": "{radius.small}",
+      "background": "{color.light.inverse_surface}",
+      "color": "{color.light.inverse_text}",
+      "font_size": "12px",
+      "padding": "8px 10px",
+      "max_width": "240px",
+      "box_shadow": "{elevation.level2}"
+    },
+
+    "kicker_eyebrow": {
+      "$description": "Small uppercase label above section titles.",
+      "font_size": "14px",
+      "font_weight": 600,
+      "color": "{color.light.text_link}",
+      "letter_spacing": "0",
+      "text_transform": "none",
+      "$variant_uppercase": { "text_transform": "uppercase", "letter_spacing": "{typography.letter_spacing.kicker}", "font_size": "12px" }
+    }
+  },
+
+  "patterns": {
+    "$comment": "Composition patterns — proven layouts the design system endorses.",
+
+    "marketing_hero": {
+      "$description": "Centered hero: pill announcement → display-lg headline → text-xl lead → CTA row → command panel grid.",
+      "max_width": "1280px",
+      "padding": "96px 32px 80px",
+      "alignment": "center",
+      "components": ["pill_announcement", "display_lg_headline", "text_xl_lead", "cta_row", "command_panel_grid_2col"]
+    },
+
+    "marketing_features_4up": {
+      "$description": "4-column feature grid: feature_icon → 18px heading → text-md body.",
+      "grid": "repeat(4, minmax(0, 1fr))",
+      "gap": "{spacing.xl}",
+      "section_padding": "80px 0"
+    },
+
+    "marketing_target_rail": {
+      "$description": "Vertical list of target rows in a single bordered card: feature_icon + name+badge+summary + command + link button.",
+      "container": "card.elevated, radius xl, 1px border, overflow hidden",
+      "row_height_min": "80px",
+      "row_columns": "auto minmax(0, 1fr) minmax(280px, 0.9fr) auto"
+    },
+
+    "marketing_examples_3up": {
+      "$description": "3-column product cards with screenshot, badge, title, command, body, feature tags, and dual CTAs.",
+      "grid": "repeat(3, minmax(0, 1fr))",
+      "gap": "{spacing.l}",
+      "card_screenshot_aspect": "16 / 10"
+    },
+
+    "marketing_cta_strip_dark": {
+      "$description": "Final-call section on slate-950 with teal/blue radial-gradient overlays. Centered headline + 2 CTAs.",
+      "background": "radial-gradient(circle at 20% 0%, rgba(45,212,191,0.12), transparent 50%), radial-gradient(circle at 80% 100%, rgba(77,166,224,0.10), transparent 55%), {color.zinc.950}"
+    },
+
+    "form_field_stack": {
+      "$description": "Vertical stack for a form field: label → input → helper or error text.",
+      "gap": "6px",
+      "elements": ["label", "input", "helper_text"]
+    }
+  },
+
+  "assets": {
+    "$comment": "Brand assets shipped with this package.",
+    "logos": [
+      { "id": "wordmark.dark",    "path": "assets/fission-logo.png", "format": "png", "background": "dark", "dimensions": "1242x1242" },
+      { "id": "mark.full_color",  "path": "assets/fission-mark.svg", "format": "svg", "background": "any",  "dimensions": "200x200" }
+    ],
+    "fonts": [
+      { "family": "Inter", "weight": 400, "style": "normal", "path": "../../fonts/Inter/static/Inter_24pt-Regular.ttf",  "format": "truetype" },
+      { "family": "Inter", "weight": 500, "style": "normal", "path": "../../fonts/Inter/static/Inter_24pt-Medium.ttf",   "format": "truetype" },
+      { "family": "Inter", "weight": 600, "style": "normal", "path": "../../fonts/Inter/static/Inter_24pt-SemiBold.ttf", "format": "truetype" },
+      { "family": "Inter", "weight": 700, "style": "normal", "path": "../../fonts/Inter/static/Inter_24pt-Bold.ttf",     "format": "truetype" }
+    ],
+    "iconography": {
+      "$comment": "Material Symbols Rounded — the same set bundled by fission-icons.",
+      "set": "material-symbols-rounded",
+      "weight": 400,
+      "optical_size": 24,
+      "fill": 0,
+      "grad": 0,
+      "cdn": "https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0,0",
+      "rust_source": "https://github.com/worka-ai/material-design-icons"
+    }
+  },
+
+  "data_visualization": {
+    "$description": "Default qualitative chart palette used by Fission charts when an app does not provide a chart-specific palette.",
+    "palette": [
+      "{color.teal.700}",
+      "{color.brand.blue.600}",
+      "{color.semantic.warning}",
+      "{color.semantic.error}",
+      "{color.semantic.success}",
+      "{color.semantic.info}",
+      "{color.brand.orange.600}",
+      "{color.teal.500}"
+    ]
+  },
+
+  "preview": {
+    "$comment": "Static HTML cards used by the design system review UI. Each card is ~700px wide, height varies.",
+    "cards": [
+      { "asset": "Brand · Logo",                   "group": "Brand",      "path": "preview/brand-logo.html" },
+      { "asset": "Brand · Atom mark",              "group": "Brand",      "path": "preview/brand-mark.html" },
+      { "asset": "Colors · Teal interactive",      "group": "Colors",     "path": "preview/colors-teal.html" },
+      { "asset": "Colors · Brand signal (logo)",   "group": "Colors",     "path": "preview/colors-brand-signal.html" },
+      { "asset": "Colors · Slate neutrals",        "group": "Colors",     "path": "preview/colors-slate.html" },
+      { "asset": "Colors · Semantic status",       "group": "Colors",     "path": "preview/colors-semantic.html" },
+      { "asset": "Colors · Light surface tokens",  "group": "Colors",     "path": "preview/colors-light-surface.html" },
+      { "asset": "Colors · Dark surface tokens",   "group": "Colors",     "path": "preview/colors-dark-surface.html" },
+      { "asset": "Type · Display serif",           "group": "Type",       "path": "preview/type-display.html" },
+      { "asset": "Type · Sans scale",              "group": "Type",       "path": "preview/type-sans-scale.html" },
+      { "asset": "Type · Mono / code",             "group": "Type",       "path": "preview/type-mono.html" },
+      { "asset": "Type · Semantic classes",        "group": "Type",       "path": "preview/type-semantic.html" },
+      { "asset": "Spacing · Scale",                "group": "Spacing",    "path": "preview/spacing-scale.html" },
+      { "asset": "Spacing · Radius scale",         "group": "Spacing",    "path": "preview/spacing-radius.html" },
+      { "asset": "Spacing · Elevation",            "group": "Spacing",    "path": "preview/spacing-elevation.html" },
+      { "asset": "Spacing · Motion",               "group": "Spacing",    "path": "preview/spacing-motion.html" },
+      { "asset": "Components · Buttons",           "group": "Components", "path": "preview/comp-buttons.html" },
+      { "asset": "Components · Inputs",            "group": "Components", "path": "preview/comp-inputs.html" },
+      { "asset": "Components · Card",              "group": "Components", "path": "preview/comp-card.html" },
+      { "asset": "Components · Badges & tags",     "group": "Components", "path": "preview/comp-badges-tags.html" },
+      { "asset": "Components · Tabs & progress",   "group": "Components", "path": "preview/comp-tabs-progress.html" },
+      { "asset": "Components · Iconography",       "group": "Components", "path": "preview/comp-icons.html" },
+      { "asset": "Components · CTA strip",         "group": "Components", "path": "preview/comp-cta-pattern.html" },
+      { "asset": "Fission documentation site",     "group": "Components", "path": "ui_kits/documentation-site/index.html" }
+    ]
+  },
+
+  "sources": {
+    "$comment": "Upstream references this DSP was distilled from.",
+    "github_repos": [
+      {
+        "url": "https://github.com/fission-ui/fission",
+        "purpose": "The framework itself. fission-theme crate defines the Material 3 token structure; documentation/ is the canonical brand surface.",
+        "key_files": [
+          "crates/core/fission-theme/src/lib.rs",
+          "documentation/site/overrides.css",
+          "documentation/src/components/home_sections.rs",
+          "documentation/static/img/fission_logo.png"
+        ]
+      }
+    ],
+    "figma_files": [
+      {
+        "name": "❖ Untitled UI – PRO VARIABLES(D)",
+        "purpose": "Component vocabulary reference (Buttons, Inputs, Badges, Tabs, Progress, Featured Icon). Tokens are NOT inherited from Untitled UI — only component shapes are.",
+        "components_used": [
+          "/Buttons/Buttons-Button (3287:427074)",
+          "/Buttons/Buttons-Button-destructive",
+          "/Inputs/Input (8460:196140)",
+          "/Inputs/Input-field (1091:61577)",
+          "/Badges/Badge (1046:3819)",
+          "/Tabs/Horizontal-tabs",
+          "/Progress-indicators/Progress-bar (1085:57382)",
+          "/Misc-icons/Featured-icon"
+        ]
+      }
+    ]
+  }
+}

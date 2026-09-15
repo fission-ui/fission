@@ -220,6 +220,12 @@ fn recipe_button_height_is_a_minimum_for_taller_custom_content() {
     );
 }
 
+/// Checkbox and radio indicators are sized by the design system's medium icon
+/// token, so these tests follow the token rather than a fixed pixel size.
+fn indicator_size() -> f32 {
+    fission_theme::Tokens::default().sizing.icon_md
+}
+
 #[test]
 fn checkbox_checkmark_centered() {
     let checkbox = Checkbox {
@@ -242,7 +248,7 @@ fn checkbox_checkmark_centered() {
             ..
         }) = &ir.nodes.get(&id).unwrap().op
         {
-            if approx_eq(*w, 18.0) && approx_eq(*h, 18.0) {
+            if approx_eq(*w, indicator_size()) && approx_eq(*h, indicator_size()) {
                 square_id = Some(id);
                 break;
             }
@@ -272,7 +278,7 @@ fn radio_dot_centered() {
     let (ir, snapshot) = layout_from_widget(radio.into());
     let parents = parent_map(&ir);
 
-    let dot_id = find_boxes_by_size(&ir, 9.0, 9.0)
+    let dot_id = find_boxes_by_size(&ir, indicator_size() * 0.5, indicator_size() * 0.5)
         .into_iter()
         .next()
         .expect("radio dot box");
@@ -286,7 +292,7 @@ fn radio_dot_centered() {
             ..
         }) = &ir.nodes.get(&id).unwrap().op
         {
-            if approx_eq(*w, 18.0) && approx_eq(*h, 18.0) {
+            if approx_eq(*w, indicator_size()) && approx_eq(*h, indicator_size()) {
                 container_id = Some(id);
                 break;
             }
@@ -389,7 +395,7 @@ fn slider_semantics_and_track_fill_the_declared_width() {
         "slider should fill its 160 point container: {slider_rect:?}"
     );
     assert!(
-        approx_eq(visual_rect.width(), 160.0) && approx_eq(visual_rect.height(), 16.0),
+        approx_eq(visual_rect.width(), 160.0) && approx_eq(visual_rect.height(), indicator_size()),
         "slider visual should fill the track width at thumb height: {visual_rect:?}"
     );
 }

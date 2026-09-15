@@ -73,14 +73,21 @@ pub struct TimelineLayout {
     pub id: Option<WidgetId>,
     /// Ordered retained entries.
     pub entries: Vec<TimelineEntry>,
-    /// Width reserved for the marker rail.
-    pub marker_width: f32,
+    /// Width reserved for the marker rail. `None` uses the medium icon size.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub marker_width: Option<f32>,
     /// Marker height used to terminate the first and last connector segments.
-    pub marker_extent: f32,
-    /// Space between the marker rail and retained content.
-    pub content_gap: f32,
+    /// `None` uses the design system's timeline dot size.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub marker_extent: Option<f32>,
+    /// Space between the marker rail and retained content. `None` uses the
+    /// small spacing step.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content_gap: Option<f32>,
     /// Vertical space between entries. The connector crosses this space.
-    pub item_gap: f32,
+    /// `None` uses the medium spacing step.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub item_gap: Option<f32>,
     /// Optional connector width override.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub connector_width: Option<f32>,
@@ -95,10 +102,10 @@ impl TimelineLayout {
         Self {
             id: None,
             entries,
-            marker_width: 20.0,
-            marker_extent: 12.0,
-            content_gap: 8.0,
-            item_gap: 16.0,
+            marker_width: None,
+            marker_extent: None,
+            content_gap: None,
+            item_gap: None,
             connector_width: None,
             connector_color: None,
         }
@@ -112,15 +119,15 @@ impl TimelineLayout {
 
     /// Configures the marker rail and marker extent.
     pub fn marker_geometry(mut self, width: f32, extent: f32) -> Self {
-        self.marker_width = width;
-        self.marker_extent = extent;
+        self.marker_width = Some(width);
+        self.marker_extent = Some(extent);
         self
     }
 
     /// Configures horizontal content spacing and vertical item spacing.
     pub fn spacing(mut self, content_gap: f32, item_gap: f32) -> Self {
-        self.content_gap = content_gap;
-        self.item_gap = item_gap;
+        self.content_gap = Some(content_gap);
+        self.item_gap = Some(item_gap);
         self
     }
 
@@ -152,7 +159,7 @@ impl From<Timeline> for Widget {
                 if let Some(ts) = &item.timestamp {
                     content_children.push(
                         Text::new(ts.clone())
-                            .size(12.0)
+                            .size(tokens.typography.font_size_xs)
                             .color(tokens.colors.text_secondary)
                             .into(),
                     );
@@ -169,7 +176,7 @@ impl From<Timeline> for Widget {
                 TimelineEntry::new(
                     WidgetId::derived(timeline_id.as_u128(), &[LEGACY_ENTRY_ID_PATH, index as u32]),
                     VStack {
-                        spacing: Some(4.0),
+                        spacing: Some(tokens.spacing.xs),
                         children: content_children,
                     },
                 )
@@ -177,7 +184,7 @@ impl From<Timeline> for Widget {
             .collect();
 
         let mut layout = TimelineLayout::new(entries).id(timeline_id);
-        layout.marker_extent = theme.dot_size;
+        layout.marker_extent = Some(theme.dot_size);
         layout.connector_width = Some(theme.line_width);
         layout.connector_color = Some(theme.line_color);
         layout.into()
@@ -188,8 +195,14 @@ impl From<TimelineLayout> for Widget {
     fn from(component: TimelineLayout) -> Self {
         let (_, view) = fission_core::build::current::<()>();
         let theme = &view.env().theme.components.timeline;
-        let marker_width = component.marker_width.max(component.marker_extent);
-        let marker_extent = component.marker_extent.max(0.0);
+        let tokens = &view.env().theme.tokens;
+        let marker_extent = component.marker_extent.unwrap_or(theme.dot_size).max(0.0);
+        let marker_width = component
+            .marker_width
+            .unwrap_or(tokens.sizing.icon_md)
+            .max(marker_extent);
+        let content_gap = component.content_gap.unwrap_or(tokens.spacing.s);
+        let item_gap = component.item_gap.unwrap_or(tokens.spacing.m);
         let connector_width = component
             .connector_width
             .unwrap_or(theme.line_width)
@@ -236,7 +249,7 @@ impl From<TimelineLayout> for Widget {
 
                 Row {
                     id: Some(entry.id),
-                    gap: Some(component.content_gap),
+                    gap: Some(content_gap),
                     align_items: AlignItems::Stretch,
                     children: vec![
                         Container::new(ZStack {
@@ -247,7 +260,7 @@ impl From<TimelineLayout> for Widget {
                         .min_height(marker_extent)
                         .into(),
                         Container::new(entry.child)
-                            .padding([0.0, 0.0, 0.0, if last { 0.0 } else { component.item_gap }])
+                            .padding([0.0, 0.0, 0.0, if last { 0.0 } else { item_gap }])
                             .flex_grow(1.0)
                             .into(),
                     ],

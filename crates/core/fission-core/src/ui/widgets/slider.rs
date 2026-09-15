@@ -42,20 +42,30 @@ pub struct Slider {
     pub min: f32,
     /// Maximum value (default: 1.0).
     pub max: f32,
-    /// Visual track height in layout points. Defaults to `4.0`.
+    /// Visual track height in layout points. Defaults to twice the design system's
+    /// thick border width (4px in Fission's default).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub track_height: Option<f32>,
-    /// Visual thumb diameter in layout points. Defaults to `16.0`.
+    /// Visual thumb diameter in layout points. Defaults to the design system's
+    /// medium icon size (20px in Fission's default).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thumb_size: Option<f32>,
     /// Optional track fill. Defaults to the active theme's strong border colour.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub track_fill: Option<Fill>,
-    /// Optional thumb fill. Defaults to the active theme primary colour.
+    /// Optional thumb and active-track fill. Defaults to the theme's accent colour.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thumb_fill: Option<Fill>,
+    /// Whether the track fills from the start to the value. Turn it off when the
+    /// track itself carries meaning, such as a colour channel's gradient.
+    #[serde(default = "show_active_track_default")]
+    pub show_active_track: bool,
     /// Action dispatched when the user drags the thumb.
     pub on_change: Option<ActionEnvelope>,
+}
+
+fn show_active_track_default() -> bool {
+    true
 }
 
 impl Slider {
@@ -78,6 +88,7 @@ impl Default for Slider {
             thumb_size: None,
             track_fill: None,
             thumb_fill: None,
+            show_active_track: true,
             on_change: None,
         }
     }
@@ -88,8 +99,11 @@ impl Lower for Slider {
         let id = self.id.map(Into::into).unwrap_or_else(|| cx.next_node_id());
         let layout_id = cx.with_scope(id, |cx| {
             let tokens = &cx.env.theme.tokens;
-            let thumb_size = self.thumb_size.unwrap_or(16.0).max(1.0);
-            let track_height = self.track_height.unwrap_or(4.0).max(1.0);
+            let thumb_size = self.thumb_size.unwrap_or(tokens.sizing.icon_md).max(1.0);
+            let track_height = self
+                .track_height
+                .unwrap_or(tokens.sizing.border_thick * 2.0)
+                .max(1.0);
             let control_height = thumb_size.max(track_height);
 
             let range = (self.max - self.min).max(0.0001);
@@ -100,6 +114,81 @@ impl Lower for Slider {
 
             let track_layer = {
                 let p_y = (control_height - track_height) / 2.0;
+                let track_radius = track_height / 2.0;
+                let bar = |cx: &mut LoweringContext, fill: Fill| {
+                    let paint = IrBuilder::new(
+                        cx.next_node_id(),
+                        Op::Paint(PaintOp::DrawRect {
+                            fill: Some(fill),
+                            stroke: None,
+                            corner_radius: track_radius,
+                            shadow: None,
+                            corner_radii: None,
+                            border_sides: None,
+                        }),
+                    )
+                    .build(cx);
+                    // The bar is its own box of the track's height, so the paint fills
+                    // exactly the bar. Painting into the whole control box drew a
+                    // thumb-tall slab whose half-track radius looked square.
+                    let mut bar_box = IrBuilder::new(
+                        cx.next_node_id(),
+                        Op::Layout(LayoutOp::Box {
+                            width: None,
+                            height: Some(track_height),
+                            min_width: None,
+                            max_width: None,
+                            min_height: None,
+                            max_height: None,
+                            padding: [0.0; 4],
+                            flex_grow: 0.0,
+                            flex_shrink: 0.0,
+                            aspect_ratio: None,
+                        }),
+                    );
+                    bar_box.add_child(paint);
+                    bar_box.build(cx)
+                };
+
+                // Inactive track across the full width.
+                let inactive = bar(
+                    cx,
+                    self.track_fill
+                        .clone()
+                        .unwrap_or(Fill::Solid(tokens.colors.border_strong)),
+                );
+
+                // Active track from the start to the value, so the bar itself shows how
+                // far along the range the value is, not only the thumb.
+                let active_bar = bar(
+                    cx,
+                    self.thumb_fill
+                        .clone()
+                        .unwrap_or(Fill::Solid(tokens.colors.accent)),
+                );
+                let mut active_item = IrBuilder::new(
+                    cx.next_node_id(),
+                    Op::Layout(LayoutOp::GridItem {
+                        row_start: fission_ir::op::GridPlacement::Line(1),
+                        row_end: fission_ir::op::GridPlacement::Auto,
+                        col_start: fission_ir::op::GridPlacement::Line(1),
+                        col_end: fission_ir::op::GridPlacement::Auto,
+                    }),
+                );
+                active_item.add_child(active_bar);
+                let active_item_id = active_item.build(cx);
+                let mut active = IrBuilder::new(
+                    cx.next_node_id(),
+                    Op::Layout(LayoutOp::Grid {
+                        columns: vec![GridTrack::Percent(pct), GridTrack::Fr(1.0)],
+                        rows: vec![GridTrack::Points(track_height)],
+                        column_gap: None,
+                        row_gap: None,
+                        padding: [0.0; 4],
+                    }),
+                );
+                active.add_child(active_item_id);
+                let active_id = active.build(cx);
 
                 let mut track_container = IrBuilder::new(
                     cx.next_node_id(),
@@ -116,30 +205,10 @@ impl Lower for Slider {
                         aspect_ratio: None,
                     }),
                 );
-
-                let inner_paint = IrBuilder::new(
-                    cx.next_node_id(),
-                    Op::Paint(PaintOp::DrawRect {
-                        fill: Some(
-                            self.track_fill
-                                .clone()
-                                .unwrap_or(Fill::Solid(tokens.colors.border_strong)),
-                        ),
-                        stroke: None,
-                        corner_radius: track_height / 2.0,
-                        shadow: None,
-                        corner_radii: None,
-                        border_sides: None,
-                    }),
-                )
-                .build(cx);
-
-                let mut inner_box =
-                    IrBuilder::new(cx.next_node_id(), Op::Layout(LayoutOp::AbsoluteFill));
-                inner_box.add_child(inner_paint);
-                let inner_id = inner_box.build(cx);
-
-                track_container.add_child(inner_id);
+                track_container.add_child(inactive);
+                if self.show_active_track {
+                    track_container.add_child(active_id);
+                }
                 let track_id = track_container.build(cx);
 
                 // A stack gives its children loose constraints, so an unsized track would measure
@@ -177,7 +246,7 @@ impl Lower for Slider {
                         fill: Some(
                             self.thumb_fill
                                 .clone()
-                                .unwrap_or(Fill::Solid(tokens.colors.primary)),
+                                .unwrap_or(Fill::Solid(tokens.colors.accent)),
                         ),
                         stroke: None,
                         corner_radius: thumb_size / 2.0,

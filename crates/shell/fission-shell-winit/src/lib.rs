@@ -121,6 +121,8 @@ use renderer_diagnostics::{emit_renderer_report, RendererReport, RendererRequest
 mod native_surface;
 #[cfg(target_arch = "wasm32")]
 mod web_console;
+#[cfg(all(target_arch = "wasm32", feature = "filesystem"))]
+mod web_file_system;
 mod web_input;
 #[cfg(target_arch = "wasm32")]
 mod web_links;
@@ -137,6 +139,11 @@ use clipboard::DesktopClipboard;
 pub use clipboard::{ClipboardHost, MemoryClipboardHost};
 #[cfg(not(any(target_os = "android", target_os = "ios", target_arch = "wasm32")))]
 mod file_picker;
+#[cfg(all(
+    feature = "filesystem",
+    not(any(target_os = "android", target_arch = "wasm32"))
+))]
+mod file_system;
 mod geolocation;
 pub use geolocation::{GeolocationHost, MemoryGeolocationHost, UnsupportedGeolocationHost};
 mod haptics;
@@ -177,10 +184,14 @@ mod volume;
 pub use volume::{MemoryVolumeHost, UnsupportedVolumeHost, VolumeHost};
 #[cfg(target_os = "android")]
 mod android_capabilities;
+#[cfg(all(target_os = "android", feature = "filesystem"))]
+mod android_file_system;
 #[cfg(target_os = "android")]
 mod android_text_input;
 #[cfg(target_os = "ios")]
 mod ios_capabilities;
+#[cfg(all(target_os = "ios", feature = "filesystem"))]
+mod ios_file_system;
 #[cfg(target_os = "macos")]
 mod macos_capabilities;
 #[cfg(target_arch = "wasm32")]
@@ -287,12 +298,19 @@ fn register_builtin_operation_capabilities(async_registry: &mut AsyncRegistry) {
     #[cfg(target_arch = "wasm32")]
     {
         web_capabilities::register_web_operation_capabilities(async_registry);
+        #[cfg(feature = "filesystem")]
+        web_file_system::register_web_file_system_capabilities(async_registry);
     }
 
     #[cfg(not(target_arch = "wasm32"))]
     {
         #[cfg(not(any(target_os = "android", target_os = "ios")))]
         file_picker::register_file_picker_capability(async_registry);
+        #[cfg(all(
+            feature = "filesystem",
+            not(any(target_os = "android", target_os = "ios"))
+        ))]
+        file_system::register_file_system_capabilities(async_registry);
         #[cfg(any(target_os = "android", target_os = "ios"))]
         register_unsupported_file_picker_capability(async_registry);
 
@@ -4424,6 +4442,24 @@ where
         self
     }
 
+    /// Chooses Fission's own look on every platform (the default) or the host
+    /// platform's native look: Cupertino on macOS and iOS, Material Design 3 on
+    /// Android, Fluent 2 on Windows. Other platforms keep Fission's look.
+    ///
+    /// The choice is recorded on `Env::platform_look`, so an app's
+    /// `with_sync_env` can re-apply it when the system switches light and dark.
+    pub fn with_platform_look(
+        mut self,
+        look: fission_theme::PlatformLook,
+        mode: fission_theme::DesignMode,
+    ) -> Self {
+        let platform = self.env.host_platform;
+        register_packaged_fonts(&self.measurer.font_cx(), look.font_faces(platform));
+        self.env.platform_look = look;
+        self.env.theme = look.theme(platform, mode);
+        self
+    }
+
     /// Registers packaged application font faces with both text measurement
     /// and rendering before the first frame.
     pub fn with_fonts(self, fonts: &'static [fission_theme::PackagedFont]) -> Self {
@@ -7902,6 +7938,11 @@ where
                                 let state = runtime.get_global_state::<S>().unwrap();
                                 sync(state, &mut env);
                             }
+                            runtime.set_hit_target_policy(
+                                fission_core::hit_test::HitTargetPolicy::from_tokens(
+                                    &env.theme.tokens.sizing,
+                                ),
+                            );
                             let desired_window_title = env.window.title.plain_text();
                             if desired_window_title != applied_window_title {
                                 if let Some(window) = platform_window.active_window() {

@@ -1,15 +1,16 @@
 use crate::stack::HStack;
-use fission_core::op::CornerRadii;
-use fission_core::ui::{Button, ButtonVariant, Container, SemanticsRegion, Text, Widget};
+use fission_core::op::Fill;
+use fission_core::ui::{
+    Button, ButtonStyleOverride, ButtonVariant, Container, SemanticsRegion, Text, Widget,
+};
 use fission_core::ActionEnvelope;
 use fission_ir::{Role, SemanticOrientation, Semantics};
 use std::sync::Arc;
 
 /// A horizontal row of toggle buttons where exactly one option is active.
 ///
-/// The active segment uses `ButtonVariant::Filled` with the theme's active color.
-/// Inactive segments use `ButtonVariant::Ghost`. The entire control is wrapped in
-/// a bordered, rounded container.
+/// The selected segment is a raised surface pill; the others are quiet text. The segments sit inside a padded,
+/// bordered track, and their corners are concentric with the track's.
 ///
 /// # Fields
 ///
@@ -42,6 +43,8 @@ impl From<SegmentedControl> for Widget {
 
         let theme = &view.env().theme.components.segmented_control;
         let tokens = &view.env().theme.tokens;
+        let track_inset = tokens.spacing.xs;
+        let segment_radius = fission_theme::concentric_radius(theme.radius, track_inset);
         let mut children = Vec::new();
 
         for (i, opt) in this.options.iter().enumerate() {
@@ -60,62 +63,62 @@ impl From<SegmentedControl> for Widget {
                     focusable: true,
                     ..Semantics::default()
                 }),
-                variant: if is_selected {
-                    ButtonVariant::Filled
-                } else {
-                    ButtonVariant::Ghost
-                },
+                variant: ButtonVariant::Ghost,
                 child: Some(
                     Text::new(opt.clone())
                         .size(tokens.typography.body_medium_size)
                         .color(if is_selected {
-                            theme.active_text
-                        } else {
                             tokens.colors.text_primary
+                        } else {
+                            tokens.colors.text_secondary
                         })
                         .into(),
                 ),
-                padding: Some([tokens.spacing.s, tokens.spacing.s, 0.0, 0.0]),
+                padding: Some([tokens.spacing.ms, tokens.spacing.ms, 0.0, 0.0]),
+                // Segments sit inside the padded track, so their corners are the
+                // track's corners less the inset. Mismatched curves on nested shapes
+                // read as misaligned even when nothing else is.
+                // The selected segment is a raised surface on the sunken track, the same
+                // treatment as a selected tab, so both one-of-many controls read alike.
+                style: Some(ButtonStyleOverride {
+                    corner_radius: Some(segment_radius),
+                    background_fill: is_selected.then(|| Fill::Solid(tokens.colors.surface_raised)),
+                    shadows: is_selected.then(|| tokens.elevations.level1.into_iter().collect()),
+                    ..Default::default()
+                }),
                 on_press: cb.map(|f| f(i)),
                 ..Default::default()
             }
             .into();
 
-            // End caps follow the track's own radius, so the first and last
-            // segments sit flush inside it instead of being square against a
-            // rounded track. Until the IR carried per-corner radii this was
-            // simply not expressible, which is why every segment looked the
-            // same regardless of position.
-            let inner_radius = (theme.radius - 1.0).max(0.0);
-            let segment_radii = match (i == 0, i + 1 == this.options.len()) {
-                (true, true) => CornerRadii::uniform(inner_radius),
-                (true, false) => CornerRadii::left(inner_radius),
-                (false, true) => CornerRadii::right(inner_radius),
-                (false, false) => CornerRadii::uniform(0.0),
-            };
-            children.push(
-                Container::new(button)
-                    .flex_grow(1.0)
-                    .border_radii(segment_radii)
-                    .into(),
-            );
+            children.push(Container::new(button).flex_shrink(0.0).into());
         }
 
-        SemanticsRegion::new(
+        let track: Widget = SemanticsRegion::new(
             Container::new(HStack {
-                spacing: Some(2.0),
+                spacing: Some(track_inset / 2.0),
                 children,
             })
-            .padding_all(1.0)
+            .padding_all(track_inset)
             // The bordered track must not shrink below its segments, or a crowded row squeezes
             // the border box and clips its trailing edge.
             .flex_shrink(0.0)
-            .bg(theme.bg_color)
+            .bg(tokens.colors.surface_sunken)
             .border(theme.border_color, 1.0)
             .border_radius(theme.radius),
         )
         .role(Role::RadioGroup)
         .orientation(SemanticOrientation::Horizontal)
+        .into();
+
+        // The track hugs its segments. Stretched to whatever width a parent offers, a
+        // three-option control became a bar across the page and each option a far-apart
+        // target (Fitts's law, law of proximity). A row lays the track out at its natural
+        // width even when the row itself is stretched.
+        HStack {
+            spacing: None,
+            children: vec![track],
+        }
         .into()
     }
 }

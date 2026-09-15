@@ -133,6 +133,228 @@ pub fn point_to_node_space(
     mapped
 }
 
+/// The smallest area, per input kind, that a control answers to.
+///
+/// A control drawn smaller than this still looks the same, but pointer input
+/// that lands just outside it reaches it when nothing else is under the
+/// pointer (Fitts's law). The sizes come from the design system's
+/// [`SizingTokens`](fission_theme::SizingTokens).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct HitTargetPolicy {
+    /// Minimum hit size for mouse, stylus and unknown pointers.
+    pub pointer: f32,
+    /// Minimum hit size for touch.
+    pub touch: f32,
+}
+
+impl Default for HitTargetPolicy {
+    fn default() -> Self {
+        Self::from_tokens(&fission_theme::Tokens::default().sizing)
+    }
+}
+
+impl HitTargetPolicy {
+    /// Exact hit testing: no control grows past its drawn bounds.
+    pub const EXACT: Self = Self {
+        pointer: 0.0,
+        touch: 0.0,
+    };
+
+    pub fn from_tokens(sizing: &fission_theme::SizingTokens) -> Self {
+        Self {
+            pointer: sizing.min_pointer_target.max(0.0),
+            touch: sizing.min_touch_target.max(0.0),
+        }
+    }
+
+    pub fn min_size(&self, kind: crate::event::PointerKind) -> f32 {
+        match kind {
+            crate::event::PointerKind::Touch => self.touch,
+            _ => self.pointer,
+        }
+    }
+}
+
+/// Hit tests like [`hit_test_with_viewports`], then, if nothing interactive is
+/// directly under `point`, picks the nearest enabled control whose hit area,
+/// grown to `min_target` in each dimension, contains it.
+///
+/// Controls already at least `min_target` wide and tall never grow, and a
+/// control directly under the pointer always wins over a neighbour's grown
+/// area.
+pub fn hit_test_with_min_target(
+    ir: &CoreIR,
+    layout: &LayoutSnapshot,
+    scroll_map: &ScrollStateMap,
+    viewport_map: &ViewportStateMap,
+    point: LayoutPoint,
+    min_target: f32,
+) -> Option<WidgetId> {
+    let exact = hit_test_internal(ir, layout, Some(scroll_map), Some(viewport_map), point);
+    if min_target <= 0.0 {
+        return exact;
+    }
+    let exact_is_control = exact.is_some_and(|id| {
+        matches!(
+            ir.nodes.get(&id).map(|node| &node.op),
+            Some(Op::Semantics(_))
+        )
+    });
+    if exact_is_control {
+        return exact;
+    }
+    let mut best = None;
+    let mut order = 0;
+    if let Some(root) = ir.root {
+        nearest_grown_target(
+            root,
+            ir,
+            layout,
+            scroll_map,
+            viewport_map,
+            point,
+            min_target,
+            &mut order,
+            &mut best,
+        );
+    }
+    best.map(|(_, _, id)| id).or(exact)
+}
+
+/// Where a node's children see `point`, after its scroll offset, transform or
+/// interactive viewport.
+fn child_point_for(
+    node_id: WidgetId,
+    op: &Op,
+    rect: fission_layout::LayoutRect,
+    scroll_map: Option<&ScrollStateMap>,
+    viewport_map: Option<&ViewportStateMap>,
+    point: LayoutPoint,
+) -> LayoutPoint {
+    let mut child_point = point;
+
+    if let (Some(map), Op::Layout(LayoutOp::Scroll { direction, .. })) = (scroll_map, op) {
+        let offset = map.get_offset(node_id);
+        match direction {
+            fission_ir::FlexDirection::Column => child_point.y += offset,
+            fission_ir::FlexDirection::Row => child_point.x += offset,
+        }
+    }
+
+    if let Op::Layout(LayoutOp::Transform { transform }) = op {
+        let inv = Mat4::from_cols_array(transform).inverse();
+        let local = Vec4::new(point.x - rect.origin.x, point.y - rect.origin.y, 0.0, 1.0);
+        let transformed = inv * local;
+        child_point =
+            LayoutPoint::new(transformed.x + rect.origin.x, transformed.y + rect.origin.y);
+    }
+
+    if let (Some(map), Op::Layout(LayoutOp::InteractiveViewport { .. })) = (viewport_map, op) {
+        if let Some(transform) = map.transform(node_id) {
+            let local = [point.x - rect.origin.x, point.y - rect.origin.y];
+            let world = transform.screen_to_world(local);
+            child_point = LayoutPoint::new(world[0] + rect.origin.x, world[1] + rect.origin.y);
+        }
+    }
+
+    child_point
+}
+
+/// Walks the tree in paint order looking for enabled controls whose grown hit
+/// area contains `point`. `best` keeps the one nearest to its drawn bounds;
+/// among equally near controls the one painted last (on top) wins.
+#[allow(clippy::too_many_arguments)]
+fn nearest_grown_target(
+    node_id: WidgetId,
+    ir: &CoreIR,
+    layout: &LayoutSnapshot,
+    scroll_map: &ScrollStateMap,
+    viewport_map: &ViewportStateMap,
+    point: LayoutPoint,
+    min_target: f32,
+    order: &mut usize,
+    best: &mut Option<(f32, usize, WidgetId)>,
+) {
+    let Some(node) = ir.nodes.get(&node_id) else {
+        return;
+    };
+    let Some(geom) = layout.get_node_geometry(node_id) else {
+        return;
+    };
+    if matches!(
+        &node.op,
+        Op::Structural(
+            StructuralOp::PointerTransparent { .. } | StructuralOp::InteractionInert { .. }
+        )
+    ) {
+        return;
+    }
+    let clips = match &node.op {
+        Op::Layout(LayoutOp::Clip { .. }) | Op::Layout(LayoutOp::Scroll { .. }) => true,
+        Op::Layout(LayoutOp::InteractiveViewport { clip, .. }) => {
+            !matches!(clip, fission_ir::ViewportClip::None)
+        }
+        _ => false,
+    };
+    if clips && !geom.rect.contains(point) {
+        return;
+    }
+
+    if let Op::Semantics(semantics) = &node.op {
+        let interactive = !semantics.actions.entries.is_empty() || semantics.focusable;
+        let rect = geom.rect;
+        let (width, height) = (rect.size.width, rect.size.height);
+        if interactive
+            && !semantics.disabled
+            && semantics.canvas_target.is_none()
+            && (width < min_target || height < min_target)
+        {
+            let grow_x = ((min_target - width) / 2.0).max(0.0);
+            let grow_y = ((min_target - height) / 2.0).max(0.0);
+            let left = rect.origin.x - grow_x;
+            let top = rect.origin.y - grow_y;
+            let right = rect.origin.x + width + grow_x;
+            let bottom = rect.origin.y + height + grow_y;
+            if point.x >= left && point.x < right && point.y >= top && point.y < bottom {
+                let dx = (rect.origin.x - point.x)
+                    .max(point.x - (rect.origin.x + width))
+                    .max(0.0);
+                let dy = (rect.origin.y - point.y)
+                    .max(point.y - (rect.origin.y + height))
+                    .max(0.0);
+                let distance = dx * dx + dy * dy;
+                *order += 1;
+                let nearer = best.is_none_or(|(best_distance, _, _)| distance <= best_distance);
+                if nearer {
+                    *best = Some((distance, *order, node_id));
+                }
+            }
+        }
+    }
+
+    let child_point = child_point_for(
+        node_id,
+        &node.op,
+        geom.rect,
+        Some(scroll_map),
+        Some(viewport_map),
+        point,
+    );
+    for child_id in &node.children {
+        nearest_grown_target(
+            *child_id,
+            ir,
+            layout,
+            scroll_map,
+            viewport_map,
+            child_point,
+            min_target,
+            order,
+            best,
+        );
+    }
+}
+
 fn hit_test_internal(
     ir: &CoreIR,
     layout: &LayoutSnapshot,
@@ -190,42 +412,14 @@ fn hit_test_recursive(
         return None;
     }
 
-    let mut child_point = point;
-
-    if let (Some(map), Op::Layout(LayoutOp::Scroll { direction, .. })) = (scroll_map, &node.op) {
-        let offset = map.get_offset(node_id);
-        match direction {
-            fission_ir::FlexDirection::Column => {
-                child_point.y += offset;
-            }
-            fission_ir::FlexDirection::Row => {
-                child_point.x += offset;
-            }
-        }
-    }
-
-    if let Op::Layout(LayoutOp::Transform { transform }) = &node.op {
-        let mat = Mat4::from_cols_array(transform);
-        let inv = mat.inverse();
-        let local_x = point.x - geom.rect.origin.x;
-        let local_y = point.y - geom.rect.origin.y;
-        let p = Vec4::new(local_x, local_y, 0.0, 1.0);
-        let transformed = inv * p;
-        child_point = LayoutPoint::new(
-            transformed.x + geom.rect.origin.x,
-            transformed.y + geom.rect.origin.y,
-        );
-    }
-
-    if let (Some(map), Op::Layout(LayoutOp::InteractiveViewport { .. })) = (viewport_map, &node.op)
-    {
-        if let Some(transform) = map.transform(node_id) {
-            let local = [point.x - geom.rect.origin.x, point.y - geom.rect.origin.y];
-            let world = transform.screen_to_world(local);
-            child_point =
-                LayoutPoint::new(world[0] + geom.rect.origin.x, world[1] + geom.rect.origin.y);
-        }
-    }
+    let child_point = child_point_for(
+        node_id,
+        &node.op,
+        geom.rect,
+        scroll_map,
+        viewport_map,
+        point,
+    );
 
     for child_id in node.children.iter().rev() {
         if let Some(hit) =

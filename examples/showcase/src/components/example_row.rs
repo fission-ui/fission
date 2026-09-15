@@ -35,7 +35,7 @@ impl From<ExampleRow> for Widget {
                     ExampleCategory::Platform => material::device::devices::round(),
                     ExampleCategory::Diagnostics => material::action::bug_report::round(),
                 })
-                .size(tokens.typography.font_size_xl)
+                .size(tokens.sizing.icon_md)
                 .color(if component.selected {
                     tokens.colors.primary
                 } else {
@@ -45,11 +45,11 @@ impl From<ExampleRow> for Widget {
                     children: widgets![
                         Text::new(TextContent::Key(component.example.title_key.into()))
                             .size(tokens.typography.label_large_size)
-                            .weight(tokens.typography.font_weight_bold)
-                            .color(tokens.colors.heading),
+                            .weight(tokens.typography.font_weight_semibold)
+                            .color(tokens.colors.text_primary),
                         Text::new(TextContent::Key(component.example.summary_key.into()))
                             .size(tokens.typography.font_size_xs)
-                            .color(tokens.colors.text_muted),
+                            .color(tokens.colors.text_secondary),
                         Row {
                             children: target_chips,
                             gap: Some(tokens.spacing.xs),
@@ -82,8 +82,13 @@ impl From<ExampleRow> for Widget {
                 .then(|| Fill::Solid(tokens.colors.primary_subtle)),
             ..Default::default()
         })
+        // Hovering the open example keeps its highlight instead of replacing it.
         .hover(PressableStyle {
-            background: Some(Fill::Solid(tokens.colors.surface_sunken)),
+            background: Some(Fill::Solid(if component.selected {
+                tokens.colors.primary_subtle
+            } else {
+                tokens.colors.muted()
+            })),
             ..Default::default()
         })
         .into()

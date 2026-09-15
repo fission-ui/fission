@@ -123,8 +123,10 @@ impl LowerWidget for RangeSliderLowerer {
         let control_id = WidgetId::derived(self.node_id.as_u128(), &[CONTROL_PATH]);
         let (start, end, layout_id) = cx.with_scope(control_id, |cx| {
             let tokens = &cx.env().theme.tokens;
-            let thumb_size = 16.0;
-            let track_height = 4.0;
+            // Same geometry as the single-value Slider, from the same tokens, so the two
+            // read as one family.
+            let thumb_size = tokens.sizing.icon_md;
+            let track_height = tokens.sizing.border_thick * 2.0;
             let (min, max, start, end) = normalized_values(&self.component);
             let range = (max - min).max(f32::EPSILON);
             let start_pct = (start - min) / range * 100.0;
@@ -138,7 +140,7 @@ impl LowerWidget for RangeSliderLowerer {
                 end_pct,
                 thumb_size,
                 track_height,
-                tokens.colors.primary,
+                tokens.colors.accent,
             );
             let action = self.component.on_change.as_ref();
             let start_thumb = thumb_layer(
@@ -146,7 +148,7 @@ impl LowerWidget for RangeSliderLowerer {
                 self.start_thumb_id,
                 start_pct,
                 thumb_size,
-                tokens.colors.primary,
+                tokens.colors.accent,
                 self.component
                     .semantics_identifier
                     .as_ref()
@@ -161,7 +163,7 @@ impl LowerWidget for RangeSliderLowerer {
                 self.end_thumb_id,
                 end_pct,
                 thumb_size,
-                tokens.colors.primary,
+                tokens.colors.accent,
                 self.component
                     .semantics_identifier
                     .as_ref()

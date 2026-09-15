@@ -65,6 +65,12 @@ pub(crate) fn register_android_operation_capabilities(
         return;
     };
 
+    #[cfg(feature = "filesystem")]
+    crate::android_file_system::register_android_file_system_capabilities(
+        async_registry,
+        context.clone(),
+    );
+
     clipboard::register_clipboard_capabilities(
         async_registry,
         Arc::new(AndroidClipboardHost::new(context.clone())),
@@ -113,7 +119,7 @@ pub(crate) fn register_android_operation_capabilities(
 }
 
 #[derive(Clone)]
-struct AndroidHostContext {
+pub(crate) struct AndroidHostContext {
     vm: Arc<JavaVM>,
     activity: usize,
 }
@@ -128,7 +134,7 @@ impl AndroidHostContext {
         })
     }
 
-    fn with_env<R>(
+    pub(crate) fn with_env<R>(
         &self,
         f: impl for<'env> FnOnce(&mut JNIEnv<'env>, &JObject<'static>) -> JniResult<R>,
     ) -> Result<R, String> {
@@ -137,7 +143,30 @@ impl AndroidHostContext {
             .attach_current_thread()
             .map_err(|error| format!("failed to attach Android JNI thread: {error}"))?;
         let activity = unsafe { JObject::from_raw(self.activity as jobject) };
-        f(&mut env, &activity).map_err(|error| format!("Android JNI call failed: {error}"))
+        match f(&mut env, &activity) {
+            Ok(value) => Ok(value),
+            Err(error) => {
+                let detail = if env.exception_check().unwrap_or(false) {
+                    let exception = env.exception_occurred().ok();
+                    let _ = env.exception_clear();
+                    exception
+                        .and_then(|exception| {
+                            env.call_method(exception, "toString", "()Ljava/lang/String;", &[])
+                                .ok()
+                        })
+                        .and_then(|value| value.l().ok())
+                        .and_then(|value| {
+                            let value = JString::from(value);
+                            env.get_string(&value)
+                                .ok()
+                                .map(|value| value.to_string_lossy().into_owned())
+                        })
+                } else {
+                    None
+                };
+                Err(detail.unwrap_or_else(|| format!("Android JNI call failed: {error}")))
+            }
+        }
     }
 
     fn sdk_int(&self) -> Result<i32, String> {
@@ -2053,7 +2082,7 @@ fn barcode_camera_error(error: String) -> BarcodeScannerError {
     BarcodeScannerError::new("camera_error", error)
 }
 
-fn app_class<'local>(
+pub(crate) fn app_class<'local>(
     env: &mut JNIEnv<'local>,
     activity: &JObject<'_>,
     name: &str,

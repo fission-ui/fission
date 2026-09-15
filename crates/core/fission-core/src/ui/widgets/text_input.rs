@@ -1381,15 +1381,13 @@ impl Lower for TextInput {
         }
 
         if let Some((start, end)) = preedit_range {
+            // Text still being composed by an input method: underlined over a faint
+            // wash of the design system's accent.
+            let composing_background = cx.env.theme.tokens.colors.accent.with_alpha(48);
             runs = split_runs_for_range(&runs, start, end, |style| {
                 style.underline = true;
                 if style.background_color.is_none() {
-                    style.background_color = Some(IrColor {
-                        r: 100,
-                        g: 130,
-                        b: 190,
-                        a: 48,
-                    });
+                    style.background_color = Some(composing_background);
                 }
             });
         }
@@ -1609,6 +1607,18 @@ impl Lower for TextInput {
                 aspect_ratio: None,
             }),
         );
+        // A disabled field fades as a whole, like a disabled button, so it reads as
+        // unavailable rather than only a slightly different background.
+        let disabled_opacity = (!self.enabled)
+            .then_some(component_style.opacity)
+            .flatten()
+            .filter(|opacity| opacity.is_finite() && *opacity < 1.0);
+        if let Some(opacity) = disabled_opacity {
+            wrapper = wrapper.composite(fission_ir::CompositeStyle {
+                opacity: Some(fission_ir::CompositeScalar::new(opacity.clamp(0.0, 1.0))),
+                ..fission_ir::CompositeStyle::default()
+            });
+        }
         for background_id in background_ids {
             wrapper.add_child(background_id);
         }
@@ -1730,7 +1740,7 @@ impl Lower for TextInput {
                     theme
                         .label_style
                         .text_color
-                        .unwrap_or(tokens.colors.text_secondary),
+                        .unwrap_or(tokens.colors.text_primary),
                 );
                 let supporting_color = if is_invalid {
                     self.error_color.unwrap_or(tokens.colors.error)
@@ -1787,6 +1797,9 @@ impl Lower for TextInput {
 
                 if supporting_text.is_some() || counter_text.is_some() {
                     let mut row = Row::default().gap(8.0);
+                    // The message takes the row's free width and wraps inside the field;
+                    // at its natural width a long message ran past the field's edge.
+                    let has_message = supporting_text.is_some();
                     if let Some(supporting_text) = supporting_text {
                         row.children.push(
                             Text::new(supporting_text)
@@ -1797,16 +1810,20 @@ impl Lower for TextInput {
                                         .unwrap_or(tokens.typography.label_large_size),
                                 )
                                 .color(supporting_color)
+                                .flex_grow(1.0)
+                                .flex_shrink(1.0)
                                 .into(),
                         );
                     }
-                    row.children.push(
-                        Spacer {
-                            flex_grow: 1.0,
-                            ..Default::default()
-                        }
-                        .into(),
-                    );
+                    if !has_message {
+                        row.children.push(
+                            Spacer {
+                                flex_grow: 1.0,
+                                ..Default::default()
+                            }
+                            .into(),
+                        );
+                    }
                     if let Some(counter_text) = counter_text {
                         row.children.push(
                             Text::new(counter_text)

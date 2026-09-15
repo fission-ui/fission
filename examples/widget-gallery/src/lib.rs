@@ -3,18 +3,31 @@ mod data_section;
 mod display_section;
 mod drag_drop;
 mod feedback_section;
+mod form_section;
+mod foundations_section;
 mod gallery_app;
-mod gallery_header;
-mod gallery_section;
 mod input_section;
+mod layout_section;
 mod navigation_section;
 mod overlay_section;
+mod pages;
+mod picker_section;
 mod quality_gallery;
 mod state;
 
 pub use gallery_app::GalleryApp;
+pub use pages::GalleryPage;
 pub use quality_gallery::QualityGalleryApp;
 pub use state::GalleryState;
+
+/// The gallery as another app mounts it, such as the example showcase. The host
+/// picks the theme, so the gallery hides its own theme bar.
+pub fn embedded_state() -> GalleryState {
+    GalleryState {
+        embedded: true,
+        ..GalleryState::default()
+    }
+}
 
 #[cfg(target_arch = "wasm32")]
 fn web_app() -> fission::prelude::WebApp<GalleryState, QualityGalleryApp> {
@@ -30,7 +43,35 @@ fn web_app() -> fission::prelude::WebApp<GalleryState, QualityGalleryApp> {
 
 #[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
 pub fn run_desktop() -> anyhow::Result<()> {
-    fission::prelude::DesktopApp::<GalleryState, _>::new(GalleryApp).run()
+    fission::prelude::DesktopApp::<GalleryState, _>::new(GalleryApp)
+        .with_sync_env(|state: &GalleryState, env: &mut fission::prelude::Env| {
+            use fission::theme::DesignSystem;
+            let mode = if state.dark_mode {
+                fission::theme::DesignMode::Dark
+            } else {
+                fission::theme::DesignMode::Light
+            };
+            let theme = if state.native_look {
+                // Preview another platform's native look from this machine.
+                let platform = match state.native_preview {
+                    1 => fission::theme::HostPlatform::MacOs,
+                    2 => fission::theme::HostPlatform::Android,
+                    3 => fission::theme::HostPlatform::Windows,
+                    _ => env.host_platform,
+                };
+                env.platform_look = fission::theme::PlatformLook::Native;
+                fission::theme::PlatformLook::Native.theme_ref(platform, mode)
+            } else {
+                env.platform_look = fission::theme::PlatformLook::Unified;
+                match state.look {
+                    1 => fission::theme::FissionGraphiteDesignSystem::theme_ref(mode),
+                    2 => fission::theme::FissionEmberDesignSystem::theme_ref(mode),
+                    _ => fission::theme::FissionDefaultDesignSystem::theme_ref(mode),
+                }
+            };
+            env.theme = theme.with_density(state.density);
+        })
+        .run()
 }
 
 #[cfg(target_arch = "wasm32")]

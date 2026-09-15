@@ -24,14 +24,16 @@ pub struct CircularProgress {
     pub id: WidgetId,
     /// Determinate progress in `0.0..=1.0`; `None` means indeterminate.
     pub value: Option<f32>, // 0.0 to 1.0. If None, indeterminate (spinner).
-    /// Indicator diameter in logical pixels.
-    pub size: f32,
+    /// Indicator diameter in logical pixels. `None` uses the design system's
+    /// circular progress recipe.
+    pub size: Option<f32>,
     /// Foreground arc color.
     pub color: Option<Color>,
     /// Background track color.
     pub track_color: Option<Color>,
-    /// Stroke thickness in logical pixels.
-    pub thickness: f32,
+    /// Stroke thickness in logical pixels. `None` uses the design system's
+    /// circular progress recipe.
+    pub thickness: Option<f32>,
     /// Optional explicit motion for indeterminate progress.
     /// Optional explicit progress motion. `None` emits no progress-owned motion declarations.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -81,10 +83,10 @@ impl Default for CircularProgress {
         Self {
             id: WidgetId::explicit("fission.widgets.circular_progress"),
             value: None,
-            size: 40.0,
+            size: None,
             color: None,
             track_color: None,
-            thickness: 4.0,
+            thickness: None,
             motion: None,
             label: None,
         }
@@ -101,6 +103,18 @@ impl From<CircularProgress> for Widget {
         let this = &component;
 
         let tokens = &view.env().theme.tokens;
+        let recipe = view
+            .env()
+            .theme
+            .recipe(fission_theme::recipes::CircularProgress);
+        let size = this
+            .size
+            .or(recipe.base.width)
+            .unwrap_or(tokens.sizing.icon_xl + tokens.spacing.s);
+        let thickness = this
+            .thickness
+            .or(recipe.scalar_named("thickness"))
+            .unwrap_or(tokens.sizing.border_thick * 2.0);
         let color = this.color.unwrap_or(tokens.colors.primary);
         let track_color = this.track_color.unwrap_or(tokens.colors.border);
 
@@ -108,10 +122,10 @@ impl From<CircularProgress> for Widget {
             "CircularProgress",
             CircularProgressLowerer {
                 value: this.value,
-                size: this.size,
+                size,
                 color,
                 track_color,
-                thickness: this.thickness,
+                thickness,
             },
         );
 

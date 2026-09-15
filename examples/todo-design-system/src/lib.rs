@@ -22,6 +22,14 @@ pub fn configure_embedded_env(_state: &TodoState, env: &mut Env) {
     env.theme = TodoDesignSystem::theme(env.theme.design_system.mode);
 }
 
+/// The todo list as another app mounts it. The host picks light or dark, so the
+/// app hides its own theme switch.
+pub fn embedded_state() -> TodoState {
+    let mut state = TodoState::default();
+    state.embedded = true;
+    state
+}
+
 #[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
 pub fn run_desktop() -> anyhow::Result<()> {
     let mut env = Env::default();

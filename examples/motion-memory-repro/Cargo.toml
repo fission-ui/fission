@@ -8,3 +8,7 @@ license = "Apache-2.0"
 anyhow = "1.0"
 fission = { path = "../../crates/authoring/fission", default-features = false, features = ["desktop"] }
 image = { version = "0.25", default-features = false, features = ["png"] }
+
+[dev-dependencies]
+fission-ir = { path = "../../crates/core/fission-ir" }
+fission-test = { path = "../../crates/tools/fission-test" }

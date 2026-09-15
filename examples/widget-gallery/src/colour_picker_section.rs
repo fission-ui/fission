@@ -1,4 +1,3 @@
-use crate::gallery_section::GallerySection;
 use crate::state::GalleryState;
 use fission::prelude::*;
 use fission::widgets::{ColourHsva, ColourPicker, ColourPickerVariant, HStack, Wrap};
@@ -82,13 +81,9 @@ impl From<ColourPickerSection> for Widget {
             move |colour: Color| action.with_action(&SetGalleryColour(colour))
         });
 
-        GallerySection::new(
-            "Colour Picker",
-            widgets![
-                Text::new(
-                    "Switch between the built-in picker variants, then edit the same controlled colour value.",
-                )
-                .color(tokens.colors.text_secondary),
+        VStack {
+            spacing: Some(tokens.spacing.m),
+            children: widgets![
                 HStack {
                     spacing: Some(tokens.spacing.s),
                     children: widgets![
@@ -166,7 +161,7 @@ impl From<ColourPickerSection> for Widget {
                     ..Default::default()
                 },
             ],
-        )
+        }
         .into()
     }
 }

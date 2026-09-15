@@ -175,7 +175,12 @@ pub struct TextSelectionControls {
     #[serde(default)]
     pub show_collapsed_handle: bool,
     pub handle_radius: f32,
-    pub handle_fill: IrColor,
+    /// Handle fill. `None` uses the design system's accent colour.
+    #[serde(default)]
+    pub handle_fill: Option<IrColor>,
+    /// Handle outline. `None` uses the design system's surface colour, so the
+    /// handle reads against selected text in light and dark themes.
+    #[serde(default)]
     pub handle_stroke: Option<IrColor>,
     pub handle_stroke_width: f32,
 }
@@ -190,18 +195,8 @@ impl Default for TextSelectionControls {
             enabled: true,
             show_collapsed_handle: false,
             handle_radius: 7.0,
-            handle_fill: IrColor {
-                r: 0,
-                g: 122,
-                b: 255,
-                a: 255,
-            },
-            handle_stroke: Some(IrColor {
-                r: 255,
-                g: 255,
-                b: 255,
-                a: 255,
-            }),
+            handle_fill: None,
+            handle_stroke: None,
             handle_stroke_width: 1.0,
         }
     }
@@ -224,12 +219,7 @@ impl Default for TextMagnifierConfiguration {
             diameter: 84.0,
             scale: 1.4,
             border_radius: 18.0,
-            border_color: Some(IrColor {
-                r: 210,
-                g: 214,
-                b: 224,
-                a: 255,
-            }),
+            border_color: None,
             border_width: 1.0,
         }
     }

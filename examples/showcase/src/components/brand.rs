@@ -16,21 +16,11 @@ impl From<Brand> for Widget {
                 Icon::svg(include_str!(
                     "../../../../documentation/static/img/fission-mark.svg"
                 ))
-                .size(tokens.spacing.l),
-                Column {
-                    children: widgets![
-                        Text::new("Fission")
-                            .size(tokens.typography.font_size_sm)
-                            .weight(tokens.typography.font_weight_bold)
-                            .color(tokens.colors.text_muted),
-                        Text::new(TextContent::Key("showcase.app.title".into()))
-                            .size(tokens.typography.font_size_lg)
-                            .weight(tokens.typography.font_weight_bold)
-                            .color(tokens.colors.heading),
-                    ],
-                    gap: Some(tokens.spacing.none),
-                    ..Default::default()
-                },
+                .size(tokens.sizing.icon_lg),
+                Text::new(TextContent::Key("showcase.app.title".into()))
+                    .size(tokens.typography.font_size_base)
+                    .weight(tokens.typography.font_weight_semibold)
+                    .color(tokens.colors.text_primary),
             ],
             gap: Some(tokens.spacing.s),
             align_items: AlignItems::Center,

@@ -92,13 +92,13 @@ impl TreeView {
         if let Some(icon) = &item.icon {
             row_children.push(
                 Icon::svg(icon.clone())
-                    .size(18.0)
+                    .size(tokens.sizing.icon_sm)
                     .color(tokens.colors.text_secondary)
                     .into(),
             );
             row_children.push(
                 fission_core::ui::widgets::Spacer {
-                    width: Some(8.0),
+                    width: Some(tokens.spacing.s),
                     ..Default::default()
                 }
                 .into(),
@@ -108,7 +108,7 @@ impl TreeView {
         // Label
         row_children.push(
             Text::new(item.label.clone())
-                .size(15.0)
+                .size(tokens.typography.body_medium_size)
                 .color(if is_selected {
                     tokens.colors.primary
                 } else {
@@ -122,10 +122,10 @@ impl TreeView {
             spacing: Some(0.0),
             children: row_children,
         })
-        .padding_all(8.0)
-        // At least a comfortable row, and taller when a long or translated label wraps; a fixed
-        // height let a wrapped label spill over the next row.
-        .min_height(40.0)
+        .padding_all(tokens.spacing.s)
+        // At least a large control tall, so rows follow density, and taller when a long or
+        // translated label wraps; a fixed height let a wrapped label spill over the next row.
+        .min_height(tokens.sizing.control_lg)
         .bg(if is_selected {
             theme.selected_bg
         } else {

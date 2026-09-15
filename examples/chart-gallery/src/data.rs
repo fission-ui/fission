@@ -9,7 +9,7 @@ pub(crate) const SIMPLE_GEOJSON: &str = r#"
       "properties": { "name": "North" },
       "geometry": {
         "type": "Polygon",
-        "coordinates": [[[0, 0], [10, 0], [10, 10], [0, 10], [0, 0]]]
+        "coordinates": [[[-9, 2], [-4, 3.5], [0, 2.5], [4, 4], [9, 2.5], [11, 6], [7, 10], [1, 11], [-5, 9.5], [-10, 6], [-9, 2]]]
       }
     },
     {
@@ -17,7 +17,7 @@ pub(crate) const SIMPLE_GEOJSON: &str = r#"
       "properties": { "name": "West" },
       "geometry": {
         "type": "Polygon",
-        "coordinates": [[[-10, -8], [0, -8], [0, 0], [-10, 0], [-10, -8]]]
+        "coordinates": [[[-9, 2], [-4, 3.5], [0, 2.5], [1, -2], [-1, -8], [-6, -9], [-11, -4], [-9, 2]]]
       }
     },
     {
@@ -25,7 +25,7 @@ pub(crate) const SIMPLE_GEOJSON: &str = r#"
       "properties": { "name": "East" },
       "geometry": {
         "type": "Polygon",
-        "coordinates": [[[0, -8], [10, -8], [10, 0], [0, 0], [0, -8]]]
+        "coordinates": [[[0, 2.5], [4, 4], [9, 2.5], [12, -3], [8, -8], [-1, -8], [1, -2], [0, 2.5]]]
       }
     }
   ]

@@ -140,14 +140,6 @@ impl From<DragDropSection> for Widget {
         VStack {
             spacing: Some(tokens.spacing.m),
             children: widgets![
-                Text::new("Drag and Drop")
-                    .size(tokens.typography.heading2_size)
-                    .color(tokens.colors.text_primary),
-                Text::new(
-                    "Drag task cards between lanes, inspect accepted-state feedback, or drop external files onto the import target.",
-                )
-                .size(tokens.typography.body_medium_size)
-                .color(tokens.colors.text_secondary),
                 Row {
                     gap: Some(tokens.spacing.s),
                     wrap: ir_op::FlexWrap::Wrap,

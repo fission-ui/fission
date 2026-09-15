@@ -2,11 +2,12 @@
 
 use fission::layout::LayoutSize;
 use fission_test::{TestDriver, TestHarness};
-use widget_gallery::{GalleryApp, GalleryState};
+use widget_gallery::{GalleryApp, GalleryPage, GalleryState};
 
 #[test]
 fn gallery_modal_surface_hugs_its_content() {
     let state = GalleryState {
+        page: GalleryPage::Modal,
         modal_open: true,
         ..GalleryState::default()
     };

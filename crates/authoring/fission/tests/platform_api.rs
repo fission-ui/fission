@@ -108,3 +108,20 @@ fn facade_exports_notifications_and_deep_links() {
         muted: None,
     };
 }
+
+#[cfg(feature = "filesystem")]
+#[test]
+fn facade_exports_cross_platform_file_system_api() {
+    let request = ReadFileRequest {
+        location: FileSystemLocation::directory(DirectoryHandleId(7), "documents/readme.md"),
+    };
+    let mut effects = Effects::<PlatformApiState>::new_headless(1);
+    effects.file_system().read(request).dispatch();
+
+    let Effect::Capability(CapabilityInvocationPayload::Operation(operation)) =
+        &effects.out[0].effect
+    else {
+        panic!("filesystem helper did not emit a capability effect");
+    };
+    assert_eq!(operation.capability_name, READ_FILE.name);
+}
