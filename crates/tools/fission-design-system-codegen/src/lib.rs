@@ -352,7 +352,7 @@ impl {krate}::DesignSystem for {type_name} {{
                     layers: {layers},
                     density: {krate}::Density::Comfortable,
                 }};
-                let components = std::sync::Arc::new({components});
+                let components = {components};
                 let design_system = {krate}::ResolvedDesignSystem {{
                     mode: {krate}::DesignMode::{mode_name},
                     info: <{type_placeholder} as {krate}::DesignSystem>::info().clone(),
