@@ -1,8 +1,8 @@
 use fission_core::{
-    collect_data_stream, single_chunk_data_stream, CreateDirectoryRequest, DirectoryHandle,
-    DirectoryHandleId, DirectoryPermissionRequest, DirectoryPermissionResult, FileSystemAccessMode,
-    FileSystemEntry, FileSystemEntryKind, FileSystemError, FileSystemPath, FileSystemPermission,
-    FileWriteSource, ForgetDirectoryRequest, ListDirectoryRequest, ListDirectoryResult,
+    Bytes, CreateDirectoryRequest, DirectoryHandle, DirectoryHandleId, DirectoryPermissionRequest,
+    DirectoryPermissionResult, FileSystemAccessMode, FileSystemEntry, FileSystemEntryKind,
+    FileSystemError, FileSystemPath, FileSystemPermission, FileWriteSource, FissionDataStreamError,
+    FissionDataStreamErrorKind, ForgetDirectoryRequest, ListDirectoryRequest, ListDirectoryResult,
     PickDirectoryRequest, PickDirectoryResult, ReadFileRequest, ReadFileResult,
     ReleaseDirectoryRequest, RemoveEntryRequest, RestoreDirectoryRequest, RestoreDirectoryResult,
     StatEntryRequest, StatEntryResult, WriteFileRequest, WriteFileResult, CREATE_DIRECTORY,
@@ -10,10 +10,17 @@ use fission_core::{
     RELEASE_DIRECTORY, REMOVE_ENTRY, RESTORE_DIRECTORY, STAT_ENTRY, WRITE_FILE,
 };
 use fission_shell::async_host::AsyncRegistry;
+use futures_core::Stream;
 use js_sys::{Array, Promise, Reflect, Uint8Array};
+use std::collections::VecDeque;
+use std::pin::Pin;
+use std::sync::{Arc, Mutex};
+use std::task::{Context, Poll, Waker};
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
-use wasm_bindgen_futures::JsFuture;
+use wasm_bindgen_futures::{spawn_local, JsFuture};
+
+const FILE_STREAM_QUEUE_CAPACITY: usize = 2;
 
 #[wasm_bindgen(inline_js = r#"
 const handles = new Map();
@@ -168,11 +175,19 @@ export function fissionReadFile(id, path) {
   return (async () => {
     const { parent, name } = await parentAndName(requireHandle(id), path, false);
     const file = await (await parent.getFileHandle(name)).getFile();
-    return { bytes: new Uint8Array(await file.arrayBuffer()), byteLen: file.size, modifiedMillis: file.lastModified };
+    return { reader: file.stream().getReader(), byteLen: file.size, modifiedMillis: file.lastModified };
   })();
 }
 
-export function fissionWriteFile(id, path, bytes, createParents, overwrite) {
+export function fissionReadFileChunk(reader) {
+  return reader.read();
+}
+
+export function fissionCancelFileReader(reader) {
+  return reader.cancel().catch(() => undefined);
+}
+
+export function fissionOpenFileWriter(id, path, createParents, overwrite) {
   return (async () => {
     const { parent, name } = await parentAndName(requireHandle(id), path, createParents);
     if (!overwrite) {
@@ -183,16 +198,20 @@ export function fissionWriteFile(id, path, bytes, createParents, overwrite) {
         if (!error || error.name !== "NotFoundError") throw error;
       }
     }
-    const writable = await (await parent.getFileHandle(name, { create: true })).createWritable();
-    try {
-      await writable.write(bytes);
-      await writable.close();
-      return bytes.byteLength;
-    } catch (error) {
-      try { await writable.abort(); } catch (_) {}
-      throw error;
-    }
+    return await (await parent.getFileHandle(name, { create: true })).createWritable();
   })();
+}
+
+export function fissionWriteFileChunk(writable, bytes) {
+  return writable.write(bytes);
+}
+
+export function fissionCloseFileWriter(writable) {
+  return writable.close();
+}
+
+export function fissionAbortFileWriter(writable) {
+  return writable.abort().catch(() => undefined);
 }
 
 export function fissionCreateDirectory(id, path, recursive) {
@@ -233,13 +252,22 @@ extern "C" {
     #[wasm_bindgen(catch)]
     fn fissionReadFile(id: u32, path: &str) -> Result<Promise, JsValue>;
     #[wasm_bindgen(catch)]
-    fn fissionWriteFile(
+    fn fissionReadFileChunk(reader: &JsValue) -> Result<Promise, JsValue>;
+    #[wasm_bindgen(catch)]
+    fn fissionCancelFileReader(reader: &JsValue) -> Result<Promise, JsValue>;
+    #[wasm_bindgen(catch)]
+    fn fissionOpenFileWriter(
         id: u32,
         path: &str,
-        bytes: &Uint8Array,
         create_parents: bool,
         overwrite: bool,
     ) -> Result<Promise, JsValue>;
+    #[wasm_bindgen(catch)]
+    fn fissionWriteFileChunk(writable: &JsValue, bytes: &Uint8Array) -> Result<Promise, JsValue>;
+    #[wasm_bindgen(catch)]
+    fn fissionCloseFileWriter(writable: &JsValue) -> Result<Promise, JsValue>;
+    #[wasm_bindgen(catch)]
+    fn fissionAbortFileWriter(writable: &JsValue) -> Result<Promise, JsValue>;
     #[wasm_bindgen(catch)]
     fn fissionCreateDirectory(id: u32, path: &str, recursive: bool) -> Result<Promise, JsValue>;
     #[wasm_bindgen(catch)]
@@ -352,15 +380,15 @@ pub(crate) fn register_web_file_system_capabilities(async_registry: &mut AsyncRe
             ))
             .await
             .map_err(file_system_error)?;
-            let bytes = prop(&value, "bytes")
-                .and_then(|value| value.dyn_into::<Uint8Array>().ok())
-                .ok_or_else(|| {
-                    FileSystemError::new("invalid_result", "browser file read returned no bytes")
-                })?
-                .to_vec();
+            let reader = prop(&value, "reader").ok_or_else(|| {
+                FileSystemError::new("invalid_result", "browser file read returned no stream")
+            })?;
+            let byte_len = u64_prop(&value, "byteLen");
+            let (stream, sink) = browser_data_stream();
+            spawn_local(pump_file_reader(reader, sink));
             Ok(ReadFileResult {
-                stream: ctx.register_data_stream(single_chunk_data_stream(bytes)),
-                byte_len: u64_prop(&value, "byteLen"),
+                stream: ctx.register_data_stream(Box::pin(stream)),
+                byte_len,
                 modified_millis: u64_prop(&value, "modifiedMillis"),
             })
         },
@@ -368,32 +396,55 @@ pub(crate) fn register_web_file_system_capabilities(async_registry: &mut AsyncRe
     async_registry.register_operation_capability(
         WRITE_FILE,
         |request: WriteFileRequest, ctx| async move {
-            let bytes = match request.source {
-                FileWriteSource::Bytes(bytes) => bytes,
+            let mut source_stream = match &request.source {
+                FileWriteSource::Bytes(_) => None,
                 FileWriteSource::Stream(id) => {
-                    let stream = ctx.open_data_stream(id).map_err(|error| {
+                    Some(ctx.open_data_stream(*id).map_err(|error| {
                         FileSystemError::new("stream_open_failed", error.to_string())
-                    })?;
-                    collect_data_stream(stream)
-                        .await
-                        .map_err(|error| {
-                            FileSystemError::new("stream_read_failed", error.to_string())
-                        })?
-                        .to_vec()
+                    })?)
                 }
             };
-            let value = await_promise(fissionWriteFile(
+            let writable = await_promise(fissionOpenFileWriter(
                 directory_id(request.directory)?,
                 request.path.as_str(),
-                &Uint8Array::from(bytes.as_slice()),
                 request.create_parents,
                 request.overwrite,
             ))
             .await
             .map_err(file_system_error)?;
-            Ok(WriteFileResult {
-                byte_len: value.as_f64().unwrap_or(bytes.len() as f64).max(0.0) as u64,
-            })
+            let result = async {
+                let mut byte_len = 0_u64;
+                match request.source {
+                    FileWriteSource::Bytes(bytes) => {
+                        write_browser_chunk(&writable, &bytes).await?;
+                        byte_len = bytes.len() as u64;
+                    }
+                    FileWriteSource::Stream(_) => {
+                        let stream = source_stream.as_mut().expect("stream was opened above");
+                        while let Some(chunk) =
+                            std::future::poll_fn(|cx| stream.as_mut().poll_next(cx)).await
+                        {
+                            let chunk = chunk.map_err(|error| {
+                                FileSystemError::new("stream_read_failed", error.to_string())
+                            })?;
+                            write_browser_chunk(&writable, &chunk).await?;
+                            byte_len = byte_len.saturating_add(chunk.len() as u64);
+                        }
+                    }
+                }
+                await_promise(fissionCloseFileWriter(&writable))
+                    .await
+                    .map_err(file_system_error)?;
+                Ok::<u64, FileSystemError>(byte_len)
+            }
+            .await;
+            match result {
+                Ok(byte_len) => Ok(WriteFileResult { byte_len }),
+                Err(error) => {
+                    let _ = await_promise(fissionAbortFileWriter(&writable)).await;
+                    Err(error)
+                }
+            }
         },
     );
     async_registry.register_operation_capability(
@@ -437,6 +488,140 @@ pub(crate) fn register_web_file_system_capabilities(async_registry: &mut AsyncRe
             Ok(())
         },
     );
+}
+
+async fn write_browser_chunk(writable: &JsValue, bytes: &[u8]) -> Result<(), FileSystemError> {
+    await_promise(fissionWriteFileChunk(writable, &Uint8Array::from(bytes)))
+        .await
+        .map_err(file_system_error)?;
+    Ok(())
+}
+
+#[derive(Default)]
+struct BrowserDataStreamState {
+    chunks: VecDeque<Result<Bytes, FissionDataStreamError>>,
+    consumer_waker: Option<Waker>,
+    producer_waker: Option<Waker>,
+    done: bool,
+    cancelled: bool,
+}
+
+struct BrowserFileDataStream {
+    state: Arc<Mutex<BrowserDataStreamState>>,
+}
+
+#[derive(Clone)]
+struct BrowserDataStreamSink {
+    state: Arc<Mutex<BrowserDataStreamState>>,
+}
+
+fn browser_data_stream() -> (BrowserFileDataStream, BrowserDataStreamSink) {
+    let state = Arc::new(Mutex::new(BrowserDataStreamState::default()));
+    (
+        BrowserFileDataStream {
+            state: state.clone(),
+        },
+        BrowserDataStreamSink { state },
+    )
+}
+
+impl Stream for BrowserFileDataStream {
+    type Item = Result<Bytes, FissionDataStreamError>;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let mut state = self.state.lock().unwrap();
+        if let Some(chunk) = state.chunks.pop_front() {
+            if let Some(waker) = state.producer_waker.take() {
+                waker.wake();
+            }
+            return Poll::Ready(Some(chunk));
+        }
+        if state.done {
+            return Poll::Ready(None);
+        }
+        state.consumer_waker = Some(cx.waker().clone());
+        Poll::Pending
+    }
+}
+
+impl Drop for BrowserFileDataStream {
+    fn drop(&mut self) {
+        let mut state = self.state.lock().unwrap();
+        state.cancelled = true;
+        if let Some(waker) = state.producer_waker.take() {
+            waker.wake();
+        }
+    }
+}
+
+impl BrowserDataStreamSink {
+    async fn push(&self, chunk: Result<Bytes, FissionDataStreamError>) -> bool {
+        let mut chunk = Some(chunk);
+        std::future::poll_fn(|cx| {
+            let mut state = self.state.lock().unwrap();
+            if state.cancelled {
+                return Poll::Ready(false);
+            }
+            if state.chunks.len() >= FILE_STREAM_QUEUE_CAPACITY {
+                state.producer_waker = Some(cx.waker().clone());
+                return Poll::Pending;
+            }
+            state.chunks.push_back(chunk.take().unwrap());
+            if let Some(waker) = state.consumer_waker.take() {
+                waker.wake();
+            }
+            Poll::Ready(true)
+        })
+        .await
+    }
+
+    fn finish(&self) {
+        let mut state = self.state.lock().unwrap();
+        state.done = true;
+        if let Some(waker) = state.consumer_waker.take() {
+            waker.wake();
+        }
+    }
+}
+
+async fn pump_file_reader(reader: JsValue, sink: BrowserDataStreamSink) {
+    loop {
+        let result = match await_promise(fissionReadFileChunk(&reader)).await {
+            Ok(result) => result,
+            Err(error) => {
+                let error = file_system_error(error);
+                let _ = sink
+                    .push(Err(FissionDataStreamError::new(
+                        FissionDataStreamErrorKind::Io,
+                        error.message,
+                    )))
+                    .await;
+                break;
+            }
+        };
+        if prop(&result, "done")
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false)
+        {
+            break;
+        }
+        let Some(bytes) =
+            prop(&result, "value").and_then(|value| value.dyn_into::<Uint8Array>().ok())
+        else {
+            let _ = sink
+                .push(Err(FissionDataStreamError::new(
+                    FissionDataStreamErrorKind::Other,
+                    "browser file stream returned an invalid chunk",
+                )))
+                .await;
+            break;
+        };
+        if !sink.push(Ok(Bytes::from(bytes.to_vec()))).await {
+            let _ = await_promise(fissionCancelFileReader(&reader)).await;
+            return;
+        }
+    }
+    sink.finish();
 }
 
 fn mode(access: FileSystemAccessMode) -> &'static str {

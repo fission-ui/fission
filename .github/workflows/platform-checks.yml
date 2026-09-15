@@ -167,6 +167,9 @@ jobs:
       - name: Diagnose Android toolchain
         run: cargo run -p cargo-fission --bin fission -- doctor android --project-dir examples/mobile-smoke --strict
 
+      - name: Enable Android filesystem capability smoke coverage
+        run: cargo run --locked -p cargo-fission --bin fission -- add-capability filesystem --project-dir examples/mobile-smoke
+
       - name: Check mobile-smoke for Android
         run: |
           export ANDROID_NDK="$ANDROID_HOME/ndk/$ANDROID_NDK_VERSION"
@@ -203,6 +206,9 @@ jobs:
 
       - name: Diagnose iOS toolchain
         run: cargo run -p cargo-fission --bin fission -- doctor ios --project-dir examples/mobile-smoke --strict
+
+      - name: Enable iOS filesystem capability smoke coverage
+        run: cargo run --locked -p cargo-fission --bin fission -- add-capability filesystem --project-dir examples/mobile-smoke
 
       - name: Check mobile-smoke for iOS simulator
         run: cargo check -p mobile-smoke --target aarch64-apple-ios-sim

@@ -137,7 +137,7 @@ impl std::error::Error for FileSystemPathError {}
 
 fn validate_relative_path(path: &str) -> Result<(), FileSystemPathError> {
     let first_component = path.split('/').next().unwrap_or_default();
-    let has_drive_prefix = first_component.len() == 2
+    let has_drive_prefix = first_component.len() >= 2
         && first_component.as_bytes()[0].is_ascii_alphabetic()
         && first_component.as_bytes()[1] == b':';
     if path.contains('\0')

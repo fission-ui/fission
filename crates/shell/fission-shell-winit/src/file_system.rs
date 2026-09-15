@@ -25,20 +25,22 @@ use std::time::UNIX_EPOCH;
 const FILE_STREAM_CHUNK_SIZE: usize = 64 * 1024;
 
 #[derive(Clone)]
-struct NativeDirectoryGrant {
-    root: PathBuf,
-    name: String,
-    access: FileSystemAccessMode,
+pub(crate) struct NativeDirectoryGrant {
+    pub(crate) root: PathBuf,
+    pub(crate) name: String,
+    pub(crate) access: FileSystemAccessMode,
+    // Some hosts require a live grant object for the handle's full lifetime.
+    pub(crate) _lease: Option<Arc<dyn Send + Sync>>,
 }
 
 #[derive(Default)]
-struct NativeDirectoryRegistry {
+pub(crate) struct NativeDirectoryRegistry {
     next_id: AtomicU64,
     grants: Mutex<HashMap<DirectoryHandleId, NativeDirectoryGrant>>,
 }
 
 impl NativeDirectoryRegistry {
-    fn insert(&self, grant: NativeDirectoryGrant) -> DirectoryHandle {
+    pub(crate) fn insert(&self, grant: NativeDirectoryGrant) -> DirectoryHandle {
         let id = DirectoryHandleId(self.next_id.fetch_add(1, Ordering::Relaxed) + 1);
         let handle = DirectoryHandle {
             id,
@@ -73,6 +75,7 @@ impl NativeDirectoryRegistry {
     }
 }
 
+#[cfg(not(target_os = "ios"))]
 pub fn register_file_system_capabilities(async_registry: &mut AsyncRegistry) {
     let registry = Arc::new(NativeDirectoryRegistry::default());
 
@@ -95,6 +98,7 @@ pub fn register_file_system_capabilities(async_registry: &mut AsyncRegistry) {
                     root,
                     name,
                     access: request.access,
+                    _lease: None,
                 });
                 Ok(PickDirectoryResult {
                     directory: Some(directory),
@@ -116,6 +120,13 @@ pub fn register_file_system_capabilities(async_registry: &mut AsyncRegistry) {
         },
     );
 
+    register_native_file_system_operations(async_registry, registry);
+}
+
+pub(crate) fn register_native_file_system_operations(
+    async_registry: &mut AsyncRegistry,
+    registry: Arc<NativeDirectoryRegistry>,
+) {
     let grants = registry.clone();
     async_registry.register_operation_capability(
         DIRECTORY_PERMISSION,
@@ -372,9 +383,9 @@ fn require_write(grant: &NativeDirectoryGrant) -> Result<(), FileSystemError> {
 }
 
 fn validate_selected_root(root: &Path) -> Result<(), FileSystemError> {
-    let metadata = std::fs::symlink_metadata(root)
-        .map_err(|error| io_error("metadata_failed", root, error))?;
-    if !metadata.is_dir() || metadata.file_type().is_symlink() {
+    let metadata =
+        std::fs::metadata(root).map_err(|error| io_error("metadata_failed", root, error))?;
+    if !metadata.is_dir() {
         return Err(FileSystemError::new(
             "not_a_directory",
             "the selected entry is not a directory",
@@ -390,14 +401,6 @@ fn resolve_existing(
     let mut path = grant.root.clone();
     for component in relative.components() {
         path.push(component);
-        let metadata = std::fs::symlink_metadata(&path)
-            .map_err(|error| io_error("not_found", &path, error))?;
-        if metadata.file_type().is_symlink() {
-            return Err(FileSystemError::new(
-                "unsupported_entry",
-                "symbolic links are not traversed by the portable filesystem capability",
-            ));
-        }
     }
     Ok(path)
 }
@@ -406,30 +409,9 @@ fn resolve_for_creation(
     grant: &NativeDirectoryGrant,
     relative: &FileSystemPath,
 ) -> Result<PathBuf, FileSystemError> {
-    let components = relative.components().collect::<Vec<_>>();
     let mut path = grant.root.clone();
-    for (index, component) in components.iter().enumerate() {
+    for component in relative.components() {
         path.push(component);
-        match std::fs::symlink_metadata(&path) {
-            Ok(metadata) if metadata.file_type().is_symlink() => {
-                return Err(FileSystemError::new(
-                    "unsupported_entry",
-                    "symbolic links are not traversed by the portable filesystem capability",
-                ));
-            }
-            Ok(_) => {}
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                // A missing suffix is safe to create because the validated path
-                // contains no host separators or parent traversal.
-                if index + 1 < components.len() {
-                    for remaining in &components[index + 1..] {
-                        path.push(remaining);
-                    }
-                }
-                return Ok(path);
-            }
-            Err(error) => return Err(io_error("metadata_failed", &path, error)),
-        }
     }
     Ok(path)
 }
@@ -555,6 +537,7 @@ mod tests {
             root: PathBuf::new(),
             name: "project".into(),
             access: FileSystemAccessMode::Read,
+            _lease: None,
         };
         assert!(require_write(&grant).is_err());
         assert!(access_allows(
@@ -565,5 +548,31 @@ mod tests {
             FileSystemAccessMode::Read,
             FileSystemAccessMode::ReadWrite
         ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn native_paths_leave_symbolic_link_policy_to_the_os() {
+        use std::os::unix::fs::symlink;
+
+        let root = std::env::temp_dir().join(format!(
+            "fission-filesystem-symlink-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let target = root.join("target");
+        std::fs::create_dir_all(&target).unwrap();
+        symlink(&target, root.join("linked")).unwrap();
+        let grant = NativeDirectoryGrant {
+            root: root.clone(),
+            name: "project".into(),
+            access: FileSystemAccessMode::ReadWrite,
+            _lease: None,
+        };
+
+        let resolved = resolve_existing(&grant, &FileSystemPath::new("linked").unwrap()).unwrap();
+        assert!(std::fs::metadata(resolved).unwrap().is_dir());
+
+        std::fs::remove_dir_all(root).unwrap();
     }
 }

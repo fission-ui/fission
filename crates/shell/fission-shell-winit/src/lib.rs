@@ -141,7 +141,7 @@ pub use clipboard::{ClipboardHost, MemoryClipboardHost};
 mod file_picker;
 #[cfg(all(
     feature = "filesystem",
-    not(any(target_os = "android", target_os = "ios", target_arch = "wasm32"))
+    not(any(target_os = "android", target_arch = "wasm32"))
 ))]
 mod file_system;
 mod geolocation;
@@ -184,10 +184,14 @@ mod volume;
 pub use volume::{MemoryVolumeHost, UnsupportedVolumeHost, VolumeHost};
 #[cfg(target_os = "android")]
 mod android_capabilities;
+#[cfg(all(target_os = "android", feature = "filesystem"))]
+mod android_file_system;
 #[cfg(target_os = "android")]
 mod android_text_input;
 #[cfg(target_os = "ios")]
 mod ios_capabilities;
+#[cfg(all(target_os = "ios", feature = "filesystem"))]
+mod ios_file_system;
 #[cfg(target_os = "macos")]
 mod macos_capabilities;
 #[cfg(target_arch = "wasm32")]
@@ -307,8 +311,6 @@ fn register_builtin_operation_capabilities(async_registry: &mut AsyncRegistry) {
             not(any(target_os = "android", target_os = "ios"))
         ))]
         file_system::register_file_system_capabilities(async_registry);
-        #[cfg(all(feature = "filesystem", any(target_os = "android", target_os = "ios")))]
-        register_unsupported_file_system_capabilities(async_registry);
         #[cfg(any(target_os = "android", target_os = "ios"))]
         register_unsupported_file_picker_capability(async_registry);
 
@@ -368,87 +370,6 @@ fn register_unsupported_file_picker_capability(async_registry: &mut AsyncRegistr
                 fission_core::PickOpenFilesError::unsupported("pick_open_files"),
             )
         },
-    );
-}
-
-#[cfg(all(feature = "filesystem", any(target_os = "android", target_os = "ios")))]
-fn register_unsupported_file_system_capabilities(async_registry: &mut AsyncRegistry) {
-    macro_rules! unsupported {
-        ($capability:expr, $request:ty, $ok:ty, $operation:literal) => {
-            async_registry.register_operation_capability(
-                $capability,
-                |_request: $request, _| async move {
-                    Err::<$ok, _>(fission_core::FileSystemError::unsupported($operation))
-                },
-            );
-        };
-    }
-
-    unsupported!(
-        fission_core::PICK_DIRECTORY,
-        fission_core::PickDirectoryRequest,
-        fission_core::PickDirectoryResult,
-        "pick_directory"
-    );
-    unsupported!(
-        fission_core::RESTORE_DIRECTORY,
-        fission_core::RestoreDirectoryRequest,
-        fission_core::RestoreDirectoryResult,
-        "restore_directory"
-    );
-    unsupported!(
-        fission_core::FORGET_DIRECTORY,
-        fission_core::ForgetDirectoryRequest,
-        (),
-        "forget_directory"
-    );
-    unsupported!(
-        fission_core::DIRECTORY_PERMISSION,
-        fission_core::DirectoryPermissionRequest,
-        fission_core::DirectoryPermissionResult,
-        "directory_permission"
-    );
-    unsupported!(
-        fission_core::LIST_DIRECTORY,
-        fission_core::ListDirectoryRequest,
-        fission_core::ListDirectoryResult,
-        "list_directory"
-    );
-    unsupported!(
-        fission_core::STAT_ENTRY,
-        fission_core::StatEntryRequest,
-        fission_core::StatEntryResult,
-        "stat_entry"
-    );
-    unsupported!(
-        fission_core::READ_FILE,
-        fission_core::ReadFileRequest,
-        fission_core::ReadFileResult,
-        "read_file"
-    );
-    unsupported!(
-        fission_core::WRITE_FILE,
-        fission_core::WriteFileRequest,
-        fission_core::WriteFileResult,
-        "write_file"
-    );
-    unsupported!(
-        fission_core::CREATE_DIRECTORY,
-        fission_core::CreateDirectoryRequest,
-        (),
-        "create_directory"
-    );
-    unsupported!(
-        fission_core::REMOVE_ENTRY,
-        fission_core::RemoveEntryRequest,
-        (),
-        "remove_entry"
-    );
-    unsupported!(
-        fission_core::RELEASE_DIRECTORY,
-        fission_core::ReleaseDirectoryRequest,
-        (),
-        "release_directory"
     );
 }
 

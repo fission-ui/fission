@@ -49,9 +49,9 @@ ctx.effects.file_system().read(ReadFileRequest {
 
 The available operations are `list`, `stat`, `read`, `write`, `create_directory`, `remove`, `permission`, and `release`. Reads return a `DataStreamId`. Writes accept `FileWriteSource::Bytes` for a small value or `FileWriteSource::Stream` when data already lives in the runtime stream registry. Writes refuse to replace an existing file unless `overwrite` is explicitly true.
 
-Desktop reads and stream-sourced writes transfer data incrementally. The initial Web provider preserves the same public stream contract but buffers each file while bridging browser `File` and `FileSystemWritableFileStream` objects; keep browser operations to files that fit comfortably in memory in this release.
+Reads and stream-sourced writes transfer data incrementally on native and Web targets. The Web bridge applies bounded backpressure while adapting browser `ReadableStream` and `FileSystemWritableFileStream` objects, so file size does not become bridge memory usage.
 
-`FileSystemPath` uses `/` on every target. It rejects absolute paths, `.` and `..`, empty components, Windows separators and drive prefixes. The native host also refuses to traverse symbolic links, preserving the browser capability's directory-handle semantics.
+`FileSystemPath` uses `/` on every target. It rejects absolute paths, `.` and `..`, empty components, Windows separators and drive prefixes. Native symbolic links are resolved according to the selected directory's operating-system and provider permissions.
 
 ## Restore a browser grant
 
@@ -66,7 +66,7 @@ ctx.effects
     });
 ```
 
-Browser support requires a secure context and `showDirectoryPicker`. Browsers without the modern File System Access API return `unsupported`. Native desktop selection works on macOS, Windows, and Linux. Persistent restoration is browser-only in this release; mobile shells return typed unsupported errors.
+Browser support requires a secure context and `showDirectoryPicker`. Browsers without the modern File System Access API return `unsupported`. Native selection works on macOS, Windows, Linux, Android, and iOS. Android persists document-tree URI grants and iOS persists security-scoped folder bookmarks when a `persistence_key` is supplied. Desktop persistence is not yet available.
 
 Call `forget_directory` to delete a persisted browser handle, and `release` when the current runtime no longer needs a live handle. Forgetting a handle does not delete user files.
 

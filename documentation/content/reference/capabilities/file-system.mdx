@@ -42,7 +42,7 @@ Handles are opaque, runtime-local values. They must not be persisted as integers
 
 `FileSystemPath::new` is the only public constructor for non-root paths. The empty `FileSystemPath::root()` addresses the selected directory for listing and stat. Root writes and removals are rejected.
 
-`ReadFileResult::stream` is a single-consumer runtime stream. `FileWriteSource::Stream` consumes its stream when the host opens it. Desktop providers transfer stream data incrementally. The initial Web bridge buffers each file while converting browser file objects, so Web apps should keep operations to files that fit comfortably in memory. `WriteFileRequest::overwrite` defaults to false so replacing user data requires an explicit choice.
+`ReadFileResult::stream` is a single-consumer runtime stream. `FileWriteSource::Stream` consumes its stream when the host opens it. Native and Web providers transfer data incrementally; the Web bridge uses bounded backpressure while adapting browser streams. `WriteFileRequest::overwrite` defaults to false so replacing user data requires an explicit choice.
 
 ## Target behavior
 
@@ -50,7 +50,8 @@ Handles are opaque, runtime-local values. They must not be persisted as integers
 | --- | --- |
 | Web | Uses `showDirectoryPicker` and `FileSystemDirectoryHandle`; optional handles are structured-cloned into IndexedDB. Requires a secure context and browser support. |
 | macOS, Windows, Linux | Uses the native folder picker and keeps paths private in the shell registry. |
-| Android, iOS | Typed `unsupported` in this release. |
+| Android | System document-tree picker with persisted URI grants and document-provider operations. |
+| iOS | System folder picker with security-scoped access and persisted bookmarks. |
 | Terminal, Static site, SSR | No interactive directory provider. |
 
 Web persistence stores only a granted browser handle. It is not an IndexedDB-backed virtual filesystem and it never copies the user's files. Browser permissions can return to `prompt` or `denied` after restoration.

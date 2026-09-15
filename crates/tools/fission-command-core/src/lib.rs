@@ -1514,6 +1514,12 @@ fn apply_platform_capability_config(root: &Path, project: &FissionProject) -> Re
     }
     if project.targets.contains(&Target::Android) {
         ensure_android_capability_helper(root)?;
+        if project
+            .capabilities
+            .contains(&PlatformCapability::FileSystem)
+        {
+            ensure_android_file_system_helper(root)?;
+        }
         apply_android_capability_config(root, project)?;
     }
     if project.targets.contains(&Target::Ios) {
@@ -1527,6 +1533,14 @@ fn ensure_android_capability_helper(root: &Path) -> Result<()> {
         &root.join("platforms/android/java/rs/fission/runtime/FissionAndroidCapabilities.java"),
         render_android_capabilities_java(),
         WritePolicy::PreserveExisting,
+    )
+}
+
+fn ensure_android_file_system_helper(root: &Path) -> Result<()> {
+    write_file_with_policy(
+        &root.join("platforms/android/java/rs/fission/runtime/FissionFileSystem.java"),
+        render_android_file_system_java(),
+        WritePolicy::Overwrite,
     )
 }
 
@@ -2661,6 +2675,16 @@ fn scaffold_android_bundle(
         render_android_activity_java(),
         write_policy,
     )?;
+    if project
+        .capabilities
+        .contains(&PlatformCapability::FileSystem)
+    {
+        write_file_with_policy(
+            &root.join("platforms/android/java/rs/fission/runtime/FissionFileSystem.java"),
+            render_android_file_system_java(),
+            write_policy,
+        )?;
+    }
     write_file_with_policy(
         &root.join("platforms/android/native-modules/README.md"),
         ANDROID_NATIVE_MODULES_README,
@@ -5081,6 +5105,10 @@ fn render_android_capabilities_java() -> &'static str {
     include_str!("../assets/android/rs/fission/runtime/FissionAndroidCapabilities.java")
 }
 
+fn render_android_file_system_java() -> &'static str {
+    include_str!("../assets/android/rs/fission/runtime/FissionFileSystem.java")
+}
+
 fn render_android_package_script(project: &FissionProject) -> String {
     render_android_gradle_package_script(
         project,
@@ -6263,6 +6291,10 @@ publisher = "CN=Example & Co"
 
         scaffold_android_bundle(&dir, &project, WritePolicy::Overwrite).unwrap();
 
+        assert!(!dir
+            .join("platforms/android/java/rs/fission/runtime/FissionFileSystem.java")
+            .exists());
+
         let activity = fs::read_to_string(
             dir.join("platforms/android/java/rs/fission/runtime/FissionActivity.java"),
         )
@@ -6286,6 +6318,33 @@ publisher = "CN=Example & Co"
             assert!(package.contains("CXX_aarch64_linux_android"));
             assert!(package.contains("aarch64-linux-android${ANDROID_MIN_API_LEVEL}-clang++"));
         }
+
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn android_filesystem_capability_installs_only_its_generated_bridge() {
+        let dir = unique_dir("android-filesystem-scaffold");
+        let project = FissionProject {
+            app: AppConfig {
+                name: "Files Demo".to_string(),
+                app_id: "com.example.files".to_string(),
+                splash: None,
+            },
+            targets: BTreeSet::from([Target::Android]),
+            capabilities: BTreeSet::from([PlatformCapability::FileSystem]),
+            native: NativeConfig::default(),
+        };
+
+        scaffold_android_bundle(&dir, &project, WritePolicy::Overwrite).unwrap();
+
+        let bridge = fs::read_to_string(
+            dir.join("platforms/android/java/rs/fission/runtime/FissionFileSystem.java"),
+        )
+        .unwrap();
+        assert!(bridge.contains("Intent.ACTION_OPEN_DOCUMENT_TREE"));
+        assert!(bridge.contains("takePersistableUriPermission"));
+        assert!(bridge.contains("ParcelFileDescriptor"));
 
         fs::remove_dir_all(dir).unwrap();
     }
