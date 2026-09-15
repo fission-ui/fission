@@ -144,7 +144,11 @@ jobs:
           targets: aarch64-linux-android
 
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
+        with:
+          # The workflow installs its exact SDK packages below. Avoid the
+          # action's legacy default package set, which includes removed tools.
+          packages: ''
 
       - name: Install Linux native build dependencies
         run: sudo apt-get update && sudo apt-get install -y libfontconfig1-dev pkg-config
