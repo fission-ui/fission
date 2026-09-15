@@ -164,6 +164,7 @@ jobs:
         run: |
           sdkmanager \
             "platform-tools" \
+            "emulator" \
             "platforms;android-${ANDROID_TARGET_API_LEVEL}" \
             "build-tools;${ANDROID_BUILD_TOOLS_VERSION}" \
             "ndk;${ANDROID_NDK_VERSION}"
