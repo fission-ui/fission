@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **User-granted directories** - The opt-in `filesystem` capability gives reducers opaque directory handles and validated relative-path operations for listing, metadata, streamed reads, byte or stream writes, directory creation, removal, permission checks, and release. Desktop shells use the native folder picker; Web uses the modern File System Access API and can persist granted handles—not file contents—in IndexedDB for later restoration.
+- **Cross-platform file system** - The opt-in `filesystem` capability gives reducers direct native paths and provider-backed directory locations for listing, metadata, streamed reads, byte or stream writes, directory creation, removal, permission checks, and release. Native paths use the process's operating-system permissions without a Fission sandbox. Desktop and mobile shells can use platform folder pickers; Web uses the modern File System Access API and can persist granted handles—not file contents—in IndexedDB for later restoration.
 
 ## [0.14.1] - 2026-08-26
 
