@@ -23,11 +23,14 @@ By participating you agree to uphold its terms.
 ## Getting Started
 
 1. **Fork** the repository on GitHub.
-2. **Clone** your fork locally:
+2. **Clone** your fork locally, including its submodules (the renderer and the
+   Android activity glue build from them):
    ```bash
-   git clone https://github.com/<your-username>/fission.git
+   git clone --recurse-submodules https://github.com/<your-username>/fission.git
    cd fission
    ```
+   If you already cloned without them, fetch them with
+   `git submodule update --init --recursive`.
 3. **Create a branch** for your work:
    ```bash
    git checkout -b my-feature
