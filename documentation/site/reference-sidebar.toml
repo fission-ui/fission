@@ -121,6 +121,11 @@ href = "/reference/capabilities/clipboard/"
 level = 2
 
 [[items]]
+title = "File system"
+href = "/reference/capabilities/file-system/"
+level = 2
+
+[[items]]
 title = "Geolocation"
 href = "/reference/capabilities/geolocation/"
 level = 2

@@ -55,7 +55,7 @@ Use the [Capability matrix](/reference/capabilities/matrix/) to compare platform
 | `passkeys` | Recorded only; Digital Asset Links are product-domain-specific | Recorded only; associated domains are product-domain-specific | The relying-party domain must match production identity. |
 | `barcode-scanner` | `CAMERA`, optional camera feature | `NSCameraUsageDescription` | Image-only decoding may not need camera access on every target. |
 | `camera` | `CAMERA`, optional camera/front/flash features | `NSCameraUsageDescription` | Desktop packages may need camera metadata. |
-| `filesystem` | none | none | Enables the optional directory-handle provider; the user must still choose the folder. |
+| `filesystem` | none | none | Enables direct native paths and platform directory providers; picker-based hosts still require user selection. |
 | `geolocation` | `ACCESS_COARSE_LOCATION`, `ACCESS_FINE_LOCATION` | `NSLocationWhenInUseUsageDescription` | Background location requires product-specific policy review. |
 | `haptics` | `VIBRATE` | none | Desktop haptics are hardware/provider-specific. |
 | `microphone` | `RECORD_AUDIO` | `NSMicrophoneUsageDescription` | Desktop packages may need microphone metadata. |
