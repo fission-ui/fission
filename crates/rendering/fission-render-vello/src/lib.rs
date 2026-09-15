@@ -1,7 +1,9 @@
 pub mod cpu;
+mod decoration;
 pub mod gpu;
 mod image_decode;
 mod paint_mapping;
+use decoration::decoration_top;
 pub mod painter;
 pub mod text;
 mod text_effects;
@@ -2478,7 +2480,9 @@ impl<'a> VelloRenderer<'a> {
                             .unwrap_or_default(),
                         position.x as f64 + x0 as f64,
                         position.x as f64 + x1 as f64,
-                        position.y as f64 + (glyph_run.baseline() + baseline_shift + offset) as f64,
+                        position.y as f64
+                            + (decoration_top(glyph_run.baseline() + baseline_shift, offset))
+                                as f64,
                         size as f64,
                         deco_color,
                     );
@@ -2502,7 +2506,8 @@ impl<'a> VelloRenderer<'a> {
                             position.x as f64 + x0 as f64,
                             position.x as f64 + x1 as f64,
                             position.y as f64
-                                + (glyph_run.baseline() + baseline_shift + offset) as f64,
+                                + (decoration_top(glyph_run.baseline() + baseline_shift, offset))
+                                    as f64,
                             size as f64,
                             Color::from_rgba8(
                                 deco_brush.0[0],
@@ -3079,7 +3084,8 @@ impl<'a> VelloRenderer<'a> {
                             }
                             let x0 = position.x as f64 + x0 as f64;
                             let x1 = position.x as f64 + x1 as f64;
-                            let y0 = position.y as f64 + (glyph_run.baseline() + offset) as f64;
+                            let y0 = position.y as f64
+                                + (decoration_top(glyph_run.baseline(), offset)) as f64;
                             let rect = Rect::new(x0, y0, x1, y0 + size as f64);
                             self.painter.fill_rect(
                                 self.current_transform,

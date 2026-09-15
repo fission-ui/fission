@@ -1,10 +1,10 @@
 use super::filters::AdvancedFilters;
 use crate::model::list::{set_filter_mode, set_sort_menu_open, set_sort_option, update_search};
 use crate::model::{InboxState, SetFilterMode, SetSortMenuOpen, SetSortOption, UpdateSearch};
-use fission::core::ui::widgets::{Row, Spacer};
-use fission::core::ui::{TextContent, Widget};
+use fission::core::ui::widgets::Spacer;
+use fission::core::ui::{Row, TextContent, Widget};
 use fission::core::{reduce_with, WidgetId};
-use fission::op::{AlignItems, FlexWrap};
+use fission::op::FlexWrap;
 use fission::widgets::{SegmentedControl, Select, SelectItem, TextInput, VStack};
 use std::sync::Arc;
 
@@ -46,12 +46,11 @@ impl From<ListToolbar> for Widget {
                     ..Default::default()
                 }
                 .into(),
-                // Wraps so the sort menu and filters move to their own line on narrow windows
-                // instead of squeezing the filter segments.
+                // Wraps so the sort select and filters button drop below the chips when the
+                // list is too narrow for one line, instead of running over them.
                 Row {
                     gap: Some(tokens.spacing.s),
                     wrap: FlexWrap::Wrap,
-                    align_items: AlignItems::Center,
                     children: vec![
                         SegmentedControl {
                             options: FILTER_MODES.iter().map(|key| view.tr(key)).collect(),

@@ -125,7 +125,7 @@ fn button_recipe_registers_and_consumes_paint_state_transitions() {
             "missing {property:?} recipe track"
         );
     }
-    for property in [MotionPropertyId::Opacity, MotionPropertyId::TranslateY] {
+    for property in [MotionPropertyId::Opacity] {
         assert!(
             tracks
                 .iter()

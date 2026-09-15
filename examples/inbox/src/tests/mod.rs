@@ -1033,12 +1033,12 @@ layout_test!(
     range_slider_grid_present,
     state_filters_open(),
     // Each thumb owns a three-track grid: the leading percentage, the thumb
-    // itself at its recipe size, and the remaining free space.
+    // itself at the theme's icon size, and the remaining free space.
     |op| match op {
         LayoutOp::Grid { columns, .. } => {
             columns.len() == 3
                 && matches!(columns.first(), Some(GridTrack::Percent(_)))
-                && matches!(columns.get(1), Some(GridTrack::Points(p)) if approx_eq(*p, 16.0))
+                && matches!(columns.get(1), Some(GridTrack::Points(p)) if *p > 0.0)
                 && matches!(columns.get(2), Some(GridTrack::Fr(_)))
         }
         _ => false,

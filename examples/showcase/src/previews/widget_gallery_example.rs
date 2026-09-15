@@ -14,6 +14,8 @@ impl From<WidgetGalleryExample> for Widget {
             view.state().preview_generation,
             GalleryApp,
         )
+        // The showcase's own picker drives the theme, so the gallery hides its theme bar.
+        .with_state(widget_gallery_example::embedded_state)
         .into()
     }
 }

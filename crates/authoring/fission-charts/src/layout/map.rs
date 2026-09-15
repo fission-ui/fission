@@ -189,8 +189,15 @@ fn project(lon: f32, lat: f32, width: f32, height: f32, bounds: GeoBounds) -> (f
     let pad = width.min(height) * 0.04;
     let usable_w = (width - pad * 2.0).max(1.0);
     let usable_h = (height - pad * 2.0).max(1.0);
-    let x = pad + (lon - bounds.min_lon) / (bounds.max_lon - bounds.min_lon) * usable_w;
-    let y = pad + (bounds.max_lat - lat) / (bounds.max_lat - bounds.min_lat) * usable_h;
+    let lon_span = bounds.max_lon - bounds.min_lon;
+    let lat_span = bounds.max_lat - bounds.min_lat;
+    // One scale for both axes keeps region shapes; stretching each axis to the
+    // plot turns maps into blocks. The spare space centres the map.
+    let scale = (usable_w / lon_span).min(usable_h / lat_span);
+    let offset_x = pad + (usable_w - lon_span * scale) / 2.0;
+    let offset_y = pad + (usable_h - lat_span * scale) / 2.0;
+    let x = offset_x + (lon - bounds.min_lon) * scale;
+    let y = offset_y + (bounds.max_lat - lat) * scale;
     (x, y)
 }
 
@@ -240,5 +247,39 @@ mod tests {
         assert_eq!(paths[0].value, Some(20.0));
         assert!(paths[0].path.starts_with('M'));
         assert!(paths[0].path.ends_with('Z'));
+    }
+
+    fn path_extent(path: &str) -> (f32, f32, f32, f32) {
+        let numbers: Vec<f32> = path
+            .split_whitespace()
+            .filter_map(|token| token.parse::<f32>().ok())
+            .collect();
+        let xs = numbers.iter().step_by(2);
+        let ys = numbers.iter().skip(1).step_by(2);
+        let min_x = xs.clone().copied().fold(f32::MAX, f32::min);
+        let max_x = xs.copied().fold(f32::MIN, f32::max);
+        let min_y = ys.clone().copied().fold(f32::MAX, f32::min);
+        let max_y = ys.copied().fold(f32::MIN, f32::max);
+        (min_x, min_y, max_x, max_y)
+    }
+
+    #[test]
+    fn map_layout_keeps_region_proportions_in_a_wide_plot() {
+        // A 10x10 degree square must stay square when the plot is much wider
+        // than it is tall; stretching it to fill turns maps into flat blocks.
+        let map = MapSeries::new("World", "world").geojson(SIMPLE_GEOJSON);
+        let paths = MapLayout::compute_geojson(&map, 800.0, 300.0);
+        let (min_x, min_y, max_x, max_y) = path_extent(&paths[0].path);
+        let (width, height) = (max_x - min_x, max_y - min_y);
+        assert!(
+            (width - height).abs() < 0.5,
+            "square region projected to {width}x{height}"
+        );
+
+        // The whole map is centred horizontally in the spare width.
+        let all: Vec<_> = paths.iter().map(|p| path_extent(&p.path)).collect();
+        let left = all.iter().map(|e| e.0).fold(f32::MAX, f32::min);
+        let right = all.iter().map(|e| e.2).fold(f32::MIN, f32::max);
+        assert!((left - (800.0 - right)).abs() < 0.5, "map not centred: {left}..{right}");
     }
 }

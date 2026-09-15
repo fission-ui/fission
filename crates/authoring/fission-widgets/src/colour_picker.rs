@@ -668,6 +668,8 @@ fn channel_slider(
                     b: 0,
                     a: 0,
                 })),
+                // The gradient behind the slider is the track; an accent fill would hide it.
+                show_active_track: false,
                 on_change: action,
                 ..Default::default()
             })

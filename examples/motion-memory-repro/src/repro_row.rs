@@ -47,7 +47,11 @@ impl From<ReproRow> for Widget {
             gap: Some(tokens.spacing.m),
             children: widgets![
                 media,
+                // Takes the width left beside the media so the description is measured at the
+                // width it wraps to, and the row's height accounts for both lines.
                 Column {
+                    flex_grow: 1.0,
+                    flex_shrink: 1.0,
                     gap: Some(tokens.spacing.xs),
                     children: widgets![
                         Text::new(format!("{} / row {}", row.scenario.label(), row.index + 1))
@@ -61,7 +65,10 @@ impl From<ReproRow> for Widget {
             ..Default::default()
         })
         .width(REPRO_ROW_WIDTH)
-        .height(row.height)
+        // A minimum, not a fixed height: the description wraps to a second line and the
+        // row grows to hold it rather than clipping it at the bottom edge.
+        .min_height(row.height)
+        .flex_shrink(0.0)
         .padding([
             tokens.spacing.m,
             tokens.spacing.m,

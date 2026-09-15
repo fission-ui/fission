@@ -24,6 +24,9 @@ impl From<PreviewFrame> for Widget {
                 .width_length(Length::points(MOBILE_PREVIEW_WIDTH))
                 .height_length(Length::percent(100.0))
                 .bg(tokens.colors.background)
+                .border(tokens.colors.border, tokens.sizing.border_hairline)
+                .border_radius(tokens.radii.large)
+                .clip_overflow(true)
                 .id(WidgetId::explicit("showcase.preview.mobile"))
                 .into(),
             }
@@ -44,6 +47,7 @@ impl From<PreviewFrame> for Widget {
             .height_length(Length::percent(100.0))
             .flex_grow(1.0)
             .min_height(0.0)
+            .padding_all(if mobile { tokens.spacing.l } else { 0.0 })
             .bg(tokens.colors.surface_sunken)
             .id(WidgetId::explicit("showcase.preview.viewport"))
             .into()

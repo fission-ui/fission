@@ -72,8 +72,16 @@ impl From<SplitView> for Widget {
         }
         let this = &component;
 
-        let handle_size = 4.0;
         let tokens = &view.env().theme.tokens;
+        // The handle's grab area comes from the recipe; the line drawn inside it is a
+        // hairline. A 4px handle was a hard target to hit (Fitts's law).
+        let handle_size = view
+            .env()
+            .theme
+            .recipe(fission_theme::recipes::SplitView)
+            .try_part_named("handle")
+            .and_then(|handle| handle.width.or(handle.height))
+            .unwrap_or(tokens.spacing.s);
 
         let (width, height) = match this.direction {
             SplitDirection::Horizontal => (Some(handle_size), None),
@@ -81,8 +89,8 @@ impl From<SplitView> for Widget {
         };
 
         let (line_w, line_h) = match this.direction {
-            SplitDirection::Horizontal => (Some(1.0), None),
-            SplitDirection::Vertical => (None, Some(1.0)),
+            SplitDirection::Horizontal => (Some(tokens.sizing.border_hairline), None),
+            SplitDirection::Vertical => (None, Some(tokens.sizing.border_hairline)),
         };
 
         let _line: Widget = Container::new(fission_core::ui::widgets::Spacer::default())

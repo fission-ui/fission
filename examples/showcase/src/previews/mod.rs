@@ -6,6 +6,7 @@ mod embed_3d_example;
 mod embed_video_example;
 mod embed_webview_example;
 mod field_inspector_example;
+mod host_only_preview;
 mod icons_gallery_example;
 mod inbox_example;
 mod mobile_smoke_example;

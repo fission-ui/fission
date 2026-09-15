@@ -1,3 +1,4 @@
+mod foundation_tokens;
 mod recipe_keys;
 mod required_components;
 
@@ -311,6 +312,10 @@ impl {krate}::DesignSystem for {type_name} {{
         let elevations = self.elevation_tokens_expr(krate)?;
         let motion = self.motion_tokens_expr(krate)?;
         let data_visualization = self.data_visualization_tokens_expr(krate, mode)?;
+        let sizing = self.sizing_tokens_expr(krate)?;
+        let opacity = self.opacity_tokens_expr(krate)?;
+        let breakpoints = self.breakpoint_tokens_expr(krate)?;
+        let layers = self.layer_tokens_expr(krate)?;
         let components = self.component_theme_expr(krate, mode, base)?;
         // Built as a block with successive field assignments rather than one
         // nested literal. ComponentTheme is around 40 KB, so materialising the
@@ -327,6 +332,11 @@ impl {krate}::DesignSystem for {type_name} {{
                     elevations: {elevations},
                     motion: {motion},
                     data_visualization: {data_visualization},
+                    sizing: {sizing},
+                    opacity: {opacity},
+                    breakpoints: {breakpoints},
+                    layers: {layers},
+                    density: {krate}::Density::Comfortable,
                 }};
                 let components = std::sync::Arc::new({components});
                 let design_system = {krate}::ResolvedDesignSystem {{
@@ -337,13 +347,10 @@ impl {krate}::DesignSystem for {type_name} {{
                     patterns: <{type_placeholder} as {krate}::DesignSystem>::patterns().to_vec(),
                     assets: <{type_placeholder} as {krate}::DesignSystem>::assets().clone(),
                 }};
-                {krate}::Theme {{
-                    tokens,
-                    components,
-                    design_system,
-                }}
+                {finish}
             }}"#,
-            type_placeholder = "Self"
+            type_placeholder = "Self",
+            finish = self.theme_finish_expr(krate)?,
         ))
     }
 
@@ -389,6 +396,9 @@ impl {krate}::DesignSystem for {type_name} {{
                 text_link: {text_link},
                 heading: {heading},
                 focus_ring: {focus_ring},
+                accent: {accent},
+                on_accent: {on_accent},
+                {paired}
             }}"#,
             primary = c("primary")?,
             on_primary = c("on_primary")?,
@@ -421,7 +431,7 @@ impl {krate}::DesignSystem for {type_name} {{
                 &self.resolve_token_string(&format!("{prefix}.text_primary"))?
             )?,
             error = c("error")?,
-            on_error = self.color_literal_expr(krate, fallback_on_error)?,
+            on_error = c_or("on_error", fallback_on_error)?,
             success = c_or("success", "#10B981")?,
             warning = c_or("warning", "#F59E0B")?,
             info = c_or("info", "#0EA5E9")?,
@@ -452,16 +462,28 @@ impl {krate}::DesignSystem for {type_name} {{
                 "focus_ring",
                 &self.resolve_token_string(&format!("{prefix}.primary"))?
             )?,
+            paired = self.paired_color_fields(krate, prefix)?,
+            accent = c_or(
+                "accent",
+                &self.resolve_token_string(&format!("{prefix}.primary"))?
+            )?,
+            on_accent = c_or(
+                "on_accent",
+                &self.resolve_token_string(&format!("{prefix}.on_primary"))?
+            )?,
         ))
     }
 
     fn spacing_tokens_expr(&self, krate: &str) -> Result<String> {
         Ok(format!(
-            "{krate}::SpacingTokens {{ none: {}, xs: {}, s: {}, m: {}, l: {}, xl: {}, xxl: {}, xxxl: {}, xxxxl: {} }}",
+            "{krate}::SpacingTokens {{ none: {}, xxs: {}, xs: {}, s: {}, ms: {}, m: {}, ml: {}, l: {}, xl: {}, xxl: {}, xxxl: {}, xxxxl: {} }}",
             f32_lit(self.dimension("spacing.none")?),
+            f32_lit(self.dimension_optional("spacing.2xs", 2.0)?),
             f32_lit(self.dimension("spacing.xs")?),
             f32_lit(self.dimension("spacing.s")?),
+            f32_lit(self.dimension_optional("spacing.ms", 12.0)?),
             f32_lit(self.dimension("spacing.m")?),
+            f32_lit(self.dimension_optional("spacing.ml", 20.0)?),
             f32_lit(self.dimension("spacing.l")?),
             f32_lit(self.dimension("spacing.xl")?),
             f32_lit(self.dimension_optional("spacing.2xl", 48.0)?),
@@ -616,7 +638,7 @@ impl {krate}::DesignSystem for {type_name} {{
                 menu: {menu},
                 calendar: {krate}::CalendarTheme {{ bg_color: {surface}, border_color: {border}, radius: {radius_medium}, selected_bg: {primary}, selected_text: {on_primary}, today_outline: {secondary} }},
                 pagination: {pagination},
-                timeline: {krate}::TimelineTheme {{ dot_size: 12.0, line_width: 2.0, dot_color: {primary}, line_color: {border} }},
+                timeline: {krate}::TimelineTheme {{ dot_size: {timeline_dot}, line_width: {timeline_line}, dot_color: {primary}, line_color: {border} }},
                 segmented_control: {krate}::SegmentedControlTheme {{ bg_color: {surface}, border_color: {border}, radius: {radius_full}, active_bg: {primary}, active_text: {on_primary} }},
                 alert: {alert},
                 avatar: {avatar},
@@ -624,7 +646,7 @@ impl {krate}::DesignSystem for {type_name} {{
                 badge: {badge},
                 tabs: {tabs},
                 modal: {modal},
-                tree_view: {krate}::TreeViewTheme {{ indent: 16.0, selected_bg: {primary}.with_alpha(52), hover_bg: {surface} }},
+                tree_view: {krate}::TreeViewTheme {{ indent: {tree_indent}, selected_bg: {primary}.with_alpha(52), hover_bg: {surface} }},
                 progress: {progress},
                 tooltip: {tooltip},
                 card: {card},
@@ -640,6 +662,9 @@ impl {krate}::DesignSystem for {type_name} {{
             secondary = self.color_expr(krate, &format!("{colors_prefix}.secondary"))?,
             radius_medium = f32_lit(self.dimension("radius.medium")?),
             radius_full = f32_lit(self.dimension("radius.full")?),
+            timeline_dot = f32_lit(self.dimension_optional("sizing.icon.xs", 12.0)?),
+            timeline_line = f32_lit(self.dimension_optional("sizing.border.thick", 2.0)?),
+            tree_indent = f32_lit(self.dimension_optional("spacing.m", 16.0)?),
         ))
     }
 
@@ -1991,6 +2016,7 @@ impl {krate}::DesignSystem for {type_name} {{
                 disabled: {disabled},
                 error: {error},
                 selected: {selected},
+                loading: {loading},
             }}"#,
             hover = state("hover")?,
             active = state("active")?,
@@ -1998,6 +2024,7 @@ impl {krate}::DesignSystem for {type_name} {{
             disabled = state("disabled")?,
             error = state("error")?,
             selected = state("selected")?,
+            loading = state("loading")?,
         ))
     }
 
@@ -2029,11 +2056,11 @@ impl {krate}::DesignSystem for {type_name} {{
             .style_fill_color_expr(krate, mode, field(value, "color"))?
             .map(|expr| format!("Some({expr})"))
             .unwrap_or_else(|| "None".into());
-        let border = self.border_option_expr(
-            krate,
-            mode,
-            field(value, "border").or_else(|| field(value, "border_bottom")),
-        )?;
+        let (border, edges) = match (field(value, "border"), field(value, "border_bottom")) {
+            (None, Some(bottom)) => (Some(bottom), format!("Some({krate}::BorderEdges::Bottom)")),
+            (border, _) => (border, "None".to_string()),
+        };
+        let border = self.border_option_expr(krate, mode, border)?;
         let shadows = self.shadow_layers_expr(
             krate,
             mode,
@@ -2074,7 +2101,7 @@ impl {krate}::DesignSystem for {type_name} {{
             r#"{krate}::ResolvedComponentStyle {{
                 background: {background},
                 text_color: {text_color},
-                border: {border},
+                border: {border}, border_edges: {edges},
                 radius: {radius},
                 height: {height},
                 min_height: {min_height},
@@ -2431,7 +2458,10 @@ impl {krate}::DesignSystem for {type_name} {{
         base: Option<&str>,
     ) -> Result<String> {
         // An inheriting design system starts from its base's recipes, so every
-        // component it does not declare still has one.
+        // component it does not declare still has one. It takes them at the
+        // base's declared (comfortable) sizes: the base's theme may already be
+        // moved to its default density, and the inheriting theme applies its
+        // own default density once, after merging.
         let initial = match base {
             Some(base) => {
                 let mode = match mode {
@@ -2439,7 +2469,7 @@ impl {krate}::DesignSystem for {type_name} {{
                     Mode::Dark => "Dark",
                 };
                 format!(
-                    "(*<{base} as {krate}::DesignSystem>::theme_ref({krate}::DesignMode::{mode}).components.recipes).clone()"
+                    "(*<{base} as {krate}::DesignSystem>::theme_ref({krate}::DesignMode::{mode}).with_density({krate}::Density::Comfortable).components.recipes).clone()"
                 )
             }
             None => "std::collections::BTreeMap::new()".into(),
@@ -2799,17 +2829,6 @@ impl {krate}::DesignSystem for {type_name} {{
         }
     }
 
-    fn number_optional(&self, path: &str, fallback: f32) -> Result<f32> {
-        if !self.tokens.contains(path) {
-            return Ok(fallback);
-        }
-        let value = self.resolve_token_string(path)?;
-        value
-            .parse::<f32>()
-            .or_else(|_| parse_dimension(&value))
-            .with_context(|| format!("invalid number token {path} = {value}"))
-    }
-
     fn duration_ms_optional(&self, path: &str, fallback: u64) -> Result<u64> {
         if !self.tokens.contains(path) {
             return Ok(fallback);
@@ -2817,13 +2836,6 @@ impl {krate}::DesignSystem for {type_name} {{
         let value = self.resolve_token_string(path)?;
         parse_duration_ms(&value)
             .with_context(|| format!("invalid duration token {path} = {value}"))
-    }
-
-    fn string_token_optional(&self, path: &str, fallback: &str) -> Result<String> {
-        if !self.tokens.contains(path) {
-            return Ok(fallback.to_string());
-        }
-        self.resolve_token_string(path)
     }
 
     fn shadow_option_expr(&self, krate: &str, path: &str) -> Result<String> {
@@ -2963,6 +2975,7 @@ impl TokenStore {
     fn from_value(value: &Value) -> Result<Self> {
         let mut tokens = BTreeMap::new();
         flatten_tokens(value, String::new(), &mut tokens)?;
+        foundation_tokens::add_color_aliases(&mut tokens);
         Ok(Self { tokens })
     }
 

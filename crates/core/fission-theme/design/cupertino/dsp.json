@@ -994,15 +994,15 @@
       },
       "states": {
         "default": {
-          "color": "{color.slate.500}",
+          "color": "{color.light.text_secondary}",
           "border_bottom": "2px solid transparent"
         },
         "hover": {
-          "color": "{color.slate.700}"
+          "color": "{color.light.text_primary}"
         },
         "active": {
-          "color": "{color.teal.700}",
-          "border_bottom": "2px solid {color.teal.700}",
+          "color": "{color.light.primary}",
+          "border_bottom": "2px solid {color.light.primary}",
           "font_weight": 600
         }
       },

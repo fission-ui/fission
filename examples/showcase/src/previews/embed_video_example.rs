@@ -1,19 +1,18 @@
-use crate::mounted_example::MountedExample;
-use crate::state::ShowcaseState;
-use embed_video_example::{VideoEmbedApp, VideoEmbedState};
+use super::host_only_preview::HostOnlyPreview;
+use fission::icons::material;
 use fission::prelude::*;
 
+/// Video playback is drawn by the host's media layer, which the showcase cannot mount.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct EmbedVideoExample;
 
 impl From<EmbedVideoExample> for Widget {
     fn from(_component: EmbedVideoExample) -> Self {
-        let (_ctx, view) = fission::build::current::<ShowcaseState>();
-        MountedExample::<VideoEmbedState, _>::new(
-            "showcase.example.embed-video",
-            view.state().preview_generation,
-            VideoEmbedApp,
-        )
+        HostOnlyPreview {
+            slug: "embed-video",
+            description_key: "showcase.host_preview.embed_video",
+            icon: || Icon::svg(material::av::videocam::round()),
+        }
         .into()
     }
 }

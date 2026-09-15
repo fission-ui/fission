@@ -1716,6 +1716,7 @@ version = "0.14.1"
 dependencies = [
  "anyhow",
  "fission",
+ "fission-test",
  "fission-test-driver",
  "image 0.25.8",
  "lazy_static",
@@ -5798,6 +5799,8 @@ version = "0.14.1"
 dependencies = [
  "anyhow",
  "fission",
+ "fission-ir",
+ "fission-test",
  "image 0.25.8",
 ]
 
@@ -6931,6 +6934,7 @@ version = "0.14.1"
 dependencies = [
  "anyhow",
  "fission",
+ "fission-test",
  "serde",
  "serde_json",
 ]
@@ -10217,6 +10221,7 @@ name = "widget-gallery"
 version = "0.14.1"
 dependencies = [
  "anyhow",
+ "chrono",
  "console_error_panic_hook",
  "fission",
  "fission-test",

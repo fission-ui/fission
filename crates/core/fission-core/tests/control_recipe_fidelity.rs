@@ -126,7 +126,7 @@ fn button_uses_compact_recipe_geometry_and_label_typography() {
 
     assert_eq!(
         box_geometry(&ir, layout_id),
-        (None, None, Some(32.0), [12.0, 12.0, 2.0, 2.0])
+        (None, None, Some(32.0), [16.0, 16.0, 2.0, 2.0])
     );
     let rects = direct_rects(&ir, layout_id);
     assert_eq!(rects.len(), 1);
@@ -689,7 +689,7 @@ fn disabled_button_recipe_wins_over_all_runtime_interaction() {
 }
 
 #[test]
-fn active_button_translates_the_complete_control_by_one_point() {
+fn a_pressed_button_changes_colour_without_moving() {
     let id = WidgetId::explicit("quality.button.active-offset");
     let env = Env::default();
     let mut runtime = RuntimeState::default();
@@ -705,12 +705,13 @@ fn active_button_translates_the_complete_control_by_one_point() {
         &runtime,
     );
     let layout_id = button_layout_id(&ir, id);
-    let translate_y = ir.nodes[&layout_id]
+    // Nudging the control down on press made rows of buttons jitter.
+    let offset = ir.nodes[&layout_id]
         .composite
         .translate_y
         .as_ref()
-        .expect("whole-button active translation");
-    assert_eq!(translate_y.base, 1.0);
+        .map_or(0.0, |translate_y| translate_y.base);
+    assert_eq!(offset, 0.0);
 }
 
 #[test]

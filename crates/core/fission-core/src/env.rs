@@ -215,6 +215,11 @@ pub struct Env {
     pub motion_preference: MotionPreference,
     /// App-wide default for widgets' built-in motion. Shells never override it.
     pub widget_motion: WidgetMotion,
+    /// Whether the app uses Fission's own look everywhere (the default) or its
+    /// host platform's native look. Shells set this through `with_platform_look`.
+    pub platform_look: fission_theme::PlatformLook,
+    /// The platform the app runs on.
+    pub host_platform: fission_theme::HostPlatform,
     /// Current light/dark appearance reported by the host platform.
     ///
     /// Applications that offer a "System" preference can select their generated
@@ -239,6 +244,8 @@ impl Default for Env {
             layout_direction: LayoutDirection::default(),
             motion_preference: MotionPreference::default(),
             widget_motion: WidgetMotion::default(),
+            platform_look: fission_theme::PlatformLook::default(),
+            host_platform: fission_theme::HostPlatform::current(),
             system_theme_mode: DesignMode::Light,
             i18n: I18nRegistry::new(),
             locale: Locale::default(),
@@ -288,6 +295,8 @@ impl Env {
             layout_direction: LayoutDirection::default(),
             motion_preference: MotionPreference::default(),
             widget_motion: WidgetMotion::default(),
+            platform_look: fission_theme::PlatformLook::default(),
+            host_platform: fission_theme::HostPlatform::current(),
             system_theme_mode: DesignMode::Light,
             i18n: I18nRegistry::new(),
             locale: Locale::default(),

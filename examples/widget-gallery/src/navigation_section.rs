@@ -1,4 +1,3 @@
-use crate::gallery_section::GallerySection;
 use crate::state::GalleryState;
 use fission::prelude::*;
 use fission::widgets::{
@@ -27,105 +26,121 @@ fn toggle_menu(state: &mut GalleryState) {
     state.menu_open = !state.menu_open;
 }
 
-pub(crate) struct NavigationSection;
+pub(crate) fn tabs() -> Vec<Widget> {
+    let (ctx, view) = fission::build::current::<GalleryState>();
+    let state = view.state();
+    widgets![Tabs {
+        active_index: state.active_tab,
+        items: vec![
+            TabItem {
+                title: "Tab A".into(),
+                content: Text::new("Content of Tab A").into(),
+                on_press: Some(with_reducer!(ctx, SetTab(0), set_tab)),
+                semantics_identifier: Some("gallery.tabs.a".into()),
+            },
+            TabItem {
+                title: "Tab B".into(),
+                content: Text::new("Content of Tab B").into(),
+                on_press: Some(with_reducer!(ctx, SetTab(1), set_tab)),
+                semantics_identifier: Some("gallery.tabs.b".into()),
+            },
+            TabItem {
+                title: "Tab C".into(),
+                content: Text::new("Content of Tab C").into(),
+                on_press: Some(with_reducer!(ctx, SetTab(2), set_tab)),
+                semantics_identifier: Some("gallery.tabs.c".into()),
+            },
+        ],
+        ..Default::default()
+    }]
+}
 
-impl From<NavigationSection> for Widget {
-    fn from(_section: NavigationSection) -> Self {
-        let (ctx, view) = fission::build::current::<GalleryState>();
-        let state = view.state();
-        let segmented_change = Arc::new({
-            let action = with_reducer!(ctx, SetSegmented(0), set_segmented);
-            move |index| action.with_action(&SetSegmented(index))
-        });
-        let page_change = Arc::new({
-            let action = with_reducer!(ctx, SetPage(1), set_page);
-            move |page| action.with_action(&SetPage(page))
-        });
+pub(crate) fn breadcrumb() -> Vec<Widget> {
+    widgets![Breadcrumb {
+        items: vec![
+            BreadcrumbItem {
+                label: "Home".into(),
+                on_click: None,
+            },
+            BreadcrumbItem {
+                label: "Gallery".into(),
+                on_click: None,
+            },
+            BreadcrumbItem {
+                label: "Widgets".into(),
+                on_click: None,
+            },
+        ],
+    }]
+}
 
-        GallerySection::new(
-            "Navigation",
-            widgets![
-                Tabs {
-                    active_index: state.active_tab,
-                    items: vec![
-                        TabItem {
-                            title: "Tab A".into(),
-                            content: Text::new("Content of Tab A").into(),
-                            on_press: Some(with_reducer!(ctx, SetTab(0), set_tab)),
-                            semantics_identifier: Some("gallery.tabs.a".into()),
-                        },
-                        TabItem {
-                            title: "Tab B".into(),
-                            content: Text::new("Content of Tab B").into(),
-                            on_press: Some(with_reducer!(ctx, SetTab(1), set_tab)),
-                            semantics_identifier: Some("gallery.tabs.b".into()),
-                        },
-                        TabItem {
-                            title: "Tab C".into(),
-                            content: Text::new("Content of Tab C").into(),
-                            on_press: Some(with_reducer!(ctx, SetTab(2), set_tab)),
-                            semantics_identifier: Some("gallery.tabs.c".into()),
-                        },
-                    ],
-                    ..Default::default()
+pub(crate) fn segmented_control() -> Vec<Widget> {
+    let (ctx, view) = fission::build::current::<GalleryState>();
+    let state = view.state();
+    let segmented_change = Arc::new({
+        let action = with_reducer!(ctx, SetSegmented(0), set_segmented);
+        move |index| action.with_action(&SetSegmented(index))
+    });
+    widgets![HStack {
+        spacing: None,
+        children: widgets![SegmentedControl {
+            options: vec!["Day".into(), "Week".into(), "Month".into()],
+            selected_index: state.segmented_index,
+            on_change: Some(segmented_change),
+        }],
+    }]
+}
+
+pub(crate) fn pagination() -> Vec<Widget> {
+    let (ctx, view) = fission::build::current::<GalleryState>();
+    let state = view.state();
+    let page_change = Arc::new({
+        let action = with_reducer!(ctx, SetPage(1), set_page);
+        move |page| action.with_action(&SetPage(page))
+    });
+    widgets![Pagination {
+        current_page: state.current_page.max(1),
+        total_pages: 10,
+        on_change: Some(page_change),
+    }]
+}
+
+pub(crate) fn link() -> Vec<Widget> {
+    widgets![HStack {
+        spacing: None,
+        children: widgets![Link {
+            text: "Visit documentation".into(),
+            on_click: None,
+        }],
+    }]
+}
+
+pub(crate) fn menu() -> Vec<Widget> {
+    let (ctx, view) = fission::build::current::<GalleryState>();
+    let state = view.state();
+    // The page column stretches its children; the row lets the trigger hug its label.
+    widgets![HStack {
+        spacing: None,
+        children: widgets![MenuButton {
+            id: WidgetId::explicit("gallery_menu"),
+            label: "Actions".into(),
+            items: vec![
+                MenuItem {
+                    label: "Edit".into(),
+                    icon: None,
+                    on_select: None,
+                    semantics_identifier: Some("gallery.menu.edit".into()),
                 },
-                Breadcrumb {
-                    items: vec![
-                        BreadcrumbItem {
-                            label: "Home".into(),
-                            on_click: None,
-                        },
-                        BreadcrumbItem {
-                            label: "Gallery".into(),
-                            on_click: None,
-                        },
-                        BreadcrumbItem {
-                            label: "Widgets".into(),
-                            on_click: None,
-                        },
-                    ],
-                },
-                SegmentedControl {
-                    options: vec!["Day".into(), "Week".into(), "Month".into()],
-                    selected_index: state.segmented_index,
-                    on_change: Some(segmented_change),
-                },
-                Pagination {
-                    current_page: state.current_page.max(1),
-                    total_pages: 10,
-                    on_change: Some(page_change),
-                },
-                Link {
-                    text: "Visit documentation".into(),
-                    on_click: None,
-                },
-                // The section column stretches its children; the row lets the trigger hug its label.
-                HStack {
-                    children: widgets![MenuButton {
-                        id: WidgetId::explicit("gallery_menu"),
-                        label: "Actions".into(),
-                        items: vec![
-                            MenuItem {
-                                label: "Edit".into(),
-                                icon: None,
-                                on_select: None,
-                                semantics_identifier: Some("gallery.menu.edit".into()),
-                            },
-                            MenuItem {
-                                label: "Delete".into(),
-                                icon: None,
-                                on_select: None,
-                                semantics_identifier: Some("gallery.menu.delete".into()),
-                            },
-                        ],
-                        is_open: state.menu_open,
-                        on_toggle: Some(with_reducer!(ctx, ToggleMenu, toggle_menu)),
-                        trigger_semantics_identifier: Some("gallery.menu.trigger".into()),
-                    }],
-                    ..Default::default()
+                MenuItem {
+                    label: "Delete".into(),
+                    icon: None,
+                    on_select: None,
+                    semantics_identifier: Some("gallery.menu.delete".into()),
                 },
             ],
-        )
-        .into()
-    }
+            is_open: state.menu_open,
+            on_toggle: Some(with_reducer!(ctx, ToggleMenu, toggle_menu)),
+            trigger_semantics_identifier: Some("gallery.menu.trigger".into()),
+        }],
+    }]
 }

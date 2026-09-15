@@ -3,7 +3,7 @@
 use fission::core::event::{InputEvent, KeyCode, KeyEvent, PointerButton, PointerEvent};
 use fission::layout::{LayoutPoint, LayoutSize};
 use fission_test::{TestDriver, TestHarness};
-use widget_gallery::{GalleryApp, GalleryState};
+use widget_gallery::{GalleryApp, GalleryPage, GalleryState};
 
 fn right_click(driver: &mut TestDriver<GalleryState>, point: LayoutPoint) {
     driver
@@ -31,8 +31,13 @@ fn right_click(driver: &mut TestDriver<GalleryState>, point: LayoutPoint) {
 }
 
 fn driver() -> TestDriver<GalleryState> {
-    let mut driver =
-        TestDriver::new(TestHarness::new(GalleryState::default()).with_root_widget(GalleryApp));
+    let mut driver = TestDriver::new(
+        TestHarness::new(GalleryState {
+            page: GalleryPage::ContextMenu,
+            ..GalleryState::default()
+        })
+        .with_root_widget(GalleryApp),
+    );
     driver.harness.env.viewport_size = LayoutSize::new(1000.0, 3000.0);
     driver.pump().expect("first frame");
     driver
@@ -86,6 +91,7 @@ fn right_clicking_a_text_field_opens_a_menu_whose_copy_runs_and_closes() {
     use fission::core::Role;
 
     let state = GalleryState {
+        page: GalleryPage::TextInput,
         text_value: "copy me".into(),
         ..GalleryState::default()
     };

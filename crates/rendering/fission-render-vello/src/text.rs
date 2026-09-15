@@ -214,11 +214,12 @@ impl VelloTextMeasurer {
         let height = layout.lines().fold(0.0_f32, |height, line| {
             let metrics = line.metrics();
             width = width.max((metrics.advance - metrics.trailing_whitespace).max(0.0));
-            let line_height = metrics
-                .line_height
-                .max(metrics.ascent + metrics.descent)
-                .max(1.0);
-            height.max(metrics.baseline - metrics.ascent + line_height)
+            // The line box ends at its block end: the full line height when leading is
+            // positive, or the glyph bottom when a small line height squeezes the glyphs.
+            // Adding the line height to `baseline - ascent` counted the half-leading
+            // above the text twice, so a label measured taller than its line and sat
+            // high when centred, with the extra space below it.
+            height.max(metrics.block_max_coord).max(1.0)
         });
         (width, height)
     }
@@ -1293,6 +1294,26 @@ mod tests {
                 typography: Default::default(),
             },
         }
+    }
+
+    #[test]
+    fn a_single_line_measures_its_line_height_not_extra_leading() {
+        let measurer = measurer();
+
+        // A roomy line height: the box is exactly the line, so a centred label is centred.
+        let (_, roomy) = measurer.measure_rich_text(&[text_run("Medium", 14.0, 20.0)], None);
+        assert!(
+            (roomy - 20.0).abs() < 0.01,
+            "a 20px line measured {roomy}px; half the leading was counted twice"
+        );
+
+        // A squeezed line height still covers the glyphs so they are not clipped.
+        let squeezed_run = text_run("Medium", 14.0, 10.0);
+        let (_, squeezed) = measurer.measure_rich_text(&[squeezed_run], None);
+        assert!(
+            squeezed > 10.0,
+            "glyphs overflowed a squeezed line: {squeezed}px"
+        );
     }
 
     #[test]

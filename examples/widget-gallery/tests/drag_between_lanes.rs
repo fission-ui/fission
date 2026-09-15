@@ -4,7 +4,7 @@
 use fission::core::event::{InputEvent, PointerButton, PointerEvent};
 use fission::layout::{LayoutPoint, LayoutSize};
 use fission_test::{TestDriver, TestHarness};
-use widget_gallery::{GalleryApp, GalleryState};
+use widget_gallery::{GalleryApp, GalleryPage, GalleryState};
 
 fn pointer(driver: &mut TestDriver<GalleryState>, phase: &str, point: LayoutPoint) {
     let event = match phase {
@@ -38,8 +38,13 @@ fn pointer(driver: &mut TestDriver<GalleryState>, phase: &str, point: LayoutPoin
 
 #[test]
 fn a_card_dragged_onto_the_done_lane_moves_there() {
-    let mut driver =
-        TestDriver::new(TestHarness::new(GalleryState::default()).with_root_widget(GalleryApp));
+    let mut driver = TestDriver::new(
+        TestHarness::new(GalleryState {
+            page: GalleryPage::DragAndDrop,
+            ..GalleryState::default()
+        })
+        .with_root_widget(GalleryApp),
+    );
     driver.harness.env.viewport_size = LayoutSize::new(1000.0, 8000.0);
     driver.pump().expect("first frame");
 

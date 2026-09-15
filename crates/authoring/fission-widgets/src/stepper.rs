@@ -39,7 +39,7 @@ impl From<Stepper> for Widget {
             let is_completed = i < this.active_index;
             let is_emphasized = is_active || is_completed;
 
-            let node_size = node_style.width.unwrap_or(24.0);
+            let node_size = node_style.width.unwrap_or(tokens.sizing.icon_lg);
             let mut circle = Container::new(Align::new(
                 Text::new(format!("{}", i + 1))
                     .size(

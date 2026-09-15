@@ -417,6 +417,7 @@ fn named_tab_list_uses_underline_recipe_and_styles_semantic_count_content() {
         matches!(
             op,
             Op::Layout(LayoutOp::StyledBox { style, .. })
+                // Declared at 48px; Fission starts one density step smaller.
                 if style.height == Some(Length::Points(44.0))
         )
     }));
@@ -887,4 +888,100 @@ fn gradient(start: Color, end: Color) -> Fill {
 
 fn points(values: [f32; 4]) -> [Length; 4] {
     values.map(Length::Points)
+}
+
+/// A design system whose tabs recipe declares no radius (Material 3 here) still
+/// rounds a focused tab's border, instead of drawing square corners inside a
+/// rounded control.
+#[test]
+fn a_focused_tab_keeps_rounded_corners_when_the_recipe_declares_no_radius() {
+    use fission_theme::{DesignMode, DesignSystem, FissionMaterialDesign3DesignSystem};
+
+    let base_id = WidgetId::explicit("focus.tabs");
+    let first_id = WidgetId::derived(base_id.as_u128(), &[0, 0]);
+    let mut env = Env::default();
+    env.theme = FissionMaterialDesign3DesignSystem::theme(DesignMode::Light);
+    let mut runtime = RuntimeState::default();
+    runtime.interaction.set_focused(Some(first_id));
+    runtime.interaction.focus_visible = true;
+
+    let tabs = Tabs {
+        active_index: 0,
+        items: vec![
+            actionable_tab("Primary", "focus.primary"),
+            actionable_tab("Social", "focus.social"),
+        ],
+        ..Default::default()
+    };
+    let ir = lower_tabs(tabs, &env, &runtime, Some(base_id));
+    let (actual_first_id, _) = semantics_for_identifier(&ir, "focus.primary");
+    assert_eq!(actual_first_id, first_id);
+
+    // Material 3 marks the selected tab with an underline, a bottom edge alone.
+    let stroked_radii: Vec<f32> = descendant_ops(&ir, actual_first_id)
+        .filter_map(|op| match op {
+            Op::Paint(paint @ PaintOp::DrawRect { corner_radius, .. })
+                if matches!(paint, PaintOp::DrawRect { stroke: Some(_), .. })
+                    || paint.border_sides().is_some() =>
+            {
+                Some(*corner_radius)
+            }
+            _ => None,
+        })
+        .collect();
+    assert!(
+        !stroked_radii.is_empty(),
+        "the focused, selected tab draws its border"
+    );
+    assert!(
+        stroked_radii.iter().all(|radius| *radius > 0.0),
+        "focus border corners should follow the control's radius, got {stroked_radii:?}"
+    );
+}
+
+/// Material 3 underlines its tab track and the selected tab: a recipe that asks
+/// for `border_bottom` strokes that edge alone rather than boxing the tabs in.
+#[test]
+fn an_underlined_tab_strip_strokes_only_its_bottom_edges() {
+    use fission_theme::{DesignMode, DesignSystem, FissionMaterialDesign3DesignSystem};
+
+    let mut env = Env::default();
+    env.theme = FissionMaterialDesign3DesignSystem::theme(DesignMode::Light);
+    let tabs = Tabs {
+        active_index: 0,
+        items: vec![
+            actionable_tab("Primary", "underline.primary"),
+            actionable_tab("Social", "underline.social"),
+        ],
+        ..Default::default()
+    };
+    let ir = lower_tabs(
+        tabs,
+        &env,
+        &RuntimeState::default(),
+        Some(WidgetId::explicit("underline.tabs")),
+    );
+
+    let rects: Vec<&PaintOp> = ir
+        .nodes
+        .values()
+        .filter_map(|node| match &node.op {
+            Op::Paint(paint @ PaintOp::DrawRect { .. }) => Some(paint),
+            _ => None,
+        })
+        .collect();
+    let boxed = rects
+        .iter()
+        .filter(|paint| matches!(paint, PaintOp::DrawRect { stroke: Some(_), .. }))
+        .count();
+    assert_eq!(boxed, 0, "no tab or track draws a full border box");
+    let underlines = rects
+        .iter()
+        .filter_map(|paint| paint.border_sides())
+        .filter(|sides| sides.bottom.is_some() && sides.top.is_none())
+        .count();
+    assert!(
+        underlines >= 2,
+        "the track and the selected tab each draw a bottom edge, found {underlines}"
+    );
 }

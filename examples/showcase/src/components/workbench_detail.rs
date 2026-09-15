@@ -1,4 +1,4 @@
-use super::{PreviewFrame, WorkbenchHeader};
+use super::{PreviewFrame, PreviewToolbar, WorkbenchHeader};
 use crate::catalog::ExampleDefinition;
 use crate::state::ShowcaseState;
 use fission::prelude::*;
@@ -17,7 +17,12 @@ impl From<WorkbenchDetail> for Widget {
                 Container::new(WorkbenchHeader {
                     example: component.example,
                 })
-                .padding_lengths(Length::all(Length::points(tokens.spacing.m))),
+                .padding_lengths(Length::symmetric(
+                    Length::points(tokens.spacing.l),
+                    Length::points(tokens.spacing.m),
+                ))
+                .bg(tokens.colors.surface),
+                PreviewToolbar,
                 PreviewFrame {
                     example: component.example,
                 },

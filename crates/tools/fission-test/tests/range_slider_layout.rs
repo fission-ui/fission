@@ -111,14 +111,16 @@ fn the_tracks_are_thin_and_the_thumbs_are_visible_at_their_values() {
         "the selected segment is as thin as the track, got {selected:?}"
     );
 
+    // Thumbs are the design system's medium icon size.
+    let thumb_size = fission_core::Env::default().theme.tokens.sizing.icon_md;
     for (identifier, pct) in [("range.start", 0.2), ("range.end", 0.6)] {
         let thumb = driver
             .find_semantics_identifier(identifier)
             .unwrap_or_else(|| panic!("{identifier} thumb"))
             .bounds;
         assert!(
-            (thumb.width() - 16.0).abs() < 0.5 && (thumb.height() - 16.0).abs() < 0.5,
-            "{identifier} is a 16x16 thumb, got {thumb:?}"
+            (thumb.width() - thumb_size).abs() < 0.5 && (thumb.height() - thumb_size).abs() < 0.5,
+            "{identifier} is a {thumb_size}px thumb, got {thumb:?}"
         );
         // The thumb's layout box starts at its value and its paint is shifted back by half its
         // width, so the drawn thumb is centred on the box's leading edge.
@@ -131,7 +133,7 @@ fn the_tracks_are_thin_and_the_thumbs_are_visible_at_their_values() {
         let paints_at_thumb = rects
             .iter()
             .filter(|rect| {
-                (rect.width() - 16.0).abs() < 0.5
+                (rect.width() - thumb_size).abs() < 0.5
                     && (rect.x() - thumb.x()).abs() < 0.5
                     && (rect.y() - thumb.y()).abs() < 0.5
             })

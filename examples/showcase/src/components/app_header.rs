@@ -1,35 +1,33 @@
 use super::brand::Brand;
-use super::nav_items::NavItems;
-use super::preview_toolbar::PreviewToolbar;
-use crate::semantics::ShowcaseSemantics;
-use crate::state::{on_open_source, on_search_changed, OpenSource, SearchChanged, ShowcaseState};
+use crate::state::{
+    on_open_source, on_search_changed, on_set_locale, on_toggle_locale_menu, OpenSource,
+    SearchChanged, SetLocale, ShowcaseState, ToggleLocaleMenu,
+};
 use fission::icons::material;
-use fission::op::{AlignItems, Fill, JustifyContent};
+use fission::op::AlignItems;
 use fission::prelude::*;
+use fission::widgets::{Select, SelectItem};
 
-const COMPACT_HEADER_BREAKPOINT: f32 = 920.0;
+const COMPACT_HEADER_BREAKPOINT: f32 = 720.0;
+const SEARCH_WIDTH: f32 = 280.0;
+/// Wide enough for the longest language name, since the menu matches its trigger.
+const LOCALE_PICKER_WIDTH: f32 = 128.0;
 
+/// Locale codes and their names, written in their own language so they are not translated.
+const LOCALES: [(&str, &str); 2] = [("en-US", "English"), ("es-ES", "Español")];
+
+/// The app bar: where you are, finding an example, language, and the source code.
+///
+/// Language changes the whole showcase, so it sits with the app rather than in
+/// the toolbar above the preview, which keeps that toolbar to one row.
 #[derive(Clone, Debug)]
 pub(crate) struct AppHeader;
 
 impl From<AppHeader> for Widget {
     fn from(_component: AppHeader) -> Self {
-        let (_ctx, view) = fission::build::current::<ShowcaseState>();
-        if view.viewport_size().width < COMPACT_HEADER_BREAKPOINT {
-            CompactHeader.into()
-        } else {
-            ExpandedHeader.into()
-        }
-    }
-}
-
-#[derive(Clone, Debug)]
-struct ExpandedHeader;
-
-impl From<ExpandedHeader> for Widget {
-    fn from(_component: ExpandedHeader) -> Self {
         let (ctx, view) = fission::build::current::<ShowcaseState>();
         let tokens = &view.env().theme.tokens;
+        let compact = view.viewport_size().width < COMPACT_HEADER_BREAKPOINT;
         let search = with_reducer!(ctx, SearchChanged, on_search_changed);
         let open_github = with_reducer!(
             ctx,
@@ -37,86 +35,109 @@ impl From<ExpandedHeader> for Widget {
             on_open_source
         );
 
-        Container::new(Row {
-            children: widgets![
-                Brand,
-                NavItems,
-                Spacer {
-                    flex_grow: 1.0,
-                    ..Default::default()
-                },
-                PreviewToolbar,
-                TextInput {
-                    id: Some(WidgetId::explicit("showcase.search")),
-                    semantics_identifier: Some("showcase.search".into()),
-                    value: view.state().search.clone(),
-                    placeholder: Some(TextContent::Key("showcase.nav.search".into())),
-                    on_input: Some(search),
-                    width: Some(tokens.spacing.xxxxl * 2.6),
-                    ..Default::default()
-                },
-                Button {
-                    variant: ButtonVariant::TertiaryGray,
-                    size: ComponentSize::Sm,
-                    child: Some(
-                        Icon::svg(material::action::code::round())
-                            .size(tokens.typography.font_size_lg)
-                            .into(),
-                    ),
-                    on_press: Some(open_github),
-                    semantics: Some(Semantics::link("GitHub").identifier("showcase.github"),),
-                    ..Default::default()
-                },
-            ],
-            gap: Some(tokens.spacing.m),
-            align_items: AlignItems::Center,
-            justify_content: JustifyContent::Start,
+        let search_field: Widget = TextInput {
+            id: Some(WidgetId::explicit("showcase.search")),
+            semantics_identifier: Some("showcase.search".into()),
+            value: view.state().search.clone(),
+            placeholder: Some(TextContent::Key("showcase.nav.search".into())),
+            on_input: Some(search),
+            width: (!compact).then_some(SEARCH_WIDTH),
             ..Default::default()
-        })
-        .padding_lengths(Length::all(Length::points(tokens.spacing.m)))
-        .bg_fill(Fill::Solid(tokens.colors.surface.with_alpha(246)))
-        .border(tokens.colors.divider, 1.0)
+        }
+        .into();
+        let github: Widget = Button {
+            variant: ButtonVariant::Ghost,
+            size: ComponentSize::Sm,
+            icon_content: Some(ButtonIconContent::new(
+                Icon::svg(material::action::code::round()),
+                "GitHub",
+            )),
+            on_press: Some(open_github),
+            ..Default::default()
+        }
+        .semantics_identifier("showcase.github")
+        .into();
+
+        let spacer = || Spacer {
+            flex_grow: 1.0,
+            ..Default::default()
+        };
+        // A narrow bar has no room for search beside the brand and language, so
+        // search takes a full-width row of its own underneath.
+        let content: Widget = if compact {
+            Column {
+                gap: Some(tokens.spacing.s),
+                children: widgets![
+                    Row {
+                        children: widgets![Brand, spacer(), LocalePicker, github],
+                        gap: Some(tokens.spacing.m),
+                        align_items: AlignItems::Center,
+                        ..Default::default()
+                    },
+                    Container::new(search_field).width_length(Length::percent(100.0)),
+                ],
+                ..Default::default()
+            }
+            .into()
+        } else {
+            Row {
+                children: widgets![Brand, spacer(), search_field, LocalePicker, github],
+                gap: Some(tokens.spacing.m),
+                align_items: AlignItems::Center,
+                ..Default::default()
+            }
+            .into()
+        };
+
+        Container::new(content)
+        .padding_lengths(Length::symmetric(
+            Length::points(tokens.spacing.l),
+            Length::points(tokens.spacing.s),
+        ))
+        .bg(tokens.colors.surface)
+        .border_bottom(tokens.colors.border, tokens.sizing.border_hairline)
         .into()
     }
 }
 
-#[derive(Clone, Debug)]
-struct CompactHeader;
+/// Chooses the language of the showcase and the preview.
+///
+/// Keeps the `showcase.preview.locale` identifier the toolbar control used, so
+/// automation that switches language still finds it.
+#[derive(Clone, Copy, Debug)]
+struct LocalePicker;
 
-impl From<CompactHeader> for Widget {
-    fn from(_component: CompactHeader) -> Self {
+impl From<LocalePicker> for Widget {
+    fn from(_component: LocalePicker) -> Self {
         let (ctx, view) = fission::build::current::<ShowcaseState>();
-        let tokens = &view.env().theme.tokens;
-        let search = with_reducer!(ctx, SearchChanged, on_search_changed);
-        Container::new(Column {
-            children: widgets![
-                Row {
-                    children: widgets![
-                        Brand,
-                        Spacer {
-                            flex_grow: 1.0,
-                            ..Default::default()
-                        },
-                    ],
-                    align_items: AlignItems::Center,
-                    ..Default::default()
-                },
-                PreviewToolbar,
-                TextInput {
-                    id: Some(WidgetId::explicit("showcase.search.compact")),
-                    semantics_identifier: Some("showcase.search".into()),
-                    value: view.state().search.clone(),
-                    placeholder: Some(TextContent::Key("showcase.nav.search".into())),
-                    on_input: Some(search),
-                    ..Default::default()
-                },
-            ],
-            gap: Some(tokens.spacing.s),
-            ..Default::default()
+        let state = view.state();
+        let items = LOCALES
+            .iter()
+            .map(|(code, name)| SelectItem {
+                label: (*name).to_string(),
+                icon: None,
+                on_select: with_reducer!(ctx, SetLocale((*code).to_string()), on_set_locale),
+                semantics_identifier: Some(format!("showcase.preview.locale.{code}")),
+            })
+            .collect();
+        let selected = LOCALES
+            .iter()
+            .find(|(code, _)| *code == state.locale.0.as_str())
+            .map(|(_, name)| (*name).to_string());
+
+        SemanticsRegion::new(Select {
+            id: WidgetId::explicit("showcase.preview.locale.select"),
+            selected_label: selected,
+            items,
+            is_open: state.locale_open,
+            on_toggle: Some(with_reducer!(ctx, ToggleLocaleMenu, on_toggle_locale_menu)),
+            trigger_semantics_identifier: Some("showcase.preview.locale.trigger".into()),
+            placeholder: view.tr("showcase.workbench.locale"),
+            width: Some(LOCALE_PICKER_WIDTH),
         })
-        .padding_lengths(Length::all(Length::points(tokens.spacing.s)))
-        .bg(tokens.colors.surface)
-        .border(tokens.colors.divider, 1.0)
+        .role(Role::Group)
+        .label(view.tr("showcase.workbench.locale"))
+        .identifier("showcase.preview.locale")
         .into()
     }
 }

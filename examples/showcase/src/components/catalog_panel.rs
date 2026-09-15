@@ -3,6 +3,7 @@ use super::FilterBar;
 use crate::catalog::{ExampleCategory, EXAMPLES};
 use crate::state::ShowcaseState;
 use fission::prelude::*;
+use fission::widgets::EmptyState;
 
 #[derive(Clone, Debug)]
 pub(crate) struct CatalogPanel {
@@ -44,10 +45,13 @@ impl From<CatalogPanel> for Widget {
         }
 
         let body: Widget = if sections.is_empty() {
-            Text::new(TextContent::Key("showcase.catalog.empty".into()))
-                .size(tokens.typography.body_large_size)
-                .color(tokens.colors.text_muted)
-                .into()
+            EmptyState {
+                icon: None,
+                title: view.tr("showcase.catalog.empty"),
+                description: None,
+                action: None,
+            }
+            .into()
         } else {
             Column {
                 children: sections,
@@ -60,10 +64,9 @@ impl From<CatalogPanel> for Widget {
         Column {
             children: widgets![
                 Text::new(TextContent::Key("showcase.catalog.title".into()))
-                    .size(tokens.typography.heading_size)
-                    .family(tokens.typography.font_family_serif.clone())
-                    .weight(tokens.typography.font_weight_bold)
-                    .color(tokens.colors.heading),
+                    .size(tokens.typography.font_size_lg)
+                    .weight(tokens.typography.font_weight_semibold)
+                    .color(tokens.colors.text_primary),
                 FilterBar,
                 body,
             ],

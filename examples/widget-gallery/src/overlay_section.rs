@@ -1,4 +1,3 @@
-use crate::gallery_section::GallerySection;
 use crate::state::GalleryState;
 use fission::prelude::*;
 use fission::widgets::{
@@ -47,170 +46,184 @@ fn dismiss_toast(state: &mut GalleryState) {
     state.show_toast = false;
 }
 
-pub(crate) struct OverlaySection;
+/// A trigger button kept at its natural width inside the stretching page column.
+fn trigger(button: Button) -> Widget {
+    HStack {
+        spacing: None,
+        children: widgets![button],
+    }
+    .into()
+}
 
-impl From<OverlaySection> for Widget {
-    fn from(_section: OverlaySection) -> Self {
-        let (ctx, view) = fission::build::current::<GalleryState>();
-        let state = view.state();
-        let tokens = &view.env().theme.tokens;
-        let close_modal = with_reducer!(ctx, CloseModal, close_modal);
-        let close_drawer = with_reducer!(ctx, CloseDrawer, close_drawer);
-        let mut children = widgets![
-            HStack {
-                spacing: Some(tokens.spacing.s),
-                children: widgets![
-                    Button {
-                        variant: ButtonVariant::Outline,
-                        child: Some(Text::new("Open Modal").into()),
-                        on_press: Some(with_reducer!(ctx, ToggleModal, toggle_modal)),
-                        ..Default::default()
-                    }
-                    .semantics_identifier("gallery.modal.open"),
-                    Button {
-                        variant: ButtonVariant::Outline,
-                        child: Some(Text::new("Open Drawer").into()),
-                        on_press: Some(with_reducer!(ctx, ToggleDrawer, toggle_drawer)),
-                        ..Default::default()
-                    }
-                    .semantics_identifier("gallery.drawer.open"),
-                    Button {
-                        variant: ButtonVariant::Outline,
-                        child: Some(Text::new("Show Toast").into()),
-                        on_press: Some(with_reducer!(ctx, ShowToast, show_toast)),
-                        ..Default::default()
-                    }
-                    .semantics_identifier("gallery.toast.show"),
+pub(crate) fn modal() -> Vec<Widget> {
+    let (ctx, view) = fission::build::current::<GalleryState>();
+    let state = view.state();
+    let close_modal = with_reducer!(ctx, CloseModal, close_modal);
+    let mut children = vec![trigger(
+        Button {
+            variant: ButtonVariant::Outline,
+            child: Some(Text::new("Open Modal").into()),
+            on_press: Some(with_reducer!(ctx, ToggleModal, toggle_modal)),
+            ..Default::default()
+        }
+        .semantics_identifier("gallery.modal.open"),
+    )];
+    if state.modal_open {
+        children.push(
+            Modal {
+                id: WidgetId::explicit("gallery_modal"),
+                title: "Gallery Modal".into(),
+                content: Text::new("This is modal content.\nYou can put any widget here.").into(),
+                is_open: true,
+                on_dismiss: Some(close_modal.clone()),
+                backdrop_semantics_identifier: Some("gallery.modal.backdrop".into()),
+                close_semantics_identifier: Some("gallery.modal.close".into()),
+                surface_semantics_identifier: Some("gallery.modal.surface".into()),
+                actions: vec![
+                    ModalAction {
+                        label: "Cancel".into(),
+                        on_press: Some(close_modal.clone()),
+                        is_primary: false,
+                        semantics_identifier: Some("gallery.modal.cancel".into()),
+                    },
+                    ModalAction {
+                        label: "Confirm".into(),
+                        on_press: Some(close_modal),
+                        is_primary: true,
+                        semantics_identifier: Some("gallery.modal.confirm".into()),
+                    },
                 ],
-            },
-            Tooltip {
-                id: WidgetId::explicit("gallery_tooltip"),
-                child: Text::new("Hover me for tooltip").into(),
-                text: "This is a tooltip!".into(),
-                is_visible: false,
-                motion: None,
-            },
-            // The section column stretches its children; the row lets the trigger hug its value.
-            HStack {
-                children: widgets![Select {
-                    id: WidgetId::explicit("gallery_select"),
-                    selected_label: state.select_value.clone(),
-                    items: vec![
-                        SelectItem {
-                            label: "Option A".into(),
-                            icon: None,
-                            on_select: with_reducer!(
-                                ctx,
-                                SelectValue("Option A".into()),
-                                select_value
-                            ),
-                            semantics_identifier: Some("gallery.select.a".into()),
-                        },
-                        SelectItem {
-                            label: "Option B".into(),
-                            icon: None,
-                            on_select: with_reducer!(
-                                ctx,
-                                SelectValue("Option B".into()),
-                                select_value
-                            ),
-                            semantics_identifier: Some("gallery.select.b".into()),
-                        },
-                    ],
-                    is_open: state.select_open,
-                    on_toggle: Some(with_reducer!(ctx, ToggleSelect, toggle_select)),
-                    trigger_semantics_identifier: Some("gallery.select.trigger".into()),
-                    placeholder: "Choose...".into(),
-                    width: None,
-                }],
-                ..Default::default()
-            },
-        ];
-
-        if state.modal_open {
-            children.push(
-                Modal {
-                    id: WidgetId::explicit("gallery_modal"),
-                    title: "Gallery Modal".into(),
-                    content: Text::new("This is modal content.\nYou can put any widget here.")
-                        .into(),
-                    is_open: true,
-                    on_dismiss: Some(close_modal.clone()),
-                    backdrop_semantics_identifier: Some("gallery.modal.backdrop".into()),
-                    close_semantics_identifier: Some("gallery.modal.close".into()),
-                    surface_semantics_identifier: Some("gallery.modal.surface".into()),
-                    actions: vec![
-                        ModalAction {
-                            label: "Cancel".into(),
-                            on_press: Some(close_modal.clone()),
-                            is_primary: false,
-                            semantics_identifier: Some("gallery.modal.cancel".into()),
-                        },
-                        ModalAction {
-                            label: "Confirm".into(),
-                            on_press: Some(close_modal),
-                            is_primary: true,
-                            semantics_identifier: Some("gallery.modal.confirm".into()),
-                        },
-                    ],
-                    width: None,
-                    motion: None,
-                }
-                .into(),
-            );
-        }
-
-        if state.drawer_open {
-            children.push(
-                Drawer {
-                    id: WidgetId::explicit("gallery_drawer"),
-                    side: DrawerSide::Right,
-                    is_open: true,
-                    on_dismiss: Some(close_drawer),
-                    dismiss_semantics_identifier: Some("gallery.drawer.backdrop".into()),
-                    content: Container::new(VStack {
-                        spacing: Some(tokens.spacing.s),
-                        children: widgets![
-                            Text::new("Drawer Content")
-                                .size(tokens.typography.font_size_lg)
-                                .weight(tokens.typography.font_weight_bold)
-                                .color(tokens.colors.text_primary),
-                            Text::new("This slides in from the right.")
-                                .color(tokens.colors.text_secondary),
-                        ],
-                    })
-                    .padding_all(tokens.spacing.l)
-                    .into(),
-                    width: None,
-                    motion: None,
-                }
-                .into(),
-            );
-        }
-
-        if state.show_toast {
-            let toast: Widget = Toast {
-                id: WidgetId::explicit("gallery_toast"),
-                kind: ToastKind::Success,
-                message: "Action completed!".into(),
-                on_close: Some(with_reducer!(ctx, DismissToast, dismiss_toast)),
-                duration: fission::widgets::ToastDuration::Default,
+                width: None,
                 motion: None,
             }
-            .into();
-            ctx.register_portal_with_layer(
-                PortalLayer::Toast,
-                Some(WidgetId::explicit("gallery_toast")),
-                Positioned {
-                    right: Some(tokens.spacing.m),
-                    bottom: Some(tokens.spacing.m),
-                    child: Some(toast),
-                    ..Default::default()
-                }
-                .into(),
-            );
-        }
-
-        GallerySection::new("Overlays", children).into()
+            .into(),
+        );
     }
+    children
+}
+
+pub(crate) fn drawer() -> Vec<Widget> {
+    let (ctx, view) = fission::build::current::<GalleryState>();
+    let state = view.state();
+    let tokens = &view.env().theme.tokens;
+    let close_drawer = with_reducer!(ctx, CloseDrawer, close_drawer);
+    let mut children = vec![trigger(
+        Button {
+            variant: ButtonVariant::Outline,
+            child: Some(Text::new("Open Drawer").into()),
+            on_press: Some(with_reducer!(ctx, ToggleDrawer, toggle_drawer)),
+            ..Default::default()
+        }
+        .semantics_identifier("gallery.drawer.open"),
+    )];
+    if state.drawer_open {
+        children.push(
+            Drawer {
+                id: WidgetId::explicit("gallery_drawer"),
+                side: DrawerSide::Right,
+                is_open: true,
+                on_dismiss: Some(close_drawer),
+                dismiss_semantics_identifier: Some("gallery.drawer.backdrop".into()),
+                content: Container::new(VStack {
+                    spacing: Some(tokens.spacing.s),
+                    children: widgets![
+                        Text::new("Drawer Content")
+                            .size(tokens.typography.font_size_lg)
+                            .weight(tokens.typography.font_weight_bold)
+                            .color(tokens.colors.text_primary),
+                        Text::new("This slides in from the right.")
+                            .color(tokens.colors.text_secondary),
+                    ],
+                })
+                .padding_all(tokens.spacing.l)
+                .into(),
+                width: None,
+                motion: None,
+            }
+            .into(),
+        );
+    }
+    children
+}
+
+pub(crate) fn toast() -> Vec<Widget> {
+    let (ctx, view) = fission::build::current::<GalleryState>();
+    let state = view.state();
+    let tokens = &view.env().theme.tokens;
+    if state.show_toast {
+        let toast: Widget = Toast {
+            id: WidgetId::explicit("gallery_toast"),
+            kind: ToastKind::Success,
+            message: "Action completed!".into(),
+            on_close: Some(with_reducer!(ctx, DismissToast, dismiss_toast)),
+            duration: fission::widgets::ToastDuration::Default,
+            motion: None,
+        }
+        .into();
+        ctx.register_portal_with_layer(
+            PortalLayer::Toast,
+            Some(WidgetId::explicit("gallery_toast")),
+            Positioned {
+                right: Some(tokens.spacing.m),
+                bottom: Some(tokens.spacing.m),
+                child: Some(toast),
+                ..Default::default()
+            }
+            .into(),
+        );
+    }
+    vec![trigger(
+        Button {
+            variant: ButtonVariant::Outline,
+            child: Some(Text::new("Show Toast").into()),
+            on_press: Some(with_reducer!(ctx, ShowToast, show_toast)),
+            ..Default::default()
+        }
+        .semantics_identifier("gallery.toast.show"),
+    )]
+}
+
+pub(crate) fn tooltip() -> Vec<Widget> {
+    widgets![HStack {
+        spacing: None,
+        children: widgets![Tooltip {
+            id: WidgetId::explicit("gallery_tooltip"),
+            child: Text::new("Hover me for tooltip").into(),
+            text: "This is a tooltip!".into(),
+            is_visible: false,
+            motion: None,
+        }],
+    }]
+}
+
+pub(crate) fn select() -> Vec<Widget> {
+    let (ctx, view) = fission::build::current::<GalleryState>();
+    let state = view.state();
+    // The page column stretches its children; the row lets the trigger hug its value.
+    widgets![HStack {
+        spacing: None,
+        children: widgets![Select {
+            id: WidgetId::explicit("gallery_select"),
+            selected_label: state.select_value.clone(),
+            items: vec![
+                SelectItem {
+                    label: "Option A".into(),
+                    icon: None,
+                    on_select: with_reducer!(ctx, SelectValue("Option A".into()), select_value),
+                    semantics_identifier: Some("gallery.select.a".into()),
+                },
+                SelectItem {
+                    label: "Option B".into(),
+                    icon: None,
+                    on_select: with_reducer!(ctx, SelectValue("Option B".into()), select_value),
+                    semantics_identifier: Some("gallery.select.b".into()),
+                },
+            ],
+            is_open: state.select_open,
+            on_toggle: Some(with_reducer!(ctx, ToggleSelect, toggle_select)),
+            trigger_semantics_identifier: Some("gallery.select.trigger".into()),
+            placeholder: "Choose...".into(),
+            width: None,
+        }],
+    }]
 }

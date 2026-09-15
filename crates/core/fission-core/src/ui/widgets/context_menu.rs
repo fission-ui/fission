@@ -39,6 +39,15 @@ pub struct ContextMenu {
     pub shadow: Option<BoxShadow>,
 }
 
+/// Used when neither the menu nor the design system declares a shadow.
+pub(crate) const NO_SHADOW: BoxShadow = BoxShadow {
+    spread_radius: 0.0,
+    inset: false,
+    offset: (0.0, 0.0),
+    blur_radius: 0.0,
+    color: Color::TRANSPARENT,
+};
+
 impl Default for ContextMenu {
     fn default() -> Self {
         Self {
@@ -52,18 +61,7 @@ impl Default for ContextMenu {
             background: None,
             border_color: None,
             border_width: 1.0,
-            shadow: Some(BoxShadow {
-                spread_radius: 0.0,
-                inset: false,
-                offset: (0.0, 12.0),
-                blur_radius: 28.0,
-                color: Color {
-                    r: 15,
-                    g: 23,
-                    b: 42,
-                    a: 52,
-                },
-            }),
+            shadow: None,
         }
     }
 }
@@ -76,30 +74,22 @@ impl ContextMenu {
         }
     }
 
+    /// The open menu, with any unset colours and shadow taken from `tokens`.
     pub(crate) fn overlay_widget(
         &self,
         owner: WidgetId,
         anchor: fission_layout::LayoutPoint,
+        tokens: &fission_theme::Tokens,
     ) -> Widget {
         let children = self
             .items
             .iter()
             .enumerate()
-            .map(|(index, entry)| entry.widget(owner, index))
+            .map(|(index, entry)| entry.widget(owner, index, tokens))
             .collect();
 
-        let background = self.background.unwrap_or(Color {
-            r: 255,
-            g: 255,
-            b: 255,
-            a: 248,
-        });
-        let border = self.border_color.unwrap_or(Color {
-            r: 226,
-            g: 232,
-            b: 240,
-            a: 255,
-        });
+        let background = self.background.unwrap_or(tokens.colors.surface_raised);
+        let border = self.border_color.unwrap_or(tokens.colors.border);
 
         Positioned {
             id: Some(context_menu_popup_id(owner)),
@@ -112,24 +102,20 @@ impl ContextMenu {
                     gap: Some(self.gap),
                     ..Default::default()
                 })
-                .width(self.width.unwrap_or(self.min_width))
-                .max_width(self.max_width.unwrap_or(320.0))
+                // The menu hugs its items between its minimum and maximum width, so a
+                // long label widens the menu instead of running past its edge. A fixed
+                // `width` pins both bounds.
+                .min_width(self.width.unwrap_or(self.min_width))
+                .max_width(self.width.or(self.max_width).unwrap_or(320.0))
                 .padding(self.padding)
                 .bg(background)
                 .border(border, self.border_width)
                 .border_radius(self.border_radius)
-                .shadow(self.shadow.unwrap_or(BoxShadow {
-                    spread_radius: 0.0,
-                    inset: false,
-                    offset: (0.0, 8.0),
-                    blur_radius: 24.0,
-                    color: Color {
-                        r: 15,
-                        g: 23,
-                        b: 42,
-                        a: 38,
-                    },
-                }))
+                .shadow(
+                    self.shadow
+                        .or(tokens.elevations.level3)
+                        .unwrap_or(NO_SHADOW),
+                )
                 .into(),
             ),
             ..Default::default()
@@ -148,25 +134,15 @@ pub enum ContextMenuEntry {
 }
 
 impl ContextMenuEntry {
-    fn widget(&self, owner: WidgetId, index: usize) -> Widget {
+    fn widget(&self, owner: WidgetId, index: usize, tokens: &fission_theme::Tokens) -> Widget {
         match self {
             Self::Item(item) => item.widget(owner, index),
             Self::Separator => Container {
                 id: Some(context_menu_entry_id(owner, index)),
                 child: Some(Text::new("").into()),
                 height: Some(1.0),
-                background_color: Some(Color {
-                    r: 226,
-                    g: 232,
-                    b: 240,
-                    a: 255,
-                }),
-                background_fill: Some(fission_ir::op::Fill::Solid(Color {
-                    r: 226,
-                    g: 232,
-                    b: 240,
-                    a: 255,
-                })),
+                background_color: Some(tokens.colors.divider),
+                background_fill: Some(fission_ir::op::Fill::Solid(tokens.colors.divider)),
                 ..Default::default()
             }
             .into(),
@@ -396,7 +372,10 @@ impl Lower for ContextMenuRegion {
                     .anchor
                     .map(|screen_anchor| anchor_to_local(cx, owner, screen_anchor))
                     .unwrap_or_else(|| fission_layout::LayoutPoint::new(0.0, 0.0));
-                let menu_id = self.menu.overlay_widget(owner, anchor).lower(cx);
+                let menu_id = self
+                    .menu
+                    .overlay_widget(owner, anchor, &cx.env.theme.tokens)
+                    .lower(cx);
                 let mut stack = IrBuilder::new(cx.next_node_id(), Op::Layout(LayoutOp::ZStack));
                 stack.add_child(child_id);
                 stack.add_child(menu_id);
@@ -597,7 +576,15 @@ pub(crate) fn lift_open_menu_into_portal(region: &mut ContextMenuRegion) {
     let Some(anchor) = runtime.context_menu.anchor else {
         return;
     };
-    let menu = region.menu.overlay_widget(owner, anchor);
+    let fallback_tokens;
+    let tokens = match crate::build::try_current_env() {
+        Some(env) => &env.theme.tokens,
+        None => {
+            fallback_tokens = fission_theme::Tokens::default();
+            &fallback_tokens
+        }
+    };
+    let menu = region.menu.overlay_widget(owner, anchor, tokens);
     region.menu_in_portal = crate::build::try_register_portal(
         crate::PortalLayer::Flyout,
         Some(context_menu_popup_id(owner)),

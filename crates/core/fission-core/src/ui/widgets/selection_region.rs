@@ -10,10 +10,7 @@ use crate::ui::widgets::text_input::{TextMagnifierConfiguration, TextSelectionCo
 use crate::ui::{
     Button, ButtonContentAlign, ButtonVariant, Container, Positioned, Row, Spacer, Text, Widget,
 };
-use fission_ir::{
-    op::{Color, Fill},
-    LayoutOp, Op, Role, SelectionRegionSemantics, Semantics, WidgetId,
-};
+use fission_ir::{op::Fill, LayoutOp, Op, Role, SelectionRegionSemantics, Semantics, WidgetId};
 use serde::{Deserialize, Serialize};
 use unicode_segmentation::UnicodeSegmentation;
 
@@ -188,6 +185,12 @@ fn build_selection_handle(
     point: fission_layout::LayoutPoint,
 ) -> WidgetId {
     let diameter = controls.handle_radius * 2.0;
+    let handle_fill = controls
+        .handle_fill
+        .unwrap_or(cx.env.theme.tokens.colors.accent);
+    let handle_stroke = controls
+        .handle_stroke
+        .unwrap_or(cx.env.theme.tokens.colors.surface);
     let handle: Widget = Button {
         id: Some(selection_region_handle_id(region_id, kind).into()),
         semantics: Some(Semantics {
@@ -201,16 +204,8 @@ fn build_selection_handle(
                 height: Some(diameter),
                 ..Default::default()
             })
-            .bg_fill(Fill::Solid(controls.handle_fill))
-            .border(
-                controls.handle_stroke.unwrap_or(Color {
-                    r: 0,
-                    g: 0,
-                    b: 0,
-                    a: 0,
-                }),
-                controls.handle_stroke_width,
-            )
+            .bg_fill(Fill::Solid(handle_fill))
+            .border(handle_stroke, controls.handle_stroke_width)
             .border_radius(controls.handle_radius)
             .into(),
         ),
@@ -285,6 +280,7 @@ fn build_magnifier(
 }
 
 fn build_mobile_toolbar(
+    tokens: &fission_theme::Tokens,
     config: &TextContextMenuConfig,
     owner: WidgetId,
     anchor: fission_layout::LayoutPoint,
@@ -304,18 +300,11 @@ fn build_mobile_toolbar(
             text_context_menu_item_widget(owner, action, enabled)
         })
         .collect();
-    let background = config.menu.background.unwrap_or(fission_ir::op::Color {
-        r: 255,
-        g: 255,
-        b: 255,
-        a: 248,
-    });
-    let border = config.menu.border_color.unwrap_or(fission_ir::op::Color {
-        r: 226,
-        g: 232,
-        b: 240,
-        a: 255,
-    });
+    let background = config
+        .menu
+        .background
+        .unwrap_or(tokens.colors.surface_raised);
+    let border = config.menu.border_color.unwrap_or(tokens.colors.border);
     Positioned {
         left: Some(anchor.x.max(0.0)),
         top: Some((anchor.y - 48.0).max(0.0)),
@@ -329,18 +318,13 @@ fn build_mobile_toolbar(
             .bg(background)
             .border(border, config.menu.border_width)
             .border_radius(config.menu.border_radius)
-            .shadow(config.menu.shadow.unwrap_or(fission_ir::op::BoxShadow {
-                spread_radius: 0.0,
-                inset: false,
-                offset: (0.0, 8.0),
-                blur_radius: 24.0,
-                color: fission_ir::op::Color {
-                    r: 15,
-                    g: 23,
-                    b: 42,
-                    a: 38,
-                },
-            }))
+            .shadow(
+                config
+                    .menu
+                    .shadow
+                    .or(tokens.elevations.level3)
+                    .unwrap_or(crate::ui::widgets::context_menu::NO_SHADOW),
+            )
             .into(),
         ),
         ..Default::default()
@@ -425,6 +409,7 @@ pub(crate) fn wrap_implicit_selection_affordances(
             .unwrap_or_default();
         let menu = if touch {
             build_mobile_toolbar(
+                &cx.env.theme.tokens,
                 context_menu,
                 owner,
                 anchor,
@@ -585,6 +570,7 @@ impl Lower for SelectionRegion {
                     .unwrap_or_default();
                 let menu = if touch_affordances {
                     build_mobile_toolbar(
+                        &cx.env.theme.tokens,
                         &self.controls.context_menu,
                         owner,
                         anchor,

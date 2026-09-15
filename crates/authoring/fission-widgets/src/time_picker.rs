@@ -32,6 +32,13 @@ impl std::fmt::Debug for TimePicker {
 impl From<TimePicker> for Widget {
     fn from(component: TimePicker) -> Self {
         let this = &component;
+        let (_, view) = fission_core::build::current::<()>();
+        let tokens = &view.env().theme.tokens;
+        let recipe = view.env().theme.recipe(fission_theme::recipes::TimePicker);
+        let separator = recipe
+            .try_part_named("separator")
+            .cloned()
+            .unwrap_or_default();
 
         let cb = this.on_change.as_ref();
         let h = this.hour;
@@ -46,7 +53,7 @@ impl From<TimePicker> for Widget {
         let m_dec = cb.map(|f| f(h, if m == 0 { 59 } else { m - 1 }));
 
         SemanticsRegion::new(HStack {
-            spacing: Some(8.0),
+            spacing: Some(tokens.spacing.s),
             children: vec![
                 NumberInput {
                     value: h as f32,
@@ -54,24 +61,29 @@ impl From<TimePicker> for Widget {
                     min: Some(0.0),
                     max: Some(23.0),
                     step: 1.0,
-                    field_width: Some(56.0),
-                    button_size: Some(32.0),
-                    gap: Some(4.0),
+                    // Field and stepper sizes come from the number input's recipe.
+                    gap: recipe.base.gap,
                     on_increment: h_inc,
                     on_decrement: h_dec,
                     ..Default::default()
                 }
                 .into(),
-                Text::new(":").size(16.0).into(),
+                Text::new(":")
+                    .size(
+                        separator
+                            .font_size
+                            .unwrap_or(tokens.typography.font_size_base),
+                    )
+                    .color(separator.text_color.unwrap_or(tokens.colors.text_secondary))
+                    .into(),
                 NumberInput {
                     value: m as f32,
                     display_text: Some(format!("{:02}", m)),
                     min: Some(0.0),
                     max: Some(59.0),
                     step: 1.0,
-                    field_width: Some(56.0),
-                    button_size: Some(32.0),
-                    gap: Some(4.0),
+                    // Field and stepper sizes come from the number input's recipe.
+                    gap: recipe.base.gap,
                     on_increment: m_inc,
                     on_decrement: m_dec,
                     ..Default::default()

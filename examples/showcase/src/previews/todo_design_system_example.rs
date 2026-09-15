@@ -14,6 +14,7 @@ impl From<TodoDesignSystemExample> for Widget {
             view.state().preview_generation,
             TodoApp,
         )
+        .with_state(todo_design_system_example::embedded_state)
         .with_env(todo_design_system_example::configure_embedded_env)
         .into()
     }

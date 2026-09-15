@@ -160,17 +160,46 @@ Inputs, badges, tabs, cards, modals, tooltips, and progress bars follow the same
 
 The important rule is that JSON stops at conversion time. Runtime code sees Rust values.
 
+### Colour pairs
+
+Every fill a component paints comes with the colour for text and icons drawn on it. Ask for both at once, so text is never paired with the wrong ground:
+
+```rust
+use fission::theme::ColorRole;
+
+let card = tokens.colors.pair(ColorRole::Card);
+Container::new(Text::new("Invoice").color(card.on)).bg(card.fill)
+```
+
+| Role | Fill | Content on it | Falls back to |
+| --- | --- | --- | --- |
+| `Background` | `background` | `on_background` | Declared |
+| `Surface` | `surface` | `on_surface` | Declared |
+| `Card` | `card` | `on_card` | `surface`, `on_surface` |
+| `Popover` | `popover` | `on_popover` | `surface_raised`, `on_surface` |
+| `Muted` | `muted` | `on_muted` | `surface_sunken`, `text_muted` |
+| `Primary` | `primary` | `on_primary` | Declared |
+| `Secondary` | `secondary` | `on_secondary` | Declared |
+| `Accent` | `accent` | `on_accent` | `primary`, `on_primary` |
+| `Destructive` | `destructive` | `on_destructive` | `error`, `on_error` |
+
+`input`, the border of text fields, falls back to `border`.
+
+The newer roles are optional. A DSP file that leaves one out gets the existing role in the last column, both at runtime and in references, so `{color.light.card}` works in a recipe even when `tokens.json` never declares `card`. Declare the role under `color.light` and `color.dark` to give it its own value. Each bundled look keeps every pair at WCAG AA contrast (4.5:1).
+
 ## Start from a bundled system when it fits
 
 Fission ships several bundled DSP packages for common product directions. They are not magic modes inside the renderer. Each one is a normal `dsp.json` and `tokens.json` package under `crates/core/fission-theme/design`, generated into a Rust `DesignSystem` implementation at conversion time.
 
 | Preset | Generated Rust type | Use when |
 | --- | --- | --- |
-| Fission default | `FissionDefaultDesignSystem` | You want the Fission documentation and example visual language. |
+| Fission default (Tidewater) | `FissionDefaultDesignSystem` | You want Fission's own look: teal actions on a faintly teal-tinted canvas, with compact controls. |
 | Material Design 3 | `FissionMaterialDesign3DesignSystem` | You want an Android-oriented, role-based design system with Material-style color, shape, and component density. |
 | Fluent 2 | `FissionFluent2DesignSystem` | You want a Microsoft productivity-app feel with Fluent-style density, neutral surfaces, Segoe-style typography, and restrained radius. |
 | Liquid Glass | `FissionLiquidGlassDesignSystem` | You want layered translucent surfaces, luminous tint, larger radius, and depth-forward presentation. |
 | Cupertino | `FissionCupertinoDesignSystem` | You want UIKit-style iOS conventions while using the cross-platform Cupertino naming convention. |
+| Ember | `FissionEmberDesignSystem` | You want a warmer Fission look: the orange of the Fission logo on stone neutrals, with slightly rounder corners. |
+| Graphite | `FissionGraphiteDesignSystem` | You want a restrained Fission look: ink-black primary actions, zinc neutrals, one blue accent for focus, links and selection controls. |
 
 Use a preset exactly the same way you use a generated app design system:
 

@@ -83,8 +83,8 @@ impl From<NumberInput> for Widget {
             .or(recipe
                 .part(fission_theme::recipes::NumberInputPart::Stepper)
                 .width)
-            .unwrap_or(32.0)
-            .max(28.0);
+            .unwrap_or(tokens.sizing.control_md)
+            .max(tokens.sizing.min_pointer_target);
         let icon_size = (button_size * 0.5).clamp(14.0, 18.0);
         let input_id = this
             .id
@@ -94,7 +94,7 @@ impl From<NumberInput> for Widget {
         let display_value = display_text.clone();
         let field = Container::new(
             Row::default()
-                .gap(this.gap.or(recipe.base.gap).unwrap_or(4.0))
+                .gap(this.gap.or(recipe.base.gap).unwrap_or(tokens.spacing.xs))
                 .align_items(fission_ir::op::AlignItems::Center)
                 .children(vec![
                     SemanticsRegion::new(Button {

@@ -217,11 +217,11 @@ pub mod motion {
 // Core widget types (Button, Text, Container, Row, Column, etc.)
 pub use fission_core::ui::{
     provider, ActionScope, Align, AnchoredPositioned, BadgeTone, Builder, Button, ButtonContent,
-    ButtonContentAlign, ButtonHierarchy, ButtonMotion, ButtonStyleOverride, ButtonVariant,
-    CardPattern, Checkbox, Column, ComponentSize, ComponentState, Composite, Container,
-    CustomWidget, FocusScope, FontFeature, FontVariation, GestureDetector, Grid, GridItem,
-    HttpHeader, Icon, IgnorePointer, Image, ImageAlignment, ImageCachePolicy, ImageErrorBehavior,
-    ImageLoadingBehavior, ImageRequest, ImageSource, IosAudioSessionCategory,
+    ButtonContentAlign, ButtonHierarchy, ButtonIconContent, ButtonMotion, ButtonStyleOverride,
+    ButtonVariant, CardPattern, Checkbox, Column, ComponentSize, ComponentState, Composite,
+    Container, CustomWidget, FocusScope, FontFeature, FontVariation, GestureDetector, Grid,
+    GridItem, HttpHeader, Icon, IgnorePointer, Image, ImageAlignment, ImageCachePolicy,
+    ImageErrorBehavior, ImageLoadingBehavior, ImageRequest, ImageSource, IosAudioSessionCategory,
     IosAudioSessionCategoryOption, IosAudioSessionMode, IosVideoAudioOptions, LayoutBuilder,
     LazyColumn, Overlay, Positioned, Pressable, PressableRole, PressableStyle, Provider, Radio,
     Responsive, ResponsiveCase, ResponsiveQuery, RichText, RichTextRun, Row, SafeArea, Scroll,
@@ -534,10 +534,10 @@ pub mod prelude {
     // Widgets
     pub use fission_core::ui::{
         ActionScope, Align, AnchoredPositioned, BadgeTone, Builder, Button, ButtonContent,
-        ButtonContentAlign, ButtonHierarchy, ButtonMotion, ButtonStyleOverride, ButtonVariant,
-        CardPattern, Checkbox, Column, ComponentSize, ComponentState, Composite, Container,
-        CustomWidget, FocusScope, FontFeature, FontVariation, GestureDetector, Grid, GridItem,
-        HttpHeader, Icon, IgnorePointer, Image, ImageAlignment, ImageCachePolicy,
+        ButtonContentAlign, ButtonHierarchy, ButtonIconContent, ButtonMotion, ButtonStyleOverride,
+        ButtonVariant, CardPattern, Checkbox, Column, ComponentSize, ComponentState, Composite,
+        Container, CustomWidget, FocusScope, FontFeature, FontVariation, GestureDetector, Grid,
+        GridItem, HttpHeader, Icon, IgnorePointer, Image, ImageAlignment, ImageCachePolicy,
         ImageErrorBehavior, ImageLoadingBehavior, ImageRequest, ImageSource,
         IosAudioSessionCategory, IosAudioSessionCategoryOption, IosAudioSessionMode,
         IosVideoAudioOptions, LayoutBuilder, LazyColumn, Overlay, Positioned, Pressable,
