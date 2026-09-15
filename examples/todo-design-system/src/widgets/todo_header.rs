@@ -45,10 +45,17 @@ impl From<HeaderLayout> for Widget {
             ..Default::default()
         };
 
+        // An embedding host sets light or dark itself, so its switch is the only one.
+        let children = if view.state().embedded {
+            widgets![title]
+        } else {
+            widgets![title, ThemeSwitch]
+        };
+
         if layout.stacked {
             Column {
                 gap: Some(tokens.spacing.m),
-                children: widgets![title, ThemeSwitch],
+                children,
                 ..Default::default()
             }
             .into()
@@ -56,7 +63,7 @@ impl From<HeaderLayout> for Widget {
             Row {
                 gap: Some(tokens.spacing.m),
                 align_items: AlignItems::Start,
-                children: widgets![title, ThemeSwitch],
+                children,
                 ..Default::default()
             }
             .into()

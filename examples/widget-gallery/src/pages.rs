@@ -490,6 +490,59 @@ impl GalleryPage {
 #[fission_reducer(SelectPage)]
 fn select_page(state: &mut GalleryState, page: GalleryPage) {
     state.page = page;
+    state.page_picker_open = false;
+}
+
+#[fission_reducer(TogglePagePicker)]
+fn toggle_page_picker(state: &mut GalleryState) {
+    state.page_picker_open = !state.page_picker_open;
+}
+
+/// The tallest the page picker's list grows before it scrolls.
+const PAGE_PICKER_MAX_HEIGHT: f32 = 480.0;
+
+/// Every page in a picker, which stands in for the sidebar on narrow screens.
+pub(crate) struct PagePicker;
+
+impl From<PagePicker> for Widget {
+    fn from(_picker: PagePicker) -> Self {
+        use fission::widgets::{
+            MenuLabel, SelectContent, SelectEntry, SelectLayout, SelectOption, SelectTrigger,
+        };
+
+        let (ctx, view) = fission::build::current::<GalleryState>();
+        let state = view.state();
+        let open = state.page;
+        let tokens = &view.env().theme.tokens;
+        let viewport = view.viewport_size();
+
+        let mut entries: Vec<SelectEntry> = Vec::new();
+        for (group, pages) in GROUPS.iter() {
+            entries.push(SelectEntry::Label(MenuLabel::new(*group)));
+            for page in pages.iter().copied() {
+                let mut option = SelectOption::option(page.title(), page == open)
+                    .on_select(with_reducer!(ctx, SelectPage(page), select_page));
+                option.semantics_identifier = Some(format!("gallery.picker.{}", page.slug()));
+                entries.push(SelectEntry::Item(option));
+            }
+        }
+        let trigger = SelectTrigger {
+            semantics_identifier: Some("gallery.page_picker".into()),
+            ..SelectTrigger::new(open.title())
+        };
+        let max_height = (viewport.height * 0.6).min(PAGE_PICKER_MAX_HEIGHT);
+
+        SelectLayout {
+            id: WidgetId::explicit("gallery.page_picker"),
+            trigger,
+            content: SelectContent::new(entries).max_height(max_height),
+            is_open: state.page_picker_open,
+            on_toggle: Some(with_reducer!(ctx, TogglePagePicker, toggle_page_picker)),
+            // The picker spans the bar, less the bar's side padding.
+            width: Some((viewport.width - 2.0 * tokens.spacing.l).max(0.0)),
+        }
+        .into()
+    }
 }
 
 /// Every page, grouped, with the open one highlighted.

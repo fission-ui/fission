@@ -93,6 +93,7 @@ pub(crate) struct ShowcaseState {
     pub(crate) design_system: DesignSystemChoice,
     pub(crate) design_system_open: bool,
     pub(crate) locale: Locale,
+    pub(crate) locale_open: bool,
     pub(crate) preview_viewport: PreviewViewport,
     pub(crate) preview_generation: u64,
 }
@@ -107,6 +108,7 @@ impl Default for ShowcaseState {
             design_system: DesignSystemChoice::default(),
             design_system_open: false,
             locale: Locale::from("en-US"),
+            locale_open: false,
             preview_viewport: PreviewViewport::Desktop,
             preview_generation: 0,
         }
@@ -155,6 +157,12 @@ pub(crate) fn on_toggle_design_system_menu(state: &mut ShowcaseState) {
 #[fission_reducer(SetLocale)]
 pub(crate) fn on_set_locale(state: &mut ShowcaseState, locale: String) {
     state.locale = Locale::from(locale.as_str());
+    state.locale_open = false;
+}
+
+#[fission_reducer(ToggleLocaleMenu)]
+pub(crate) fn on_toggle_locale_menu(state: &mut ShowcaseState) {
+    state.locale_open = !state.locale_open;
 }
 
 #[fission_reducer(SetPreviewViewport)]

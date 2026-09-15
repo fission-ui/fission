@@ -917,22 +917,71 @@ fn a_focused_tab_keeps_rounded_corners_when_the_recipe_declares_no_radius() {
     let (actual_first_id, _) = semantics_for_identifier(&ir, "focus.primary");
     assert_eq!(actual_first_id, first_id);
 
+    // Material 3 marks the selected tab with an underline, a bottom edge alone.
     let stroked_radii: Vec<f32> = descendant_ops(&ir, actual_first_id)
         .filter_map(|op| match op {
-            Op::Paint(PaintOp::DrawRect {
-                stroke: Some(_),
-                corner_radius,
-                ..
-            }) => Some(*corner_radius),
+            Op::Paint(paint @ PaintOp::DrawRect { corner_radius, .. })
+                if matches!(paint, PaintOp::DrawRect { stroke: Some(_), .. })
+                    || paint.border_sides().is_some() =>
+            {
+                Some(*corner_radius)
+            }
             _ => None,
         })
         .collect();
     assert!(
         !stroked_radii.is_empty(),
-        "the focused tab draws a focus border"
+        "the focused, selected tab draws its border"
     );
     assert!(
         stroked_radii.iter().all(|radius| *radius > 0.0),
         "focus border corners should follow the control's radius, got {stroked_radii:?}"
+    );
+}
+
+/// Material 3 underlines its tab track and the selected tab: a recipe that asks
+/// for `border_bottom` strokes that edge alone rather than boxing the tabs in.
+#[test]
+fn an_underlined_tab_strip_strokes_only_its_bottom_edges() {
+    use fission_theme::{DesignMode, DesignSystem, FissionMaterialDesign3DesignSystem};
+
+    let mut env = Env::default();
+    env.theme = FissionMaterialDesign3DesignSystem::theme(DesignMode::Light);
+    let tabs = Tabs {
+        active_index: 0,
+        items: vec![
+            actionable_tab("Primary", "underline.primary"),
+            actionable_tab("Social", "underline.social"),
+        ],
+        ..Default::default()
+    };
+    let ir = lower_tabs(
+        tabs,
+        &env,
+        &RuntimeState::default(),
+        Some(WidgetId::explicit("underline.tabs")),
+    );
+
+    let rects: Vec<&PaintOp> = ir
+        .nodes
+        .values()
+        .filter_map(|node| match &node.op {
+            Op::Paint(paint @ PaintOp::DrawRect { .. }) => Some(paint),
+            _ => None,
+        })
+        .collect();
+    let boxed = rects
+        .iter()
+        .filter(|paint| matches!(paint, PaintOp::DrawRect { stroke: Some(_), .. }))
+        .count();
+    assert_eq!(boxed, 0, "no tab or track draws a full border box");
+    let underlines = rects
+        .iter()
+        .filter_map(|paint| paint.border_sides())
+        .filter(|sides| sides.bottom.is_some() && sides.top.is_none())
+        .count();
+    assert!(
+        underlines >= 2,
+        "the track and the selected tab each draw a bottom edge, found {underlines}"
     );
 }

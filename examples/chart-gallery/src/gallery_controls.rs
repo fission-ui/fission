@@ -116,6 +116,10 @@ impl From<GalleryControls> for Widget {
                 .color(tokens.colors.text_secondary),
             ],
             gap: Some(tokens.spacing.s),
+            // The chart area above grows to fill the column; keep the controls
+            // at their natural height so the slider row cannot overlap the
+            // helper text when the window is short.
+            flex_shrink: 0.0,
             ..Default::default()
         }
         .into()

@@ -1,19 +1,18 @@
-use crate::mounted_example::MountedExample;
-use crate::state::ShowcaseState;
-use embed_webview_example::{WebViewEmbedApp, WebViewEmbedState};
+use super::host_only_preview::HostOnlyPreview;
+use fission::icons::material;
 use fission::prelude::*;
 
+/// A native web view is a host window, which the showcase cannot mount.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct EmbedWebViewExample;
 
 impl From<EmbedWebViewExample> for Widget {
     fn from(_component: EmbedWebViewExample) -> Self {
-        let (_ctx, view) = fission::build::current::<ShowcaseState>();
-        MountedExample::<WebViewEmbedState, _>::new(
-            "showcase.example.embed-webview",
-            view.state().preview_generation,
-            WebViewEmbedApp,
-        )
+        HostOnlyPreview {
+            slug: "embed-webview",
+            description_key: "showcase.host_preview.embed_webview",
+            icon: || Icon::svg(material::action::language::round()),
+        }
         .into()
     }
 }

@@ -1716,6 +1716,7 @@ version = "0.14.1"
 dependencies = [
  "anyhow",
  "fission",
+ "fission-test",
  "fission-test-driver",
  "image 0.25.8",
  "lazy_static",
@@ -5798,6 +5799,8 @@ version = "0.14.1"
 dependencies = [
  "anyhow",
  "fission",
+ "fission-ir",
+ "fission-test",
  "image 0.25.8",
 ]
 

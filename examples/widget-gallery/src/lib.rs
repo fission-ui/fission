@@ -20,6 +20,15 @@ pub use pages::GalleryPage;
 pub use quality_gallery::QualityGalleryApp;
 pub use state::GalleryState;
 
+/// The gallery as another app mounts it, such as the example showcase. The host
+/// picks the theme, so the gallery hides its own theme bar.
+pub fn embedded_state() -> GalleryState {
+    GalleryState {
+        embedded: true,
+        ..GalleryState::default()
+    }
+}
+
 #[cfg(target_arch = "wasm32")]
 fn web_app() -> fission::prelude::WebApp<GalleryState, QualityGalleryApp> {
     fission::prelude::WebApp::<GalleryState, _>::new(QualityGalleryApp)

@@ -75,6 +75,13 @@ pub struct GalleryState {
     pub refresh_status: RefreshIndicatorStatus,
     pub refresh_extent: f32,
     pub refresh_items: Vec<String>,
+    /// Set when another app, such as the example showcase, mounts the gallery. The
+    /// host then drives the theme, so the gallery hides its own theme bar.
+    #[serde(default)]
+    pub embedded: bool,
+    /// Whether the page picker that replaces the sidebar on narrow screens is open.
+    #[serde(default)]
+    pub page_picker_open: bool,
 }
 
 impl Default for GalleryState {
@@ -163,6 +170,8 @@ impl Default for GalleryState {
                 "New comment on Roadmap".into(),
                 "Build 318 passed".into(),
             ],
+            embedded: false,
+            page_picker_open: false,
         }
     }
 }

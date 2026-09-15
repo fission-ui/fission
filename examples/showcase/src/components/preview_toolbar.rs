@@ -1,7 +1,7 @@
 use super::design_system_picker::DesignSystemPicker;
 use crate::state::{
-    on_reset_preview, on_set_locale, on_set_preview_viewport, on_set_theme, PreviewViewport,
-    ResetPreview, SetLocale, SetPreviewViewport, SetTheme, ShowcaseState,
+    on_reset_preview, on_set_preview_viewport, on_set_theme, PreviewViewport, ResetPreview,
+    SetPreviewViewport, SetTheme, ShowcaseState,
 };
 use fission::icons::material;
 use fission::op::{AlignItems, FlexWrap};
@@ -9,13 +9,15 @@ use fission::prelude::*;
 use fission::widgets::SegmentedControl;
 use std::sync::Arc;
 
-/// Locale codes and their names, written in their own language so they are not translated.
-const LOCALES: [(&str, &str); 2] = [("en-US", "English"), ("es-ES", "Español")];
 const VIEWPORTS: [PreviewViewport; 2] = [PreviewViewport::Desktop, PreviewViewport::Mobile];
 const MODES: [DesignMode; 2] = [DesignMode::Light, DesignMode::Dark];
 
 /// The preview's controls, placed directly above the preview they change:
-/// reset, viewport, design system, light or dark, and language.
+/// reset, viewport, design system, and light or dark.
+///
+/// Language lives in the app header because it changes the whole showcase; that
+/// keeps these controls to one row on a wide window. When a narrow window has no
+/// room for them, they wrap rather than hide.
 #[derive(Clone, Debug)]
 pub(crate) struct PreviewToolbar;
 
@@ -35,10 +37,6 @@ impl From<PreviewToolbar> for Widget {
             .iter()
             .map(|mode| with_reducer!(ctx, SetTheme(*mode), on_set_theme))
             .collect();
-        let locale_actions: Vec<ActionEnvelope> = LOCALES
-            .iter()
-            .map(|(code, _)| with_reducer!(ctx, SetLocale((*code).to_string()), on_set_locale))
-            .collect();
 
         let viewport_index = VIEWPORTS
             .iter()
@@ -47,10 +45,6 @@ impl From<PreviewToolbar> for Widget {
         let mode_index = MODES
             .iter()
             .position(|mode| *mode == state.theme_mode)
-            .unwrap_or(0);
-        let locale_index = LOCALES
-            .iter()
-            .position(|(code, _)| *code == state.locale.0.as_str())
             .unwrap_or(0);
 
         let reset: Widget = Button {
@@ -96,17 +90,6 @@ impl From<PreviewToolbar> for Widget {
                         actions: mode_actions,
                         label: view.tr("showcase.workbench.theme"),
                         identifier: "showcase.preview.theme",
-                    }
-                    .into(),
-                    Choice {
-                        options: LOCALES
-                            .iter()
-                            .map(|(_, name)| (*name).to_string())
-                            .collect(),
-                        selected: locale_index,
-                        actions: locale_actions,
-                        label: view.tr("showcase.workbench.locale"),
-                        identifier: "showcase.preview.locale",
                     }
                     .into(),
                 ],

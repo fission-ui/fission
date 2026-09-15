@@ -311,6 +311,16 @@ pub struct ComponentBorder {
     pub width: f32,
 }
 
+/// Which edges a component's border strokes.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum BorderEdges {
+    /// Every edge, following the corner radius.
+    #[default]
+    All,
+    /// The bottom edge only, as an underlined tab track or its indicator draws.
+    Bottom,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ComponentMotion {
     pub duration_ms: u64,
@@ -356,6 +366,9 @@ pub struct ResolvedComponentStyle {
     pub translate_y: Option<f32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub border_dash: Option<Vec<f32>>,
+    /// Edges the border strokes; `None` strokes every edge.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub border_edges: Option<BorderEdges>,
 }
 
 impl ResolvedComponentStyle {
@@ -395,6 +408,12 @@ impl ResolvedComponentStyle {
                 .border_dash
                 .clone()
                 .or_else(|| self.border_dash.clone()),
+            // The edges belong to whichever border wins.
+            border_edges: if overlay.border.is_some() {
+                overlay.border_edges
+            } else {
+                self.border_edges
+            },
             shadows: if overlay.shadows.is_empty() {
                 self.shadows.clone()
             } else {

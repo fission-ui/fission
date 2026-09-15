@@ -2056,11 +2056,11 @@ impl {krate}::DesignSystem for {type_name} {{
             .style_fill_color_expr(krate, mode, field(value, "color"))?
             .map(|expr| format!("Some({expr})"))
             .unwrap_or_else(|| "None".into());
-        let border = self.border_option_expr(
-            krate,
-            mode,
-            field(value, "border").or_else(|| field(value, "border_bottom")),
-        )?;
+        let (border, edges) = match (field(value, "border"), field(value, "border_bottom")) {
+            (None, Some(bottom)) => (Some(bottom), format!("Some({krate}::BorderEdges::Bottom)")),
+            (border, _) => (border, "None".to_string()),
+        };
+        let border = self.border_option_expr(krate, mode, border)?;
         let shadows = self.shadow_layers_expr(
             krate,
             mode,
@@ -2101,7 +2101,7 @@ impl {krate}::DesignSystem for {type_name} {{
             r#"{krate}::ResolvedComponentStyle {{
                 background: {background},
                 text_color: {text_color},
-                border: {border},
+                border: {border}, border_edges: {edges},
                 radius: {radius},
                 height: {height},
                 min_height: {min_height},

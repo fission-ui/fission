@@ -185,8 +185,11 @@ impl From<ThemeBar> for Widget {
         SemanticsRegion::new(
             // A plain row: it measures its own height, so the bar holds its controls
             // instead of collapsing and letting the page paint over them.
+            // Controls wrap onto further lines when the window is too narrow for one.
             Container::new(Row {
                 gap: Some(tokens.spacing.m),
+                line_gap: Some(tokens.spacing.s),
+                wrap: fission::op::FlexWrap::Wrap,
                 align_items: fission::op::AlignItems::Center,
                 children: widgets![
                     Text::new("Theme")

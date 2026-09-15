@@ -7,8 +7,8 @@ use crate::Badge;
 use fission_core::authoring::{IrBuilder, LowerWidget, LoweringContext};
 use fission_core::motion::{follow_x_and_width, Motion, MotionTrack, Presence};
 use fission_core::op::{
-    AlignItems, BoxAlignment, BoxStyle, Fill, FlexDirection, FlexWrap, JustifyContent, LayoutOp,
-    Length, Op, PaintOp, Stroke,
+    AlignItems, BorderSides, BoxAlignment, BoxStyle, Fill, FlexDirection, FlexWrap,
+    JustifyContent, LayoutOp, Length, Op, PaintOp, Stroke,
 };
 use fission_core::ui::{
     ComponentSize, ComponentState, Composite, Container, Icon, Row, Scroll, Text, TextContent,
@@ -17,7 +17,7 @@ use fission_core::ui::{
 use fission_core::{ActionEnvelope, WidgetId};
 use fission_ir::semantics::{ActionTrigger, SemanticOrientation};
 use fission_ir::{ActionEntry, ActionSet, CompositeScalar, CompositeStyle, Role, Semantics};
-use fission_theme::ResolvedComponentStyle;
+use fission_theme::{BorderEdges, ResolvedComponentStyle};
 pub use fission_theme::TabPresentation;
 use serde::{Deserialize, Serialize};
 use std::ops::Add;
@@ -917,7 +917,12 @@ fn append_recipe_paint(
         line_cap: fission_core::op::LineCap::Butt,
         line_join: fission_core::op::LineJoin::Miter,
     });
-    if fill.is_some() || stroke.is_some() {
+    // An underlined track or indicator strokes its bottom edge alone, not a box.
+    let (stroke, border_sides) = match style.border_edges {
+        Some(BorderEdges::Bottom) => (None, stroke.map(BorderSides::bottom_only)),
+        _ => (stroke, None),
+    };
+    if fill.is_some() || stroke.is_some() || border_sides.is_some() {
         layout.add_child(
             IrBuilder::new(
                 cx.next_node_id(),
@@ -927,7 +932,7 @@ fn append_recipe_paint(
                     corner_radius: radius,
                     shadow: None,
                     corner_radii: None,
-                    border_sides: None,
+                    border_sides,
                 }),
             )
             .build(cx),

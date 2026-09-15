@@ -17,6 +17,9 @@ pub struct TodoState {
     pub(crate) draft: String,
     pub(crate) items: Vec<TodoItem>,
     pub(crate) theme_mode: DesignMode,
+    /// Set when another app, such as the example showcase, mounts the todo list.
+    /// The host then picks light or dark, so the app hides its own switch.
+    pub(crate) embedded: bool,
 }
 
 impl Default for TodoState {
@@ -39,6 +42,7 @@ impl Default for TodoState {
             draft: String::new(),
             items,
             theme_mode: DesignMode::Light,
+            embedded: false,
         }
     }
 }
