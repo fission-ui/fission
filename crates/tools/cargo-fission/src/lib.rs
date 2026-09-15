@@ -1293,6 +1293,40 @@ mkdir -p "$(dirname "$artifact")"
     }
 
     #[test]
+    fn filesystem_capability_adds_the_opt_in_shell_feature() {
+        let dir = unique_dir("filesystem-capability");
+        run(["fission", "init", dir.to_str().unwrap()]).unwrap();
+        run([
+            "fission",
+            "add-target",
+            "web",
+            "--project-dir",
+            dir.to_str().unwrap(),
+        ])
+        .unwrap();
+
+        let manifest = std::fs::read_to_string(dir.join("Cargo.toml")).unwrap();
+        assert!(!manifest.contains("\"filesystem\""));
+
+        run([
+            "fission",
+            "add-capability",
+            "filesystem",
+            "--project-dir",
+            dir.to_str().unwrap(),
+        ])
+        .unwrap();
+
+        let project = read_project_config(&dir).unwrap();
+        assert!(project
+            .capabilities
+            .contains(&fission_command_core::PlatformCapability::FileSystem));
+        let manifest = std::fs::read_to_string(dir.join("Cargo.toml")).unwrap();
+        assert!(manifest.contains("\"filesystem\""));
+        assert!(!dir.join("platforms/web/sqlite").exists());
+    }
+
+    #[test]
     fn init_hardens_existing_android_native_only_scaffold() {
         let dir = unique_dir("android-hardening");
         run(["fission", "init", dir.to_str().unwrap()]).unwrap();

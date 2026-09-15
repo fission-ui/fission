@@ -16,6 +16,7 @@ documentation = "https://fission.rs"
 readme = "README.md"
 [features]
 default = []
+filesystem = ["fission-shell-winit/filesystem"]
 three-d = ["fission-shell-winit/three-d"]
 video = ["fission-shell-winit/video"]
 store = ["fission-core/store", "fission-shell-winit/store", "dep:fission-store"]

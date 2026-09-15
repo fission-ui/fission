@@ -66,6 +66,7 @@ pub mod platform_biometric;
 pub mod platform_bluetooth;
 pub mod platform_camera;
 pub mod platform_clipboard;
+pub mod platform_filesystem;
 pub mod platform_geolocation;
 pub mod platform_haptics;
 pub mod platform_microphone;
@@ -390,8 +391,9 @@ pub mod public {
     pub use crate::context::StoreEffects;
     pub use crate::context::{
         BarcodeScannerEffects, BiometricEffects, BluetoothEffects, CameraEffects, ClipboardEffects,
-        Effects, GeolocationEffects, HapticEffects, MicrophoneEffects, NfcEffects,
-        NotificationEffects, PasskeyEffects, ReducerContext, VolumeEffects, WifiEffects,
+        Effects, FileSystemEffects, GeolocationEffects, HapticEffects, MicrophoneEffects,
+        NfcEffects, NotificationEffects, PasskeyEffects, ReducerContext, VolumeEffects,
+        WifiEffects,
     }; // New
     pub use crate::data_stream::{
         collect_data_stream, empty_data_stream, single_chunk_data_stream, BoxFissionDataStream,
@@ -407,6 +409,7 @@ pub mod public {
         LayoutDirection, MotionPreference, RuntimeState, ScrollStateMap, WidgetMotion, WindowEnv,
         WindowTitle,
     };
+    pub use crate::platform_filesystem::*;
     pub use crate::runtime::Runtime;
     pub use crate::selection::{
         SelectionRegionCommand, SelectionRegionController, SelectionRegionError,
@@ -604,8 +607,8 @@ pub use context::SqlEffects;
 pub use context::StoreEffects;
 pub use context::{
     BarcodeScannerEffects, BiometricEffects, BluetoothEffects, CameraEffects, ClipboardEffects,
-    Effects, GeolocationEffects, HapticEffects, MicrophoneEffects, NfcEffects, NotificationEffects,
-    PasskeyEffects, ReducerContext, VolumeEffects, WifiEffects,
+    Effects, FileSystemEffects, GeolocationEffects, HapticEffects, MicrophoneEffects, NfcEffects,
+    NotificationEffects, PasskeyEffects, ReducerContext, VolumeEffects, WifiEffects,
 }; // New
 pub use data_stream::{
     collect_data_stream, empty_data_stream, single_chunk_data_stream, BoxFissionDataStream,
@@ -628,6 +631,7 @@ pub use navigation::{
     NavigationCommand, NavigationRequested, RouteBuildOutcome, RouteDecision, RouteRedirect,
     RouteRedirectHistory,
 };
+pub use platform_filesystem::*;
 pub use runtime::Runtime;
 pub use selection::{
     SelectionRegionCommand, SelectionRegionController, SelectionRegionError, TextRegionPosition,

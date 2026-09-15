@@ -1,0 +1,93 @@
+---
+title: File system
+description: Read and modify files through native paths or platform directory handles.
+---
+
+# File system
+
+The file-system capability gives reducers one asynchronous API for real files. Native applications can address operating-system paths directly. Applications can also ask the user to choose a directory, which is required on hosts such as the Web and useful whenever the platform represents access as an opaque document or security-scoped handle.
+
+Enable it once for the project:
+
+```bash
+fission add-capability filesystem --project-dir .
+```
+
+The command records the capability and enables its optional shell integration. File operations accept a `FileSystemLocation`: either `Path(FileSystemPath)` or `Directory { directory, path }`. Browser objects, Android content URIs, and iOS security-scoped URLs remain host-private behind `DirectoryHandle` values.
+
+## Use a native filesystem path
+
+On macOS, Windows, Linux, Android, and iOS, `FileSystemLocation::path` uses the process filesystem namespace and permissions. Fission does not normalize the path, confine it to an application directory, or add a separate authorization policy.
+
+```rust
+ctx.effects.file_system().read(ReadFileRequest {
+    location: FileSystemLocation::path("/etc/my-app/config.toml"),
+});
+```
+
+Relative native paths use the process working directory. Windows drive, UNC, and separator syntax is interpreted by Windows. If the application runs with elevated privileges, the operating system applies those privileges normally. The Web has no equivalent global path namespace and returns `unsupported_path_namespace` for direct path locations.
+
+## Pick a directory from a user action
+
+Directory pickers and browser permission prompts must start from a direct user action. Queue the request from its reducer:
+
+```rust
+let request = PickDirectoryRequest {
+    access: FileSystemAccessMode::ReadWrite,
+    persistence_key: Some("current-project".into()),
+};
+
+ctx.effects
+    .file_system()
+    .pick_directory(request)
+    .on_ok(ctx.effects.bind(DirectoryPicked, reduce_with!(on_directory_picked)))
+    .on_err(ctx.effects.bind(DirectoryFailed, reduce_with!(on_directory_failed)));
+```
+
+`PickDirectoryResult::directory` is `None` when the user cancels. Store the returned handle in app state for the current runtime. A handle is host-owned and can become invalid or lose permission, so handle `invalid_handle` and `permission_denied` as normal outcomes.
+
+## Work with a directory handle
+
+Use a handle-backed location after the picker succeeds:
+
+```rust
+ctx.effects.file_system().read(ReadFileRequest {
+    location: FileSystemLocation::directory(
+        state.project_directory.id,
+        "chapters/one.md",
+    ),
+});
+```
+
+The available operations are `list`, `stat`, `read`, `write`, `create_directory`, `remove`, `permission`, and `release`. Reads return a `DataStreamId`. Writes accept `FileWriteSource::Bytes` for a small value or `FileWriteSource::Stream` when data already lives in the runtime stream registry. Writes refuse to replace an existing file unless `overwrite` is explicitly true.
+
+Reads and stream-sourced writes transfer data incrementally on native and Web targets. The Web bridge applies bounded backpressure while adapting browser `ReadableStream` and `FileSystemWritableFileStream` objects, so file size does not become bridge memory usage.
+
+`FileSystemPath` preserves the supplied text. Fission does not reject absolute paths, parent traversal, platform separators, drive prefixes, or symbolic links. Native providers pass path interpretation to the operating system. Handle-backed browser and document providers can only resolve paths their platform API represents and return a typed provider error otherwise.
+
+A directory handle is an addressing mechanism, not a promise that Fission has created a filesystem sandbox. In particular, native symbolic links and native path traversal follow operating-system behavior.
+
+`FileSystemAccessMode` expresses the access requested from a picker provider. Fission does not turn it into a second authorization layer on native paths or native folder selections; the operating system remains authoritative. Browser and document providers enforce the permission their host actually grants.
+
+## Restore a browser grant
+
+When `persistence_key` is present, the Web provider stores the browser's `FileSystemDirectoryHandle` in IndexedDB. It does not store or copy directory contents. On a later launch, call `restore_directory`; then inspect or request permission with `permission` before accessing files.
+
+```rust
+ctx.effects
+    .file_system()
+    .restore_directory(RestoreDirectoryRequest {
+        persistence_key: "current-project".into(),
+        access: FileSystemAccessMode::ReadWrite,
+    });
+```
+
+Browser support requires a secure context and `showDirectoryPicker`. Browsers without the modern File System Access API return `unsupported`. Native direct paths and selection work on macOS, Windows, Linux, Android, and iOS. Android persists document-tree URI grants and iOS persists security-scoped folder bookmarks when a `persistence_key` is supplied. Desktop picker persistence is not yet available.
+
+Call `forget_directory` to delete a persisted browser handle, and `release` when the current runtime no longer needs a live handle. Forgetting a handle does not delete user files.
+
+## Error handling
+
+All operations return `FileSystemError { code, message }`. Treat cancellation separately from failure: picker cancellation is a successful result with no directory. Common error codes include `unsupported`, `unsupported_path_namespace`, `permission_denied`, `invalid_handle`, `invalid_path`, `not_found`, `not_a_file`, and operation-specific I/O failures.
+
+For the complete type and operation list, see the [File system reference](/reference/capabilities/file-system/) and [capability matrix](/docs/capabilities/matrix/).

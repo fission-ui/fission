@@ -144,7 +144,11 @@ jobs:
           targets: aarch64-linux-android
 
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
+        with:
+          # The workflow installs its exact SDK packages below. Avoid the
+          # action's legacy default package set, which includes removed tools.
+          packages: ''
 
       - name: Install Linux native build dependencies
         run: sudo apt-get update && sudo apt-get install -y libfontconfig1-dev pkg-config
@@ -160,12 +164,16 @@ jobs:
         run: |
           sdkmanager \
             "platform-tools" \
+            "emulator" \
             "platforms;android-${ANDROID_TARGET_API_LEVEL}" \
             "build-tools;${ANDROID_BUILD_TOOLS_VERSION}" \
             "ndk;${ANDROID_NDK_VERSION}"
 
       - name: Diagnose Android toolchain
         run: cargo run -p cargo-fission --bin fission -- doctor android --project-dir examples/mobile-smoke --strict
+
+      - name: Enable Android filesystem capability smoke coverage
+        run: cargo run --locked -p cargo-fission --bin fission -- add-capability filesystem --project-dir examples/mobile-smoke
 
       - name: Check mobile-smoke for Android
         run: |
@@ -203,6 +211,9 @@ jobs:
 
       - name: Diagnose iOS toolchain
         run: cargo run -p cargo-fission --bin fission -- doctor ios --project-dir examples/mobile-smoke --strict
+
+      - name: Enable iOS filesystem capability smoke coverage
+        run: cargo run --locked -p cargo-fission --bin fission -- add-capability filesystem --project-dir examples/mobile-smoke
 
       - name: Check mobile-smoke for iOS simulator
         run: cargo check -p mobile-smoke --target aarch64-apple-ios-sim
