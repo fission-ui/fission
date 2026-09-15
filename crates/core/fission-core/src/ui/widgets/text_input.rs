@@ -1175,6 +1175,8 @@ impl Lower for TextInput {
                             fill: border_fill,
                             width: border_width,
                             dash_array: component_style.border_dash.clone(),
+                            dash_offset: 0.0,
+                            trim: None,
                             line_cap: fission_ir::op::LineCap::Butt,
                             line_join: fission_ir::op::LineJoin::Miter,
                         }),

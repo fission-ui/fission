@@ -665,6 +665,8 @@ fn map_stroke(s: &fission_ir::op::Stroke) -> fission_render::Stroke {
         fill: map_fill(&s.fill),
         width: s.width,
         dash_array: s.dash_array.clone(),
+        dash_offset: s.dash_offset,
+        trim: s.trim,
         line_cap: match s.line_cap {
             fission_ir::op::LineCap::Butt => fission_render::LineCap::Butt,
             fission_ir::op::LineCap::Round => fission_render::LineCap::Round,
@@ -746,6 +748,9 @@ fn generate_display_list_with_visited(
                 fission_core::MotionPropertyId::Rotation,
             )
             .unwrap_or(0.0);
+            let (path_dx, path_dy, path_rotation) =
+                path_offset_delta(node.composite.path_offset.as_ref(), rect, animation_map);
+            let (tx, ty, rotation) = (tx + path_dx, ty + path_dy, rotation + path_rotation);
 
             match &node.op {
                 fission_ir::Op::Layout(fission_ir::LayoutOp::Scroll { direction, .. }) => {
@@ -1008,9 +1013,15 @@ fn generate_display_list_with_visited(
                         node_id: Some(node_id),
                     });
                 }
-                fission_ir::Op::Paint(fission_ir::PaintOp::DrawPath { path, fill, stroke }) => {
+                fission_ir::Op::Paint(fission_ir::PaintOp::DrawPath {
+                    path,
+                    fill,
+                    stroke,
+                    view_box,
+                }) => {
                     list.push(DisplayOp::DrawPath {
                         path: path.clone(),
+                        view_box: *view_box,
                         fill: fill.as_ref().map(map_fill),
                         stroke: stroke.as_ref().map(map_stroke),
                         bounds: geom.rect,
@@ -1048,6 +1059,19 @@ fn generate_display_list_with_visited(
             }
         }
     }
+}
+
+/// Translation and rotation that place a node's centre on its path offset, if it has one.
+fn path_offset_delta(
+    offset: Option<&fission_ir::op::PathOffset>,
+    rect: LayoutRect,
+    animation_map: &fission_core::MotionStateMap,
+) -> (f32, f32, f32) {
+    offset.map_or((0.0, 0.0, 0.0), |offset| {
+        let property = fission_core::MotionPropertyId::PathDistance;
+        let distance = resolve_composite_scalar(Some(&offset.distance), animation_map, property);
+        offset.delta(distance.unwrap_or(0.0), rect.size.width, rect.size.height)
+    })
 }
 
 fn resolve_composite_scalar(

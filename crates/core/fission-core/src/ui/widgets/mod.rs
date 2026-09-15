@@ -106,6 +106,12 @@ pub use clip::Clip;
 pub mod focus_scope;
 pub use focus_scope::FocusScope;
 
+pub mod follow_path;
+pub use follow_path::FollowPath;
+
+pub mod vector_path;
+pub use vector_path::VectorPath;
+
 fn add_axis_edges(
     value: fission_ir::op::Length,
     start: &fission_ir::op::Length,

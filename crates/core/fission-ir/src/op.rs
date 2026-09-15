@@ -165,6 +165,9 @@ pub struct CompositeStyle {
     /// the subtree's pixels isolated before they are mixed down.
     #[serde(default)]
     pub blend_mode: BlendMode,
+    /// Places this layer along a path; see [`PathOffset`].
+    #[serde(default)]
+    pub path_offset: Option<PathOffset>,
 }
 
 pub type LayoutUnit = f32;
@@ -1630,45 +1633,8 @@ impl std::hash::Hash for Fill {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum LineCap {
-    Butt,
-    Round,
-    Square,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum LineJoin {
-    Miter,
-    Round,
-    Bevel,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct Stroke {
-    pub fill: Fill,
-    pub width: LayoutUnit,
-    pub dash_array: Option<Vec<f32>>,
-    pub line_cap: LineCap,
-    pub line_join: LineJoin,
-}
-
-impl std::hash::Hash for Stroke {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.fill.hash(state);
-        self.width.to_bits().hash(state);
-        if let Some(da) = &self.dash_array {
-            1.hash(state);
-            for d in da {
-                d.to_bits().hash(state);
-            }
-        } else {
-            0.hash(state);
-        }
-        self.line_cap.hash(state);
-        self.line_join.hash(state);
-    }
-}
+pub use crate::path::{PathOffset, StrokeTrim};
+pub use crate::stroke::{LineCap, LineJoin, Stroke};
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct BoxShadow {
@@ -2250,6 +2216,10 @@ pub enum PaintOp {
         path: String,
         fill: Option<Fill>,
         stroke: Option<Stroke>,
+        /// Size of the coordinate space `path` is drawn in, scaled to the node's box. `None` means
+        /// the path is in the node's logical pixels.
+        #[serde(default)]
+        view_box: Option<[f32; 2]>,
     },
     DrawSvg {
         content: String,
@@ -2427,11 +2397,17 @@ impl std::hash::Hash for PaintOp {
                 fit.hash(state);
                 alignment.hash(state);
             }
-            Self::DrawPath { path, fill, stroke } => {
+            Self::DrawPath {
+                path,
+                fill,
+                stroke,
+                view_box,
+            } => {
                 5_u8.hash(state);
                 path.hash(state);
                 fill.hash(state);
                 stroke.hash(state);
+                view_box.map(|size| size.map(f32::to_bits)).hash(state);
             }
             Self::DrawSvg {
                 content,

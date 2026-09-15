@@ -69,6 +69,12 @@ pub struct Stroke {
     pub dash_array: Option<Vec<f32>>,
     pub line_cap: LineCap,
     pub line_join: LineJoin,
+    /// How far into the dash pattern the stroke starts, in logical pixels.
+    #[serde(default)]
+    pub dash_offset: f32,
+    /// Draws only part of the path, as fractions of its arc length.
+    #[serde(default)]
+    pub trim: Option<fission_ir::op::StrokeTrim>,
 }
 
 /// Strokes for the four edges of a box, in physical order.
@@ -252,6 +258,8 @@ pub enum DisplayOp {
         path: String,
         fill: Option<Fill>,
         stroke: Option<Stroke>,
+        /// Coordinate space size scaled to `bounds`; `None` draws the path in logical pixels.
+        view_box: Option<[f32; 2]>,
         bounds: LayoutRect,
         node_id: Option<WidgetId>,
     },

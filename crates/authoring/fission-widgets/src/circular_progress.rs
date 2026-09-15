@@ -204,9 +204,12 @@ impl LowerWidget for CircularProgressLowerer {
                     fill: fission_ir::op::Fill::Solid(self.track_color),
                     width: self.thickness,
                     dash_array: None,
+                    dash_offset: 0.0,
+                    trim: None,
                     line_cap: fission_ir::op::LineCap::Round,
                     line_join: fission_ir::op::LineJoin::Round,
                 }),
+                view_box: None,
             }),
         )
         .build(cx);
@@ -251,9 +254,12 @@ impl LowerWidget for CircularProgressLowerer {
                     fill: fission_ir::op::Fill::Solid(self.color),
                     width: self.thickness,
                     dash_array: None,
+                    dash_offset: 0.0,
+                    trim: None,
                     line_cap: fission_ir::op::LineCap::Round,
                     line_join: fission_ir::op::LineJoin::Round,
                 }),
+                view_box: None,
             }),
         )
         .build(cx);

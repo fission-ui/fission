@@ -130,6 +130,8 @@ impl Lower for Checkbox {
                     fill: fission_ir::op::Fill::Solid(stroke_color),
                     width: 1.5,
                     dash_array: None,
+                    dash_offset: 0.0,
+                    trim: None,
                     line_cap: fission_ir::op::LineCap::Butt,
                     line_join: fission_ir::op::LineJoin::Miter,
                 }),
@@ -154,9 +156,12 @@ impl Lower for Checkbox {
                             fill: fission_ir::op::Fill::Solid(indicator_color),
                             width: 1.8,
                             dash_array: None,
+                            dash_offset: 0.0,
+                            trim: None,
                             line_cap: fission_ir::op::LineCap::Round,
                             line_join: fission_ir::op::LineJoin::Round,
                         }),
+                        view_box: None,
                     }),
                 )
                 .build(cx);

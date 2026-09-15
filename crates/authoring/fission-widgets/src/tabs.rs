@@ -908,6 +908,8 @@ fn append_recipe_paint(
         fill: border.fill.clone(),
         width: border.width,
         dash_array: style.border_dash.clone(),
+        dash_offset: 0.0,
+        trim: None,
         line_cap: fission_core::op::LineCap::Butt,
         line_join: fission_core::op::LineJoin::Miter,
     });

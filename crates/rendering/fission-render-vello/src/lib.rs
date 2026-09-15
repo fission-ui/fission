@@ -1765,6 +1765,8 @@ mod tests {
             fill: RenderFill::Solid(black()),
             width,
             dash_array: None,
+            dash_offset: 0.0,
+            trim: None,
             line_cap: fission_render::LineCap::Butt,
             line_join: fission_render::LineJoin::Miter,
         }
@@ -3648,12 +3650,14 @@ impl<'a> VelloRenderer<'a> {
                     path,
                     fill,
                     stroke,
+                    view_box,
                     bounds,
                     ..
                 } => {
                     if let Ok(bez_path) = BezPath::from_svg(path) {
                         let transform = self.current_transform
-                            * Affine::translate((bounds.origin.x as f64, bounds.origin.y as f64));
+                            * Affine::translate((bounds.origin.x as f64, bounds.origin.y as f64))
+                            * view_box_scale(*view_box, bounds.size.width, bounds.size.height);
                         let paint_bounds = Rect::new(
                             0.0,
                             0.0,
@@ -3669,8 +3673,9 @@ impl<'a> VelloRenderer<'a> {
                         }
                         if let Some(s) = stroke {
                             let (stroke_style, paint) = map_stroke(s, paint_bounds);
+                            let geometry = stroke_geometry(path, s, &bez_path);
                             self.painter
-                                .stroke_path(transform, &stroke_style, paint, &bez_path);
+                                .stroke_path(transform, &stroke_style, paint, &geometry);
                         }
                     }
                 }

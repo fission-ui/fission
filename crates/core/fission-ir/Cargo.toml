@@ -18,6 +18,7 @@ readme = "README.md"
 serde = { version = "1.0", features = ["derive"] }
 blake3 = "1.5"
 thiserror = "1.0"
+kurbo = "0.13"
 
 [dev-dependencies]
 serde_json = "1.0"

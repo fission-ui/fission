@@ -1,6 +1,8 @@
 mod layout_policy;
 pub mod op;
+pub mod path;
 pub mod semantics;
+mod stroke;
 mod text_style;
 pub mod viewport;
 pub mod widget_id;

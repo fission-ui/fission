@@ -131,6 +131,7 @@ struct TransformBinding {
     translate_y: Option<CompositeScalar>,
     scale: Option<CompositeScalar>,
     rotation: Option<CompositeScalar>,
+    path_offset: Option<fission_ir::op::PathOffset>,
 }
 
 #[derive(Debug, Clone)]
@@ -666,6 +667,16 @@ impl Pipeline {
             {
                 self.compositor_animation_keys
                     .insert((target, MotionPropertyId::Rotation));
+                node_is_runtime_dynamic = true;
+            }
+            if let Some(target) = node
+                .composite
+                .path_offset
+                .as_ref()
+                .and_then(|offset| offset.distance.motion_target)
+            {
+                self.compositor_animation_keys
+                    .insert((target, MotionPropertyId::PathDistance));
                 node_is_runtime_dynamic = true;
             }
             if node_is_runtime_dynamic {
@@ -1486,6 +1497,13 @@ fn compose_dynamic_layer_transform(
         .as_ref()
         .map(|scalar| resolve_scalar_value(scalar, animation_map, MotionPropertyId::Rotation))
         .unwrap_or(0.0);
+    let (path_dx, path_dy, path_rotation) =
+        path_offset_delta(binding.path_offset.as_ref(), binding.rect, animation_map);
+    let (translate_x, translate_y, rotation) = (
+        translate_x + path_dx,
+        translate_y + path_dy,
+        rotation + path_rotation,
+    );
 
     let has_composite_transform = translate_x.abs() > 0.001
         || translate_y.abs() > 0.001
@@ -1645,7 +1663,8 @@ fn generate_render_layer_recursive(
             .rotation
             .as_ref()
             .and_then(|value| value.motion_target)
-            .is_some();
+            .is_some()
+        || node.composite.path_offset.is_some();
     let emit_opacity_layer = has_opacity_layer || needs_dynamic_opacity;
     let has_runtime_clip = node.composite.clip_to_bounds;
     let scroll = match &node.op {
@@ -1709,6 +1728,7 @@ fn generate_render_layer_recursive(
             translate_y: node.composite.translate_y.clone(),
             scale: node.composite.scale.clone(),
             rotation: node.composite.rotation.clone(),
+            path_offset: node.composite.path_offset.clone(),
         },
         scroll_map,
         viewport_map,
@@ -1776,6 +1796,7 @@ fn generate_render_layer_recursive(
             translate_y: node.composite.translate_y.clone(),
             scale: node.composite.scale.clone(),
             rotation: node.composite.rotation.clone(),
+            path_offset: node.composite.path_offset.clone(),
         });
     }
 
@@ -1795,6 +1816,7 @@ fn generate_render_layer_recursive(
                 translate_y: None,
                 scale: None,
                 rotation: None,
+                path_offset: None,
             },
             scroll_map,
             viewport_map,
@@ -1811,6 +1833,7 @@ fn generate_render_layer_recursive(
             translate_y: None,
             scale: None,
             rotation: None,
+            path_offset: None,
         });
 
         for child in &node.children {
@@ -1856,6 +1879,7 @@ fn generate_render_layer_recursive(
             translate_y: None,
             scale: None,
             rotation: None,
+            path_offset: None,
         };
         content_layer.style.transform =
             compose_dynamic_layer_transform(&binding, scroll_map, viewport_map, animation_map);
@@ -2109,6 +2133,7 @@ fn collect_video_surfaces_with_visited(
                 translate_y: node.composite.translate_y.clone(),
                 scale: node.composite.scale.clone(),
                 rotation: node.composite.rotation.clone(),
+                path_offset: node.composite.path_offset.clone(),
             },
             scroll_map,
             viewport_map,
@@ -2484,9 +2509,15 @@ fn build_local_paint_list(
                 node_id: Some(node_id),
             });
         }
-        Op::Paint(fission_ir::PaintOp::DrawPath { path, fill, stroke }) => {
+        Op::Paint(fission_ir::PaintOp::DrawPath {
+            path,
+            fill,
+            stroke,
+            view_box,
+        }) => {
             list.push(DisplayOp::DrawPath {
                 path: path.clone(),
+                view_box: *view_box,
                 fill: fill.as_ref().map(map_fill),
                 stroke: stroke.as_ref().map(map_stroke),
                 bounds: rect,
@@ -2596,6 +2627,22 @@ fn resolve_composite_scalar(
     Some(resolve_scalar_value(scalar, animation_map, property))
 }
 
+/// Translation and rotation that place a node's centre on its path offset, if it has one.
+fn path_offset_delta(
+    offset: Option<&fission_ir::op::PathOffset>,
+    rect: LayoutRect,
+    animation_map: &MotionStateMap,
+) -> (f32, f32, f32) {
+    offset.map_or((0.0, 0.0, 0.0), |offset| {
+        let distance = resolve_scalar_value(
+            &offset.distance,
+            animation_map,
+            MotionPropertyId::PathDistance,
+        );
+        offset.delta(distance, rect.size.width, rect.size.height)
+    })
+}
+
 fn resolve_scalar_value(
     scalar: &fission_ir::CompositeScalar,
     animation_map: &MotionStateMap,
@@ -2698,6 +2745,8 @@ fn map_stroke(s: &fission_ir::op::Stroke) -> Stroke {
         fill: map_fill(&s.fill),
         width: s.width,
         dash_array: s.dash_array.clone(),
+        dash_offset: s.dash_offset,
+        trim: s.trim,
         line_cap: match s.line_cap {
             fission_ir::op::LineCap::Butt => fission_render::LineCap::Butt,
             fission_ir::op::LineCap::Round => fission_render::LineCap::Round,

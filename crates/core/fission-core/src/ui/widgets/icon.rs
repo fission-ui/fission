@@ -180,6 +180,7 @@ impl Lower for Icon {
                     Some(fission_ir::op::Fill::Solid(color))
                 },
                 stroke: self.stroke.clone(),
+                view_box: None,
             },
             IconSource::File(f) => {
                 let content = std::fs::read_to_string(f).unwrap_or_default();

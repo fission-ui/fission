@@ -19,6 +19,8 @@ use fission_ir::{
 use fission_theme::{DesignMode, PackagedFont, PackagedFontStyle, Theme};
 use std::collections::{BTreeMap, HashSet};
 
+mod path_css;
+
 #[derive(Clone, Debug)]
 /// Document, enhancement, and renderer inputs for semantic HTML lowering.
 pub struct HtmlRenderOptions {
@@ -1164,13 +1166,13 @@ impl HtmlRenderer<'_> {
                 None,
             ));
         }
+        if let Some(offset) = node.composite.path_offset.as_ref() {
+            self.path_offset_style(offset, &mut style, &mut animations);
+        }
 
         if !animations.is_empty() {
             style.push(format!("animation:{}", animations.join(",")));
-            self.styles.raw_rule(
-                "fission-site-reduced-motion-animations",
-                "@media (prefers-reduced-motion:reduce){.fission-site-animated{animation-duration:0ms!important;animation-delay:0ms!important;animation-iteration-count:1!important;}}\n",
-            );
+            self.register_reduced_motion_rule();
         }
 
         (style, !animations.is_empty())
@@ -1232,10 +1234,7 @@ impl HtmlRenderer<'_> {
 
         if !animations.is_empty() {
             style.push(format!("animation:{}", animations.join(",")));
-            self.styles.raw_rule(
-                "fission-site-reduced-motion-animations",
-                "@media (prefers-reduced-motion:reduce){.fission-site-animated{animation-duration:0ms!important;animation-delay:0ms!important;animation-iteration-count:1!important;}}\n",
-            );
+            self.register_reduced_motion_rule();
         }
 
         (style, !animations.is_empty())
@@ -2049,18 +2048,12 @@ impl HtmlRenderer<'_> {
                     node.id
                 ))
             }
-            PaintOp::DrawPath { path, fill, stroke } => {
-                let path_class = self.class_name(
-                    "fission-site-svg-path",
-                    self.svg_paint_style(fill.as_ref(), stroke.as_ref()),
-                );
-                Ok(format!(
-                    "<svg class=\"fission-site-svg\" viewBox=\"0 0 24 24\" aria-hidden=\"true\" data-fission-node=\"{}\"><path class=\"{}\" d=\"{}\"></path></svg>",
-                    node.id,
-                    escape_attr(&path_class),
-                    escape_attr(path)
-                ))
-            }
+            PaintOp::DrawPath {
+                path,
+                fill,
+                stroke,
+                view_box,
+            } => Ok(self.render_svg_path(node, path, fill.as_ref(), stroke.as_ref(), *view_box)),
             PaintOp::DrawSvg {
                 content,
                 fill,
@@ -5219,9 +5212,12 @@ mod tests {
                     fill: Fill::Solid(Color::BLACK),
                     width: 2.0,
                     dash_array: Some(vec![4.0, 2.0]),
+                    dash_offset: 0.0,
+                    trim: None,
                     line_cap: LineCap::Round,
                     line_join: LineJoin::Round,
                 }),
+                view_box: None,
             }),
             Vec::new(),
         );

@@ -113,6 +113,8 @@ impl Lower for Radio {
                     fill: fission_ir::op::Fill::Solid(ring_color),
                     width: ring_width,
                     dash_array: None,
+                    dash_offset: 0.0,
+                    trim: None,
                     line_cap: fission_ir::op::LineCap::Butt,
                     line_join: fission_ir::op::LineJoin::Miter,
                 }),

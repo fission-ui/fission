@@ -129,6 +129,14 @@ pub enum MotionPropertyId {
     PaddingTop,
     /// Bottom padding in logical pixels.
     PaddingBottom,
+    /// Stroke dash offset in logical pixels; animating it makes a dashed stroke flow.
+    StrokeDashOffset,
+    /// Start of a stroke's drawn portion, as a fraction of the path's arc length.
+    PathTrimStart,
+    /// End of a stroke's drawn portion, as a fraction of the path's arc length.
+    PathTrimEnd,
+    /// Distance along a [`PathOffset`](fission_ir::op::PathOffset), as a fraction of arc length.
+    PathDistance,
     /// Widget-defined property consumed by custom renderers or widget code.
     Custom(Arc<str>),
 }
@@ -157,6 +165,21 @@ impl MotionPropertyId {
     /// Convenience constructor for [`MotionPropertyId::Rotation`].
     pub fn rotation() -> Self {
         Self::Rotation
+    }
+
+    /// Convenience constructor for [`MotionPropertyId::StrokeDashOffset`].
+    pub fn stroke_dash_offset() -> Self {
+        Self::StrokeDashOffset
+    }
+
+    /// Convenience constructor for [`MotionPropertyId::PathTrimEnd`].
+    pub fn path_trim_end() -> Self {
+        Self::PathTrimEnd
+    }
+
+    /// Convenience constructor for [`MotionPropertyId::PathDistance`].
+    pub fn path_distance() -> Self {
+        Self::PathDistance
     }
 
     /// Creates a widget-defined motion property.
@@ -198,6 +221,9 @@ impl MotionPropertyId {
             | Self::PaddingTop
             | Self::PaddingBottom => MotionValue::Px(0.0),
             Self::Rotation => MotionValue::Deg(0.0),
+            Self::StrokeDashOffset => MotionValue::Px(0.0),
+            Self::PathTrimStart | Self::PathDistance => MotionValue::Scalar(0.0),
+            Self::PathTrimEnd => MotionValue::Scalar(1.0),
             Self::Custom(_) => MotionValue::Scalar(0.0),
         }
     }
