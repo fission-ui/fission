@@ -43,13 +43,17 @@ struct AndroidDirectoryRegistry {
 }
 
 impl AndroidDirectoryRegistry {
-    fn insert(&self, grant: AndroidDirectoryGrant) -> DirectoryHandle {
+    fn insert(
+        &self,
+        grant: AndroidDirectoryGrant,
+        permission: FileSystemPermission,
+    ) -> DirectoryHandle {
         let id = DirectoryHandleId(self.next_id.fetch_add(1, Ordering::Relaxed) + 1);
         let handle = DirectoryHandle {
             id,
             name: grant.name.clone(),
             access: grant.access,
-            permission: FileSystemPermission::Granted,
+            permission,
         };
         self.grants.lock().unwrap().insert(id, grant);
         handle
@@ -191,11 +195,14 @@ pub(crate) fn register_android_file_system_capabilities(
                     return Err(error);
                 }
                 let directory = PickFuture(state).await?.map(|picked| {
-                    grants.insert(AndroidDirectoryGrant {
-                        uri: picked.uri,
-                        name: picked.name,
-                        access: request.access,
-                    })
+                    grants.insert(
+                        AndroidDirectoryGrant {
+                            uri: picked.uri,
+                            name: picked.name,
+                            access: request.access,
+                        },
+                        FileSystemPermission::Granted,
+                    )
                 });
                 Ok(PickDirectoryResult { directory })
             }
@@ -225,15 +232,22 @@ pub(crate) fn register_android_file_system_capabilities(
                     "(Landroid/app/Activity;Ljava/lang/String;)Ljava/lang/String;",
                     &uri,
                 )?;
-                let granted = call_permission(&host, &uri, request.access)?;
-                let directory = granted.then(|| {
-                    grants.insert(AndroidDirectoryGrant {
+                let permission = if call_permission(&host, &uri, request.access)? {
+                    FileSystemPermission::Granted
+                } else {
+                    FileSystemPermission::Denied
+                };
+                let directory = grants.insert(
+                    AndroidDirectoryGrant {
                         uri,
                         name,
                         access: request.access,
-                    })
-                });
-                Ok(RestoreDirectoryResult { directory })
+                    },
+                    permission,
+                );
+                Ok(RestoreDirectoryResult {
+                    directory: Some(directory),
+                })
             }
         },
     );
