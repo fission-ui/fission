@@ -44,7 +44,9 @@ fn a_calendar_hugs_its_seven_day_columns() {
         .next()
         .expect("calendar")
         .bounds;
-    let expected = 36.0 * 7.0 + 16.0 * 2.0;
+    // Cells are a medium control wide and the grid is padded by a medium spacing step.
+    let tokens = fission_core::Env::default().theme.tokens;
+    let expected = tokens.sizing.control_md * 7.0 + tokens.spacing.m * 2.0;
     assert!(
         (calendar.width() - expected).abs() < 1.0,
         "the calendar is {expected} wide, got {calendar:?}"

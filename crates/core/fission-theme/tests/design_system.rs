@@ -281,9 +281,9 @@ fn default_theme_is_generated_from_bundled_dsp() {
     assert_eq!(theme.design_system.info.name, "fission-design-system");
     assert_eq!(theme.design_system.mode, DesignMode::Light);
     // Tidewater: Fission teal and 10px control corners.
-    assert_eq!(theme.tokens.colors.primary.r, 15);
-    assert_eq!(theme.tokens.colors.primary.g, 118);
-    assert_eq!(theme.tokens.colors.primary.b, 110);
+    assert_eq!(theme.tokens.colors.primary.r, 13);
+    assert_eq!(theme.tokens.colors.primary.g, 109);
+    assert_eq!(theme.tokens.colors.primary.b, 102);
     assert_eq!(theme.components.button.radius, 10.0);
     assert!(theme
         .design_system
@@ -302,9 +302,9 @@ fn dark_theme_is_generated_from_bundled_dsp() {
     assert_eq!(theme.tokens.colors.background.r, 11);
     assert_eq!(theme.tokens.colors.background.g, 20);
     assert_eq!(theme.tokens.colors.background.b, 20);
-    assert_eq!(theme.tokens.colors.primary.r, 45);
-    assert_eq!(theme.tokens.colors.primary.g, 212);
-    assert_eq!(theme.tokens.colors.primary.b, 191);
+    assert_eq!(theme.tokens.colors.primary.r, 31);
+    assert_eq!(theme.tokens.colors.primary.g, 194);
+    assert_eq!(theme.tokens.colors.primary.b, 173);
 }
 
 #[test]

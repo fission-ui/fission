@@ -3,7 +3,7 @@ use crate::data_section::DataSection;
 use crate::display_section::DisplaySection;
 use crate::drag_drop::DragDropSection;
 use crate::feedback_section::FeedbackSection;
-use crate::foundations_section::FoundationsSection;
+use crate::foundations_section::{FoundationsSection, ThemeBar};
 use crate::gallery_header::GalleryHeader;
 use crate::input_section::InputSection;
 use crate::navigation_section::NavigationSection;
@@ -59,8 +59,21 @@ impl From<GalleryApp> for Widget {
         }
         .into();
 
+        // The theme bar sits outside the scroll view so it stays in reach on every section.
+        // It must not shrink: the page's content is far taller than the window, and a
+        // shrinking column squeezed the bar to a sliver the page then painted over.
+        let theme_bar: Widget = Container::new(ThemeBar)
+            .width_length(Length::percent(100.0))
+            .flex_shrink(0.0)
+            .into();
+        let shell: Widget = Column {
+            children: widgets![theme_bar, page],
+            ..Default::default()
+        }
+        .into();
+
         // The page ground comes from the theme, so dark mode and other looks paint it.
-        Container::new(page)
+        Container::new(shell)
             .bg(tokens.colors.background)
             .width_length(Length::percent(100.0))
             .height_length(Length::percent(100.0))

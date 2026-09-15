@@ -143,6 +143,85 @@ impl From<FoundationGroup> for Widget {
     }
 }
 
+/// Look, mode and density, pinned above the page so any section can be
+/// checked in any theme without scrolling back to Foundations.
+pub(crate) struct ThemeBar;
+
+impl From<ThemeBar> for Widget {
+    fn from(_bar: ThemeBar) -> Self {
+        let (ctx, view) = fission::build::current::<GalleryState>();
+        let state = view.state();
+        let tokens = view.env().theme.tokens.clone();
+        let set_look = std::sync::Arc::new({
+            let action = with_reducer!(ctx, SetLook(0), set_look);
+            move |index| action.with_action(&SetLook(index))
+        });
+        let set_mode = std::sync::Arc::new({
+            let action = with_reducer!(ctx, SetMode(0), set_mode);
+            move |index| action.with_action(&SetMode(index))
+        });
+        let set_density = std::sync::Arc::new({
+            let action = with_reducer!(ctx, SetDensity(0), set_density);
+            move |index| action.with_action(&SetDensity(index))
+        });
+        let density_index = DENSITIES
+            .iter()
+            .position(|density| *density == state.density)
+            .unwrap_or(0);
+        // The native look replaces the theme, so the look picker says so rather
+        // than pretending a preset is active.
+        let look_control: Widget = if state.native_look {
+            Text::new("Native platform look")
+                .color(tokens.colors.text_secondary)
+                .into()
+        } else {
+            SegmentedControl {
+                options: vec!["Tidewater".into(), "Graphite".into(), "Ember".into()],
+                selected_index: state.look,
+                on_change: Some(set_look),
+            }
+            .into()
+        };
+
+        SemanticsRegion::new(
+            // A plain row: it measures its own height, so the bar holds its controls
+            // instead of collapsing and letting the page paint over them.
+            Container::new(Row {
+                gap: Some(tokens.spacing.m),
+                align_items: fission::op::AlignItems::Center,
+                children: widgets![
+                    Text::new("Theme")
+                        .weight(tokens.typography.font_weight_semibold)
+                        .color(tokens.colors.text_primary),
+                    look_control,
+                    SegmentedControl {
+                        options: vec!["Light".into(), "Dark".into()],
+                        selected_index: usize::from(state.dark_mode),
+                        on_change: Some(set_mode),
+                    },
+                    SegmentedControl {
+                        options: vec!["Compact".into(), "Comfortable".into(), "Spacious".into()],
+                        selected_index: density_index,
+                        on_change: Some(set_density),
+                    },
+                ],
+                ..Default::default()
+            })
+            .width_length(Length::percent(100.0))
+            .padding_lengths(Length::symmetric(
+                Length::points(tokens.spacing.l),
+                Length::points(tokens.spacing.s),
+            ))
+            .bg(tokens.colors.surface)
+            .border_bottom(tokens.colors.border, tokens.sizing.border_hairline),
+        )
+        .role(Role::Toolbar)
+        .label("Theme")
+        .identifier("gallery.theme_bar")
+        .into()
+    }
+}
+
 struct LookSwitcher;
 
 impl From<LookSwitcher> for Widget {
