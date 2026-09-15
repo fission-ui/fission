@@ -166,7 +166,8 @@ pub extern "system" fn Java_rs_fission_runtime_FissionFileSystem_nativeDirectory
         }
     };
     *state.result.lock().unwrap() = Some(result);
-    if let Some(waker) = state.waker.lock().unwrap().take() {
+    let waker = state.waker.lock().unwrap().take();
+    if let Some(waker) = waker {
         waker.wake();
     }
 }
