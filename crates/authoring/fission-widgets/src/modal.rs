@@ -675,6 +675,15 @@ impl ModalContent {
 
 impl From<ModalContent> for Widget {
     fn from(content: ModalContent) -> Self {
+        content.into_widget_with_inline_gutter([0.0, 0.0])
+    }
+}
+
+impl ModalContent {
+    /// Builds the scrolling body with `gutter` (`[left, right]`) of padding inside the scroll
+    /// viewport, so the overlay scrollbar sits in that gutter rather than over the content.
+    fn into_widget_with_inline_gutter(self, gutter: [f32; 2]) -> Widget {
+        let content = self;
         let (_, view) = fission_core::build::current::<()>();
         let style = &view.env().theme.components.modal.content_style;
         let mut inner = Container::new(content.child).padding(style.padding_box(0.0, 0.0));
@@ -692,7 +701,11 @@ impl From<ModalContent> for Widget {
         inner = inner.shadows(style.outer_shadows());
 
         Scroll {
-            child: Some(inner.into()),
+            child: Some(
+                Container::new(inner)
+                    .padding([gutter[0], gutter[1], 0.0, 0.0])
+                    .into(),
+            ),
             direction: FlexDirection::Column,
             show_scrollbar: content.show_scrollbar,
             flex_grow: 0.0,
@@ -1141,10 +1154,6 @@ impl From<ModalRecipe> for Widget {
             Widget::from(close_button)
         });
 
-        let mut main_children = vec![Widget::from(ModalHeaderRegion {
-            header: component.header,
-        })];
-        main_children.push(component.content.into());
         let footer = component
             .footer
             .filter(|footer| !footer.actions.is_empty() || !footer.children.is_empty());
@@ -1152,11 +1161,25 @@ impl From<ModalRecipe> for Widget {
         if footer.is_some() {
             main_padding[3] = 0.0;
         }
+        // The horizontal padding is applied inside the header and the scroll viewport rather than
+        // around them, so the body's scrollbar runs along the surface edge beside the content.
+        let inline_gutter = [main_padding[0], main_padding[1]];
+        let main_children = vec![
+            Container::new(ModalHeaderRegion {
+                header: component.header,
+            })
+            .padding([inline_gutter[0], inline_gutter[1], 0.0, 0.0])
+            .flex_shrink(0.0)
+            .into(),
+            component
+                .content
+                .into_widget_with_inline_gutter(inline_gutter),
+        ];
         let main_region: Widget = Container::new(VStack {
             spacing: Some(container_style.gap.unwrap_or(tokens.spacing.m)),
             children: main_children,
         })
-        .padding(main_padding)
+        .padding([0.0, 0.0, main_padding[2], main_padding[3]])
         .into();
         let mut surface_children = vec![main_region];
         if let Some(footer) = footer {

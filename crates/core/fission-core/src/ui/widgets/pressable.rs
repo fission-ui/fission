@@ -275,7 +275,7 @@ impl Pressable {
         }
         if cx.runtime_state.interaction.is_pressed(id) {
             self.style.merged(self.pressed_style.as_ref())
-        } else if cx.runtime_state.interaction.is_focused(id) {
+        } else if cx.runtime_state.interaction.is_focus_visible(id) {
             self.style.merged(self.focused_style.as_ref())
         } else if cx.runtime_state.interaction.is_hovered(id) {
             self.style.merged(self.hover_style.as_ref())
@@ -942,7 +942,12 @@ impl From<Pressable> for Widget {
         let id = pressable
             .id
             .or_else(crate::build::current_widget_id)
-            .or_else(|| crate::build::next_implicit_widget_id(Pressable::MOTION_SALT))
+            .or_else(|| {
+                crate::build::next_implicit_widget_id_for(
+                    Pressable::MOTION_SALT,
+                    pressable.on_press.as_ref(),
+                )
+            })
             .unwrap_or_else(|| WidgetId::explicit("fission.core.pressable"));
         pressable.id = Some(id);
         let transition = pressable.transition.clone();

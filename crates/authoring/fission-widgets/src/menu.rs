@@ -1144,7 +1144,7 @@ impl From<MenuActionItem> for Widget {
             if interaction.is_pressed(id) {
                 style = style.merge(&theme.resolve_item(destructive, ComponentState::Active));
             }
-            if interaction.is_focused(id) {
+            if interaction.is_focus_visible(id) {
                 style = style.merge_composing_shadows(
                     &theme.resolve_item(destructive, ComponentState::Focus),
                 );
@@ -1152,7 +1152,7 @@ impl From<MenuActionItem> for Widget {
         }
         let mut shortcut_style = theme.shortcut_style.clone();
         let mut metadata_style = theme.metadata_style.clone();
-        if interaction.is_focused(id) && !item.disabled {
+        if interaction.is_focus_visible(id) && !item.disabled {
             shortcut_style.text_color = style.text_color;
             metadata_style.text_color = style.text_color;
         }

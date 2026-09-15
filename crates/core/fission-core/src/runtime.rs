@@ -1,3 +1,8 @@
+#[path = "runtime_hover.rs"]
+mod runtime_hover;
+#[path = "runtime_text_focus.rs"]
+mod text_focus;
+
 use crate::action::{Action, ActionEnvelope, ActionId, GlobalState};
 use crate::async_runtime::ServiceStopPayload;
 use crate::effect::{
@@ -18,7 +23,7 @@ use crate::{
 use anyhow::{anyhow, Context, Result};
 use fission_diagnostics::prelude as diag;
 use fission_ir::{CoreIR, FlexDirection, FocusPolicy, LayoutOp, Op, WidgetId};
-use fission_layout::{LayoutPoint, LayoutRect, LayoutSize, LayoutSnapshot, TextMeasurer};
+use fission_layout::{LayoutPoint, LayoutRect, LayoutSnapshot, TextMeasurer};
 use serde_json;
 use std::any::TypeId;
 use std::collections::{HashMap, HashSet};
@@ -1213,6 +1218,13 @@ impl Runtime {
     /// so an unmounted widget's state cannot affect the replacement tree's
     /// first frame.
     pub fn reconcile_ir(&mut self, ir: &CoreIR) {
+        // A text field that has left the tree, such as one in a closed dialog, drops its editing
+        // session, so when it returns it is new rather than already visited and flagged invalid.
+        // Text meant to survive removal is kept by its restoration id, not its session.
+        self.runtime_state
+            .text_edit
+            .states
+            .retain(|id, _| ir.nodes.contains_key(id));
         self.runtime_state.viewport.reconcile(ir);
         self.runtime_state.range_slider.reconcile(ir);
         crate::selection::reconcile_selection_state(&mut self.runtime_state.selectable_text, ir);
@@ -1255,7 +1267,8 @@ impl Runtime {
         // yet adopted the pre-layout reconciliation hook. Production shells
         // call `reconcile_ir` before layout, making this pass idempotent.
         self.reconcile_ir(ir);
-        let mut needs_follow_up_frame = self.apply_pending_scroll_into_view(ir, layout);
+        let mut needs_follow_up_frame = self.refresh_hover_state(ir, layout);
+        needs_follow_up_frame |= self.apply_pending_scroll_into_view(ir, layout);
         needs_follow_up_frame |= self.reveal_new_active_descendants(ir, layout);
         needs_follow_up_frame |= self.apply_pending_selection_regions(ir);
         needs_follow_up_frame |= self.apply_pending_text_editing(ir, layout);
@@ -1539,6 +1552,7 @@ impl Runtime {
         use crate::ui::custom_render::downcast_render_object;
 
         self.reconcile_focus(ir)?;
+        crate::input::update_focus_modality(&mut self.runtime_state.interaction, &event);
         let cancelled_pointer_sequence = crate::input::gesture::cancel_unavailable_pointer_sequence(
             ir,
             &mut self.runtime_state.gesture,
@@ -2212,6 +2226,11 @@ impl Runtime {
                         }
                     }
                     KeyCode::Escape => {
+                        // An open context menu is the topmost surface, so Escape closes it first.
+                        if self.runtime_state.context_menu.owner.is_some() {
+                            self.runtime_state.context_menu.close();
+                            return Ok(());
+                        }
                         if let Some((node_id, action)) = crate::hit_test::topmost_semantics_action(
                             ir,
                             fission_ir::ActionTrigger::Dismiss,
@@ -2391,7 +2410,13 @@ impl Runtime {
                     }
                     KeyCode::Enter | KeyCode::Space => {
                         if let Some(focused_id) = self.runtime_state.interaction.focused {
-                            let mut current_id = Some(focused_id);
+                            // A text field takes Enter and Space as input: Space is typed and Enter
+                            // submits through the field's own actions. Activating a surrounding
+                            // control would act on it and move focus out of the field.
+                            let edits_text = ir.nodes.get(&focused_id).is_some_and(|node| {
+                                matches!(&node.op, Op::Semantics(semantics) if semantics.supports_text_editing())
+                            });
+                            let mut current_id = (!edits_text).then_some(focused_id);
                             while let Some(node_id) = current_id {
                                 if let Some(node) = ir.nodes.get(&node_id) {
                                     if let Op::Semantics(semantics) = &node.op {
@@ -2631,36 +2656,6 @@ impl Runtime {
         Ok(())
     }
 
-    pub fn clear_hover_state(&mut self, ir: &CoreIR, point: Option<LayoutPoint>) -> Result<bool> {
-        use crate::input::hover::HoverController;
-        use crate::input::ControllerContext;
-
-        let input_time = self.clock().current_time();
-        let dispatched_actions = {
-            let layout = &LayoutSnapshot::new(LayoutSize::ZERO);
-            let mut ctx = ControllerContext {
-                ir,
-                layout,
-                text_edit: &mut self.runtime_state.text_edit,
-                selectable_text: &mut self.runtime_state.selectable_text,
-                context_menu: &mut self.runtime_state.context_menu,
-                interaction: &mut self.runtime_state.interaction,
-                scroll: &mut self.runtime_state.scroll,
-                viewport: &self.runtime_state.viewport,
-                gesture: &mut self.runtime_state.gesture,
-                editing_convention: self.editing_convention,
-                current_time: input_time,
-                clipboard: self.clipboard_backend.as_ref(),
-                measurer: self.measurer.as_ref(),
-                dispatched_actions: Vec::new(),
-            };
-            let changed = HoverController::clear(&mut ctx, point);
-            (changed, ctx.dispatched_actions)
-        };
-        self.dispatch_input_actions(dispatched_actions.1)?;
-        Ok(dispatched_actions.0)
-    }
-
     fn dispatch_input_actions(
         &mut self,
         dispatched_actions: Vec<(WidgetId, ActionEnvelope, ActionInput)>,
@@ -2794,40 +2789,6 @@ impl Runtime {
         Some(rect)
     }
 
-    fn clear_text_pending_on_blur(
-        &mut self,
-        old_focus: Option<WidgetId>,
-        new_focus: Option<WidgetId>,
-    ) {
-        if old_focus == new_focus {
-            return;
-        }
-        if let Some(old_id) = old_focus {
-            if let Some(st) = self.runtime_state.text_edit.states.get_mut(&old_id) {
-                st.pending_model_sync = false;
-                st.clear_preedit();
-            }
-        }
-    }
-
-    fn text_input_value(&self, ir: &CoreIR, id: WidgetId) -> crate::TextEditingValue {
-        self.runtime_state
-            .text_edit
-            .get(id)
-            .map(|state| state.editing_value())
-            .unwrap_or_else(|| {
-                let text = ir
-                    .nodes
-                    .get(&id)
-                    .and_then(|node| match &node.op {
-                        Op::Semantics(semantics) => semantics.value.clone(),
-                        _ => None,
-                    })
-                    .unwrap_or_default();
-                crate::TextEditingValue::from_text(text)
-            })
-    }
-
     fn dispatch_text_session_action(
         &mut self,
         ir: &CoreIR,
@@ -2890,6 +2851,13 @@ impl Runtime {
         }
 
         self.runtime_state.interaction.set_focused(next);
+        // Focus rings follow the way focus moved: keyboard navigation shows them, a click hides
+        // them, and programmatic focus keeps whichever the user was last using.
+        match source {
+            crate::TextEditSource::Keyboard => self.runtime_state.interaction.focus_visible = true,
+            crate::TextEditSource::Pointer => self.runtime_state.interaction.focus_visible = false,
+            _ => {}
+        }
         if let Some(new_id) = next {
             let select_all = ir
                 .custom_render_objects

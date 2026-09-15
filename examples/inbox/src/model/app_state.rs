@@ -28,6 +28,8 @@ pub struct InboxState {
 
     // Compose State
     pub compose_to: String,
+    /// Why the last Send was refused, shown under the recipient field.
+    pub compose_to_error: Option<String>,
     pub compose_subject: String,
     pub compose_body: String,
     pub compose_attachments: Vec<String>,
@@ -39,6 +41,11 @@ pub struct InboxState {
     // Filters / Toolbar
     pub sort_option: String,
     pub show_advanced_filters: bool,
+    pub date_filter: (Option<NaiveDate>, Option<NaiveDate>),
+    pub date_filter_start_open: bool,
+    pub date_filter_end_open: bool,
+    /// Inclusive size range in megabytes; the full slider range filters nothing.
+    pub size_filter_mb: (f32, f32),
     pub zoom_level: f32,
     pub inbox_type: String,
 
@@ -64,8 +71,10 @@ pub struct InboxState {
 
     // UI State
     pub search_query: String,
-    pub show_filter_dropdown: bool,
+    pub show_sort_menu: bool,
     pub active_tab: usize,
+    /// The label the list is narrowed to, if any.
+    pub label_filter: Option<String>,
     pub reply_mode: usize,
     pub reply_body: String,
     pub notifications_enabled: bool,
@@ -92,6 +101,9 @@ pub struct InboxState {
     pub drag_in_progress: bool,
 }
 
+/// Upper end of the size filter, in megabytes.
+pub const SIZE_FILTER_MAX_MB: f32 = 100.0;
+
 impl Default for InboxState {
     fn default() -> Self {
         let seeded = seed_mailbox();
@@ -111,6 +123,7 @@ impl Default for InboxState {
             filter_mode: 0,
 
             compose_to: "".into(),
+            compose_to_error: None,
             compose_subject: "".into(),
             compose_body: "".into(),
             compose_attachments: vec![],
@@ -120,6 +133,10 @@ impl Default for InboxState {
             is_time_picker_open: false,
             sort_option: "Newest".into(),
             show_advanced_filters: false,
+            date_filter: (None, None),
+            date_filter_start_open: false,
+            date_filter_end_open: false,
+            size_filter_mb: (0.0, SIZE_FILTER_MAX_MB),
             zoom_level: 1.0,
             inbox_type: "Default".into(),
             signature: "Best regards,\nFission Team".into(),
@@ -138,8 +155,9 @@ impl Default for InboxState {
             show_quick_tip: false,
 
             search_query: "".into(),
-            show_filter_dropdown: false,
+            show_sort_menu: false,
             active_tab: 0,
+            label_filter: None,
             reply_mode: 0,
             reply_body: "".into(),
             notifications_enabled: true,

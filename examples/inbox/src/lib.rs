@@ -132,6 +132,8 @@ pub fn translation_bundles() -> Vec<TranslationBundle> {
         "This email is from outside your organization.".into(),
     );
     en_messages.insert("email.details".into(), "Details".into());
+    en_messages.insert("action.delete".into(), "Delete".into());
+    en_messages.insert("action.back".into(), "Back to".into());
     en_messages.insert("email.attachments".into(), "Attachments".into());
     en_messages.insert(
         "email.scanning_attachments".into(),
@@ -170,6 +172,7 @@ pub fn translation_bundles() -> Vec<TranslationBundle> {
     en_messages.insert("quick.camera".into(), "Camera".into());
     en_messages.insert("quick.microphone".into(), "Microphone".into());
     en_messages.insert("quick.start_meeting".into(), "Start meeting".into());
+    en_messages.insert("quick.meeting_started".into(), "Meeting started".into());
     en_messages.insert("quick.mailbox_stats".into(), "Mailbox stats".into());
     en_messages.insert("quick.unread".into(), "Unread".into());
     en_messages.insert("quick.in_inbox".into(), "In Inbox".into());
@@ -316,6 +319,8 @@ pub fn translation_bundles() -> Vec<TranslationBundle> {
         "Este correo es de fuera de tu organización.".into(),
     );
     es_messages.insert("email.details".into(), "Detalles".into());
+    es_messages.insert("action.delete".into(), "Eliminar".into());
+    es_messages.insert("action.back".into(), "Volver a".into());
     es_messages.insert("email.attachments".into(), "Adjuntos".into());
     es_messages.insert(
         "email.scanning_attachments".into(),
@@ -363,6 +368,7 @@ pub fn translation_bundles() -> Vec<TranslationBundle> {
     es_messages.insert("quick.camera".into(), "Cámara".into());
     es_messages.insert("quick.microphone".into(), "Micrófono".into());
     es_messages.insert("quick.start_meeting".into(), "Iniciar reunión".into());
+    es_messages.insert("quick.meeting_started".into(), "Reunión iniciada".into());
     es_messages.insert(
         "quick.mailbox_stats".into(),
         "Estadísticas del buzón".into(),
@@ -492,11 +498,11 @@ pub fn configure_embedded_env(state: &InboxState, env: &mut Env) {
 /// inbox runs as its own app.
 fn sync_standalone_env(state: &InboxState, env: &mut Env) {
     configure_embedded_env(state, env);
-    env.theme = FissionFluent2DesignSystem::theme(if state.theme_mode == "dark" {
-        DesignMode::Dark
-    } else {
-        DesignMode::Light
-    });
+    // env.theme = FissionFluent2DesignSystem::theme(if state.theme_mode == "dark" {
+    //     DesignMode::Dark
+    // } else {
+    //     DesignMode::Light
+    // });
 }
 
 #[cfg(all(
@@ -532,7 +538,7 @@ pub fn run_desktop() -> anyhow::Result<()> {
     let mut app = DesktopApp::<InboxState, _>::new(InboxApp)
         .with_title("Fission Inbox")
         .with_env(create_env())
-        .with_design_system::<FissionFluent2DesignSystem>(DesignMode::Light)
+        // .with_design_system::<FissionFluent2DesignSystem>(DesignMode::Light)
         .with_sync_env(sync_standalone_env);
 
     // Register global handlers

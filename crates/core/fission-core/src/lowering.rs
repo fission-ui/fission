@@ -231,7 +231,8 @@ impl IrBuilder {
         self.children.extend(children);
     }
 
-    pub fn build(self, cx: &mut LoweringContext) -> WidgetId {
+    pub fn build(mut self, cx: &mut LoweringContext) -> WidgetId {
+        crate::accessible_names::name_from_content(&cx.ir, &mut self.op, &self.children);
         cx.insert_node_with_composite(self.node_id, self.op, self.composite, self.children);
         self.node_id
     }
@@ -715,24 +716,42 @@ pub fn build_layout_tree(ir: &CoreIR, _env: &Env) -> Vec<LayoutInputNode> {
                 (LayoutOp::AbsoluteFill, None, None, 0.0, 0.0)
             }
 
-            _ => (
-                LayoutOp::Box {
-                    width: None,
-                    height: None,
-                    min_width: None,
-                    max_width: None,
-                    min_height: None,
-                    max_height: None,
-                    padding: [0.0; 4],
-                    flex_grow: 0.0,
-                    flex_shrink: 1.0,
-                    aspect_ratio: None,
-                },
-                None,
-                None,
-                0.0,
-                1.0,
-            ),
+            _ => {
+                // A semantics wrapper describes the control inside it. When that control is a box
+                // with its own width, the wrapper takes only its width, so a stretching column does
+                // not stretch the wrapper, and with it the control's accessible and hit-test
+                // bounds, past what is drawn. Heights stay with the wrapper's own layout.
+                let (width, min_width, max_width) = match (&node.op, node.children.as_slice()) {
+                    (Op::Semantics(_), [child]) => match ir.nodes.get(child).map(|c| &c.op) {
+                        Some(Op::Layout(LayoutOp::Box {
+                            width: Some(width),
+                            min_width,
+                            max_width,
+                            ..
+                        })) => (Some(*width), *min_width, *max_width),
+                        _ => (None, None, None),
+                    },
+                    _ => (None, None, None),
+                };
+                (
+                    LayoutOp::Box {
+                        width,
+                        height: None,
+                        min_width,
+                        max_width,
+                        min_height: None,
+                        max_height: None,
+                        padding: [0.0; 4],
+                        flex_grow: 0.0,
+                        flex_shrink: 1.0,
+                        aspect_ratio: None,
+                    },
+                    width,
+                    None,
+                    0.0,
+                    1.0,
+                )
+            }
         };
 
         input_nodes.push(LayoutInputNode {

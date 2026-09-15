@@ -54,8 +54,8 @@ fn persistent_reducers_survive_clear_reducers_frames() -> Result<()> {
     // Frame 1: build
     h.pump()?;
 
-    // Click button -> 1 effect
-    let point = fission_core::LayoutPoint { x: 10.0, y: 10.0 };
+    // Click button -> 1 effect. The container's centre is on the button however it is placed.
+    let point = fission_core::LayoutPoint { x: 150.0, y: 50.0 };
     h.send_event(InputEvent::Pointer(PointerEvent::Down {
         pointer_id: Default::default(),
         kind: Default::default(),

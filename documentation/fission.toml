@@ -20,7 +20,7 @@ description = "Build, test, package, and release production Rust apps across mac
 logo = "/img/fission-mark.svg"
 favicon = "/img/fission-mark.svg"
 asset_dirs = ["static"]
-css_files = ["site/overrides.css", "site/value-redesign.css"]
+css_files = ["site/overrides.css", "site/value-redesign.css", "site/landing.css"]
 
 [site.code_highlighting]
 enabled = true

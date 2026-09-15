@@ -446,7 +446,11 @@ impl<S: GlobalState> TestHarness<S> {
                     })
                     .collect::<Vec<_>>();
 
+                // Resources declared while building, such as timers, run here as they do in the
+                // shells, so a widget that schedules work behaves the same under test.
+                let resources = ctx.take_resources();
                 self.runtime.absorb_registry(ctx.registry);
+                self.runtime.reconcile_resources(resources)?;
                 self.runtime
                     .sync_motion_declarations(&motion_declarations, self.last_snapshot.as_ref());
                 self.runtime.sync_video_nodes(&video_nodes);

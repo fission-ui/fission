@@ -1,7 +1,8 @@
 use super::brand_logo::BrandLogo;
-use super::home_widgets::{page_fill, SemanticRow};
+use super::home_widgets::{SemanticColumn, SemanticRow};
+use super::landing::{centred_band, landing_width};
 use super::state::DocsState;
-use fission::op::{AlignItems, FlexWrap, JustifyContent};
+use fission::op::{AlignItems, Fill, FlexWrap, JustifyContent};
 use fission::prelude::*;
 
 #[derive(Clone, Debug)]
@@ -16,7 +17,7 @@ impl From<LocalizedLandingPage> for Widget {
             gap: Some(0.0),
             ..Default::default()
         })
-        .bg_fill(page_fill(tokens))
+        .bg_fill(Fill::Solid(tokens.colors.background))
         .into()
     }
 }
@@ -86,83 +87,125 @@ impl From<LocalizedLink> for Widget {
     }
 }
 
+/// A translated call-to-action button styled like the home page's buttons.
+#[derive(Clone, Debug)]
+struct LocalizedButton {
+    key: &'static str,
+    href: &'static str,
+    primary: bool,
+}
+
+impl From<LocalizedButton> for Widget {
+    fn from(button: LocalizedButton) -> Widget {
+        let (_ctx, view) = fission::build::current::<DocsState>();
+        let tokens = &view.env().theme.tokens;
+        Container::new(
+            Text::new(TextContent::Key(button.key.into()))
+                .size(tokens.typography.label_large_size)
+                .weight(tokens.typography.font_weight_bold)
+                .color(if button.primary {
+                    tokens.colors.on_primary
+                } else {
+                    tokens.colors.text_primary
+                })
+                .semantics_identifier(format!("site-route:{}", button.href)),
+        )
+        .padding([
+            tokens.spacing.l,
+            tokens.spacing.l,
+            tokens.spacing.m,
+            tokens.spacing.m,
+        ])
+        .bg_fill(Fill::Solid(if button.primary {
+            tokens.colors.primary
+        } else {
+            tokens.colors.surface_sunken
+        }))
+        .border_radius(tokens.radii.full)
+        .into()
+    }
+}
+
 #[derive(Clone, Debug)]
 struct LocalizedHero;
 
 impl From<LocalizedHero> for Widget {
     fn from(_hero: LocalizedHero) -> Widget {
-        Responsive::new(LocalizedHeroLayout { compact: false })
-            .id(WidgetId::explicit("localized.hero.responsive"))
-            .case(ResponsiveCase::max_width(
-                760.0,
-                LocalizedHeroLayout { compact: true },
-            ))
-            .into()
-    }
-}
-
-#[derive(Clone, Debug)]
-struct LocalizedHeroLayout {
-    compact: bool,
-}
-
-impl From<LocalizedHeroLayout> for Widget {
-    fn from(layout: LocalizedHeroLayout) -> Widget {
         let (_ctx, view) = fission::build::current::<DocsState>();
         let tokens = &view.env().theme.tokens;
-        Container::new(Column {
-            children: vec![
+        let copy = SemanticColumn::new(
+            "site-localized-hero-copy",
+            vec![
                 Text::new(TextContent::Key("site.hero.eyebrow".into()))
                     .size(tokens.typography.font_size_sm)
                     .weight(tokens.typography.font_weight_bold)
                     .color(tokens.colors.primary)
                     .into(),
                 Text::new(TextContent::Key("site.hero.title".into()))
-                    .size(if layout.compact { 50.0 } else { 76.0 })
-                    .line_height(if layout.compact { 52.0 } else { 75.0 })
+                    .size(tokens.typography.heading1_size)
+                    .line_height(
+                        tokens.typography.heading1_size * tokens.typography.line_height_heading,
+                    )
                     .weight(tokens.typography.font_weight_bold)
                     .color(tokens.colors.heading)
                     .max_width(760.0)
                     .into(),
                 Text::new(TextContent::Key("site.hero.body".into()))
-                    .size(if layout.compact { 17.0 } else { 20.0 })
-                    .line_height(if layout.compact { 28.0 } else { 32.0 })
+                    .size(tokens.typography.body_large_size)
+                    .line_height(
+                        tokens.typography.body_large_size * tokens.typography.line_height_relaxed,
+                    )
                     .color(tokens.colors.text_secondary)
-                    .max_width(760.0)
+                    .max_width(680.0)
                     .into(),
                 Row {
                     children: vec![
-                        LocalizedLink::new("site.hero.start", "/docs/learn/quickstart/").into(),
-                        LocalizedLink::new("site.hero.crates", "/es/crates/").into(),
+                        LocalizedButton {
+                            key: "site.hero.start",
+                            href: "/docs/learn/quickstart/",
+                            primary: true,
+                        }
+                        .into(),
+                        LocalizedButton {
+                            key: "site.hero.crates",
+                            href: "/es/crates/",
+                            primary: false,
+                        }
+                        .into(),
                     ],
-                    gap: Some(tokens.spacing.l),
+                    gap: Some(tokens.spacing.m),
                     wrap: FlexWrap::Wrap,
+                    align_items: AlignItems::Center,
                     ..Default::default()
                 }
                 .into(),
             ],
-            gap: Some(tokens.spacing.l),
-            ..Default::default()
-        })
-        .width_length(Length::clamp(
-            Length::points(280.0),
-            Length::percent(100.0),
-            Length::points(1304.0),
+            Some(tokens.spacing.l),
+            AlignItems::Start,
+        );
+        Container::new(centred_band(
+            "site-localized-hero",
+            Container::new(copy)
+                .width_length(Length::percent(100.0))
+                .max_width(landing_width(tokens))
+                .into(),
         ))
-        .padding_lengths(if layout.compact {
-            [
-                Length::points(tokens.spacing.xl),
-                Length::points(tokens.spacing.l),
-                Length::points(tokens.spacing.xxxl),
-                Length::points(tokens.spacing.l),
-            ]
-        } else {
-            [
-                Length::points(tokens.spacing.xxxxl),
-                Length::points(tokens.spacing.xl),
-                Length::points(tokens.spacing.xxxxl),
-                Length::points(tokens.spacing.xl),
-            ]
+        .padding([
+            tokens.spacing.xl,
+            tokens.spacing.xl,
+            tokens.spacing.xxxxl,
+            tokens.spacing.xxxxl,
+        ])
+        .width_length(Length::percent(100.0))
+        .bg_fill(Fill::LinearGradient {
+            start: (0.0, 0.0),
+            end: (1.0, 1.0),
+            stops: vec![
+                (0.0, tokens.colors.primary_subtle),
+                (0.55, tokens.colors.background),
+                (1.0, tokens.colors.primary_subtle),
+            ],
+            extend: Default::default(),
         })
         .into()
     }

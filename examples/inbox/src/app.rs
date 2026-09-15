@@ -62,6 +62,7 @@ impl From<InboxApp> for Widget {
                     .clone()
                     .unwrap_or_else(|| "Action completed successfully".into()),
                 on_close: Some(ctx.bind(ToggleToast(false), reduce_with!(set_toast_visible))),
+                duration: fission::widgets::ToastDuration::Default,
                 motion: None,
             };
             ctx.register_portal(

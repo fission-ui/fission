@@ -1490,3 +1490,220 @@ fn web_embed_present() -> Result<()> {
     assert!(ir_has_embed_kind(&h, EmbedKind::Web), "expected web embed");
     Ok(())
 }
+
+#[test]
+fn deleting_an_open_email_moves_it_to_trash_and_returns_to_its_folder() -> Result<()> {
+    let mut h = pump_state(state_detail())?;
+    click_identifier(&mut h, "inbox.detail.delete")?;
+    h.pump()?;
+    let state = h.runtime.get_app_state::<InboxState>().unwrap();
+    let email = state
+        .emails
+        .iter()
+        .find(|email| email.id == 1)
+        .expect("email 1 is kept in Trash");
+    assert!(
+        email.folders.contains(&crate::model::Folder::Trash) && email.folders.len() == 1,
+        "the email is only in Trash, got {:?}",
+        email.folders
+    );
+    assert_eq!(state.current_path, "/inbox");
+    assert!(state.show_toast);
+    assert_eq!(state.toast_message.as_deref(), Some("Moved to Trash"));
+    Ok(())
+}
+
+#[test]
+fn compose_cancel_closes_the_dialog() -> Result<()> {
+    let mut state = InboxState::default();
+    state.show_compose = true;
+    let mut h = pump_state(state)?;
+    click_identifier(&mut h, "inbox.compose.cancel")?;
+    let state = h.runtime.get_app_state::<InboxState>().unwrap();
+    assert!(!state.show_compose, "Cancel closes compose");
+    Ok(())
+}
+
+#[test]
+fn list_tabs_show_only_their_category() -> Result<()> {
+    let mut h = pump_state(state_default())?;
+    assert!(display_texts(&h)
+        .iter()
+        .any(|t| t == "Quarterly planning sync"));
+    click_identifier(&mut h, "inbox.tabs.promotions")?;
+    h.pump()?;
+    assert_eq!(
+        h.runtime.get_app_state::<InboxState>().unwrap().active_tab,
+        2,
+        "the Promotions tab is chosen"
+    );
+    let texts = display_texts(&h);
+    assert!(
+        texts.iter().any(|t| t == "Weekly product update"),
+        "Promotions lists its threads: {texts:?}"
+    );
+    assert!(
+        !texts.iter().any(|t| t == "Quarterly planning sync"),
+        "Promotions hides primary threads"
+    );
+    Ok(())
+}
+
+/// The sidebar's pressable label tag; rows also show plain "Travel" tags.
+fn label_filter_node(h: &TestHarness<InboxState>, label: &str) -> WidgetId {
+    let ir = h.last_ir.as_ref().expect("ir");
+    ir.nodes
+        .values()
+        .find_map(|node| match &node.op {
+            Op::Semantics(semantics)
+                if semantics.role == Role::Button && semantics.label.as_deref() == Some(label) =>
+            {
+                Some(node.id)
+            }
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("a pressable {label:?} label"))
+}
+
+#[test]
+fn a_sidebar_label_filters_the_list_and_toggles_off() -> Result<()> {
+    let mut h = pump_state(state_default())?;
+    let travel = label_filter_node(&h, "Travel");
+    click_node(&mut h, travel)?;
+    h.pump()?;
+    let state = h.runtime.get_app_state::<InboxState>().unwrap();
+    assert_eq!(state.label_filter.as_deref(), Some("Travel"));
+    let texts = display_texts(&h);
+    assert!(
+        texts.iter().any(|t| t == "Travel details: NYC"),
+        "{texts:?}"
+    );
+    assert!(
+        !texts.iter().any(|t| t == "Quarterly planning sync"),
+        "{texts:?}"
+    );
+
+    let travel = label_filter_node(&h, "Travel");
+    click_node(&mut h, travel)?;
+    let state = h.runtime.get_app_state::<InboxState>().unwrap();
+    assert_eq!(
+        state.label_filter, None,
+        "pressing the active label clears it"
+    );
+    Ok(())
+}
+
+#[test]
+fn the_sort_menu_offers_each_order() -> Result<()> {
+    let mut h = pump_state(state_default())?;
+    click_identifier(&mut h, "inbox.sort")?;
+    h.pump()?;
+    assert!(
+        h.runtime
+            .get_app_state::<InboxState>()
+            .unwrap()
+            .show_sort_menu
+    );
+    click_identifier(&mut h, "inbox.sort.unread")?;
+    h.pump()?;
+    let state = h.runtime.get_app_state::<InboxState>().unwrap();
+    assert_eq!(state.sort_option, "Unread");
+    assert!(!state.show_sort_menu, "choosing an order closes the menu");
+    Ok(())
+}
+
+#[test]
+fn a_filters_date_field_opens_its_calendar() -> Result<()> {
+    let mut h = pump_state(state_filters_open())?;
+    let start_id = WidgetId::derived(WidgetId::explicit("filter_date_start").as_u128(), &[0]);
+    click_node(&mut h, start_id)?;
+    assert!(
+        h.runtime
+            .get_app_state::<InboxState>()
+            .unwrap()
+            .date_filter_start_open
+    );
+    Ok(())
+}
+
+#[test]
+fn the_date_and_size_filters_narrow_the_list() -> Result<()> {
+    let day = chrono::NaiveDate::from_ymd_opt(2025, 1, 11).unwrap();
+    let mut state = state_default();
+    state.date_filter = (Some(day), Some(day));
+    let texts = display_texts(&pump_state(state)?);
+    assert!(
+        texts.iter().any(|t| t == "Quarterly planning sync"),
+        "{texts:?}"
+    );
+    assert!(
+        !texts.iter().any(|t| t == "Travel details: NYC"),
+        "{texts:?}"
+    );
+
+    let mut state = state_default();
+    state.size_filter_mb = (0.0, 2.0);
+    let texts = display_texts(&pump_state(state)?);
+    assert!(
+        texts.iter().any(|t| t == "Travel details: NYC"),
+        "{texts:?}"
+    );
+    assert!(
+        !texts.iter().any(|t| t == "Quarterly planning sync"),
+        "{texts:?}"
+    );
+    Ok(())
+}
+
+#[test]
+fn start_meeting_confirms_that_it_started() -> Result<()> {
+    let mut h = pump_state(state_default())?;
+    click_identifier(&mut h, "inbox.meet.start")?;
+    let state = h.runtime.get_app_state::<InboxState>().unwrap();
+    assert!(state.show_toast, "starting a meeting shows a notification");
+    assert_eq!(state.toast_message.as_deref(), Some("Meeting started"));
+    Ok(())
+}
+
+#[test]
+fn send_explains_an_invalid_recipient() -> Result<()> {
+    let mut state = InboxState::default();
+    state.show_compose = true;
+    state.compose_to = "dana".into();
+    let sent_before = state.emails.len();
+    let mut h = pump_state(state)?;
+    click_identifier(&mut h, "inbox.compose.send")?;
+    h.pump()?;
+    let state = h.runtime.get_app_state::<InboxState>().unwrap();
+    assert!(
+        state.show_compose,
+        "an invalid recipient keeps compose open"
+    );
+    assert_eq!(state.emails.len(), sent_before, "nothing is sent");
+    let texts = display_texts(&h);
+    assert!(
+        texts
+            .iter()
+            .any(|t| t.contains("Not a valid address: dana")),
+        "the reason is shown: {texts:?}"
+    );
+    Ok(())
+}
+
+#[test]
+fn cancel_discards_the_draft() -> Result<()> {
+    let mut state = InboxState::default();
+    state.show_compose = true;
+    state.compose_to = "dana".into();
+    state.compose_subject = "Plans".into();
+    let mut h = pump_state(state)?;
+    click_identifier(&mut h, "inbox.compose.cancel")?;
+    h.pump()?;
+    let state = h.runtime.get_app_state::<InboxState>().unwrap();
+    assert!(!state.show_compose, "Cancel closes compose");
+    assert!(
+        state.compose_to.is_empty() && state.compose_subject.is_empty(),
+        "Cancel throws the draft away"
+    );
+    Ok(())
+}

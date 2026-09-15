@@ -15,6 +15,8 @@ impl From<LaneDropzone> for Widget {
     fn from(lane: LaneDropzone) -> Self {
         let (ctx, _) = fission::build::current::<GalleryState>();
         let identifier = format!("gallery.drag.zone.{}", lane.id);
+        // The zone shows one of its idle, active and hover panels at a time. Cards keep the same
+        // identity in each, so the card being dragged is not replaced when the panel changes.
 
         Dropzone {
             id: Some(WidgetId::explicit(&identifier)),
@@ -24,8 +26,8 @@ impl From<LaneDropzone> for Widget {
                 items: lane.items.clone(),
                 state: LanePanelState::Idle,
                 instance: match lane.id {
-                    "Backlog" => "backlog.idle",
-                    _ => "done.idle",
+                    "Backlog" => "backlog",
+                    _ => "done",
                 },
             }
             .into(),
@@ -35,8 +37,8 @@ impl From<LaneDropzone> for Widget {
                     items: lane.items.clone(),
                     state: LanePanelState::Active,
                     instance: match lane.id {
-                        "Backlog" => "backlog.active",
-                        _ => "done.active",
+                        "Backlog" => "backlog",
+                        _ => "done",
                     },
                 }
                 .into(),
@@ -47,8 +49,8 @@ impl From<LaneDropzone> for Widget {
                     items: lane.items,
                     state: LanePanelState::Hovered,
                     instance: match lane.id {
-                        "Backlog" => "backlog.hover",
-                        _ => "done.hover",
+                        "Backlog" => "backlog",
+                        _ => "done",
                     },
                 }
                 .into(),

@@ -23,7 +23,9 @@ impl From<CounterApp> for Widget {
         Column {
             gap: Some(16.0),
             children: vec![
-                Text::new(format!("Count: {}", view.state().count)).size(28.0).into(),
+                Text::new(format!("Count: {}", view.state().count))
+                    .size(28.0)
+                    .into(),
                 Button {
                     on_press: Some(increment),
                     child: Some(Text::new("Increment").into()),
@@ -34,6 +36,5 @@ impl From<CounterApp> for Widget {
             ..Default::default()
         }
         .into()
-
     }
 }

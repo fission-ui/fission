@@ -215,6 +215,7 @@ fn motion_enabled_widgets_do_not_reuse_wrapper_id_for_wrapped_widget() {
             kind: ToastKind::Success,
             message: "Toast".into(),
             on_close: None,
+            duration: fission_widgets::ToastDuration::Default,
             motion: Some(ToastMotion::Default),
         }
         .into()
@@ -339,6 +340,7 @@ fn test_toast_renders_content() {
         kind: ToastKind::Success,
         message: "Operation completed".into(),
         on_close: None,
+        duration: fission_widgets::ToastDuration::Default,
         motion: Some(ToastMotion::None),
     };
 

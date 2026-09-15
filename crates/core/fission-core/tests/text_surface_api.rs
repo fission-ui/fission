@@ -1503,6 +1503,7 @@ fn focused_text_input_lowers_toolbar_handles_and_magnifier_overlays() {
     let state = runtime.text_edit.get_mut_or_default(input_id);
     state.caret = 8;
     state.anchor = 2;
+    state.affordances.touch_handles = true;
     state.affordances.toolbar_visible = true;
     state.affordances.toolbar_anchor = Some(fission_layout::LayoutPoint::new(40.0, 12.0));
     state.affordances.selection_start_handle = Some(fission_layout::LayoutPoint::new(18.0, 24.0));

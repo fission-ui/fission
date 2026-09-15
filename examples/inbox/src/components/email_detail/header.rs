@@ -1,5 +1,5 @@
-use crate::model::detail::{navigate_back, set_toast_visible, toggle_details};
-use crate::model::{Email, InboxState, Navigate, ToggleDetails, ToggleToast};
+use crate::model::detail::{delete_email, navigate_back, toggle_details};
+use crate::model::{DeleteEmail, Email, InboxState, Navigate, ToggleDetails};
 use fission::core::op::FlexDirection;
 use fission::core::reduce_with;
 use fission::core::ui::{
@@ -9,6 +9,7 @@ use fission::icons::material;
 use fission::widgets::{
     Accordion, AccordionItem, Alert, AlertKind, Avatar, HStack, Hero, Icon, Tag, VStack, Wrap,
 };
+use fission_ir::{Role, Semantics};
 
 /// A left-pointing arrow drawn as a path, so it mirrors the Material back glyph.
 const BACK_ARROW_PATH: &str = "M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z";
@@ -36,6 +37,7 @@ impl From<DetailHeader> for Widget {
             }
             .into(),
             SubjectRow {
+                email_id: email.id,
                 hero_tag: format!("email_subject_{}", email.id),
                 subject: email.subject.clone(),
             }
@@ -81,6 +83,13 @@ impl From<BackToFolder> for Widget {
         };
         Container::new(Button {
             variant: ButtonVariant::Ghost,
+            semantics: Some(Semantics {
+                role: Role::Button,
+                label: Some(format!("{} {label}", view.tr("action.back"))),
+                identifier: Some("inbox.detail.back".into()),
+                focusable: true,
+                ..Semantics::default()
+            }),
             child: Some(
                 HStack {
                     spacing: Some(tokens.spacing.xs),
@@ -105,6 +114,7 @@ impl From<BackToFolder> for Widget {
 
 /// The subject, shared with the list row for its hero transition, beside the delete button.
 struct SubjectRow {
+    email_id: usize,
     hero_tag: String,
     subject: String,
 }
@@ -129,12 +139,19 @@ impl From<SubjectRow> for Widget {
                 .into(),
                 Button {
                     variant: ButtonVariant::Outline,
+                    semantics: Some(Semantics {
+                        role: Role::Button,
+                        label: Some(view.tr("action.delete")),
+                        identifier: Some("inbox.detail.delete".into()),
+                        focusable: true,
+                        ..Semantics::default()
+                    }),
                     child: Some(
                         Icon::svg(material::action::delete::regular())
                             .size(tokens.typography.font_size_xl)
                             .into(),
                     ),
-                    on_press: Some(ctx.bind(ToggleToast(true), reduce_with!(set_toast_visible))),
+                    on_press: Some(ctx.bind(DeleteEmail(row.email_id), reduce_with!(delete_email))),
                     ..Default::default()
                 }
                 .into(),
@@ -200,6 +217,8 @@ impl From<LabelTags> for Widget {
                     Tag {
                         label,
                         on_close: None,
+                        on_press: None,
+                        selected: false,
                     }
                     .into()
                 })

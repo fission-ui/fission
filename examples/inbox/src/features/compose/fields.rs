@@ -47,7 +47,7 @@ impl From<RecipientField> for Widget {
             id: None,
             label: Some(view.tr("compose.to_label")),
             required: true,
-            error: None,
+            error: view.state().compose_to_error.clone(),
             helper: None,
             child: Combobox {
                 id: WidgetId::explicit("compose_to"),

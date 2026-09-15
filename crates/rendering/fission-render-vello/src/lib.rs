@@ -1,8 +1,14 @@
 pub mod cpu;
 pub mod gpu;
+mod image_decode;
+mod paint_mapping;
 pub mod painter;
 pub mod text;
 mod text_effects;
+use image_decode::decode_dynamic_image;
+#[cfg(test)]
+use image_decode::MAX_DECODED_IMAGE_DIMENSION;
+use paint_mapping::*;
 pub use painter::{CpuPainter, GpuImageCache, GpuPainter, GpuUploader, Painter};
 pub use parley;
 pub use text::VelloTextMeasurer;
@@ -19,8 +25,8 @@ use fission_render::{
 use vello_cpu::kurbo::{
     Affine, BezPath, Circle, Point, Rect, RoundedRect, RoundedRectRadii, Shape, Stroke, Vec2,
 };
-use vello_cpu::peniko::{BlendMode, Color, ImageAlphaType, ImageSampler};
-use vello_cpu::{Glyph, Image, PaintType, PixelMetadata, Pixmap};
+use vello_cpu::peniko::{BlendMode, Color, ImageSampler};
+use vello_cpu::{Glyph, Image, PaintType, Pixmap};
 
 fn text_style_requires_rich_layout(style: &RenderTextStyle) -> bool {
     text::text_style_requires_rich_layout(style)
@@ -28,174 +34,6 @@ fn text_style_requires_rich_layout(style: &RenderTextStyle) -> bool {
 
 fn map_color(c: &fission_render::Color) -> Color {
     Color::from_rgba8(c.r, c.g, c.b, c.a).into()
-}
-
-fn normalized_point(bounds: Rect, point: (f32, f32)) -> Point {
-    Point::new(
-        bounds.x0 + bounds.width() * point.0 as f64,
-        bounds.y0 + bounds.height() * point.1 as f64,
-    )
-}
-
-/// Maps the IR's extend mode onto peniko's.
-///
-/// Vello implements all three, so nothing is lost here.
-/// Maps the IR's per-corner radii onto kurbo's.
-fn kurbo_radii(radii: fission_ir::CornerRadii) -> RoundedRectRadii {
-    RoundedRectRadii::new(
-        radii.top_left as f64,
-        radii.top_right as f64,
-        radii.bottom_right as f64,
-        radii.bottom_left as f64,
-    )
-}
-
-fn map_extend(extend: fission_ir::GradientExtend) -> vello_cpu::peniko::Extend {
-    match extend {
-        fission_ir::GradientExtend::Pad => vello_cpu::peniko::Extend::Pad,
-        fission_ir::GradientExtend::Repeat => vello_cpu::peniko::Extend::Repeat,
-        fission_ir::GradientExtend::Reflect => vello_cpu::peniko::Extend::Reflect,
-    }
-}
-
-fn map_fill_to_brush(f: &fission_render::Fill, bounds: Rect) -> PaintType {
-    fn gradient_stops<C: Copy>(
-        stops: &[(f32, C)],
-        to_color: impl Fn(&C) -> Color,
-    ) -> Vec<vello_cpu::peniko::ColorStop> {
-        stops
-            .iter()
-            .map(|(offset, color)| vello_cpu::peniko::ColorStop {
-                offset: *offset,
-                color: to_color(color).into(),
-            })
-            .collect()
-    }
-
-    match f {
-        fission_render::Fill::Solid(c) => PaintType::from(map_color(c)),
-        fission_render::Fill::LinearGradient {
-            start,
-            end,
-            stops,
-            extend,
-        } => PaintType::from(
-            vello_cpu::peniko::Gradient::new_linear(
-                normalized_point(bounds, *start),
-                normalized_point(bounds, *end),
-            )
-            .with_extend(map_extend(*extend))
-            .with_stops(gradient_stops(stops, map_color).as_slice()),
-        ),
-        fission_render::Fill::RadialGradient {
-            center,
-            radius,
-            stops,
-            extend,
-        } => PaintType::from(
-            vello_cpu::peniko::Gradient::new_radial(
-                normalized_point(bounds, *center),
-                radius * bounds.width().max(bounds.height()) as f32,
-            )
-            .with_extend(map_extend(*extend))
-            .with_stops(gradient_stops(stops, map_color).as_slice()),
-        ),
-        fission_render::Fill::SweepGradient {
-            center,
-            start_angle,
-            end_angle,
-            stops,
-            extend,
-        } => PaintType::from(
-            vello_cpu::peniko::Gradient::new_sweep(
-                normalized_point(bounds, *center),
-                *start_angle,
-                *end_angle,
-            )
-            .with_extend(map_extend(*extend))
-            .with_stops(gradient_stops(stops, map_color).as_slice()),
-        ),
-    }
-}
-
-fn map_text_fill_to_brush(f: &fission_ir::op::Fill, bounds: Rect) -> PaintType {
-    fn ir_stops(stops: &[(f32, fission_ir::op::Color)]) -> Vec<vello_cpu::peniko::ColorStop> {
-        stops
-            .iter()
-            .map(|(offset, color)| vello_cpu::peniko::ColorStop {
-                offset: *offset,
-                color: Color::from_rgba8(color.r, color.g, color.b, color.a).into(),
-            })
-            .collect()
-    }
-
-    match f {
-        fission_ir::op::Fill::Solid(c) => PaintType::from(Color::from_rgba8(c.r, c.g, c.b, c.a)),
-        fission_ir::op::Fill::LinearGradient {
-            start,
-            end,
-            stops,
-            extend,
-        } => PaintType::from(
-            vello_cpu::peniko::Gradient::new_linear(
-                normalized_point(bounds, *start),
-                normalized_point(bounds, *end),
-            )
-            .with_extend(map_extend(*extend))
-            .with_stops(ir_stops(stops).as_slice()),
-        ),
-        fission_ir::op::Fill::RadialGradient {
-            center,
-            radius,
-            stops,
-            extend,
-        } => PaintType::from(
-            vello_cpu::peniko::Gradient::new_radial(
-                normalized_point(bounds, *center),
-                radius * bounds.width().max(bounds.height()) as f32,
-            )
-            .with_extend(map_extend(*extend))
-            .with_stops(ir_stops(stops).as_slice()),
-        ),
-        fission_ir::op::Fill::SweepGradient {
-            center,
-            start_angle,
-            end_angle,
-            stops,
-            extend,
-        } => PaintType::from(
-            vello_cpu::peniko::Gradient::new_sweep(
-                normalized_point(bounds, *center),
-                *start_angle,
-                *end_angle,
-            )
-            .with_extend(map_extend(*extend))
-            .with_stops(ir_stops(stops).as_slice()),
-        ),
-    }
-}
-
-fn map_stroke(s: &fission_render::Stroke, bounds: Rect) -> (vello_cpu::kurbo::Stroke, PaintType) {
-    let cap = match s.line_cap {
-        fission_render::LineCap::Butt => vello_cpu::kurbo::Cap::Butt,
-        fission_render::LineCap::Round => vello_cpu::kurbo::Cap::Round,
-        fission_render::LineCap::Square => vello_cpu::kurbo::Cap::Square,
-    };
-    let join = match s.line_join {
-        fission_render::LineJoin::Miter => vello_cpu::kurbo::Join::Miter,
-        fission_render::LineJoin::Round => vello_cpu::kurbo::Join::Round,
-        fission_render::LineJoin::Bevel => vello_cpu::kurbo::Join::Bevel,
-    };
-
-    let mut stroke = vello_cpu::kurbo::Stroke::new(s.width as f64)
-        .with_caps(cap)
-        .with_join(join);
-    if let Some(dash) = &s.dash_array {
-        let dashes: Vec<f64> = dash.iter().map(|v| *v as f64).collect();
-        stroke = stroke.with_dashes(0.0, dashes);
-    }
-
-    (stroke, map_fill_to_brush(&s.fill, bounds))
 }
 
 use crate::text::ParleyBrush;
@@ -669,44 +507,6 @@ fn decode_image_from_bytes(
     decode_dynamic_image(img, cache_width, cache_height)
 }
 
-/// The largest side a decoded image keeps.
-///
-/// GPU renderers place images in atlas pages of at most this many pixels a side, and no screen
-/// needs more pixels than that for one image, so larger images are scaled down once while decoding
-/// instead of failing to upload on every frame.
-const MAX_DECODED_IMAGE_DIMENSION: u32 = 4096;
-
-fn decode_dynamic_image(
-    mut img: image::DynamicImage,
-    cache_width: Option<u32>,
-    cache_height: Option<u32>,
-) -> Option<Arc<Pixmap>> {
-    if let (Some(width), Some(height)) = (cache_width, cache_height) {
-        if width > 0 && height > 0 {
-            img = img.resize(width, height, image::imageops::FilterType::Triangle);
-        }
-    }
-    if img.width() > MAX_DECODED_IMAGE_DIMENSION || img.height() > MAX_DECODED_IMAGE_DIMENSION {
-        img = img.resize(
-            MAX_DECODED_IMAGE_DIMENSION,
-            MAX_DECODED_IMAGE_DIMENSION,
-            image::imageops::FilterType::Triangle,
-        );
-    }
-    let img = img.to_rgba8();
-    let (width, height) = img.dimensions();
-    // The renderers address pixmaps with 16-bit dimensions.
-    let (Ok(width), Ok(height)) = (u16::try_from(width), u16::try_from(height)) else {
-        return None;
-    };
-    Some(Arc::new(Pixmap::from_parts(
-        img.into_raw(),
-        width,
-        height,
-        PixelMetadata::new(ImageAlphaType::Alpha, true),
-    )))
-}
-
 fn complete_image_load(key: String, image: Option<Arc<Pixmap>>) {
     if image.is_some() {
         IMAGE_LOADS_COMPLETED.fetch_add(1, Ordering::AcqRel);
@@ -1127,6 +927,8 @@ mod tests {
     #[derive(Default)]
     struct RecordingPainter {
         glyphs: usize,
+        /// Distinct baselines glyphs were drawn on, one per painted line of text.
+        glyph_rows: Vec<f32>,
         paths: usize,
         rects: usize,
         clip_layers: usize,
@@ -1175,6 +977,15 @@ mod tests {
         }
         fn fill_glyphs(&mut self, _: Affine, _: PaintType, _: &FontData, _: f32, glyphs: &[Glyph]) {
             self.glyphs += glyphs.len();
+            for glyph in glyphs {
+                if !self
+                    .glyph_rows
+                    .iter()
+                    .any(|row| (row - glyph.y).abs() < 0.5)
+                {
+                    self.glyph_rows.push(glyph.y);
+                }
+            }
         }
         fn image_source(&mut self, image: &Arc<Pixmap>) -> ImageSource {
             ImageSource::Pixmap(Arc::clone(image))
@@ -1439,6 +1250,97 @@ mod tests {
     }
 
     #[test]
+    fn wrapped_centred_text_aligns_within_its_own_box() {
+        let mut painter = RecordingPainter::default();
+        let renderer = test_renderer(&mut painter);
+        let style = test_style();
+        let text = "No emails here";
+        let styles = vec![(0..text.len(), style.clone())];
+        let paragraph = TextParagraphStyle {
+            text_align: TextAlign::Center,
+            text_width_basis: TextWidthBasis::Parent,
+            ..Default::default()
+        };
+        let natural = renderer.paragraph_layout(
+            text,
+            &style,
+            false,
+            LayoutRect::new(0.0, 0.0, 1000.0, 40.0),
+            TextParagraphStyle::default(),
+            &[],
+            &styles,
+        );
+        // Layout sized the box to the text and centred the box; the paragraph was broken against
+        // the wider width layout offered.
+        let own_box = LayoutRect::new(0.0, 0.0, natural.width(), 40.0);
+        let wrap_bounds = LayoutRect::new(0.0, 0.0, 400.0, 40.0);
+        let prepared = super::prepare_paragraph_layout(text, &style, paragraph, &[], &styles, None);
+        let layout = renderer.paragraph_layout_from_prepared(
+            &prepared,
+            true,
+            wrap_bounds,
+            own_box,
+            paragraph,
+        );
+        let first = paragraph_line_visual_bounds(&layout.lines().next().unwrap()).unwrap();
+        assert!(
+            first.left.abs() < 1.0,
+            "text already centred by layout starts at its box, not {} along the wrap width",
+            first.left
+        );
+    }
+
+    #[test]
+    fn text_wrapped_by_layout_is_painted_wrapped() {
+        let color = RenderColor {
+            r: 0,
+            g: 0,
+            b: 0,
+            a: 255,
+        };
+        // Layout wrapped this heading onto two lines at the width it was offered, even though
+        // the draw op itself does not ask to wrap.
+        let resolved = fission_render::ResolvedParagraphLayout {
+            constraint_width: Some(150.0),
+            size: fission_render::LayoutSize::new(113.34375, 86.5793),
+            lines: Vec::new(),
+            inline_boxes: Vec::new(),
+            clusters: Vec::new(),
+            glyphs: Vec::new(),
+            caret_stops: Vec::new(),
+            selection_boxes: Vec::new(),
+        };
+        let mut painter = RecordingPainter::default();
+        {
+            let mut renderer = test_renderer(&mut painter);
+            renderer.render_text(
+                "Fission Inbox",
+                36.0,
+                color,
+                false,
+                false,
+                LayoutPoint::new(0.0, 0.0),
+                LayoutRect::new(0.0, 0.0, 113.34375, 86.5793),
+                Some(&resolved),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                &[],
+                &[],
+            );
+        }
+        assert_eq!(
+            painter.glyph_rows.len(),
+            2,
+            "text layout wrapped onto two lines is painted on two lines, rows at {:?}",
+            painter.glyph_rows
+        );
+    }
+
+    #[test]
     fn longest_line_width_basis_aligns_against_content_width() {
         let mut painter = RecordingPainter::default();
         let renderer = test_renderer(&mut painter);
@@ -1498,6 +1400,7 @@ mod tests {
             &style,
             false,
             LayoutPoint::new(0.0, 0.0),
+            LayoutRect::new(0.0, 0.0, 80.0, 24.0),
             LayoutRect::new(0.0, 0.0, 80.0, 24.0),
             TextParagraphStyle {
                 text_align: TextAlign::Start,
@@ -1957,6 +1860,23 @@ mod tests {
     }
 
     #[test]
+    fn outer_shadows_are_clipped_to_outside_the_box() {
+        let shadow = fission_render::BoxShadow {
+            color: black(),
+            blur_radius: 0.0,
+            spread_radius: 3.0,
+            offset: (0.0, 0.0),
+            inset: false,
+        };
+        let painter = render_ops(vec![draw_rect(None, None, Some(shadow))]);
+        assert_eq!(painter.blurred_rects.len(), 1);
+        assert_eq!(
+            painter.clip_layers, 1,
+            "an outer shadow is clipped so it does not fill the box it surrounds"
+        );
+    }
+
+    #[test]
     fn inset_shadows_paint_an_inverted_blur_inside_the_box() {
         let shadow = fission_render::BoxShadow {
             color: black(),
@@ -2279,14 +2199,19 @@ impl<'a> VelloRenderer<'a> {
     ) -> parley::layout::Layout<ParleyBrush> {
         let prepared =
             prepare_paragraph_layout(text, base_style, paragraph, inline_boxes, styles, None);
-        self.paragraph_layout_from_prepared(&prepared, wrap, bounds, paragraph)
+        self.paragraph_layout_from_prepared(&prepared, wrap, bounds, bounds, paragraph)
     }
 
+    /// Lays out a paragraph broken at `bounds` and aligned within `alignment_bounds`. A wrapped
+    /// paragraph is broken at the width layout offered it, which can be wider than the box layout
+    /// then sized and positioned for the text; aligning within that wider width would move text
+    /// that layout already placed.
     fn paragraph_layout_from_prepared(
         &self,
         prepared: &PreparedParagraphLayout,
         wrap: bool,
         bounds: fission_render::LayoutRect,
+        alignment_bounds: fission_render::LayoutRect,
         paragraph: TextParagraphStyle,
     ) -> parley::layout::Layout<ParleyBrush> {
         let mut layout = (*self.measurer.layout_rich(
@@ -2303,7 +2228,9 @@ impl<'a> VelloRenderer<'a> {
         ))
         .clone();
 
-        if let Some(alignment_width) = paragraph_alignment_width(&layout, bounds, paragraph) {
+        if let Some(alignment_width) =
+            paragraph_alignment_width(&layout, alignment_bounds, paragraph)
+        {
             // parley aligns lines against the width they were broken at. Break again at the
             // alignment width when no line is wider than it: the lines come out the same, and
             // alignment then happens against the parent or longest-line width the paragraph asked
@@ -2341,7 +2268,8 @@ impl<'a> VelloRenderer<'a> {
 
         let prepared =
             prepare_paragraph_layout(text, base_style, paragraph, inline_boxes, styles, None);
-        let layout = self.paragraph_layout_from_prepared(&prepared, wrap, bounds, paragraph);
+        let layout =
+            self.paragraph_layout_from_prepared(&prepared, wrap, bounds, bounds, paragraph);
         let total_lines = layout.lines().count();
         let visible_lines = paragraph
             .max_lines
@@ -2766,6 +2694,7 @@ impl<'a> VelloRenderer<'a> {
         wrap: bool,
         position: fission_render::LayoutPoint,
         bounds: fission_render::LayoutRect,
+        alignment_bounds: fission_render::LayoutRect,
         paragraph: TextParagraphStyle,
         inline_boxes: &[crate::text::RichInlineBox],
         styles: &[(std::ops::Range<usize>, RenderTextStyle)],
@@ -2784,7 +2713,13 @@ impl<'a> VelloRenderer<'a> {
             styles,
             caret_index,
         );
-        let layout = self.paragraph_layout_from_prepared(&prepared, wrap, bounds, paragraph);
+        let layout = self.paragraph_layout_from_prepared(
+            &prepared,
+            wrap,
+            bounds,
+            alignment_bounds,
+            paragraph,
+        );
         let lines: Vec<_> = layout.lines().collect();
         let total_lines = lines.len();
         let visible_lines = paragraph
@@ -2993,6 +2928,12 @@ impl<'a> VelloRenderer<'a> {
         inline_boxes: &[crate::text::RichInlineBox],
         styles: &[(std::ops::Range<usize>, RenderTextStyle)],
     ) {
+        // The paragraph resolved during layout decides wrapping: text that layout broke at a width,
+        // and sized to that many lines, is painted broken at the same width even when the draw op
+        // does not ask to wrap. Editable text keeps its own single-line behaviour.
+        let wrap = wrap
+            || (caret_index.is_none()
+                && resolved_layout.is_some_and(|layout| layout.constraint_width.is_some()));
         let mut layout_bounds = bounds;
         if wrap {
             if let Some(width) = resolved_layout.and_then(|layout| layout.constraint_width) {
@@ -3024,6 +2965,7 @@ impl<'a> VelloRenderer<'a> {
                 wrap,
                 position,
                 layout_bounds,
+                bounds,
                 paragraph,
                 inline_boxes,
                 paragraph_styles,
@@ -3834,6 +3776,18 @@ impl<'a> VelloRenderer<'a> {
         if let Some(shadow) = shadow.filter(|shadow| !shadow.inset) {
             let shadow_rect = (rect + Vec2::new(shadow.offset.0 as f64, shadow.offset.1 as f64))
                 .inflate(shadow.spread_radius as f64, shadow.spread_radius as f64);
+            // An outer shadow shows only outside the box, as in CSS, so a control with a
+            // transparent background is not filled by its own shadow.
+            let reach = shadow_rect.union(rect).inflate(
+                shadow.blur_radius.max(0.0) as f64 * 1.5 + 1.0,
+                shadow.blur_radius.max(0.0) as f64 * 1.5 + 1.0,
+            );
+            self.painter.push_layer(
+                self.current_transform,
+                Some(&outside_of(&shape, reach)),
+                BlendMode::default(),
+                1.0,
+            );
             self.painter.fill_blurred_rounded_rect(
                 self.current_transform,
                 map_color(&shadow.color),
@@ -3842,6 +3796,7 @@ impl<'a> VelloRenderer<'a> {
                 shadow.blur_radius.max(0.0) * 0.5,
                 false,
             );
+            self.painter.pop_layer();
         }
 
         if let Some(fill) = fill {

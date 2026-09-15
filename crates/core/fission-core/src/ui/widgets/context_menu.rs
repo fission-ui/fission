@@ -269,13 +269,20 @@ pub(crate) fn text_context_menu_overlay_widget(
     anchor: fission_layout::LayoutPoint,
     action_enabled: impl Fn(TextContextMenuAction) -> bool,
 ) -> Widget {
+    text_menu_overlay(config, owner, anchor, |action| {
+        text_context_menu_item_widget(owner, action, action_enabled(action))
+    })
+}
+
+/// Builds a text context menu popup at `anchor` whose rows come from `item`.
+fn text_menu_overlay(
+    config: &TextContextMenuConfig,
+    owner: WidgetId,
+    anchor: fission_layout::LayoutPoint,
+    item: impl Fn(TextContextMenuAction) -> Widget,
+) -> Widget {
     let menu = config.menu.clone();
-    let children = config
-        .actions
-        .iter()
-        .copied()
-        .map(|action| text_context_menu_item_widget(owner, action, action_enabled(action)))
-        .collect();
+    let children = config.actions.iter().copied().map(item).collect();
 
     let background = menu.background.unwrap_or(Color {
         r: 255,
@@ -339,6 +346,10 @@ pub struct ContextMenuRegion {
     pub enabled: bool,
     /// Optional semantics for the owner node. Fission sets `context_menu` automatically.
     pub semantics: Option<Semantics>,
+    /// Whether the open menu was lifted into a portal while building, so it is not also drawn
+    /// inside the region.
+    #[serde(skip)]
+    menu_in_portal: bool,
 }
 
 impl ContextMenuRegion {
@@ -348,6 +359,7 @@ impl ContextMenuRegion {
             child: child.into(),
             menu,
             enabled: true,
+            menu_in_portal: false,
             semantics: None,
         }
     }
@@ -374,7 +386,10 @@ impl Lower for ContextMenuRegion {
         let owner = self.id.unwrap_or_else(|| cx.next_node_id());
         let builder = cx.with_scope(owner, |cx| {
             let child_id = self.child.lower(cx);
-            let visual_id = if self.enabled && cx.runtime_state.context_menu.owner == Some(owner) {
+            let visual_id = if self.enabled
+                && !self.menu_in_portal
+                && cx.runtime_state.context_menu.owner == Some(owner)
+            {
                 let anchor = cx
                     .runtime_state
                     .context_menu
@@ -483,13 +498,18 @@ pub(crate) fn text_context_menu_item_widget(
     action: TextContextMenuAction,
     enabled: bool,
 ) -> Widget {
+    text_menu_item(text_context_menu_button_id(owner, action), action, enabled)
+}
+
+/// A text context menu row with the given identity.
+fn text_menu_item(id: WidgetId, action: TextContextMenuAction, enabled: bool) -> Widget {
     let child = Text::new(TextContent::KeyWithFallback {
         key: action.label_key().to_string(),
         fallback: action.fallback_label().to_string(),
     });
 
     Button {
-        id: Some(text_context_menu_button_id(owner, action)),
+        id: Some(id),
         child: Some(child.into()),
         semantics: Some(Semantics {
             role: fission_ir::Role::Button,
@@ -555,5 +575,140 @@ pub(crate) fn anchor_to_local(
     fission_layout::LayoutPoint::new(
         (screen_anchor.x - rect.origin.x).max(0.0),
         (screen_anchor.y - rect.origin.y).max(0.0),
+    )
+}
+
+/// Lifts an open context menu into the flyout portal layer.
+///
+/// Drawn inside its region, a menu was clipped by the region's ancestors, painted over by content
+/// after it, and offset by any scroll between the region and the window. As a portal it sits above
+/// all content at the pointer's window position.
+pub(crate) fn lift_open_menu_into_portal(region: &mut ContextMenuRegion) {
+    if region.id.is_none() {
+        region.id = crate::build::next_implicit_widget_id(0xC0A7);
+    }
+    let (Some(owner), Some(runtime)) = (region.id, crate::build::try_current_runtime_state())
+    else {
+        return;
+    };
+    if !region.enabled || runtime.context_menu.owner != Some(owner) {
+        return;
+    }
+    let Some(anchor) = runtime.context_menu.anchor else {
+        return;
+    };
+    let menu = region.menu.overlay_widget(owner, anchor);
+    region.menu_in_portal = crate::build::try_register_portal(
+        crate::PortalLayer::Flyout,
+        Some(context_menu_popup_id(owner)),
+        menu,
+    );
+}
+
+thread_local! {
+    /// Owners whose open text context menu was lifted into a portal during the current build,
+    /// so lowering does not draw it a second time inside the text.
+    static LIFTED_TEXT_MENU_OWNERS: std::cell::RefCell<std::collections::HashSet<WidgetId>> =
+        std::cell::RefCell::new(std::collections::HashSet::new());
+}
+
+/// Lifts the open desktop context menu of selectable text into the flyout portal layer.
+///
+/// Returns whether the menu was lifted. Drawn inside the text, the menu was clipped to the text's
+/// line, painted over by the content after it, and offset by any scroll above it.
+pub(crate) fn lift_text_menu_into_portal(
+    owner: WidgetId,
+    config: &TextContextMenuConfig,
+    selection_present: bool,
+) -> bool {
+    let Some(runtime) = crate::build::try_current_runtime_state() else {
+        return false;
+    };
+    if !config.enabled || runtime.context_menu.owner != Some(owner) {
+        return false;
+    }
+    let Some(anchor) = runtime.context_menu.anchor else {
+        return false;
+    };
+    let menu = text_context_menu_overlay_widget(config, owner, anchor, |action| match action {
+        TextContextMenuAction::Copy => selection_present,
+        TextContextMenuAction::SelectAll => true,
+        TextContextMenuAction::Cut | TextContextMenuAction::Paste => false,
+    });
+    let lifted = crate::build::try_register_portal(
+        crate::PortalLayer::Flyout,
+        Some(context_menu_popup_id(owner)),
+        menu,
+    );
+    if lifted {
+        LIFTED_TEXT_MENU_OWNERS.with(|owners| {
+            owners.borrow_mut().insert(owner);
+        });
+    }
+    lifted
+}
+
+/// Returns whether the text context menu for `owner` was lifted into a portal, clearing the mark.
+pub(crate) fn take_lifted_text_menu(owner: WidgetId) -> bool {
+    LIFTED_TEXT_MENU_OWNERS.with(|owners| owners.borrow_mut().remove(&owner))
+}
+
+/// Lifts the open context menu of a text field into the flyout portal layer.
+///
+/// The rows carry the field's toolbar identities, so choosing one runs the editing command through
+/// the text field and closes the menu. Returns whether the menu was lifted.
+/// Builds a text field's context menu at `anchor`. Its rows carry the field's toolbar identities, so
+/// choosing one runs the editing command through the field and closes the menu.
+pub(crate) fn text_input_menu(
+    input_id: WidgetId,
+    config: &TextContextMenuConfig,
+    anchor: fission_layout::LayoutPoint,
+    selection_present: bool,
+    has_text: bool,
+    editable: bool,
+) -> Widget {
+    text_menu_overlay(config, input_id, anchor, |action| {
+        let enabled = match action {
+            TextContextMenuAction::Copy => selection_present,
+            TextContextMenuAction::Cut => selection_present && editable,
+            TextContextMenuAction::Paste => editable,
+            TextContextMenuAction::SelectAll => has_text,
+        };
+        text_menu_item(
+            crate::ui::widgets::text_input::text_input_toolbar_button_id(input_id, action),
+            action,
+            enabled,
+        )
+    })
+}
+
+pub(crate) fn lift_text_input_menu_into_portal(
+    input_id: WidgetId,
+    config: &TextContextMenuConfig,
+    selection_present: bool,
+    has_text: bool,
+    editable: bool,
+) -> bool {
+    let Some(runtime) = crate::build::try_current_runtime_state() else {
+        return false;
+    };
+    if !config.enabled || runtime.context_menu.owner != Some(input_id) {
+        return false;
+    }
+    let Some(anchor) = runtime.context_menu.anchor else {
+        return false;
+    };
+    let menu = text_input_menu(
+        input_id,
+        config,
+        anchor,
+        selection_present,
+        has_text,
+        editable,
+    );
+    crate::build::try_register_portal(
+        crate::PortalLayer::Flyout,
+        Some(context_menu_popup_id(input_id)),
+        menu,
     )
 }

@@ -140,18 +140,23 @@ impl Lower for Checkbox {
             });
             let bg_node = IrBuilder::new(cx.next_node_id(), bg_paint).build(cx);
 
-            // The check mark is always present so it can fade and grow in and out.
+            // The check mark is always present so it can fade and grow in and out. It is a stroked
+            // tick drawn in the 10x10 box's own coordinates, so it reads as checked rather than as
+            // a filled square inside the box.
             let check_motion = WidgetId::derived(id.as_u128(), &[CHECK_MOTION_PATH]);
             let check_node = {
                 let check = IrBuilder::new(
                     cx.next_node_id(),
-                    Op::Paint(PaintOp::DrawRect {
-                        fill: Some(fission_ir::op::Fill::Solid(indicator_color)),
-                        stroke: None,
-                        corner_radius: 1.0,
-                        shadow: None,
-                        corner_radii: None,
-                        border_sides: None,
+                    Op::Paint(PaintOp::DrawPath {
+                        path: CHECK_MARK_PATH.to_string(),
+                        fill: None,
+                        stroke: Some(fission_ir::op::Stroke {
+                            fill: fission_ir::op::Fill::Solid(indicator_color),
+                            width: 1.8,
+                            dash_array: None,
+                            line_cap: fission_ir::op::LineCap::Round,
+                            line_join: fission_ir::op::LineJoin::Round,
+                        }),
                     }),
                 )
                 .build(cx);
@@ -311,6 +316,9 @@ impl Lower for Checkbox {
 /// Path from a checkbox's id to its check mark's motion identity.
 const CHECK_MOTION_PATH: u32 = 0xC4EC_0001;
 /// The scale a check mark grows from and shrinks to.
+/// A tick from the lower left, down to a point near the bottom, then up to the upper right, in the
+/// check mark box's 10x10 coordinates.
+const CHECK_MARK_PATH: &str = "M 1.5 5.2 L 4 7.7 L 8.6 2.4";
 const CHECK_HIDDEN_SCALE: f32 = 0.6;
 
 impl Checkbox {

@@ -339,6 +339,8 @@ fn drawer_backdrop_dismisses_and_registers_focus_barrier() -> Result<()> {
 
     let state = driver.harness.runtime.get_app_state::<State>().unwrap();
     assert!(!state.drawer_open, "backdrop tap should close the drawer");
+    // The drawer plays its default exit motion before it leaves the tree.
+    driver.tick(400)?;
     driver.assert_text_not_visible("Drawer content");
 
     Ok(())

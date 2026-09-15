@@ -1,9 +1,9 @@
 //! Reducers behind the compose modal.
 
 use super::{
-    Email, EmailMessage, FileSelected, Folder, InboxState, SendCompose, SetComposeBody,
-    SetComposeOpen, SetComposeSubject, SetComposeTo, SetDatePickerOpen, SetScheduleDate,
-    SetScheduleTime,
+    Category, DiscardCompose, Email, EmailMessage, FileSelected, Folder, InboxState, SendCompose,
+    SetComposeBody, SetComposeOpen, SetComposeSubject, SetComposeTo, SetDatePickerOpen,
+    SetScheduleDate, SetScheduleTime,
 };
 use chrono::Local;
 use fission::core::ReducerContext;
@@ -23,8 +23,36 @@ pub fn set_compose_open(state: &mut InboxState, action: SetComposeOpen, _: &mut 
     state.show_compose = action.0;
 }
 
+/// Cancel: closes compose and clears the draft, so the next message starts empty.
+pub fn discard_compose(state: &mut InboxState, _: DiscardCompose, _: &mut Cx<'_, '_, '_>) {
+    state.show_compose = false;
+    state.compose_to.clear();
+    state.compose_to_error = None;
+    state.compose_subject.clear();
+    state.compose_body.clear();
+    state.compose_attachments.clear();
+    state.schedule_date = None;
+    state.schedule_time = None;
+    state.is_date_picker_open = false;
+}
+
 pub fn set_compose_to(state: &mut InboxState, action: SetComposeTo, cx: &mut Cx<'_, '_, '_>) {
     state.compose_to = edited_text(cx, action.0);
+    state.compose_to_error = None;
+}
+
+/// Whether a recipient looks like an address: a local part, an `@` and a dotted domain.
+fn is_address(recipient: &str) -> bool {
+    match recipient.split_once('@') {
+        Some((local, domain)) => {
+            !local.is_empty()
+                && !domain.starts_with('.')
+                && !domain.ends_with('.')
+                && domain.contains('.')
+                && !recipient.contains(char::is_whitespace)
+        }
+        None => false,
+    }
 }
 
 pub fn set_compose_subject(
@@ -66,6 +94,17 @@ pub fn add_dropped_files(state: &mut InboxState, _: FileSelected, cx: &mut Cx<'_
 /// Files the draft as a new sent thread, clears the draft, closes the modal and
 /// confirms with a toast.
 pub fn send_compose(state: &mut InboxState, _: SendCompose, _: &mut Cx<'_, '_, '_>) {
+    let invalid: Vec<&str> = state
+        .compose_to
+        .split(',')
+        .map(str::trim)
+        .filter(|recipient| !recipient.is_empty() && !is_address(recipient))
+        .collect();
+    if !invalid.is_empty() {
+        state.compose_to_error = Some(format!("Not a valid address: {}", invalid.join(", ")));
+        return;
+    }
+    state.compose_to_error = None;
     let subject = match state.compose_subject.trim() {
         "" => "(no subject)".to_string(),
         subject => subject.to_string(),
@@ -98,6 +137,8 @@ pub fn send_compose(state: &mut InboxState, _: SendCompose, _: &mut Cx<'_, '_, '
         is_read: true,
         is_flagged: false,
         labels: vec!["Sent".into()],
+        category: Category::Primary,
+        size_kb: body.len().div_ceil(1000) as u32,
         messages: vec![EmailMessage {
             id: message_id,
             from: "You".into(),

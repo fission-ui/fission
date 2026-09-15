@@ -141,6 +141,7 @@ impl<S: GlobalState> BuildCtx<S> {
             layer,
             seq,
             id,
+            anchor: None,
             node,
         });
     }
@@ -154,6 +155,7 @@ impl<S: GlobalState> BuildCtx<S> {
     pub fn take_portals(&mut self) -> Vec<(Option<WidgetId>, Widget)> {
         let mut entries = std::mem::take(&mut self.portals);
         entries.sort_by(|a, b| (a.layer, a.seq).cmp(&(b.layer, b.seq)));
+        order_nested_portals(&mut entries);
         entries.into_iter().map(|e| (e.id, e.node)).collect()
     }
 
@@ -173,5 +175,40 @@ impl<S: GlobalState> BuildCtx<S> {
 
     pub fn video_controls(&self, target: WidgetId) -> VideoControlCtx {
         VideoControlCtx { target }
+    }
+}
+
+/// Moves each anchored portal after the portal whose tree contains its anchor.
+///
+/// A popup's content is built, and any popup inside it registered, before the popup itself
+/// registers, so registration order puts a nested popup first. Portals later in the list draw
+/// above earlier ones and are dismissed first, so a nested popup has to follow its host.
+fn order_nested_portals(entries: &mut Vec<PortalEntry>) {
+    let contains = |tree: &Widget, target: WidgetId| {
+        tree.visit(&mut |widget| {
+            if widget.declared_id() == Some(target) {
+                std::ops::ControlFlow::Break(())
+            } else {
+                std::ops::ControlFlow::Continue(())
+            }
+        })
+        .is_break()
+    };
+    // Each move places a portal after its host, so no pair moves twice; the bound guards cycles.
+    for _ in 0..entries.len() * entries.len() {
+        let misplaced = entries.iter().enumerate().find_map(|(index, entry)| {
+            let anchor = entry.anchor?;
+            entries
+                .iter()
+                .enumerate()
+                .skip(index + 1)
+                .find(|(_, host)| contains(&host.node, anchor))
+                .map(|(host_index, _)| (index, host_index))
+        });
+        let Some((index, host_index)) = misplaced else {
+            return;
+        };
+        let entry = entries.remove(index);
+        entries.insert(host_index, entry);
     }
 }

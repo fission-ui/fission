@@ -25,7 +25,9 @@ use unicode_segmentation::UnicodeSegmentation;
 
 mod config;
 mod decoration;
+mod text_runs;
 pub use config::*;
+use text_runs::{clamp_text_offset, split_runs_for_range};
 
 #[cfg(debug_assertions)]
 fn report_invalid_validation_pattern() {
@@ -940,7 +942,8 @@ impl Lower for TextInput {
             } else {
                 self.validation_state
             };
-        let constraint_invalid = (effective_required && live_value.text.is_empty())
+        let missing_required = effective_required && live_value.text.is_empty();
+        let constraint_invalid = missing_required
             || self
                 .min_length
                 .is_some_and(|minimum| grapheme_len < minimum)
@@ -975,12 +978,23 @@ impl Lower for TextInput {
             })
             .or_else(|| form_field_context.and_then(|context| context.invalid_message.clone()));
         let is_invalid = effective_validation_state == TextFieldValidationState::Invalid;
+        // An empty required field still fails form validation, but it is only drawn as an error
+        // once the user has visited and left it, so a new form does not open full of red fields.
+        let visited = session.is_some() && !is_focused;
+        let only_missing_required = missing_required
+            && self.error_text.is_none()
+            && declared_validation_state != TextFieldValidationState::Invalid
+            && !self
+                .min_length
+                .is_some_and(|minimum| grapheme_len < minimum)
+            && !pattern_invalid;
+        let show_invalid = is_invalid && (visited || !only_missing_required);
 
         let theme = &cx.env.theme.components.text_input;
         let tokens = &cx.env.theme.tokens;
         let component_state = if !self.enabled {
             ComponentState::Disabled
-        } else if is_invalid {
+        } else if show_invalid {
             ComponentState::Error
         } else if is_focused {
             ComponentState::Focus
@@ -1606,7 +1620,7 @@ impl Lower for TextInput {
                 let affordances = &session_state.affordances;
                 let mut overlay_children = Vec::new();
 
-                if self.selection_controls.enabled {
+                if self.selection_controls.enabled && affordances.touch_handles {
                     if caret == anchor {
                         if self.selection_controls.show_collapsed_handle {
                             if let Some(point) = affordances.caret_handle {
@@ -1645,6 +1659,32 @@ impl Lower for TextInput {
                             input_id,
                             anchor_point,
                         ));
+                    }
+                }
+
+                // A field with an explicit identity lifts its open menu above all content while
+                // building. A field without one only has an identity once lowered, so its menu is
+                // drawn here, in place.
+                if self.id.is_none()
+                    && self.context_menu.enabled
+                    && !affordances.toolbar_visible
+                    && cx.runtime_state.context_menu.owner == Some(input_id)
+                {
+                    if let Some(menu_anchor) = cx.runtime_state.context_menu.anchor {
+                        let local = crate::ui::widgets::context_menu::anchor_to_local(
+                            cx,
+                            input_id,
+                            menu_anchor,
+                        );
+                        let menu = crate::ui::widgets::context_menu::text_input_menu(
+                            input_id,
+                            &self.context_menu,
+                            local,
+                            caret != anchor,
+                            !display_text.is_empty(),
+                            !self.read_only,
+                        );
+                        overlay_children.push(menu.lower(cx));
                     }
                 }
 
@@ -1931,62 +1971,4 @@ impl Lower for TextInput {
         );
         semantics_id
     }
-}
-
-fn clamp_text_offset(value: &str, mut offset: usize) -> usize {
-    offset = offset.min(value.len());
-    while offset > 0 && !value.is_char_boundary(offset) {
-        offset -= 1;
-    }
-    offset
-}
-
-fn split_runs_for_range(
-    runs: &[fission_ir::op::TextRun],
-    start: usize,
-    end: usize,
-    mut apply: impl FnMut(&mut fission_ir::op::TextStyle),
-) -> Vec<fission_ir::op::TextRun> {
-    if start >= end {
-        return runs.to_vec();
-    }
-
-    let mut out = Vec::new();
-    let mut run_start = 0usize;
-    for run in runs {
-        let run_end = run_start + run.text.len();
-        let overlap_start = start.max(run_start);
-        let overlap_end = end.min(run_end);
-        if overlap_start >= overlap_end {
-            out.push(run.clone());
-            run_start = run_end;
-            continue;
-        }
-
-        let local_start = overlap_start - run_start;
-        let local_end = overlap_end - run_start;
-        if local_start > 0 {
-            out.push(fission_ir::op::TextRun {
-                text: run.text[..local_start].to_string(),
-                style: run.style.clone(),
-            });
-        }
-
-        let mut styled = run.style.clone();
-        apply(&mut styled);
-        out.push(fission_ir::op::TextRun {
-            text: run.text[local_start..local_end].to_string(),
-            style: styled,
-        });
-
-        if local_end < run.text.len() {
-            out.push(fission_ir::op::TextRun {
-                text: run.text[local_end..].to_string(),
-                style: run.style.clone(),
-            });
-        }
-
-        run_start = run_end;
-    }
-    out
 }

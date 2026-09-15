@@ -121,7 +121,9 @@ fn directional_padding_mirrors_its_inline_edges() {
     let widget = || -> Widget {
         Container::new(Widget::from(Container {
             id: Some(child_id),
-            ..Container::default().width(10.0).height(10.0)
+            // No width of its own, so the child stretches across the padded box and its
+            // origin is the start inset rather than a centred position.
+            ..Container::default().height(10.0)
         }))
         .padding_directional([24.0, 4.0, 0.0, 0.0])
         .width(100.0)
@@ -170,7 +172,9 @@ fn physical_padding_does_not_mirror() {
     let widget = || -> Widget {
         Container::new(Widget::from(Container {
             id: Some(child_id),
-            ..Container::default().width(10.0).height(10.0)
+            // No width of its own, so the child stretches across the padded box and its
+            // origin is the start inset rather than a centred position.
+            ..Container::default().height(10.0)
         }))
         .padding([24.0, 4.0, 0.0, 0.0])
         .width(100.0)

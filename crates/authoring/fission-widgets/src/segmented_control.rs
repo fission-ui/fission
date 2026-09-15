@@ -2,7 +2,7 @@ use crate::stack::HStack;
 use fission_core::op::CornerRadii;
 use fission_core::ui::{Button, ButtonVariant, Container, SemanticsRegion, Text, Widget};
 use fission_core::ActionEnvelope;
-use fission_ir::{Role, SemanticOrientation};
+use fission_ir::{Role, SemanticOrientation, Semantics};
 use std::sync::Arc;
 
 /// A horizontal row of toggle buttons where exactly one option is active.
@@ -48,7 +48,18 @@ impl From<SegmentedControl> for Widget {
             let is_selected = i == this.selected_index;
             let cb = this.on_change.clone();
 
-            let button: Widget = SemanticsRegion::new(Button {
+            // One-of-many selection, so each segment is a radio rather than an unrelated button.
+            // This also puts the group in the composite keyboard contract, giving it arrow
+            // navigation over its segments. The button carries these semantics itself; a wrapping
+            // region would add a generic node around it.
+            let button: Widget = Button {
+                semantics: Some(Semantics {
+                    role: Role::Radio,
+                    label: Some(opt.clone()),
+                    selected: Some(is_selected),
+                    focusable: true,
+                    ..Semantics::default()
+                }),
                 variant: if is_selected {
                     ButtonVariant::Filled
                 } else {
@@ -67,13 +78,7 @@ impl From<SegmentedControl> for Widget {
                 padding: Some([tokens.spacing.s, tokens.spacing.s, 0.0, 0.0]),
                 on_press: cb.map(|f| f(i)),
                 ..Default::default()
-            })
-            // One-of-many selection, so each segment is a radio rather than an
-            // unrelated button. This also puts the group in the composite
-            // keyboard contract, giving it arrow navigation over its segments.
-            .role(Role::Radio)
-            .label(opt.clone())
-            .selected(is_selected)
+            }
             .into();
 
             // End caps follow the track's own radius, so the first and last

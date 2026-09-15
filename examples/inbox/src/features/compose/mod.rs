@@ -2,8 +2,8 @@
 
 mod fields;
 
-use crate::model::compose::{add_dropped_files, send_compose, set_compose_open};
-use crate::model::{FileSelected, InboxState, SendCompose, SetComposeOpen};
+use crate::model::compose::{add_dropped_files, discard_compose, send_compose, set_compose_open};
+use crate::model::{DiscardCompose, FileSelected, InboxState, SendCompose, SetComposeOpen};
 use fields::{AttachmentField, MessageField, RecipientField, ScheduleFields, SubjectField};
 use fission::core::ui::Widget;
 use fission::core::{reduce_with, WidgetId};
@@ -60,7 +60,7 @@ impl From<ComposeModal> for Widget {
                 ModalAction {
                     label: view.tr("compose.cancel"),
                     is_primary: false,
-                    on_press: Some(close()),
+                    on_press: Some(ctx.bind(DiscardCompose, reduce_with!(discard_compose))),
                     semantics_identifier: Some("inbox.compose.cancel".into()),
                 },
                 ModalAction {

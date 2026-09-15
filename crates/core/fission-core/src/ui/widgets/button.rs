@@ -352,6 +352,9 @@ pub struct Button {
     /// Flex shrink factor for parent flex layouts.
     pub flex_shrink: f32,
     /// Custom padding `[left, right, top, bottom]` (overrides theme defaults).
+    ///
+    /// This is the exact inset of the content: unlike theme padding it gains no extra room for
+    /// the border, so a button wrapping cells that pad themselves stays on its neighbours' grid.
     pub padding: Option<[f32; 4]>,
     /// Optional visual overrides applied after the active design-system recipe.
     pub style: Option<ButtonStyleOverride>,
@@ -735,7 +738,7 @@ impl Button {
     ) -> ButtonStyleResolved {
         let is_hovered = interaction.is_hovered(self_id) && !self.disabled;
         let is_pressed = interaction.is_pressed(self_id) && !self.disabled;
-        let is_focused = interaction.is_focused(self_id) && !self.disabled;
+        let is_focused = interaction.is_focus_visible(self_id) && !self.disabled;
         let is_invalid = !self.disabled && (form_field_invalid || self.is_semantically_invalid());
         let is_selected = !self.disabled && self.is_semantically_selected();
         // Pointer states and keyboard focus are independent. Resolve the
@@ -1566,19 +1569,17 @@ impl Lower for Button {
         );
         // Recipe padding is logical [start, end, top, bottom]; mirror it once
         // here so no control has to branch on reading order itself.
-        let content_padding = self.padding.unwrap_or(match cx.env.layout_direction {
-            fission_ir::LayoutDirection::LeftToRight => resolved_style.padding,
-            fission_ir::LayoutDirection::RightToLeft => {
-                let [start, end, top, bottom] = resolved_style.padding;
-                [end, start, top, bottom]
-            }
+        // Theme padding also reserves room for the widest border any state draws; explicit padding
+        // is taken as the exact content inset.
+        let layout_padding = self.padding.unwrap_or_else(|| {
+            let [start, end, top, bottom] = resolved_style.padding;
+            let border = resolved_style.layout_border_width;
+            let (left, right) = match cx.env.layout_direction {
+                fission_ir::LayoutDirection::LeftToRight => (start, end),
+                fission_ir::LayoutDirection::RightToLeft => (end, start),
+            };
+            [left + border, right + border, top + border, bottom + border]
         });
-        let layout_padding = [
-            content_padding[0] + resolved_style.layout_border_width,
-            content_padding[1] + resolved_style.layout_border_width,
-            content_padding[2] + resolved_style.layout_border_width,
-            content_padding[3] + resolved_style.layout_border_width,
-        ];
 
         cx.with_scope(layout_node_id, |cx| {
             let mut button_builder = IrBuilder::new(
@@ -1692,11 +1693,26 @@ impl Lower for Button {
             if let Some(child_id) = content_id {
                 let aligned_id = match self.content_align {
                     ButtonContentAlign::Center => {
-                        // Center the content within the button's box (vertically + horizontally).
-                        let mut align_builder =
-                            IrBuilder::new(cx.next_node_id(), Op::Layout(LayoutOp::Align));
-                        align_builder.add_child(child_id);
-                        align_builder.build(cx)
+                        // Centre the content within the button's box. A centring column is at
+                        // least the button's minimum size and otherwise hugs its content; an
+                        // alignment node would grow to whatever height a parent offers, so a
+                        // button in a tall row or overlay became that tall.
+                        let mut centre_builder = IrBuilder::new(
+                            cx.next_node_id(),
+                            Op::Layout(LayoutOp::Flex {
+                                direction: fission_ir::FlexDirection::Column,
+                                wrap: fission_ir::FlexWrap::NoWrap,
+                                flex_grow: 0.0,
+                                flex_shrink: 1.0,
+                                padding: [0.0; 4],
+                                gap: None,
+                                line_gap: None,
+                                align_items: fission_ir::op::AlignItems::Center,
+                                justify_content: fission_ir::op::JustifyContent::Center,
+                            }),
+                        );
+                        centre_builder.add_child(child_id);
+                        centre_builder.build(cx)
                     }
                     ButtonContentAlign::Start | ButtonContentAlign::End => {
                         let justify = match self.content_align {
@@ -1704,12 +1720,16 @@ impl Lower for Button {
                             ButtonContentAlign::End => fission_ir::op::JustifyContent::End,
                             ButtonContentAlign::Center => fission_ir::op::JustifyContent::Center,
                         };
+                        // The row hugs its content. A button given a width, or stretched by its
+                        // parent, still hands the row its full width through tight constraints,
+                        // so start and end alignment apply; an unsized button no longer grows to
+                        // whatever width is offered.
                         let mut flex_builder = IrBuilder::new(
                             cx.next_node_id(),
                             Op::Layout(LayoutOp::Flex {
                                 direction: fission_ir::FlexDirection::Row,
                                 wrap: fission_ir::FlexWrap::NoWrap,
-                                flex_grow: 1.0,
+                                flex_grow: 0.0,
                                 flex_shrink: 0.0,
                                 padding: [0.0; 4],
                                 gap: None,

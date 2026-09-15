@@ -95,7 +95,15 @@ impl Lower for Scroll {
             );
             if let Some(child) = &self.child {
                 // Wrap content in a non-shrinking Box to ensure it overflows the viewport
-                // allowing scrolling to work.
+                // allowing scrolling to work. The scrollbar is drawn over the viewport's end edge,
+                // so a scroll that shows one keeps that strip clear of content.
+                let gutter =
+                    crate::scrollbar::SCROLLBAR_THICKNESS + crate::scrollbar::SCROLLBAR_INSET * 2.0;
+                let content_padding = match (self.show_scrollbar, self.direction) {
+                    (false, _) => [0.0; 4],
+                    (true, FlexDirection::Row) => [0.0, 0.0, 0.0, gutter],
+                    (true, FlexDirection::Column) => [0.0, gutter, 0.0, 0.0],
+                };
                 let content_id = cx.next_node_id();
                 let mut content_box = IrBuilder::new(
                     content_id,
@@ -106,7 +114,7 @@ impl Lower for Scroll {
                         max_width: None,
                         min_height: None,
                         max_height: None,
-                        padding: [0.0; 4],
+                        padding: content_padding,
                         flex_grow: 0.0,
                         flex_shrink: 0.0,
                         aspect_ratio: None,

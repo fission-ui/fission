@@ -131,7 +131,7 @@ impl From<DataTable> for Widget {
                 .label("Select all rows"),
             )
             .width(40.0)
-            .padding_all(8.0)
+            .padding_all(tokens.spacing.s)
             .into(),
         );
 
@@ -173,6 +173,9 @@ impl From<DataTable> for Widget {
                     variant: ButtonVariant::Ghost,
                     child: Some(content),
                     on_press: col.on_sort.clone(),
+                    // The cell's own padding spaces the title; button padding would shift it off
+                    // the column it names.
+                    padding: Some([0.0; 4]),
                     ..Default::default()
                 }
                 .into()
@@ -263,6 +266,10 @@ impl From<DataTable> for Widget {
                     variant: ButtonVariant::Ghost,
                     child: Some(row_body),
                     on_press: Some(action),
+                    // The cells carry their own padding; button padding would shift the row off
+                    // the header's columns.
+                    padding: Some([0.0; 4]),
+                    content_align: fission_core::ui::ButtonContentAlign::Start,
                     ..Default::default()
                 }
                 .into()

@@ -10,4 +10,4 @@ pub mod settings;
 
 pub use actions::*;
 pub use app_state::InboxState;
-pub use email::{Email, EmailMessage, Folder};
+pub use email::{Category, Email, EmailMessage, Folder};

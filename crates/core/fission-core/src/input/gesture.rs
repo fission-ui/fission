@@ -257,6 +257,18 @@ impl InputController for GestureController {
                             return true;
                         }
 
+                        // A drag that starts on a focused text input selects text. It must not
+                        // become a pan, which would scroll the surrounding view and swallow the
+                        // moves before the text input sees them.
+                        if let Some(focused) = ctx.interaction.focused {
+                            let edits_text = ctx.ir.nodes.get(&focused).is_some_and(|node| {
+                                matches!(&node.op, Op::Semantics(semantics) if semantics.supports_text_editing())
+                            });
+                            if edits_text && ctx.interaction.is_pressed(focused) {
+                                return false;
+                            }
+                        }
+
                         if let Some(start) = ctx.gesture.start_point {
                             let dx = point.x - start.x;
                             let dy = point.y - start.y;
@@ -478,7 +490,12 @@ impl InputController for GestureController {
                             }
                         }
 
-                        if !was_secondary {
+                        // A secondary release never closes a menu. Selectable text opens its menu on the
+                        // secondary press and consumes it, so this controller never recorded that press
+                        // and must read the button from the release itself.
+                        let secondary_release = was_secondary
+                            || matches!(button, crate::event::PointerButton::Secondary);
+                        if !secondary_release {
                             ctx.context_menu.close();
                         }
                         self.reset_pointer_sequence(ctx, *point);

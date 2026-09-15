@@ -84,4 +84,12 @@ pub trait LowerWidget: Send + Sync + Debug {
     fn stable_key(&self) -> u64 {
         0
     }
+    /// The widgets this widget lowers as its content.
+    ///
+    /// Tree walks such as [`Widget::visit`](crate::ui::Widget::visit) cannot see inside a
+    /// custom lowerer otherwise; a widget that holds other widgets should return them so that,
+    /// for example, a popup anchored inside it is recognised as nested.
+    fn children(&self) -> Vec<&crate::ui::Widget> {
+        Vec::new()
+    }
 }

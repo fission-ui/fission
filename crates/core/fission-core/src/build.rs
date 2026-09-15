@@ -27,7 +27,8 @@ struct BuildScope {
     local_state_seen: HashSet<crate::state::LocalStateKey>,
     widget_id_stack: Vec<crate::WidgetId>,
     identity_stack: Vec<crate::WidgetId>,
-    implicit_widget_seq: u32,
+    /// Next implicit identity ordinal for each parent identity and widget kind.
+    implicit_widget_seq: HashMap<(u128, u32, u128), u32>,
     providers: HashMap<TypeId, Vec<Box<dyn Any + Send + Sync>>>,
 }
 
@@ -106,7 +107,7 @@ where
             local_state_seen: HashSet::new(),
             widget_id_stack: Vec::new(),
             identity_stack: vec![root_id],
-            implicit_widget_seq: 0,
+            implicit_widget_seq: HashMap::new(),
             providers: HashMap::new(),
         });
     });
@@ -305,6 +306,21 @@ pub fn current_widget_id() -> Option<crate::WidgetId> {
 /// composed controls cannot consume one another's identity namespace.
 #[doc(hidden)]
 pub fn next_implicit_widget_id(salt: u32) -> Option<crate::WidgetId> {
+    next_implicit_widget_id_for(salt, None)
+}
+
+/// Allocates an implicit identity for a widget that dispatches `action` when used.
+///
+/// Implicit identities count in build order, so without a discriminator every button under one
+/// parent shares a count and a longer list built first shifts the identity of each button after
+/// it: focus, hover and motion then land on a different control. Counting per action type keeps
+/// a button's identity tied to what it does, so only buttons of the same action affect it.
+#[doc(hidden)]
+pub fn next_implicit_widget_id_for(
+    salt: u32,
+    action: Option<&crate::ActionEnvelope>,
+) -> Option<crate::WidgetId> {
+    let discriminator = action.map(|action| action.id.as_u128()).unwrap_or(0);
     BUILD_SCOPES.with(|scopes| {
         let mut scopes = scopes.borrow_mut();
         let scope = scopes.last_mut()?;
@@ -313,9 +329,27 @@ pub fn next_implicit_widget_id(salt: u32) -> Option<crate::WidgetId> {
             .last()
             .map(|id| id.as_u128())
             .unwrap_or(0x1337_C0DE_0000_0000);
-        let sequence = scope.implicit_widget_seq;
-        scope.implicit_widget_seq = scope.implicit_widget_seq.wrapping_add(1);
-        Some(crate::WidgetId::derived(parent, &[salt, sequence]))
+        // Each parent and widget kind counts separately, so a widget's identity does not shift
+        // when a widget of another kind, or under another parent, is built before it.
+        let next = scope
+            .implicit_widget_seq
+            .entry((parent, salt, discriminator))
+            .or_insert(0);
+        let sequence = *next;
+        *next = next.wrapping_add(1);
+        if discriminator == 0 {
+            return Some(crate::WidgetId::derived(parent, &[salt, sequence]));
+        }
+        let parts = [
+            (discriminator >> 96) as u32,
+            (discriminator >> 64) as u32,
+            (discriminator >> 32) as u32,
+            discriminator as u32,
+        ];
+        Some(crate::WidgetId::derived(
+            parent,
+            &[salt, parts[0], parts[1], parts[2], parts[3], sequence],
+        ))
     })
 }
 
@@ -405,6 +439,50 @@ where
             _state: PhantomData,
         },
     )
+}
+
+/// Registers a portal when a build pass is active, returning whether it was registered.
+///
+/// Framework widgets use this to lift a surface such as an open context menu above all content.
+/// Outside a build pass, for example when a widget is lowered directly, nothing is registered and
+/// the caller keeps rendering the surface in place.
+pub fn try_register_portal(
+    layer: crate::PortalLayer,
+    id: Option<crate::WidgetId>,
+    node: crate::Widget,
+) -> bool {
+    let target = BUILD_SCOPES.with(|scopes| {
+        scopes
+            .borrow()
+            .last()
+            .map(|scope| (scope.ctx, scope.portals, scope.next_portal_seq))
+    });
+    let Some((ctx, portals, next_portal_seq)) = target else {
+        return false;
+    };
+    unsafe {
+        let seq = next_portal_seq(ctx);
+        (*portals).push(crate::registry::PortalEntry {
+            layer,
+            seq,
+            id,
+            anchor: None,
+            node,
+        });
+    }
+    true
+}
+
+/// Whether the current build pass has already registered a portal with `id`.
+///
+/// A widget that can be built more than once in a pass, such as a drag source that appears in
+/// several alternative panels, uses this to register its shared surface once.
+pub fn portal_is_registered(id: crate::WidgetId) -> bool {
+    BUILD_SCOPES.with(|scopes| {
+        scopes.borrow().last().is_some_and(|scope| unsafe {
+            (*scope.portals).iter().any(|entry| entry.id == Some(id))
+        })
+    })
 }
 
 pub fn try_register_video(registration: crate::registry::VideoRegistration) {
@@ -700,6 +778,31 @@ impl<S: GlobalState> BuildCtxHandle<S> {
         id: Option<crate::WidgetId>,
         node: crate::Widget,
     ) {
+        self.push_portal(layer, id, None, node);
+    }
+
+    /// Registers a portal positioned against `anchor`.
+    ///
+    /// Content is built before the widget that portals it, so a popup inside another popup's
+    /// content registers first. Naming the anchor lets the popup be ordered after the portal
+    /// that contains its anchor, so it draws above that portal and is dismissed before it.
+    pub fn register_anchored_portal(
+        &self,
+        layer: crate::PortalLayer,
+        id: Option<crate::WidgetId>,
+        anchor: crate::WidgetId,
+        node: crate::Widget,
+    ) {
+        self.push_portal(layer, id, Some(anchor), node);
+    }
+
+    fn push_portal(
+        &self,
+        layer: crate::PortalLayer,
+        id: Option<crate::WidgetId>,
+        anchor: Option<crate::WidgetId>,
+        node: crate::Widget,
+    ) {
         let (ctx, portals, next_portal_seq) = BUILD_SCOPES.with(|scopes| {
             let scopes = scopes.borrow();
             let Some(scope) = scopes.last() else {
@@ -716,6 +819,7 @@ impl<S: GlobalState> BuildCtxHandle<S> {
                 layer,
                 seq,
                 id,
+                anchor,
                 node,
             });
         }

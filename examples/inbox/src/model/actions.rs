@@ -79,6 +79,10 @@ pub struct DismissDropdown;
 #[fission_action]
 pub struct SelectTab(pub usize);
 
+/// Turns a label filter on, or off when it is already the active one.
+#[fission_action]
+pub struct ToggleLabelFilter(pub String);
+
 #[fission_action]
 pub struct SelectReplyMode(pub usize);
 
@@ -154,6 +158,27 @@ pub struct SetAdvancedFiltersOpen(pub bool);
 
 #[fission_action]
 pub struct SetSortOption(pub String);
+
+/// Closes compose and throws the draft away.
+#[fission_action]
+pub struct DiscardCompose;
+
+#[fission_action]
+pub struct SetSortMenuOpen(pub bool);
+
+/// The date range the list is narrowed to; either end may be open.
+#[fission_action]
+pub struct SetDateFilter(pub Option<NaiveDate>, pub Option<NaiveDate>);
+
+#[fission_action]
+pub struct SetDateFilterStartOpen(pub bool);
+
+#[fission_action]
+pub struct SetDateFilterEndOpen(pub bool);
+
+/// Reads the proposed size range from the slider interaction.
+#[fission_action]
+pub struct SetSizeFilter;
 
 #[fission_action(no_eq)]
 #[serde(transparent)]

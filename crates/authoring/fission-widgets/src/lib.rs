@@ -120,7 +120,7 @@ pub use menu::{
 
 /// Transient status notifications and their semantic tone.
 pub mod toast;
-pub use toast::{Toast, ToastKind, ToastMotion};
+pub use toast::{Toast, ToastDuration, ToastKind, ToastMotion};
 
 /// Modal dialog surface, actions, and entrance/exit motion.
 pub mod modal;
@@ -456,6 +456,10 @@ struct FlyoutLowerer {
 }
 
 impl LowerWidget for FlyoutLowerer {
+    fn children(&self) -> Vec<&Widget> {
+        vec![&self.content]
+    }
+
     fn lower_dyn(&self, cx: &mut LoweringContext) -> WidgetId {
         let content_id = fission_core::internal::lower_widget(&self.content, cx);
         let mut flyout = IrBuilder::new(

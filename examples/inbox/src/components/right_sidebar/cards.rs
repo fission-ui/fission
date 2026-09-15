@@ -185,9 +185,13 @@ impl From<MeetCard> for Widget {
                             }
                             .into(),
                         ),
-                        on_press: None,
+                        on_press: Some(ctx.bind(
+                            ShowToast(view.tr("quick.meeting_started")),
+                            reduce_with!(show_toast),
+                        )),
                         ..Default::default()
                     }
+                    .semantics_identifier("inbox.meet.start")
                     .into(),
                 ],
             }

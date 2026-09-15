@@ -122,6 +122,21 @@ impl TextInputController {
         }
     }
 
+    /// Records whether the field is being used by touch, which decides whether selection handles
+    /// are shown. Mobile targets always use touch affordances.
+    pub(super) fn note_pointer_kind(
+        ctx: &mut ControllerContext,
+        focused_id: WidgetId,
+        kind: crate::event::PointerKind,
+    ) {
+        let touch = crate::ui::widgets::selection_region::SelectionPlatformStyle::Adaptive
+            .uses_touch_affordances(kind);
+        ctx.text_edit
+            .get_mut_or_default(focused_id)
+            .affordances
+            .touch_handles = touch;
+    }
+
     pub(super) fn sync_text_input_affordances(
         ctx: &mut ControllerContext,
         focused_id: WidgetId,

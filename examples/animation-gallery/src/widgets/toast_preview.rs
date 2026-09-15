@@ -27,6 +27,7 @@ impl From<ToastPreview<'_>> for Widget {
                 kind: ToastKind::Success,
                 message: "Saved changes with real Toast motion.".into(),
                 on_close: Some(close),
+                duration: fission::widgets::ToastDuration::Default,
                 motion: toast_motion(preview.state),
             }
             .into()

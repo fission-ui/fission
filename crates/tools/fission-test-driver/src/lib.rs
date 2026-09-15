@@ -407,6 +407,10 @@ pub enum TestEvent {
         response_tx: TestResponseSender,
     },
     Wake,
+    /// Runs a frame for a window that receives no redraws, such as a covered test window, so
+    /// commands that wait on a frame are still answered.
+    #[doc(hidden)]
+    HeadlessFrame,
     Quit,
     /// Internal: TapText resolves a text label to coordinates; the server
     /// injects this so the main loop can do the lookup with access to the IR.

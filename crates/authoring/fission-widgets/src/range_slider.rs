@@ -253,7 +253,10 @@ impl LowerWidget for RangeSliderLowerer {
     }
 }
 
-fn track_layer(
+/// A bar `track_height` tall centred in a box `control_height` tall. A paint fills its whole parent,
+/// so the bar is its own box rather than a paint inside a padded one, which would be drawn at the
+/// full control height and cover the thumbs.
+fn thin_bar(
     cx: &mut LoweringContext,
     control_height: f32,
     track_height: f32,
@@ -271,9 +274,23 @@ fn track_layer(
         }),
     )
     .build(cx);
-    let mut fill = IrBuilder::new(cx.next_node_id(), Op::Layout(LayoutOp::AbsoluteFill));
-    fill.add_child(paint);
-    let fill = fill.build(cx);
+    let mut bar = IrBuilder::new(
+        cx.next_node_id(),
+        Op::Layout(LayoutOp::Box {
+            width: None,
+            height: Some(track_height),
+            min_width: None,
+            max_width: None,
+            min_height: None,
+            max_height: None,
+            padding: [0.0; 4],
+            flex_grow: 0.0,
+            flex_shrink: 1.0,
+            aspect_ratio: None,
+        }),
+    );
+    bar.add_child(paint);
+    let bar = bar.build(cx);
     let vertical = (control_height - track_height) / 2.0;
     let mut container = IrBuilder::new(
         cx.next_node_id(),
@@ -290,8 +307,41 @@ fn track_layer(
             aspect_ratio: None,
         }),
     );
-    container.add_child(fill);
+    container.add_child(bar);
     container.build(cx)
+}
+
+/// The full track, laid out through a one-column grid so it spans the control. A bare box in the
+/// control's stack would size to its content and have no width.
+fn track_layer(
+    cx: &mut LoweringContext,
+    control_height: f32,
+    track_height: f32,
+    color: Color,
+) -> WidgetId {
+    let bar = thin_bar(cx, control_height, track_height, color);
+    let mut grid = IrBuilder::new(
+        cx.next_node_id(),
+        Op::Layout(LayoutOp::Grid {
+            columns: vec![GridTrack::Fr(1.0)],
+            rows: vec![GridTrack::Points(control_height)],
+            column_gap: None,
+            row_gap: None,
+            padding: [0.0; 4],
+        }),
+    );
+    let mut item = IrBuilder::new(
+        cx.next_node_id(),
+        Op::Layout(LayoutOp::GridItem {
+            row_start: GridPlacement::Line(1),
+            row_end: GridPlacement::Auto,
+            col_start: GridPlacement::Line(1),
+            col_end: GridPlacement::Auto,
+        }),
+    );
+    item.add_child(bar);
+    grid.add_child(item.build(cx));
+    grid.build(cx)
 }
 
 fn selected_track_layer(
@@ -302,36 +352,7 @@ fn selected_track_layer(
     track_height: f32,
     color: Color,
 ) -> WidgetId {
-    let paint = IrBuilder::new(
-        cx.next_node_id(),
-        Op::Paint(PaintOp::DrawRect {
-            fill: Some(Fill::Solid(color)),
-            stroke: None,
-            corner_radius: track_height / 2.0,
-            shadow: None,
-            corner_radii: None,
-            border_sides: None,
-        }),
-    )
-    .build(cx);
-    let vertical = (control_height - track_height) / 2.0;
-    let mut segment = IrBuilder::new(
-        cx.next_node_id(),
-        Op::Layout(LayoutOp::Box {
-            width: None,
-            height: Some(control_height),
-            min_width: None,
-            max_width: None,
-            min_height: None,
-            max_height: None,
-            padding: [0.0, 0.0, vertical, vertical],
-            flex_grow: 0.0,
-            flex_shrink: 1.0,
-            aspect_ratio: None,
-        }),
-    );
-    segment.add_child(paint);
-    let segment = segment.build(cx);
+    let segment = thin_bar(cx, control_height, track_height, color);
     let mut grid = IrBuilder::new(
         cx.next_node_id(),
         Op::Layout(LayoutOp::Grid {

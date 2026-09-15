@@ -1,7 +1,8 @@
 use crate::stack::{HStack, VStack};
 use crate::Icon;
 use fission_core::ui::{
-    Button, ButtonContentAlign, ButtonVariant, Container, SemanticsRegion, Text, Widget,
+    Button, ButtonContentAlign, ButtonStyleOverride, ButtonVariant, Container, SemanticsRegion,
+    Text, Widget,
 };
 use fission_core::{
     build::{BuildCtxHandle, ViewHandle},
@@ -122,7 +123,9 @@ impl TreeView {
             children: row_children,
         })
         .padding_all(8.0)
-        .height(40.0)
+        // At least a comfortable row, and taller when a long or translated label wraps; a fixed
+        // height let a wrapped label spill over the next row.
+        .min_height(40.0)
         .bg(if is_selected {
             theme.selected_bg
         } else {
@@ -145,7 +148,12 @@ impl TreeView {
                 child: Some(row_content),
                 on_press: item.on_select.clone(),
                 padding: Some([0.0; 4]),
-                height: Some(40.0), // Force button height
+                // The row is rounded, so the button's hover fill and focus ring follow the same
+                // corners instead of drawing a square outline around a rounded row.
+                style: Some(ButtonStyleOverride {
+                    corner_radius: Some(tokens.radii.medium),
+                    ..Default::default()
+                }),
                 semantics: Some(Semantics {
                     role: Role::TreeItem,
                     label: Some(item.label.clone()),

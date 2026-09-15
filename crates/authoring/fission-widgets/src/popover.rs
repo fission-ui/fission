@@ -185,7 +185,10 @@ pub(crate) fn popover_with_options(
     // Derive stable anchor ID
     let anchor_id = WidgetId::derived(this.id.as_u128(), &[0]);
 
+    // The anchor may be stretched by its parent; the trigger keeps its own size at the start of
+    // it instead of being stretched or centred.
     let trigger_wrapper = Container::new(this.trigger.clone())
+        .align_child(fission_ir::op::BoxAlignment::Start)
         .flex_shrink(0.0)
         .id(anchor_id);
 
@@ -218,11 +221,17 @@ pub(crate) fn popover_with_options(
         if let (true, Some(on_close)) = (this.is_open, this.on_close.clone()) {
             let backdrop: Widget = SemanticsRegion {
                 actions: fission_ir::ActionSet {
-                    entries: vec![fission_ir::ActionEntry {
-                        trigger: fission_ir::ActionTrigger::Default,
+                    entries: [
+                        fission_ir::ActionTrigger::Default,
+                        fission_ir::ActionTrigger::Dismiss,
+                    ]
+                    .into_iter()
+                    .map(|trigger| fission_ir::ActionEntry {
+                        trigger,
                         action_id: on_close.id.as_u128(),
-                        payload_data: Some(on_close.payload),
-                    }],
+                        payload_data: Some(on_close.payload.clone()),
+                    })
+                    .collect(),
                 },
                 focusable: Some(false),
                 sequential_focusable: false,
@@ -261,15 +270,17 @@ pub(crate) fn popover_with_options(
             }
             .into();
 
-            ctx.register_portal_with_layer(
+            ctx.register_anchored_portal(
                 fission_core::PortalLayer::Flyout,
                 Some(this.id),
+                anchor_id,
                 overlay,
             );
         } else {
-            ctx.register_portal_with_layer(
+            ctx.register_anchored_portal(
                 fission_core::PortalLayer::Flyout,
                 Some(this.id),
+                anchor_id,
                 flyout_node,
             );
         }

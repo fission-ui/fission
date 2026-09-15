@@ -1,4 +1,5 @@
 use crate::model::compose::set_compose_open;
+use crate::model::list::toggle_label_filter;
 use crate::model::navigation::{select_folder, set_contacts_open};
 use crate::model::settings::set_settings_open;
 use crate::model::{
@@ -97,6 +98,11 @@ impl From<Sidebar> for Widget {
                                     Tag {
                                         label: (*label).into(),
                                         on_close: None,
+                                        on_press: Some(ctx.bind(
+                                            crate::model::ToggleLabelFilter((*label).into()),
+                                            reduce_with!(toggle_label_filter),
+                                        )),
+                                        selected: state.label_filter.as_deref() == Some(*label),
                                     }
                                     .into()
                                 })
