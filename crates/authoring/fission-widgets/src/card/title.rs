@@ -40,8 +40,10 @@ impl From<CardTitle> for Widget {
         let tokens = &view.env().theme.tokens;
 
         Text::new(component.text)
-            .size(style.font_size.unwrap_or(16.0))
-            .line_height(style.line_height.unwrap_or(24.0))
+            .size(style.font_size.unwrap_or(tokens.typography.body_large_size))
+            .line_height(style.line_height.unwrap_or(
+                tokens.typography.body_large_size * tokens.typography.line_height_normal,
+            ))
             .weight(
                 style
                     .font_weight

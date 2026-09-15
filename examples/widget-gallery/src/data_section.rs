@@ -2,7 +2,8 @@ use crate::gallery_section::GallerySection;
 use crate::state::GalleryState;
 use fission::prelude::*;
 use fission::widgets::{
-    Accordion, AccordionItem, Card, Stepper, Timeline, TimelineItem, TreeItem, TreeView, VStack,
+    Accordion, AccordionItem, CardContent, CardDescription, CardFooter, CardHeader, CardLayout,
+    CardTitle, Stepper, Timeline, TimelineItem, TreeItem, TreeView, VStack,
 };
 
 #[fission_reducer(ToggleAccordion)]
@@ -38,21 +39,45 @@ impl From<DataSection> for Widget {
         GallerySection::new(
             "Data Display",
             widgets![
-                Card {
-                    child: VStack {
-                        spacing: Some(tokens.spacing.xs),
-                        children: widgets![
-                            Text::new("Card Title")
-                                .size(typography.font_size_lg)
-                                .weight(typography.font_weight_bold)
-                                .color(tokens.colors.text_primary),
-                            Text::new("Some card content goes here.")
-                                .color(tokens.colors.text_secondary),
-                        ],
-                    }
-                    .into(),
-                    ..Default::default()
-                },
+                CardLayout::new()
+                    .header(
+                        CardHeader::new(CardTitle::new("Messages synced"))
+                            .description(CardDescription::new(
+                                "Across every connected inbox this week."
+                            ))
+                            .action(Button {
+                                variant: ButtonVariant::Ghost,
+                                icon_content: Some(ButtonIconContent::new(
+                                    Icon::svg(
+                                        fission::icons::material::navigation::more_horiz::regular()
+                                    ),
+                                    "Card options",
+                                )),
+                                ..Default::default()
+                            }),
+                    )
+                    .content(CardContent::new(
+                        Text::new("1,284")
+                            .size(typography.heading2_size)
+                            .weight(typography.font_weight_semibold)
+                            .color(tokens.colors.text_primary),
+                    ))
+                    .footer(CardFooter::new(vec![
+                        Button {
+                            variant: ButtonVariant::Outline,
+                            size: ComponentSize::Sm,
+                            child: Some(Text::new("View report").into()),
+                            ..Default::default()
+                        }
+                        .into(),
+                        Button {
+                            variant: ButtonVariant::Filled,
+                            size: ComponentSize::Sm,
+                            child: Some(Text::new("Sync now").into()),
+                            ..Default::default()
+                        }
+                        .into(),
+                    ])),
                 Accordion {
                     items: vec![
                         AccordionItem {

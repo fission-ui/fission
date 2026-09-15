@@ -1031,7 +1031,7 @@ impl Button {
                 .and_then(|style| style.translate_y)
                 .or(component_style.translate_y)
                 .filter(|offset| offset.is_finite())
-                .unwrap_or(if is_pressed { 1.0 } else { 0.0 }),
+                .unwrap_or(0.0),
         }
     }
 
@@ -1596,10 +1596,16 @@ impl Lower for Button {
         // here so no control has to branch on reading order itself.
         // Theme padding also reserves room for the widest border any state draws; explicit padding
         // is taken as the exact content inset.
+        // An icon-only button is a square as tall as its size, with the icon centred.
+        let square = self.icon_content.is_some()
+            && self.width.is_none()
+            && resolved_style.width.is_none()
+            && self.height.is_none();
         let layout_padding = self.padding.unwrap_or_else(|| {
             let [start, end, top, bottom] = resolved_style.padding;
             let border = resolved_style.layout_border_width;
             let (left, right) = match cx.env.layout_direction {
+                _ if square => (0.0, 0.0),
                 fission_ir::LayoutDirection::LeftToRight => (start, end),
                 fission_ir::LayoutDirection::RightToLeft => (end, start),
             };
@@ -1610,7 +1616,10 @@ impl Lower for Button {
             let mut button_builder = IrBuilder::new(
                 layout_node_id,
                 Op::Layout(LayoutOp::Box {
-                    width: self.width.or(resolved_style.width),
+                    width: self
+                        .width
+                        .or(resolved_style.width)
+                        .or(square.then_some(resolved_style.height)),
                     height: self.height,
                     min_width: self.min_width,
                     max_width: self.max_width.or(resolved_style.max_width),

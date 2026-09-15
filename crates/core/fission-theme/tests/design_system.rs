@@ -434,7 +434,8 @@ fn default_component_geometry_matches_the_comfortable_recipe() {
                 ComponentState::Active,
             )
             .translate_y,
-        Some(1.0)
+        None,
+        "a pressed button changes colour without moving"
     );
     assert_eq!(
         theme
@@ -594,16 +595,16 @@ fn default_component_geometry_matches_the_comfortable_recipe() {
     let card = theme.components.card.resolve(CardPattern::Raised, false);
     assert_eq!(theme.components.card.padding, 16.0);
     assert_eq!(theme.components.card.radius, 14.0);
-    assert_eq!(card.shadows.len(), 1);
-    assert_eq!(
-        theme
-            .components
-            .card
-            .resolve(CardPattern::Elevated, false)
-            .shadows
-            .len(),
-        3
-    );
+    // A soft shadow, which may be several layers.
+    assert!(!card.shadows.is_empty());
+    // Elevated lifts further than raised, with a shadow rather than a ring.
+    let elevated = theme.components.card.resolve(CardPattern::Elevated, false);
+    assert!(!elevated.shadows.is_empty());
+    assert_ne!(elevated.shadows, card.shadows);
+    assert!(elevated
+        .shadows
+        .iter()
+        .all(|shadow| shadow.spread_radius <= 0.0));
     assert!(theme.components.card.footer_style.background.is_some());
     assert!(theme.components.card.footer_style.border.is_some());
     let small_card_title = theme.components.card.resolve_title(ComponentSize::Sm);
@@ -823,7 +824,11 @@ fn generated_component_colours_follow_light_and_dark_semantics() {
             card.background,
             Some(Fill::Solid(theme.tokens.colors.surface))
         );
-        assert!(card.border.is_none());
+        // One hairline edge in the border colour, plus a soft shadow.
+        assert_eq!(
+            card.border.as_ref().map(|border| &border.fill),
+            Some(&Fill::Solid(theme.tokens.colors.border))
+        );
         assert!(!card.shadows.is_empty());
 
         let tab = theme
@@ -931,7 +936,13 @@ fn generated_theme_resolves_dsp_component_model() {
 
     let card = theme.components.card.resolve(CardPattern::Raised, false);
     assert!(card.background.is_some());
-    assert_eq!(card.shadows.len(), 1);
+    // One hairline edge and a soft shadow, not a border doubled by a ring.
+    assert!(card.border.is_some());
+    assert!(!card.shadows.is_empty());
+    assert!(card
+        .shadows
+        .iter()
+        .all(|shadow| shadow.spread_radius <= 0.0));
 
     assert!(theme.tokens.data_visualization.palette.len() >= 4);
 }
@@ -966,10 +977,15 @@ fn generated_dark_buttons_use_dark_readable_text_tokens() {
         ComponentState::Default,
     );
     assert_eq!(secondary.text_color, Some(theme.tokens.colors.text_primary));
-    assert_eq!(
-        secondary.background,
-        Some(Fill::Solid(theme.tokens.colors.surface))
-    );
+    // A real neutral fill, a step lighter than the page, so it reads as a button
+    // and not as a ghost.
+    let Some(Fill::Solid(fill)) = secondary.background else {
+        panic!("secondary buttons have a solid fill");
+    };
+    let brightness =
+        |color: fission_theme::Color| u32::from(color.r) + u32::from(color.g) + u32::from(color.b);
+    assert_ne!(fill, theme.tokens.colors.surface);
+    assert!(brightness(fill) > brightness(theme.tokens.colors.background));
 
     let tertiary = theme.components.button.resolve(
         ButtonHierarchy::TertiaryGray,

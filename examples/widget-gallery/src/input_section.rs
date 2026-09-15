@@ -65,15 +65,21 @@ impl From<InputSection> for Widget {
                 Wrap {
                     direction: FlexDirection::Row,
                     spacing: Some(tokens.spacing.s),
-                    run_spacing: None,
+                    run_spacing: Some(tokens.spacing.s),
                     children: widgets![
                         Button {
                             variant: ButtonVariant::Filled,
-                            child: Some(Text::new("Filled").into()),
+                            child: Some(Text::new("Primary").into()),
                             on_press: Some(noop),
                             ..Default::default()
                         }
                         .semantics_identifier("gallery.button.filled"),
+                        Button {
+                            variant: ButtonVariant::SecondaryGray,
+                            child: Some(Text::new("Secondary").into()),
+                            ..Default::default()
+                        }
+                        .semantics_identifier("gallery.button.secondary"),
                         Button {
                             variant: ButtonVariant::Outline,
                             child: Some(Text::new("Outline").into()),
@@ -86,6 +92,27 @@ impl From<InputSection> for Widget {
                             ..Default::default()
                         }
                         .semantics_identifier("gallery.button.ghost"),
+                        Button {
+                            variant: ButtonVariant::Destructive,
+                            child: Some(Text::new("Delete").into()),
+                            ..Default::default()
+                        }
+                        .semantics_identifier("gallery.button.destructive"),
+                        Button {
+                            variant: ButtonVariant::LinkColor,
+                            child: Some(Text::new("Link").into()),
+                            ..Default::default()
+                        }
+                        .semantics_identifier("gallery.button.link"),
+                        Button {
+                            variant: ButtonVariant::Outline,
+                            icon_content: Some(ButtonIconContent::new(
+                                Icon::svg(fission::icons::material::content::add::regular()),
+                                "Add item",
+                            )),
+                            ..Default::default()
+                        }
+                        .semantics_identifier("gallery.button.icon"),
                         Button {
                             variant: ButtonVariant::Filled,
                             child: Some(Text::new("Disabled").into()),
@@ -108,6 +135,40 @@ impl From<InputSection> for Widget {
                     Length::percent(100.0),
                     Length::points(CONTROL_MAX_WIDTH),
                 )),
+                // Fields in a row share a top edge so their labels line up, even when
+                // one grows to show an error.
+                Row {
+                    gap: Some(tokens.spacing.m),
+                    align_items: fission::op::AlignItems::Start,
+                    children: widgets![
+                        Container::new(TextInput {
+                            id: Some(WidgetId::explicit("gallery.field.email")),
+                            label: Some("Work email".into()),
+                            placeholder: Some("ada@studio.co".into()),
+                            helper_text: Some("We'll send the invite here.".into()),
+                            ..Default::default()
+                        })
+                        .width(CONTROL_MIN_WIDTH),
+                        Container::new(TextInput {
+                            id: Some(WidgetId::explicit("gallery.field.team")),
+                            label: Some("Team name".into()),
+                            value: "Platform team!".into(),
+                            error_text: Some("Use letters, numbers and spaces only.".into()),
+                            ..Default::default()
+                        })
+                        .width(CONTROL_MIN_WIDTH),
+                        Container::new(TextInput {
+                            id: Some(WidgetId::explicit("gallery.field.plan")),
+                            label: Some("Plan".into()),
+                            value: "Pro".into(),
+                            helper_text: Some("Managed by your admin.".into()),
+                            enabled: false,
+                            ..Default::default()
+                        })
+                        .width(CONTROL_MIN_WIDTH),
+                    ],
+                    ..Default::default()
+                },
                 Wrap {
                     direction: FlexDirection::Row,
                     spacing: Some(tokens.spacing.m),
