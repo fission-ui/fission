@@ -1,14 +1,15 @@
-//! User-granted directory access.
+//! Cross-platform file-system access.
 //!
-//! The capability deliberately exposes opaque directory handles and portable
-//! relative paths rather than host filesystem paths. A shell remains the
-//! authority for the directory selected by the user and for every operation
-//! performed beneath it.
+//! Operations can address a path in the host's filesystem namespace or a path
+//! resolved from an opaque directory handle. Directory handles are required by
+//! hosts such as browsers and document providers that do not expose global OS
+//! paths; they are not a framework sandbox for native applications.
 
 use crate::capability::{CapabilityType, OperationCapability};
 use crate::DataStreamId;
-use serde::{de, Deserialize, Deserializer, Serialize};
+use serde::{Deserialize, Serialize};
 use std::fmt;
+use std::path::PathBuf;
 
 /// Runtime-owned identity for a directory selected by the user.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -44,12 +45,13 @@ pub struct DirectoryHandle {
     pub permission: FileSystemPermission,
 }
 
-/// A validated, slash-separated path relative to a granted directory.
+/// A filesystem path interpreted by the active host provider.
 ///
-/// The empty path denotes the granted directory itself. Absolute paths,
-/// parent traversal, platform separators, drive prefixes, and NUL bytes are
-/// rejected so the same request has the same meaning on every target.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Hash, Serialize)]
+/// Fission does not normalize, sandbox, or authorize this value. Native hosts
+/// pass it to the operating system using the application's actual process
+/// permissions. Handle-backed providers interpret it in their own namespace
+/// and report a typed error when that namespace cannot represent the path.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct FileSystemPath(String);
 
@@ -58,10 +60,8 @@ impl FileSystemPath {
         Self::default()
     }
 
-    pub fn new(path: impl Into<String>) -> Result<Self, FileSystemPathError> {
-        let path = path.into();
-        validate_relative_path(&path)?;
-        Ok(Self(path))
+    pub fn new(path: impl Into<String>) -> Self {
+        Self(path.into())
     }
 
     pub fn as_str(&self) -> &str {
@@ -72,17 +72,11 @@ impl FileSystemPath {
         self.0.is_empty()
     }
 
-    pub fn components(&self) -> impl Iterator<Item = &str> {
-        self.0.split('/').filter(|component| !component.is_empty())
-    }
-
-    /// Returns a child path after applying the same portable validation.
-    pub fn join(&self, child: &str) -> Result<Self, FileSystemPathError> {
-        if self.is_root() {
-            Self::new(child)
-        } else {
-            Self::new(format!("{}/{child}", self.0))
-        }
+    /// Returns a child path using the compiling target's path semantics.
+    pub fn join(&self, child: impl AsRef<str>) -> Self {
+        let mut path = PathBuf::from(&self.0);
+        path.push(child.as_ref());
+        Self(path.to_string_lossy().into_owned())
     }
 }
 
@@ -98,66 +92,73 @@ impl fmt::Display for FileSystemPath {
     }
 }
 
-impl TryFrom<String> for FileSystemPath {
-    type Error = FileSystemPathError;
-
-    fn try_from(value: String) -> Result<Self, Self::Error> {
+impl From<String> for FileSystemPath {
+    fn from(value: String) -> Self {
         Self::new(value)
     }
 }
 
-impl TryFrom<&str> for FileSystemPath {
-    type Error = FileSystemPathError;
-
-    fn try_from(value: &str) -> Result<Self, Self::Error> {
+impl From<&str> for FileSystemPath {
+    fn from(value: &str) -> Self {
         Self::new(value)
     }
 }
 
-impl<'de> Deserialize<'de> for FileSystemPath {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let path = String::deserialize(deserializer)?;
-        Self::new(path).map_err(de::Error::custom)
+/// A file-system address.
+///
+/// `Path` uses the active host's filesystem namespace. `Directory` resolves a
+/// provider path from an opaque handle returned by a picker or restoration
+/// operation. The latter is the portable option for browser and document-tree
+/// providers, while both forms are available to native providers.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum FileSystemLocation {
+    Path(FileSystemPath),
+    Directory {
+        directory: DirectoryHandleId,
+        path: FileSystemPath,
+    },
+}
+
+impl Default for FileSystemLocation {
+    fn default() -> Self {
+        Self::Path(FileSystemPath::root())
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct FileSystemPathError;
+impl FileSystemLocation {
+    pub fn path(path: impl Into<String>) -> Self {
+        Self::Path(FileSystemPath::new(path))
+    }
 
-impl fmt::Display for FileSystemPathError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str("filesystem paths must be relative slash-separated paths without empty, `.` or `..` components")
+    pub fn directory(directory: DirectoryHandleId, path: impl Into<String>) -> Self {
+        Self::Directory {
+            directory,
+            path: FileSystemPath::new(path),
+        }
     }
-}
 
-impl std::error::Error for FileSystemPathError {}
+    pub fn directory_root(directory: DirectoryHandleId) -> Self {
+        Self::Directory {
+            directory,
+            path: FileSystemPath::root(),
+        }
+    }
 
-fn validate_relative_path(path: &str) -> Result<(), FileSystemPathError> {
-    let first_component = path.split('/').next().unwrap_or_default();
-    let has_drive_prefix = first_component.len() >= 2
-        && first_component.as_bytes()[0].is_ascii_alphabetic()
-        && first_component.as_bytes()[1] == b':';
-    if path.contains('\0')
-        || path.contains('\\')
-        || has_drive_prefix
-        || path.starts_with('/')
-        || path.ends_with('/')
-    {
-        return Err(FileSystemPathError);
+    pub fn file_system_path(&self) -> &FileSystemPath {
+        match self {
+            Self::Path(path) | Self::Directory { path, .. } => path,
+        }
     }
-    if path.is_empty() {
-        return Ok(());
+
+    pub fn join(&self, child: impl AsRef<str>) -> Self {
+        match self {
+            Self::Path(path) => Self::Path(path.join(child)),
+            Self::Directory { directory, path } => Self::Directory {
+                directory: *directory,
+                path: path.join(child),
+            },
+        }
     }
-    if path
-        .split('/')
-        .any(|component| component.is_empty() || component == "." || component == "..")
-    {
-        return Err(FileSystemPathError);
-    }
-    Ok(())
 }
 
 /// Requests a user-visible directory picker.
@@ -217,7 +218,7 @@ pub enum FileSystemEntryKind {
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FileSystemEntry {
     pub name: String,
-    pub path: FileSystemPath,
+    pub location: FileSystemLocation,
     pub kind: FileSystemEntryKind,
     pub byte_len: Option<u64>,
     /// Milliseconds since the Unix epoch when the host exposes it.
@@ -226,8 +227,7 @@ pub struct FileSystemEntry {
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ListDirectoryRequest {
-    pub directory: DirectoryHandleId,
-    pub path: FileSystemPath,
+    pub location: FileSystemLocation,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -237,8 +237,7 @@ pub struct ListDirectoryResult {
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StatEntryRequest {
-    pub directory: DirectoryHandleId,
-    pub path: FileSystemPath,
+    pub location: FileSystemLocation,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -248,8 +247,7 @@ pub struct StatEntryResult {
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ReadFileRequest {
-    pub directory: DirectoryHandleId,
-    pub path: FileSystemPath,
+    pub location: FileSystemLocation,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -276,10 +274,9 @@ impl Default for FileWriteSource {
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WriteFileRequest {
-    pub directory: DirectoryHandleId,
-    pub path: FileSystemPath,
+    pub location: FileSystemLocation,
     pub source: FileWriteSource,
-    /// Create missing parent directories beneath the granted root.
+    /// Create missing parent directories in the addressed provider.
     pub create_parents: bool,
     /// Replace an existing regular file. The safe default is `false`.
     pub overwrite: bool,
@@ -292,15 +289,13 @@ pub struct WriteFileResult {
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CreateDirectoryRequest {
-    pub directory: DirectoryHandleId,
-    pub path: FileSystemPath,
+    pub location: FileSystemLocation,
     pub recursive: bool,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RemoveEntryRequest {
-    pub directory: DirectoryHandleId,
-    pub path: FileSystemPath,
+    pub location: FileSystemLocation,
     pub recursive: bool,
 }
 
@@ -429,8 +424,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn relative_paths_reject_host_specific_and_escaping_forms() {
-        for invalid in [
+    fn paths_preserve_provider_input_without_framework_validation() {
+        for path in [
             "/etc",
             "../secret",
             "folder/../secret",
@@ -440,38 +435,20 @@ mod tests {
             "folder//file",
             "folder/",
         ] {
-            assert!(
-                FileSystemPath::new(invalid).is_err(),
-                "accepted {invalid:?}"
-            );
+            assert_eq!(FileSystemPath::new(path).as_str(), path);
         }
-        assert_eq!(FileSystemPath::new("").unwrap(), FileSystemPath::root());
+        assert_eq!(FileSystemPath::new(""), FileSystemPath::root());
         assert_eq!(
-            FileSystemPath::new("folder/file.txt").unwrap().as_str(),
-            "folder/file.txt"
-        );
-        assert_eq!(
-            FileSystemPath::new("notes/draft:one.md").unwrap().as_str(),
-            "notes/draft:one.md"
-        );
-        assert_eq!(
-            FileSystemPath::new("folder")
-                .unwrap()
-                .join("file.txt")
-                .unwrap()
-                .as_str(),
+            FileSystemPath::new("folder").join("file.txt").as_str(),
             "folder/file.txt"
         );
     }
 
     #[test]
-    fn invalid_paths_are_rejected_during_deserialization() {
-        assert!(serde_json::from_str::<FileSystemPath>(r#""../secret""#).is_err());
+    fn paths_round_trip_without_reinterpretation() {
         assert_eq!(
-            serde_json::from_str::<FileSystemPath>(r#""notes/today.md""#)
-                .unwrap()
-                .as_str(),
-            "notes/today.md"
+            serde_json::from_str::<FileSystemPath>(r#""../secret""#).unwrap(),
+            FileSystemPath::new("../secret")
         );
     }
 }

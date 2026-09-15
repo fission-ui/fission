@@ -1,8 +1,8 @@
 use fission_core::{
     Bytes, CapabilityCtx, CreateDirectoryRequest, DirectoryHandle, DirectoryHandleId,
     DirectoryPermissionRequest, DirectoryPermissionResult, FileSystemAccessMode, FileSystemEntry,
-    FileSystemEntryKind, FileSystemError, FileSystemPath, FileSystemPermission, FileWriteSource,
-    FissionDataStreamError, FissionDataStreamErrorKind, ForgetDirectoryRequest,
+    FileSystemEntryKind, FileSystemError, FileSystemLocation, FileSystemPath, FileSystemPermission,
+    FileWriteSource, FissionDataStreamError, FissionDataStreamErrorKind, ForgetDirectoryRequest,
     ListDirectoryRequest, ListDirectoryResult, PickDirectoryRequest, PickDirectoryResult,
     ReadFileRequest, ReadFileResult, ReleaseDirectoryRequest, RemoveEntryRequest,
     RestoreDirectoryRequest, RestoreDirectoryResult, StatEntryRequest, StatEntryResult,
@@ -133,13 +133,10 @@ pub(crate) fn register_native_file_system_operations(
         move |request: DirectoryPermissionRequest, _| {
             let grants = grants.clone();
             async move {
-                let grant = grants.get(request.directory)?;
-                let permission = if access_allows(grant.access, request.access) {
-                    FileSystemPermission::Granted
-                } else {
-                    FileSystemPermission::Denied
-                };
-                Ok(DirectoryPermissionResult { permission })
+                grants.get(request.directory)?;
+                Ok(DirectoryPermissionResult {
+                    permission: FileSystemPermission::Granted,
+                })
             }
         },
     );
@@ -150,8 +147,8 @@ pub(crate) fn register_native_file_system_operations(
         move |request: ListDirectoryRequest, _| {
             let grants = grants.clone();
             async move {
-                let grant = grants.get(request.directory)?;
-                let path = resolve_existing(&grant, &request.path)?;
+                let resolved = resolve_location(&grants, &request.location)?;
+                let path = resolved.path;
                 let mut entries = std::fs::read_dir(&path)
                     .map_err(|error| io_error("read_directory_failed", &path, error))?
                     .map(|entry| {
@@ -163,12 +160,10 @@ pub(crate) fn register_native_file_system_operations(
                                 "the directory contains a name that is not valid UTF-8",
                             )
                         })?;
-                        let child_path = request.path.join(&name).map_err(|error| {
-                            FileSystemError::new("invalid_entry_name", error.to_string())
-                        })?;
+                        let child_location = request.location.join(&name);
                         Ok(entry_from_metadata(
                             name,
-                            child_path,
+                            child_location,
                             std::fs::symlink_metadata(entry.path()).map_err(|error| {
                                 io_error("metadata_failed", &entry.path(), error)
                             })?,
@@ -187,22 +182,13 @@ pub(crate) fn register_native_file_system_operations(
         move |request: StatEntryRequest, _| {
             let grants = grants.clone();
             async move {
-                let grant = grants.get(request.directory)?;
-                let path = resolve_existing(&grant, &request.path)?;
+                let resolved = resolve_location(&grants, &request.location)?;
+                let path = resolved.path;
                 let metadata = std::fs::metadata(&path)
                     .map_err(|error| io_error("metadata_failed", &path, error))?;
-                let name = if request.path.is_root() {
-                    grant.name
-                } else {
-                    request
-                        .path
-                        .components()
-                        .last()
-                        .unwrap_or_default()
-                        .to_string()
-                };
+                let name = entry_name(&path, resolved.grant.as_ref());
                 Ok(StatEntryResult {
-                    entry: entry_from_metadata(name, request.path, metadata),
+                    entry: entry_from_metadata(name, request.location, metadata),
                 })
             }
         },
@@ -214,8 +200,7 @@ pub(crate) fn register_native_file_system_operations(
         move |request: ReadFileRequest, ctx: CapabilityCtx| {
             let grants = grants.clone();
             async move {
-                let grant = grants.get(request.directory)?;
-                let path = resolve_existing(&grant, &request.path)?;
+                let path = resolve_location(&grants, &request.location)?.path;
                 let metadata = std::fs::metadata(&path)
                     .map_err(|error| io_error("metadata_failed", &path, error))?;
                 if !metadata.is_file() {
@@ -239,15 +224,8 @@ pub(crate) fn register_native_file_system_operations(
         move |request: WriteFileRequest, ctx: CapabilityCtx| {
             let grants = grants.clone();
             async move {
-                let grant = grants.get(request.directory)?;
-                require_write(&grant)?;
-                if request.path.is_root() {
-                    return Err(FileSystemError::new(
-                        "not_a_file",
-                        "cannot write the directory root",
-                    ));
-                }
-                let path = resolve_for_creation(&grant, &request.path)?;
+                let resolved = resolve_location(&grants, &request.location)?;
+                let path = resolved.path;
                 // Acquire a stream before creating directories or opening the
                 // destination. An invalid or already-consumed stream must not
                 // truncate an existing user file or leave an empty new file.
@@ -310,12 +288,8 @@ pub(crate) fn register_native_file_system_operations(
         move |request: CreateDirectoryRequest, _| {
             let grants = grants.clone();
             async move {
-                let grant = grants.get(request.directory)?;
-                require_write(&grant)?;
-                if request.path.is_root() {
-                    return Ok(());
-                }
-                let path = resolve_for_creation(&grant, &request.path)?;
+                let resolved = resolve_location(&grants, &request.location)?;
+                let path = resolved.path;
                 let result = if request.recursive {
                     std::fs::create_dir_all(&path)
                 } else {
@@ -332,15 +306,8 @@ pub(crate) fn register_native_file_system_operations(
         move |request: RemoveEntryRequest, _| {
             let grants = grants.clone();
             async move {
-                let grant = grants.get(request.directory)?;
-                require_write(&grant)?;
-                if request.path.is_root() {
-                    return Err(FileSystemError::new(
-                        "invalid_path",
-                        "the granted directory itself cannot be removed",
-                    ));
-                }
-                let path = resolve_existing(&grant, &request.path)?;
+                let resolved = resolve_location(&grants, &request.location)?;
+                let path = resolved.path;
                 let metadata = std::fs::symlink_metadata(&path)
                     .map_err(|error| io_error("metadata_failed", &path, error))?;
                 let result = if metadata.is_dir() {
@@ -366,22 +333,6 @@ pub(crate) fn register_native_file_system_operations(
     );
 }
 
-fn access_allows(granted: FileSystemAccessMode, requested: FileSystemAccessMode) -> bool {
-    matches!(granted, FileSystemAccessMode::ReadWrite)
-        || matches!(requested, FileSystemAccessMode::Read)
-}
-
-fn require_write(grant: &NativeDirectoryGrant) -> Result<(), FileSystemError> {
-    if matches!(grant.access, FileSystemAccessMode::ReadWrite) {
-        Ok(())
-    } else {
-        Err(FileSystemError::new(
-            "permission_denied",
-            "the directory was granted for read-only access",
-        ))
-    }
-}
-
 fn validate_selected_root(root: &Path) -> Result<(), FileSystemError> {
     let metadata =
         std::fs::metadata(root).map_err(|error| io_error("metadata_failed", root, error))?;
@@ -394,29 +345,43 @@ fn validate_selected_root(root: &Path) -> Result<(), FileSystemError> {
     Ok(())
 }
 
-fn resolve_existing(
-    grant: &NativeDirectoryGrant,
-    relative: &FileSystemPath,
-) -> Result<PathBuf, FileSystemError> {
-    let mut path = grant.root.clone();
-    for component in relative.components() {
-        path.push(component);
-    }
-    Ok(path)
+struct ResolvedNativeLocation {
+    path: PathBuf,
+    grant: Option<NativeDirectoryGrant>,
 }
 
-fn resolve_for_creation(
-    grant: &NativeDirectoryGrant,
-    relative: &FileSystemPath,
-) -> Result<PathBuf, FileSystemError> {
-    let mut path = grant.root.clone();
-    for component in relative.components() {
-        path.push(component);
+fn resolve_location(
+    registry: &NativeDirectoryRegistry,
+    location: &FileSystemLocation,
+) -> Result<ResolvedNativeLocation, FileSystemError> {
+    match location {
+        FileSystemLocation::Path(path) => Ok(ResolvedNativeLocation {
+            path: PathBuf::from(path.as_str()),
+            grant: None,
+        }),
+        FileSystemLocation::Directory { directory, path } => {
+            let grant = registry.get(*directory)?;
+            Ok(ResolvedNativeLocation {
+                path: grant.root.join(path.as_str()),
+                grant: Some(grant),
+            })
+        }
     }
-    Ok(path)
 }
 
-fn entry_from_metadata(name: String, path: FileSystemPath, metadata: Metadata) -> FileSystemEntry {
+fn entry_name(path: &Path, grant: Option<&NativeDirectoryGrant>) -> String {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .map(str::to_owned)
+        .or_else(|| grant.map(|grant| grant.name.clone()))
+        .unwrap_or_else(|| path.to_string_lossy().into_owned())
+}
+
+fn entry_from_metadata(
+    name: String,
+    location: FileSystemLocation,
+    metadata: Metadata,
+) -> FileSystemEntry {
     let kind = if metadata.is_file() {
         FileSystemEntryKind::File
     } else if metadata.is_dir() {
@@ -426,7 +391,7 @@ fn entry_from_metadata(name: String, path: FileSystemPath, metadata: Metadata) -
     };
     FileSystemEntry {
         name,
-        path,
+        location,
         kind,
         byte_len: metadata.is_file().then(|| metadata.len()),
         modified_millis: modified_millis(&metadata),
@@ -532,22 +497,31 @@ mod tests {
     }
 
     #[test]
-    fn read_only_grants_cannot_be_escalated() {
+    fn native_directory_permissions_are_owned_by_the_os() {
         let grant = NativeDirectoryGrant {
             root: PathBuf::new(),
             name: "project".into(),
             access: FileSystemAccessMode::Read,
             _lease: None,
         };
-        assert!(require_write(&grant).is_err());
-        assert!(access_allows(
-            FileSystemAccessMode::Read,
-            FileSystemAccessMode::Read
-        ));
-        assert!(!access_allows(
-            FileSystemAccessMode::Read,
-            FileSystemAccessMode::ReadWrite
-        ));
+        let registry = NativeDirectoryRegistry::default();
+        let handle = registry.insert(grant);
+        let resolved =
+            resolve_location(&registry, &FileSystemLocation::directory_root(handle.id)).unwrap();
+        assert_eq!(resolved.grant.unwrap().access, FileSystemAccessMode::Read);
+    }
+
+    #[test]
+    fn direct_native_paths_are_passed_through_unchanged() {
+        let registry = NativeDirectoryRegistry::default();
+        let path = if cfg!(windows) {
+            r"C:\etc\my-app\config.toml"
+        } else {
+            "/etc/my-app/config.toml"
+        };
+        let resolved = resolve_location(&registry, &FileSystemLocation::path(path)).unwrap();
+        assert_eq!(resolved.path, PathBuf::from(path));
+        assert!(resolved.grant.is_none());
     }
 
     #[cfg(unix)]
@@ -570,8 +544,14 @@ mod tests {
             _lease: None,
         };
 
-        let resolved = resolve_existing(&grant, &FileSystemPath::new("linked").unwrap()).unwrap();
-        assert!(std::fs::metadata(resolved).unwrap().is_dir());
+        let registry = NativeDirectoryRegistry::default();
+        let directory = registry.insert(grant);
+        let resolved = resolve_location(
+            &registry,
+            &FileSystemLocation::directory(directory.id, "linked"),
+        )
+        .unwrap();
+        assert!(std::fs::metadata(resolved.path).unwrap().is_dir());
 
         std::fs::remove_dir_all(root).unwrap();
     }

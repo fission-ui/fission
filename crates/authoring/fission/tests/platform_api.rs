@@ -111,11 +111,9 @@ fn facade_exports_notifications_and_deep_links() {
 
 #[cfg(feature = "filesystem")]
 #[test]
-fn facade_exports_user_granted_file_system_api() {
-    let path = FileSystemPath::new("documents/readme.md").unwrap();
+fn facade_exports_cross_platform_file_system_api() {
     let request = ReadFileRequest {
-        directory: DirectoryHandleId(7),
-        path,
+        location: FileSystemLocation::directory(DirectoryHandleId(7), "documents/readme.md"),
     };
     let mut effects = Effects::<PlatformApiState>::new_headless(1);
     effects.file_system().read(request).dispatch();

@@ -1,13 +1,14 @@
 use fission_core::{
     Bytes, CreateDirectoryRequest, DirectoryHandle, DirectoryHandleId, DirectoryPermissionRequest,
     DirectoryPermissionResult, FileSystemAccessMode, FileSystemEntry, FileSystemEntryKind,
-    FileSystemError, FileSystemPath, FileSystemPermission, FileWriteSource, FissionDataStreamError,
-    FissionDataStreamErrorKind, ForgetDirectoryRequest, ListDirectoryRequest, ListDirectoryResult,
-    PickDirectoryRequest, PickDirectoryResult, ReadFileRequest, ReadFileResult,
-    ReleaseDirectoryRequest, RemoveEntryRequest, RestoreDirectoryRequest, RestoreDirectoryResult,
-    StatEntryRequest, StatEntryResult, WriteFileRequest, WriteFileResult, CREATE_DIRECTORY,
-    DIRECTORY_PERMISSION, FORGET_DIRECTORY, LIST_DIRECTORY, PICK_DIRECTORY, READ_FILE,
-    RELEASE_DIRECTORY, REMOVE_ENTRY, RESTORE_DIRECTORY, STAT_ENTRY, WRITE_FILE,
+    FileSystemError, FileSystemLocation, FileSystemPath, FileSystemPermission, FileWriteSource,
+    FissionDataStreamError, FissionDataStreamErrorKind, ForgetDirectoryRequest,
+    ListDirectoryRequest, ListDirectoryResult, PickDirectoryRequest, PickDirectoryResult,
+    ReadFileRequest, ReadFileResult, ReleaseDirectoryRequest, RemoveEntryRequest,
+    RestoreDirectoryRequest, RestoreDirectoryResult, StatEntryRequest, StatEntryResult,
+    WriteFileRequest, WriteFileResult, CREATE_DIRECTORY, DIRECTORY_PERMISSION, FORGET_DIRECTORY,
+    LIST_DIRECTORY, PICK_DIRECTORY, READ_FILE, RELEASE_DIRECTORY, REMOVE_ENTRY, RESTORE_DIRECTORY,
+    STAT_ENTRY, WRITE_FILE,
 };
 use fission_shell::async_host::AsyncRegistry;
 use futures_core::Stream;
@@ -337,12 +338,10 @@ pub(crate) fn register_web_file_system_capabilities(async_registry: &mut AsyncRe
     async_registry.register_operation_capability(
         LIST_DIRECTORY,
         |request: ListDirectoryRequest, _| async move {
-            let value = await_promise(fissionListDirectory(
-                directory_id(request.directory)?,
-                request.path.as_str(),
-            ))
-            .await
-            .map_err(file_system_error)?;
+            let (directory, path) = directory_location(&request.location)?;
+            let value = await_promise(fissionListDirectory(directory, path.as_str()))
+                .await
+                .map_err(file_system_error)?;
             let values = value.dyn_into::<Array>().map_err(|_| {
                 FileSystemError::new(
                     "invalid_result",
@@ -352,7 +351,7 @@ pub(crate) fn register_web_file_system_capabilities(async_registry: &mut AsyncRe
             Ok(ListDirectoryResult {
                 entries: values
                     .iter()
-                    .map(|value| entry(&value))
+                    .map(|value| entry(&value, directory))
                     .collect::<Result<Vec<_>, _>>()?,
             })
         },
@@ -360,26 +359,22 @@ pub(crate) fn register_web_file_system_capabilities(async_registry: &mut AsyncRe
     async_registry.register_operation_capability(
         STAT_ENTRY,
         |request: StatEntryRequest, _| async move {
-            let value = await_promise(fissionStatEntry(
-                directory_id(request.directory)?,
-                request.path.as_str(),
-            ))
-            .await
-            .map_err(file_system_error)?;
+            let (directory, path) = directory_location(&request.location)?;
+            let value = await_promise(fissionStatEntry(directory, path.as_str()))
+                .await
+                .map_err(file_system_error)?;
             Ok(StatEntryResult {
-                entry: entry(&value)?,
+                entry: entry(&value, directory)?,
             })
         },
     );
     async_registry.register_operation_capability(
         READ_FILE,
         |request: ReadFileRequest, ctx| async move {
-            let value = await_promise(fissionReadFile(
-                directory_id(request.directory)?,
-                request.path.as_str(),
-            ))
-            .await
-            .map_err(file_system_error)?;
+            let (directory, path) = directory_location(&request.location)?;
+            let value = await_promise(fissionReadFile(directory, path.as_str()))
+                .await
+                .map_err(file_system_error)?;
             let reader = prop(&value, "reader").ok_or_else(|| {
                 FileSystemError::new("invalid_result", "browser file read returned no stream")
             })?;
@@ -396,6 +391,7 @@ pub(crate) fn register_web_file_system_capabilities(async_registry: &mut AsyncRe
     async_registry.register_operation_capability(
         WRITE_FILE,
         |request: WriteFileRequest, ctx| async move {
+            let (directory, path) = directory_location(&request.location)?;
             let mut source_stream = match &request.source {
                 FileWriteSource::Bytes(_) => None,
                 FileWriteSource::Stream(id) => {
@@ -405,8 +401,8 @@ pub(crate) fn register_web_file_system_capabilities(async_registry: &mut AsyncRe
                 }
             };
             let writable = await_promise(fissionOpenFileWriter(
-                directory_id(request.directory)?,
-                request.path.as_str(),
+                directory,
+                path.as_str(),
                 request.create_parents,
                 request.overwrite,
             ))
@@ -450,9 +446,10 @@ pub(crate) fn register_web_file_system_capabilities(async_registry: &mut AsyncRe
     async_registry.register_operation_capability(
         CREATE_DIRECTORY,
         |request: CreateDirectoryRequest, _| async move {
+            let (directory, path) = directory_location(&request.location)?;
             await_promise(fissionCreateDirectory(
-                directory_id(request.directory)?,
-                request.path.as_str(),
+                directory,
+                path.as_str(),
                 request.recursive,
             ))
             .await
@@ -463,15 +460,10 @@ pub(crate) fn register_web_file_system_capabilities(async_registry: &mut AsyncRe
     async_registry.register_operation_capability(
         REMOVE_ENTRY,
         |request: RemoveEntryRequest, _| async move {
-            if request.path.is_root() {
-                return Err(FileSystemError::new(
-                    "invalid_path",
-                    "the granted directory itself cannot be removed",
-                ));
-            }
+            let (directory, path) = directory_location(&request.location)?;
             await_promise(fissionRemoveEntry(
-                directory_id(request.directory)?,
-                request.path.as_str(),
+                directory,
+                path.as_str(),
                 request.recursive,
             ))
             .await
@@ -640,6 +632,18 @@ fn directory_id(id: DirectoryHandleId) -> Result<u32, FileSystemError> {
     })
 }
 
+fn directory_location(
+    location: &FileSystemLocation,
+) -> Result<(u32, &FileSystemPath), FileSystemError> {
+    match location {
+        FileSystemLocation::Directory { directory, path } => Ok((directory_id(*directory)?, path)),
+        FileSystemLocation::Path(_) => Err(FileSystemError::new(
+            "unsupported_path_namespace",
+            "this browser exposes files through directory handles, not host paths",
+        )),
+    }
+}
+
 fn require_key(key: &str) -> Result<(), FileSystemError> {
     if key.trim().is_empty() {
         Err(FileSystemError::new(
@@ -683,7 +687,7 @@ fn permission_value(permission: Option<&str>) -> FileSystemPermission {
     }
 }
 
-fn entry(value: &JsValue) -> Result<FileSystemEntry, FileSystemError> {
+fn entry(value: &JsValue, directory: u32) -> Result<FileSystemEntry, FileSystemError> {
     let path = string_prop(value, "path")
         .ok_or_else(|| FileSystemError::new("invalid_result", "browser entry omitted its path"))?;
     let kind = match string_prop(value, "kind").as_deref() {
@@ -693,8 +697,7 @@ fn entry(value: &JsValue) -> Result<FileSystemEntry, FileSystemError> {
     };
     Ok(FileSystemEntry {
         name: string_prop(value, "name").unwrap_or_default(),
-        path: FileSystemPath::new(path)
-            .map_err(|error| FileSystemError::new("invalid_result", error.to_string()))?,
+        location: FileSystemLocation::directory(DirectoryHandleId(u64::from(directory)), path),
         kind,
         byte_len: u64_prop(value, "byteLen"),
         modified_millis: u64_prop(value, "modifiedMillis"),

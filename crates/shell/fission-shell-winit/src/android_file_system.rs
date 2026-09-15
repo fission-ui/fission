@@ -2,8 +2,8 @@ use crate::android_capabilities::{app_class, AndroidHostContext};
 use fission_core::{
     Bytes, CapabilityCtx, CreateDirectoryRequest, DirectoryHandle, DirectoryHandleId,
     DirectoryPermissionRequest, DirectoryPermissionResult, FileSystemAccessMode, FileSystemEntry,
-    FileSystemEntryKind, FileSystemError, FileSystemPath, FileSystemPermission, FileWriteSource,
-    FissionDataStreamError, FissionDataStreamErrorKind, ForgetDirectoryRequest,
+    FileSystemEntryKind, FileSystemError, FileSystemLocation, FileSystemPath, FileSystemPermission,
+    FileWriteSource, FissionDataStreamError, FissionDataStreamErrorKind, ForgetDirectoryRequest,
     ListDirectoryRequest, ListDirectoryResult, PickDirectoryRequest, PickDirectoryResult,
     ReadFileRequest, ReadFileResult, ReleaseDirectoryRequest, RemoveEntryRequest,
     RestoreDirectoryRequest, RestoreDirectoryResult, StatEntryRequest, StatEntryResult,
@@ -17,14 +17,16 @@ use jni::objects::{JClass, JObject, JObjectArray, JString, JValue};
 use jni::sys::{jint, jlong};
 use jni::JNIEnv;
 use std::collections::HashMap;
-use std::fs::File;
+use std::fs::{File, Metadata};
 use std::future::Future;
 use std::io::{Read, Write};
 use std::os::fd::{FromRawFd, RawFd};
+use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::task::{Context, Poll, Waker};
+use std::time::UNIX_EPOCH;
 
 const FILE_STREAM_CHUNK_SIZE: usize = 64 * 1024;
 const JAVA_HELPER: &str = "rs.fission.runtime.FissionFileSystem";
@@ -290,11 +292,16 @@ pub(crate) fn register_android_file_system_capabilities(
             let host = host.clone();
             let grants = grants.clone();
             async move {
-                let grant = grants.get(request.directory)?;
-                let mut entries = call_rows(&host, "list", &grant.uri, request.path.as_str())?
-                    .into_iter()
-                    .map(|row| row.into_entry(&request.path))
-                    .collect::<Result<Vec<_>, _>>()?;
+                let mut entries = match &request.location {
+                    FileSystemLocation::Path(path) => list_native(path, &request.location)?,
+                    FileSystemLocation::Directory { directory, path } => {
+                        let grant = grants.get(*directory)?;
+                        call_rows(&host, "list", &grant.uri, path.as_str())?
+                            .into_iter()
+                            .map(|row| row.into_entry(&request.location))
+                            .collect::<Result<Vec<_>, _>>()?
+                    }
+                };
                 entries.sort_by(|left, right| left.name.cmp(&right.name));
                 Ok(ListDirectoryResult { entries })
             }
@@ -309,11 +316,15 @@ pub(crate) fn register_android_file_system_capabilities(
             let host = host.clone();
             let grants = grants.clone();
             async move {
-                let grant = grants.get(request.directory)?;
-                let row = call_row(&host, "stat", &grant.uri, request.path.as_str())?;
-                Ok(StatEntryResult {
-                    entry: row.into_entry_at(request.path)?,
-                })
+                let entry = match &request.location {
+                    FileSystemLocation::Path(path) => stat_native(path, request.location.clone())?,
+                    FileSystemLocation::Directory { directory, path } => {
+                        let grant = grants.get(*directory)?;
+                        call_row(&host, "stat", &grant.uri, path.as_str())?
+                            .into_entry_at(request.location.clone())?
+                    }
+                };
+                Ok(StatEntryResult { entry })
             }
         },
     );
@@ -326,20 +337,46 @@ pub(crate) fn register_android_file_system_capabilities(
             let host = host.clone();
             let grants = grants.clone();
             async move {
-                let grant = grants.get(request.directory)?;
-                let row = call_row(&host, "stat", &grant.uri, request.path.as_str())?;
-                if row.kind != FileSystemEntryKind::File {
-                    return Err(fs_error("not_a_file", "the requested entry is not a file"));
-                }
-                let fd = call_open(&host, "openRead", &grant.uri, request.path.as_str(), None)?;
-                let file = unsafe { File::from_raw_fd(fd) };
+                let (file, byte_len, modified_millis) = match &request.location {
+                    FileSystemLocation::Path(path) => {
+                        let native = PathBuf::from(path.as_str());
+                        let metadata = std::fs::metadata(&native).map_err(native_io_error)?;
+                        if !metadata.is_file() {
+                            return Err(fs_error(
+                                "not_a_file",
+                                "the requested entry is not a file",
+                            ));
+                        }
+                        (
+                            File::open(&native).map_err(native_io_error)?,
+                            Some(metadata.len()),
+                            modified_millis(&metadata),
+                        )
+                    }
+                    FileSystemLocation::Directory { directory, path } => {
+                        let grant = grants.get(*directory)?;
+                        let row = call_row(&host, "stat", &grant.uri, path.as_str())?;
+                        if row.kind != FileSystemEntryKind::File {
+                            return Err(fs_error(
+                                "not_a_file",
+                                "the requested entry is not a file",
+                            ));
+                        }
+                        let fd = call_open(&host, "openRead", &grant.uri, path.as_str(), None)?;
+                        (
+                            unsafe { File::from_raw_fd(fd) },
+                            row.byte_len,
+                            row.modified_millis,
+                        )
+                    }
+                };
                 Ok(ReadFileResult {
                     stream: ctx.register_data_stream(Box::pin(AndroidFileDataStream {
                         file,
                         finished: false,
                     })),
-                    byte_len: row.byte_len,
-                    modified_millis: row.modified_millis,
+                    byte_len,
+                    modified_millis,
                 })
             }
         },
@@ -353,8 +390,6 @@ pub(crate) fn register_android_file_system_capabilities(
             let host = host.clone();
             let grants = grants.clone();
             async move {
-                let grant = grants.get(request.directory)?;
-                require_write(&grant)?;
                 let mut source = match &request.source {
                     FileWriteSource::Bytes(_) => None,
                     FileWriteSource::Stream(id) => Some(
@@ -362,14 +397,36 @@ pub(crate) fn register_android_file_system_capabilities(
                             .map_err(|error| fs_error("stream_open_failed", error.to_string()))?,
                     ),
                 };
-                let fd = call_open(
-                    &host,
-                    "openWrite",
-                    &grant.uri,
-                    request.path.as_str(),
-                    Some((request.create_parents, request.overwrite)),
-                )?;
-                let mut file = unsafe { File::from_raw_fd(fd) };
+                let mut file = match &request.location {
+                    FileSystemLocation::Path(path) => {
+                        let path = PathBuf::from(path.as_str());
+                        if request.create_parents {
+                            if let Some(parent) = path.parent() {
+                                std::fs::create_dir_all(parent).map_err(native_io_error)?;
+                            }
+                        }
+                        let mut options = std::fs::OpenOptions::new();
+                        options.write(true);
+                        if request.overwrite {
+                            options.create(true).truncate(true);
+                        } else {
+                            options.create_new(true);
+                        }
+                        options.open(path).map_err(native_io_error)?
+                    }
+                    FileSystemLocation::Directory { directory, path } => {
+                        let grant = grants.get(*directory)?;
+                        require_write(&grant)?;
+                        let fd = call_open(
+                            &host,
+                            "openWrite",
+                            &grant.uri,
+                            path.as_str(),
+                            Some((request.create_parents, request.overwrite)),
+                        )?;
+                        unsafe { File::from_raw_fd(fd) }
+                    }
+                };
                 let byte_len = match request.source {
                     FileWriteSource::Bytes(bytes) => {
                         file.write_all(&bytes).map_err(io_error)?;
@@ -404,15 +461,27 @@ pub(crate) fn register_android_file_system_capabilities(
             let host = host.clone();
             let grants = grants.clone();
             async move {
-                let grant = grants.get(request.directory)?;
-                require_write(&grant)?;
-                call_path_bool(
-                    &host,
-                    "createDirectory",
-                    &grant.uri,
-                    request.path.as_str(),
-                    request.recursive,
-                )
+                match &request.location {
+                    FileSystemLocation::Path(path) => {
+                        let result = if request.recursive {
+                            std::fs::create_dir_all(path.as_str())
+                        } else {
+                            std::fs::create_dir(path.as_str())
+                        };
+                        result.map_err(native_io_error)
+                    }
+                    FileSystemLocation::Directory { directory, path } => {
+                        let grant = grants.get(*directory)?;
+                        require_write(&grant)?;
+                        call_path_bool(
+                            &host,
+                            "createDirectory",
+                            &grant.uri,
+                            path.as_str(),
+                            request.recursive,
+                        )
+                    }
+                }
             }
         },
     );
@@ -425,21 +494,20 @@ pub(crate) fn register_android_file_system_capabilities(
             let host = host.clone();
             let grants = grants.clone();
             async move {
-                let grant = grants.get(request.directory)?;
-                require_write(&grant)?;
-                if request.path.is_root() {
-                    return Err(fs_error(
-                        "invalid_path",
-                        "the granted directory itself cannot be removed",
-                    ));
+                match &request.location {
+                    FileSystemLocation::Path(path) => remove_native(path, request.recursive),
+                    FileSystemLocation::Directory { directory, path } => {
+                        let grant = grants.get(*directory)?;
+                        require_write(&grant)?;
+                        call_path_bool(
+                            &host,
+                            "remove",
+                            &grant.uri,
+                            path.as_str(),
+                            request.recursive,
+                        )
+                    }
                 }
-                call_path_bool(
-                    &host,
-                    "remove",
-                    &grant.uri,
-                    request.path.as_str(),
-                    request.recursive,
-                )
             }
         },
     );
@@ -684,17 +752,18 @@ struct AndroidRow {
 }
 
 impl AndroidRow {
-    fn into_entry(self, parent: &FileSystemPath) -> Result<FileSystemEntry, FileSystemError> {
-        let path = parent
-            .join(&self.name)
-            .map_err(|error| fs_error("invalid_entry_name", error.to_string()))?;
-        self.into_entry_at(path)
+    fn into_entry(self, parent: &FileSystemLocation) -> Result<FileSystemEntry, FileSystemError> {
+        let location = parent.join(&self.name);
+        self.into_entry_at(location)
     }
 
-    fn into_entry_at(self, path: FileSystemPath) -> Result<FileSystemEntry, FileSystemError> {
+    fn into_entry_at(
+        self,
+        location: FileSystemLocation,
+    ) -> Result<FileSystemEntry, FileSystemError> {
         Ok(FileSystemEntry {
             name: self.name,
-            path,
+            location,
             kind: self.kind,
             byte_len: self.byte_len,
             modified_millis: self.modified_millis,
@@ -766,6 +835,93 @@ fn parse_java_error(value: &str) -> FileSystemError {
 
 fn io_error(error: std::io::Error) -> FileSystemError {
     fs_error("io_error", error.to_string())
+}
+
+fn native_io_error(error: std::io::Error) -> FileSystemError {
+    let code = match error.kind() {
+        std::io::ErrorKind::NotFound => "not_found",
+        std::io::ErrorKind::PermissionDenied => "permission_denied",
+        std::io::ErrorKind::AlreadyExists => "already_exists",
+        std::io::ErrorKind::InvalidInput => "invalid_path",
+        _ => "io_error",
+    };
+    fs_error(code, error.to_string())
+}
+
+fn list_native(
+    path: &FileSystemPath,
+    parent: &FileSystemLocation,
+) -> Result<Vec<FileSystemEntry>, FileSystemError> {
+    let native = PathBuf::from(path.as_str());
+    std::fs::read_dir(&native)
+        .map_err(native_io_error)?
+        .map(|entry| {
+            let entry = entry.map_err(native_io_error)?;
+            let name = entry.file_name().into_string().map_err(|_| {
+                fs_error(
+                    "unsupported_entry",
+                    "the directory contains a name that is not valid UTF-8",
+                )
+            })?;
+            let metadata = std::fs::symlink_metadata(entry.path()).map_err(native_io_error)?;
+            Ok(native_entry(name.clone(), parent.join(name), metadata))
+        })
+        .collect()
+}
+
+fn stat_native(
+    path: &FileSystemPath,
+    location: FileSystemLocation,
+) -> Result<FileSystemEntry, FileSystemError> {
+    let native = PathBuf::from(path.as_str());
+    let metadata = std::fs::metadata(&native).map_err(native_io_error)?;
+    let name = native
+        .file_name()
+        .and_then(|name| name.to_str())
+        .map(str::to_owned)
+        .unwrap_or_else(|| native.to_string_lossy().into_owned());
+    Ok(native_entry(name, location, metadata))
+}
+
+fn native_entry(name: String, location: FileSystemLocation, metadata: Metadata) -> FileSystemEntry {
+    let kind = if metadata.is_file() {
+        FileSystemEntryKind::File
+    } else if metadata.is_dir() {
+        FileSystemEntryKind::Directory
+    } else {
+        FileSystemEntryKind::Other
+    };
+    FileSystemEntry {
+        name,
+        location,
+        kind,
+        byte_len: metadata.is_file().then(|| metadata.len()),
+        modified_millis: modified_millis(&metadata),
+    }
+}
+
+fn modified_millis(metadata: &Metadata) -> Option<u64> {
+    metadata
+        .modified()
+        .ok()?
+        .duration_since(UNIX_EPOCH)
+        .ok()
+        .map(|duration| duration.as_millis().min(u128::from(u64::MAX)) as u64)
+}
+
+fn remove_native(path: &FileSystemPath, recursive: bool) -> Result<(), FileSystemError> {
+    let native = Path::new(path.as_str());
+    let metadata = std::fs::symlink_metadata(native).map_err(native_io_error)?;
+    let result = if metadata.is_dir() {
+        if recursive {
+            std::fs::remove_dir_all(native)
+        } else {
+            std::fs::remove_dir(native)
+        }
+    } else {
+        std::fs::remove_file(native)
+    };
+    result.map_err(native_io_error)
 }
 
 fn fs_error(code: impl Into<String>, message: impl Into<String>) -> FileSystemError {

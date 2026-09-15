@@ -340,12 +340,11 @@ impl<'a, S: GlobalState> Effects<'a, S> {
         ClipboardEffects { effects: self }
     }
 
-    /// Starts a user-granted filesystem request.
+    /// Starts a filesystem request.
     ///
+    /// Native locations use the process filesystem namespace and permissions.
     /// Directory picking and permission prompts should be dispatched directly
-    /// from a user action. The shell owns every returned handle; application
-    /// code receives no host path and performs operations with validated paths
-    /// relative to the selected directory.
+    /// from a user action on hosts that expose files through opaque handles.
     pub fn file_system(&mut self) -> FileSystemEffects<'_, 'a, S> {
         FileSystemEffects { effects: self }
     }
@@ -1056,7 +1055,7 @@ pub struct ClipboardEffects<'a, 'b, S: GlobalState> {
     effects: &'a mut Effects<'b, S>,
 }
 
-/// Convenience builder for user-granted directory capabilities.
+/// Convenience builder for filesystem paths and provider-backed directory handles.
 pub struct FileSystemEffects<'a, 'b, S: GlobalState> {
     effects: &'a mut Effects<'b, S>,
 }
