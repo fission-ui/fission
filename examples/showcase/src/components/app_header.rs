@@ -1,35 +1,23 @@
 use super::brand::Brand;
-use super::nav_items::NavItems;
-use super::preview_toolbar::PreviewToolbar;
-use crate::semantics::ShowcaseSemantics;
 use crate::state::{on_open_source, on_search_changed, OpenSource, SearchChanged, ShowcaseState};
 use fission::icons::material;
-use fission::op::{AlignItems, Fill, JustifyContent};
+use fission::op::AlignItems;
 use fission::prelude::*;
 
-const COMPACT_HEADER_BREAKPOINT: f32 = 920.0;
+const COMPACT_HEADER_BREAKPOINT: f32 = 720.0;
+const SEARCH_WIDTH: f32 = 280.0;
 
+/// The app bar: where you are, finding an example, and the source code.
+///
+/// Preview controls live in the toolbar above the preview, next to what they change.
 #[derive(Clone, Debug)]
 pub(crate) struct AppHeader;
 
 impl From<AppHeader> for Widget {
     fn from(_component: AppHeader) -> Self {
-        let (_ctx, view) = fission::build::current::<ShowcaseState>();
-        if view.viewport_size().width < COMPACT_HEADER_BREAKPOINT {
-            CompactHeader.into()
-        } else {
-            ExpandedHeader.into()
-        }
-    }
-}
-
-#[derive(Clone, Debug)]
-struct ExpandedHeader;
-
-impl From<ExpandedHeader> for Widget {
-    fn from(_component: ExpandedHeader) -> Self {
         let (ctx, view) = fission::build::current::<ShowcaseState>();
         let tokens = &view.env().theme.tokens;
+        let compact = view.viewport_size().width < COMPACT_HEADER_BREAKPOINT;
         let search = with_reducer!(ctx, SearchChanged, on_search_changed);
         let open_github = with_reducer!(
             ctx,
@@ -37,86 +25,59 @@ impl From<ExpandedHeader> for Widget {
             on_open_source
         );
 
-        Container::new(Row {
-            children: widgets![
+        let search_field: Widget = TextInput {
+            id: Some(WidgetId::explicit("showcase.search")),
+            semantics_identifier: Some("showcase.search".into()),
+            value: view.state().search.clone(),
+            placeholder: Some(TextContent::Key("showcase.nav.search".into())),
+            on_input: Some(search),
+            width: (!compact).then_some(SEARCH_WIDTH),
+            ..Default::default()
+        }
+        .into();
+        let github: Widget = Button {
+            variant: ButtonVariant::Ghost,
+            size: ComponentSize::Sm,
+            icon_content: Some(ButtonIconContent::new(
+                Icon::svg(material::action::code::round()),
+                "GitHub",
+            )),
+            on_press: Some(open_github),
+            ..Default::default()
+        }
+        .semantics_identifier("showcase.github")
+        .into();
+
+        let children = if compact {
+            widgets![
                 Brand,
-                NavItems,
+                Container::new(search_field).flex_grow(1.0).flex_shrink(1.0),
+                github,
+            ]
+        } else {
+            widgets![
+                Brand,
                 Spacer {
                     flex_grow: 1.0,
                     ..Default::default()
                 },
-                PreviewToolbar,
-                TextInput {
-                    id: Some(WidgetId::explicit("showcase.search")),
-                    semantics_identifier: Some("showcase.search".into()),
-                    value: view.state().search.clone(),
-                    placeholder: Some(TextContent::Key("showcase.nav.search".into())),
-                    on_input: Some(search),
-                    width: Some(tokens.spacing.xxxxl * 2.6),
-                    ..Default::default()
-                },
-                Button {
-                    variant: ButtonVariant::TertiaryGray,
-                    size: ComponentSize::Sm,
-                    child: Some(
-                        Icon::svg(material::action::code::round())
-                            .size(tokens.typography.font_size_lg)
-                            .into(),
-                    ),
-                    on_press: Some(open_github),
-                    semantics: Some(Semantics::link("GitHub").identifier("showcase.github"),),
-                    ..Default::default()
-                },
-            ],
+                search_field,
+                github,
+            ]
+        };
+
+        Container::new(Row {
+            children,
             gap: Some(tokens.spacing.m),
             align_items: AlignItems::Center,
-            justify_content: JustifyContent::Start,
             ..Default::default()
         })
-        .padding_lengths(Length::all(Length::points(tokens.spacing.m)))
-        .bg_fill(Fill::Solid(tokens.colors.surface.with_alpha(246)))
-        .border(tokens.colors.divider, 1.0)
-        .into()
-    }
-}
-
-#[derive(Clone, Debug)]
-struct CompactHeader;
-
-impl From<CompactHeader> for Widget {
-    fn from(_component: CompactHeader) -> Self {
-        let (ctx, view) = fission::build::current::<ShowcaseState>();
-        let tokens = &view.env().theme.tokens;
-        let search = with_reducer!(ctx, SearchChanged, on_search_changed);
-        Container::new(Column {
-            children: widgets![
-                Row {
-                    children: widgets![
-                        Brand,
-                        Spacer {
-                            flex_grow: 1.0,
-                            ..Default::default()
-                        },
-                    ],
-                    align_items: AlignItems::Center,
-                    ..Default::default()
-                },
-                PreviewToolbar,
-                TextInput {
-                    id: Some(WidgetId::explicit("showcase.search.compact")),
-                    semantics_identifier: Some("showcase.search".into()),
-                    value: view.state().search.clone(),
-                    placeholder: Some(TextContent::Key("showcase.nav.search".into())),
-                    on_input: Some(search),
-                    ..Default::default()
-                },
-            ],
-            gap: Some(tokens.spacing.s),
-            ..Default::default()
-        })
-        .padding_lengths(Length::all(Length::points(tokens.spacing.s)))
+        .padding_lengths(Length::symmetric(
+            Length::points(tokens.spacing.l),
+            Length::points(tokens.spacing.s),
+        ))
         .bg(tokens.colors.surface)
-        .border(tokens.colors.divider, 1.0)
+        .border_bottom(tokens.colors.border, tokens.sizing.border_hairline)
         .into()
     }
 }

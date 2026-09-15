@@ -62,11 +62,11 @@ pub fn run_desktop() -> Result<()> {
     DesktopApp::<ShowcaseState, _>::new(ShowcaseApp)
         .with_title("Fission Example Showcase")
         .with_env(create_env().expect("showcase translations must parse"))
-        .with_design_system::<ShowcaseDesignSystem>(DesignMode::Light)
+        .with_design_system::<fission::theme::FissionDefaultDesignSystem>(DesignMode::Light)
         .with_async(|asyncs| register_example_jobs!(asyncs))
         .with_sync_env(|state: &ShowcaseState, env: &mut Env| {
             env.locale = state.locale.clone();
-            env.theme = state.design_system.theme(state.theme_mode);
+            env.theme = state::shell_theme(state.theme_mode);
         })
         .run()
 }
@@ -77,11 +77,11 @@ fn web_app() -> WebApp<ShowcaseState, ShowcaseApp> {
         .mount("#fission-web-mount")
         .with_title("Fission Example Showcase")
         .with_env(create_env().expect("showcase translations must parse"))
-        .with_design_system::<ShowcaseDesignSystem>(DesignMode::Light)
+        .with_design_system::<fission::theme::FissionDefaultDesignSystem>(DesignMode::Light)
         .with_async(|asyncs| register_example_jobs!(asyncs))
         .with_sync_env(|state: &ShowcaseState, env: &mut Env| {
             env.locale = state.locale.clone();
-            env.theme = state.design_system.theme(state.theme_mode);
+            env.theme = state::shell_theme(state.theme_mode);
         })
 }
 

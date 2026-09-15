@@ -69,6 +69,9 @@ where
             mounted_runtime::<S>(component.key, component.generation, component.initial_state);
         let mut child_env = outer_view.env().clone();
         configure_child_viewport(&outer_view, &mut child_env);
+        // The design system picker styles the preview, not the showcase around it.
+        let preview = outer_view.state();
+        child_env.theme = preview.design_system.theme(preview.theme_mode);
         outer_ctx.register(
             on_mounted_resource_callback
                 as fn(
