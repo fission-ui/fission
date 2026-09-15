@@ -1,4 +1,3 @@
-use crate::gallery_section::GallerySection;
 use crate::state::GalleryState;
 use fission::prelude::*;
 use fission::theme::{Density, WindowClass};
@@ -66,14 +65,9 @@ impl From<FoundationsSection> for Widget {
             view.env().theme.tokens.clone()
         };
 
-        GallerySection::new(
-            "Foundations",
-            widgets![
-                Text::new(
-                    "Tokens every widget draws from. A design system's DSP file sets them; \
-                     anything it leaves out falls back to Fission's defaults."
-                )
-                .color(tokens.colors.text_secondary),
+        Column {
+            gap: Some(tokens.spacing.l),
+            children: widgets![
                 // Groups sit further apart than the lines inside them, so each
                 // reads as one unit (law of proximity).
                 VStack {
@@ -118,7 +112,8 @@ impl From<FoundationsSection> for Widget {
                     ],
                 },
             ],
-        )
+            ..Default::default()
+        }
         .into()
     }
 }

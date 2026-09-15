@@ -5,15 +5,15 @@ mod drag_drop;
 mod feedback_section;
 mod foundations_section;
 mod gallery_app;
-mod gallery_header;
-mod gallery_section;
 mod input_section;
 mod navigation_section;
 mod overlay_section;
+mod pages;
 mod quality_gallery;
 mod state;
 
 pub use gallery_app::GalleryApp;
+pub use pages::GalleryPage;
 pub use quality_gallery::QualityGalleryApp;
 pub use state::GalleryState;
 

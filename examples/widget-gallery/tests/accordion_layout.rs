@@ -3,12 +3,17 @@
 use fission::core::Role;
 use fission::layout::LayoutSize;
 use fission_test::{TestDriver, TestHarness};
-use widget_gallery::{GalleryApp, GalleryState};
+use widget_gallery::{GalleryApp, GalleryPage, GalleryState};
 
 #[test]
 fn accordion_headers_span_the_accordion_with_a_legible_chevron() {
-    let mut driver =
-        TestDriver::new(TestHarness::new(GalleryState::default()).with_root_widget(GalleryApp));
+    let mut driver = TestDriver::new(
+        TestHarness::new(GalleryState {
+            page: GalleryPage::Accordion,
+            ..GalleryState::default()
+        })
+        .with_root_widget(GalleryApp),
+    );
     driver.harness.env.viewport_size = LayoutSize::new(1000.0, 3000.0);
     driver.pump().expect("first frame");
 
@@ -62,6 +67,7 @@ fn accordion_headers_span_the_accordion_with_a_legible_chevron() {
 fn an_expanded_accordion_panel_spans_the_accordion() {
     let mut driver = TestDriver::new(
         TestHarness::new(GalleryState {
+            page: GalleryPage::Accordion,
             accordion_open: 1,
             ..GalleryState::default()
         })
@@ -130,6 +136,7 @@ fn an_expanded_accordion_panel_spans_the_accordion() {
 fn an_accordion_header_is_a_button_that_states_its_expansion() {
     let mut driver = TestDriver::new(
         TestHarness::new(GalleryState {
+            page: GalleryPage::Accordion,
             accordion_open: 1,
             ..GalleryState::default()
         })

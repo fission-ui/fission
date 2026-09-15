@@ -38,6 +38,8 @@ pub struct GalleryState {
     pub native_look: bool,
     pub native_preview: usize,
     pub dark_mode: bool,
+    /// The page open in the sidebar.
+    pub page: crate::pages::GalleryPage,
 }
 
 impl Default for GalleryState {
@@ -89,6 +91,7 @@ impl Default for GalleryState {
             native_look: false,
             native_preview: 0,
             dark_mode: false,
+            page: crate::pages::GalleryPage::default(),
         }
     }
 }

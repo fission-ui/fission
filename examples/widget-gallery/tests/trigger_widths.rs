@@ -3,11 +3,15 @@
 use fission::core::Role;
 use fission::layout::LayoutSize;
 use fission_test::{TestDriver, TestHarness};
-use widget_gallery::{GalleryApp, GalleryState};
+use widget_gallery::{GalleryApp, GalleryPage, GalleryState};
 
-fn driver() -> TestDriver<GalleryState> {
-    let mut driver =
-        TestDriver::new(TestHarness::new(GalleryState::default()).with_root_widget(GalleryApp));
+/// Opens the gallery on `page`, which holds the triggers under test.
+fn driver(page: GalleryPage) -> TestDriver<GalleryState> {
+    let state = GalleryState {
+        page,
+        ..GalleryState::default()
+    };
+    let mut driver = TestDriver::new(TestHarness::new(state).with_root_widget(GalleryApp));
     driver.harness.env.viewport_size = LayoutSize::new(1000.0, 3000.0);
     driver.pump().expect("first frame");
     driver
@@ -15,7 +19,7 @@ fn driver() -> TestDriver<GalleryState> {
 
 #[test]
 fn menu_trigger_hugs_its_label() {
-    let driver = driver();
+    let driver = driver(GalleryPage::Menu);
     let trigger = driver
         .find_semantics_identifier("gallery.menu.trigger")
         .expect("menu trigger")
@@ -28,7 +32,7 @@ fn menu_trigger_hugs_its_label() {
 
 #[test]
 fn select_trigger_hugs_its_value() {
-    let driver = driver();
+    let driver = driver(GalleryPage::Select);
     let trigger = driver
         .find_semantics_identifier("gallery.select.trigger")
         .expect("select trigger")
@@ -41,13 +45,17 @@ fn select_trigger_hugs_its_value() {
 
 #[test]
 fn dropdown_triggers_hug_their_values() {
-    let driver = driver();
-    let wide: Vec<_> = driver
-        .find_role(Role::ComboBox)
-        .into_iter()
-        .filter(|found| found.bounds.width() >= 600.0)
-        .map(|found| (found.label.clone(), found.bounds))
-        .collect();
+    let mut wide = Vec::new();
+    for page in [GalleryPage::Menu, GalleryPage::Select] {
+        let driver = driver(page);
+        wide.extend(
+            driver
+                .find_role(Role::ComboBox)
+                .into_iter()
+                .filter(|found| found.bounds.width() >= 600.0)
+                .map(|found| (found.label.clone(), found.bounds)),
+        );
+    }
     assert!(
         wide.is_empty(),
         "dropdown triggers should hug their values, these fill the row: {wide:?}"
