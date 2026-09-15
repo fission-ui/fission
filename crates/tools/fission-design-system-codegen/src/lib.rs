@@ -221,8 +221,10 @@ impl Package {
         let type_name = &config.type_name;
         let info = self.info(krate);
         let base = config.recipe_base();
-        let light = self.theme_expr(krate, Mode::Light, base.as_deref())?;
-        let dark = self.theme_expr(krate, Mode::Dark, base.as_deref())?;
+        let light_components = self.component_theme_expr(krate, Mode::Light, base.as_deref())?;
+        let dark_components = self.component_theme_expr(krate, Mode::Dark, base.as_deref())?;
+        let light = self.theme_expr(krate, Mode::Light, "Self::__fission_light_components()")?;
+        let dark = self.theme_expr(krate, Mode::Dark, "Self::__fission_dark_components()")?;
         let design_tokens = self.design_tokens_expr(krate)?;
         let components = self.components_expr(krate)?;
         let patterns = self.patterns_expr(krate)?;
@@ -234,6 +236,21 @@ impl Package {
 #[allow(clippy::all)]
 #[allow(dead_code)]
 pub struct {type_name};
+
+impl {type_name} {{
+    // Keep the large component-theme construction frame out of `theme_ref`.
+    // WebAssembly has a comparatively small fixed stack; retaining this frame
+    // while initialising design-system metadata can otherwise overflow it.
+    #[inline(never)]
+    fn __fission_light_components() -> ::std::sync::Arc<{krate}::ComponentTheme> {{
+        ::std::sync::Arc::new({light_components})
+    }}
+
+    #[inline(never)]
+    fn __fission_dark_components() -> ::std::sync::Arc<{krate}::ComponentTheme> {{
+        ::std::sync::Arc::new({dark_components})
+    }}
+}}
 
 static DESIGN_INFO: ::std::sync::OnceLock<{krate}::DesignSystemInfo> = ::std::sync::OnceLock::new();
 static DESIGN_TOKENS: ::std::sync::OnceLock<{krate}::DesignTokenSet> = ::std::sync::OnceLock::new();
@@ -303,7 +320,7 @@ impl {krate}::DesignSystem for {type_name} {{
         )
     }
 
-    fn theme_expr(&self, krate: &str, mode: Mode, base: Option<&str>) -> Result<String> {
+    fn theme_expr(&self, krate: &str, mode: Mode, components: &str) -> Result<String> {
         let mode_name = mode.as_str();
         let colors = self.color_tokens_expr(krate, mode)?;
         let spacing = self.spacing_tokens_expr(krate)?;
@@ -316,12 +333,9 @@ impl {krate}::DesignSystem for {type_name} {{
         let opacity = self.opacity_tokens_expr(krate)?;
         let breakpoints = self.breakpoint_tokens_expr(krate)?;
         let layers = self.layer_tokens_expr(krate)?;
-        let components = self.component_theme_expr(krate, mode, base)?;
-        // Built as a block with successive field assignments rather than one
-        // nested literal. ComponentTheme is around 40 KB, so materialising the
-        // whole thing as a single temporary overflows a 2 MB thread stack in a
-        // debug build; assigning field by field bounds each temporary to one
-        // component's theme.
+        // Build the Theme fields in sequence. ComponentTheme is around 40 KB,
+        // and its generated constructor is isolated in a separate function so
+        // that frame is released before design-system metadata is initialised.
         Ok(format!(
             r#"{{
                 let tokens = {krate}::Tokens {{
