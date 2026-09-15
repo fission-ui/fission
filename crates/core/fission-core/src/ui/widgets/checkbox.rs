@@ -80,8 +80,9 @@ impl Lower for Checkbox {
         let id = self.id.map(Into::into).unwrap_or_else(|| cx.next_node_id());
         let layout_id = cx.with_scope(id, |cx| {
             let tokens = &cx.env.theme.tokens;
-            let size = 18.0;
-            let radius = tokens.radii.small;
+            let size = tokens.sizing.icon_md;
+            // A quarter of the box keeps it reading as a square, not a radio.
+            let radius = (size * 0.25).round().min(tokens.radii.small);
             let border_color = if self.disabled {
                 tokens.colors.text_muted
             } else {
@@ -90,12 +91,12 @@ impl Lower for Checkbox {
             let active_color = if self.disabled {
                 tokens.colors.text_muted
             } else {
-                tokens.colors.primary
+                tokens.colors.accent
             };
             let indicator_color = if self.disabled {
                 tokens.colors.surface
             } else {
-                tokens.colors.on_primary
+                tokens.colors.on_accent
             };
             let text_color = if self.disabled {
                 tokens.colors.text_muted
@@ -334,7 +335,7 @@ impl Checkbox {
         let active = if self.disabled {
             colors.text_muted
         } else {
-            colors.primary
+            colors.accent
         };
         let border = if self.disabled {
             colors.text_muted

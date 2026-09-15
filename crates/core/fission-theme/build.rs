@@ -24,6 +24,11 @@ fn main() {
         "generated_cupertino_design_system.rs",
         "FissionCupertinoDesignSystem",
     );
+    generate(
+        "ember",
+        "generated_ember_design_system.rs",
+        "FissionEmberDesignSystem",
+    );
     // A partial design system that inherits from the default one, so tests can
     // check what inheritance keeps. It is not part of the crate's API.
     fission_design_system_codegen::generate(

@@ -119,6 +119,9 @@ pub struct Runtime {
     /// Persistent reducers that survive [`clear_reducers`](Runtime::clear_reducers)
     /// calls, installed once at app startup.
     pub(crate) persistent_reducers: HashMap<ActionId, Vec<BoxedReducer>>,
+    /// Smallest hit areas for pointer and touch input. Shells copy these from
+    /// the active design system; see [`Runtime::set_hit_target_policy`].
+    pub(crate) hit_targets: crate::hit_test::HitTargetPolicy,
     /// One-shot reducers bound by reducers to async effect completions.
     effect_callbacks: Arc<EffectCallbackRegistry>,
     /// Type-indexed application state store.
@@ -165,6 +168,7 @@ impl Default for Runtime {
         let mut runtime = Self {
             reducers: HashMap::new(),
             persistent_reducers: HashMap::new(),
+            hit_targets: crate::hit_test::HitTargetPolicy::default(),
             effect_callbacks: Arc::new(EffectCallbackRegistry::new()),
             app_states: HashMap::new(),
             runtime_state: RuntimeState::default(),
@@ -1912,16 +1916,18 @@ impl Runtime {
         // focus/blur behavior.
         if let InputEvent::Pointer(PointerEvent::Down {
             point,
+            kind,
             button: PointerButton::Primary,
             ..
         }) = &event
         {
-            let mut candidate = hit_test_with_viewports(
+            let mut candidate = crate::hit_test::hit_test_with_min_target(
                 ir,
                 layout,
                 &self.runtime_state.scroll,
                 &self.runtime_state.viewport,
                 *point,
+                self.hit_targets.min_size(*kind),
             );
             let mut preserve_current = false;
             let mut next = None;
@@ -2513,15 +2519,17 @@ impl Runtime {
             }
             InputEvent::Pointer(PointerEvent::Down {
                 point,
+                kind,
                 button: PointerButton::Primary,
                 ..
             }) => {
-                if let Some(hit_node_id) = hit_test_with_viewports(
+                if let Some(hit_node_id) = crate::hit_test::hit_test_with_min_target(
                     ir,
                     layout,
                     &self.runtime_state.scroll,
                     &self.runtime_state.viewport,
                     point,
+                    self.hit_targets.min_size(kind),
                 ) {
                     diag::emit(
                         diag::DiagCategory::Input,
@@ -2587,6 +2595,7 @@ impl Runtime {
             }
             InputEvent::Pointer(PointerEvent::Up {
                 point,
+                kind,
                 button: PointerButton::Primary,
                 ..
             }) => {
@@ -2598,12 +2607,13 @@ impl Runtime {
                     .take()
                     .is_some();
                 if had_primary_down {
-                    if let Some(hit_node_id) = hit_test_with_viewports(
+                    if let Some(hit_node_id) = crate::hit_test::hit_test_with_min_target(
                         ir,
                         layout,
                         &self.runtime_state.scroll,
                         &self.runtime_state.viewport,
                         point,
+                        self.hit_targets.min_size(kind),
                     ) {
                         let mut current_id = Some(hit_node_id);
                         while let Some(node_id) = current_id {
@@ -2919,6 +2929,17 @@ impl Runtime {
             }
         }
         Ok(())
+    }
+
+    /// Sets the smallest area a control answers to for pointer and touch
+    /// input. Pass [`HitTargetPolicy::EXACT`](crate::hit_test::HitTargetPolicy::EXACT)
+    /// to hit test drawn bounds only.
+    pub fn set_hit_target_policy(&mut self, policy: crate::hit_test::HitTargetPolicy) {
+        self.hit_targets = policy;
+    }
+
+    pub fn hit_target_policy(&self) -> crate::hit_test::HitTargetPolicy {
+        self.hit_targets
     }
 
     pub fn hit_test(

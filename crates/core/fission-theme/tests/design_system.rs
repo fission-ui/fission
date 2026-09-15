@@ -279,16 +279,17 @@ fn default_theme_is_generated_from_bundled_dsp() {
 
     assert_eq!(theme.design_system.info.name, "fission-design-system");
     assert_eq!(theme.design_system.mode, DesignMode::Light);
-    assert_eq!(theme.tokens.colors.primary.r, 15);
-    assert_eq!(theme.tokens.colors.primary.g, 118);
-    assert_eq!(theme.tokens.colors.primary.b, 110);
-    assert_eq!(theme.components.button.radius, 10.0);
+    // Graphite: ink primary (zinc 900) and 6px control corners.
+    assert_eq!(theme.tokens.colors.primary.r, 24);
+    assert_eq!(theme.tokens.colors.primary.g, 24);
+    assert_eq!(theme.tokens.colors.primary.b, 27);
+    assert_eq!(theme.components.button.radius, 6.0);
     assert!(theme
         .design_system
         .tokens
         .tokens
         .iter()
-        .any(|token| token.path == "color.teal.700"));
+        .any(|token| token.path == "color.zinc.900"));
 }
 
 #[test]
@@ -296,12 +297,13 @@ fn dark_theme_is_generated_from_bundled_dsp() {
     let theme = Theme::dark();
 
     assert_eq!(theme.design_system.mode, DesignMode::Dark);
-    assert_eq!(theme.tokens.colors.background.r, 2);
-    assert_eq!(theme.tokens.colors.background.g, 6);
-    assert_eq!(theme.tokens.colors.background.b, 23);
-    assert_eq!(theme.tokens.colors.primary.r, 45);
-    assert_eq!(theme.tokens.colors.primary.g, 212);
-    assert_eq!(theme.tokens.colors.primary.b, 191);
+    // Graphite dark: zinc 950 ground with near-white primary actions.
+    assert_eq!(theme.tokens.colors.background.r, 9);
+    assert_eq!(theme.tokens.colors.background.g, 9);
+    assert_eq!(theme.tokens.colors.background.b, 11);
+    assert_eq!(theme.tokens.colors.primary.r, 244);
+    assert_eq!(theme.tokens.colors.primary.g, 244);
+    assert_eq!(theme.tokens.colors.primary.b, 245);
 }
 
 #[test]
@@ -364,7 +366,7 @@ fn custom_tokens_still_derive_the_compatibility_component_recipe() {
 }
 
 #[test]
-fn default_component_geometry_matches_the_compact_recipe() {
+fn default_component_geometry_matches_the_comfortable_recipe() {
     let theme = Theme::default();
 
     let button = theme.components.button.resolve(
@@ -372,11 +374,11 @@ fn default_component_geometry_matches_the_compact_recipe() {
         ComponentSize::Md,
         ComponentState::Default,
     );
-    assert_eq!(button.height, Some(32.0));
-    assert_eq!(button.padding_x, Some(10.0));
+    assert_eq!(button.height, Some(36.0));
+    assert_eq!(button.padding_x, Some(14.0));
     assert_eq!(button.padding_y, Some(0.0));
     assert_eq!(button.gap, Some(6.0));
-    assert_eq!(button.radius, Some(10.0));
+    assert_eq!(button.radius, Some(6.0));
     assert_eq!(button.font_size, Some(14.0));
     assert_eq!(button.font_weight, Some(500));
     assert_eq!(button.line_height, Some(20.0));
@@ -395,7 +397,7 @@ fn default_component_geometry_matches_the_compact_recipe() {
                 ComponentState::Default,
             )
             .height,
-        Some(28.0)
+        Some(32.0)
     );
     assert_eq!(
         theme
@@ -407,7 +409,7 @@ fn default_component_geometry_matches_the_compact_recipe() {
                 ComponentState::Default,
             )
             .height,
-        Some(36.0)
+        Some(40.0)
     );
     let focused_button = theme.components.button.resolve(
         ButtonHierarchy::Primary,
@@ -473,10 +475,10 @@ fn default_component_geometry_matches_the_compact_recipe() {
         .components
         .text_input
         .resolve(ComponentSize::Md, ComponentState::Default);
-    assert_eq!(input.height, Some(32.0));
+    assert_eq!(input.height, Some(36.0));
     assert_eq!(input.padding_x, Some(10.0));
     assert_eq!(input.padding_y, Some(4.0));
-    assert_eq!(input.radius, Some(10.0));
+    assert_eq!(input.radius, Some(6.0));
     assert_eq!(input.font_size, Some(14.0));
     assert_eq!(input.font_weight, Some(400));
     assert_eq!(input.line_height, Some(20.0));
@@ -491,7 +493,7 @@ fn default_component_geometry_matches_the_compact_recipe() {
 
     let select = &theme.components.select;
     let select_trigger = select.resolve_trigger(ComponentSize::Sm, ComponentState::Default);
-    assert_eq!(select_trigger.height, Some(28.0));
+    assert_eq!(select_trigger.height, Some(32.0));
     assert_eq!(select_trigger.padding, Some([10.0, 8.0, 3.0, 3.0]));
     assert_eq!(select_trigger.gap, Some(6.0));
     assert_eq!(select_trigger.icon_size, Some(16.0));
@@ -525,17 +527,17 @@ fn default_component_geometry_matches_the_compact_recipe() {
     assert_eq!(menu.surface_style.width, Some(208.0));
     assert_eq!(menu.surface_style.padding, Some([4.0; 4]));
     assert_eq!(menu.surface_style.gap, Some(0.0));
-    assert_eq!(menu.surface_style.radius, Some(10.0));
+    assert_eq!(menu.surface_style.radius, Some(6.0));
     assert_eq!(menu.surface_style.shadows.len(), 3);
     let menu_trigger = menu.resolve_trigger(ComponentSize::Sm, ComponentState::Default);
-    assert_eq!(menu_trigger.height, Some(28.0));
+    assert_eq!(menu_trigger.height, Some(32.0));
     assert_eq!(menu_trigger.padding, Some([10.0, 6.0, 0.0, 0.0]));
     assert_eq!(menu_trigger.gap, Some(4.0));
     assert_eq!(menu_trigger.font_size, Some(12.8));
     assert_eq!(menu_trigger.line_height, Some(19.2));
     assert_eq!(menu_trigger.icon_size, Some(14.0));
     let menu_item = menu.resolve_item(false, ComponentState::Default);
-    assert_eq!(menu_item.height, Some(28.0));
+    assert_eq!(menu_item.height, Some(32.0));
     assert_eq!(menu_item.padding_x, Some(6.0));
     assert_eq!(menu_item.padding_y, Some(4.0));
     assert_eq!(menu_item.gap, Some(6.0));
@@ -589,7 +591,7 @@ fn default_component_geometry_matches_the_compact_recipe() {
 
     let card = theme.components.card.resolve(CardPattern::Raised, false);
     assert_eq!(theme.components.card.padding, 16.0);
-    assert_eq!(theme.components.card.radius, 14.0);
+    assert_eq!(theme.components.card.radius, 10.0);
     assert_eq!(card.shadows.len(), 1);
     assert_eq!(
         theme
@@ -598,7 +600,8 @@ fn default_component_geometry_matches_the_compact_recipe() {
             .resolve(CardPattern::Elevated, false)
             .shadows
             .len(),
-        3
+        // Graphite's elevation shadows are flatter, with fewer layers.
+        2
     );
     assert!(theme.components.card.footer_style.background.is_some());
     assert!(theme.components.card.footer_style.border.is_some());
@@ -614,11 +617,20 @@ fn default_component_geometry_matches_the_compact_recipe() {
         .tabs
         .resolve_tab(ComponentSize::Md, ComponentState::Active);
     assert_eq!(theme.components.tabs.indicator_height, 0.0);
-    assert_eq!(tab.height, Some(25.0));
-    assert_eq!(tab.padding_x, Some(6.0));
+    assert_eq!(tab.height, Some(28.0));
+    assert_eq!(tab.padding_x, Some(12.0));
     assert_eq!(tab.padding_y, Some(2.0));
     assert_eq!(tab.gap, Some(6.0));
-    assert_eq!(tab.radius, Some(8.0));
+    // Tabs sit inside the padded track, so their corners are concentric with it.
+    let track = &theme.components.tabs.track_style;
+    assert_eq!(
+        tab.radius,
+        Some(fission_theme::concentric_radius(
+            track.radius.expect("track radius"),
+            track.padding.expect("track padding")[0],
+        ))
+    );
+    assert_eq!(tab.radius, Some(2.0));
     assert_eq!(tab.font_size, Some(14.0));
     assert_eq!(tab.font_weight, Some(500));
     assert_eq!(tab.line_height, Some(20.0));
@@ -628,15 +640,19 @@ fn default_component_geometry_matches_the_compact_recipe() {
         .tabs
         .resolve_tab(ComponentSize::Md, ComponentState::Focus);
     assert_eq!(tab.merge(&focused_tab).shadows.len(), 1);
-    assert_eq!(tab.merge_composing_shadows(&focused_tab).shadows.len(), 3);
-    assert_eq!(theme.components.tabs.track_style.radius, Some(10.0));
-    assert_eq!(theme.components.tabs.track_style.padding, Some([3.0; 4]));
+    // Focus composes its ring over the tab's own elevation instead of replacing it.
+    assert_eq!(
+        tab.merge_composing_shadows(&focused_tab).shadows.len(),
+        tab.shadows.len() + focused_tab.shadows.len()
+    );
+    assert_eq!(theme.components.tabs.track_style.radius, Some(6.0));
+    assert_eq!(theme.components.tabs.track_style.padding, Some([4.0; 4]));
     assert_eq!(theme.components.tabs.track_style.gap, Some(0.0));
 
     let alert = &theme.components.alert;
     assert_eq!(alert.surface_style.padding, Some([10.0, 10.0, 8.0, 8.0]));
     assert_eq!(alert.surface_style.gap, Some(8.0));
-    assert_eq!(alert.surface_style.radius, Some(10.0));
+    assert_eq!(alert.surface_style.radius, Some(6.0));
     assert_eq!(alert.surface_style.min_height, Some(60.0));
     assert_eq!(alert.icon_style.icon_size, Some(16.0));
     assert_eq!(alert.icon_style.inset_top, Some(2.0));
@@ -686,16 +702,16 @@ fn default_component_geometry_matches_the_compact_recipe() {
 
     let pagination = &theme.components.pagination;
     assert_eq!(pagination.spacing, 4.0);
-    assert_eq!(pagination.item_style.width, Some(32.0));
-    assert_eq!(pagination.item_style.height, Some(32.0));
-    assert_eq!(pagination.item_style.radius, Some(10.0));
+    assert_eq!(pagination.item_style.width, Some(36.0));
+    assert_eq!(pagination.item_style.height, Some(36.0));
+    assert_eq!(pagination.item_style.radius, Some(6.0));
     assert_eq!(pagination.item_style.font_size, Some(14.0));
     assert_eq!(pagination.item_style.icon_size, Some(16.0));
-    assert_eq!(pagination.ellipsis_style.width, Some(32.0));
+    assert_eq!(pagination.ellipsis_style.width, Some(36.0));
     assert!(pagination.selected_style.border.is_some());
 
     assert_eq!(theme.components.modal.max_width, 384.0);
-    assert_eq!(theme.components.modal.radius, 14.0);
+    assert_eq!(theme.components.modal.radius, 10.0);
     assert!(theme.components.modal.shadow.is_some());
     assert_eq!(
         theme.components.modal.container_style.max_width,
@@ -722,8 +738,8 @@ fn default_component_geometry_matches_the_compact_recipe() {
         theme.components.modal.footer_style.margin,
         Some([-16.0, -16.0, 0.0, -16.0])
     );
-    assert_eq!(theme.components.modal.close_button_style.width, Some(28.0));
-    assert_eq!(theme.components.modal.close_button_style.height, Some(28.0));
+    assert_eq!(theme.components.modal.close_button_style.width, Some(32.0));
+    assert_eq!(theme.components.modal.close_button_style.height, Some(32.0));
     assert_eq!(
         theme.components.modal.close_button_style.icon_size,
         Some(16.0)
@@ -893,7 +909,7 @@ fn generated_theme_resolves_dsp_component_model() {
     );
     assert_ne!(primary_button.background, hover_button.background);
     assert!(destructive_button.background.is_some());
-    assert_eq!(destructive_button.height, Some(36.0));
+    assert_eq!(destructive_button.height, Some(40.0));
 
     let focused_input = theme
         .components
@@ -974,12 +990,13 @@ fn generated_dark_buttons_use_dark_readable_text_tokens() {
 
 #[test]
 fn bundled_menu_triggers_preserve_the_outline_button_contract() {
-    let presets: [fn(DesignMode) -> Theme; 5] = [
+    let presets: [fn(DesignMode) -> Theme; 6] = [
         FissionDefaultDesignSystem::theme,
         FissionMaterialDesign3DesignSystem::theme,
         FissionFluent2DesignSystem::theme,
         FissionLiquidGlassDesignSystem::theme,
         FissionCupertinoDesignSystem::theme,
+        fission_theme::FissionEmberDesignSystem::theme,
     ];
     for theme_for_mode in presets {
         for mode in [DesignMode::Light, DesignMode::Dark] {
@@ -990,12 +1007,13 @@ fn bundled_menu_triggers_preserve_the_outline_button_contract() {
 
 #[test]
 fn bundled_card_patterns_and_selection_are_coherent() {
-    let presets: [fn(DesignMode) -> Theme; 5] = [
+    let presets: [fn(DesignMode) -> Theme; 6] = [
         FissionDefaultDesignSystem::theme,
         FissionMaterialDesign3DesignSystem::theme,
         FissionFluent2DesignSystem::theme,
         FissionLiquidGlassDesignSystem::theme,
         FissionCupertinoDesignSystem::theme,
+        fission_theme::FissionEmberDesignSystem::theme,
     ];
     for theme_for_mode in presets {
         for mode in [DesignMode::Light, DesignMode::Dark] {
@@ -1014,6 +1032,10 @@ fn bundled_standard_design_system_presets_generate_themes() {
         ("fluent-2", FissionFluent2DesignSystem::theme),
         ("liquid-glass", FissionLiquidGlassDesignSystem::theme),
         ("cupertino", FissionCupertinoDesignSystem::theme),
+        (
+            "fission-ember",
+            fission_theme::FissionEmberDesignSystem::theme,
+        ),
     ];
 
     for (name, theme_for_mode) in presets {
@@ -1076,6 +1098,7 @@ fn bundled_standard_design_system_presets_generate_themes() {
     assert_component_alias_parity::<FissionFluent2DesignSystem>();
     assert_component_alias_parity::<FissionLiquidGlassDesignSystem>();
     assert_component_alias_parity::<FissionCupertinoDesignSystem>();
+    assert_component_alias_parity::<fission_theme::FissionEmberDesignSystem>();
 
     let button_radii = [
         FissionMaterialDesign3DesignSystem::theme(DesignMode::Light)

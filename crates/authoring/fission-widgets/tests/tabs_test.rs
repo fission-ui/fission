@@ -417,7 +417,7 @@ fn named_tab_list_uses_underline_recipe_and_styles_semantic_count_content() {
         matches!(
             op,
             Op::Layout(LayoutOp::StyledBox { style, .. })
-                if style.height == Some(Length::Points(44.0))
+                if style.height == Some(Length::Points(48.0))
         )
     }));
     assert!(ir.nodes.values().any(|node| {

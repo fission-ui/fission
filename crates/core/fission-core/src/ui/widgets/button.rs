@@ -1,9 +1,9 @@
 use crate::authoring::Lower;
 use crate::lowering::{IrBuilder, LoweringContext};
 use crate::motion::{
-    color, fill as motion_fill, hover_press, px, ripple_effect, scalar, shadows as motion_shadows,
-    MotionEasing, MotionExpr, MotionPhase, MotionPredicate, MotionPropertyId, MotionStartValue,
-    MotionTrack, MotionTransition, MotionValue, RippleFx,
+    color, deg, fill as motion_fill, hover_press, px, ripple_effect, scalar,
+    shadows as motion_shadows, MotionEasing, MotionExpr, MotionPhase, MotionPredicate,
+    MotionPropertyId, MotionStartValue, MotionTrack, MotionTransition, MotionValue, RippleFx,
 };
 use crate::ui::{Icon, Text, TextContent, Widget};
 use crate::{ActionEnvelope, Env, InteractionStateMap};
@@ -373,6 +373,11 @@ pub struct Button {
     /// When `true`, the button is greyed out and its `on_press` action is not
     /// attached.
     pub disabled: bool,
+    /// When `true`, the work this button started is still running. The button
+    /// keeps its size and colour, shows a spinning ring in place of its
+    /// label, ignores presses and reports itself busy to assistive technology.
+    #[serde(default)]
+    pub loading: bool,
     /// Transform and ripple motion composed with recipe state transitions.
     /// `None` shows the default ripple unless the app turns widget motion off.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -460,6 +465,7 @@ impl Default for Button {
             text_color: None,
             content_align: ButtonContentAlign::Center,
             disabled: false,
+            loading: false,
             motion: None,
         }
     }
@@ -736,8 +742,8 @@ impl Button {
         self_id: WidgetId,
         form_field_invalid: bool,
     ) -> ButtonStyleResolved {
-        let is_hovered = interaction.is_hovered(self_id) && !self.disabled;
-        let is_pressed = interaction.is_pressed(self_id) && !self.disabled;
+        let is_hovered = interaction.is_hovered(self_id) && self.accepts_press();
+        let is_pressed = interaction.is_pressed(self_id) && self.accepts_press();
         let is_focused = interaction.is_focus_visible(self_id) && !self.disabled;
         let is_invalid = !self.disabled && (form_field_invalid || self.is_semantically_invalid());
         let is_selected = !self.disabled && self.is_semantically_selected();
@@ -747,6 +753,8 @@ impl Button {
         // ring at the same time.
         let component_state = if self.disabled {
             ComponentState::Disabled
+        } else if self.loading {
+            ComponentState::Loading
         } else if is_invalid {
             ComponentState::Error
         } else if is_pressed {
@@ -1274,6 +1282,14 @@ impl Button {
             tracks.extend(motion.interaction_tracks(id));
         }
         let tracks = crate::motion::dedupe_tracks_later_wins(tracks);
+        if self.loading && !self.disabled {
+            crate::build::try_register_motion(crate::motion::MotionDeclaration {
+                id: loading_ring_motion_id(id),
+                kind: crate::motion::MotionDeclarationKind::Tracks {
+                    tracks: vec![loading_ring_track()],
+                },
+            });
+        }
         if !tracks.is_empty() {
             crate::build::try_register_motion(crate::motion::MotionDeclaration {
                 id,
@@ -1406,6 +1422,11 @@ impl Button {
         style
     }
 
+    /// Whether a press would do anything: not disabled and not already busy.
+    fn accepts_press(&self) -> bool {
+        !self.disabled && !self.loading
+    }
+
     fn should_attach_semantics(&self) -> bool {
         self.semantics.is_some() || self.on_press.is_some() || self.icon_content.is_some()
     }
@@ -1421,10 +1442,11 @@ impl Button {
             .unwrap_or_else(default_button_semantics);
 
         semantics.disabled = self.disabled;
+        semantics.busy = self.loading && !self.disabled;
         semantics.focus_policy = self.focus_policy;
 
         if let Some(action_envelope) = &self.on_press {
-            if !self.disabled {
+            if self.accepts_press() {
                 semantics.actions.entries.push(ActionEntry {
                     trigger: fission_ir::semantics::ActionTrigger::Default,
                     action_id: action_envelope.id.as_u128(),
@@ -1690,6 +1712,38 @@ impl Lower for Button {
             } else {
                 None
             };
+            // While loading, the label stays in layout but is not drawn, so the
+            // button keeps its width, and a spinning ring takes its place.
+            let content_id = match content_id {
+                Some(child_id) if self.loading && !self.disabled => {
+                    let mut hidden = IrBuilder::new(
+                        cx.next_node_id(),
+                        Op::Layout(LayoutOp::Box {
+                            width: None,
+                            height: None,
+                            min_width: None,
+                            max_width: None,
+                            min_height: None,
+                            max_height: None,
+                            padding: [0.0; 4],
+                            flex_grow: 0.0,
+                            flex_shrink: 1.0,
+                            aspect_ratio: None,
+                        }),
+                    )
+                    .composite(CompositeStyle {
+                        opacity: Some(CompositeScalar::new(0.0)),
+                        ..CompositeStyle::default()
+                    });
+                    hidden.add_child(child_id);
+                    Some(hidden.build(cx))
+                }
+                other => other,
+            };
+            if self.loading && !self.disabled {
+                let indicator_id = lower_loading_indicator(cx, &resolved_style, final_id);
+                button_builder.add_child(indicator_id);
+            }
             if let Some(child_id) = content_id {
                 let aligned_id = match self.content_align {
                     ButtonContentAlign::Center => {
@@ -1759,6 +1813,139 @@ impl Lower for Button {
     }
 }
 
+/// Salt for the loading ring's motion identity, derived from the button's.
+const LOADING_RING_SALT: u32 = 0x10AD;
+/// One full turn of the loading ring.
+const LOADING_RING_TURN_MS: u64 = 800;
+/// Opacity of the ring's full-circle track relative to the label colour.
+const LOADING_RING_TRACK_ALPHA: f32 = 0.25;
+/// Cubic Bezier handle length for a quarter circle.
+const QUARTER_CIRCLE_HANDLE: f32 = 0.552_284_8;
+
+fn loading_ring_motion_id(button_id: WidgetId) -> WidgetId {
+    WidgetId::derived(button_id.as_u128(), &[LOADING_RING_SALT])
+}
+
+/// A steady, endless turn. Under reduced motion it resolves to a still ring.
+fn loading_ring_track() -> MotionTrack {
+    MotionTrack {
+        property: MotionPropertyId::Rotation,
+        phase: MotionPhase::Composite,
+        from: MotionStartValue::Explicit(deg(0.0)),
+        to: deg(360.0),
+        transition: MotionTransition::tween(LOADING_RING_TURN_MS, MotionEasing::Linear)
+            .repeat(true),
+    }
+}
+
+/// SVG path data for a circle of radius `r` centred at (`c`, `c`), starting at
+/// the top and running clockwise for `quarters` quarter turns. Only cubic
+/// segments are used, so every path backend draws it the same way.
+fn ring_path(c: f32, r: f32, quarters: usize) -> String {
+    let k = QUARTER_CIRCLE_HANDLE * r;
+    let segments = [
+        format!("C {} {} {} {} {} {}", c + k, c - r, c + r, c - k, c + r, c),
+        format!("C {} {} {} {} {} {}", c + r, c + k, c + k, c + r, c, c + r),
+        format!("C {} {} {} {} {} {}", c - k, c + r, c - r, c + k, c - r, c),
+        format!("C {} {} {} {} {} {}", c - r, c - k, c - k, c - r, c, c - r),
+    ];
+    let mut path = format!("M {} {}", c, c - r);
+    for segment in segments.iter().take(quarters.min(4)) {
+        path.push(' ');
+        path.push_str(segment);
+    }
+    path
+}
+
+/// A spinning ring in the label's colour, centred in the button: a faint full
+/// circle with a quarter arc turning over it.
+fn lower_loading_indicator(
+    cx: &mut LoweringContext<'_>,
+    style: &ButtonStyleResolved,
+    button_id: WidgetId,
+) -> WidgetId {
+    let size = style.icon_size.max(12.0).round();
+    let stroke_width = (size / 8.0).max(1.5);
+    let centre = size / 2.0;
+    let radius = (size - stroke_width) / 2.0;
+    let stroke = |color: IrColor| Stroke {
+        fill: Fill::Solid(color),
+        width: stroke_width,
+        dash_array: None,
+        line_cap: fission_ir::op::LineCap::Round,
+        line_join: fission_ir::op::LineJoin::Round,
+    };
+    let track_color = style
+        .text_color
+        .with_alpha((f32::from(style.text_color.a) * LOADING_RING_TRACK_ALPHA).round() as u8);
+
+    let track_id = IrBuilder::new(
+        cx.next_node_id(),
+        Op::Paint(PaintOp::DrawPath {
+            path: ring_path(centre, radius, 4),
+            fill: None,
+            stroke: Some(stroke(track_color)),
+        }),
+    )
+    .build(cx);
+    let arc_id = IrBuilder::new(
+        cx.next_node_id(),
+        Op::Paint(PaintOp::DrawPath {
+            path: ring_path(centre, radius, 1),
+            fill: None,
+            stroke: Some(stroke(style.text_color)),
+        }),
+    )
+    .build(cx);
+
+    let mut ring = IrBuilder::new(
+        cx.next_node_id(),
+        Op::Layout(LayoutOp::Box {
+            width: Some(size),
+            height: Some(size),
+            min_width: None,
+            max_width: None,
+            min_height: None,
+            max_height: None,
+            padding: [0.0; 4],
+            flex_grow: 0.0,
+            flex_shrink: 0.0,
+            aspect_ratio: None,
+        }),
+    )
+    .composite(CompositeStyle {
+        rotation: Some(CompositeScalar {
+            base: 0.0,
+            motion_target: Some(loading_ring_motion_id(button_id)),
+        }),
+        repaint_boundary: true,
+        ..CompositeStyle::default()
+    });
+    ring.add_child(track_id);
+    ring.add_child(arc_id);
+    let ring_id = ring.build(cx);
+
+    let mut centre_column = IrBuilder::new(
+        cx.next_node_id(),
+        Op::Layout(LayoutOp::Flex {
+            direction: fission_ir::FlexDirection::Column,
+            wrap: fission_ir::FlexWrap::NoWrap,
+            flex_grow: 0.0,
+            flex_shrink: 1.0,
+            padding: [0.0; 4],
+            gap: None,
+            line_gap: None,
+            align_items: fission_ir::op::AlignItems::Center,
+            justify_content: fission_ir::op::JustifyContent::Center,
+        }),
+    );
+    centre_column.add_child(ring_id);
+    let centre_id = centre_column.build(cx);
+    let mut fill = IrBuilder::new(cx.next_node_id(), Op::Layout(LayoutOp::AbsoluteFill));
+    fill.add_child(centre_id);
+    fill.build(cx)
+}
+
 fn default_button_semantics() -> Semantics {
     Semantics {
         role: Role::Button,
@@ -1788,6 +1975,7 @@ fn default_button_semantics() -> Semantics {
         checked: None,
         selected: None,
         expanded: None,
+        busy: false,
         has_popup: None,
         orientation: None,
         modal: false,

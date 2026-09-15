@@ -3,6 +3,7 @@ mod data_section;
 mod display_section;
 mod drag_drop;
 mod feedback_section;
+mod foundations_section;
 mod gallery_app;
 mod gallery_header;
 mod gallery_section;
@@ -30,7 +31,22 @@ fn web_app() -> fission::prelude::WebApp<GalleryState, QualityGalleryApp> {
 
 #[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
 pub fn run_desktop() -> anyhow::Result<()> {
-    fission::prelude::DesktopApp::<GalleryState, _>::new(GalleryApp).run()
+    fission::prelude::DesktopApp::<GalleryState, _>::new(GalleryApp)
+        .with_sync_env(|state: &GalleryState, env: &mut fission::prelude::Env| {
+            use fission::theme::DesignSystem;
+            let mode = if state.dark_mode {
+                fission::theme::DesignMode::Dark
+            } else {
+                fission::theme::DesignMode::Light
+            };
+            let theme = if state.ember_look {
+                fission::theme::FissionEmberDesignSystem::theme_ref(mode)
+            } else {
+                fission::theme::FissionDefaultDesignSystem::theme_ref(mode)
+            };
+            env.theme = theme.with_density(state.density);
+        })
+        .run()
 }
 
 #[cfg(target_arch = "wasm32")]

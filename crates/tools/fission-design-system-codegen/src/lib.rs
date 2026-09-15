@@ -311,6 +311,10 @@ impl {krate}::DesignSystem for {type_name} {{
         let elevations = self.elevation_tokens_expr(krate)?;
         let motion = self.motion_tokens_expr(krate)?;
         let data_visualization = self.data_visualization_tokens_expr(krate, mode)?;
+        let sizing = self.sizing_tokens_expr(krate)?;
+        let opacity = self.opacity_tokens_expr(krate)?;
+        let breakpoints = self.breakpoint_tokens_expr(krate)?;
+        let layers = self.layer_tokens_expr(krate)?;
         let components = self.component_theme_expr(krate, mode, base)?;
         // Built as a block with successive field assignments rather than one
         // nested literal. ComponentTheme is around 40 KB, so materialising the
@@ -327,6 +331,11 @@ impl {krate}::DesignSystem for {type_name} {{
                     elevations: {elevations},
                     motion: {motion},
                     data_visualization: {data_visualization},
+                    sizing: {sizing},
+                    opacity: {opacity},
+                    breakpoints: {breakpoints},
+                    layers: {layers},
+                    density: {krate}::Density::Comfortable,
                 }};
                 let components = std::sync::Arc::new({components});
                 let design_system = {krate}::ResolvedDesignSystem {{
@@ -389,6 +398,8 @@ impl {krate}::DesignSystem for {type_name} {{
                 text_link: {text_link},
                 heading: {heading},
                 focus_ring: {focus_ring},
+                accent: {accent},
+                on_accent: {on_accent},
             }}"#,
             primary = c("primary")?,
             on_primary = c("on_primary")?,
@@ -452,21 +463,117 @@ impl {krate}::DesignSystem for {type_name} {{
                 "focus_ring",
                 &self.resolve_token_string(&format!("{prefix}.primary"))?
             )?,
+            accent = c_or(
+                "accent",
+                &self.resolve_token_string(&format!("{prefix}.primary"))?
+            )?,
+            on_accent = c_or(
+                "on_accent",
+                &self.resolve_token_string(&format!("{prefix}.on_primary"))?
+            )?,
         ))
     }
 
     fn spacing_tokens_expr(&self, krate: &str) -> Result<String> {
         Ok(format!(
-            "{krate}::SpacingTokens {{ none: {}, xs: {}, s: {}, m: {}, l: {}, xl: {}, xxl: {}, xxxl: {}, xxxxl: {} }}",
+            "{krate}::SpacingTokens {{ none: {}, xxs: {}, xs: {}, s: {}, ms: {}, m: {}, ml: {}, l: {}, xl: {}, xxl: {}, xxxl: {}, xxxxl: {} }}",
             f32_lit(self.dimension("spacing.none")?),
+            f32_lit(self.dimension_optional("spacing.2xs", 2.0)?),
             f32_lit(self.dimension("spacing.xs")?),
             f32_lit(self.dimension("spacing.s")?),
+            f32_lit(self.dimension_optional("spacing.ms", 12.0)?),
             f32_lit(self.dimension("spacing.m")?),
+            f32_lit(self.dimension_optional("spacing.ml", 20.0)?),
             f32_lit(self.dimension("spacing.l")?),
             f32_lit(self.dimension("spacing.xl")?),
             f32_lit(self.dimension_optional("spacing.2xl", 48.0)?),
             f32_lit(self.dimension_optional("spacing.3xl", 64.0)?),
             f32_lit(self.dimension_optional("spacing.4xl", 96.0)?),
+        ))
+    }
+
+    // The groups below are newer than the DSP format most design systems were
+    // written against, so every token is optional: a design system that omits
+    // one keeps compiling and gets Fission's default value.
+    fn sizing_tokens_expr(&self, krate: &str) -> Result<String> {
+        let control_md = self.dsp_dimension_optional(
+            "/components/button/sizes/md/height",
+            self.dimension_optional("component.button.height", 36.0)?,
+        )?;
+        let d = |path: &str, fallback: f32| -> Result<String> {
+            Ok(f32_lit(self.dimension_optional(path, fallback)?))
+        };
+        Ok(format!(
+            "{krate}::SizingTokens {{ min_pointer_target: {}, min_touch_target: {}, control_sm: {}, control_md: {}, control_lg: {}, control_xl: {}, icon_xs: {}, icon_sm: {}, icon_md: {}, icon_lg: {}, icon_xl: {}, border_hairline: {}, border_thick: {}, focus_ring_width: {}, focus_ring_offset: {}, density_step: {} }}",
+            d("sizing.target.pointer", 24.0)?,
+            d("sizing.target.touch", 48.0)?,
+            d("sizing.control.sm", 32.0)?,
+            f32_lit(self.dimension_optional("sizing.control.md", control_md)?),
+            d("sizing.control.lg", 40.0)?,
+            d("sizing.control.xl", 48.0)?,
+            d("sizing.icon.xs", 12.0)?,
+            d("sizing.icon.sm", 16.0)?,
+            d("sizing.icon.md", 20.0)?,
+            d("sizing.icon.lg", 24.0)?,
+            d("sizing.icon.xl", 32.0)?,
+            d("sizing.border.hairline", 1.0)?,
+            d("sizing.border.thick", 2.0)?,
+            d("sizing.focus_ring.width", 3.0)?,
+            d("sizing.focus_ring.offset", 0.0)?,
+            d("sizing.density_step", 4.0)?,
+        ))
+    }
+
+    fn opacity_tokens_expr(&self, krate: &str) -> Result<String> {
+        let n = |path: &str, fallback: f32| -> Result<String> {
+            Ok(f32_lit(
+                self.number_optional(path, fallback)?.clamp(0.0, 1.0),
+            ))
+        };
+        Ok(format!(
+            "{krate}::OpacityTokens {{ disabled: {}, muted: {}, scrim: {}, hover_layer: {}, pressed_layer: {}, focus_layer: {}, selected_layer: {}, dragged_layer: {} }}",
+            n("opacity.disabled", 0.5)?,
+            n("opacity.muted", 0.72)?,
+            n("opacity.scrim", 0.4)?,
+            n("opacity.state.hover", 0.08)?,
+            n("opacity.state.pressed", 0.12)?,
+            n("opacity.state.focus", 0.12)?,
+            n("opacity.state.selected", 0.12)?,
+            n("opacity.state.dragged", 0.16)?,
+        ))
+    }
+
+    fn breakpoint_tokens_expr(&self, krate: &str) -> Result<String> {
+        let d = |path: &str, fallback: f32| -> Result<String> {
+            Ok(f32_lit(self.dimension_optional(path, fallback)?))
+        };
+        Ok(format!(
+            "{krate}::BreakpointTokens {{ compact_max: {}, medium_max: {}, expanded_max: {}, large_max: {} }}",
+            d("breakpoint.compact_max", 600.0)?,
+            d("breakpoint.medium_max", 840.0)?,
+            d("breakpoint.expanded_max", 1200.0)?,
+            d("breakpoint.large_max", 1600.0)?,
+        ))
+    }
+
+    fn layer_tokens_expr(&self, krate: &str) -> Result<String> {
+        let n = |path: &str, fallback: f32| -> Result<String> {
+            Ok(format!(
+                "{}i32",
+                self.number_optional(path, fallback)?.round() as i32
+            ))
+        };
+        Ok(format!(
+            "{krate}::LayerTokens {{ base: {}, raised: {}, sticky: {}, dropdown: {}, overlay: {}, modal: {}, popover: {}, toast: {}, tooltip: {} }}",
+            n("layer.base", 0.0)?,
+            n("layer.raised", 10.0)?,
+            n("layer.sticky", 100.0)?,
+            n("layer.dropdown", 1000.0)?,
+            n("layer.overlay", 1100.0)?,
+            n("layer.modal", 1200.0)?,
+            n("layer.popover", 1300.0)?,
+            n("layer.toast", 1400.0)?,
+            n("layer.tooltip", 1500.0)?,
         ))
     }
 
@@ -1991,6 +2098,7 @@ impl {krate}::DesignSystem for {type_name} {{
                 disabled: {disabled},
                 error: {error},
                 selected: {selected},
+                loading: {loading},
             }}"#,
             hover = state("hover")?,
             active = state("active")?,
@@ -1998,6 +2106,7 @@ impl {krate}::DesignSystem for {type_name} {{
             disabled = state("disabled")?,
             error = state("error")?,
             selected = state("selected")?,
+            loading = state("loading")?,
         ))
     }
 

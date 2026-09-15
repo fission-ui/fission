@@ -206,10 +206,18 @@ struct PaginationEllipsis;
 impl From<PaginationEllipsis> for Widget {
     fn from(_: PaginationEllipsis) -> Self {
         let (_, view) = fission_core::build::current::<()>();
-        let style = &view.env().theme.components.pagination.ellipsis_style;
+        let pagination = &view.env().theme.components.pagination;
+        let style = &pagination.ellipsis_style;
         let tokens = &view.env().theme.tokens;
         let width = style.width.or(style.height).unwrap_or(tokens.spacing.l);
         let height = style.height.unwrap_or(width);
+        // The ellipsis shares the page numbers' line box, centred in the same
+        // cell, so its dots sit on their baseline. A line as tall as the cell
+        // placed the dots up at the top of the numbers.
+        let line_height = style
+            .line_height
+            .or(pagination.item_style.line_height)
+            .unwrap_or(tokens.typography.font_size_base * tokens.typography.line_height_snug);
 
         Container::new(
             Text::new("…")
@@ -219,7 +227,7 @@ impl From<PaginationEllipsis> for Widget {
                         .font_weight
                         .unwrap_or(tokens.typography.font_weight_regular),
                 )
-                .line_height(style.line_height.unwrap_or(height))
+                .line_height(line_height)
                 .color(style.text_color.unwrap_or(tokens.colors.text_muted)),
         )
         .size(width, height)

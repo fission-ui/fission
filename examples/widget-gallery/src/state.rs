@@ -29,6 +29,13 @@ pub struct GalleryState {
     pub drag_log: Vec<String>,
     pub drag_snap_preview: bool,
     pub drag_external_files: Vec<String>,
+    pub show_hit_areas: bool,
+    pub hit_target_presses: u32,
+    pub foundation_loading: bool,
+    pub loading_presses: u32,
+    pub density: fission::theme::Density,
+    pub ember_look: bool,
+    pub dark_mode: bool,
 }
 
 impl Default for GalleryState {
@@ -71,6 +78,13 @@ impl Default for GalleryState {
             drag_log: Vec::new(),
             drag_snap_preview: false,
             drag_external_files: Vec::new(),
+            show_hit_areas: false,
+            hit_target_presses: 0,
+            foundation_loading: false,
+            loading_presses: 0,
+            density: fission::theme::Density::Comfortable,
+            ember_look: false,
+            dark_mode: false,
         }
     }
 }

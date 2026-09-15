@@ -73,7 +73,7 @@ impl From<DisplaySection> for Widget {
                     runs: vec![
                         RichTextRun::new("Selectable RichText: "),
                         RichTextRun::new("mixed style text can be selected too.")
-                            .color(tokens.colors.primary)
+                            .color(tokens.colors.text_link)
                             .weight(typography.font_weight_bold),
                     ],
                     selectable: true,

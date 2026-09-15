@@ -7902,6 +7902,11 @@ where
                                 let state = runtime.get_global_state::<S>().unwrap();
                                 sync(state, &mut env);
                             }
+                            runtime.set_hit_target_policy(
+                                fission_core::hit_test::HitTargetPolicy::from_tokens(
+                                    &env.theme.tokens.sizing,
+                                ),
+                            );
                             let desired_window_title = env.window.title.plain_text();
                             if desired_window_title != applied_window_title {
                                 if let Some(window) = platform_window.active_window() {

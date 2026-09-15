@@ -66,7 +66,7 @@ impl Lower for Switch {
             let track_color = if self.disabled {
                 tokens.colors.surface_sunken
             } else if self.checked {
-                tokens.colors.primary
+                tokens.colors.accent
             } else {
                 tokens.colors.border
             };
@@ -83,7 +83,7 @@ impl Lower for Switch {
             let thumb_color = if self.disabled {
                 tokens.colors.text_muted
             } else {
-                tokens.colors.on_primary
+                tokens.colors.on_accent
             };
 
             // Track
@@ -249,7 +249,7 @@ impl Switch {
         let track = if self.disabled {
             colors.surface_sunken
         } else if self.checked {
-            colors.primary
+            colors.accent
         } else {
             colors.border
         };

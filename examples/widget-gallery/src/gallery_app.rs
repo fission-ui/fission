@@ -3,6 +3,7 @@ use crate::data_section::DataSection;
 use crate::display_section::DisplaySection;
 use crate::drag_drop::DragDropSection;
 use crate::feedback_section::FeedbackSection;
+use crate::foundations_section::FoundationsSection;
 use crate::gallery_header::GalleryHeader;
 use crate::input_section::InputSection;
 use crate::navigation_section::NavigationSection;
@@ -21,7 +22,7 @@ impl From<GalleryApp> for Widget {
         let (_, view) = fission::build::current::<GalleryState>();
         let tokens = &view.env().theme.tokens;
 
-        Scroll {
+        let page: Widget = Scroll {
             direction: FlexDirection::Column,
             child: Some(
                 Center {
@@ -29,6 +30,7 @@ impl From<GalleryApp> for Widget {
                         spacing: Some(tokens.spacing.l),
                         children: widgets![
                             GalleryHeader,
+                            FoundationsSection,
                             DisplaySection,
                             InputSection,
                             ColourPickerSection,
@@ -55,6 +57,13 @@ impl From<GalleryApp> for Widget {
             flex_shrink: 1.0,
             ..Default::default()
         }
-        .into()
+        .into();
+
+        // The page ground comes from the theme, so dark mode and other looks paint it.
+        Container::new(page)
+            .bg(tokens.colors.background)
+            .width_length(Length::percent(100.0))
+            .height_length(Length::percent(100.0))
+            .into()
     }
 }

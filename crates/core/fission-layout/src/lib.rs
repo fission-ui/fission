@@ -1571,6 +1571,169 @@ mod tests {
     }
 
     #[test]
+    fn a_centred_styled_box_places_a_smaller_child_in_the_middle() {
+        // A fixed 36px cell centring a 20px line of text, like a pagination ellipsis. The
+        // child keeps its own height and sits 8px down; given the cell's height it would
+        // fill the cell and its text would sit at the top.
+        let root = WidgetId::from_u128(910);
+        let cell = WidgetId::from_u128(911);
+        let child = WidgetId::from_u128(912);
+        let nodes = vec![
+            node(
+                root,
+                None,
+                vec![cell],
+                LayoutOp::Flex {
+                    direction: fission_ir::FlexDirection::Row,
+                    wrap: fission_ir::FlexWrap::NoWrap,
+                    flex_grow: 0.0,
+                    flex_shrink: 1.0,
+                    padding: [0.0; 4],
+                    gap: None,
+                    line_gap: None,
+                    align_items: fission_ir::op::AlignItems::Start,
+                    justify_content: fission_ir::op::JustifyContent::Start,
+                },
+            ),
+            node(
+                cell,
+                Some(root),
+                vec![child],
+                LayoutOp::StyledBox {
+                    style: BoxStyle {
+                        width: Some(Length::Points(36.0)),
+                        height: Some(Length::Points(36.0)),
+                        alignment: fission_ir::op::BoxAlignment::Center,
+                        ..BoxStyle::default()
+                    },
+                    flex_grow: 0.0,
+                    flex_shrink: 0.0,
+                },
+            ),
+            node(
+                child,
+                Some(cell),
+                vec![],
+                LayoutOp::Box {
+                    width: Some(12.0),
+                    height: Some(20.0),
+                    min_width: None,
+                    max_width: None,
+                    min_height: None,
+                    max_height: None,
+                    padding: [0.0; 4],
+                    flex_grow: 0.0,
+                    flex_shrink: 0.0,
+                    aspect_ratio: None,
+                },
+            ),
+        ];
+        let mut engine = LayoutEngine::new();
+        let snapshot = engine
+            .compute_layout(&nodes, root, LayoutSize::new(400.0, 200.0), &|_| 0.0)
+            .expect("centred cell layout");
+
+        assert_eq!(
+            snapshot.nodes[&child].rect,
+            LayoutRect::new(12.0, 8.0, 12.0, 20.0),
+            "the child keeps its height and is centred in the cell"
+        );
+    }
+
+    #[test]
+    fn a_box_in_a_flex_line_centres_content_within_its_own_minimum_height() {
+        // A button-shaped box: 48px minimum height, horizontal padding, and a column that
+        // centres a 20px label. In a row that does not stretch it, the box keeps its own
+        // height and the label sits in the middle rather than at the top.
+        let row = WidgetId::from_u128(900);
+        let control = WidgetId::from_u128(901);
+        let column = WidgetId::from_u128(902);
+        let label = WidgetId::from_u128(903);
+        let nodes = vec![
+            node(
+                row,
+                None,
+                vec![control],
+                LayoutOp::Flex {
+                    direction: fission_ir::FlexDirection::Row,
+                    wrap: fission_ir::FlexWrap::NoWrap,
+                    flex_grow: 0.0,
+                    flex_shrink: 1.0,
+                    padding: [0.0; 4],
+                    gap: None,
+                    line_gap: None,
+                    align_items: fission_ir::op::AlignItems::Start,
+                    justify_content: fission_ir::op::JustifyContent::Start,
+                },
+            ),
+            node(
+                control,
+                Some(row),
+                vec![column],
+                LayoutOp::Box {
+                    width: None,
+                    height: None,
+                    min_width: None,
+                    max_width: None,
+                    min_height: Some(48.0),
+                    max_height: None,
+                    padding: [16.0, 16.0, 0.0, 0.0],
+                    flex_grow: 0.0,
+                    flex_shrink: 1.0,
+                    aspect_ratio: None,
+                },
+            ),
+            node(
+                column,
+                Some(control),
+                vec![label],
+                LayoutOp::Flex {
+                    direction: fission_ir::FlexDirection::Column,
+                    wrap: fission_ir::FlexWrap::NoWrap,
+                    flex_grow: 0.0,
+                    flex_shrink: 1.0,
+                    padding: [0.0; 4],
+                    gap: None,
+                    line_gap: None,
+                    align_items: fission_ir::op::AlignItems::Center,
+                    justify_content: fission_ir::op::JustifyContent::Center,
+                },
+            ),
+            node(
+                label,
+                Some(column),
+                vec![],
+                LayoutOp::Box {
+                    width: Some(60.0),
+                    height: Some(20.0),
+                    min_width: None,
+                    max_width: None,
+                    min_height: None,
+                    max_height: None,
+                    padding: [0.0; 4],
+                    flex_grow: 0.0,
+                    flex_shrink: 0.0,
+                    aspect_ratio: None,
+                },
+            ),
+        ];
+        let mut engine = LayoutEngine::new();
+        let snapshot = engine
+            .compute_layout(&nodes, row, LayoutSize::new(400.0, 200.0), &|_| 0.0)
+            .expect("button-shaped layout");
+
+        assert_eq!(
+            snapshot.nodes[&control].rect.size.height, 48.0,
+            "the control keeps its own height instead of filling the row"
+        );
+        assert_eq!(
+            snapshot.nodes[&label].rect,
+            LayoutRect::new(16.0, 14.0, 60.0, 20.0),
+            "the label is centred inside the control's minimum height"
+        );
+    }
+
+    #[test]
     fn spotlight_lays_out_inverse_overlay_around_anchor() {
         let root = WidgetId::from_u128(20);
         let positioned = WidgetId::from_u128(21);
@@ -3131,8 +3294,34 @@ impl LayoutEngine {
                     base_child_constraints.max_h = f32::INFINITY;
                 }
                 if box_alignment != fission_ir::op::BoxAlignment::Stretch {
-                    base_child_constraints.min_w = 0.0;
-                    base_child_constraints.min_h = 0.0;
+                    // A plain box in a flex line does not stretch its child to the room the
+                    // line offers, but the size the box declares for itself is its own: the
+                    // child still fills that, so content a control centres (a button label)
+                    // stays centred when the control's minimum height is taller than the
+                    // content. A styled box with an explicit alignment instead places its
+                    // child at the child's natural size, so it never receives this minimum.
+                    let plain_box = matches!(node.op, LayoutOp::Box { .. });
+                    let own = |fixed: Option<f32>, min: Option<f32>, inset: f32, max: f32| {
+                        if !plain_box {
+                            return 0.0;
+                        }
+                        fixed
+                            .or(min)
+                            .map(|value| (value - inset).max(0.0).min(max))
+                            .unwrap_or(0.0)
+                    };
+                    base_child_constraints.min_w = own(
+                        *width,
+                        *min_width,
+                        padding[0] + padding[1],
+                        base_child_constraints.max_w,
+                    );
+                    base_child_constraints.min_h = own(
+                        *height,
+                        *min_height,
+                        padding[2] + padding[3],
+                        base_child_constraints.max_h,
+                    );
                 }
                 let mut max_child = LayoutSize::ZERO;
                 let styled_box = matches!(node.op, LayoutOp::StyledBox { .. });

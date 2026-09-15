@@ -126,11 +126,11 @@ fn button_uses_compact_recipe_geometry_and_label_typography() {
 
     assert_eq!(
         box_geometry(&ir, layout_id),
-        (None, None, Some(32.0), [12.0, 12.0, 2.0, 2.0])
+        (None, None, Some(36.0), [16.0, 16.0, 2.0, 2.0])
     );
     let rects = direct_rects(&ir, layout_id);
     assert_eq!(rects.len(), 1);
-    assert_eq!(rects[0].corner_radius, 10.0);
+    assert_eq!(rects[0].corner_radius, 6.0);
     assert_eq!(rects[0].shadow, None);
 
     let label = text_style(&ir, "Save");
@@ -816,11 +816,11 @@ fn text_input_uses_compact_recipe_geometry_typography_and_border() {
 
     assert_eq!(
         box_geometry(&ir, layout_id),
-        (None, Some(32.0), Some(32.0), [11.0, 11.0, 5.0, 5.0])
+        (None, Some(36.0), Some(36.0), [11.0, 11.0, 5.0, 5.0])
     );
     let rects = direct_rects(&ir, layout_id);
     assert_eq!(rects.len(), 1);
-    assert_eq!(rects[0].corner_radius, 10.0);
+    assert_eq!(rects[0].corner_radius, 6.0);
     assert_eq!(
         rects[0].stroke.as_ref().map(|stroke| stroke.width),
         Some(1.0)
@@ -854,7 +854,7 @@ fn text_input_uses_touch_safe_typography_below_the_narrow_breakpoint() {
 
     assert_eq!(
         box_geometry(&ir, layout_id),
-        (None, Some(32.0), Some(32.0), [11.0, 11.0, 5.0, 5.0])
+        (None, Some(36.0), Some(36.0), [11.0, 11.0, 5.0, 5.0])
     );
     let text = text_style(&ir, "Ada");
     assert_eq!(text.font_size, 16.0);
@@ -880,7 +880,7 @@ fn small_text_input_recipe_fits_its_line_box_without_changing_height() {
 
     assert_eq!(
         box_geometry(&ir, layout_id),
-        (None, Some(28.0), Some(28.0), [11.0, 11.0, 4.0, 4.0])
+        (None, Some(32.0), Some(32.0), [11.0, 11.0, 4.0, 4.0])
     );
     assert_eq!(text_style(&ir, "Ada").line_height, Some(20.0));
 }
