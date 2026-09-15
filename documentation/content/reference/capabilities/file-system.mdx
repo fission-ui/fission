@@ -63,6 +63,6 @@ Web persistence stores only a granted browser handle. It is not an IndexedDB-bac
 
 ## Configuration
 
-Run `fission add-capability filesystem --project-dir .`. This adds `filesystem` to `fission.toml` and the optional Fission Cargo feature. No OS manifest permission can replace the required user picker interaction.
+Run `fission add-capability filesystem --project-dir .`. This adds `filesystem` to `fission.toml` and the optional Fission Cargo feature. Direct native paths use the process's operating-system access. Picker-backed providers still require the host's user-selection and permission flow.
 
 See the [File system guide](/docs/capabilities/file-system/) for reducer examples.

@@ -279,6 +279,11 @@ href = "/docs/capabilities/clipboard/"
 level = 3
 
 [[items]]
+title = "File system"
+href = "/docs/capabilities/file-system/"
+level = 3
+
+[[items]]
 title = "Geolocation"
 href = "/docs/capabilities/geolocation/"
 level = 3
