@@ -469,7 +469,7 @@ fn begin_pick(
             &[
                 JValue::Object(activity),
                 JValue::Long(id as jlong),
-                JValue::Bool(matches!(request.access, FileSystemAccessMode::ReadWrite).into()),
+                JValue::Bool(matches!(request.access, FileSystemAccessMode::ReadWrite) as u8),
                 JValue::Object(&key),
             ],
         )?;
@@ -549,7 +549,7 @@ fn call_permission(
                 &[
                     JValue::Object(activity),
                     JValue::Object(&uri),
-                    JValue::Bool(matches!(access, FileSystemAccessMode::ReadWrite).into()),
+                    JValue::Bool(matches!(access, FileSystemAccessMode::ReadWrite) as u8),
                 ],
             )?
             .i()?
@@ -628,8 +628,8 @@ fn call_open(
                     JValue::Object(activity),
                     JValue::Object(&uri),
                     JValue::Object(&path),
-                    JValue::Bool(parents.into()),
-                    JValue::Bool(overwrite.into()),
+                    JValue::Bool(parents as u8),
+                    JValue::Bool(overwrite as u8),
                 ],
             )
         } else {
@@ -667,7 +667,7 @@ fn call_path_bool(
                 JValue::Object(activity),
                 JValue::Object(&uri),
                 JValue::Object(&path),
-                JValue::Bool(value.into()),
+                JValue::Bool(value as u8),
             ],
         )?;
         Ok(())
