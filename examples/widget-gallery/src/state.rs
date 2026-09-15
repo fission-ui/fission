@@ -1,4 +1,6 @@
+use chrono::{Datelike, NaiveDate};
 use fission::prelude::*;
+use fission::widgets::RefreshIndicatorStatus;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
@@ -40,10 +42,44 @@ pub struct GalleryState {
     pub dark_mode: bool,
     /// The page open in the sidebar.
     pub page: crate::pages::GalleryPage,
+    /// The (year, month) the calendar shows.
+    pub calendar_view: (i32, u32),
+    pub calendar_selected: Option<NaiveDate>,
+    pub date_picker_value: Option<NaiveDate>,
+    pub date_picker_open: bool,
+    /// The month the date picker's calendar shows after navigating, if any.
+    pub date_picker_view: Option<(i32, u32)>,
+    pub range_start: Option<NaiveDate>,
+    pub range_end: Option<NaiveDate>,
+    pub range_start_open: bool,
+    pub range_end_open: bool,
+    pub time_hour: u32,
+    pub time_minute: u32,
+    pub combobox_value: String,
+    pub combobox_open: bool,
+    pub dropdown_open: bool,
+    pub dropdown_value: Option<String>,
+    pub radio_selected: usize,
+    pub price_range: (f32, f32),
+    pub field_email: String,
+    pub editable_value: String,
+    pub editable_draft: String,
+    pub editable_editing: bool,
+    pub file_upload_name: Option<String>,
+    pub file_upload_error: Option<String>,
+    pub dropzone_files: Vec<String>,
+    pub popover_open: bool,
+    pub split_ratio: f32,
+    pub table_selected: Vec<String>,
+    pub table_sort_ascending: bool,
+    pub refresh_status: RefreshIndicatorStatus,
+    pub refresh_extent: f32,
+    pub refresh_items: Vec<String>,
 }
 
 impl Default for GalleryState {
     fn default() -> Self {
+        let today = chrono::Local::now().date_naive();
         let mut tree_expanded = HashSet::new();
         tree_expanded.insert("src".into());
 
@@ -92,6 +128,41 @@ impl Default for GalleryState {
             native_preview: 0,
             dark_mode: false,
             page: crate::pages::GalleryPage::default(),
+            calendar_view: (today.year(), today.month()),
+            calendar_selected: None,
+            date_picker_value: None,
+            date_picker_open: false,
+            date_picker_view: None,
+            range_start: None,
+            range_end: None,
+            range_start_open: false,
+            range_end_open: false,
+            time_hour: 9,
+            time_minute: 30,
+            combobox_value: String::new(),
+            combobox_open: false,
+            dropdown_open: false,
+            dropdown_value: None,
+            radio_selected: 0,
+            price_range: (20.0, 80.0),
+            field_email: String::new(),
+            editable_value: "Quarterly report".into(),
+            editable_draft: String::new(),
+            editable_editing: false,
+            file_upload_name: None,
+            file_upload_error: None,
+            dropzone_files: Vec::new(),
+            popover_open: false,
+            split_ratio: 0.35,
+            table_selected: Vec::new(),
+            table_sort_ascending: true,
+            refresh_status: RefreshIndicatorStatus::Inactive,
+            refresh_extent: 0.0,
+            refresh_items: vec![
+                "Invoice #1042 paid".into(),
+                "New comment on Roadmap".into(),
+                "Build 318 passed".into(),
+            ],
         }
     }
 }

@@ -10217,6 +10217,7 @@ name = "widget-gallery"
 version = "0.14.1"
 dependencies = [
  "anyhow",
+ "chrono",
  "console_error_panic_hook",
  "fission",
  "fission-test",

@@ -3,12 +3,15 @@ mod data_section;
 mod display_section;
 mod drag_drop;
 mod feedback_section;
+mod form_section;
 mod foundations_section;
 mod gallery_app;
 mod input_section;
+mod layout_section;
 mod navigation_section;
 mod overlay_section;
 mod pages;
+mod picker_section;
 mod quality_gallery;
 mod state;
 
