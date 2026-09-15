@@ -54,7 +54,7 @@ impl From<FeedbackSection> for Widget {
                         },
                         CircularProgress {
                             value: Some(0.7),
-                            size: CIRCULAR_PROGRESS_SIZE,
+                            size: Some(CIRCULAR_PROGRESS_SIZE),
                             ..Default::default()
                         },
                         Skeleton {

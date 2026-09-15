@@ -58,10 +58,11 @@ impl Lower for Switch {
         let id = self.id.map(Into::into).unwrap_or_else(|| cx.next_node_id());
         let layout_id = cx.with_scope(id, |cx| {
             let tokens = &cx.env.theme.tokens;
-            let width = SWITCH_WIDTH;
-            let height = 20.0;
-            let thumb_size = SWITCH_THUMB;
-            let padding = SWITCH_PADDING;
+            let geometry = SwitchGeometry::from_tokens(tokens);
+            let width = geometry.width;
+            let height = geometry.height;
+            let thumb_size = geometry.thumb;
+            let padding = geometry.padding;
 
             let track_color = if self.disabled {
                 tokens.colors.surface_sunken
@@ -141,7 +142,7 @@ impl Lower for Switch {
             .composite(fission_ir::op::CompositeStyle {
                 translate_x: Some(
                     fission_ir::op::CompositeScalar::new(if self.checked {
-                        thumb_travel()
+                        geometry.thumb_travel()
                     } else {
                         0.0
                     })
@@ -224,16 +225,38 @@ impl Lower for Switch {
     }
 }
 
-const SWITCH_WIDTH: f32 = 36.0;
-const SWITCH_THUMB: f32 = 16.0;
-const SWITCH_PADDING: f32 = 2.0;
+/// A switch's track and thumb, sized from the design system: the track is as
+/// tall as a medium icon, the thumb sits inside it with a two-pixel inset, and
+/// the track is long enough for the thumb to travel most of its own width.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct SwitchGeometry {
+    width: f32,
+    height: f32,
+    thumb: f32,
+    padding: f32,
+}
+
+impl SwitchGeometry {
+    fn from_tokens(tokens: &fission_theme::Tokens) -> Self {
+        let height = tokens.sizing.icon_md.max(12.0);
+        let padding = tokens.spacing.xxs.max(0.0);
+        let thumb = (height - padding * 2.0).max(4.0);
+        let width = (height * 1.8).round();
+        Self {
+            width,
+            height,
+            thumb,
+            padding,
+        }
+    }
+
+    /// How far the thumb slides between the off and on positions.
+    fn thumb_travel(self) -> f32 {
+        self.width - self.thumb - self.padding * 2.0
+    }
+}
 /// Path from a switch's id to its thumb's motion identity.
 const THUMB_MOTION_PATH: u32 = 0x7B0_0001;
-
-/// How far the thumb slides between the off and on positions.
-fn thumb_travel() -> f32 {
-    SWITCH_WIDTH - SWITCH_THUMB - SWITCH_PADDING * 2.0
-}
 
 impl Switch {
     /// Registers the tracks that slide the thumb and ease the track colour.
@@ -267,7 +290,11 @@ impl Switch {
             vec![crate::motion::MotionTrack::composite(
                 crate::motion::MotionPropertyId::TranslateX,
                 crate::motion::MotionStartValue::Current,
-                crate::motion::px(if self.checked { thumb_travel() } else { 0.0 }),
+                crate::motion::px(if self.checked {
+                    SwitchGeometry::from_tokens(&env.theme.tokens).thumb_travel()
+                } else {
+                    0.0
+                }),
             )
             .transition(transition)],
         );

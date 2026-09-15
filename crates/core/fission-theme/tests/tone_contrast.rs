@@ -46,7 +46,7 @@ const TONES: [BadgeTone; 7] = [
 fn themes() -> Vec<(&'static str, Theme)> {
     let mut themes = Vec::new();
     for mode in [DesignMode::Light, DesignMode::Dark] {
-        themes.push(("graphite", FissionDefaultDesignSystem::theme(mode)));
+        themes.push(("tidewater", FissionDefaultDesignSystem::theme(mode)));
         themes.push(("ember", FissionEmberDesignSystem::theme(mode)));
     }
     themes
@@ -90,6 +90,40 @@ fn dark_badges_sit_darker_than_their_label() {
             assert!(
                 luminance(background) < luminance(text),
                 "{tone:?} dark badge background is lighter than its label"
+            );
+        }
+    }
+}
+
+/// A loading placeholder must stand apart from the page and from the card it
+/// sits on. The sunken surface is darker than the page in a dark theme, so a
+/// skeleton painted with it vanished; the placeholder role steps toward the
+/// text colour in both modes instead.
+#[test]
+fn skeleton_placeholders_stand_out_in_light_and_dark() {
+    // Matches the light placeholders, which already read clearly on the page.
+    const MIN_SEPARATION: f64 = 1.06;
+    for (name, theme) in themes() {
+        let mode = theme.design_system.mode;
+        let recipe = theme.recipe(fission_theme::recipes::Skeleton);
+        let Some(Fill::Solid(placeholder)) = recipe.base.background.clone() else {
+            panic!("{name} {mode:?}: skeleton needs a solid placeholder fill");
+        };
+        let colors = &theme.tokens.colors;
+        for (surface, color) in [
+            ("background", colors.background),
+            ("surface", colors.surface),
+        ] {
+            let ratio = contrast(placeholder, color);
+            assert!(
+                ratio >= MIN_SEPARATION,
+                "{name} {mode:?}: skeleton on {surface} is {ratio:.2}:1"
+            );
+        }
+        if mode == DesignMode::Dark {
+            assert!(
+                luminance(placeholder) > luminance(colors.background),
+                "{name} dark: a placeholder darker than the page reads as a hole"
             );
         }
     }

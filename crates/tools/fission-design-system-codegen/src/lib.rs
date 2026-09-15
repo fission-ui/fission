@@ -735,7 +735,7 @@ impl {krate}::DesignSystem for {type_name} {{
                 menu: {menu},
                 calendar: {krate}::CalendarTheme {{ bg_color: {surface}, border_color: {border}, radius: {radius_medium}, selected_bg: {primary}, selected_text: {on_primary}, today_outline: {secondary} }},
                 pagination: {pagination},
-                timeline: {krate}::TimelineTheme {{ dot_size: 12.0, line_width: 2.0, dot_color: {primary}, line_color: {border} }},
+                timeline: {krate}::TimelineTheme {{ dot_size: {timeline_dot}, line_width: {timeline_line}, dot_color: {primary}, line_color: {border} }},
                 segmented_control: {krate}::SegmentedControlTheme {{ bg_color: {surface}, border_color: {border}, radius: {radius_full}, active_bg: {primary}, active_text: {on_primary} }},
                 alert: {alert},
                 avatar: {avatar},
@@ -743,7 +743,7 @@ impl {krate}::DesignSystem for {type_name} {{
                 badge: {badge},
                 tabs: {tabs},
                 modal: {modal},
-                tree_view: {krate}::TreeViewTheme {{ indent: 16.0, selected_bg: {primary}.with_alpha(52), hover_bg: {surface} }},
+                tree_view: {krate}::TreeViewTheme {{ indent: {tree_indent}, selected_bg: {primary}.with_alpha(52), hover_bg: {surface} }},
                 progress: {progress},
                 tooltip: {tooltip},
                 card: {card},
@@ -759,6 +759,9 @@ impl {krate}::DesignSystem for {type_name} {{
             secondary = self.color_expr(krate, &format!("{colors_prefix}.secondary"))?,
             radius_medium = f32_lit(self.dimension("radius.medium")?),
             radius_full = f32_lit(self.dimension("radius.full")?),
+            timeline_dot = f32_lit(self.dimension_optional("sizing.icon.xs", 12.0)?),
+            timeline_line = f32_lit(self.dimension_optional("sizing.border.thick", 2.0)?),
+            tree_indent = f32_lit(self.dimension_optional("spacing.m", 16.0)?),
         ))
     }
 

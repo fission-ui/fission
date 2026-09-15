@@ -56,8 +56,16 @@ pub struct Slider {
     /// Optional thumb and active-track fill. Defaults to the theme's accent colour.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thumb_fill: Option<Fill>,
+    /// Whether the track fills from the start to the value. Turn it off when the
+    /// track itself carries meaning, such as a colour channel's gradient.
+    #[serde(default = "show_active_track_default")]
+    pub show_active_track: bool,
     /// Action dispatched when the user drags the thumb.
     pub on_change: Option<ActionEnvelope>,
+}
+
+fn show_active_track_default() -> bool {
+    true
 }
 
 impl Slider {
@@ -80,6 +88,7 @@ impl Default for Slider {
             thumb_size: None,
             track_fill: None,
             thumb_fill: None,
+            show_active_track: true,
             on_change: None,
         }
     }
@@ -197,7 +206,9 @@ impl Lower for Slider {
                     }),
                 );
                 track_container.add_child(inactive);
-                track_container.add_child(active_id);
+                if self.show_active_track {
+                    track_container.add_child(active_id);
+                }
                 let track_id = track_container.build(cx);
 
                 // A stack gives its children loose constraints, so an unsized track would measure

@@ -51,10 +51,12 @@ pub struct RefreshIndicator {
     pub background_color: Option<Color>,
     /// Optional circular progress track color.
     pub track_color: Option<Color>,
-    /// Circular progress stroke width in logical pixels.
-    pub stroke_width: f32,
-    /// Logical square size of the progress indicator.
-    pub indicator_size: f32,
+    /// Circular progress stroke width in logical pixels. `None` uses twice the
+    /// design system's thick border width.
+    pub stroke_width: Option<f32>,
+    /// Logical square size of the progress indicator. `None` uses the refresh
+    /// indicator recipe.
+    pub indicator_size: Option<f32>,
     /// Action dispatched when a pull gesture begins.
     pub on_pull_start: Option<ActionEnvelope>,
     /// Action dispatched with contextual drag input while pulling.
@@ -78,8 +80,8 @@ impl Default for RefreshIndicator {
             color: None,
             background_color: None,
             track_color: None,
-            stroke_width: 4.0,
-            indicator_size: 36.0,
+            stroke_width: None,
+            indicator_size: None,
             on_pull_start: None,
             on_pull_update: None,
             on_pull_cancel: None,
@@ -147,13 +149,13 @@ impl RefreshIndicator {
 
     /// Sets progress stroke width, clamped to at least one logical pixel.
     pub fn stroke_width(mut self, stroke_width: f32) -> Self {
-        self.stroke_width = stroke_width.max(1.0);
+        self.stroke_width = Some(stroke_width.max(1.0));
         self
     }
 
     /// Sets indicator size, clamped to at least one logical pixel.
     pub fn indicator_size(mut self, indicator_size: f32) -> Self {
-        self.indicator_size = indicator_size.max(1.0);
+        self.indicator_size = Some(indicator_size.max(1.0));
         self
     }
 
@@ -222,6 +224,22 @@ impl From<RefreshIndicator> for Widget {
         let this = &component;
 
         let tokens = &view.env().theme.tokens;
+        let indicator_size = this
+            .indicator_size
+            .or(view
+                .env()
+                .theme
+                .recipe(fission_theme::recipes::RefreshIndicator)
+                .try_part_named("indicator")
+                .and_then(|indicator| indicator.width))
+            .unwrap_or(tokens.sizing.control_md)
+            .max(1.0);
+        let stroke_width = this
+            .stroke_width
+            .unwrap_or(tokens.sizing.border_thick * 2.0)
+            .max(1.0);
+        // The indicator floats in a round surface a spacing step wider than itself.
+        let frame_size = indicator_size + tokens.spacing.m;
         let pull_offset = this.child_offset();
         let indicator_top = this.edge_offset + pull_offset * 0.5;
 
@@ -238,20 +256,20 @@ impl From<RefreshIndicator> for Widget {
                 id: this.progress_id(),
                 label: None,
                 value: this.indicator_progress(),
-                size: this.indicator_size,
+                size: Some(indicator_size),
                 color: Some(this.color.unwrap_or(tokens.colors.primary)),
                 track_color: Some(this.track_color.unwrap_or(tokens.colors.border)),
-                thickness: this.stroke_width,
+                thickness: Some(stroke_width),
                 motion: Some(crate::CircularProgressMotion::Default),
             }
             .into();
 
             let indicator: Widget = Container::new(progress)
-                .size(this.indicator_size + 16.0, this.indicator_size + 16.0)
+                .size(frame_size, frame_size)
                 .bg(this.background_color.unwrap_or(tokens.colors.surface))
-                .border(tokens.colors.border, 1.0)
-                .border_radius((this.indicator_size + 16.0) * 0.5)
-                .padding_all(8.0)
+                .border(tokens.colors.border, tokens.sizing.border_hairline)
+                .border_radius(frame_size * 0.5)
+                .padding_all(tokens.spacing.s)
                 .into();
 
             children.push(
@@ -259,7 +277,7 @@ impl From<RefreshIndicator> for Widget {
                     top: Some(indicator_top),
                     left: Some(0.0),
                     right: Some(0.0),
-                    height: Some(this.indicator_size + 16.0),
+                    height: Some(frame_size),
                     child: Some(Align::new(indicator).into()),
                     ..Default::default()
                 }

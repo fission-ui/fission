@@ -276,6 +276,7 @@
       "border": "1px solid {color.light.border}",
       "radius": "{radius.medium}",
       "padding": "{spacing.s}",
+      "max_width": "420px",
       "gap": "{spacing.s}",
       "box_shadow": "{elevation.level3}",
       "icon": { "icon_size": "{spacing.m}" },
@@ -347,7 +348,7 @@
     },
     "skeleton": {
       "$description": "Placeholder standing in for content that has not arrived.",
-      "background": "{color.light.surface_sunken}",
+      "background": "{color.light.placeholder}",
       "radius": "{radius.small}"
     },
     "$comment": "Each component declares anatomy (named slots), sizes, hierarchies (visual variants), and states. Property values reference tokens via {namespace.path} or contain literal CSS values. Sourced from the Untitled UI Figma component matrix and bound to Fission's teal palette.",

@@ -263,7 +263,7 @@ impl From<MailboxStatsCard> for Widget {
                         children: vec![
                             CircularProgress {
                                 value: Some(0.65),
-                                size: card.density.progress_size(),
+                                size: Some(card.density.progress_size()),
                                 ..Default::default()
                             }
                             .into(),

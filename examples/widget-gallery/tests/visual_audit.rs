@@ -199,7 +199,7 @@ impl From<AllWidgets> for Widget {
                 .into(),
                 CircularProgress {
                     value: Some(0.7),
-                    size: 40.0,
+                    size: Some(40.0),
                     ..Default::default()
                 }
                 .into(),

@@ -41,10 +41,20 @@ impl From<Calendar> for Widget {
 
         let theme = &view.env().theme.components.calendar;
         let tokens = &view.env().theme.tokens;
-        let cell_size = this.cell_size.unwrap_or(36.0);
-        let padding = this.padding.unwrap_or(16.0);
-        let weekday_text_size = if cell_size <= 32.0 { 12.0 } else { 13.0 };
-        let day_text_size = if cell_size <= 32.0 { 13.0 } else { 14.0 };
+        // Day cells are as tall as a medium control, so the calendar follows density.
+        let cell_size = this.cell_size.unwrap_or(tokens.sizing.control_md);
+        let padding = this.padding.unwrap_or(tokens.spacing.m);
+        let small_cells = cell_size <= tokens.sizing.control_md.min(32.0);
+        let weekday_text_size = if small_cells {
+            tokens.typography.font_size_xs
+        } else {
+            tokens.typography.font_size_sm
+        };
+        let day_text_size = if small_cells {
+            tokens.typography.font_size_sm
+        } else {
+            tokens.typography.font_size_base
+        };
 
         let first_day = NaiveDate::from_ymd_opt(this.year, this.month, 1).unwrap();
         let days_in_month = if this.month == 12 {
@@ -196,7 +206,7 @@ impl From<Calendar> for Widget {
         // calendar grows to whatever is offered, such as a whole window inside a popover. It is as
         // wide as its seven day columns.
         let mut c = Container::new(VStack {
-            spacing: Some(8.0),
+            spacing: Some(tokens.spacing.s),
             children: vec![header, labels, day_grid],
         })
         .width(cell_size * 7.0 + padding * 2.0)

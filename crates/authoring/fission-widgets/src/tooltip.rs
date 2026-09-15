@@ -66,25 +66,33 @@ impl TooltipMotion {
         }
     }
 
-    fn plan(&self) -> TooltipMotionPlan {
+    fn plan(&self, tokens: &fission_theme::Tokens) -> TooltipMotionPlan {
         let mut plan = TooltipMotionPlan::default();
-        self.append_plan(&mut plan);
+        self.append_plan(&mut plan, tokens);
         plan.normalize()
     }
 
-    fn append_plan(&self, plan: &mut TooltipMotionPlan) {
+    /// A tooltip is small and frequent, so it moves the shortest distance on the
+    /// quickest motion token.
+    fn append_plan(&self, plan: &mut TooltipMotionPlan, tokens: &fission_theme::Tokens) {
+        let travel = tokens.spacing.xs;
+        let duration = tokens.motion.duration_micro_ms;
         match self {
             Self::Default | Self::FadeAndSlide => {
-                Self::Fade.append_plan(plan);
-                push_enter_with_exit(&mut plan.enter, &mut plan.exit, slide_y_in(-6.0, 120));
+                Self::Fade.append_plan(plan, tokens);
+                push_enter_with_exit(
+                    &mut plan.enter,
+                    &mut plan.exit,
+                    slide_y_in(-travel, duration),
+                );
             }
-            Self::Fade => push_enter_with_exit(&mut plan.enter, &mut plan.exit, fade_in(100)),
+            Self::Fade => push_enter_with_exit(&mut plan.enter, &mut plan.exit, fade_in(duration)),
             Self::Scale => {
-                push_enter_with_exit(&mut plan.enter, &mut plan.exit, scale_in(0.96, 120));
+                push_enter_with_exit(&mut plan.enter, &mut plan.exit, scale_in(0.96, duration));
             }
             Self::Composition(items) => {
                 for item in items {
-                    item.append_plan(plan);
+                    item.append_plan(plan, tokens);
                 }
             }
             Self::None => {}
@@ -205,7 +213,7 @@ impl From<Tooltip> for Widget {
             .shadows(style.outer_shadows())
             .into();
             if let Some(motion) = &motion {
-                let plan = motion.plan();
+                let plan = motion.plan(&view.env().theme.tokens);
                 tooltip_card = Presence {
                     id: slot_id(this.id, SLOT_SURFACE),
                     visible: show_tooltip,
