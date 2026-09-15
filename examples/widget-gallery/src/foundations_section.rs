@@ -104,6 +104,10 @@ impl From<FoundationsSection> for Widget {
                             child: StateLayerSwatches.into(),
                         },
                         FoundationGroup {
+                            title: "Colour pairs".into(),
+                            child: ColourPairSwatches.into(),
+                        },
+                        FoundationGroup {
                             title: "Icon sizes".into(),
                             child: IconSizeScale.into(),
                         },
@@ -602,6 +606,58 @@ impl From<StateLayerSwatches> for Widget {
                                 .color(tokens.colors.text_secondary),
                         ],
                     }
+                    .into()
+                })
+                .collect(),
+        }
+        .into()
+    }
+}
+
+/// Each paired role's fill with content drawn in its own foreground colour.
+struct ColourPairSwatches;
+
+impl From<ColourPairSwatches> for Widget {
+    fn from(_swatches: ColourPairSwatches) -> Self {
+        use fission::theme::ColorRole;
+        let (_, view) = fission::build::current::<()>();
+        let tokens = &view.env().theme.tokens;
+        let roles = [
+            ("background", ColorRole::Background),
+            ("surface", ColorRole::Surface),
+            ("card", ColorRole::Card),
+            ("popover", ColorRole::Popover),
+            ("muted", ColorRole::Muted),
+            ("primary", ColorRole::Primary),
+            ("secondary", ColorRole::Secondary),
+            ("accent", ColorRole::Accent),
+            ("destructive", ColorRole::Destructive),
+        ];
+        Wrap {
+            direction: FlexDirection::Row,
+            spacing: Some(tokens.spacing.s),
+            run_spacing: Some(tokens.spacing.s),
+            children: roles
+                .into_iter()
+                .map(|(name, role)| {
+                    let pair = tokens.colors.pair(role);
+                    Container::new(VStack {
+                        spacing: Some(tokens.spacing.xxs),
+                        children: widgets![
+                            Text::new("Aa")
+                                .size(tokens.typography.font_size_lg)
+                                .weight(tokens.typography.font_weight_semibold)
+                                .color(pair.on),
+                            Text::new(name)
+                                .size(tokens.typography.font_size_xs)
+                                .color(pair.on),
+                        ],
+                    })
+                    .width(tokens.sizing.control_xl * 2.0)
+                    .padding_all(tokens.spacing.s)
+                    .bg(pair.fill)
+                    .border(tokens.colors.border, tokens.sizing.border_hairline)
+                    .border_radius(tokens.radii.medium)
                     .into()
                 })
                 .collect(),

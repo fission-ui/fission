@@ -160,6 +160,33 @@ Inputs, badges, tabs, cards, modals, tooltips, and progress bars follow the same
 
 The important rule is that JSON stops at conversion time. Runtime code sees Rust values.
 
+### Colour pairs
+
+Every fill a component paints comes with the colour for text and icons drawn on it. Ask for both at once, so text is never paired with the wrong ground:
+
+```rust
+use fission::theme::ColorRole;
+
+let card = tokens.colors.pair(ColorRole::Card);
+Container::new(Text::new("Invoice").color(card.on)).bg(card.fill)
+```
+
+| Role | Fill | Content on it | Falls back to |
+| --- | --- | --- | --- |
+| `Background` | `background` | `on_background` | Declared |
+| `Surface` | `surface` | `on_surface` | Declared |
+| `Card` | `card` | `on_card` | `surface`, `on_surface` |
+| `Popover` | `popover` | `on_popover` | `surface_raised`, `on_surface` |
+| `Muted` | `muted` | `on_muted` | `surface_sunken`, `text_muted` |
+| `Primary` | `primary` | `on_primary` | Declared |
+| `Secondary` | `secondary` | `on_secondary` | Declared |
+| `Accent` | `accent` | `on_accent` | `primary`, `on_primary` |
+| `Destructive` | `destructive` | `on_destructive` | `error`, `on_error` |
+
+`input`, the border of text fields, falls back to `border`.
+
+The newer roles are optional. A DSP file that leaves one out gets the existing role in the last column, both at runtime and in references, so `{color.light.card}` works in a recipe even when `tokens.json` never declares `card`. Declare the role under `color.light` and `color.dark` to give it its own value. Each bundled look keeps every pair at WCAG AA contrast (4.5:1).
+
 ## Start from a bundled system when it fits
 
 Fission ships several bundled DSP packages for common product directions. They are not magic modes inside the renderer. Each one is a normal `dsp.json` and `tokens.json` package under `crates/core/fission-theme/design`, generated into a Rust `DesignSystem` implementation at conversion time.

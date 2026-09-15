@@ -128,3 +128,41 @@ fn skeleton_placeholders_stand_out_in_light_and_dark() {
         }
     }
 }
+
+/// Every paired role's foreground is readable on its fill (WCAG AA, 4.5:1), in
+/// each bundled look and mode, whether the pair is declared or aliased.
+#[test]
+fn every_colour_pair_is_readable_in_light_and_dark() {
+    use fission_theme::{ColorRole, FissionGraphiteDesignSystem};
+    const ROLES: [ColorRole; 9] = [
+        ColorRole::Background,
+        ColorRole::Surface,
+        ColorRole::Card,
+        ColorRole::Popover,
+        ColorRole::Muted,
+        ColorRole::Primary,
+        ColorRole::Secondary,
+        ColorRole::Accent,
+        ColorRole::Destructive,
+    ];
+    let mut looks = themes();
+    for mode in [DesignMode::Light, DesignMode::Dark] {
+        looks.push(("graphite", FissionGraphiteDesignSystem::theme(mode)));
+    }
+    let mut failures = Vec::new();
+    for (name, theme) in looks {
+        let mode = theme.design_system.mode;
+        for role in ROLES {
+            let pair = theme.tokens.colors.pair(role);
+            let ratio = contrast(pair.fill, pair.on);
+            if ratio < 4.5 {
+                failures.push(format!("{name} {mode:?} {role:?}: {ratio:.2}:1"));
+            }
+        }
+    }
+    assert!(
+        failures.is_empty(),
+        "pairs below AA:\n{}",
+        failures.join("\n")
+    );
+}

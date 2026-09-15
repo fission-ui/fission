@@ -121,4 +121,101 @@ impl Package {
         }
         self.resolve_token_string(path)
     }
+
+    /// `card: Some(..), on_card: None, ..` for the paired colour roles. A role
+    /// is `Some` when the DSP declares it or its alias resolved; otherwise the
+    /// theme falls back to the role's source at runtime.
+    pub(super) fn paired_color_fields(&self, krate: &str, prefix: &str) -> Result<String> {
+        let mut fields = String::new();
+        for (name, _) in COLOR_ALIASES {
+            let path = format!("{prefix}.{name}");
+            let value = if self.tokens.contains(&path) {
+                format!("Some({})", self.color_expr(krate, &path)?)
+            } else {
+                "None".to_string()
+            };
+            fields.push_str(&format!("{name}: {value}, "));
+        }
+        Ok(fields)
+    }
+}
+
+/// Paired colour roles and the existing roles they stand in for, first match
+/// wins. The runtime accessors on `ColorTokens` use the same sources.
+const COLOR_ALIASES: &[(&str, &[&str])] = &[
+    ("card", &["surface"]),
+    ("on_card", &["on_surface", "text_primary"]),
+    ("popover", &["surface_raised", "surface"]),
+    ("on_popover", &["on_surface", "text_primary"]),
+    ("muted", &["surface_sunken", "background"]),
+    ("on_muted", &["text_muted", "text_secondary"]),
+    ("destructive", &["error"]),
+    ("on_destructive", &["on_error"]),
+    ("input", &["border"]),
+];
+
+/// Declares each paired role a design system leaves out as a reference to its
+/// source role, so recipes can write `{color.light.card}` against any DSP file.
+/// A role the file declares itself is left alone.
+pub(super) fn add_color_aliases(tokens: &mut BTreeMap<String, Token>) {
+    for mode in ["light", "dark"] {
+        for (alias, sources) in COLOR_ALIASES {
+            let alias_path = format!("color.{mode}.{alias}");
+            if tokens.contains_key(&alias_path) {
+                continue;
+            }
+            let Some(source) = sources
+                .iter()
+                .map(|source| format!("color.{mode}.{source}"))
+                .find(|path| tokens.contains_key(path))
+            else {
+                continue;
+            };
+            tokens.insert(
+                alias_path,
+                Token {
+                    value: format!("{{{source}}}"),
+                    kind: Some("color".to_string()),
+                },
+            );
+        }
+    }
+}
+
+#[cfg(test)]
+mod color_alias_tests {
+    use super::*;
+
+    fn store(tokens: serde_json::Value) -> TokenStore {
+        TokenStore::from_value(&tokens).expect("tokens parse")
+    }
+
+    #[test]
+    fn a_paired_role_the_file_leaves_out_resolves_to_its_source() {
+        let tokens = store(serde_json::json!({
+            "color": { "light": {
+                "surface": { "value": "#FAFAFA", "type": "color" },
+                "text_primary": { "value": "#111111", "type": "color" }
+            } }
+        }));
+
+        assert_eq!(tokens.resolve("color.light.card").unwrap(), "#FAFAFA");
+        // on_surface is absent, so the next source in the table stands in.
+        assert_eq!(tokens.resolve("color.light.on_card").unwrap(), "#111111");
+        // A role with no source present is not invented.
+        assert!(!tokens.contains("color.light.destructive"));
+        assert!(!tokens.contains("color.dark.card"));
+    }
+
+    #[test]
+    fn a_paired_role_the_file_declares_keeps_its_own_value() {
+        let tokens = store(serde_json::json!({
+            "color": { "dark": {
+                "surface": { "value": "#101010", "type": "color" },
+                "card": { "value": "#202020", "type": "color" }
+            } }
+        }));
+
+        assert_eq!(tokens.resolve("color.dark.card").unwrap(), "#202020");
+    }
 }

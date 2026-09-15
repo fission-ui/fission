@@ -398,6 +398,7 @@ impl {krate}::DesignSystem for {type_name} {{
                 focus_ring: {focus_ring},
                 accent: {accent},
                 on_accent: {on_accent},
+                {paired}
             }}"#,
             primary = c("primary")?,
             on_primary = c("on_primary")?,
@@ -430,7 +431,7 @@ impl {krate}::DesignSystem for {type_name} {{
                 &self.resolve_token_string(&format!("{prefix}.text_primary"))?
             )?,
             error = c("error")?,
-            on_error = self.color_literal_expr(krate, fallback_on_error)?,
+            on_error = c_or("on_error", fallback_on_error)?,
             success = c_or("success", "#10B981")?,
             warning = c_or("warning", "#F59E0B")?,
             info = c_or("info", "#0EA5E9")?,
@@ -461,6 +462,7 @@ impl {krate}::DesignSystem for {type_name} {{
                 "focus_ring",
                 &self.resolve_token_string(&format!("{prefix}.primary"))?
             )?,
+            paired = self.paired_color_fields(krate, prefix)?,
             accent = c_or(
                 "accent",
                 &self.resolve_token_string(&format!("{prefix}.primary"))?
@@ -2973,6 +2975,7 @@ impl TokenStore {
     fn from_value(value: &Value) -> Result<Self> {
         let mut tokens = BTreeMap::new();
         flatten_tokens(value, String::new(), &mut tokens)?;
+        foundation_tokens::add_color_aliases(&mut tokens);
         Ok(Self { tokens })
     }
 

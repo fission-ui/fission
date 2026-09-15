@@ -690,6 +690,58 @@ pub struct ColorTokens {
     /// design system that omits it uses `on_primary`.
     #[serde(default = "default_on_accent")]
     pub on_accent: Color,
+    // Paired roles. Each fill has a colour for content drawn on it, so a
+    // component picks both from one role and never pairs text with the wrong
+    // ground. Every one is optional: a design system that leaves one out gets
+    // the existing role named in its accessor, so older DSP files keep working.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub card: Option<Color>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub on_card: Option<Color>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub popover: Option<Color>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub on_popover: Option<Color>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub muted: Option<Color>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub on_muted: Option<Color>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub destructive: Option<Color>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub on_destructive: Option<Color>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input: Option<Color>,
+}
+
+/// A fill and the colour for text and icons drawn on it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ColorPair {
+    pub fill: Color,
+    pub on: Color,
+}
+
+/// A colour role that comes as a pair: a fill and its foreground.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum ColorRole {
+    /// The page behind everything.
+    Background,
+    /// A plain surface such as a panel or sheet.
+    Surface,
+    /// A card or grouped block that sits on the page.
+    Card,
+    /// A floating layer such as a menu, popover or tooltip.
+    Popover,
+    /// A quiet fill for secondary content, placeholders and inactive tracks.
+    Muted,
+    /// The main action colour.
+    Primary,
+    /// A secondary action colour.
+    Secondary,
+    /// Selection controls in their on state.
+    Accent,
+    /// Actions that delete or cannot be undone.
+    Destructive,
 }
 
 fn default_accent() -> Color {
@@ -716,6 +768,67 @@ impl ColorTokens {
     /// The dark palette of Fission's default design system.
     pub fn dark() -> Self {
         Tokens::dark().colors
+    }
+
+    /// Card fill; falls back to `surface`.
+    pub fn card(&self) -> Color {
+        self.card.unwrap_or(self.surface)
+    }
+
+    /// Content on a card; falls back to `on_surface`.
+    pub fn on_card(&self) -> Color {
+        self.on_card.unwrap_or(self.on_surface)
+    }
+
+    /// Floating layer fill; falls back to `surface_raised`.
+    pub fn popover(&self) -> Color {
+        self.popover.unwrap_or(self.surface_raised)
+    }
+
+    /// Content on a floating layer; falls back to `on_surface`.
+    pub fn on_popover(&self) -> Color {
+        self.on_popover.unwrap_or(self.on_surface)
+    }
+
+    /// Quiet fill; falls back to `surface_sunken`.
+    pub fn muted(&self) -> Color {
+        self.muted.unwrap_or(self.surface_sunken)
+    }
+
+    /// Content on the quiet fill; falls back to `text_muted`.
+    pub fn on_muted(&self) -> Color {
+        self.on_muted.unwrap_or(self.text_muted)
+    }
+
+    /// Destructive action fill; falls back to `error`.
+    pub fn destructive(&self) -> Color {
+        self.destructive.unwrap_or(self.error)
+    }
+
+    /// Content on a destructive action; falls back to `on_error`.
+    pub fn on_destructive(&self) -> Color {
+        self.on_destructive.unwrap_or(self.on_error)
+    }
+
+    /// Border of text fields and other inputs; falls back to `border`.
+    pub fn input(&self) -> Color {
+        self.input.unwrap_or(self.border)
+    }
+
+    /// The fill for `role` together with the colour for content on it.
+    pub fn pair(&self, role: ColorRole) -> ColorPair {
+        let (fill, on) = match role {
+            ColorRole::Background => (self.background, self.on_background),
+            ColorRole::Surface => (self.surface, self.on_surface),
+            ColorRole::Card => (self.card(), self.on_card()),
+            ColorRole::Popover => (self.popover(), self.on_popover()),
+            ColorRole::Muted => (self.muted(), self.on_muted()),
+            ColorRole::Primary => (self.primary, self.on_primary),
+            ColorRole::Secondary => (self.secondary, self.on_secondary),
+            ColorRole::Accent => (self.accent, self.on_accent),
+            ColorRole::Destructive => (self.destructive(), self.on_destructive()),
+        };
+        ColorPair { fill, on }
     }
 }
 
