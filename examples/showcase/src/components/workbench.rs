@@ -8,6 +8,26 @@ use fission::widgets::{SplitDirection, SplitView};
 
 const DESKTOP_CATALOG_RATIO: f32 = 0.30;
 
+/// The width the preview pane gets in a window `window_width` wide.
+///
+/// Mirrors the layout below: under the medium breakpoint the example fills the
+/// window; above it the split's handle is taken out and the rest is shared by
+/// ratio. A mounted example sizes itself from this on its very first build,
+/// before any layout has been measured, so its first frame matches later ones.
+pub(crate) fn preview_pane_width(view: &ViewHandle<ShowcaseState>, window_width: f32) -> f32 {
+    let theme = &view.env().theme;
+    if window_width < theme.tokens.breakpoints.medium_max {
+        return window_width;
+    }
+    // The same handle size SplitView uses.
+    let handle = theme
+        .recipe(fission::theme::recipes::SplitView)
+        .try_part_named("handle")
+        .and_then(|handle| handle.width.or(handle.height))
+        .unwrap_or(theme.tokens.spacing.s);
+    ((window_width - handle) * (1.0 - DESKTOP_CATALOG_RATIO)).max(0.0)
+}
+
 /// The catalog beside the open example.
 ///
 /// Below the medium breakpoint there is no room for both panes, so the catalog

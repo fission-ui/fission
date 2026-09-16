@@ -22,6 +22,15 @@ pub use state::GalleryState;
 
 use fission::prelude::*;
 
+/// The gallery as another app mounts it, such as the example showcase. The host
+/// already names the example, so the gallery drops its own app title.
+pub fn embedded_state() -> GalleryState {
+    GalleryState {
+        embedded: true,
+        ..GalleryState::default()
+    }
+}
+
 fn sync_standalone_env(state: &GalleryState, env: &mut Env) {
     env.theme = if state.dark_theme {
         Theme::dark()

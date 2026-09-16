@@ -9,7 +9,10 @@ impl From<CompactShell<'_>> for Widget {
     fn from(shell: CompactShell<'_>) -> Self {
         let (_, view) = fission::build::current::<AnimationGalleryState>();
         let tokens = &view.env().theme.tokens;
-        let mut children: Vec<Widget> = vec![CompactBrand.into()];
+        let mut children: Vec<Widget> = Vec::new();
+        if !shell.state.embedded {
+            children.push(CompactBrand.into());
+        }
         if shell.state.current_path == routes::OVERVIEW {
             children.push(
                 TopStoryRow {

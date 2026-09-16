@@ -53,6 +53,7 @@ impl From<TextLabModal> for Widget {
                                 id: WidgetId::explicit("text_lab_modal_to"),
                                 semantics_identifier: Some("text-lab.modal.to".into()),
                                 value: view.state().modal_to.clone(),
+                                placeholder: Some("name@example.com".into()),
                                 items: modal_items,
                                 is_open: !view.state().modal_to.trim().is_empty()
                                     && !modal_has_exact,

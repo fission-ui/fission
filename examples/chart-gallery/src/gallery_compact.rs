@@ -12,11 +12,22 @@ impl From<GalleryCompact> for Widget {
     fn from(gallery: GalleryCompact) -> Self {
         let (_, view) = fission::build::current::<GalleryState>();
 
-        Column {
-            id: Some(WidgetId::explicit("chart-gallery.layout.compact")),
-            gap: Some(view.env().theme.tokens.spacing.m),
+        // The picker and the content scroll together as one page, so nothing is
+        // trapped in a nested scroll area.
+        Scroll {
+            id: Some(WidgetId::explicit("chart-gallery.page-scroll.compact")),
+            direction: FlexDirection::Column,
+            child: Some(
+                Column {
+                    id: Some(WidgetId::explicit("chart-gallery.layout.compact")),
+                    gap: Some(view.env().theme.tokens.spacing.m),
+                    children: widgets![gallery.sidebar, gallery.content],
+                    ..Default::default()
+                }
+                .into(),
+            ),
+            show_scrollbar: true,
             flex_grow: 1.0,
-            children: widgets![gallery.sidebar, gallery.content],
             ..Default::default()
         }
         .into()

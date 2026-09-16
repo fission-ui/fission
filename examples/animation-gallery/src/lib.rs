@@ -12,3 +12,12 @@ mod widgets;
 pub use app::run;
 pub use app::AnimationGalleryApp;
 pub use state::AnimationGalleryState;
+
+/// The gallery as another app mounts it, such as the example showcase. The host
+/// already names the example, so the gallery drops its brand and hero.
+pub fn embedded_state() -> AnimationGalleryState {
+    AnimationGalleryState {
+        embedded: true,
+        ..AnimationGalleryState::default()
+    }
+}

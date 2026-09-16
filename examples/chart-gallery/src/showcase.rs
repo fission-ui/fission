@@ -9,7 +9,7 @@ use fission::charts::{
     Axis, Chart, DataZoom, GraphNode, HeatmapSeries, Legend, LineSeries, MapSeries, SankeySeries,
     SunburstSeries, ThemeRiverSeries, TreemapNode, VisualMap,
 };
-use fission::core::ui::{Column, Container, Scroll, Text, Widget};
+use fission::core::ui::{Column, Container, Text, Widget};
 
 pub(crate) struct ChartShowcase {
     pub scale: f32,
@@ -269,18 +269,11 @@ impl From<ChartShowcase> for Widget {
         .into(),
     );
 
-        Scroll {
-            direction: fission::core::FlexDirection::Column,
-            child: Some(
-                Column {
-                    children,
-                    gap: Some(tokens.spacing.l),
-                    ..Default::default()
-                }
-                .into(),
-            ),
-            show_scrollbar: true,
-            flex_grow: 1.0,
+        // The gallery scrolls the page, so the overview grows to its full height
+        // instead of scrolling inside it.
+        Column {
+            children,
+            gap: Some(tokens.spacing.l),
             ..Default::default()
         }
         .into()

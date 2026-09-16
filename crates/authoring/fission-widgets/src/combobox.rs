@@ -218,6 +218,10 @@ pub struct Combobox {
     pub id: WidgetId,
     /// Current controlled filter or selected text.
     pub value: String,
+    /// Hint shown in the muted placeholder colour while `value` is empty.
+    ///
+    /// The field also announces it as its accessible name when no label is set.
+    pub placeholder: Option<String>,
     /// Candidate labels presented in the popup.
     pub items: Vec<String>,
     /// Whether the controlled popup is open.
@@ -245,6 +249,7 @@ impl Default for Combobox {
         Self {
             id: WidgetId::explicit("combobox"),
             value: String::new(),
+            placeholder: None,
             items: Vec::new(),
             is_open: false,
             width: None,
@@ -302,6 +307,7 @@ impl From<Combobox> for Widget {
         let mut input = ComboboxInput::new(component.value);
         input.input.on_input = component.on_input;
         input.input.width = component.width;
+        input.input.placeholder = component.placeholder.map(Into::into);
         if let Some(identifier) = component.semantics_identifier {
             input.input.semantics_identifier = Some(identifier);
         }

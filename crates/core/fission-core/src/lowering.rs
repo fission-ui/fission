@@ -112,6 +112,38 @@ impl<'a> LoweringContext<'a> {
         result
     }
 
+    /// Runs `lower` against `env` instead of the surrounding environment, then
+    /// restores it.
+    ///
+    /// Everything else carries through unchanged: the IR lowered so far, identity
+    /// scopes, form-field context, runtime state, the measurer and the previous
+    /// layout. A subtree built with its own theme, density or locale (a preview
+    /// shown in another design system, say) lowers here so the recipe values read
+    /// during lowering match the ones it was built with. Widgets use
+    /// [`EnvScope`](crate::ui::EnvScope).
+    pub fn with_env<R>(
+        &mut self,
+        env: &Env,
+        lower: impl FnOnce(&mut LoweringContext<'_>) -> R,
+    ) -> R {
+        let mut scoped = LoweringContext {
+            env,
+            runtime_state: self.runtime_state,
+            ir: std::mem::replace(&mut self.ir, CoreIR::new()),
+            measurer: self.measurer,
+            layout: self.layout,
+            id_stack: std::mem::take(&mut self.id_stack),
+            form_field_stack: std::mem::take(&mut self.form_field_stack),
+            global_seq: self.global_seq,
+        };
+        let result = lower(&mut scoped);
+        self.ir = scoped.ir;
+        self.id_stack = scoped.id_stack;
+        self.form_field_stack = scoped.form_field_stack;
+        self.global_seq = scoped.global_seq;
+        result
+    }
+
     pub fn next_node_id(&mut self) -> WidgetId {
         if let Some((base_id, seq)) = self.id_stack.last_mut() {
             let next_id = WidgetId::derived(base_id.as_u128(), &[*seq]);
@@ -811,6 +843,32 @@ mod identity_scope_tests {
             after_nested, after_flat,
             "the outer scope is restored when it ends"
         );
+    }
+
+    #[test]
+    fn a_scoped_environment_applies_inside_and_the_host_one_returns_after() {
+        let host = Env::default();
+        let mut scoped = Env::default();
+        scoped.viewport_size = fission_layout::LayoutSize::new(123.0, 45.0);
+        let runtime = RuntimeState::default();
+        let mut cx = LoweringContext::new(&host, &runtime, None, None);
+        let mut reference = LoweringContext::new(&host, &runtime, None, None);
+
+        let (inside_width, inside_id) = cx.with_env(&scoped, |cx| {
+            (cx.env().viewport_size.width, cx.next_node_id())
+        });
+
+        assert_eq!(inside_width, 123.0);
+        assert_eq!(
+            inside_id,
+            reference.next_node_id(),
+            "ids continue through the scope"
+        );
+        assert!(
+            std::ptr::eq(cx.env(), &host),
+            "the host environment returns"
+        );
+        assert_eq!(cx.next_node_id(), reference.next_node_id());
     }
 
     #[test]

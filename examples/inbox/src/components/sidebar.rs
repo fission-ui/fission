@@ -33,6 +33,15 @@ impl From<Sidebar> for Widget {
         let (ctx, view) = fission::build::current::<InboxState>();
         let state = view.state();
         let tokens = &view.env().theme.tokens;
+        // An app-bar sized brand, so it never outranks the folder title beside it.
+        // Embedded, the host already names the example, so the brand is dropped.
+        let brand: Option<Widget> = (!state.embedded).then(|| {
+            Text::new(view.tr("app.title"))
+                .size(tokens.typography.font_size_lg)
+                .weight(tokens.typography.font_weight_bold)
+                .max_lines(1)
+                .into()
+        });
 
         Container::new(Scroll {
             direction: FlexDirection::Column,
@@ -42,91 +51,88 @@ impl From<Sidebar> for Widget {
             child: Some(
                 VStack {
                     spacing: Some(tokens.spacing.xs),
-                    children: vec![
-                        Text {
-                            content: TextContent::Key("app.title".into()),
-                            font_size: Some(tokens.typography.heading2_size),
-                            ..Default::default()
-                        }
-                        .into(),
-                        Button {
-                            variant: ButtonVariant::Filled,
-                            child: Some(
-                                Text {
-                                    content: TextContent::Key("button.compose".into()),
-                                    color: Some(tokens.colors.on_primary),
-                                    ..Default::default()
-                                }
-                                .into(),
-                            ),
-                            on_press: Some(
-                                ctx.bind(SetComposeOpen(true), reduce_with!(set_compose_open)),
-                            ),
-                            ..Default::default()
-                        }
-                        .into(),
-                        TreeView {
-                            selected_id: Some(state.selected_folder.to_string().to_lowercase()),
-                            expanded_ids: state.expanded_folders.clone(),
-                            items: FOLDERS
-                                .iter()
-                                .map(|(folder, id, label)| TreeItem {
-                                    id: (*id).into(),
-                                    label: view.tr(label),
-                                    icon: None,
-                                    children: vec![],
-                                    on_toggle: None,
-                                    on_select: Some(ctx.bind(
-                                        SelectFolder(folder.clone()),
-                                        reduce_with!(select_folder),
-                                    )),
-                                })
-                                .collect(),
-                        }
-                        .into(),
-                        Text::new(view.tr("labels.title"))
-                            .size(tokens.typography.font_size_xs)
-                            .color(tokens.colors.text_secondary)
-                            .into(),
-                        Wrap {
-                            direction: FlexDirection::Row,
-                            spacing: Some(tokens.spacing.s),
-                            run_spacing: None,
-                            children: LABELS
-                                .iter()
-                                .map(|label| {
-                                    Tag {
-                                        label: (*label).into(),
-                                        on_close: None,
-                                        on_press: Some(ctx.bind(
-                                            crate::model::ToggleLabelFilter((*label).into()),
-                                            reduce_with!(toggle_label_filter),
-                                        )),
-                                        selected: state.label_filter.as_deref() == Some(*label),
+                    children: brand
+                        .into_iter()
+                        .chain([
+                            Button {
+                                variant: ButtonVariant::Filled,
+                                child: Some(
+                                    Text {
+                                        content: TextContent::Key("button.compose".into()),
+                                        color: Some(tokens.colors.on_primary),
+                                        ..Default::default()
                                     }
-                                    .into()
-                                })
-                                .collect(),
-                        }
-                        .into(),
-                        Divider {
-                            orientation: Orientation::Horizontal,
-                            ..Default::default()
-                        }
-                        .into(),
-                        NavLink {
-                            label_key: "nav.contacts",
-                            on_press: ctx
-                                .bind(SetContactsOpen(true), reduce_with!(set_contacts_open)),
-                        }
-                        .into(),
-                        NavLink {
-                            label_key: "nav.settings",
-                            on_press: ctx
-                                .bind(SetSettingsOpen(true), reduce_with!(set_settings_open)),
-                        }
-                        .into(),
-                    ],
+                                    .into(),
+                                ),
+                                on_press: Some(
+                                    ctx.bind(SetComposeOpen(true), reduce_with!(set_compose_open)),
+                                ),
+                                ..Default::default()
+                            }
+                            .into(),
+                            TreeView {
+                                selected_id: Some(state.selected_folder.to_string().to_lowercase()),
+                                expanded_ids: state.expanded_folders.clone(),
+                                items: FOLDERS
+                                    .iter()
+                                    .map(|(folder, id, label)| TreeItem {
+                                        id: (*id).into(),
+                                        label: view.tr(label),
+                                        icon: None,
+                                        children: vec![],
+                                        on_toggle: None,
+                                        on_select: Some(ctx.bind(
+                                            SelectFolder(folder.clone()),
+                                            reduce_with!(select_folder),
+                                        )),
+                                    })
+                                    .collect(),
+                            }
+                            .into(),
+                            Text::new(view.tr("labels.title"))
+                                .size(tokens.typography.font_size_xs)
+                                .color(tokens.colors.text_secondary)
+                                .into(),
+                            Wrap {
+                                direction: FlexDirection::Row,
+                                spacing: Some(tokens.spacing.s),
+                                run_spacing: None,
+                                children: LABELS
+                                    .iter()
+                                    .map(|label| {
+                                        Tag {
+                                            label: (*label).into(),
+                                            on_close: None,
+                                            on_press: Some(ctx.bind(
+                                                crate::model::ToggleLabelFilter((*label).into()),
+                                                reduce_with!(toggle_label_filter),
+                                            )),
+                                            selected: state.label_filter.as_deref() == Some(*label),
+                                        }
+                                        .into()
+                                    })
+                                    .collect(),
+                            }
+                            .into(),
+                            Divider {
+                                orientation: Orientation::Horizontal,
+                                ..Default::default()
+                            }
+                            .into(),
+                            NavLink {
+                                label_key: "nav.contacts",
+                                on_press: ctx
+                                    .bind(SetContactsOpen(true), reduce_with!(set_contacts_open)),
+                            }
+                            .into(),
+                            NavLink {
+                                label_key: "nav.settings",
+                                on_press: ctx
+                                    .bind(SetSettingsOpen(true), reduce_with!(set_settings_open)),
+                            }
+                            .into(),
+                        ])
+                        .collect(),
                 }
                 .into(),
             ),

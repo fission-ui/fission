@@ -142,6 +142,7 @@ impl From<InlineComboboxField> for Widget {
                 items: filtered_suggestions(&value, &INLINE_OPTIONS),
                 is_open: !value.trim().is_empty() && !has_exact,
                 value,
+                placeholder: Some("Start typing an address".into()),
                 width: None,
                 max_popup_height: Some(POPUP_MAX_HEIGHT),
                 on_input: Some(set_value),
@@ -203,18 +204,23 @@ impl From<LabActions> for Widget {
     }
 }
 
-/// The last event the harness recorded, below a small gap.
+/// The last event the harness recorded, below a small gap. Nothing is shown
+/// until an event arrives, so the line never reads as a label missing its value.
 struct StatusLine;
 
 impl From<StatusLine> for Widget {
     fn from(_line: StatusLine) -> Self {
         let (_, view) = fission::build::current::<TextLabState>();
         let tokens = &view.env().theme.tokens;
+        let status = &view.state().status;
+        if status.is_empty() {
+            return Spacer::default().into();
+        }
         VStack {
             spacing: Some(tokens.spacing.xs),
             children: widgets![
                 Spacer::default(),
-                Text::new(format!("Status: {}", view.state().status))
+                Text::new(format!("Status: {status}"))
                     .size(tokens.typography.body_medium_size)
                     .color(tokens.colors.text_secondary),
             ],

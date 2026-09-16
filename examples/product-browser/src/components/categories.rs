@@ -75,19 +75,15 @@ impl From<CategoryRail> for Widget {
                 gap: Some(tokens.spacing.s),
                 children: widgets![
                     heading,
-                    Scroll {
+                    // Wraps so every category stays visible instead of hiding in a
+                    // short scrolling card.
+                    Row {
                         id: Some(WidgetId::explicit(
-                            "product-browser.categories.compact.scroll",
+                            "product-browser.categories.compact.list"
                         )),
-                        child: Some(
-                            Column {
-                                gap: Some(tokens.spacing.s),
-                                children: entries,
-                                ..Default::default()
-                            }
-                            .into(),
-                        ),
-                        height: Some(tokens.spacing.xxxxl),
+                        gap: Some(tokens.spacing.s),
+                        wrap: ir_op::FlexWrap::Wrap,
+                        children: entries,
                         ..Default::default()
                     },
                 ],

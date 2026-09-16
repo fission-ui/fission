@@ -14,6 +14,8 @@ impl From<InboxExample> for Widget {
             view.state().preview_generation,
             InboxApp,
         )
+        // The showcase header already names the example, so the inbox drops its brand.
+        .with_state(inbox_example::embedded_state)
         .with_env(configure_inbox_env)
         .into()
     }

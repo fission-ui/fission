@@ -554,7 +554,7 @@ pub mod public {
     pub use crate::time::{Clock, CurrentTime};
     pub use crate::ui::{
         provider, ActionScope, BadgeTone, Button, ButtonHierarchy, ButtonMotion, CardPattern,
-        Column, ComponentSize, ComponentState, CustomWidget, IosAudioSessionCategory,
+        Column, ComponentSize, ComponentState, CustomWidget, EnvScope, IosAudioSessionCategory,
         IosAudioSessionCategoryOption, IosAudioSessionMode, IosVideoAudioOptions, Pressable,
         PressableRole, PressableStyle, Provider, Responsive, ResponsiveCase, ResponsiveQuery, Row,
         Text, Video, VideoAudioActivation, VideoAudioOptions, VideoAudioPolicy, VideoSource,
@@ -785,7 +785,7 @@ pub use scoped_action_handlers::ScopedActionResolution;
 pub use time::{Clock, CurrentTime};
 pub use ui::{
     provider, ActionScope, BadgeTone, Button, ButtonHierarchy, ButtonMotion, CardPattern, Column,
-    ComponentSize, ComponentState, CustomWidget, IosAudioSessionCategory,
+    ComponentSize, ComponentState, CustomWidget, EnvScope, IosAudioSessionCategory,
     IosAudioSessionCategoryOption, IosAudioSessionMode, IosVideoAudioOptions, Pressable,
     PressableRole, PressableStyle, Provider, Responsive, ResponsiveCase, ResponsiveQuery, Row,
     Text, Video, VideoAudioActivation, VideoAudioOptions, VideoAudioPolicy, VideoSource, Widget,

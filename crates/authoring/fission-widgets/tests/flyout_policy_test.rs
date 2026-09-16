@@ -164,6 +164,7 @@ fn menu_select_and_combobox_choose_control_specific_policies() {
             semantics_identifier: None,
             value: String::new(),
             items: vec!["Avery".into()],
+            placeholder: None,
             is_open: true,
             width: None,
             max_popup_height: None,

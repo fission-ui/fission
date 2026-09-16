@@ -14,6 +14,8 @@ impl From<ProductBrowserExample> for Widget {
             view.state().preview_generation,
             ProductBrowserApp,
         )
+        // The showcase header already names the example, so the browser drops its title.
+        .with_state(product_browser_example::embedded_state)
         .into()
     }
 }

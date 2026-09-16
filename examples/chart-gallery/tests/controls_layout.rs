@@ -12,9 +12,8 @@ fn text_rect(harness: &TestHarness<GalleryState>, needle: &str) -> fission::layo
         .unwrap_or_else(|| panic!("no laid-out text starting with {needle:?}"))
 }
 
-/// The showcase scroll area grows to fill the content column; the controls
-/// below it must keep their natural height instead of being squashed so the
-/// slider row paints over the helper text.
+/// The controls must keep their natural height instead of being squashed so
+/// the slider row paints over the helper text, and stay on screen.
 #[test]
 fn chart_controls_keep_their_height_below_the_showcase() {
     let mut harness = TestHarness::new(GalleryState::default()).with_root_widget(GalleryApp);

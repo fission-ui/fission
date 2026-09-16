@@ -279,6 +279,7 @@ pub(crate) fn combobox() -> Vec<Widget> {
         id: WidgetId::explicit("gallery.combobox"),
         value: state.combobox_value.clone(),
         items,
+        placeholder: None,
         is_open: state.combobox_open,
         width: Some(COMBOBOX_WIDTH),
         max_popup_height: None,

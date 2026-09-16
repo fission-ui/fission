@@ -1,10 +1,12 @@
-use super::TargetChip;
-use crate::catalog::{ExampleCategory, ExampleDefinition};
+use crate::catalog::ExampleDefinition;
 use crate::state::{on_navigate, Navigate, ShowcaseState};
-use fission::icons::material;
-use fission::op::{AlignItems, Fill, FlexWrap};
+use fission::op::{AlignItems, BoxAlignment, Fill};
 use fission::prelude::*;
 
+/// One example in the catalog: its name and, quietly, where it runs.
+///
+/// The summary lives in the workbench header, so a row stays one line and more
+/// of the catalog fits on screen.
 #[derive(Clone, Copy, Debug)]
 pub(super) struct ExampleRow {
     pub(super) example: ExampleDefinition,
@@ -18,54 +20,57 @@ impl From<ExampleRow> for Widget {
         let path = format!("/examples/{}", component.example.slug);
         let navigate = with_reducer!(ctx, Navigate(path), on_navigate);
         let title = view.env().tr(component.example.title_key);
-        let target_chips = component
-            .example
-            .targets
-            .iter()
-            .take(3)
-            .map(|target| TargetChip { target: *target }.into())
-            .collect::<Vec<_>>();
+        let platforms = match component.example.targets {
+            [only] => only.label().to_string(),
+            targets => view
+                .tr("showcase.catalog.platform_count")
+                .replace("{count}", &targets.len().to_string()),
+        };
+        // A narrow window is likely touch, so rows meet the touch target there.
+        let min_height = if view.viewport_size().width < tokens.breakpoints.medium_max {
+            tokens.sizing.min_touch_target
+        } else {
+            tokens
+                .sizing
+                .control_md
+                .max(tokens.sizing.min_pointer_target)
+        };
 
-        Pressable::new(Row {
+        let row = Row {
             children: widgets![
-                Icon::svg(match component.example.category {
-                    ExampleCategory::Start => material::av::play_arrow::round(),
-                    ExampleCategory::Apps => material::action::dashboard::round(),
-                    ExampleCategory::Galleries => material::device::widgets::round(),
-                    ExampleCategory::Platform => material::device::devices::round(),
-                    ExampleCategory::Diagnostics => material::action::bug_report::round(),
-                })
-                .size(tokens.sizing.icon_md)
-                .color(if component.selected {
-                    tokens.colors.primary
-                } else {
-                    tokens.colors.text_muted
-                }),
-                Column {
-                    children: widgets![
-                        Text::new(TextContent::Key(component.example.title_key.into()))
-                            .size(tokens.typography.label_large_size)
-                            .weight(tokens.typography.font_weight_semibold)
-                            .color(tokens.colors.text_primary),
-                        Text::new(TextContent::Key(component.example.summary_key.into()))
-                            .size(tokens.typography.font_size_xs)
-                            .color(tokens.colors.text_secondary),
-                        Row {
-                            children: target_chips,
-                            gap: Some(tokens.spacing.xs),
-                            wrap: FlexWrap::Wrap,
-                            ..Default::default()
-                        },
-                    ],
-                    gap: Some(tokens.spacing.xs),
+                Text::new(TextContent::Key(component.example.title_key.into()))
+                    .size(tokens.typography.label_large_size)
+                    .weight(if component.selected {
+                        tokens.typography.font_weight_semibold
+                    } else {
+                        tokens.typography.font_weight_medium
+                    })
+                    .color(tokens.colors.text_primary)
+                    .max_lines(1),
+                Spacer {
                     flex_grow: 1.0,
                     ..Default::default()
                 },
+                Text::new(platforms)
+                    .size(tokens.typography.font_size_xs)
+                    .color(if component.selected {
+                        tokens.colors.text_secondary
+                    } else {
+                        tokens.colors.text_muted
+                    })
+                    .max_lines(1),
             ],
             gap: Some(tokens.spacing.m),
             align_items: AlignItems::Center,
             ..Default::default()
-        })
+        };
+
+        Pressable::new(
+            Container::new(row)
+                .width_length(Length::percent(100.0))
+                .min_height(min_height)
+                .align_child(BoxAlignment::Stretch),
+        )
         .id(WidgetId::explicit(&format!(
             "showcase.catalog.row.{}",
             component.example.slug
@@ -75,8 +80,11 @@ impl From<ExampleRow> for Widget {
         .label(title)
         .semantics_identifier(format!("showcase.example.{}", component.example.slug))
         .style(PressableStyle {
-            padding: Some(Length::all(Length::points(tokens.spacing.m))),
-            corner_radius: Some(tokens.radii.large),
+            padding: Some(Length::symmetric(
+                Length::points(tokens.spacing.m),
+                Length::points(tokens.spacing.xs),
+            )),
+            corner_radius: Some(tokens.radii.medium),
             background: component
                 .selected
                 .then(|| Fill::Solid(tokens.colors.primary_subtle)),

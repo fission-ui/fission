@@ -58,6 +58,9 @@ impl From<CounterApp> for Widget {
             ..Default::default()
         })
         .padding_all(spacing.xl)
+        // Fill the window so the background reaches every edge, not just the content's.
+        .width_length(Length::percent(100.0))
+        .height_length(Length::percent(100.0))
         .bg(tokens.colors.background)
         .into()
     }

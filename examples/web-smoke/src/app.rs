@@ -5,13 +5,14 @@ const CONTENT_MAX_WIDTH: f32 = 420.0;
 
 // The verification field reproduces a one-time-code box: a white tile with a
 // wide, letter-spaced font that is deliberately unavailable, so the browser
-// test covers fallback metrics.
+// test covers fallback metrics. A caption above the tile names it.
 const CODE_FIELD_WIDTH: f32 = 360.0;
 const CODE_FIELD_HEIGHT: f32 = 66.0;
 const CODE_FONT_SIZE: f32 = 42.0;
 const CODE_LINE_HEIGHT: f32 = 52.0;
 const CODE_LETTER_SPACING: f32 = 22.0;
 const CODE_PADDING: [f32; 4] = [9.0, 0.0, 2.0, 0.0];
+const VERIFICATION_LABEL: &str = "Verification code";
 
 #[derive(Default, Debug, Clone, PartialEq)]
 pub struct CounterState {
@@ -170,6 +171,15 @@ impl From<EchoedField> for Widget {
     }
 }
 
+/// Echo text for a value, reading "(empty)" rather than leaving a bare label.
+fn shown(value: &str) -> &str {
+    if value.is_empty() {
+        "(empty)"
+    } else {
+        value
+    }
+}
+
 /// Exercises spell checking, suggestions and a required field.
 struct PrimaryField;
 
@@ -183,6 +193,7 @@ impl From<PrimaryField> for Widget {
                 semantics_identifier: Some("web-smoke.text.primary".into()),
                 name: Some("primary".into()),
                 label: Some("Primary field".into()),
+                placeholder: Some("Type to test spell checking".into()),
                 value: state.primary_text.clone(),
                 on_input: Some(with_reducer!(ctx, EditPrimary, edit_primary)),
                 required: true,
@@ -194,7 +205,8 @@ impl From<PrimaryField> for Widget {
             .into(),
             echo: format!(
                 "Primary value: {} (edits: {})",
-                state.primary_text, state.primary_edits
+                shown(&state.primary_text),
+                state.primary_edits
             ),
         }
         .into()
@@ -213,6 +225,7 @@ impl From<SecondaryField> for Widget {
                 semantics_identifier: Some("web-smoke.text.secondary".into()),
                 name: Some("secondary".into()),
                 label: Some("Secondary field".into()),
+                placeholder: Some("Type anything".into()),
                 value: state.secondary_text.clone(),
                 on_input: Some(with_reducer!(ctx, EditSecondary, edit_secondary)),
                 ..Default::default()
@@ -220,7 +233,8 @@ impl From<SecondaryField> for Widget {
             .into(),
             echo: format!(
                 "Secondary value: {} (edits: {})",
-                state.secondary_text, state.secondary_edits
+                shown(&state.secondary_text),
+                state.secondary_edits
             ),
         }
         .into()
@@ -238,6 +252,7 @@ impl From<PasswordField> for Widget {
             semantics_identifier: Some("web-smoke.text.password".into()),
             name: Some("password".into()),
             label: Some("Password field".into()),
+            placeholder: Some("Enter a password".into()),
             value: view.state().password.clone(),
             on_input: Some(with_reducer!(ctx, EditPassword, edit_password)),
             obscure_text: true,
@@ -249,56 +264,73 @@ impl From<PasswordField> for Widget {
 }
 
 /// Exercises a borderless, digits-only one-time-code field drawn over its own tile.
+///
+/// The field has no built-in label (one would shift it off the tile), so a
+/// caption sits above the tile and the same text names the field semantically.
 struct VerificationCodeField;
 
 impl From<VerificationCodeField> for Widget {
     fn from(_field: VerificationCodeField) -> Self {
         let (ctx, view) = fission::build::current::<CounterState>();
+        let tokens = &view.env().theme.tokens;
         let code = view.state().verification_code.clone();
-        EchoedField {
-            field: ZStack {
-                children: widgets![
-                    Container::new(Spacer::default())
-                        .width(CODE_FIELD_WIDTH)
-                        .height(CODE_FIELD_HEIGHT)
-                        .bg(Color::WHITE),
-                    TextInput {
-                        id: Some(WidgetId::explicit("web-smoke.text.verification")),
-                        semantics_identifier: Some("web-smoke.text.verification".into()),
-                        value: code.clone(),
-                        on_input: Some(with_reducer!(
-                            ctx,
-                            EditVerificationCode,
-                            edit_verification_code
-                        )),
-                        width: Some(CODE_FIELD_WIDTH),
-                        height: Some(CODE_FIELD_HEIGHT),
-                        padding: Some(CODE_PADDING),
-                        borderless: true,
-                        font_family: Some("Unavailable Verification Font".into()),
-                        font_size: Some(CODE_FONT_SIZE),
-                        line_height: Some(CODE_LINE_HEIGHT),
-                        letter_spacing: Some(CODE_LETTER_SPACING),
-                        text_color: Some(Color::BLACK),
-                        show_cursor: false,
-                        keyboard_type: TextInputType::Number,
-                        input_formatters: vec![
-                            InputFormatter::DigitsOnly,
-                            InputFormatter::SingleLine,
-                        ],
-                        autocorrect: false,
-                        enable_suggestions: false,
-                        spell_check: false,
-                        smart_dashes: false,
-                        smart_quotes: false,
-                        autofill_hints: vec!["one-time-code".into()],
+        let tile = ZStack {
+            children: widgets![
+                Container::new(Spacer::default())
+                    .width(CODE_FIELD_WIDTH)
+                    .height(CODE_FIELD_HEIGHT)
+                    .bg(Color::WHITE),
+                TextInput {
+                    id: Some(WidgetId::explicit("web-smoke.text.verification")),
+                    semantics_identifier: Some("web-smoke.text.verification".into()),
+                    semantics: Some(Semantics {
+                        label: Some(VERIFICATION_LABEL.into()),
                         ..Default::default()
-                    },
+                    }),
+                    // Words, not sample digits, so the hint can't pass for a typed code.
+                    placeholder: Some("6-digit code".into()),
+                    value: code.clone(),
+                    on_input: Some(with_reducer!(
+                        ctx,
+                        EditVerificationCode,
+                        edit_verification_code
+                    )),
+                    width: Some(CODE_FIELD_WIDTH),
+                    height: Some(CODE_FIELD_HEIGHT),
+                    padding: Some(CODE_PADDING),
+                    borderless: true,
+                    font_family: Some("Unavailable Verification Font".into()),
+                    font_size: Some(CODE_FONT_SIZE),
+                    line_height: Some(CODE_LINE_HEIGHT),
+                    letter_spacing: Some(CODE_LETTER_SPACING),
+                    text_color: Some(Color::BLACK),
+                    show_cursor: false,
+                    keyboard_type: TextInputType::Number,
+                    input_formatters: vec![InputFormatter::DigitsOnly, InputFormatter::SingleLine],
+                    autocorrect: false,
+                    enable_suggestions: false,
+                    spell_check: false,
+                    smart_dashes: false,
+                    smart_quotes: false,
+                    autofill_hints: vec!["one-time-code".into()],
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        };
+        EchoedField {
+            field: Column {
+                gap: Some(tokens.spacing.xs),
+                children: widgets![
+                    Text::new(VERIFICATION_LABEL)
+                        .size(tokens.typography.label_large_size)
+                        .color(tokens.colors.text_primary),
+                    tile,
                 ],
                 ..Default::default()
             }
             .into(),
-            echo: format!("Verification value: {}", code),
+            echo: format!("Verification value: {}", shown(&code)),
         }
         .into()
     }

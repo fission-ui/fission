@@ -4,6 +4,8 @@ mod components;
 mod i18n;
 mod mounted_example;
 mod pages;
+#[cfg(test)]
+mod preview_theme_tests;
 mod previews;
 mod router;
 mod semantics;

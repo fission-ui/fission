@@ -1,7 +1,7 @@
 use super::catalog_section::CatalogSection;
 use super::FilterBar;
 use crate::catalog::{ExampleCategory, EXAMPLES};
-use crate::state::ShowcaseState;
+use crate::state::{on_search_changed, SearchChanged, ShowcaseState};
 use fission::prelude::*;
 use fission::widgets::EmptyState;
 
@@ -12,7 +12,7 @@ pub(crate) struct CatalogPanel {
 
 impl From<CatalogPanel> for Widget {
     fn from(component: CatalogPanel) -> Self {
-        let (_ctx, view) = fission::build::current::<ShowcaseState>();
+        let (ctx, view) = fission::build::current::<ShowcaseState>();
         let tokens = &view.env().theme.tokens;
         let query = view.state().search.trim().to_lowercase();
         let mut sections = Vec::new();
@@ -61,13 +61,30 @@ impl From<CatalogPanel> for Widget {
             .into()
         };
 
+        // Search sits with the list it filters, above the platform filters.
+        let search = TextInput {
+            id: Some(WidgetId::explicit("showcase.search")),
+            semantics_identifier: Some("showcase.search".into()),
+            value: view.state().search.clone(),
+            placeholder: Some(TextContent::Key("showcase.nav.search".into())),
+            on_input: Some(with_reducer!(ctx, SearchChanged, on_search_changed)),
+            ..Default::default()
+        };
+
         Column {
             children: widgets![
                 Text::new(TextContent::Key("showcase.catalog.title".into()))
                     .size(tokens.typography.font_size_lg)
                     .weight(tokens.typography.font_weight_semibold)
                     .color(tokens.colors.text_primary),
-                FilterBar,
+                Column {
+                    children: widgets![
+                        Container::new(search).width_length(Length::percent(100.0)),
+                        FilterBar,
+                    ],
+                    gap: Some(tokens.spacing.s),
+                    ..Default::default()
+                },
                 body,
             ],
             gap: Some(tokens.spacing.l),
