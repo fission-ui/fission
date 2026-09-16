@@ -40,6 +40,7 @@ widget-gallery-example = { package = "widget-gallery", path = "../widget-gallery
 fission-design-system-codegen = { path = "../../crates/tools/fission-design-system-codegen" }
 
 [dev-dependencies]
+fission-test = { path = "../../crates/tools/fission-test" }
 fission-test-driver = { path = "../../crates/tools/fission-test-driver" }
 image = "0.25"
 

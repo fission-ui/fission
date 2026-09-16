@@ -184,9 +184,12 @@ impl From<TerminalView> for Widget {
             this.font_size,
             this.line_height,
         );
+        let (_, view) = fission_core::build::current::<()>();
+        let mut snapshot = this.session.snapshot();
+        themed_palette(&mut snapshot.palette, &view.env().theme);
         let render_node = Arc::new(TerminalRenderNode::new(
             this.session.clone(),
-            this.session.snapshot(),
+            snapshot,
             this.viewport_width,
             this.viewport_height,
             this.font_size,
@@ -1338,6 +1341,22 @@ fn plain_line_text(line: &Line, cols: usize) -> String {
     text
 }
 
+/// Takes the terminal's ground, default text, cursor and selection from the
+/// theme so the surface follows light and dark; the ANSI colours programs ask
+/// for by number stay as the palette defines them.
+fn themed_palette(palette: &mut ColorPalette, theme: &fission_theme::Theme) {
+    let colors = &theme.tokens.colors;
+    let srgba =
+        |color: Color| wezterm_term::color::SrgbaTuple::from((color.r, color.g, color.b, color.a));
+    palette.background = srgba(colors.surface_sunken);
+    palette.foreground = srgba(colors.text_primary);
+    palette.cursor_bg = srgba(colors.text_primary);
+    palette.cursor_border = srgba(colors.text_primary);
+    palette.cursor_fg = srgba(colors.surface_sunken);
+    palette.selection_bg = srgba(colors.primary_subtle);
+    palette.selection_fg = srgba(colors.text_primary);
+}
+
 fn to_ir_color(color: wezterm_term::color::SrgbaTuple) -> Color {
     let (r, g, b, a) = color.to_srgb_u8();
     Color { r, g, b, a }
@@ -1404,6 +1423,27 @@ fn flush_run(
 mod tests {
     use super::*;
     use wezterm_term::{Cell, Line};
+
+    #[test]
+    fn terminal_surface_follows_the_theme_in_light_and_dark() {
+        use fission_theme::{DesignMode, DesignSystem, FissionDefaultDesignSystem};
+        let themed = |mode| {
+            let theme = FissionDefaultDesignSystem::theme(mode);
+            let mut palette = ColorPalette::default();
+            themed_palette(&mut palette, &theme);
+            (palette, theme.tokens.colors.clone())
+        };
+        let (light, light_colors) = themed(DesignMode::Light);
+        let (dark, dark_colors) = themed(DesignMode::Dark);
+
+        assert_eq!(to_ir_color(light.background), light_colors.surface_sunken);
+        assert_eq!(to_ir_color(dark.background), dark_colors.surface_sunken);
+        assert_eq!(to_ir_color(light.foreground), light_colors.text_primary);
+        assert_eq!(to_ir_color(dark.foreground), dark_colors.text_primary);
+        assert_ne!(light.background, dark.background);
+        // ANSI colours requested by number keep the terminal palette.
+        assert_eq!(light.colors, ColorPalette::default().colors);
+    }
 
     #[test]
     fn selection_range_is_normalized_per_row() {

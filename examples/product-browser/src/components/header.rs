@@ -25,23 +25,33 @@ impl From<ProductBrowserHeader> for Widget {
             None => view.tr("product_browser.summary.loading"),
         };
 
-        let title = Container::new(Column {
-            gap: Some(tokens.spacing.xs),
-            children: widgets![
+        let mut title_children: Vec<Widget> = Vec::new();
+        // Embedded, the host header names the example, so only the summary stays.
+        if !view.state().embedded {
+            title_children.push(
                 Text::new(view.tr("product_browser.title"))
                     .size(tokens.typography.heading_size)
                     .line_height(
                         tokens.typography.heading_size * tokens.typography.line_height_heading,
                     )
                     .weight(tokens.typography.font_weight_bold)
-                    .color(tokens.colors.text_primary),
-                Text::new(summary)
-                    .size(tokens.typography.label_large_size)
-                    .line_height(
-                        tokens.typography.label_large_size * tokens.typography.line_height_snug,
-                    )
-                    .color(tokens.colors.text_secondary),
-            ],
+                    .color(tokens.colors.text_primary)
+                    .into(),
+            );
+        }
+        title_children.push(
+            Text::new(summary)
+                .size(tokens.typography.label_large_size)
+                .line_height(
+                    tokens.typography.label_large_size * tokens.typography.line_height_snug,
+                )
+                .color(tokens.colors.text_secondary)
+                .into(),
+        );
+
+        let title = Container::new(Column {
+            gap: Some(tokens.spacing.xs),
+            children: title_children,
             ..Default::default()
         })
         .flex_grow(1.0)

@@ -333,6 +333,7 @@ fn form_control_relates_the_actual_editable_combobox_input() {
                 value: "Av".into(),
                 placeholder: None,
                 items: vec!["Avery".into()],
+                placeholder: None,
                 is_open: false,
                 width: Some(240.0),
                 max_popup_height: None,

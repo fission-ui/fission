@@ -488,6 +488,15 @@ pub fn translation_bundles() -> Vec<TranslationBundle> {
     bundles
 }
 
+/// The inbox as another app mounts it, such as the example showcase. The host
+/// already names the example, so the sidebar drops the app brand.
+pub fn embedded_state() -> InboxState {
+    InboxState {
+        embedded: true,
+        ..InboxState::default()
+    }
+}
+
 /// When embedded in another app, such as the example showcase, the host's theme is
 /// kept so the example follows the host's light/dark mode and design system.
 pub fn configure_embedded_env(state: &InboxState, env: &mut Env) {

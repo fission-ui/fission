@@ -383,6 +383,7 @@ version = "0.15.1"
 dependencies = [
  "anyhow",
  "fission",
+ "fission-test",
  "fission-test-driver",
  "image 0.25.8",
  "lazy_static",
@@ -2629,6 +2630,7 @@ dependencies = [
  "fission-core",
  "fission-design-system-codegen",
  "fission-editor",
+ "fission-test",
  "fission-test-driver",
  "icons_gallery",
  "image 0.25.8",
@@ -7430,6 +7432,7 @@ version = "0.15.1"
 dependencies = [
  "anyhow",
  "fission",
+ "fission-test",
  "fission-test-driver",
  "image 0.25.8",
  "reqwest",
@@ -9391,6 +9394,7 @@ version = "0.15.1"
 dependencies = [
  "anyhow",
  "fission",
+ "fission-test",
  "fission-test-driver",
  "image 0.25.8",
  "lazy_static",
@@ -10308,6 +10312,7 @@ dependencies = [
  "anyhow",
  "console_error_panic_hook",
  "fission",
+ "fission-test",
  "fission-test-driver",
  "image 0.25.8",
  "serde_json",

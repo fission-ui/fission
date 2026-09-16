@@ -64,6 +64,10 @@ pub struct AnimationGalleryState {
     pub composition_atoms: Vec<MotionAtom>,
     pub widget_compositions: BTreeMap<String, Vec<MotionAtom>>,
     pub composer_open: bool,
+    /// Whether another app, such as the example showcase, mounts the gallery. The
+    /// host already names the example, so the gallery drops its brand and hero.
+    #[serde(default)]
+    pub embedded: bool,
 }
 
 impl Default for AnimationGalleryState {
@@ -78,6 +82,7 @@ impl Default for AnimationGalleryState {
             composition_atoms: vec![MotionAtom::FromTop, MotionAtom::Fade, MotionAtom::Scale],
             widget_compositions: BTreeMap::new(),
             composer_open: false,
+            embedded: false,
         }
     }
 }

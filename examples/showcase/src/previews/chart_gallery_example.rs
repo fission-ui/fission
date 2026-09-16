@@ -14,6 +14,8 @@ impl From<ChartGalleryExample> for Widget {
             view.state().preview_generation,
             GalleryApp,
         )
+        // The showcase header already names the example, so the gallery drops its title.
+        .with_state(chart_gallery_example::embedded_state)
         .into()
     }
 }

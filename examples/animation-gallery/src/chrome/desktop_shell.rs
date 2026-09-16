@@ -30,14 +30,18 @@ impl From<DesktopShell<'_>> for Widget {
                     child: Some(
                         Container::new(Column {
                             gap: Some(tokens.spacing.m),
-                            children: vec![
-                                HeroBar { state: shell.state }.into(),
-                                pages::GalleryRouter {
-                                    current_path: shell.state.current_path.clone(),
-                                }
-                                .into(),
-                                BottomStrip.into(),
-                            ],
+                            // Embedded, the host header names the example, so the hero goes.
+                            children: (!shell.state.embedded)
+                                .then(|| Widget::from(HeroBar { state: shell.state }))
+                                .into_iter()
+                                .chain([
+                                    pages::GalleryRouter {
+                                        current_path: shell.state.current_path.clone(),
+                                    }
+                                    .into(),
+                                    BottomStrip.into(),
+                                ])
+                                .collect(),
                             ..Default::default()
                         })
                         .width_length(Length::percent(100.0))

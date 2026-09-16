@@ -7,10 +7,10 @@ use crate::gallery_expanded::GalleryExpanded;
 use crate::gallery_sidebar::{GallerySidebar, GallerySidebarLayout};
 use crate::layout::EXPANDED_BREAKPOINT;
 use crate::state::{
-    record_chart_interaction, select_chart, toggle_animations, toggle_dark_theme,
-    toggle_interactions, toggle_markers, toggle_smooth, update_scale, GalleryState, SelectChart,
-    ToggleAnimations, ToggleDarkTheme, ToggleInteractions, ToggleMarkers, ToggleSmooth,
-    UpdateScale,
+    record_chart_interaction, select_chart, set_category_picker_open, toggle_animations,
+    toggle_dark_theme, toggle_interactions, toggle_markers, toggle_smooth, update_scale,
+    GalleryState, SelectChart, SetCategoryPickerOpen, ToggleAnimations, ToggleDarkTheme,
+    ToggleInteractions, ToggleMarkers, ToggleSmooth, UpdateScale,
 };
 use fission::charts::ChartInteractionEvent;
 use fission::prelude::*;
@@ -34,6 +34,10 @@ impl From<GalleryApp> for Widget {
             with_reducer!(ctx, ToggleInteractions(false), toggle_interactions);
         let toggle_animations = with_reducer!(ctx, ToggleAnimations(false), toggle_animations);
         let toggle_markers = with_reducer!(ctx, ToggleMarkers(false), toggle_markers);
+        let toggle_category_picker = ctx.bind(
+            SetCategoryPickerOpen(!view.state().category_picker_open),
+            reduce_with!(set_category_picker_open),
+        );
         ctx.register::<ChartInteractionEvent, _>(reduce_with!(record_chart_interaction));
 
         let expanded = view.viewport_size().width >= EXPANDED_BREAKPOINT;
@@ -49,6 +53,7 @@ impl From<GalleryApp> for Widget {
         };
         let sidebar = GallerySidebar {
             select_chart_id,
+            toggle_category_picker,
             layout: if expanded {
                 GallerySidebarLayout::Expanded
             } else {

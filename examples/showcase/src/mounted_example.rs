@@ -3,6 +3,7 @@ use fission_core::authoring::BuildCtx;
 use fission_core::scoped_action_handlers::{
     clear_scoped_action_handlers, register_scoped_action_handler,
 };
+use fission_core::ui::EnvScope;
 use fission_core::{
     build, ActionEnvelope, ActionScopeId, ReducerContext, ResourceKey, Runtime,
     RuntimeResourceKind, ScopedActionResolution, View,
@@ -117,16 +118,20 @@ where
             (child, action_ids, child_ctx)
         };
 
+        // Lower with the preview's environment too, not just build with it, so recipe
+        // values read while lowering (control heights, padding) match the chosen look.
+        let child_env = Arc::new(child_env);
         forward_build_registrations(
             &outer_ctx,
             &mut child_ctx,
             scope,
+            &child_env,
             &runtime_key,
             component.generation,
         );
         install_action_handlers(scope, action_ids, runtime);
 
-        ActionScope::new(scope, child).into()
+        ActionScope::new(scope, EnvScope::new(child_env, child)).into()
     }
 }
 
@@ -162,25 +167,36 @@ fn configure_child_viewport(
     outer_view: &ViewHandle<crate::state::ShowcaseState>,
     child_env: &mut Env,
 ) {
-    let preview_id = match outer_view.state().preview_viewport {
-        crate::state::PreviewViewport::Desktop => WidgetId::explicit("showcase.preview.desktop"),
-        crate::state::PreviewViewport::Mobile => WidgetId::explicit("showcase.preview.mobile"),
-    };
-    if let Some(rect) = outer_view.get_rect(preview_id) {
-        child_env.viewport_size = LayoutSize::new(rect.width(), rect.height());
-        return;
-    }
+    use crate::components::{preview_pane_width, MOBILE_PREVIEW_WIDTH};
+    use crate::state::PreviewViewport;
 
+    let viewport = outer_view.state().preview_viewport;
     let outer = outer_view.viewport_size();
-    child_env.viewport_size = match outer_view.state().preview_viewport {
-        crate::state::PreviewViewport::Desktop => LayoutSize::new(
-            (outer.width * 0.7).max(480.0),
-            (outer.height - 160.0).max(320.0),
-        ),
-        crate::state::PreviewViewport::Mobile => {
-            LayoutSize::new(390.0, (outer.height - 160.0).max(320.0))
+    // Width decides an example's responsive layout, so it comes from the same geometry
+    // the workbench lays out rather than from a measured rect. A rect only exists after a
+    // layout pass, and is a frame stale after a resize, so relying on it gave the first
+    // open a different layout from later ones.
+    let pane_width = preview_pane_width(outer_view, outer.width);
+    let width = match viewport {
+        PreviewViewport::Desktop => pane_width,
+        PreviewViewport::Mobile => {
+            let inset = 2.0 * outer_view.env().theme.tokens.spacing.l;
+            MOBILE_PREVIEW_WIDTH.min((pane_width - inset).max(0.0))
         }
     };
+
+    // Height depends on how the chrome above the preview wraps, so use the measured
+    // rect when there is one and an estimate before the first layout.
+    let preview_id = match viewport {
+        PreviewViewport::Desktop => WidgetId::explicit("showcase.preview.desktop"),
+        PreviewViewport::Mobile => WidgetId::explicit("showcase.preview.mobile"),
+    };
+    let height = outer_view
+        .get_rect(preview_id)
+        .map(|rect| rect.height())
+        .unwrap_or_else(|| (outer.height - 160.0).max(320.0));
+
+    child_env.viewport_size = LayoutSize::new(width, height);
 }
 
 fn install_action_handlers(
@@ -211,6 +227,7 @@ fn forward_build_registrations(
     outer_ctx: &BuildCtxHandle<crate::state::ShowcaseState>,
     child_ctx: &mut BuildCtx<impl GlobalState>,
     scope: ActionScopeId,
+    env: &Arc<Env>,
     runtime_key: &str,
     generation: u64,
 ) {
@@ -227,7 +244,8 @@ fn forward_build_registrations(
         outer_ctx.register_portal_with_layer(
             portal.layer,
             portal.id,
-            ActionScope::new(scope, portal.node).into(),
+            // Popups such as a select's menu belong to the preview's look as well.
+            ActionScope::new(scope, EnvScope::new(env.clone(), portal.node)).into(),
         );
     }
     let resources = child_ctx.take_resources();
