@@ -3102,31 +3102,58 @@ impl LayoutEngine {
                                 } else {
                                     entry.size.height
                                 };
-                                let shrink_amount = (main_size * child.flex_shrink
-                                    / total_shrink_scaled)
-                                    * overflow;
-                                // Don't shrink below a reasonable minimum. Items with
-                                // flex_shrink > 0 can shrink but not to zero - preserve at
-                                // least a small fraction of their natural size.
-                                let floor = if child.flex_shrink > 0.0 {
-                                    // Check for explicit min/fixed dimension
-                                    let explicit_min = match &child.op {
-                                        LayoutOp::Box {
-                                            min_width,
-                                            min_height,
-                                            height,
-                                            width,
-                                            ..
-                                        } => {
-                                            if is_row {
-                                                min_width.or(*width).unwrap_or(0.0)
-                                            } else {
-                                                min_height.or(*height).unwrap_or(0.0)
-                                            }
+                                let shrink = child.flex_shrink;
+                                let shrink_amount =
+                                    (main_size * shrink / total_shrink_scaled) * overflow;
+                                // Check for explicit min/fixed dimension
+                                let explicit_min = match &child.op {
+                                    LayoutOp::Box {
+                                        min_width,
+                                        min_height,
+                                        height,
+                                        width,
+                                        ..
+                                    } => {
+                                        if is_row {
+                                            min_width.or(*width).unwrap_or(0.0)
+                                        } else {
+                                            min_height.or(*height).unwrap_or(0.0)
                                         }
-                                        _ => 0.0,
+                                    }
+                                    _ => 0.0,
+                                };
+                                // A child that scrolls or clips shows less of itself rather than
+                                // taking less room, so it may shrink to its explicit minimum.
+                                let handles_own_overflow = matches!(
+                                    child.op,
+                                    LayoutOp::Scroll { .. } | LayoutOp::Clip { .. }
+                                );
+                                let floor = if shrink > 0.0 {
+                                    // Down a column an item also stops at the height its content
+                                    // needs, the way a browser floors a flex item at its content
+                                    // size: an overflowing column spills instead of crushing text
+                                    // into the section below it. Across a row content can still
+                                    // reflow, so only an explicit minimum holds an item open.
+                                    let content_min = if is_row || handles_own_overflow {
+                                        0.0
+                                    } else {
+                                        let mut natural = entry.constraints;
+                                        natural.min_h = 0.0;
+                                        natural.max_h = f32::INFINITY;
+                                        self.layout_node_constraints(
+                                            entry.id,
+                                            natural,
+                                            LayoutPoint::ZERO,
+                                            out,
+                                            constraints_out,
+                                            measure_cache,
+                                            scroll_source,
+                                            false,
+                                            depth + 1,
+                                        )?
+                                        .height
                                     };
-                                    explicit_min
+                                    explicit_min.max(content_min)
                                 } else {
                                     main_size // flex_shrink == 0 means don't shrink at all
                                 };

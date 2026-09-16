@@ -39,8 +39,12 @@ impl From<CounterApp> for Widget {
                 Row {
                     gap: Some(spacing.m),
                     children: widgets![
+                        // One primary action per view: incrementing is the main
+                        // thing to do here, so decrementing steps down to an
+                        // outline button instead of competing with it.
                         Button {
                             on_press: Some(decrement),
+                            variant: ButtonVariant::Outline,
                             child: Some(Text::new("Decrement").into()),
                             ..Default::default()
                         }
