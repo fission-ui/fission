@@ -118,8 +118,20 @@ fn platform_factor(_event_loop: &ActiveEventLoop) -> Option<f32> {
     UISettings::new()
         .and_then(|settings| settings.TextScaleFactor())
         .ok()
-        .map(|percentage| percentage as f32 / 100.0)
+        .map(host_factor)
         .filter(|factor| factor.is_finite() && *factor > 0.0)
+}
+
+/// Converts the host text-size setting into the ratio [`TextScaler`] expects.
+///
+/// `UISettings::TextScaleFactor` is already that ratio: its documented range is
+/// 1 to 2.25, where 1 is the default text size. It is *not* a percentage, so it
+/// must not be divided by 100 - doing that turned the default into 0.01, which
+/// scaled every label down to a hundredth of its size and read as a blank
+/// control rather than as small text.
+#[cfg(target_os = "windows")]
+fn host_factor(host: f64) -> f32 {
+    host as f32
 }
 
 #[cfg(not(any(
@@ -142,5 +154,18 @@ mod tests {
         assert_eq!(parse_factor("NaN"), None);
         assert_eq!(parse_factor("0"), None);
         assert_eq!(parse_factor("1.5"), Some(1.5));
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn windows_host_factor_is_a_ratio_not_a_percentage() {
+        use super::host_factor;
+
+        // 1.0 is the default text size. Treating the host value as a percentage
+        // and dividing by 100 - the regression this guards - turned that default
+        // into 0.01 and scaled every label down to a hundredth of its size.
+        assert_eq!(host_factor(1.0), 1.0);
+        assert_eq!(host_factor(1.25), 1.25);
+        assert_eq!(host_factor(2.25), 2.25);
     }
 }
