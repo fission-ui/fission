@@ -1,9 +1,22 @@
-use crate::components::ui::{MutedText, SmallButton, StatusPill};
+use crate::components::ui::{MutedText, SmallButton};
 use crate::data::WorkOrder;
-use crate::model::{CapabilityState, FieldInspectorState};
+use crate::model::FieldInspectorState;
 use fission::prelude::*;
 
 const COMPACT_CARD_WIDTH: f32 = 220.0;
+
+/// Maps a work-order priority onto the badge tone that carries its urgency.
+///
+/// Priority is not a status of the card, so it reads by urgency rather than by
+/// selection: the destructive tone for the job that cannot wait, the warning
+/// tone below it, and a neutral grey for routine work.
+fn priority_tone(priority: &str) -> BadgeTone {
+    match priority {
+        "Critical" => BadgeTone::Error,
+        "High" => BadgeTone::Warning,
+        _ => BadgeTone::Gray,
+    }
+}
 
 pub struct WorkOrderCard {
     pub order: WorkOrder,
@@ -17,11 +30,6 @@ impl From<WorkOrderCard> for Widget {
         let (_, view) = fission::build::current::<FieldInspectorState>();
         let tokens = &view.env().theme.tokens;
         let typography = &tokens.typography;
-        let state = if card.selected {
-            CapabilityState::Ready
-        } else {
-            CapabilityState::Idle
-        };
 
         let content = Column {
             gap: Some(tokens.spacing.s),
@@ -37,7 +45,12 @@ impl From<WorkOrderCard> for Widget {
                             flex_grow: 1.0,
                             ..Default::default()
                         },
-                        StatusPill::new(card.order.priority, state),
+                        Badge {
+                            text: card.order.priority.to_string(),
+                            tone: priority_tone(card.order.priority),
+                            size: ComponentSize::Sm,
+                            ..Default::default()
+                        },
                     ],
                     ..Default::default()
                 },

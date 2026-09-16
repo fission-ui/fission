@@ -8143,6 +8143,20 @@ where
                                 }
                             }
                             pipeline.set_viewport_state(&runtime.runtime_state.viewport);
+                            // An overlay scrollbar only comes forward for the
+                            // pane the pointer is in, or the thumb being dragged.
+                            let active_bars = pipeline
+                                .prev_ir
+                                .as_ref()
+                                .map(|ir| {
+                                    fission_core::scrollbar::active_scrollbar_nodes(
+                                        ir,
+                                        runtime.runtime_state.interaction.hovered_path(),
+                                        runtime.runtime_state.gesture.scrollbar_drag,
+                                    )
+                                })
+                                .unwrap_or_default();
+                            pipeline.set_active_scrollbars(active_bars);
                             if let (Some(ir), Some(layout)) =
                                 (pipeline.prev_ir.as_ref(), pipeline.last_snapshot.as_ref())
                             {

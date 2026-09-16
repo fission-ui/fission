@@ -1,15 +1,138 @@
 use crate::env::ScrollStateMap;
-use fission_ir::{CoreIR, FlexDirection, LayoutOp, Op, WidgetId};
+use fission_ir::{op::Color, CoreIR, FlexDirection, LayoutOp, Op, WidgetId};
 use fission_layout::{LayoutPoint, LayoutRect, LayoutSnapshot};
 
 pub const SCROLLBAR_INSET: f32 = 2.0;
-pub const SCROLLBAR_THICKNESS: f32 = 6.0;
+/// Painted thickness of the bar.
+///
+/// A scroll view's bar is an overlay hint, not furniture: at this width it
+/// reads as a thin thumb floating over the content rather than as a rule
+/// dividing one pane from the next. The pointer target is wider than the
+/// paint; see [`SCROLLBAR_HIT_SLOP`].
+pub const SCROLLBAR_THICKNESS: f32 = 4.0;
 pub const SCROLLBAR_MIN_THUMB: f32 = 24.0;
 /// Additional inward cross-axis reach for pointer interaction.
 ///
 /// Scrollbar chrome stays visually compact while remaining practical to grab
-/// on high-density displays.
-pub const SCROLLBAR_HIT_SLOP: f32 = 4.0;
+/// on high-density displays: the thumb paints 4pt wide but answers the pointer
+/// across 10pt, which clears the usual minimum for a drag target.
+pub const SCROLLBAR_HIT_SLOP: f32 = 6.0;
+
+/// The colours a shell paints one scroll view's bar with.
+///
+/// A scrollbar has no recipe, because its geometry is only known once layout
+/// has measured the content, so the shells ask for this instead of reaching
+/// for palette values of their own. Both colours come from the theme, so a
+/// dark design system gets a light bar without any shell knowing about modes.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ScrollbarStyle {
+    /// The track behind the thumb. Transparent while the bar is at rest.
+    pub rail: Color,
+    /// The draggable thumb.
+    pub thumb: Color,
+}
+
+/// Alpha of the resting thumb: present enough to say the pane scrolls, quiet
+/// enough not to read as a border.
+const THUMB_ALPHA_RESTING: u8 = 72;
+/// Alpha of the thumb once the pointer is in the pane or dragging it.
+const THUMB_ALPHA_ACTIVE: u8 = 190;
+/// Alpha of the rail, which only appears with an active bar.
+const RAIL_ALPHA_ACTIVE: u8 = 56;
+
+impl ScrollbarStyle {
+    /// Resolves the bar's colours for a theme.
+    ///
+    /// `active` is true while the pointer is inside the scroll view or holding
+    /// its thumb, which is when a person is looking for the bar.
+    pub fn from_tokens(tokens: &fission_theme::Tokens, active: bool) -> Self {
+        let tint = tokens.colors.text_muted;
+        let alpha = |base: Color, alpha: u8| Color {
+            a: ((u16::from(base.a) * u16::from(alpha)) / 255) as u8,
+            ..base
+        };
+        Self {
+            rail: if active {
+                alpha(tokens.colors.border, RAIL_ALPHA_ACTIVE)
+            } else {
+                Color {
+                    a: 0,
+                    ..tokens.colors.border
+                }
+            },
+            thumb: alpha(
+                tint,
+                if active {
+                    THUMB_ALPHA_ACTIVE
+                } else {
+                    THUMB_ALPHA_RESTING
+                },
+            ),
+        }
+    }
+}
+
+impl Default for ScrollbarStyle {
+    /// The default design system's resting bar.
+    fn default() -> Self {
+        Self::from_tokens(&fission_theme::Tokens::default(), false)
+    }
+}
+
+/// A theme's scrollbar colours, and which scroll views are currently active.
+///
+/// A shell resolves this once per build and asks it for each bar it paints,
+/// rather than reaching for palette values of its own.
+#[derive(Debug, Clone, Default)]
+pub struct ScrollbarPalette {
+    resting: ScrollbarStyle,
+    active: ScrollbarStyle,
+    active_nodes: std::collections::HashSet<WidgetId>,
+}
+
+impl ScrollbarPalette {
+    /// Resolves both states from a theme, keeping the active set.
+    pub fn set_theme(&mut self, tokens: &fission_theme::Tokens) {
+        self.resting = ScrollbarStyle::from_tokens(tokens, false);
+        self.active = ScrollbarStyle::from_tokens(tokens, true);
+    }
+
+    /// Names the scroll views whose bar should come forward.
+    pub fn set_active_nodes(&mut self, nodes: std::collections::HashSet<WidgetId>) {
+        self.active_nodes = nodes;
+    }
+
+    /// The colours to paint one scroll view's bar with.
+    pub fn style_for(&self, node_id: WidgetId) -> ScrollbarStyle {
+        if self.active_nodes.contains(&node_id) {
+            self.active
+        } else {
+            self.resting
+        }
+    }
+}
+
+/// The scroll views whose bar a person is currently looking for: the ones the
+/// pointer is inside, and the one whose thumb is being dragged.
+pub fn active_scrollbar_nodes(
+    ir: &CoreIR,
+    hover_path: &[WidgetId],
+    drag: Option<ScrollbarDragState>,
+) -> std::collections::HashSet<WidgetId> {
+    let mut active: std::collections::HashSet<WidgetId> = hover_path
+        .iter()
+        .copied()
+        .filter(|id| {
+            ir.nodes
+                .get(id)
+                .is_some_and(|node| matches!(node.op, Op::Layout(LayoutOp::Scroll { .. })))
+        })
+        .collect();
+    if let Some(drag) = drag {
+        active.insert(drag.node_id);
+    }
+    active
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ScrollbarAxis {
@@ -308,6 +431,7 @@ mod tests {
     use super::{
         scrollbar_drag_offset, scrollbar_drag_offset_with_grab, scrollbar_geometry_for_node,
         scrollbar_hit_test, scrollbar_point_for_node, ScrollbarAxis, ScrollbarHitKind,
+        SCROLLBAR_INSET, SCROLLBAR_THICKNESS,
     };
     use crate::env::ScrollStateMap;
     use fission_ir::{CompositeStyle, CoreIR, CoreNode, FlexDirection, LayoutOp, Op, WidgetId};
@@ -330,8 +454,11 @@ mod tests {
             scrollbar_geometry_for_node(&ir, &layout, &scroll_map, scroll).expect("scrollbar");
 
         assert_eq!(geometry.axis, ScrollbarAxis::Vertical);
-        assert_eq!(geometry.rail_rect.origin.x, 102.0);
-        assert_eq!(geometry.rail_rect.origin.y, 22.0);
+        assert_eq!(
+            geometry.rail_rect.origin.x,
+            110.0 - SCROLLBAR_THICKNESS - SCROLLBAR_INSET
+        );
+        assert_eq!(geometry.rail_rect.origin.y, 20.0 + SCROLLBAR_INSET);
         assert!((geometry.thumb_extent() - (196.0 / 3.0)).abs() <= 0.01);
         assert!(geometry.thumb_rect.origin.y > geometry.rail_rect.origin.y);
         assert!(geometry.thumb_rect.bottom() <= geometry.rail_rect.bottom());

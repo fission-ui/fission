@@ -1018,3 +1018,76 @@ fn flyout_placement_prefers_below_when_full_content_fits() {
 
     assert_eq!(position, LayoutPoint::new(100.0, 172.0));
 }
+
+fn fixed_height_child(id: WidgetId, parent: WidgetId, height: f32) -> LayoutInputNode {
+    node(
+        id,
+        Some(parent),
+        vec![],
+        LayoutOp::Box {
+            width: Some(80.0),
+            height: Some(height),
+            min_width: None,
+            max_width: None,
+            min_height: None,
+            max_height: None,
+            padding: [0.0; 4],
+            flex_grow: 0.0,
+            flex_shrink: 1.0,
+            aspect_ratio: None,
+        },
+    )
+}
+
+/// A column taller than its container spills past the bottom edge, as it does on
+/// the web, instead of squeezing every child until the text inside overlaps.
+#[test]
+fn an_overflowing_column_keeps_each_child_at_its_content_height() {
+    let root = WidgetId::from_u128(900);
+    let first = WidgetId::from_u128(901);
+    let second = WidgetId::from_u128(902);
+    let nodes = vec![
+        node(
+            root,
+            None,
+            vec![first, second],
+            LayoutOp::Flex {
+                direction: fission_ir::op::FlexDirection::Column,
+                wrap: fission_ir::op::FlexWrap::NoWrap,
+                flex_grow: 0.0,
+                flex_shrink: 1.0,
+                padding: [0.0; 4],
+                gap: None,
+                line_gap: None,
+                align_items: fission_ir::op::AlignItems::Start,
+                justify_content: fission_ir::op::JustifyContent::Start,
+            },
+        ),
+        fixed_height_child(first, root, 60.0),
+        fixed_height_child(second, root, 60.0),
+    ];
+
+    let mut engine = LayoutEngine::new();
+    let snapshot = engine
+        .compute_layout(&nodes, root, LayoutSize::new(200.0, 100.0), &|_| 0.0)
+        .expect("column layout");
+
+    let first_rect = snapshot.nodes[&first].rect;
+    let second_rect = snapshot.nodes[&second].rect;
+    assert_eq!(
+        first_rect.height(),
+        60.0,
+        "the first child keeps its height"
+    );
+    assert_eq!(
+        second_rect.height(),
+        60.0,
+        "the second child keeps its height"
+    );
+    assert!(
+        second_rect.y() >= first_rect.y() + first_rect.height(),
+        "the second child starts below the first, at {} against {}",
+        second_rect.y(),
+        first_rect.y() + first_rect.height()
+    );
+}

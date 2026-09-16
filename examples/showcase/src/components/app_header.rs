@@ -6,13 +6,16 @@ use crate::state::{
 use fission::icons::material;
 use fission::op::AlignItems;
 use fission::prelude::*;
-use fission::widgets::{Select, SelectItem};
+use fission::widgets::{Select, SelectItem, Tooltip};
 
 /// Wide enough for the longest language name, since the menu matches its trigger.
 const LOCALE_PICKER_WIDTH: f32 = 128.0;
 
 /// Locale codes and their names, written in their own language so they are not translated.
 const LOCALES: [(&str, &str); 2] = [("en-US", "English"), ("es-ES", "Español")];
+
+/// The repository host, named on the button so the destination is not a guess.
+const GITHUB_LABEL: &str = "GitHub";
 
 /// The app bar: where you are, language, and the source code.
 ///
@@ -32,17 +35,28 @@ impl From<AppHeader> for Widget {
             on_open_source
         );
 
-        let github: Widget = Button {
-            variant: ButtonVariant::Ghost,
-            size: ComponentSize::Sm,
-            icon_content: Some(ButtonIconContent::new(
-                Icon::svg(material::action::code::round()),
-                "GitHub",
-            )),
-            on_press: Some(open_github),
-            ..Default::default()
+        // A bare `<>` glyph is guesswork: nothing about it says the repository,
+        // and the icon set ships no GitHub mark to use instead. The destination
+        // is named on the button, with the tooltip saying what pressing it does.
+        let github: Widget = Tooltip {
+            id: WidgetId::explicit("showcase.github.tooltip"),
+            child: Button {
+                variant: ButtonVariant::Ghost,
+                size: ComponentSize::Sm,
+                content: Some(
+                    // A product name, so it reads the same in every language.
+                    ButtonContent::new(TextContent::Literal(GITHUB_LABEL.into()))
+                        .leading_icon(Icon::svg(material::action::code::round())),
+                ),
+                on_press: Some(open_github),
+                ..Default::default()
+            }
+            .semantics_identifier("showcase.github")
+            .into(),
+            text: view.tr("showcase.github.hint"),
+            is_visible: false,
+            motion: None,
         }
-        .semantics_identifier("showcase.github")
         .into();
 
         let content = Row {

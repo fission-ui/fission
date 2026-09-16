@@ -2013,6 +2013,7 @@ version = "0.14.1"
 dependencies = [
  "anyhow",
  "fission",
+ "fission-test",
  "fission-test-driver",
  "image 0.25.8",
 ]
@@ -2723,6 +2724,7 @@ dependencies = [
  "anyhow",
  "console_error_panic_hook",
  "fission",
+ "fission-test",
  "fission-test-driver",
  "reqwest",
  "serde",
@@ -4702,6 +4704,7 @@ version = "0.14.1"
 dependencies = [
  "anyhow",
  "fission",
+ "fission-test",
  "fission-test-driver",
  "image 0.25.8",
  "serde",

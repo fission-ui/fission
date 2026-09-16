@@ -170,19 +170,19 @@
       "anatomy": ["scrim", "panel"],
       "scrim": { "background": "{color.light.on_background}" },
       "panel": {
-        "background": "{color.light.surface}",
-        "box_shadow": "{elevation.level3}",
+        "background": "{color.light.surface_raised}",
+        "box_shadow": "{elevation.level4}",
         "width": "320px"
       }
     },
     "popover": {
       "$description": "Anchored surface holding transient content.",
       "anatomy": ["surface"],
-      "background": "{color.light.surface}",
+      "background": "{color.light.surface_raised}",
       "border": "1px solid {color.light.border}",
       "radius": "{radius.medium}",
       "padding": "{spacing.s}",
-      "box_shadow": "{elevation.level2}"
+      "box_shadow": "{elevation.level3}"
     },
     "markdown": {
       "$description": "Rendered prose with design-system typography.",
@@ -515,7 +515,7 @@
             "background": "{color.light.primary}",
             "color": "{color.light.on_primary}",
             "border": "none",
-            "box_shadow": "0 1px 2px 0 rgba(10,13,18,0.05), inset 0 0 0 1px rgba(0,0,0,0.18)"
+            "box_shadow": "0 2px 10px -2px rgba(28,22,66,0.20), inset 0 0 0 1px rgba(255,255,255,0.30)"
           },
           "hover": {
             "background": "{color.light.primary_hover}"
@@ -647,7 +647,7 @@
           "default": {
             "background": "{color.semantic.error}",
             "color": "#FFFFFF",
-            "box_shadow": "0 1px 2px 0 rgba(10,13,18,0.05), inset 0 0 0 1px rgba(0,0,0,0.18)"
+            "box_shadow": "0 2px 10px -2px rgba(28,22,66,0.20), inset 0 0 0 1px rgba(255,255,255,0.30)"
           },
           "hover": {
             "background": "#BE123C"
@@ -1068,12 +1068,12 @@
         },
         "lg": {
           "size": "48px",
-          "radius": "10px",
+          "radius": "14px",
           "icon_size": "24px"
         },
         "xl": {
           "size": "56px",
-          "radius": "12px",
+          "radius": "16px",
           "icon_size": "28px"
         }
       },
@@ -1114,10 +1114,10 @@
         "body",
         "footer?"
       ],
-      "radius": "24px",
-      "background": "{color.light.surface}",
+      "radius": "26px",
+      "background": "{color.light.surface_raised}",
       "max_width": "600px",
-      "box_shadow": "{elevation.level3}",
+      "box_shadow": "{elevation.level4}",
       "padding": "16px",
       "gap": "16px",
       "viewport_margin": "16px",
@@ -1165,7 +1165,7 @@
         "bubble",
         "arrow?"
       ],
-      "radius": "8px",
+      "radius": "{radius.small}",
       "background": "{color.slate.900}",
       "color": "#FFFFFF",
       "font_size": "12px",
@@ -1296,14 +1296,14 @@
   "data_visualization": {
     "$description": "Default qualitative chart palette used by Fission charts when an app does not provide a chart-specific palette.",
     "palette": [
-      "#0A84FF",
-      "#5E5CE6",
-      "#64D2FF",
-      "#30D158",
-      "#FF9F0A",
-      "#FF453A",
-      "#BF5AF2",
-      "#FFD60A"
+      "#6C4CF1",
+      "#16B8CF",
+      "#A855F7",
+      "#0FA97E",
+      "#F0609F",
+      "#D4820A",
+      "#4C7DF0",
+      "#7FD4E8"
     ]
   },
   "preview": {
