@@ -132,6 +132,8 @@ impl From<NodeGraphCanvas> for Widget {
                 fill: Fill::Solid(tokens.colors.primary),
                 width: EDGE_WIDTH,
                 dash_array: None,
+                dash_offset: 0.0,
+                trim: None,
                 line_cap: LineCap::Round,
                 line_join: LineJoin::Round,
             },

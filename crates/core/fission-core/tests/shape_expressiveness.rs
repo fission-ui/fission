@@ -44,6 +44,8 @@ fn stroke(color: Color, width: f32) -> Stroke {
         fill: Fill::Solid(color),
         width,
         dash_array: None,
+        dash_offset: 0.0,
+        trim: None,
         line_cap: LineCap::Butt,
         line_join: LineJoin::Miter,
     }

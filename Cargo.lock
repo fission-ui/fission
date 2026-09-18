@@ -3093,6 +3093,7 @@ name = "fission-ir"
 version = "0.14.1"
 dependencies = [
  "blake3",
+ "kurbo",
  "serde",
  "serde_json",
  "thiserror 1.0.69",

@@ -831,6 +831,8 @@ impl Button {
             fill: border.fill,
             width: border.width,
             dash_array: component_style.border_dash.clone(),
+            dash_offset: 0.0,
+            trim: None,
             line_cap: fission_ir::op::LineCap::Butt,
             line_join: fission_ir::op::LineJoin::Miter,
         });
@@ -842,6 +844,8 @@ impl Button {
                     fill: border.fill,
                     width: border.width,
                     dash_array: None,
+                    dash_offset: 0.0,
+                    trim: None,
                     line_cap: fission_ir::op::LineCap::Round,
                     line_join: fission_ir::op::LineJoin::Round,
                 })
@@ -1351,6 +1355,8 @@ impl Button {
                 fill: Fill::Solid(IrColor::TRANSPARENT),
                 width: 0.0,
                 dash_array: None,
+                dash_offset: 0.0,
+                trim: None,
                 line_cap: fission_ir::op::LineCap::Butt,
                 line_join: fission_ir::op::LineJoin::Miter,
             });

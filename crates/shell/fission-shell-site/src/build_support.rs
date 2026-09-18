@@ -55,7 +55,14 @@ fn route_depth(route_path: &str) -> usize {
         .count()
 }
 
-pub(crate) fn validate_generated_internal_links(output_dir: &Path) -> Result<()> {
+/// Adds trailing slashes to links that point at pages, then fails if any generated link does not
+/// resolve.
+pub(crate) fn finish_generated_links(output_dir: &Path) -> Result<()> {
+    add_trailing_slash_to_page_links(output_dir)?;
+    validate_generated_internal_links(output_dir)
+}
+
+fn validate_generated_internal_links(output_dir: &Path) -> Result<()> {
     let mut html_files = Vec::new();
     collect_generated_html_files(output_dir, &mut html_files)?;
     let mut missing = Vec::new();
@@ -211,6 +218,85 @@ pub(crate) fn normalize_site_asset_href(value: &str) -> String {
         out = out.replace("//", "/");
     }
     out
+}
+
+/// Adds the trailing slash to generated links that point at a page.
+///
+/// Every route is written as `<path>/index.html`, so a link to `/docs/intro` or `../intro` would
+/// otherwise cost the reader a redirect. Only `href`s that resolve to a generated page directory
+/// change; form actions, files and anything else stay as written.
+fn add_trailing_slash_to_page_links(output_dir: &Path) -> Result<()> {
+    let mut html_files = Vec::new();
+    collect_generated_html_files(output_dir, &mut html_files)?;
+    for html_file in html_files {
+        let html = fs::read_to_string(&html_file)
+            .with_context(|| format!("failed to read generated HTML {}", html_file.display()))?;
+        let source_dir = html_file.parent().unwrap_or(output_dir);
+        let rewritten = with_page_link_slashes(&html, |path| {
+            let target = match path.strip_prefix('/') {
+                Some(rooted) => output_dir.join(rooted),
+                None => source_dir.join(path),
+            };
+            target.join("index.html").is_file()
+        });
+        if rewritten != html {
+            fs::write(&html_file, rewritten)
+                .with_context(|| format!("failed to write {}", html_file.display()))?;
+        }
+    }
+    Ok(())
+}
+
+/// Appends `/` to each `href` path without one for which `is_page` holds.
+fn with_page_link_slashes(html: &str, is_page: impl Fn(&str) -> bool) -> String {
+    const NEEDLE: &str = "href=\"";
+    let mut out = String::with_capacity(html.len());
+    let mut rest = html;
+    while let Some(start) = rest.find(NEEDLE) {
+        let value_start = start + NEEDLE.len();
+        out.push_str(&rest[..value_start]);
+        rest = &rest[value_start..];
+        let Some(end) = rest.find('"') else {
+            break;
+        };
+        let value = &rest[..end];
+        let (path, suffix) = value.split_at(value.find(['#', '?']).unwrap_or(value.len()));
+        let internal = !path.is_empty() && !path.contains(':') && !path.starts_with("//");
+        if internal && !path.ends_with('/') && is_page(path) {
+            out.push_str(path);
+            out.push('/');
+            out.push_str(suffix);
+        } else {
+            out.push_str(value);
+        }
+        rest = &rest[end..];
+    }
+    out.push_str(rest);
+    out
+}
+
+#[cfg(test)]
+#[test]
+fn only_links_to_pages_gain_a_trailing_slash() {
+    let html = concat!(
+        r##"<a href="/docs/intro">a</a><a href="../widgets/button#api">b</a>"##,
+        r##"<a href="/docs/intro/">c</a><a href="/api/submit">d</a><a href="/img/logo.svg">e</a>"##,
+        r##"<a href="https://example.com/docs">f</a><a href="#top">g</a>"##,
+    );
+    let pages = [
+        "/docs/intro",
+        "../widgets/button",
+        "https://example.com/docs",
+    ];
+    let rewritten = with_page_link_slashes(html, |path| pages.contains(&path));
+    assert_eq!(
+        rewritten,
+        concat!(
+            r##"<a href="/docs/intro/">a</a><a href="../widgets/button/#api">b</a>"##,
+            r##"<a href="/docs/intro/">c</a><a href="/api/submit">d</a><a href="/img/logo.svg">e</a>"##,
+            r##"<a href="https://example.com/docs">f</a><a href="#top">g</a>"##,
+        )
+    );
 }
 
 fn is_absolute_href(value: &str) -> bool {

@@ -464,6 +464,7 @@ pub(super) fn add_path(
                 path: path.to_string(),
                 fill,
                 stroke: stroke_value,
+                view_box: None,
             }),
         )
         .build(cx),
@@ -475,6 +476,8 @@ pub(super) fn stroke(color: Color, width: f32) -> Stroke {
         fill: Fill::Solid(color),
         width,
         dash_array: None,
+        dash_offset: 0.0,
+        trim: None,
         line_cap: LineCap::Round,
         line_join: LineJoin::Round,
     }

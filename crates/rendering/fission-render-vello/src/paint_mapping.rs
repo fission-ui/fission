@@ -197,8 +197,85 @@ pub(crate) fn map_stroke(
         .with_join(join);
     if let Some(dash) = &s.dash_array {
         let dashes: Vec<f64> = dash.iter().map(|v| *v as f64).collect();
-        stroke = stroke.with_dashes(0.0, dashes);
+        stroke = stroke.with_dashes(s.dash_offset as f64, dashes);
     }
 
     (stroke, map_fill_to_brush(&s.fill, bounds))
+}
+
+/// The path a stroke paints: the whole path, or the part its trim selects.
+pub(crate) fn stroke_geometry<'a>(
+    path: &str,
+    stroke: &fission_render::Stroke,
+    parsed: &'a BezPath,
+) -> std::borrow::Cow<'a, BezPath> {
+    match stroke.trim {
+        Some(trim) if !trim.is_full() => fission_ir::path::trim_svg_path(path, trim)
+            .map(std::borrow::Cow::Owned)
+            .unwrap_or(std::borrow::Cow::Borrowed(parsed)),
+        _ => std::borrow::Cow::Borrowed(parsed),
+    }
+}
+
+/// Scales a path drawn in a `view_box` coordinate space onto its node's bounds.
+pub(crate) fn view_box_scale(
+    view_box: Option<[f32; 2]>,
+    box_width: f32,
+    box_height: f32,
+) -> Affine {
+    match view_box {
+        Some([width, height]) if width > 0.0 && height > 0.0 => {
+            Affine::scale_non_uniform(f64::from(box_width / width), f64::from(box_height / height))
+        }
+        _ => Affine::IDENTITY,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use vello_cpu::kurbo::Shape;
+
+    fn stroke(trim: Option<fission_ir::op::StrokeTrim>) -> fission_render::Stroke {
+        fission_render::Stroke {
+            fill: fission_render::Fill::Solid(fission_render::Color {
+                r: 0,
+                g: 0,
+                b: 0,
+                a: 255,
+            }),
+            width: 2.0,
+            dash_array: None,
+            line_cap: fission_render::LineCap::Butt,
+            line_join: fission_render::LineJoin::Miter,
+            dash_offset: 0.0,
+            trim,
+        }
+    }
+
+    #[test]
+    fn trimmed_strokes_keep_only_the_selected_arc_length() {
+        let path = "M0 0 H100";
+        let parsed = BezPath::from_svg(path).unwrap();
+        let full = stroke_geometry(path, &stroke(None), &parsed);
+        assert!(matches!(full, std::borrow::Cow::Borrowed(_)));
+
+        let trim = fission_ir::op::StrokeTrim::new(0.25, 0.75);
+        let bounds = stroke_geometry(path, &stroke(Some(trim)), &parsed).bounding_box();
+        assert!((bounds.x0 - 25.0).abs() < 0.01, "{bounds:?}");
+        assert!((bounds.x1 - 75.0).abs() < 0.01, "{bounds:?}");
+    }
+
+    #[test]
+    fn view_boxes_scale_to_the_painted_box() {
+        assert_eq!(
+            view_box_scale(Some([24.0, 24.0]), 48.0, 12.0),
+            Affine::scale_non_uniform(2.0, 0.5)
+        );
+        assert_eq!(view_box_scale(None, 48.0, 12.0), Affine::IDENTITY);
+        assert_eq!(
+            view_box_scale(Some([0.0, 24.0]), 48.0, 12.0),
+            Affine::IDENTITY
+        );
+    }
 }

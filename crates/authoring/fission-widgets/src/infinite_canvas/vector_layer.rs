@@ -34,6 +34,7 @@ impl LowerWidget for CanvasVectorLayer {
                 path: self.path.clone(),
                 fill: self.fill.clone(),
                 stroke: self.stroke.clone(),
+                view_box: None,
             }),
         )
         .build(cx);
@@ -95,6 +96,8 @@ mod tests {
                 fill: Fill::Solid(Color::BLACK),
                 width: 1.0,
                 dash_array: None,
+                dash_offset: 0.0,
+                trim: None,
                 line_cap: LineCap::Butt,
                 line_join: LineJoin::Miter,
             }),

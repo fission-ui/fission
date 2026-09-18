@@ -61,6 +61,8 @@ pub(super) fn lower_loading_indicator(
         fill: Fill::Solid(color),
         width: stroke_width,
         dash_array: None,
+        dash_offset: 0.0,
+        trim: None,
         line_cap: fission_ir::op::LineCap::Round,
         line_join: fission_ir::op::LineJoin::Round,
     };
@@ -74,6 +76,7 @@ pub(super) fn lower_loading_indicator(
             path: ring_path(centre, radius, 4),
             fill: None,
             stroke: Some(stroke(track_color)),
+            view_box: None,
         }),
     )
     .build(cx);
@@ -83,6 +86,7 @@ pub(super) fn lower_loading_indicator(
             path: ring_path(centre, radius, 1),
             fill: None,
             stroke: Some(stroke(style.text_color)),
+            view_box: None,
         }),
     )
     .build(cx);

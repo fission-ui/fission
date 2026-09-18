@@ -109,6 +109,8 @@ fn grid_stroke(color: fission_ir::op::Color, pattern: CanvasGridPattern) -> Opti
         fill: Fill::Solid(color),
         width: width.max(0.0),
         dash_array: None,
+        dash_offset: 0.0,
+        trim: None,
         line_cap: LineCap::Butt,
         line_join: LineJoin::Miter,
     })

@@ -114,6 +114,14 @@ fn site_app() -> FissionSite {
             Some("Bibliotecas y herramientas creadas directamente sobre Fission.".to_string()),
             CrateDirectoryPage::new(registry.clone()),
         )
+        .locale_resolver(|ctx| {
+            let locale = if ctx.route_path.starts_with("/es/") {
+                "es-ES"
+            } else {
+                ctx.declared_locale.unwrap_or(ctx.default_locale)
+            };
+            Ok(locale.into())
+        })
         .footer_widget::<DocsState, _>(DocsFooter)
         .content_header_widget::<DocsState, _, _>(|ctx| {
             ContentPageNav::for_route(ctx.route_path)

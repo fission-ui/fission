@@ -23,7 +23,7 @@ That exposes the single `fission` executable. This crate is part of the internal
 
 ## Documentation
 
-See [fission.rs](https://fission.rs/docs/reference/cli/overview/) for the public CLI reference.
+See [fission.rs](https://fission.rs/reference/cli/overview/) for the public CLI reference.
 
 ## License
 

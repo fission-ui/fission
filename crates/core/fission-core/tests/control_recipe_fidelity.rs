@@ -425,6 +425,8 @@ fn button_style_override_is_a_real_last_mile_override() {
                     fill: Fill::Solid(Color::BLACK),
                     width: 2.0,
                     dash_array: None,
+                    dash_offset: 0.0,
+                    trim: None,
                     line_cap: fission_ir::op::LineCap::Round,
                     line_join: fission_ir::op::LineJoin::Round,
                 }),
