@@ -221,8 +221,10 @@ impl Package {
         let type_name = &config.type_name;
         let info = self.info(krate);
         let base = config.recipe_base();
-        let light_components = self.component_theme_expr(krate, Mode::Light, base.as_deref())?;
-        let dark_components = self.component_theme_expr(krate, Mode::Dark, base.as_deref())?;
+        let (light_component_helpers, light_components) =
+            self.component_theme_expr(krate, Mode::Light, base.as_deref(), "light")?;
+        let (dark_component_helpers, dark_components) =
+            self.component_theme_expr(krate, Mode::Dark, base.as_deref(), "dark")?;
         let light = self.theme_expr(krate, Mode::Light, "Self::__fission_light_components()")?;
         let dark = self.theme_expr(krate, Mode::Dark, "Self::__fission_dark_components()")?;
         let design_tokens = self.design_tokens_expr(krate)?;
@@ -238,9 +240,14 @@ impl Package {
 pub struct {type_name};
 
 impl {type_name} {{
-    // Keep the large component-theme construction frame out of `theme_ref`.
-    // WebAssembly has a comparatively small fixed stack; retaining this frame
-    // while initialising design-system metadata can otherwise overflow it.
+    {light_component_helpers}
+
+    {dark_component_helpers}
+
+    // Keep component-theme assembly out of `theme_ref`, and keep each large
+    // field construction in its own non-inlined frame. WebAssembly and Android
+    // have comparatively small fixed stacks; one monolithic debug constructor
+    // can otherwise retain every field temporary and overflow either target.
     #[inline(never)]
     fn __fission_light_components() -> ::std::sync::Arc<{krate}::ComponentTheme> {{
         ::std::sync::Arc::new({light_components})
@@ -621,64 +628,86 @@ impl {krate}::DesignSystem for {type_name} {{
         ))
     }
 
-    fn component_theme_expr(&self, krate: &str, mode: Mode, base: Option<&str>) -> Result<String> {
-        let button = self.button_theme_expr(krate, mode)?;
-        let text_input = self.text_input_theme_expr(krate, mode)?;
-        let select = self.select_theme_expr(krate, mode)?;
-        let menu = self.menu_theme_expr(krate, mode)?;
-        let alert = self.alert_theme_expr(krate, mode)?;
-        let avatar = self.avatar_theme_expr(krate, mode)?;
-        let avatar_group = self.avatar_group_theme_expr(krate, mode)?;
-        let pagination = self.pagination_theme_expr(krate, mode)?;
-        let badge = self.badge_theme_expr(krate, mode)?;
-        let tabs = self.tabs_theme_expr(krate, mode)?;
-        let modal = self.modal_theme_expr(krate, mode)?;
-        let progress = self.progress_theme_expr(krate, mode)?;
-        let tooltip = self.tooltip_theme_expr(krate, mode)?;
-        let card = self.card_theme_expr(krate, mode)?;
-        let code = self.code_theme_expr(krate, mode)?;
-        let empty_state = self.empty_state_theme_expr(krate, mode)?;
-        let feature_icon = self.feature_icon_theme_expr(krate, mode)?;
-        let recipes = self.component_recipes_expr(krate, mode, base)?;
+    fn component_theme_expr(
+        &self,
+        krate: &str,
+        mode: Mode,
+        base: Option<&str>,
+        helper_prefix: &str,
+    ) -> Result<(String, String)> {
         let colors_prefix = match mode {
             Mode::Light => "color.light",
             Mode::Dark => "color.dark",
         };
-        Ok(format!(
-            r#"{krate}::ComponentTheme {{
-                button: {button},
-                text_input: {text_input},
-                select: {select},
-                menu: {menu},
-                calendar: {krate}::CalendarTheme {{ bg_color: {surface}, border_color: {border}, radius: {radius_medium}, selected_bg: {primary}, selected_text: {on_primary}, today_outline: {secondary} }},
-                pagination: {pagination},
-                timeline: {krate}::TimelineTheme {{ dot_size: {timeline_dot}, line_width: {timeline_line}, dot_color: {primary}, line_color: {border} }},
-                segmented_control: {krate}::SegmentedControlTheme {{ bg_color: {surface}, border_color: {border}, radius: {radius_full}, active_bg: {primary}, active_text: {on_primary} }},
-                alert: {alert},
-                avatar: {avatar},
-                avatar_group: {avatar_group},
-                badge: {badge},
-                tabs: {tabs},
-                modal: {modal},
-                tree_view: {krate}::TreeViewTheme {{ indent: {tree_indent}, selected_bg: {primary}.with_alpha(52), hover_bg: {surface} }},
-                progress: {progress},
-                tooltip: {tooltip},
-                card: {card},
-                code: {code},
-                empty_state: {empty_state},
-                feature_icon: {feature_icon},
-                recipes: {recipes},
-            }}"#,
-            surface = self.color_expr(krate, &format!("{colors_prefix}.surface"))?,
-            border = self.color_expr(krate, &format!("{colors_prefix}.border"))?,
-            primary = self.color_expr(krate, &format!("{colors_prefix}.primary"))?,
-            on_primary = self.color_expr(krate, &format!("{colors_prefix}.on_primary"))?,
-            secondary = self.color_expr(krate, &format!("{colors_prefix}.secondary"))?,
-            radius_medium = f32_lit(self.dimension("radius.medium")?),
-            radius_full = f32_lit(self.dimension("radius.full")?),
-            timeline_dot = f32_lit(self.dimension_optional("sizing.icon.xs", 12.0)?),
-            timeline_line = f32_lit(self.dimension_optional("sizing.border.thick", 2.0)?),
-            tree_indent = f32_lit(self.dimension_optional("spacing.m", 16.0)?),
+        let surface = self.color_expr(krate, &format!("{colors_prefix}.surface"))?;
+        let border = self.color_expr(krate, &format!("{colors_prefix}.border"))?;
+        let primary = self.color_expr(krate, &format!("{colors_prefix}.primary"))?;
+        let on_primary = self.color_expr(krate, &format!("{colors_prefix}.on_primary"))?;
+        let secondary = self.color_expr(krate, &format!("{colors_prefix}.secondary"))?;
+        let radius_medium = f32_lit(self.dimension("radius.medium")?);
+        let radius_full = f32_lit(self.dimension("radius.full")?);
+        let timeline_dot = f32_lit(self.dimension_optional("sizing.icon.xs", 12.0)?);
+        let timeline_line = f32_lit(self.dimension_optional("sizing.border.thick", 2.0)?);
+        let tree_indent = f32_lit(self.dimension_optional("spacing.m", 16.0)?);
+        let (recipe_helpers, recipes) =
+            self.component_recipes_expr(krate, mode, base, helper_prefix)?;
+        let component_type = |name: &str| format!("{krate}::{name}");
+        let fields = vec![
+            ("button", component_type("ButtonTheme"), self.button_theme_expr(krate, mode)?),
+            ("text_input", component_type("TextInputTheme"), self.text_input_theme_expr(krate, mode)?),
+            ("select", component_type("SelectTheme"), self.select_theme_expr(krate, mode)?),
+            ("menu", component_type("MenuTheme"), self.menu_theme_expr(krate, mode)?),
+            (
+                "calendar",
+                component_type("CalendarTheme"),
+                format!("{krate}::CalendarTheme {{ bg_color: {surface}, border_color: {border}, radius: {radius_medium}, selected_bg: {primary}, selected_text: {on_primary}, today_outline: {secondary} }}"),
+            ),
+            ("pagination", component_type("PaginationTheme"), self.pagination_theme_expr(krate, mode)?),
+            (
+                "timeline",
+                component_type("TimelineTheme"),
+                format!("{krate}::TimelineTheme {{ dot_size: {timeline_dot}, line_width: {timeline_line}, dot_color: {primary}, line_color: {border} }}"),
+            ),
+            (
+                "segmented_control",
+                component_type("SegmentedControlTheme"),
+                format!("{krate}::SegmentedControlTheme {{ bg_color: {surface}, border_color: {border}, radius: {radius_full}, active_bg: {primary}, active_text: {on_primary} }}"),
+            ),
+            ("alert", component_type("AlertTheme"), self.alert_theme_expr(krate, mode)?),
+            ("avatar", component_type("AvatarTheme"), self.avatar_theme_expr(krate, mode)?),
+            ("avatar_group", component_type("AvatarGroupTheme"), self.avatar_group_theme_expr(krate, mode)?),
+            ("badge", component_type("BadgeTheme"), self.badge_theme_expr(krate, mode)?),
+            ("tabs", component_type("TabsTheme"), self.tabs_theme_expr(krate, mode)?),
+            ("modal", component_type("ModalTheme"), self.modal_theme_expr(krate, mode)?),
+            (
+                "tree_view",
+                component_type("TreeViewTheme"),
+                format!("{krate}::TreeViewTheme {{ indent: {tree_indent}, selected_bg: {primary}.with_alpha(52), hover_bg: {surface} }}"),
+            ),
+            ("progress", component_type("ProgressTheme"), self.progress_theme_expr(krate, mode)?),
+            ("tooltip", component_type("TooltipTheme"), self.tooltip_theme_expr(krate, mode)?),
+            ("card", component_type("CardTheme"), self.card_theme_expr(krate, mode)?),
+            ("code", component_type("CodeTheme"), self.code_theme_expr(krate, mode)?),
+            ("empty_state", component_type("EmptyStateTheme"), self.empty_state_theme_expr(krate, mode)?),
+            ("feature_icon", component_type("FeatureIconTheme"), self.feature_icon_theme_expr(krate, mode)?),
+            (
+                "recipes",
+                format!("::std::sync::Arc<::std::collections::BTreeMap<::std::string::String, {krate}::ComponentRecipe>>"),
+                recipes,
+            ),
+        ];
+        let mut helpers = vec![recipe_helpers];
+        let mut assignments = Vec::with_capacity(fields.len());
+        for (field, field_type, expression) in fields {
+            let helper = format!("__fission_{helper_prefix}_{field}");
+            helpers.push(format!(
+                "#[inline(never)]\n    fn {helper}() -> {field_type} {{ {expression} }}"
+            ));
+            assignments.push(format!("{field}: Self::{helper}()"));
+        }
+        Ok((
+            helpers.join("\n\n    "),
+            format!("{krate}::ComponentTheme {{ {} }}", assignments.join(",")),
         ))
     }
 
@@ -2470,7 +2499,8 @@ impl {krate}::DesignSystem for {type_name} {{
         krate: &str,
         mode: Mode,
         base: Option<&str>,
-    ) -> Result<String> {
+        helper_prefix: &str,
+    ) -> Result<(String, String)> {
         // An inheriting design system starts from its base's recipes, so every
         // component it does not declare still has one. It takes them at the
         // base's declared (comfortable) sizes: the base's theme may already be
@@ -2489,10 +2519,11 @@ impl {krate}::DesignSystem for {type_name} {{
             None => "std::collections::BTreeMap::new()".into(),
         };
         let Some(obj) = self.dsp.get("components").and_then(Value::as_object) else {
-            return Ok(format!("std::sync::Arc::new({initial})"));
+            return Ok((String::new(), format!("std::sync::Arc::new({initial})")));
         };
         let mut entries = Vec::new();
-        for (name, value) in obj {
+        let mut helpers = Vec::new();
+        for (index, (name, value)) in obj.iter().enumerate() {
             if name.starts_with('$') {
                 continue;
             }
@@ -2500,24 +2531,31 @@ impl {krate}::DesignSystem for {type_name} {{
                 continue;
             };
             let recipe = self.component_recipe_expr(krate, mode, recipe)?;
+            let helper = format!("__fission_{helper_prefix}_recipe_{index}");
+            helpers.push(format!(
+                "#[inline(never)]\n    fn {helper}() -> {krate}::ComponentRecipe {{ {recipe} }}"
+            ));
             let name = format!("{name:?}");
             entries.push(if base.is_some() {
                 // An inheriting design system layers its recipe over the
                 // inherited one, so changing one property keeps the parts,
                 // sizes, states and scalars it does not mention.
                 format!(
-                    "{{ let recipe = {recipe}; let recipe = match recipes.get({name}) {{ Some(inherited) => recipe.merged_over(inherited), None => recipe }}; recipes.insert({name}.to_string(), recipe); }}"
+                    "{{ let recipe = Self::{helper}(); let recipe = match recipes.get({name}) {{ Some(inherited) => recipe.merged_over(inherited), None => recipe }}; recipes.insert({name}.to_string(), recipe); }}"
                 )
             } else {
-                format!("recipes.insert({name}.to_string(), {recipe});")
+                format!("recipes.insert({name}.to_string(), Self::{helper}());")
             });
         }
         // Built with successive inserts rather than one array literal: a
         // literal holding every recipe is a single enormous temporary, and
         // materialising it overflows the stack on a normal thread.
-        Ok(format!(
-            "std::sync::Arc::new({{ let mut recipes = {initial}; {} recipes }})",
-            entries.join(" ")
+        Ok((
+            helpers.join("\n\n    "),
+            format!(
+                "std::sync::Arc::new({{ let mut recipes = {initial}; {} recipes }})",
+                entries.join(" ")
+            ),
         ))
     }
 

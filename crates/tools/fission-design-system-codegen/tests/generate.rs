@@ -28,6 +28,11 @@ fn generates_rust_for_fission_dsp_package() {
     assert!(generated.contains(
         "#[inline(never)]\n    fn __fission_light_components() -> ::std::sync::Arc<fission_theme::ComponentTheme>"
     ));
+    assert!(generated
+        .contains("#[inline(never)]\n    fn __fission_light_menu() -> fission_theme::MenuTheme"));
+    assert!(generated.contains("#[inline(never)]\n    fn __fission_light_recipe_"));
+    assert!(generated.contains("menu: Self::__fission_light_menu()"));
+    assert!(generated.contains("Self::__fission_light_recipe_"));
     assert!(generated.contains("let components = Self::__fission_light_components();"));
     assert!(generated.contains("color.teal.700"));
     assert!(generated.contains("marketing_hero"));
@@ -70,7 +75,7 @@ fn generates_rust_for_fission_dsp_package() {
         "card footer and selected-indicator anatomy must survive DSP code generation"
     );
     assert!(
-        generated.contains("menu: fission_theme::MenuTheme")
+        generated.contains("fn __fission_light_menu() -> fission_theme::MenuTheme")
             && generated.contains("trigger_sizes: vec!")
             && generated.contains("trigger_states: fission_theme::ComponentStateStyles")
             && generated.contains("destructive_item_states: fission_theme::ComponentStateStyles")
@@ -78,7 +83,7 @@ fn generates_rust_for_fission_dsp_package() {
         "menu anatomy and state recipes must survive DSP code generation"
     );
     assert!(
-        generated.contains("select: fission_theme::SelectTheme")
+        generated.contains("fn __fission_light_select() -> fission_theme::SelectTheme")
             && generated.contains("placeholder_style: fission_theme::ResolvedComponentStyle")
             && generated.contains("indicator_style: fission_theme::ResolvedComponentStyle")
             && generated.contains("padding: Some([10.0, 8.0, 3.0, 3.0])")
@@ -86,13 +91,13 @@ fn generates_rust_for_fission_dsp_package() {
         "select trigger recipes must survive DSP code generation"
     );
     assert!(
-        generated.contains("alert: fission_theme::AlertTheme")
+        generated.contains("fn __fission_light_alert() -> fission_theme::AlertTheme")
             && generated.contains("content_style: fission_theme::ResolvedComponentStyle")
             && generated.contains("success_style: fission_theme::ResolvedComponentStyle"),
         "alert anatomy and tone recipes must survive DSP code generation"
     );
     assert!(
-        generated.contains("pagination: fission_theme::PaginationTheme")
+        generated.contains("fn __fission_light_pagination() -> fission_theme::PaginationTheme")
             && generated.contains("selected_style: fission_theme::ResolvedComponentStyle")
             && generated.contains("ellipsis_style: fission_theme::ResolvedComponentStyle"),
         "pagination geometry and current-page recipes must survive DSP code generation"
@@ -102,7 +107,7 @@ fn generates_rust_for_fission_dsp_package() {
         "component borders must survive DSP code generation"
     );
     assert!(
-        generated.contains("empty_state: fission_theme::EmptyStateTheme")
+        generated.contains("fn __fission_light_empty_state() -> fission_theme::EmptyStateTheme")
             && generated.contains("min_height: Some(160.0)")
             && generated.contains("narrow_breakpoint: 640.0")
             && generated.contains("narrow_surface_style: fission_theme::ResolvedComponentStyle")
@@ -111,18 +116,18 @@ fn generates_rust_for_fission_dsp_package() {
         "empty-state geometry must survive DSP code generation"
     );
     assert!(
-        generated.contains("avatar: fission_theme::AvatarTheme")
+        generated.contains("fn __fission_light_avatar() -> fission_theme::AvatarTheme")
             && generated.contains("fallback_style: fission_theme::ResolvedComponentStyle"),
         "avatar fallback colors must survive DSP code generation"
     );
     assert!(
-        generated.contains("avatar_group: fission_theme::AvatarGroupTheme")
+        generated.contains("fn __fission_light_avatar_group() -> fission_theme::AvatarGroupTheme")
             && generated.contains("overlap: 10.0")
             && generated.contains("max_visible: 4"),
         "avatar-group geometry must survive DSP code generation"
     );
     assert!(
-        generated.contains("code: fission_theme::CodeTheme")
+        generated.contains("fn __fission_light_code() -> fission_theme::CodeTheme")
             && generated.contains("font_family: Some(")
             && generated.contains("font_size: Some(12.0)"),
         "code typography must survive DSP code generation"
