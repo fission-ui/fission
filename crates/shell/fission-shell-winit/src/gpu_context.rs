@@ -210,7 +210,7 @@ impl RenderContext {
                 .await
                 .map_err(Error::RequestAdapter)?;
         let features = adapter.features();
-        let limits = Limits::default();
+        let limits = required_device_limits(&adapter.limits());
         let maybe_features = wgpu::Features::CLEAR_TEXTURE | wgpu::Features::PIPELINE_CACHE;
         let required_features = features & maybe_features;
         log::info!(
@@ -240,6 +240,16 @@ impl RenderContext {
         });
         Ok(self.devices.len() - 1)
     }
+}
+
+/// Clamp Fission's preferred WebGPU limits to what the selected adapter can provide.
+///
+/// Some valid mobile Vulkan adapters expose limits below WebGPU's defaults. In particular,
+/// Android devices commonly support four color attachments rather than the default eight.
+/// Requesting the defaults unchanged makes `request_device` reject the adapter before the first
+/// frame can be rendered.
+fn required_device_limits(adapter_limits: &Limits) -> Limits {
+    Limits::default().or_worse_values_from(adapter_limits)
 }
 
 /// The intermediate texture a frame is rendered into before it is blitted to the surface.
@@ -291,5 +301,29 @@ impl fmt::Debug for RenderSurface<'_> {
             .field("target_view", &self.target_view)
             .field("blitter", &"(not Debug)")
             .finish()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::required_device_limits;
+    use wgpu::Limits;
+
+    #[test]
+    fn device_limits_do_not_exceed_mobile_adapter_limits() {
+        let mut adapter_limits = Limits::default();
+        adapter_limits.max_color_attachments = 4;
+
+        let required_limits = required_device_limits(&adapter_limits);
+
+        assert_eq!(required_limits.max_color_attachments, 4);
+        assert!(required_limits.check_limits(&adapter_limits));
+    }
+
+    #[test]
+    fn device_limits_keep_preferred_values_when_supported() {
+        let adapter_limits = Limits::default();
+
+        assert_eq!(required_device_limits(&adapter_limits), Limits::default());
     }
 }
