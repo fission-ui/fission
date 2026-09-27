@@ -60,9 +60,9 @@ const PERMISSION_RECORD_AUDIO: &str = "android.permission.RECORD_AUDIO";
 pub(crate) fn register_android_operation_capabilities(
     async_registry: &mut AsyncRegistry,
     app: &AndroidApp,
-) {
+) -> Option<Arc<dyn fission_core::env::Clipboard>> {
     let Ok(context) = AndroidHostContext::from_app(app) else {
-        return;
+        return None;
     };
 
     #[cfg(feature = "filesystem")]
@@ -71,10 +71,8 @@ pub(crate) fn register_android_operation_capabilities(
         context.clone(),
     );
 
-    clipboard::register_clipboard_capabilities(
-        async_registry,
-        Arc::new(AndroidClipboardHost::new(context.clone())),
-    );
+    let clipboard = Arc::new(AndroidClipboardHost::new(context.clone()));
+    clipboard::register_clipboard_capabilities(async_registry, clipboard.clone());
     haptics::register_haptic_capabilities(
         async_registry,
         Arc::new(AndroidHapticHost::new(context.clone())),
@@ -116,6 +114,7 @@ pub(crate) fn register_android_operation_capabilities(
         Arc::new(AndroidBiometricHost::new(context.clone())),
     );
     nfc::register_nfc_capabilities(async_registry, Arc::new(AndroidNfcHost::new(context)));
+    Some(clipboard)
 }
 
 #[derive(Clone)]
@@ -377,6 +376,23 @@ impl ClipboardHost for AndroidClipboardHost {
         self.write_text(ClipboardWriteTextRequest {
             text: String::new(),
         })
+    }
+}
+
+impl fission_core::env::Clipboard for AndroidClipboardHost {
+    fn get_text(&self) -> Option<String> {
+        ClipboardHost::read_text(self)
+            .ok()
+            .and_then(|value| value.text)
+    }
+
+    fn set_text(&self, text: &str) {
+        let _ = ClipboardHost::write_text(
+            self,
+            ClipboardWriteTextRequest {
+                text: text.to_string(),
+            },
+        );
     }
 }
 
