@@ -2573,6 +2573,150 @@ fn test_shift_click_extends_selection_from_existing_anchor() {
 }
 
 #[test]
+fn test_double_tap_selects_the_word_in_a_text_input() {
+    let input_id = WidgetId::derived(28, &[10]);
+    let scroll_id = WidgetId::derived(28, &[11]);
+    let text_id = WidgetId::derived(28, &[12]);
+    let value = "alpha beta";
+    let ir = create_rich_text_input_tree(input_id, scroll_id, text_id, value, false);
+    let mut layout = LayoutSnapshot::new(LayoutSize::new(800.0, 600.0));
+    layout.nodes.insert(
+        scroll_id,
+        LayoutNodeGeometry {
+            rect: LayoutRect::new(200.0, 40.0, 160.0, 24.0),
+            content_size: LayoutSize::new(160.0, 24.0),
+        },
+    );
+    layout.nodes.insert(
+        input_id,
+        LayoutNodeGeometry {
+            rect: LayoutRect::new(180.0, 30.0, 200.0, 44.0),
+            content_size: LayoutSize::new(200.0, 44.0),
+        },
+    );
+
+    let mut text_edit = TextEditStateMap::default();
+    let mut interaction = InteractionStateMap::default();
+    let mut scroll = ScrollStateMap::default();
+    let mut gesture = fission_core::env::GestureState::default();
+    let clipboard: Arc<dyn Clipboard> = Arc::new(MockClipboard::new());
+    let measurer: Arc<dyn TextMeasurer> = Arc::new(MockTextMeasurer);
+    interaction.set_focused(Some(input_id));
+
+    let mut controller = TextInputController;
+    let mut ctx = setup_ctx(
+        &ir,
+        &layout,
+        &mut text_edit,
+        &mut interaction,
+        &mut scroll,
+        &mut gesture,
+        &clipboard,
+        Some(&measurer),
+    );
+    let point = LayoutPoint::new(270.0, 50.0);
+    let down = |kind| {
+        InputEvent::Pointer(PointerEvent::Down {
+            pointer_id: Default::default(),
+            kind,
+            point,
+            button: PointerButton::Primary,
+            modifiers: 0,
+        })
+    };
+    let up = InputEvent::Pointer(PointerEvent::Up {
+        pointer_id: Default::default(),
+        kind: fission_core::event::PointerKind::Touch,
+        point,
+        button: PointerButton::Primary,
+        modifiers: 0,
+    });
+
+    ctx.current_time = 100;
+    assert!(controller.handle_event(&mut ctx, &down(fission_core::event::PointerKind::Touch),));
+    ctx.current_time = 120;
+    assert!(controller.handle_event(&mut ctx, &up));
+    ctx.current_time = 250;
+    assert!(controller.handle_event(&mut ctx, &down(fission_core::event::PointerKind::Touch),));
+
+    let state = ctx.text_edit.get(input_id).expect("text state");
+    assert_eq!((state.anchor, state.caret), (6, 10));
+}
+
+#[test]
+fn test_touch_long_press_opens_paste_toolbar_on_empty_text_input() {
+    let input_id = WidgetId::derived(28, &[20]);
+    let scroll_id = WidgetId::derived(28, &[21]);
+    let text_id = WidgetId::derived(28, &[22]);
+    let ir = create_rich_text_input_tree(input_id, scroll_id, text_id, "", false);
+    let mut layout = LayoutSnapshot::new(LayoutSize::new(800.0, 600.0));
+    layout.nodes.insert(
+        scroll_id,
+        LayoutNodeGeometry {
+            rect: LayoutRect::new(200.0, 40.0, 160.0, 24.0),
+            content_size: LayoutSize::new(160.0, 24.0),
+        },
+    );
+    layout.nodes.insert(
+        input_id,
+        LayoutNodeGeometry {
+            rect: LayoutRect::new(180.0, 30.0, 200.0, 44.0),
+            content_size: LayoutSize::new(200.0, 44.0),
+        },
+    );
+
+    let mut text_edit = TextEditStateMap::default();
+    let mut interaction = InteractionStateMap::default();
+    let mut scroll = ScrollStateMap::default();
+    let mut gesture = fission_core::env::GestureState::default();
+    let clipboard: Arc<dyn Clipboard> = Arc::new(MockClipboard::new());
+    let measurer: Arc<dyn TextMeasurer> = Arc::new(MockTextMeasurer);
+    interaction.set_focused(Some(input_id));
+    let mut controller = TextInputController;
+    let mut ctx = setup_ctx(
+        &ir,
+        &layout,
+        &mut text_edit,
+        &mut interaction,
+        &mut scroll,
+        &mut gesture,
+        &clipboard,
+        Some(&measurer),
+    );
+    let point = LayoutPoint::new(220.0, 50.0);
+    ctx.current_time = 100;
+    assert!(controller.handle_event(
+        &mut ctx,
+        &InputEvent::Pointer(PointerEvent::Down {
+            pointer_id: Default::default(),
+            kind: fission_core::event::PointerKind::Touch,
+            point,
+            button: PointerButton::Primary,
+            modifiers: 0,
+        }),
+    ));
+    ctx.current_time = 700;
+    assert!(controller.handle_event(
+        &mut ctx,
+        &InputEvent::Pointer(PointerEvent::Up {
+            pointer_id: Default::default(),
+            kind: fission_core::event::PointerKind::Touch,
+            point,
+            button: PointerButton::Primary,
+            modifiers: 0,
+        }),
+    ));
+
+    assert!(
+        ctx.text_edit
+            .get(input_id)
+            .expect("text state")
+            .affordances
+            .toolbar_visible
+    );
+}
+
+#[test]
 fn test_secondary_click_shows_text_toolbar_affordance() {
     let input_id = WidgetId::derived(31, &[0]);
     let scroll_id = WidgetId::derived(31, &[1]);
@@ -2783,6 +2927,90 @@ fn test_toolbar_copy_button_click_uses_derived_node_id() {
     });
     assert!(controller.handle_event(&mut ctx, &event));
     assert_eq!(clipboard_impl.get_text().as_deref(), Some("cde"));
+}
+
+#[test]
+fn test_toolbar_paste_inserts_clipboard_text_and_closes_menu() {
+    let input_id = WidgetId::derived(32, &[10]);
+    let scroll_id = WidgetId::derived(32, &[11]);
+    let text_id = WidgetId::derived(32, &[12]);
+    let value = "host:";
+    let mut ir = create_rich_text_input_tree(input_id, scroll_id, text_id, value, false);
+    let mut layout = LayoutSnapshot::new(LayoutSize::new(800.0, 600.0));
+    layout.nodes.insert(
+        scroll_id,
+        LayoutNodeGeometry {
+            rect: LayoutRect::new(200.0, 40.0, 160.0, 24.0),
+            content_size: LayoutSize::new(160.0, 24.0),
+        },
+    );
+    layout.nodes.insert(
+        input_id,
+        LayoutNodeGeometry {
+            rect: LayoutRect::new(180.0, 30.0, 200.0, 44.0),
+            content_size: LayoutSize::new(200.0, 44.0),
+        },
+    );
+    let paste_button_id = test_text_input_toolbar_button_id(input_id, TextContextMenuAction::Paste);
+    attach_focusable_overlay_node(
+        &mut ir,
+        &mut layout,
+        input_id,
+        paste_button_id,
+        LayoutRect::new(205.0, 4.0, 56.0, 28.0),
+    );
+
+    let clipboard_impl = Arc::new(MockClipboard::new());
+    clipboard_impl.set_text("stretch-host-value");
+    let clipboard: Arc<dyn Clipboard> = clipboard_impl;
+    let measurer: Arc<dyn TextMeasurer> = Arc::new(MockTextMeasurer);
+    let mut text_edit = TextEditStateMap::default();
+    let mut interaction = InteractionStateMap::default();
+    let mut scroll = ScrollStateMap::default();
+    let mut gesture = fission_core::env::GestureState::default();
+    interaction.set_focused(Some(input_id));
+    text_edit.set_caret(input_id, value.len(), Some(value.len()));
+
+    let mut controller = TextInputController;
+    let mut ctx = setup_ctx(
+        &ir,
+        &layout,
+        &mut text_edit,
+        &mut interaction,
+        &mut scroll,
+        &mut gesture,
+        &clipboard,
+        Some(&measurer),
+    );
+    ctx.context_menu
+        .open(input_id, LayoutPoint::new(205.0, 4.0));
+    ctx.text_edit
+        .get_mut_or_default(input_id)
+        .affordances
+        .toolbar_visible = true;
+    assert!(controller.handle_event(
+        &mut ctx,
+        &InputEvent::Pointer(PointerEvent::Down {
+            pointer_id: Default::default(),
+            kind: fission_core::event::PointerKind::Touch,
+            point: LayoutPoint::new(220.0, 16.0),
+            button: PointerButton::Primary,
+            modifiers: 0,
+        }),
+    ));
+
+    let state = ctx.text_edit.get(input_id).expect("text state");
+    assert_eq!(state.committed_text(), "host:stretch-host-value");
+    assert!(!state.affordances.toolbar_visible);
+    assert!(ctx.context_menu.owner.is_none());
+    assert_eq!(
+        ctx.dispatched_actions[0]
+            .2
+            .text_change()
+            .expect("paste text change")
+            .new_text,
+        "host:stretch-host-value"
+    );
 }
 
 #[test]

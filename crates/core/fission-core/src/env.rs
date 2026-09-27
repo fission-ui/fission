@@ -601,6 +601,12 @@ pub struct TextInputAffordanceState {
     pub active_handle: Option<TextSelectionHandleKind>,
     pub magnifier_visible: bool,
     pub magnifier_anchor: Option<LayoutPoint>,
+    pub pointer_down_at: Option<crate::time::CurrentTime>,
+    pub pointer_down_point: Option<LayoutPoint>,
+    pub pointer_drag_started: bool,
+    pub last_tap_at: Option<crate::time::CurrentTime>,
+    pub last_tap_point: Option<LayoutPoint>,
+    pub tap_count: u8,
 }
 
 #[derive(Clone, Debug)]

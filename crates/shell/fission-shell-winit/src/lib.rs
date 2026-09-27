@@ -4940,10 +4940,12 @@ where
         #[cfg(target_os = "android")]
         if let Some(app) = android_app.as_ref() {
             android_text_input::install(app);
-            android_capabilities::register_android_operation_capabilities(
+            if let Some(clipboard) = android_capabilities::register_android_operation_capabilities(
                 &mut self.async_registry,
                 app,
-            );
+            ) {
+                self.runtime.clipboard_backend = Some(clipboard);
+            }
         }
         #[cfg(target_os = "android")]
         if let Some(app) = android_app {

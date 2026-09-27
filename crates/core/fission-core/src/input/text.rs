@@ -20,6 +20,10 @@ use fission_ir::{
 use serde_json;
 use unicode_segmentation::UnicodeSegmentation;
 
+const MULTI_TAP_INTERVAL_MS: u64 = 500;
+const MULTI_TAP_SLOP: f32 = 8.0;
+const LONG_PRESS_INTERVAL_MS: u64 = 500;
+
 pub struct TextInputController;
 
 impl InputController for TextInputController {
@@ -347,14 +351,30 @@ impl InputController for TextInputController {
                                                 point.x,
                                             )
                                         };
+                                        let tap_count =
+                                            Self::next_tap_count(ctx, focused_id, *point);
                                         let anchor = {
                                             let st = ctx.text_edit.get_mut_or_default(focused_id);
-                                            st.caret = caret;
-                                            if !Self::has_shift(*modifiers) {
-                                                st.anchor = caret;
+                                            st.affordances.pointer_down_at = Some(ctx.current_time);
+                                            st.affordances.pointer_down_point = Some(*point);
+                                            st.affordances.pointer_drag_started = false;
+                                            if tap_count == 2 && !Self::has_shift(*modifiers) {
+                                                let (start, end) =
+                                                    Self::word_range(&display_value, caret);
+                                                st.anchor = start;
+                                                st.caret = end;
+                                            } else {
+                                                st.caret = caret;
+                                                if !Self::has_shift(*modifiers) {
+                                                    st.anchor = caret;
+                                                }
                                             }
                                             st.anchor
                                         };
+                                        let caret = ctx
+                                            .text_edit
+                                            .get(focused_id)
+                                            .map_or(caret, |state| state.caret);
                                         Self::dispatch_cursor_change(
                                             ctx, sem, focused_id, caret, anchor,
                                         );
@@ -489,6 +509,10 @@ impl InputController for TextInputController {
                                             }
                                         };
                                     if moved_enough {
+                                        ctx.text_edit
+                                            .get_mut_or_default(focused_id)
+                                            .affordances
+                                            .pointer_drag_started = true;
                                         if let Some((
                                             scroll_id,
                                             text_op_node_id,
@@ -595,6 +619,37 @@ impl InputController for TextInputController {
                             if sem.supports_text_editing() {
                                 Self::note_pointer_kind(ctx, focused_id, *kind);
                                 let value = sem.value.as_deref().unwrap_or("").to_string();
+                                let held = ctx.text_edit.get(focused_id).is_some_and(|state| {
+                                    matches!(
+                                        kind,
+                                        crate::event::PointerKind::Touch
+                                            | crate::event::PointerKind::Stylus
+                                    ) && !state.affordances.pointer_drag_started
+                                        && state.affordances.pointer_down_at.is_some_and(
+                                            |started| {
+                                                ctx.current_time.saturating_sub(started)
+                                                    >= LONG_PRESS_INTERVAL_MS
+                                            },
+                                        )
+                                        && state.affordances.pointer_down_point.is_some_and(
+                                            |origin| {
+                                                Self::point_distance(origin, *point)
+                                                    <= MULTI_TAP_SLOP
+                                            },
+                                        )
+                                });
+                                if held {
+                                    let caret = ctx
+                                        .text_edit
+                                        .get(focused_id)
+                                        .map_or(0, |state| state.caret);
+                                    let (start, end) = Self::word_range(&value, caret);
+                                    let state = ctx.text_edit.get_mut_or_default(focused_id);
+                                    state.anchor = start;
+                                    state.caret = end;
+                                    state.clear_preedit();
+                                    Self::dispatch_cursor_change(ctx, sem, focused_id, end, start);
+                                }
                                 let toolbar_anchor = Self::input_wrapper_geometry(ctx, focused_id)
                                     .map(|geom| {
                                         fission_layout::LayoutPoint::new(
@@ -617,6 +672,7 @@ impl InputController for TextInputController {
                                 }
                                 let show_toolbar = touch
                                     && (secondary
+                                        || held
                                         || ctx
                                             .text_edit
                                             .states
@@ -626,6 +682,9 @@ impl InputController for TextInputController {
                                 if let Some(state) = ctx.text_edit.states.get_mut(&focused_id) {
                                     state.affordances.active_handle = None;
                                     state.affordances.magnifier_visible = false;
+                                    state.affordances.pointer_down_at = None;
+                                    state.affordances.pointer_down_point = None;
+                                    state.affordances.pointer_drag_started = false;
                                 }
                                 Self::sync_text_input_affordances(
                                     ctx,
@@ -1505,6 +1564,58 @@ impl TextInputController {
         }
         ctx.context_menu.close();
         handled
+    }
+
+    fn next_tap_count(
+        ctx: &mut ControllerContext,
+        focused_id: WidgetId,
+        point: fission_layout::LayoutPoint,
+    ) -> u8 {
+        let current_time = ctx.current_time;
+        let state = ctx.text_edit.get_mut_or_default(focused_id);
+        let repeated = state
+            .affordances
+            .last_tap_at
+            .is_some_and(|last| current_time.saturating_sub(last) <= MULTI_TAP_INTERVAL_MS)
+            && state
+                .affordances
+                .last_tap_point
+                .is_some_and(|last| Self::point_distance(last, point) <= MULTI_TAP_SLOP);
+        state.affordances.tap_count = if repeated {
+            (state.affordances.tap_count % 2) + 1
+        } else {
+            1
+        };
+        state.affordances.last_tap_at = Some(current_time);
+        state.affordances.last_tap_point = Some(point);
+        state.affordances.tap_count
+    }
+
+    fn point_distance(a: fission_layout::LayoutPoint, b: fission_layout::LayoutPoint) -> f32 {
+        let dx = a.x - b.x;
+        let dy = a.y - b.y;
+        (dx * dx + dy * dy).sqrt()
+    }
+
+    fn word_range(value: &str, offset: usize) -> (usize, usize) {
+        if value.is_empty() {
+            return (0, 0);
+        }
+        let offset = crate::TextPosition::floor(value, offset).utf8_offset();
+        for (start, word) in value.unicode_word_indices() {
+            let end = start + word.len();
+            if (start..end).contains(&offset) || (offset == value.len() && end == offset) {
+                return (start, end);
+            }
+        }
+        let probe = offset.min(value.len().saturating_sub(1));
+        value
+            .grapheme_indices(true)
+            .find_map(|(start, grapheme)| {
+                let end = start + grapheme.len();
+                (probe >= start && probe < end).then_some((start, end))
+            })
+            .unwrap_or((offset, offset))
     }
 
     fn prepare_inserted_text(
