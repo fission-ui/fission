@@ -120,6 +120,7 @@ struct ImeHandlerState {
     window: Option<Arc<Window>>,
     text_input_config: Option<TextInputConfig>,
     ime_allowed_requested: bool,
+    last_editing_value: Option<fission_core::TextEditingValue>,
     #[cfg(target_os = "macos")]
     mac_view_id: Option<usize>,
 }
@@ -132,6 +133,7 @@ pub struct DesktopImeHandler {
 impl DesktopImeHandler {
     pub fn set_window(&self, window: Option<Arc<Window>>) {
         let mut state = self.state.lock().expect("ime handler lock poisoned");
+        state.last_editing_value = None;
         state.window = window;
         sync_text_input_config(&mut state);
     }
@@ -141,6 +143,7 @@ impl DesktopImeHandler {
         if state.text_input_config == config {
             return;
         }
+        state.last_editing_value = None;
         state.text_input_config = config;
         sync_text_input_config(&mut state);
     }
@@ -161,6 +164,7 @@ impl ImeHandler for DesktopImeHandler {
         if state.ime_allowed_requested == allowed {
             return;
         }
+        state.last_editing_value = None;
         state.ime_allowed_requested = allowed;
         sync_text_input_config(&mut state);
     }
@@ -187,31 +191,42 @@ impl ImeHandler for DesktopImeHandler {
     fn set_editing_value(&self, value: &fission_core::TextEditingValue) {
         #[cfg(any(target_arch = "wasm32", target_os = "android", target_os = "ios"))]
         {
-            let Ok(base) = value.selection.base.utf16_offset(&value.text) else {
+            let mut state = self.state.lock().expect("ime handler lock poisoned");
+            let Some(ime_state) = changed_ime_state(&mut state.last_editing_value, value) else {
                 return;
             };
-            let Ok(extent) = value.selection.extent.utf16_offset(&value.text) else {
-                return;
-            };
-            let composing = value.composing.and_then(|range| {
-                Some((
-                    range.start.utf16_offset(&value.text).ok()?,
-                    range.end.utf16_offset(&value.text).ok()?,
-                ))
-            });
-            let state = self.state.lock().expect("ime handler lock poisoned");
             if let Some(window) = state.window.as_ref() {
-                window.set_ime_state(winit::event::ImeTextState {
-                    text: value.text.clone(),
-                    selection_start: base,
-                    selection_end: extent,
-                    composing,
-                });
+                window.set_ime_state(ime_state);
             }
         }
         #[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
         let _ = value;
     }
+}
+
+#[cfg(any(test, target_arch = "wasm32", target_os = "android", target_os = "ios"))]
+fn changed_ime_state(
+    last_value: &mut Option<fission_core::TextEditingValue>,
+    value: &fission_core::TextEditingValue,
+) -> Option<winit::event::ImeTextState> {
+    if last_value.as_ref() == Some(value) {
+        return None;
+    }
+    let selection_start = value.selection.base.utf16_offset(&value.text).ok()?;
+    let selection_end = value.selection.extent.utf16_offset(&value.text).ok()?;
+    let composing = value.composing.and_then(|range| {
+        Some((
+            range.start.utf16_offset(&value.text).ok()?,
+            range.end.utf16_offset(&value.text).ok()?,
+        ))
+    });
+    *last_value = Some(value.clone());
+    Some(winit::event::ImeTextState {
+        text: value.text.clone(),
+        selection_start,
+        selection_end,
+        composing,
+    })
 }
 
 fn sync_text_input_config(state: &mut ImeHandlerState) {
@@ -708,11 +723,11 @@ mod macos {
 #[cfg(test)]
 mod tests {
     use super::{
-        active_platform_config, effective_ime_allowed, mobile_ime_configuration,
+        active_platform_config, changed_ime_state, effective_ime_allowed, mobile_ime_configuration,
         text_edit_command_from_ime_state, web_autocomplete, web_smart_hint_needs_advisory,
         TextInputConfig,
     };
-    use fission_core::{TextEditCommand, TextEditSource};
+    use fission_core::{TextEditCommand, TextEditSource, TextEditingValue};
     use fission_ir::semantics::{TextInputAction, TextInputType};
     use fission_ir::Semantics;
     use winit::window::ImePurpose;
@@ -858,6 +873,20 @@ mod tests {
             result.unwrap_err(),
             "selection start is not a UTF-16 boundary"
         );
+    }
+
+    #[test]
+    fn unchanged_editing_values_are_not_sent_back_to_the_platform() {
+        let value = TextEditingValue::from_text("pairing-code");
+        let mut last_value = None;
+
+        let first = changed_ime_state(&mut last_value, &value).expect("initial synchronization");
+        assert_eq!(first.text, "pairing-code");
+        assert!(changed_ime_state(&mut last_value, &value).is_none());
+
+        let next = TextEditingValue::from_text("pairing-code-2");
+        let changed = changed_ime_state(&mut last_value, &next).expect("changed synchronization");
+        assert_eq!(changed.text, "pairing-code-2");
     }
 
     #[test]
