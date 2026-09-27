@@ -297,7 +297,7 @@ fn render_android_splash_styles(window_icon: &str, project: &FissionProject) -> 
     format!(
         r#"<?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="FissionLaunchTheme" parent="@android:style/Theme.Material.NoActionBar">
+    <style name="FissionLaunchTheme" parent="Theme.AppCompat.Light.NoActionBar">
         <item name="android:windowNoTitle">true</item>
         <item name="android:windowActionBar">false</item>
         <item name="android:windowDisablePreview">false</item>

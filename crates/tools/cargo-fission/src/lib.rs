@@ -1143,6 +1143,9 @@ mkdir -p "$(dirname "$artifact")"
         assert!(android_manifest.contains("rs.fission.runtime.FissionActivity"));
         let android_styles =
             std::fs::read_to_string(dir.join("platforms/android/res/values/styles.xml")).unwrap();
+        assert!(android_styles.contains(
+            "<style name=\"FissionLaunchTheme\" parent=\"Theme.AppCompat.Light.NoActionBar\">"
+        ));
         assert!(android_styles.contains("android:windowBackground"));
         assert!(android_styles.contains("android:windowSplashScreenAnimatedIcon"));
         let android_package_script =
