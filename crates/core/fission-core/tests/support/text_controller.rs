@@ -62,12 +62,17 @@ pub fn word_navigation_modifier() -> u8 {
 
 #[derive(Default)]
 pub struct RecordingImeHandler {
+    pub sessions_started: Mutex<usize>,
     pub allowed: Mutex<Vec<bool>>,
     pub cursor_areas: Mutex<Vec<LayoutRect>>,
     pub editing_values: Mutex<Vec<TextEditingValue>>,
 }
 
 impl ImeHandler for RecordingImeHandler {
+    fn begin_ime_session(&self) {
+        *self.sessions_started.lock().unwrap() += 1;
+    }
+
     fn set_ime_allowed(&self, allowed: bool) {
         self.allowed.lock().unwrap().push(allowed);
     }

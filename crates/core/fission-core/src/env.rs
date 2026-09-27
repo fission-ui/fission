@@ -316,6 +316,10 @@ pub trait Clipboard: Send + Sync {
 }
 
 pub trait ImeHandler: Send + Sync {
+    /// Starts a distinct platform editing session after focus moves between
+    /// editable controls. Implementations may use this to refresh platform
+    /// text state and re-request an already-visible software keyboard.
+    fn begin_ime_session(&self) {}
     fn set_ime_allowed(&self, allowed: bool);
     fn set_ime_cursor_area(&self, rect: fission_layout::LayoutRect);
     /// Synchronizes the complete authoritative value for the focused editing

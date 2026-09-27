@@ -2894,6 +2894,9 @@ impl Runtime {
                     .and_then(downcast_render_object)
                     .is_some_and(|render_object| render_object.accepts_text_input())
             });
+            if accepts_text {
+                ime_handler.begin_ime_session();
+            }
             ime_handler.set_ime_allowed(accepts_text);
         }
 

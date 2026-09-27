@@ -159,6 +159,23 @@ impl Drop for DesktopImeHandler {
 }
 
 impl ImeHandler for DesktopImeHandler {
+    fn begin_ime_session(&self) {
+        let mut state = self.state.lock().expect("ime handler lock poisoned");
+        state.last_editing_value = None;
+        #[cfg(target_os = "android")]
+        if effective_ime_allowed(
+            state.ime_allowed_requested,
+            state.text_input_config.as_ref(),
+        ) {
+            if let Some(window) = state.window.as_ref() {
+                // Android may withdraw the keyboard while focus remains inside
+                // the same native window. A new editable control is a new
+                // session even though IME permission remains true.
+                window.set_ime_allowed(true);
+            }
+        }
+    }
+
     fn set_ime_allowed(&self, allowed: bool) {
         let mut state = self.state.lock().expect("ime handler lock poisoned");
         if state.ime_allowed_requested == allowed {

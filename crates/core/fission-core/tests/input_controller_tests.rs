@@ -2717,6 +2717,75 @@ fn test_touch_long_press_opens_paste_toolbar_on_empty_text_input() {
 }
 
 #[test]
+fn test_touch_tap_does_not_open_toolbar_solely_for_existing_selection() {
+    let input_id = WidgetId::derived(28, &[30]);
+    let scroll_id = WidgetId::derived(28, &[31]);
+    let text_id = WidgetId::derived(28, &[32]);
+    let value = "alpha beta";
+    let ir = create_rich_text_input_tree(input_id, scroll_id, text_id, value, false);
+    let mut layout = LayoutSnapshot::new(LayoutSize::new(800.0, 600.0));
+    layout.nodes.insert(
+        scroll_id,
+        LayoutNodeGeometry {
+            rect: LayoutRect::new(200.0, 40.0, 160.0, 24.0),
+            content_size: LayoutSize::new(160.0, 24.0),
+        },
+    );
+    layout.nodes.insert(
+        input_id,
+        LayoutNodeGeometry {
+            rect: LayoutRect::new(180.0, 30.0, 200.0, 44.0),
+            content_size: LayoutSize::new(200.0, 44.0),
+        },
+    );
+
+    let mut text_edit = TextEditStateMap::default();
+    let mut interaction = InteractionStateMap::default();
+    let mut scroll = ScrollStateMap::default();
+    let mut gesture = fission_core::env::GestureState::default();
+    let clipboard: Arc<dyn Clipboard> = Arc::new(MockClipboard::new());
+    let measurer: Arc<dyn TextMeasurer> = Arc::new(MockTextMeasurer);
+    interaction.set_focused(Some(input_id));
+    let state = text_edit.get_mut_or_default(input_id);
+    state.anchor = 0;
+    state.caret = 5;
+    state.affordances.pointer_down_at = Some(100);
+    state.affordances.pointer_down_point = Some(LayoutPoint::new(220.0, 50.0));
+    state.affordances.tap_count = 1;
+
+    let mut controller = TextInputController;
+    let mut ctx = setup_ctx(
+        &ir,
+        &layout,
+        &mut text_edit,
+        &mut interaction,
+        &mut scroll,
+        &mut gesture,
+        &clipboard,
+        Some(&measurer),
+    );
+    ctx.current_time = 120;
+    assert!(controller.handle_event(
+        &mut ctx,
+        &InputEvent::Pointer(PointerEvent::Up {
+            pointer_id: Default::default(),
+            kind: fission_core::event::PointerKind::Touch,
+            point: LayoutPoint::new(220.0, 50.0),
+            button: PointerButton::Primary,
+            modifiers: 0,
+        }),
+    ));
+
+    assert!(
+        !ctx.text_edit
+            .get(input_id)
+            .expect("text state")
+            .affordances
+            .toolbar_visible
+    );
+}
+
+#[test]
 fn test_secondary_click_shows_text_toolbar_affordance() {
     let input_id = WidgetId::derived(31, &[0]);
     let scroll_id = WidgetId::derived(31, &[1]);

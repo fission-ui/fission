@@ -15,6 +15,7 @@ impl Runtime {
             if let Some(st) = self.runtime_state.text_edit.states.get_mut(&old_id) {
                 st.pending_model_sync = false;
                 st.clear_preedit();
+                st.affordances = Default::default();
             }
         }
     }

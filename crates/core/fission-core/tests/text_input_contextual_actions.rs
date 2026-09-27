@@ -1,8 +1,10 @@
 use std::collections::BTreeMap;
+use std::sync::{Arc, Mutex};
 
 use fission_core::authoring::BuildCtx;
 use fission_core::env::{
-    ContextMenuState, InteractionStateMap, ScrollStateMap, SelectableTextStateMap, TextEditStateMap,
+    ContextMenuState, ImeHandler, InteractionStateMap, ScrollStateMap, SelectableTextStateMap,
+    TextEditStateMap,
 };
 use fission_core::event::{ImeEvent, InputEvent, KeyCode, KeyEvent};
 use fission_core::input::text::TextInputController;
@@ -18,7 +20,7 @@ use fission_core::{
 };
 use fission_ir::semantics::{ActionEntry, ActionSet, ActionTrigger, Role};
 use fission_ir::{CoreIR, Op, Semantics};
-use fission_layout::{LayoutSize, LayoutSnapshot};
+use fission_layout::{LayoutRect, LayoutSize, LayoutSnapshot};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -650,7 +652,25 @@ fn focus_transitions_preserve_context_and_report_typed_session_input() {
 
 #[test]
 fn pointer_focus_transition_dispatches_tap_outside_blur_and_focus_once() {
-    let mut runtime = Runtime::default().with_global_state(Draft::default());
+    #[derive(Default)]
+    struct SessionIme {
+        sessions: Mutex<usize>,
+    }
+
+    impl ImeHandler for SessionIme {
+        fn begin_ime_session(&self) {
+            *self.sessions.lock().unwrap() += 1;
+        }
+
+        fn set_ime_allowed(&self, _allowed: bool) {}
+
+        fn set_ime_cursor_area(&self, _rect: LayoutRect) {}
+    }
+
+    let ime = Arc::new(SessionIme::default());
+    let mut runtime = Runtime::default()
+        .with_global_state(Draft::default())
+        .with_ime_handler(ime.clone());
     let env = Env::default();
     let (widget, context) = {
         let state = runtime.get_global_state::<Draft>().unwrap();
@@ -667,6 +687,14 @@ fn pointer_focus_transition_dispatches_tap_outside_blur_and_focus_once() {
     runtime
         .set_focused_widget(&ir, Some(first), fission_core::TextEditSource::Programmatic)
         .unwrap();
+    let affordances = &mut runtime
+        .runtime_state
+        .text_edit
+        .get_mut_or_default(first)
+        .affordances;
+    affordances.toolbar_visible = true;
+    affordances.last_tap_at = Some(10);
+    affordances.tap_count = 1;
     runtime
         .get_global_state_mut::<Draft>()
         .unwrap()
@@ -675,6 +703,17 @@ fn pointer_focus_transition_dispatches_tap_outside_blur_and_focus_once() {
     runtime
         .set_focused_widget(&ir, Some(second), fission_core::TextEditSource::Pointer)
         .unwrap();
+
+    let old_affordances = &runtime
+        .runtime_state
+        .text_edit
+        .get(first)
+        .expect("first input state")
+        .affordances;
+    assert!(!old_affordances.toolbar_visible);
+    assert!(old_affordances.last_tap_at.is_none());
+    assert_eq!(old_affordances.tap_count, 0);
+    assert_eq!(*ime.sessions.lock().unwrap(), 2);
 
     assert_eq!(
         runtime.get_global_state::<Draft>().unwrap().lifecycle,

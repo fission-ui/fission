@@ -664,21 +664,19 @@ impl InputController for TextInputController {
                                     crate::event::PointerKind::Touch
                                         | crate::event::PointerKind::Stylus
                                 );
+                                let selection_gesture =
+                                    ctx.text_edit.states.get(&focused_id).is_some_and(|state| {
+                                        state.affordances.active_handle.is_some()
+                                            || state.affordances.tap_count == 2
+                                    });
                                 // A mouse right-click opens the field's context menu at the pointer,
                                 // drawn above all content. The floating selection toolbar is a touch
                                 // affordance.
                                 if secondary && !touch && sem.context_menu {
                                     ctx.context_menu.open(focused_id, *point);
                                 }
-                                let show_toolbar = touch
-                                    && (secondary
-                                        || held
-                                        || ctx
-                                            .text_edit
-                                            .states
-                                            .get(&focused_id)
-                                            .map(|state| state.caret != state.anchor)
-                                            .unwrap_or(false));
+                                let show_toolbar =
+                                    touch && (secondary || held || selection_gesture);
                                 if let Some(state) = ctx.text_edit.states.get_mut(&focused_id) {
                                     state.affordances.active_handle = None;
                                     state.affordances.magnifier_visible = false;
