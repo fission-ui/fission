@@ -47,6 +47,13 @@ pub(crate) fn update_cursor_area(rect: fission_render::LayoutRect, scale_factor:
             "()V",
             &[],
         )?;
+        let matrix = env.new_object("android/graphics/Matrix", "()V", &[])?;
+        env.call_method(
+            &builder,
+            "setMatrix",
+            "(Landroid/graphics/Matrix;)Landroid/view/inputmethod/CursorAnchorInfo$Builder;",
+            &[JValue::Object(&matrix)],
+        )?;
         env.call_method(
             &builder,
             "setInsertionMarkerLocation",
@@ -154,6 +161,12 @@ impl AndroidTextHost {
             .attach_current_thread()
             .map_err(|error| error.to_string())?;
         let activity = unsafe { JObject::from_raw(self.activity as jobject) };
-        operation(&mut env, &activity).map_err(|error| error.to_string())
+        let result = operation(&mut env, &activity);
+        if result.is_err() && env.exception_check().unwrap_or(false) {
+            // JNI forbids most calls while a Java exception is pending. Convert service failures
+            // into the Rust error returned below without poisoning this native event-loop thread.
+            let _ = env.exception_clear();
+        }
+        result.map_err(|error| error.to_string())
     }
 }
