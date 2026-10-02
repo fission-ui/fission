@@ -15,7 +15,6 @@ use fission_command_process::run_status;
 use serde::{Deserialize, Serialize};
 use std::collections::hash_map::DefaultHasher;
 use std::env;
-use std::ffi::OsString;
 use std::fs::{self, File, OpenOptions};
 use std::hash::{Hash, Hasher};
 use std::io::{self, IsTerminal, Read, Seek, Write};
@@ -1216,38 +1215,15 @@ fn build_web_with_test_control(
         release,
         cargo_features,
         cargo_no_default_features,
-        test_control,
     );
+    if test_control {
+        enable_web_test_control(&mut command);
+    }
     run_status(&mut command, "web build")
 }
 
-const WEB_TEST_CONTROL_CFG: &str = "--cfg=fission_web_test_control";
-const ENCODED_RUSTFLAG_SEPARATOR: &str = "\u{1f}";
-
 fn enable_web_test_control(command: &mut Command) {
-    if let Some(encoded) = env::var_os("CARGO_ENCODED_RUSTFLAGS") {
-        command.env(
-            "CARGO_ENCODED_RUSTFLAGS",
-            append_flag(encoded, ENCODED_RUSTFLAG_SEPARATOR, WEB_TEST_CONTROL_CFG),
-        );
-    } else {
-        command.env(
-            "RUSTFLAGS",
-            append_flag(
-                env::var_os("RUSTFLAGS").unwrap_or_default(),
-                " ",
-                WEB_TEST_CONTROL_CFG,
-            ),
-        );
-    }
-}
-
-fn append_flag(mut flags: OsString, separator: &str, flag: &str) -> OsString {
-    if !flags.is_empty() {
-        flags.push(separator);
-    }
-    flags.push(flag);
-    flags
+    command.env("FISSION_WEB_TEST_CONTROL", "1");
 }
 
 /// Makes a path independent of subsequent child-process working directories
@@ -1267,7 +1243,6 @@ fn web_build_command(
     release: bool,
     cargo_features: &[String],
     cargo_no_default_features: bool,
-    test_control: bool,
 ) -> Command {
     let mut command = Command::new("wasm-pack");
     command
@@ -1283,9 +1258,6 @@ fn web_build_command(
     }
     if !cargo_features.is_empty() {
         command.arg("--features").arg(cargo_features.join(","));
-    }
-    if test_control {
-        enable_web_test_control(&mut command);
     }
     command
 }
@@ -2557,7 +2529,6 @@ mod tests {
             false,
             &["fixtures".into(), "diagnostics".into()],
             true,
-            false,
         );
         let args = command
             .get_args()
@@ -2582,38 +2553,21 @@ mod tests {
     }
 
     #[test]
-    fn web_test_build_uses_a_cargo_fingerprinted_cfg() {
-        let command = web_build_command(
+    fn web_test_build_sets_the_compile_time_switch() {
+        let mut command = web_build_command(
             Path::new("/workspace/app"),
             Path::new("/workspace/app/platforms/web/pkg"),
             false,
             &[],
             false,
-            true,
         );
+        enable_web_test_control(&mut command);
         let configured = command
             .get_envs()
             .filter_map(|(name, value)| value.map(|value| (name, value)))
-            .any(|(name, value)| {
-                matches!(name.to_str(), Some("RUSTFLAGS" | "CARGO_ENCODED_RUSTFLAGS"))
-                    && value.to_string_lossy().contains(WEB_TEST_CONTROL_CFG)
-            });
+            .any(|(name, value)| name == "FISSION_WEB_TEST_CONTROL" && value == "1");
 
         assert!(configured, "test builds must identify their shell artifact");
-    }
-
-    #[test]
-    fn appending_test_control_preserves_existing_encoded_rustflags() {
-        assert_eq!(
-            append_flag(
-                OsString::from("-Copt-level=1"),
-                ENCODED_RUSTFLAG_SEPARATOR,
-                WEB_TEST_CONTROL_CFG,
-            ),
-            OsString::from(format!(
-                "-Copt-level=1{ENCODED_RUSTFLAG_SEPARATOR}{WEB_TEST_CONTROL_CFG}"
-            ))
-        );
     }
 
     #[test]

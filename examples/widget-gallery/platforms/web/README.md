@@ -32,7 +32,7 @@ First build with the test-only browser bridge and serve the example. From
 `examples/widget-gallery`:
 
 ```bash
-RUSTFLAGS='--cfg=fission_web_test_control' ./platforms/web/build-wasm.sh
+FISSION_WEB_TEST_CONTROL=1 ./platforms/web/build-wasm.sh
 python3 -m http.server 8129 --bind 127.0.0.1 --directory .
 ```
 
