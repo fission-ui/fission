@@ -15,7 +15,8 @@ use wasm_bindgen_futures::{spawn_local, JsFuture};
 #[wasm_bindgen(inline_js = r#"
 const pickedFiles = new Map();
 let nextPickedFile = 1;
-const fileChunkSize = 64 * 1024;
+const fallbackFileChunkSize = 256 * 1024;
+const maxFileChunkSize = 16 * 1024 * 1024;
 
 function registerPickedFile(file) {
   const id = nextPickedFile;
@@ -65,13 +66,14 @@ export function fissionPickOpenFiles(allowMultiple, accept) {
   });
 }
 
-export function fissionOpenPickedFileReader(fileId) {
+export function fissionOpenPickedFileReader(fileId, preferredChunkBytes) {
   const id = Number(fileId);
   const file = pickedFiles.get(id);
   if (!file) throw Object.assign(new Error("the selected browser file is no longer available"), { name: "invalid_handle" });
   pickedFiles.delete(id);
 
-  if (typeof file.stream === "function") {
+  const requestedChunkSize = Number(preferredChunkBytes);
+  if (!(Number.isSafeInteger(requestedChunkSize) && requestedChunkSize > 0) && typeof file.stream === "function") {
     const reader = file.stream().getReader();
     let pending = null;
     let offset = 0;
@@ -84,7 +86,7 @@ export function fissionOpenPickedFileReader(fileId) {
           offset = 0;
           if (pending.byteLength === 0) continue;
         }
-        const end = Math.min(offset + fileChunkSize, pending.byteLength);
+        const end = Math.min(offset + maxFileChunkSize, pending.byteLength);
         const value = pending.subarray(offset, end);
         offset = end;
         return { done: false, value };
@@ -93,12 +95,15 @@ export function fissionOpenPickedFileReader(fileId) {
     };
   }
 
+  const chunkSize = Number.isSafeInteger(requestedChunkSize) && requestedChunkSize > 0
+    ? Math.min(requestedChunkSize, maxFileChunkSize)
+    : fallbackFileChunkSize;
   let offset = 0;
   let cancelled = false;
   return {
     async read() {
       if (cancelled || offset >= file.size) return { done: true, value: undefined };
-      const end = Math.min(offset + fileChunkSize, file.size);
+      const end = Math.min(offset + chunkSize, file.size);
       const value = new Uint8Array(await file.slice(offset, end).arrayBuffer());
       offset = end;
       return { done: false, value };
@@ -123,7 +128,10 @@ extern "C" {
     #[wasm_bindgen(catch)]
     fn fissionPickOpenFiles(allow_multiple: bool, accept: &str) -> Result<Promise, JsValue>;
     #[wasm_bindgen(catch)]
-    fn fissionOpenPickedFileReader(file_id: u32) -> Result<JsValue, JsValue>;
+    fn fissionOpenPickedFileReader(
+        file_id: u32,
+        preferred_chunk_bytes: u32,
+    ) -> Result<JsValue, JsValue>;
     #[wasm_bindgen(catch)]
     fn fissionReadPickedFileChunk(reader: &JsValue) -> Result<Promise, JsValue>;
     #[wasm_bindgen(catch)]
@@ -173,8 +181,10 @@ pub(crate) fn register_web_file_picker(async_registry: &mut AsyncRegistry) {
                     content_type: string_prop(&value, "contentType")
                         .filter(|value| !value.is_empty()),
                     byte_len,
-                    stream: ctx
-                        .register_data_stream(Box::pin(BrowserPickedFileStream::new(file_id))),
+                    stream: ctx.register_data_stream(Box::pin(BrowserPickedFileStream::new(
+                        file_id,
+                        request.preferred_chunk_bytes,
+                    ))),
                 });
             }
             Ok(PickOpenFilesResult { files })
@@ -184,16 +194,18 @@ pub(crate) fn register_web_file_picker(async_registry: &mut AsyncRegistry) {
 
 struct BrowserPickedFileStream {
     file_id: u32,
+    preferred_chunk_bytes: Option<u32>,
     started: bool,
     stream: BrowserDataStream,
     sink: BrowserDataStreamSink,
 }
 
 impl BrowserPickedFileStream {
-    fn new(file_id: u32) -> Self {
+    fn new(file_id: u32, preferred_chunk_bytes: Option<u32>) -> Self {
         let (stream, sink) = browser_data_stream();
         Self {
             file_id,
+            preferred_chunk_bytes,
             started: false,
             stream,
             sink,
@@ -208,8 +220,9 @@ impl Stream for BrowserPickedFileStream {
         if !self.started {
             self.started = true;
             let file_id = self.file_id;
+            let preferred_chunk_bytes = self.preferred_chunk_bytes;
             let sink = self.sink.clone();
-            spawn_local(pump_picked_file(file_id, sink));
+            spawn_local(pump_picked_file(file_id, preferred_chunk_bytes, sink));
         }
         Pin::new(&mut self.stream).poll_next(cx)
     }
@@ -223,8 +236,12 @@ impl Drop for BrowserPickedFileStream {
     }
 }
 
-async fn pump_picked_file(file_id: u32, sink: BrowserDataStreamSink) {
-    let reader = match fissionOpenPickedFileReader(file_id) {
+async fn pump_picked_file(
+    file_id: u32,
+    preferred_chunk_bytes: Option<u32>,
+    sink: BrowserDataStreamSink,
+) {
+    let reader = match fissionOpenPickedFileReader(file_id, preferred_chunk_bytes.unwrap_or(0)) {
         Ok(reader) => reader,
         Err(error) => {
             let (_, message) = js_error(error);

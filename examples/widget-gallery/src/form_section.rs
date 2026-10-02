@@ -80,6 +80,7 @@ fn browse_files(state: &mut GalleryState, ctx: &mut ReducerContext<GalleryState>
                 allow_multiple: false,
                 mime_types: Vec::new(),
                 extensions: Vec::new(),
+                preferred_chunk_bytes: None,
             },
         )
         .on_ok(ok)

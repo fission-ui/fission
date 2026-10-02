@@ -10,7 +10,8 @@ use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
-const FILE_STREAM_CHUNK_SIZE: usize = 64 * 1024;
+const DEFAULT_FILE_STREAM_CHUNK_SIZE: usize = 256 * 1024;
+const MAX_FILE_STREAM_CHUNK_SIZE: usize = 16 * 1024 * 1024;
 
 pub fn register_file_picker_capability(async_registry: &mut AsyncRegistry) {
     async_registry.register_operation_capability(
@@ -26,6 +27,12 @@ fn pick_open_files(
     request: PickOpenFilesRequest,
     ctx: &CapabilityCtx,
 ) -> Result<Vec<PickedFile>, PickOpenFilesError> {
+    let chunk_size = request
+        .preferred_chunk_bytes
+        .filter(|bytes| *bytes > 0)
+        .map(|bytes| bytes as usize)
+        .unwrap_or(DEFAULT_FILE_STREAM_CHUNK_SIZE);
+    let chunk_size = chunk_size.min(MAX_FILE_STREAM_CHUNK_SIZE);
     let mut dialog = rfd::FileDialog::new();
     let extensions = normalized_extensions(&request);
     if !extensions.is_empty() {
@@ -40,12 +47,13 @@ fn pick_open_files(
 
     paths
         .into_iter()
-        .map(|path| picked_file_from_path(path, ctx))
+        .map(|path| picked_file_from_path(path, chunk_size, ctx))
         .collect()
 }
 
 fn picked_file_from_path(
     path: PathBuf,
+    chunk_size: usize,
     ctx: &CapabilityCtx,
 ) -> Result<PickedFile, PickOpenFilesError> {
     let metadata = std::fs::metadata(&path).map_err(|error| {
@@ -70,7 +78,7 @@ fn picked_file_from_path(
         .unwrap_or("selected-file")
         .to_string();
     let content_type = content_type_for_path(&path).map(str::to_string);
-    let stream = ctx.register_data_stream(Box::pin(FileDataStream::new(path)));
+    let stream = ctx.register_data_stream(Box::pin(FileDataStream::new(path, chunk_size)));
 
     Ok(PickedFile {
         name,
@@ -147,14 +155,16 @@ fn content_type_for_path(path: &Path) -> Option<&'static str> {
 
 struct FileDataStream {
     path: PathBuf,
+    chunk_size: usize,
     file: Option<File>,
     done: bool,
 }
 
 impl FileDataStream {
-    fn new(path: PathBuf) -> Self {
+    fn new(path: PathBuf, chunk_size: usize) -> Self {
         Self {
             path,
+            chunk_size,
             file: None,
             done: false,
         }
@@ -185,7 +195,7 @@ impl Stream for FileDataStream {
             }
         }
 
-        let mut buffer = vec![0; FILE_STREAM_CHUNK_SIZE];
+        let mut buffer = vec![0; self.chunk_size];
         let file = self.file.as_mut().expect("file was opened above");
         match file.read(&mut buffer) {
             Ok(0) => {
@@ -213,19 +223,45 @@ impl Stream for FileDataStream {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use fission_core::collect_data_stream;
+    use std::sync::Arc;
+    use std::task::{Wake, Waker};
+
+    struct NoopWaker;
+
+    impl Wake for NoopWaker {
+        fn wake(self: Arc<Self>) {}
+    }
 
     #[test]
     fn file_data_stream_reads_selected_file_in_chunks() {
         let path = std::env::temp_dir().join(format!("fission-file-stream-{}", std::process::id()));
         std::fs::write(&path, b"hello streamed file").unwrap();
 
-        let bytes = pollster::block_on(collect_data_stream(Box::pin(FileDataStream::new(
-            path.clone(),
-        ))))
-        .unwrap();
+        let mut stream = Box::pin(FileDataStream::new(path.clone(), 4));
+        let waker = Waker::from(Arc::new(NoopWaker));
+        let mut context = Context::from_waker(&waker);
+        let mut chunks = Vec::new();
+        loop {
+            match stream.as_mut().poll_next(&mut context) {
+                Poll::Ready(Some(Ok(chunk))) => chunks.push(chunk),
+                Poll::Ready(Some(Err(error))) => panic!("file stream failed: {error:?}"),
+                Poll::Ready(None) => break,
+                Poll::Pending => panic!("native file reads complete synchronously"),
+            }
+        }
 
         let _ = std::fs::remove_file(path);
-        assert_eq!(bytes.as_ref(), b"hello streamed file");
+        assert_eq!(
+            chunks.iter().map(Bytes::len).collect::<Vec<_>>(),
+            [4, 4, 4, 4, 3]
+        );
+        assert_eq!(
+            chunks
+                .iter()
+                .flat_map(|chunk| chunk.iter().copied())
+                .collect::<Vec<_>>(),
+            b"hello streamed file",
+            "chunking must preserve file contents"
+        );
     }
 }

@@ -195,6 +195,7 @@ ctx.effects
         allow_multiple: false,
         mime_types: vec!["text/plain".into()],
         extensions: vec!["txt".into()],
+        preferred_chunk_bytes: None,
     })
     .on_ok(ctx.effects.bind(FileChosen, on_file_chosen))
     .on_err(ctx.effects.bind(FilePickFailed, on_file_pick_failed));

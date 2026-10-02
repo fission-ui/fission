@@ -81,6 +81,9 @@ fn on_pick_attachment(
                 allow_multiple: false,
                 mime_types: vec!["application/pdf".into(), "image/png".into()],
                 extensions: vec!["pdf".into(), "png".into()],
+                // Optional performance hint; stream consumers must accept any
+                // chunk size because hosts may return smaller chunks.
+                preferred_chunk_bytes: Some(1024 * 1024),
             },
         )
         .on_ok(ctx.effects.bind(
@@ -95,6 +98,8 @@ fn on_pick_attachment(
 ```
 
 The desktop shell provides a default `PICK_OPEN_FILES` provider on macOS, Windows, and Linux. Other shells can register their own provider for the same capability when their host supports file picking.
+
+`preferred_chunk_bytes` is optional and affects throughput and temporary memory use, not the maximum file size. The built-in native provider defaults to 256 KiB; the Web provider preserves browser-native stream chunks when no preference is supplied. Built-in providers constrain individual chunks to 16 MiB, and consumers must accept shorter chunks at any time.
 
 ## 3. Store metadata, not bytes
 
