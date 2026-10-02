@@ -263,7 +263,7 @@ The portable Fission contract is `PICK_OPEN_FILES` plus `FissionDataStream` hand
 | Target | Default behavior |
 | --- | --- |
 | macOS, Windows, Linux | Native open-file picker with file contents streamed from disk. |
-| Web | Shell/provider-specific. Browser file APIs can register streams for picked files. |
+| Web | Built-in browser picker with lazy, bounded streaming from each selected `File`. |
 | Android, iOS | Shell/provider-specific. Native pickers should return scoped streams or copied sandbox streams. |
 | Server, SSR, Static site, Terminal | Usually unsupported unless the host app registers an appropriate provider. |
 
