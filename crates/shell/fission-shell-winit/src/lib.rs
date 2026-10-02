@@ -4292,22 +4292,11 @@ where
         runtime.editing_convention = web_input::host_text_editing_convention();
         runtime.add_global_state(Box::new(global_state)).unwrap();
 
-        const DEFAULT_FONT_FAMILY: &str = "Fission Default";
         let font_cx = Arc::new(Mutex::new(build_font_context()));
-        {
-            let mut font_cx = font_cx.lock().unwrap();
-            let font_data = fonts::default_font_bytes().to_vec();
-            let info_override = FontInfoOverride {
-                family_name: Some(DEFAULT_FONT_FAMILY),
-                ..Default::default()
-            };
-            font_cx
-                .collection
-                .register_fonts(Blob::from(font_data), Some(info_override));
-        }
+        register_packaged_fonts(&font_cx, fonts::default_font_faces());
         let measurer = Arc::new(VelloTextMeasurer::new_with_default_family(
             font_cx.clone(),
-            DEFAULT_FONT_FAMILY,
+            fonts::DEFAULT_FONT_FAMILY,
         ));
         let env = Env::new(measurer.clone() as Arc<dyn fission_layout::TextMeasurer>);
         let clipboard = Arc::new(DesktopClipboard::new());

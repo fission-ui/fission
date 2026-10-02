@@ -3760,14 +3760,67 @@ pub use presets::material3::FissionMaterialDesign3DesignSystem;
 
 /// Bundled font files embedded at compile time.
 ///
-/// Provides Noto Sans Regular and Inter 24pt Regular (the default).
+/// Provides Noto Sans Regular and the weighted Inter 24pt default family.
 pub mod fonts {
+    use super::{PackagedFont, PackagedFontStyle};
+
+    pub const DEFAULT_FONT_FAMILY: &str = "Fission Default";
     pub const NOTO_SANS_REGULAR_TTF: &[u8] =
         include_bytes!("../fonts/Noto_Sans/static/NotoSans-Regular.ttf");
     pub const INTER_24PT_REGULAR_TTF: &[u8] =
         include_bytes!("../fonts/Inter/static/Inter_24pt-Regular.ttf");
+    pub const INTER_24PT_MEDIUM_TTF: &[u8] =
+        include_bytes!("../fonts/Inter/static/Inter_24pt-Medium.ttf");
+    pub const INTER_24PT_SEMIBOLD_TTF: &[u8] =
+        include_bytes!("../fonts/Inter/static/Inter_24pt-SemiBold.ttf");
+    pub const INTER_24PT_BOLD_TTF: &[u8] =
+        include_bytes!("../fonts/Inter/static/Inter_24pt-Bold.ttf");
+
+    pub const DEFAULT_FONT_FACES: &[PackagedFont] = &[
+        default_face(400, INTER_24PT_REGULAR_TTF),
+        default_face(500, INTER_24PT_MEDIUM_TTF),
+        default_face(600, INTER_24PT_SEMIBOLD_TTF),
+        default_face(700, INTER_24PT_BOLD_TTF),
+    ];
+
+    const fn default_face(weight: u16, data: &'static [u8]) -> PackagedFont {
+        PackagedFont {
+            family: DEFAULT_FONT_FAMILY,
+            weight,
+            style: PackagedFontStyle::Normal,
+            format: "truetype",
+            data,
+            axes: &[],
+        }
+    }
+
+    #[inline]
+    pub fn default_font_faces() -> &'static [PackagedFont] {
+        DEFAULT_FONT_FACES
+    }
+
+    /// Returns the regular default face for APIs that accept only one font.
     #[inline]
     pub fn default_font_bytes() -> &'static [u8] {
         INTER_24PT_REGULAR_TTF
+    }
+}
+
+#[cfg(test)]
+mod bundled_font_tests {
+    use super::fonts;
+
+    #[test]
+    fn default_family_contains_the_semantic_weight_faces() {
+        assert_eq!(
+            fonts::default_font_faces()
+                .iter()
+                .map(|face| face.weight)
+                .collect::<Vec<_>>(),
+            [400, 500, 600, 700]
+        );
+        assert!(fonts::default_font_faces()
+            .iter()
+            .all(|face| face.family == fonts::DEFAULT_FONT_FAMILY && !face.data.is_empty()));
     }
 }
