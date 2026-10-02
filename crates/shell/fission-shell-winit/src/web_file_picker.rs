@@ -279,8 +279,8 @@ async fn pump_picked_file(file_id: u32, sink: BrowserDataStreamSink) {
     sink.finish();
 }
 
-async fn await_promise(promise: Promise) -> Result<JsValue, JsValue> {
-    JsFuture::from(promise).await
+async fn await_promise(promise: Result<Promise, JsValue>) -> Result<JsValue, JsValue> {
+    JsFuture::from(promise?).await
 }
 
 fn prop(value: &JsValue, key: &str) -> Option<JsValue> {
