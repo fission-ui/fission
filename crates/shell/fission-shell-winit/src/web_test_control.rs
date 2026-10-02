@@ -18,7 +18,7 @@ thread_local! {
 }
 
 pub(crate) fn install(proxy: EventLoopProxy<TestEvent>) -> bool {
-    if option_env!("FISSION_WEB_TEST_CONTROL").is_none() {
+    if !cfg!(fission_web_test_control) {
         return false;
     }
 

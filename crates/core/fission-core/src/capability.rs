@@ -129,6 +129,14 @@ pub struct PickOpenFilesRequest {
     pub allow_multiple: bool,
     pub mime_types: Vec<String>,
     pub extensions: Vec<String>,
+    /// Preferred number of bytes yielded by each selected-file stream item.
+    ///
+    /// This is a performance hint rather than a stream contract. Providers may
+    /// return smaller chunks when required by the host. When omitted, the
+    /// provider chooses an appropriate default. A value of zero is treated as
+    /// omitted.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preferred_chunk_bytes: Option<u32>,
 }
 
 /// A user-granted file returned from a picker capability.
@@ -197,10 +205,16 @@ mod tests {
             allow_multiple: true,
             mime_types: vec!["image/png".into(), "application/pdf".into()],
             extensions: vec!["png".into(), "pdf".into()],
+            preferred_chunk_bytes: Some(1024 * 1024),
         };
         let bytes = serde_json::to_vec(&request).unwrap();
         let decoded: PickOpenFilesRequest = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(decoded, request);
+
+        let legacy: PickOpenFilesRequest =
+            serde_json::from_str(r#"{"allow_multiple":false,"mime_types":[],"extensions":[]}"#)
+                .unwrap();
+        assert_eq!(legacy.preferred_chunk_bytes, None);
 
         let result = PickOpenFilesResult {
             files: vec![PickedFile {

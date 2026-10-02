@@ -198,14 +198,17 @@ fn build_vello_measurer_with_fonts(
     let font_cx = Arc::new(Mutex::new(build_font_context()));
     {
         let mut font_cx = font_cx.lock().unwrap();
-        let font_data = fonts::default_font_bytes().to_vec();
-        let info_override = FontInfoOverride {
-            family_name: Some(DEFAULT_TEST_FONT_FAMILY),
-            ..Default::default()
-        };
-        font_cx
-            .collection
-            .register_fonts(Blob::from(font_data), Some(info_override));
+        for font in fonts::default_font_faces() {
+            font_cx.collection.register_fonts(
+                Blob::from(font.data.to_vec()),
+                Some(FontInfoOverride {
+                    family_name: Some(DEFAULT_TEST_FONT_FAMILY),
+                    style: Some(FontiqueStyle::Normal),
+                    weight: Some(FontWeight::new(f32::from(font.weight))),
+                    ..Default::default()
+                }),
+            );
+        }
     }
     register_packaged_fonts(&font_cx, fonts);
     Arc::new(VelloTextMeasurer::new_with_default_family(

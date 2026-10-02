@@ -118,8 +118,18 @@ fn platform_factor(_event_loop: &ActiveEventLoop) -> Option<f32> {
     UISettings::new()
         .and_then(|settings| settings.TextScaleFactor())
         .ok()
-        .map(|percentage| percentage as f32 / 100.0)
+        .map(host_text_scale_factor)
         .filter(|factor| factor.is_finite() && *factor > 0.0)
+}
+
+/// Converts WinRT's text-scale ratio into the value [`TextScaler`] expects.
+///
+/// `UISettings::TextScaleFactor` already returns a ratio in the range 1.0 to
+/// 2.25. Treating it as a percentage shrinks default text to one hundredth of
+/// its authored size.
+#[cfg(target_os = "windows")]
+fn host_text_scale_factor(factor: f64) -> f32 {
+    factor as f32
 }
 
 #[cfg(not(any(
@@ -142,5 +152,15 @@ mod tests {
         assert_eq!(parse_factor("NaN"), None);
         assert_eq!(parse_factor("0"), None);
         assert_eq!(parse_factor("1.5"), Some(1.5));
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn windows_host_text_scale_is_already_a_ratio() {
+        use super::host_text_scale_factor;
+
+        assert_eq!(host_text_scale_factor(1.0), 1.0);
+        assert_eq!(host_text_scale_factor(1.25), 1.25);
+        assert_eq!(host_text_scale_factor(2.25), 2.25);
     }
 }

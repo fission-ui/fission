@@ -13,15 +13,13 @@ use fission_core::{
 use fission_shell::async_host::AsyncRegistry;
 use futures_core::Stream;
 use js_sys::{Array, Promise, Reflect, Uint8Array};
-use std::collections::VecDeque;
 use std::pin::Pin;
-use std::sync::{Arc, Mutex};
-use std::task::{Context, Poll, Waker};
+use std::task::{Context, Poll};
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 use wasm_bindgen_futures::{spawn_local, JsFuture};
 
-const FILE_STREAM_QUEUE_CAPACITY: usize = 2;
+use crate::web_data_stream::{browser_data_stream, BrowserDataStreamSink};
 
 #[wasm_bindgen(inline_js = r#"
 const handles = new Map();
@@ -487,93 +485,6 @@ async fn write_browser_chunk(writable: &JsValue, bytes: &[u8]) -> Result<(), Fil
         .await
         .map_err(file_system_error)?;
     Ok(())
-}
-
-#[derive(Default)]
-struct BrowserDataStreamState {
-    chunks: VecDeque<Result<Bytes, FissionDataStreamError>>,
-    consumer_waker: Option<Waker>,
-    producer_waker: Option<Waker>,
-    done: bool,
-    cancelled: bool,
-}
-
-struct BrowserFileDataStream {
-    state: Arc<Mutex<BrowserDataStreamState>>,
-}
-
-#[derive(Clone)]
-struct BrowserDataStreamSink {
-    state: Arc<Mutex<BrowserDataStreamState>>,
-}
-
-fn browser_data_stream() -> (BrowserFileDataStream, BrowserDataStreamSink) {
-    let state = Arc::new(Mutex::new(BrowserDataStreamState::default()));
-    (
-        BrowserFileDataStream {
-            state: state.clone(),
-        },
-        BrowserDataStreamSink { state },
-    )
-}
-
-impl Stream for BrowserFileDataStream {
-    type Item = Result<Bytes, FissionDataStreamError>;
-
-    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let mut state = self.state.lock().unwrap();
-        if let Some(chunk) = state.chunks.pop_front() {
-            if let Some(waker) = state.producer_waker.take() {
-                waker.wake();
-            }
-            return Poll::Ready(Some(chunk));
-        }
-        if state.done {
-            return Poll::Ready(None);
-        }
-        state.consumer_waker = Some(cx.waker().clone());
-        Poll::Pending
-    }
-}
-
-impl Drop for BrowserFileDataStream {
-    fn drop(&mut self) {
-        let mut state = self.state.lock().unwrap();
-        state.cancelled = true;
-        if let Some(waker) = state.producer_waker.take() {
-            waker.wake();
-        }
-    }
-}
-
-impl BrowserDataStreamSink {
-    async fn push(&self, chunk: Result<Bytes, FissionDataStreamError>) -> bool {
-        let mut chunk = Some(chunk);
-        std::future::poll_fn(|cx| {
-            let mut state = self.state.lock().unwrap();
-            if state.cancelled {
-                return Poll::Ready(false);
-            }
-            if state.chunks.len() >= FILE_STREAM_QUEUE_CAPACITY {
-                state.producer_waker = Some(cx.waker().clone());
-                return Poll::Pending;
-            }
-            state.chunks.push_back(chunk.take().unwrap());
-            if let Some(waker) = state.consumer_waker.take() {
-                waker.wake();
-            }
-            Poll::Ready(true)
-        })
-        .await
-    }
-
-    fn finish(&self) {
-        let mut state = self.state.lock().unwrap();
-        state.done = true;
-        if let Some(waker) = state.consumer_waker.take() {
-            waker.wake();
-        }
-    }
 }
 
 async fn pump_file_reader(reader: JsValue, sink: BrowserDataStreamSink) {

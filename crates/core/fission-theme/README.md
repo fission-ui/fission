@@ -83,12 +83,17 @@ Each component theme struct holds the visual parameters that a specific widget r
 
 ## Bundled fonts
 
-The `fonts` module embeds two font files at compile time:
+The `fonts` module embeds Noto Sans Regular and the default Inter family:
 
-- `NOTO_SANS_REGULAR_TTF` -- Noto Sans Regular (the default)
-- `INTER_24PT_REGULAR_TTF` -- Inter 24pt Regular
+- `NOTO_SANS_REGULAR_TTF` -- Noto Sans Regular
+- `INTER_24PT_REGULAR_TTF` -- Inter 24pt Regular (400)
+- `INTER_24PT_MEDIUM_TTF` -- Inter 24pt Medium (500)
+- `INTER_24PT_SEMIBOLD_TTF` -- Inter 24pt SemiBold (600)
+- `INTER_24PT_BOLD_TTF` -- Inter 24pt Bold (700)
 
-`default_font_bytes()` returns the Noto Sans bytes, used by the desktop shell to initialize the text measurement system.
+`default_font_faces()` returns the weighted faces registered by interactive and
+test shells. `default_font_bytes()` remains available for single-font consumers
+and returns the regular Inter face.
 
 ## Usage
 

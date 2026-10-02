@@ -129,6 +129,11 @@ The [complete environment-variable reference](https://fission.rs/reference/confi
 
 When `FISSION_TEST_CONTROL_PORT` is set, the shell spawns a TCP server that accepts JSON commands from `fission-test-driver::LiveTestClient`. This enables automated UI testing by sending tap, scroll, type, screenshot, and semantic tree queries over HTTP. See the `fission-test-driver` crate for the client API.
 
+`fission test --target web` builds the browser bridge with a dedicated compiler
+configuration. Direct WASM builds can set `FISSION_WEB_TEST_CONTROL=1`; the
+shell build script makes the switch part of Cargo's artifact fingerprint so
+test and production outputs cannot collide in the cache.
+
 ## Platform support
 
 - **Desktop**: used by `fission-shell-desktop`

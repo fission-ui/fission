@@ -1217,9 +1217,13 @@ fn build_web_with_test_control(
         cargo_no_default_features,
     );
     if test_control {
-        command.env("FISSION_WEB_TEST_CONTROL", "1");
+        enable_web_test_control(&mut command);
     }
     run_status(&mut command, "web build")
+}
+
+fn enable_web_test_control(command: &mut Command) {
+    command.env("FISSION_WEB_TEST_CONTROL", "1");
 }
 
 /// Makes a path independent of subsequent child-process working directories
@@ -2546,6 +2550,24 @@ mod tests {
                 "fixtures,diagnostics",
             ]
         );
+    }
+
+    #[test]
+    fn web_test_build_sets_the_compile_time_switch() {
+        let mut command = web_build_command(
+            Path::new("/workspace/app"),
+            Path::new("/workspace/app/platforms/web/pkg"),
+            false,
+            &[],
+            false,
+        );
+        enable_web_test_control(&mut command);
+        let configured = command
+            .get_envs()
+            .filter_map(|(name, value)| value.map(|value| (name, value)))
+            .any(|(name, value)| name == "FISSION_WEB_TEST_CONTROL" && value == "1");
+
+        assert!(configured, "test builds must identify their shell artifact");
     }
 
     #[test]
