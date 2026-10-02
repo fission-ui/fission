@@ -2595,10 +2595,8 @@ mod tests {
             .get_envs()
             .filter_map(|(name, value)| value.map(|value| (name, value)))
             .any(|(name, value)| {
-                matches!(
-                    name.to_str(),
-                    Some("RUSTFLAGS" | "CARGO_ENCODED_RUSTFLAGS")
-                ) && value.to_string_lossy().contains(WEB_TEST_CONTROL_CFG)
+                matches!(name.to_str(), Some("RUSTFLAGS" | "CARGO_ENCODED_RUSTFLAGS"))
+                    && value.to_string_lossy().contains(WEB_TEST_CONTROL_CFG)
             });
 
         assert!(configured, "test builds must identify their shell artifact");
