@@ -1,6 +1,6 @@
 ---
-title: Fission 0.15.0: portable files and production-ready UI
-description: Fission 0.15.0 adds an opt-in cross-platform filesystem, a stronger default design system, richer rendering, and more complete widget interactions.
+title: Fission 0.15.1: portable files and production-ready UI
+description: Fission 0.15.1 adds an opt-in cross-platform filesystem, a stronger default design system, richer rendering, and more complete widget interactions.
 authors:
   - fission
 categories:
@@ -12,12 +12,16 @@ tags:
 show_adjacent_posts: true
 ---
 
-# Fission 0.15.0: portable files and production-ready UI
+# Fission 0.15.1: portable files and production-ready UI
 
-Fission 0.15.0 makes two everyday application needs substantially easier: working
+Fission 0.15.1 makes two everyday application needs substantially easier: working
 with user-approved files across native and Web targets, and producing a polished,
 coherent interface without rebuilding basic design and interaction behaviour in
 each application.
+
+This is the complete 0.15 release. The initial 0.15.0 registry publication stopped
+at a package-only theme build failure before the framework and CLI were uploaded;
+0.15.1 corrects that packaging contract and supersedes it.
 
 The release also advances the renderer, charts, accessibility, retained identity,
 LiveTest reliability, documentation, and the component catalogue. It is a minor
@@ -109,11 +113,11 @@ Update the framework and CLI:
 
 ```toml
 [dependencies]
-fission = { version = "0.15.0", default-features = false, features = ["desktop"] }
+fission = { version = "0.15.1", default-features = false, features = ["desktop"] }
 ```
 
 ```sh
-cargo install cargo-fission --version 0.15.0 --locked
+cargo install cargo-fission --version 0.15.1 --locked
 ```
 
 The default look is now Tidewater at compact density. Applications that need a

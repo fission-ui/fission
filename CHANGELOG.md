@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.15.0] - 2026-10-05
+## [0.15.1] - 2026-10-05
 
 ### Added
 
@@ -33,19 +33,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Migration notes
 
-- Update Fission dependencies and the CLI to `0.15.0`:
+- Update Fission dependencies and the CLI to `0.15.1`:
 
   ```toml
-  fission = { version = "0.15.0", default-features = false, features = ["desktop"] }
+  fission = { version = "0.15.1", default-features = false, features = ["desktop"] }
   ```
 
   ```sh
-  cargo install cargo-fission --version 0.15.0 --locked
+  cargo install cargo-fission --version 0.15.1 --locked
   ```
 - The default design system is now Tidewater at compact density. Install an explicit design system, density, or platform look when an application must preserve different visual defaults.
 - `CircularProgress::size` and `thickness`, `RefreshIndicator::stroke_width` and `indicator_size`, and the `TimelineLayout` sizing fields are now `Option<f32>`; `None` uses the active design system.
 - Public structs gained optional design, semantics, environment, slider, combobox, and file-upload fields. Struct literals should use `..Default::default()` unless they intentionally initialize every field.
 - The filesystem capability is opt-in. Add it with `fission add-capability filesystem --project-dir .`; applications only pay its compile and package cost when enabled.
+
+## [0.15.0] - 2026-10-05
+
+### Fixed in 0.15.1
+
+- **Incomplete registry publication** - The initial crates.io publication stopped before the user-facing framework and CLI crates were uploaded because the `fission-theme` package build expected a source-only test fixture. Use `0.15.1`, which makes test-fixture generation conditional in packaged builds and publishes the complete dependency graph.
 
 ## [0.14.1] - 2026-08-26
 

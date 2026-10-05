@@ -7,19 +7,19 @@ targets = [
 [app]
 name = "inbox"
 app_id = "com.example.inbox"
-version = "0.15.0"
+version = "0.15.1"
 build = 1
 
 [package.macos]
 bundle_id = "com.example.inbox"
-marketing_version = "0.15.0"
+marketing_version = "0.15.1"
 build_number = "1"
 minimum_os = "13.0"
 
 [package.windows]
 identity_name = "com.example.inbox"
 publisher = "CN=Fission Developer"
-version = "0.15.0"
+version = "0.15.1"
 installer = "msix"
 certificate_thumbprint_env = "WINDOWS_CERTIFICATE_THUMBPRINT"
 certificate_base64_env = "WINDOWS_CERTIFICATE_BASE64"
