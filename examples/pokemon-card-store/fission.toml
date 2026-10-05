@@ -8,7 +8,7 @@ targets = [
 [app]
 name = "pokemon-card-store"
 app_id = "rs.fission.examples.pokemon_card_store"
-version = "0.14.1"
+version = "0.15.0"
 build = 1
 
 [server]
@@ -26,25 +26,25 @@ preload = "route"
 
 [package.docker]
 port = 8080
-tags = ["ghcr.io/fission-ui/fission-pokemon-card-store:0.14.1"]
+tags = ["ghcr.io/fission-ui/fission-pokemon-card-store:0.15.0"]
 
 [package.macos]
 bundle_id = "rs.fission.examples.pokemon_card_store"
-marketing_version = "0.14.1"
+marketing_version = "0.15.0"
 build_number = "1"
 minimum_os = "13.0"
 
 [package.windows]
 identity_name = "rs.fission.examples.pokemon.card.store"
 publisher = "CN=Fission Developer"
-version = "0.14.1"
+version = "0.15.0"
 installer = "msix"
 certificate_thumbprint_env = "WINDOWS_CERTIFICATE_THUMBPRINT"
 certificate_base64_env = "WINDOWS_CERTIFICATE_BASE64"
 certificate_password_env = "WINDOWS_CERTIFICATE_PASSWORD"
 
 [distribution.docker_registry.production]
-tags = ["ghcr.io/fission-ui/fission-pokemon-card-store:0.14.1"]
+tags = ["ghcr.io/fission-ui/fission-pokemon-card-store:0.15.0"]
 
 [distribution.microsoft_store]
 package_identity_name = "rs.fission.examples.pokemon.card.store"

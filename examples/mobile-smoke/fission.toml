@@ -9,13 +9,13 @@ targets = [
 [app]
 name = "mobile-smoke"
 app_id = "ai.worka.fission.mobile.smoke"
-version = "0.14.1"
+version = "0.15.0"
 build = 1
 
 [package.android]
 package_name = "ai.worka.fission.mobile.smoke"
 version_code = 1
-version_name = "0.14.1"
+version_name = "0.15.0"
 min_sdk = 24
 target_sdk = 35
 keystore_alias = "upload"
@@ -26,19 +26,19 @@ key_password_env = "ANDROID_KEY_PASSWORD"
 
 [package.ios]
 bundle_id = "ai.worka.fission.mobile.smoke"
-marketing_version = "0.14.1"
+marketing_version = "0.15.0"
 build_number = "1"
 
 [package.macos]
 bundle_id = "ai.worka.fission.mobile.smoke"
-marketing_version = "0.14.1"
+marketing_version = "0.15.0"
 build_number = "1"
 minimum_os = "13.0"
 
 [package.windows]
 identity_name = "ai.worka.fission.mobile.smoke"
 publisher = "CN=Fission Developer"
-version = "0.14.1"
+version = "0.15.0"
 installer = "msix"
 certificate_thumbprint_env = "WINDOWS_CERTIFICATE_THUMBPRINT"
 certificate_base64_env = "WINDOWS_CERTIFICATE_BASE64"

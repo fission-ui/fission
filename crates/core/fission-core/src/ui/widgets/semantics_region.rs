@@ -468,7 +468,9 @@ mod tests {
             "active_descendant",
             "sequential_focusable",
         ];
-        let mut encoded = serde_json::to_value(SemanticsRegion::default()).unwrap();
+        let mut region = SemanticsRegion::default();
+        region.validation_message = Some("Choose a supported file".to_string());
+        let mut encoded = serde_json::to_value(region).unwrap();
         let object = encoded.as_object_mut().unwrap();
         for field in added_fields {
             assert!(object.remove(field).is_some(), "missing test field {field}");

@@ -7,9 +7,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-10-05
+
 ### Added
 
 - **Cross-platform file system** - The opt-in `filesystem` capability gives reducers direct native paths and provider-backed directory locations for listing, metadata, streamed reads, byte or stream writes, directory creation, removal, permission checks, and release. Native paths use the process's operating-system permissions without a Fission sandbox. Desktop and mobile shells can use platform folder pickers; Web uses the modern File System Access API and can persist granted handles—not file contents—in IndexedDB for later restoration.
+- **Production-ready design foundations** - Tidewater is the new default design system, joined by Graphite and Ember presets, compact/comfortable/spacious density, paired colour roles, minimum hit-target policy, loading and busy states, responsive breakpoints, layer tokens, and an opt-in native platform look.
+- **Richer rendering and motion** - The Vello backend moves to the sparse-strips renderer and WGPU 29. The retained render model adds per-corner radii, per-edge borders, sweep gradients, blend modes, backdrop colour filters, path placement, stroke trim, and animated dash offsets.
+- **Interactive charts** - Charts add tooltips, axis pointers, hover emphasis, legend selection, wheel and slider data zoom, brushing, keyboard navigation, assistive descriptions, and animated line and bar updates.
+- **Complete component catalogue** - The widget gallery now gives every supported component its own navigable page, working examples, responsive coverage, theme and density controls, and maintained visual baselines.
+
+### Changed
+
+- **Default visual language** - Fission applications now start with the Tidewater look at compact density. Controls, cards, overlays, status surfaces, selection controls, pickers, timelines, progress indicators, and navigation widgets derive their presentation from design-system tokens and component recipes.
+- **Safer advanced widget authoring** - Direct IR authoring uses the public `LoweringContext` surface and lexical `with_scope(...)` identity scoping, keeping custom and first-party widgets on the same closed IR contract.
+- **Filesystem transfer model** - Desktop transfers stream incrementally, Web file reads are lazy and chunked, synchronous picker failures reach reducers, and applications can tune the stream chunk size instead of accepting a fixed buffer policy.
+- **Documentation and examples** - The product site, crate directory, guides, component reference, examples, and Spanish pages have been refreshed around real application outcomes and the current framework APIs.
+
+### Fixed
+
+- **Widget interaction completeness** - Split view dividers dispatch drag resize updates; editable fields submit on Enter and cancel on Escape; file upload exposes visible and semantic errors; calendar navigation uses labelled icon buttons; combobox placeholders render; date-range spacing follows the active theme; and data-table headers span the table width.
+- **Text and layout fidelity** - Wrapped text paints at the measured wrap points, aligned text uses its own box, single-line text no longer double-counts leading, controls centre content consistently, stacks retain natural size, and nested percentage constraints settle correctly.
+- **Overlay and input reliability** - Popovers, context menus, selection menus, drawers, and nested portals preserve correct stacking and dismissal. Focus, hover, drag-and-drop, touch handles, scrollbars, and implicit widget identities remain stable as retained trees change.
+- **Web and platform reliability** - WebGPU rendering sizes work dynamically, LiveTest browser builds are fingerprinted, native text scale is preserved on Windows, and Android/iOS folder grants retain platform lifecycle semantics.
+
+### Migration notes
+
+- Update Fission dependencies and the CLI to `0.15.0`:
+
+  ```toml
+  fission = { version = "0.15.0", default-features = false, features = ["desktop"] }
+  ```
+
+  ```sh
+  cargo install cargo-fission --version 0.15.0 --locked
+  ```
+- The default design system is now Tidewater at compact density. Install an explicit design system, density, or platform look when an application must preserve different visual defaults.
+- `CircularProgress::size` and `thickness`, `RefreshIndicator::stroke_width` and `indicator_size`, and the `TimelineLayout` sizing fields are now `Option<f32>`; `None` uses the active design system.
+- Public structs gained optional design, semantics, environment, slider, combobox, and file-upload fields. Struct literals should use `..Default::default()` unless they intentionally initialize every field.
+- The filesystem capability is opt-in. Add it with `fission add-capability filesystem --project-dir .`; applications only pay its compile and package cost when enabled.
 
 ## [0.14.1] - 2026-08-26
 
