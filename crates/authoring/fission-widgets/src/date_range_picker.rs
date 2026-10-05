@@ -1,5 +1,4 @@
 use crate::date_picker::DatePicker;
-use crate::stack::HStack;
 use chrono::NaiveDate;
 use fission_core::ui::SemanticsRegion;
 use fission_core::ui::{Text, Widget};
@@ -45,7 +44,9 @@ impl std::fmt::Debug for DateRangePicker {
 
 impl From<DateRangePicker> for Widget {
     fn from(component: DateRangePicker) -> Self {
+        let (_, view) = fission_core::build::current::<()>();
         let this = &component;
+        let gap = view.env().theme.tokens.spacing.s;
 
         let cb = this.on_change.clone();
         let s = this.start;
@@ -55,8 +56,8 @@ impl From<DateRangePicker> for Widget {
         // need side by side, instead of running past the edge of a popover or card.
         SemanticsRegion::new(crate::Wrap {
             direction: fission_core::op::FlexDirection::Row,
-            spacing: Some(8.0),
-            run_spacing: Some(8.0),
+            spacing: Some(gap),
+            run_spacing: Some(gap),
             children: vec![
                 DatePicker {
                     id: this.id_start,

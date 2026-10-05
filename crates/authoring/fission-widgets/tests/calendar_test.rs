@@ -3,6 +3,7 @@ use fission_core::authoring::BuildCtx;
 use fission_core::{build, GlobalState, View};
 use fission_widgets::calendar::Calendar;
 use serde::{Deserialize, Serialize};
+use std::ops::ControlFlow;
 
 #[derive(Default, Debug, Clone, Serialize, Deserialize, PartialEq)]
 struct TestState {
@@ -42,4 +43,17 @@ fn test_calendar_build() {
     let c = fission_core::internal::widget_as_container(surface)
         .expect("Calendar should return a Container root");
     assert!(c.child.is_some());
+    let mut navigation_labels = Vec::new();
+    let _ = node.visit(&mut |widget| {
+        if let fission_core::ui::WidgetKind::Button(button) = widget.kind() {
+            if let Some(icon) = &button.icon_content {
+                if let fission_core::ui::TextContent::Literal(label) = &icon.accessible_label {
+                    navigation_labels.push(label.clone());
+                }
+            }
+        }
+        ControlFlow::Continue(())
+    });
+    assert!(navigation_labels.contains(&"Previous month".to_string()));
+    assert!(navigation_labels.contains(&"Next month".to_string()));
 }

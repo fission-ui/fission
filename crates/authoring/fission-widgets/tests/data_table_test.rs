@@ -1,5 +1,6 @@
 use fission_core::authoring::{lower_widget_to_ir_in, BuildCtx};
 use fission_core::{build, Env, GlobalState, View, Widget};
+use fission_ir::op::{LayoutOp, Length};
 use fission_ir::{CoreIR, Op, Role, Semantics};
 use fission_widgets::{DataTable, TableColumn, TableRow};
 
@@ -118,5 +119,18 @@ fn rows_do_not_paint_a_fixed_white_background() {
             Op::Paint(PaintOp::DrawRect { fill: Some(Fill::Solid(colour)), .. }) if *colour == white
         )),
         "a dark theme must not paint row surfaces white"
+    );
+}
+
+#[test]
+fn header_surface_fills_the_available_table_width() {
+    let ir = lower(&Env::default(), || table().into());
+    assert!(
+        ir.nodes.values().any(|node| matches!(
+            &node.op,
+            Op::Layout(LayoutOp::StyledBox { style, .. })
+                if style.width == Some(Length::percent(100.0))
+        )),
+        "the header background must fill space beyond its fixed-width columns"
     );
 }
