@@ -1,5 +1,5 @@
 use fission_core::op::Color;
-use fission_core::ui::{Column, Container, Row, SemanticsRegion, Widget};
+use fission_core::ui::{Column, Container, GestureDetector, Row, SemanticsRegion, Widget};
 use fission_core::{ActionEnvelope, WidgetId};
 use fission_ir::{Role, SemanticOrientation};
 use serde::{Deserialize, Serialize};
@@ -25,7 +25,8 @@ pub enum SplitDirection {
 /// * `direction` - `Horizontal` splits left/right, `Vertical` splits top/bottom.
 /// * `first` / `second` - The two pane content nodes.
 /// * `split_ratio` - Proportion of space given to the first pane (clamped to 0.1..0.9).
-/// * `on_resize` - Action dispatched when the handle is dragged (user must update `split_ratio`).
+/// * `on_resize` - Action dispatched while the handle is dragged. Read the pointer delta from
+///   `ReducerContext::input.as_pointer()` and update `split_ratio` in application state.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SplitView {
     /// Stable identity for the split region and its drag handle.
@@ -41,27 +42,6 @@ pub struct SplitView {
     /// Action dispatched by drag interaction so the application can update the ratio.
     pub on_resize: Option<ActionEnvelope>,
 }
-
-// Since we can't easily capture local drag state without a reducer in the user app,
-// SplitView relies on the user providing `split_ratio` and `on_resize`.
-// However, to make it drag, we need a Handle widget that emits drag events.
-// fission-core Input system supports `PointerEvent::Move` when pressed.
-// But we need to translate that into a ratio change.
-// The ratio change depends on the size of the container.
-// This logic is complex for a purely declarative widget without layout readback.
-//
-// Workaround: We use a "Drag" action that passes pixel delta.
-// The user's reducer updates the ratio based on assumed width/height.
-// Better: The `on_resize` action payload could be the *new ratio* if the engine computed it?
-// Engine doesn't compute high level logic.
-//
-// For MVP: We will simply assume the handle reports a Delta.
-// The user must handle normalization.
-// Or we provide a helper Action?
-//
-// Let's implement the Visuals first. `flex_grow` is perfect for this.
-// First pane: flex_grow = ratio.
-// Second pane: flex_grow = 1.0 - ratio.
 
 impl From<SplitView> for Widget {
     fn from(component: SplitView) -> Self {
@@ -139,15 +119,20 @@ impl From<SplitView> for Widget {
         // The handle is a resizable separator, not decoration: it reports the
         // axis it splits and where it currently sits, so a reader knows the
         // panes are adjustable and by how much.
-        let handle: Widget = SemanticsRegion::new(handle)
-            .role(Role::Separator)
-            .label("Resize panes")
-            .orientation(match this.direction {
-                SplitDirection::Horizontal => SemanticOrientation::Vertical,
-                SplitDirection::Vertical => SemanticOrientation::Horizontal,
-            })
-            .range(10.0, 90.0, ratio * 100.0)
-            .into();
+        let handle: Widget = SemanticsRegion::new(GestureDetector {
+            id: Some(WidgetId::derived(this.id.as_u128(), &[0x5350_4C49, 0])),
+            child: handle.into(),
+            on_drag_update: this.on_resize.clone(),
+            ..Default::default()
+        })
+        .role(Role::Separator)
+        .label("Resize panes")
+        .orientation(match this.direction {
+            SplitDirection::Horizontal => SemanticOrientation::Vertical,
+            SplitDirection::Vertical => SemanticOrientation::Horizontal,
+        })
+        .range(10.0, 90.0, ratio * 100.0)
+        .into();
         let first_grow = ratio;
         let second_grow = 1.0 - ratio;
 

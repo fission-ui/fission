@@ -39,19 +39,21 @@ impl From<Editable> for Widget {
                 .id
                 .as_ref()
                 .map(|id| WidgetId::derived(id.as_u128(), &[0]));
-            TextInput {
+            let input: Widget = TextInput {
                 id: input_id.map(Into::into),
                 value: this.value.clone(),
                 placeholder: Some(this.placeholder.clone().into()),
                 on_input: this.on_input.clone(),
-                // TODO: on_submit (Enter) and on_cancel (Esc/Blur) support in TextInput semantics?
-                // Currently TextInput semantics supports `actions` but specific triggers like Enter are handled by Runtime key events dispatching first semantics action.
-                // If we want Enter to submit, we should make sure `on_submit` is the primary action?
-                // TextInput semantic role is TextInput.
-                // We might need to wrap it or rely on focus/blur.
+                on_submit: this.on_submit.clone(),
                 ..Default::default()
             }
-            .into()
+            .into();
+
+            if let Some(on_cancel) = this.on_cancel.clone() {
+                SemanticsRegion::new(input).dismiss_action(on_cancel).into()
+            } else {
+                input
+            }
         } else {
             // In its resting state this is a value you can edit, not a plain
             // button. Saying so, and reporting the value, is the difference
