@@ -1,7 +1,11 @@
 use crate::stack::{HStack, VStack};
+use crate::Icon;
 use chrono::{Datelike, Local, NaiveDate};
-use fission_core::ui::{Button, ButtonVariant, Container, SemanticsRegion, Text, Widget};
+use fission_core::ui::{
+    Button, ButtonIconContent, ButtonVariant, Container, SemanticsRegion, Text, Widget,
+};
 use fission_core::ActionEnvelope;
+use fission_icons::material;
 use fission_ir::Role;
 use std::sync::Arc;
 
@@ -88,8 +92,12 @@ impl From<Calendar> for Widget {
             children: vec![
                 Button {
                     variant: ButtonVariant::Ghost,
-                    child: Some(Text::new("<").into()),
+                    icon_content: Some(ButtonIconContent::new(
+                        Icon::svg(material::navigation::chevron_left::regular()),
+                        "Previous month",
+                    )),
                     on_press: prev_cb.map(|f| f(prev_y, prev_m)),
+                    disabled: this.on_navigate.is_none(),
                     width: Some(cell_size),
                     height: Some(cell_size),
                     ..Default::default()
@@ -110,8 +118,12 @@ impl From<Calendar> for Widget {
                 .into(),
                 Button {
                     variant: ButtonVariant::Ghost,
-                    child: Some(Text::new(">").into()),
+                    icon_content: Some(ButtonIconContent::new(
+                        Icon::svg(material::navigation::chevron_right::regular()),
+                        "Next month",
+                    )),
                     on_press: next_cb.map(|f| f(next_y, next_m)),
+                    disabled: this.on_navigate.is_none(),
                     width: Some(cell_size),
                     height: Some(cell_size),
                     ..Default::default()

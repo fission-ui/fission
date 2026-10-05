@@ -25,6 +25,7 @@ let assignee_field: Widget = FormControl {
     child: Combobox {
         id: WidgetId::explicit("task.assignee"),
         value: view.state().assignee_query.clone(),
+        placeholder: Some("Find a teammate".into()),
         items: view.state().filtered_assignees.clone(),
         is_open: view.state().assignee_open,
         width: Some(280.0),
@@ -140,6 +141,7 @@ the input is enabled and the retained content contains at least one option.
 | --- | --- | --- | --- |
 | `id` | `WidgetId` | Stable identity for the editor, listbox, options, and anchor. | Required. Use a durable id for dynamic or reorderable fields. |
 | `value` | `String` | Controlled editor text. | May be free text or the selected label, according to the product model. |
+| `placeholder` | `Option<TextContent>` | Hint shown while `value` is empty. | Supports literal or localized text and is forwarded to the retained `TextInput`. |
 | `items` | `Vec<String>` | Current suggestions in display order. | Supply the filtered list; an empty list keeps the popup unmounted. |
 | `is_open` | `bool` | Requested controlled popup state. | The effective open state also requires at least one item. |
 | `width` | `Option<f32>` | Logical width for the input and matching popup. | `None` leaves input sizing to layout and still asks the popup to match its anchor. |

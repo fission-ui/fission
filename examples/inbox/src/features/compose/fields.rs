@@ -53,6 +53,7 @@ impl From<RecipientField> for Widget {
                 id: WidgetId::explicit("compose_to"),
                 semantics_identifier: Some("compose.to".into()),
                 value,
+                placeholder: Some(view.tr("compose.to_label").into()),
                 items: suggestions,
                 is_open: !query.is_empty() && !exact_match,
                 width: Some(field.width),
@@ -159,6 +160,7 @@ impl From<AttachmentField> for Widget {
         FileUpload {
             label: view.tr("compose.attach_file"),
             selected_file: view.state().compose_attachments.first().cloned(),
+            error_text: None,
             on_browse: None,
             browse_semantics_identifier: Some("inbox.compose.attach".into()),
         }

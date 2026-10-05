@@ -37,6 +37,10 @@ on_close_end: Some(close_end_action),
 
 This keeps the whole interaction inside the normal state loop: each side has explicit open state, and the reducer stays responsible for validating the final range.
 
+The gap between the fields and between wrapped lines comes from the active
+design system's small spacing token, so density and custom DSP packages remain
+authoritative.
+
 ## Field table
 
 | Field | Type | Meaning | Notes / default behavior |
@@ -76,4 +80,3 @@ If a screen starts repeating the same `DateRangePicker` setup, extract a named c
 ## Related
 
 [`DatePicker`](/reference/widgets/date-picker), [`TimePicker`](/reference/widgets/time-picker), [`FormControl`](/reference/widgets/form-control), and [`Popover`](/reference/widgets/popover).
-

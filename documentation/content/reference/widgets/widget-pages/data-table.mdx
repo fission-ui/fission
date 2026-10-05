@@ -42,6 +42,8 @@ let widget: Widget = DataTable {
         id: toggle_row_selection_id,
         payload: serde_json::to_vec(&ToggleRowSelection(row_id)).unwrap(),
     })),
+    on_select_all: Some(select_all_action),
+    label: Some("Build runs".into()),
 }
 .into();
 ```
@@ -57,6 +59,8 @@ Here the table is responsible for presentation. The reducer is responsible for w
 | `rows` | `Vec<TableRow>` | Row data in display order. | Required. Each row's cells are matched to columns by index. |
 | `selected_ids` | `Vec<String>` | Currently selected row ids. | Controlled by app state. |
 | `on_selection_change` | `Option<Arc<dyn Fn(String) -> ActionEnvelope + Send + Sync>>` | Closure that builds the action for row or checkbox selection. | Called with the row id. |
+| `on_select_all` | `Option<ActionEnvelope>` | Action dispatched by the header checkbox. | The checkbox is disabled when no action is supplied. |
+| `label` | `Option<String>` | Accessible name for the table. | Recommended when surrounding context does not already name the table. |
 
 ## How to think about tabular data here
 
@@ -66,7 +70,11 @@ Selection is explicit. The widget highlights rows whose ids appear in `selected_
 
 ## Current behavior and limits
 
-Two implementation details matter today. First, the header's select-all checkbox is currently visual only. Second, `TableColumn.sortable` currently adds a sort indicator but no built-in sorting callback. In other words, the widget presents table affordances, but your app still owns all real sorting and bulk-selection behavior.
+The application owns sorting and bulk-selection state. Supply
+`TableColumn::on_sort` for sortable headers and `DataTable::on_select_all` for
+the header checkbox; an unavailable action renders its affordance disabled.
+The header surface fills the table width even when the declared columns use
+less space, while header and body cells retain the same explicit column widths.
 
 ## Specific advice
 

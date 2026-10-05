@@ -5,6 +5,7 @@ use fission_core::ui::{
 };
 use fission_core::{ActionEnvelope, WidgetId};
 use fission_icons::material;
+use fission_ir::op::Length;
 use fission_ir::Role;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -200,6 +201,7 @@ impl From<DataTable> for Widget {
                 children: header_cells,
             })
             .bg(tokens.colors.surface)
+            .width_length(Length::percent(100.0))
             .flex_shrink(0.0), // Header shouldn't shrink
         )
         .role(Role::TableRow)

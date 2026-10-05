@@ -50,21 +50,23 @@ commit when the product decides the edit is complete.
 | `placeholder` | `String` | Text shown when `value` is empty. | Required for a good empty-state experience. |
 | `is_editing` | `bool` | Whether the widget is currently in edit mode. | Controlled by app state. |
 | `on_input` | `Option<ActionEnvelope>` | Action fired when the text changes in edit mode. | Preserves the bound action; read the edit through `ctx.input.text_change()`. |
-| `on_submit` | `Option<ActionEnvelope>` | Intended submit action. | Present in the struct, but not currently wired by the checked-in implementation. |
+| `on_submit` | `Option<ActionEnvelope>` | Action dispatched when the user presses Enter in the single-line editor. | Use it to commit the controlled draft and leave edit mode. |
 | `on_edit` | `Option<ActionEnvelope>` | Action fired when the read-mode button is pressed. | Usually flips `is_editing` to `true`. |
-| `on_cancel` | `Option<ActionEnvelope>` | Intended cancel action. | Present in the struct, but not currently wired by the checked-in implementation. |
+| `on_cancel` | `Option<ActionEnvelope>` | Action dispatched when the user presses Escape in the editor. | Use it to restore the committed value and leave edit mode. |
 
 ## Current behavior
 
-The important implementation detail is that only `on_edit` and `on_input` are
-active today. `on_submit` and `on_cancel` exist in the public struct, but the
-checked-in widget does not yet connect them to Enter, Escape, or blur behavior.
-
-That means `Editable` is best for simple inline editing where your app can commit changes another way, or where changing the text live is enough.
+`on_edit` enters the controlled editing state, `on_input` carries live text
+changes, Enter dispatches `on_submit`, and Escape dispatches `on_cancel`.
+Losing focus does not imply cancellation: products differ on whether blur
+commits, cancels, or keeps a draft, so that decision remains in application
+state rather than being hidden in the widget.
 
 ## Specific advice
 
-If you need reliable submit-on-Enter or cancel-on-Escape right now, compose a [`TextInput`](/reference/widgets/text-input) and a read-mode [`Button`](/reference/widgets/button) directly so you can wire the exact behavior yourself.
+Keep a committed value and an editing draft separately when cancellation must
+restore the pre-edit value. The widget deliberately does not retain a hidden
+backup copy.
 
 ## Production checklist
 

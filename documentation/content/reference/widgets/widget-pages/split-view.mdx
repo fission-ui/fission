@@ -22,7 +22,7 @@ let widget: Widget = SplitView {
     first: Text::new("Folders").into(),
     second: Text::new("Message list").into(),
     split_ratio: 0.28,
-    on_resize: None,
+    on_resize: Some(resize_panes_action),
 }
 .into();
 ```
@@ -36,17 +36,23 @@ let widget: Widget = SplitView {
 | `first` | `Widget` | Content of the first pane. | Required. |
 | `second` | `Widget` | Content of the second pane. | Required. |
 | `split_ratio` | `f32` | Share of space given to the first pane. | Clamped by the current implementation to `0.1..=0.9`. |
-| `on_resize` | `Option<ActionEnvelope>` | Reserved callback field for resize interaction. | Present in the public type, but the current checked-in implementation does not wire live dragging through this field yet. |
+| `on_resize` | `Option<ActionEnvelope>` | Action dispatched while the divider is dragged. | Read `(x, y, delta_x, delta_y)` from `ctx.input.as_pointer()` and update the controlled ratio. |
 
 ## Current behavior
 
 The checked-in implementation renders the panes using `flex_grow` values derived from `split_ratio` and inserts a thin visual divider between them. `Horizontal` mode uses a `Row`; `Vertical` mode uses a `Column`.
 
-The important implementation detail today is that the divider is visual rather than fully interactive. The `on_resize` field exists on the type, but the current public implementation does not dispatch resize actions from drag input yet.
+The divider is an interactive separator. Drag updates dispatch `on_resize`
+with pointer coordinates and per-update deltas. The application remains the
+authority for `split_ratio`: divide the relevant delta by the split view's
+known width or height, clamp according to product policy, and store the result
+in state. The next conversion applies that ratio.
 
 ## Specific advice
 
-`SplitView` is already useful for stable two-pane composition, especially on desktop-width layouts. Just do not document or design around live divider dragging unless you also control an implementation layer that adds it.
+Use a stable `id` so an active drag remains attached to the same separator
+across state updates. If resizing needs minimum pane sizes beyond the built-in
+ratio clamp, apply those limits in the reducer that handles `on_resize`.
 
 If the app needs real responsive adaptation between one-pane and two-pane layouts, keep that structural branch outside this widget and let `SplitView` stay focused on the two-pane case.
 

@@ -36,6 +36,10 @@ let widget: Widget = Calendar {
 
 The reducer usually stores both the selected day and the currently visible month. Those are related, but they are not always the same thing.
 
+Month navigation uses directional icon buttons with independent accessible
+names. When `on_navigate` is absent, both buttons are disabled instead of
+presenting controls that appear actionable but do nothing.
+
 ## Field table
 
 | Field | Type | Meaning | Notes / default behavior |

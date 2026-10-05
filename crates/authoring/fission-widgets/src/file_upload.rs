@@ -17,6 +17,9 @@ pub struct FileUpload {
     pub label: String,
     /// Optional selected file name shown beside the button.
     pub selected_file: Option<String>,
+    /// Optional validation or picker error rendered below the selection row.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error_text: Option<String>,
     /// Action dispatched when the browse button is pressed.
     pub on_browse: Option<ActionEnvelope>,
     /// Stable identifier exposed on the generated browse button.
@@ -32,14 +35,15 @@ impl From<FileUpload> for Widget {
         let tokens = &view.env().theme.tokens;
         let recipe = view.env().theme.recipe(fission_theme::recipes::FileUpload);
 
+        let gap = recipe.base.gap.unwrap_or(tokens.spacing.s);
         let mut browse_button = Button {
             variant: ButtonVariant::Outline,
             child: Some(
                 HStack {
-                    spacing: Some(4.0),
+                    spacing: Some(gap),
                     children: vec![
                         Icon::svg(material::file::folder_open::regular())
-                            .size(16.0)
+                            .size(view.env().theme.components.button.icon_size)
                             .into(),
                         Text::new(this.label.clone()).flex_shrink(0.0).into(),
                     ],
@@ -53,8 +57,8 @@ impl From<FileUpload> for Widget {
             browse_button = browse_button.semantics_identifier(identifier.clone());
         }
 
-        SemanticsRegion::new(HStack {
-            spacing: Some(recipe.base.gap.unwrap_or(tokens.spacing.s)),
+        let selection_row: Widget = HStack {
+            spacing: Some(gap),
             children: vec![
                 browse_button.into(),
                 Text::new(
@@ -70,17 +74,40 @@ impl From<FileUpload> for Widget {
                 .flex_grow(1.0)
                 .into(),
             ],
-        })
-        // The button and the filename beside it are one control; grouping them
-        // means the selection is announced with the control rather than as
-        // stray text somewhere after it.
-        .role(Role::Group)
-        .label("File upload")
-        .value(
-            this.selected_file
-                .clone()
-                .unwrap_or_else(|| "No file selected".to_string()),
-        )
-        .into()
+        }
+        .into();
+        let content: Widget = if let Some(error) = &this.error_text {
+            crate::stack::VStack {
+                spacing: Some(tokens.spacing.xs),
+                children: vec![
+                    selection_row,
+                    Text::new(error.clone())
+                        .color(tokens.colors.error)
+                        .size(tokens.typography.body_medium_size)
+                        .into(),
+                ],
+            }
+            .into()
+        } else {
+            selection_row
+        };
+
+        let value = this
+            .error_text
+            .as_ref()
+            .map(|error| format!("Error: {error}"))
+            .or_else(|| this.selected_file.clone())
+            .unwrap_or_else(|| "No file selected".to_string());
+        let mut region = SemanticsRegion::new(content)
+            // The button and the filename beside it are one control; grouping them
+            // means the selection is announced with the control rather than as
+            // stray text somewhere after it.
+            .role(Role::Group)
+            .label("File upload")
+            .value(value);
+        if let Some(error) = &this.error_text {
+            region = region.invalid(error.clone());
+        }
+        region.into()
     }
 }

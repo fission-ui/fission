@@ -577,6 +577,7 @@ fn file_upload_identifier_is_attached_to_the_browse_button() {
         FileUpload {
             label: "Browse".into(),
             selected_file: None,
+            error_text: None,
             on_browse: Some(action("file.browse")),
             browse_semantics_identifier: Some("file.browse".into()),
         }

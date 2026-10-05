@@ -142,6 +142,7 @@ impl From<InlineComboboxField> for Widget {
                 items: filtered_suggestions(&value, &INLINE_OPTIONS),
                 is_open: !value.trim().is_empty() && !has_exact,
                 value,
+                placeholder: Some("Search options".into()),
                 width: None,
                 max_popup_height: Some(POPUP_MAX_HEIGHT),
                 on_input: Some(set_value),

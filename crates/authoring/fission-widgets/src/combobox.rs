@@ -4,7 +4,7 @@ use crate::select::{
     SelectContent, SelectEntry, SelectGroup, SelectLabel, SelectOption, SelectSeparator,
 };
 use crate::{FlyoutOptions, FlyoutWidth, Icon};
-use fission_core::ui::{TextInput, Widget};
+use fission_core::ui::{TextContent, TextInput, Widget};
 use fission_core::{ActionEnvelope, WidgetId};
 use fission_icons::material;
 use fission_ir::{PopupKind, Role};
@@ -218,6 +218,8 @@ pub struct Combobox {
     pub id: WidgetId,
     /// Current controlled filter or selected text.
     pub value: String,
+    /// Hint shown while the editable value is empty.
+    pub placeholder: Option<TextContent>,
     /// Candidate labels presented in the popup.
     pub items: Vec<String>,
     /// Whether the controlled popup is open.
@@ -245,6 +247,7 @@ impl Default for Combobox {
         Self {
             id: WidgetId::explicit("combobox"),
             value: String::new(),
+            placeholder: None,
             items: Vec::new(),
             is_open: false,
             width: None,
@@ -300,6 +303,7 @@ impl From<Combobox> for Widget {
             })
             .collect();
         let mut input = ComboboxInput::new(component.value);
+        input.input.placeholder = component.placeholder;
         input.input.on_input = component.on_input;
         input.input.width = component.width;
         if let Some(identifier) = component.semantics_identifier {

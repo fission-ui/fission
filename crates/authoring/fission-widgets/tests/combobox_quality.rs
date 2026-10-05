@@ -121,6 +121,7 @@ fn closed_combobox_exposes_editable_popup_semantics_and_opens_on_focus() {
             id: combobox_id,
             semantics_identifier: None,
             value: "Av".into(),
+            placeholder: None,
             items: vec!["Avery".into(), "Ava".into()],
             is_open: false,
             width: Some(260.0),
@@ -164,6 +165,38 @@ fn closed_combobox_exposes_editable_popup_semantics_and_opens_on_focus() {
         .find(|entry| entry.trigger == ActionTrigger::Focus)
         .expect("closed combobox should open when its input receives focus");
     assert_eq!(focus.action_id, on_toggle.id.as_u128());
+}
+
+#[test]
+fn compact_combobox_forwards_its_placeholder_to_the_editable_trigger() {
+    let combobox_id = WidgetId::explicit("placeholder-combobox");
+    let input_id = WidgetId::derived(combobox_id.as_u128(), &[0, 1]);
+    let (ir, portals) = build_widget(|| {
+        Combobox {
+            id: combobox_id,
+            semantics_identifier: None,
+            value: String::new(),
+            placeholder: Some("Search people".into()),
+            items: vec!["Avery".into()],
+            is_open: false,
+            width: None,
+            max_popup_height: None,
+            on_input: None,
+            on_select: None,
+            on_toggle: None,
+        }
+        .into()
+    });
+
+    assert!(portals.is_empty());
+    assert_eq!(
+        semantics_at(&ir, input_id).label.as_deref(),
+        Some("Search people")
+    );
+    assert!(ir
+        .nodes
+        .values()
+        .any(|node| node.op.text().as_deref() == Some("Search people")));
 }
 
 #[test]
@@ -261,6 +294,7 @@ fn open_combobox_uses_a_bounded_listbox_with_stable_options() {
             id: combobox_id,
             semantics_identifier: None,
             value: "Avery".into(),
+            placeholder: None,
             items: vec!["Ava".into(), "Avery".into(), "Avril".into()],
             is_open: true,
             width: Some(260.0),
@@ -357,6 +391,7 @@ fn combobox_keeps_side_placement_when_a_matching_label_is_ambiguous() {
             id: combobox_id,
             semantics_identifier: None,
             value: "Avery".into(),
+            placeholder: None,
             items: vec!["Avery".into(), "Avery".into()],
             is_open: true,
             width: Some(260.0),
@@ -381,6 +416,7 @@ fn empty_combobox_never_claims_an_open_popup() {
             id: combobox_id,
             semantics_identifier: None,
             value: String::new(),
+            placeholder: None,
             items: Vec::new(),
             is_open: true,
             width: None,
