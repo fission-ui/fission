@@ -40,7 +40,11 @@ fn row_descriptions_end_inside_their_row() {
         .filter(|(_, node)| node.op.text().as_deref() == Some(DESCRIPTION))
         .map(|(id, _)| *id)
         .collect();
-    assert_eq!(descriptions.len(), 4, "every row should render its description");
+    assert_eq!(
+        descriptions.len(),
+        4,
+        "every row should render its description"
+    );
 
     for id in descriptions {
         let text = snapshot.get_node_rect(id).expect("description laid out");

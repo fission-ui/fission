@@ -79,7 +79,7 @@ impl From<DocsFooter> for Widget {
                     .size(tokens.typography.font_size_sm)
                     .color(tokens.colors.text_muted)
                     .into(),
-                Text::new("Fission 0.14.1")
+                Text::new("Fission 0.15.0")
                     .size(tokens.typography.font_size_sm)
                     .family(tokens.typography.font_family_mono.clone())
                     .color(tokens.colors.text_muted)

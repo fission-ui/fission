@@ -7,8 +7,8 @@ use crate::Badge;
 use fission_core::authoring::{IrBuilder, LowerWidget, LoweringContext};
 use fission_core::motion::{follow_x_and_width, Motion, MotionTrack, Presence};
 use fission_core::op::{
-    AlignItems, BorderSides, BoxAlignment, BoxStyle, Fill, FlexDirection, FlexWrap,
-    JustifyContent, LayoutOp, Length, Op, PaintOp, Stroke,
+    AlignItems, BorderSides, BoxAlignment, BoxStyle, Fill, FlexDirection, FlexWrap, JustifyContent,
+    LayoutOp, Length, Op, PaintOp, Stroke,
 };
 use fission_core::ui::{
     ComponentSize, ComponentState, Composite, Container, Icon, Row, Scroll, Text, TextContent,
@@ -17,8 +17,8 @@ use fission_core::ui::{
 use fission_core::{ActionEnvelope, WidgetId};
 use fission_ir::semantics::{ActionTrigger, SemanticOrientation};
 use fission_ir::{ActionEntry, ActionSet, CompositeScalar, CompositeStyle, Role, Semantics};
-use fission_theme::{BorderEdges, ResolvedComponentStyle};
 pub use fission_theme::TabPresentation;
+use fission_theme::{BorderEdges, ResolvedComponentStyle};
 use serde::{Deserialize, Serialize};
 use std::ops::Add;
 

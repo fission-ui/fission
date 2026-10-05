@@ -90,13 +90,13 @@ impl From<AppHeader> for Widget {
         };
 
         Container::new(content)
-        .padding_lengths(Length::symmetric(
-            Length::points(tokens.spacing.l),
-            Length::points(tokens.spacing.s),
-        ))
-        .bg(tokens.colors.surface)
-        .border_bottom(tokens.colors.border, tokens.sizing.border_hairline)
-        .into()
+            .padding_lengths(Length::symmetric(
+                Length::points(tokens.spacing.l),
+                Length::points(tokens.spacing.s),
+            ))
+            .bg(tokens.colors.surface)
+            .border_bottom(tokens.colors.border, tokens.sizing.border_hairline)
+            .into()
     }
 }
 

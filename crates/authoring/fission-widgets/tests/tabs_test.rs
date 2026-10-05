@@ -921,8 +921,13 @@ fn a_focused_tab_keeps_rounded_corners_when_the_recipe_declares_no_radius() {
     let stroked_radii: Vec<f32> = descendant_ops(&ir, actual_first_id)
         .filter_map(|op| match op {
             Op::Paint(paint @ PaintOp::DrawRect { corner_radius, .. })
-                if matches!(paint, PaintOp::DrawRect { stroke: Some(_), .. })
-                    || paint.border_sides().is_some() =>
+                if matches!(
+                    paint,
+                    PaintOp::DrawRect {
+                        stroke: Some(_),
+                        ..
+                    }
+                ) || paint.border_sides().is_some() =>
             {
                 Some(*corner_radius)
             }
@@ -972,7 +977,15 @@ fn an_underlined_tab_strip_strokes_only_its_bottom_edges() {
         .collect();
     let boxed = rects
         .iter()
-        .filter(|paint| matches!(paint, PaintOp::DrawRect { stroke: Some(_), .. }))
+        .filter(|paint| {
+            matches!(
+                paint,
+                PaintOp::DrawRect {
+                    stroke: Some(_),
+                    ..
+                }
+            )
+        })
         .count();
     assert_eq!(boxed, 0, "no tab or track draws a full border box");
     let underlines = rects

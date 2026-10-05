@@ -1,0 +1,130 @@
+---
+title: Fission 0.15.0: portable files and production-ready UI
+description: Fission 0.15.0 adds an opt-in cross-platform filesystem, a stronger default design system, richer rendering, and more complete widget interactions.
+authors:
+  - fission
+categories:
+  - Releases
+tags:
+  - release
+  - authoring
+  - platform
+show_adjacent_posts: true
+---
+
+# Fission 0.15.0: portable files and production-ready UI
+
+Fission 0.15.0 makes two everyday application needs substantially easier: working
+with user-approved files across native and Web targets, and producing a polished,
+coherent interface without rebuilding basic design and interaction behaviour in
+each application.
+
+The release also advances the renderer, charts, accessibility, retained identity,
+LiveTest reliability, documentation, and the component catalogue. It is a minor
+release because it adds public APIs and intentionally changes the default visual
+language.
+
+## One filesystem contract, native authority
+
+The new opt-in `filesystem` capability lets an application work with direct native
+paths or provider-backed directory locations through one asynchronous effect API.
+Applications can list directories, inspect metadata, stream reads, write bytes or
+streams, create directories, remove entries, inspect permission state, and release
+grants.
+
+Native paths use the process's operating-system authority. Fission does not impose
+an additional path sandbox. Platform pickers provide user-selected locations on
+desktop, Android, iOS, and modern browsers. On Web, Fission uses the File System
+Access API and can retain granted handles in IndexedDB for later restoration;
+file contents remain in the user's filesystem.
+
+Transfers are incremental on desktop and lazy on Web. The default stream chunk is
+appropriate for ordinary interactive work, and applications handling different
+latency or throughput profiles can tune it explicitly.
+
+CLI-managed projects enable the capability with:
+
+```console
+fission add-capability filesystem --project-dir .
+```
+
+Applications that do not enable it do not compile or package its providers.
+
+## A stronger interface before application styling begins
+
+Tidewater is now Fission's default design system. It uses a calm teal palette,
+clear surface hierarchy, compact controls, consistent type, and restrained depth.
+Graphite and Ember ship as alternate presets, and applications can still install
+their own DSP package.
+
+The framework now carries the design decisions that previously leaked into each
+application: compact, comfortable, and spacious density; minimum pointer and touch
+targets; paired surface and content colours; responsive breakpoints; elevation and
+layer roles; loading and busy states; and an optional platform-native look.
+
+Every built-in component now reads its spacing, sizing, colour, radius, and motion
+from design tokens or component recipes. Existing DSP packages remain usable:
+new roles are optional and inherit compatible fallbacks when omitted.
+
+This release also completes interaction paths that a visual example can easily
+hide. Split views resize by dragging, editable fields submit and cancel from the
+keyboard, file upload exposes an accessible error state, calendars use labelled
+icon navigation, comboboxes show placeholders, date ranges follow theme spacing,
+and table headers fill their surface.
+
+## Rendering and interaction fidelity
+
+The Vello renderer moves to the sparse-strips pipeline and WGPU 29. The retained
+render model adds per-corner radii, per-edge borders, sweep gradients, blend modes,
+backdrop colour filters, stroke trim and dash animation, and placement along a
+path. Text painting now consumes the same wrapping and alignment geometry that
+layout measured, removing several first-frame and multiline mismatches.
+
+Focus, hover, minimum hit targets, implicit identities, drag-and-drop, scrollbars,
+selection handles, nested portals, and popup dismissal have all received targeted
+correctness work. The result is less application code compensating for framework
+behaviour and more consistent input across desktop, mobile, and Web.
+
+Charts add interactive tooltips and axis pointers, hover emphasis, legend
+selection, wheel and slider zoom, region brushing, keyboard navigation, assistive
+descriptions, and animated value changes. Dense line and category data is reduced
+at presentation time so crowded plots remain readable.
+
+## A catalogue that can be inspected, not imagined
+
+The widget gallery now gives each supported component a dedicated page with
+working state, responsive coverage, design-system and density controls, and
+maintained visual baselines. The showcase uses framework widgets for its own
+controls and applies selected design systems only to the previewed application.
+
+The documentation site, crate directory, guides, and examples have been refreshed
+to match the current APIs and to make the value of a capability clear before its
+implementation details. Advanced widget authors can use the public
+`LoweringContext` surface and lexical `with_scope(...)` identity scoping without
+depending on private lowering internals.
+
+## Upgrade
+
+Update the framework and CLI:
+
+```toml
+[dependencies]
+fission = { version = "0.15.0", default-features = false, features = ["desktop"] }
+```
+
+```sh
+cargo install cargo-fission --version 0.15.0 --locked
+```
+
+The default look is now Tidewater at compact density. Applications that need a
+different visual default should install an explicit design system or density.
+
+Several component sizing fields now use `Option<f32>` so `None` can inherit the
+active design system: `CircularProgress::size` and `thickness`,
+`RefreshIndicator::stroke_width` and `indicator_size`, and the sizing fields on
+`TimelineLayout`. Public design, semantics, environment, slider, combobox, and
+file-upload structs also gained optional fields; struct literals should use
+`..Default::default()` unless they intentionally initialize every field.
+
+The filesystem capability is not enabled by the version upgrade. Add it only to
+applications that use it, with the CLI command above.

@@ -1,6 +1,6 @@
 [package]
 name = "fission-render-vello"
-version = "0.14.1"
+version = "0.15.0"
 edition = "2021"
 license = "Apache-2.0"
 repository = "https://github.com/fission-ui/fission"
@@ -15,15 +15,15 @@ homepage = "https://fission.rs"
 documentation = "https://fission.rs"
 readme = "README.md"
 [dependencies]
-fission-render = { path = "../fission-render", version = "0.14.1" }
-fission-layout = { path = "../../core/fission-layout", version = "0.14.1" }
-fission-ir = { path = "../../core/fission-ir", version = "0.14.1" }
+fission-render = { path = "../fission-render", version = "0.15.0" }
+fission-layout = { path = "../../core/fission-layout", version = "0.15.0" }
+fission-ir = { path = "../../core/fission-ir", version = "0.15.0" }
 anyhow = "1.0"
 vello_cpu = { package = "fission-vello-cpu", version = "0.2.0-fission.1", path = "../../../third_party/vello/vello_cpu" }
 vello_gpu = { package = "fission-vello-gpu", version = "0.2.0-fission.1", path = "../../../third_party/vello/vello_gpu" }
 wgpu = { version = "29.0.3", default-features = false, features = ["std", "wgsl"] }
 parley = "0.11.1"
-fission-diagnostics = { path = "../../tools/fission-diagnostics", version = "0.14.1" }
+fission-diagnostics = { path = "../../tools/fission-diagnostics", version = "0.15.0" }
 image = "0.24"
 lazy_static = "1.5.0"
 

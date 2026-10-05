@@ -44,7 +44,9 @@ fn a_phone_width_swaps_the_sidebar_for_a_page_picker() {
     let driver = driver(on_page(GalleryPage::Button), phone());
 
     assert!(
-        driver.find_semantics_identifier("gallery.nav.button").is_none(),
+        driver
+            .find_semantics_identifier("gallery.nav.button")
+            .is_none(),
         "the sidebar should not show at phone width"
     );
     let picker = driver
@@ -110,11 +112,10 @@ fn the_page_picker_opens_the_chosen_page() {
 
 #[test]
 fn a_wide_window_keeps_the_sidebar() {
-    let driver = driver(
-        on_page(GalleryPage::Button),
-        LayoutSize::new(1280.0, 800.0),
-    );
-    assert!(driver.find_semantics_identifier("gallery.nav.button").is_some());
+    let driver = driver(on_page(GalleryPage::Button), LayoutSize::new(1280.0, 800.0));
+    assert!(driver
+        .find_semantics_identifier("gallery.nav.button")
+        .is_some());
     assert!(driver
         .find_semantics_identifier("gallery.page_picker")
         .is_none());
@@ -129,9 +130,13 @@ fn an_embedded_gallery_leaves_the_theme_to_its_host() {
     };
     let driver = driver(state, LayoutSize::new(1280.0, 800.0));
     assert!(
-        driver.find_semantics_identifier("gallery.theme_bar").is_none(),
+        driver
+            .find_semantics_identifier("gallery.theme_bar")
+            .is_none(),
         "an embedded gallery should not show its own theme bar"
     );
     assert!(driver.find_text("Comfortable").is_none());
-    assert!(driver.find_semantics_identifier("gallery.nav.button").is_some());
+    assert!(driver
+        .find_semantics_identifier("gallery.nav.button")
+        .is_some());
 }
