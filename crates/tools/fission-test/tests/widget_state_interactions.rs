@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use fission_core::motion::MotionPropertyId;
 use fission_core::ui::{Text, Widget};
 use fission_core::{Action, ActionEnvelope, GlobalState, ReducerContext, WidgetId};
@@ -73,6 +73,18 @@ fn navigate_action(year: i32, month: u32) -> ActionEnvelope {
         id: DateNavigated::static_id(),
         payload: serde_json::to_vec(&DateNavigated(year, month)).unwrap(),
     }
+}
+
+fn tap_button_label(driver: &mut TestDriver<State>, label: &str) -> Result<()> {
+    let button = driver
+        .find_role(Role::Button)
+        .into_iter()
+        .find(|button| button.label.as_deref() == Some(label))
+        .ok_or_else(|| anyhow!("button labelled '{label}' not found in semantics tree"))?;
+    driver.tap_point(
+        button.bounds.x() + button.bounds.width() / 2.0,
+        button.bounds.y() + button.bounds.height() / 2.0,
+    )
 }
 
 #[test]
@@ -208,13 +220,13 @@ fn date_picker_navigation_is_controlled_by_parent_state() -> Result<()> {
     driver.pump()?;
     driver.assert_text_visible("May 2026");
 
-    driver.tap_text(">")?;
+    tap_button_label(&mut driver, "Next month")?;
 
     let state = driver.harness.runtime.get_app_state::<State>().unwrap();
     assert_eq!((state.date_year, state.date_month), (2026, 6));
     driver.assert_text_visible("June 2026");
 
-    driver.tap_text("<")?;
+    tap_button_label(&mut driver, "Previous month")?;
 
     let state = driver.harness.runtime.get_app_state::<State>().unwrap();
     assert_eq!((state.date_year, state.date_month), (2026, 5));
@@ -263,7 +275,7 @@ fn date_picker_navigation_wraps_year_and_selection_dispatches_date() -> Result<(
     driver.pump()?;
     driver.assert_text_visible("December 2026");
 
-    driver.tap_text(">")?;
+    tap_button_label(&mut driver, "Next month")?;
 
     let state = driver.harness.runtime.get_app_state::<State>().unwrap();
     assert_eq!((state.date_year, state.date_month), (2027, 1));
