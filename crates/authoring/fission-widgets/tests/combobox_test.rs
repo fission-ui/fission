@@ -21,6 +21,7 @@ fn test_combobox_build() {
         id: WidgetId::explicit("test"),
         semantics_identifier: None,
         value: "abc".into(),
+        placeholder: None,
         items: vec!["abcd".into(), "abce".into()],
         is_open: true,
         width: Some(320.0),

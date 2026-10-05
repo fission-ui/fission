@@ -4,7 +4,8 @@ use crate::ui::Widget;
 use crate::ActionEnvelope;
 use fission_ir::semantics::{ActionTrigger, PopupKind, SemanticOrientation};
 use fission_ir::{
-    ActionEntry, ActionSet, Hyperlink, Op, PopoverAction, PopoverTarget, Role, Semantics, WidgetId,
+    ActionEntry, ActionSet, Hyperlink, Op, PopoverAction, PopoverTarget, Role, Semantics,
+    TextFieldValidationState, WidgetId,
 };
 use serde::{Deserialize, Serialize};
 
@@ -54,6 +55,12 @@ pub struct SemanticsRegion {
     /// Current position within the range.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub current_value: Option<f32>,
+    /// Validation state for form-like composite controls.
+    #[serde(default)]
+    pub validation_state: TextFieldValidationState,
+    /// Accessible validation message associated with the control.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub validation_message: Option<String>,
     /// Whether this region represents a modal surface.
     #[serde(default)]
     pub modal: bool,
@@ -217,6 +224,13 @@ impl SemanticsRegion {
         self
     }
 
+    /// Marks this region invalid and associates an accessible error message.
+    pub fn invalid(mut self, message: impl Into<String>) -> Self {
+        self.validation_state = TextFieldValidationState::Invalid;
+        self.validation_message = Some(message.into());
+        self
+    }
+
     /// Marks whether this region represents a modal surface.
     pub fn modal(mut self, modal: bool) -> Self {
         self.modal = modal;
@@ -308,6 +322,8 @@ impl Default for SemanticsRegion {
             min_value: None,
             max_value: None,
             current_value: None,
+            validation_state: TextFieldValidationState::Unvalidated,
+            validation_message: None,
             modal: false,
             controls: Vec::new(),
             labelled_by: Vec::new(),
@@ -350,6 +366,8 @@ impl Lower for SemanticsRegion {
                 min_value: self.min_value,
                 max_value: self.max_value,
                 current_value: self.current_value,
+                validation_state: self.validation_state,
+                validation_message: self.validation_message.clone(),
                 modal: self.modal,
                 controls: self.controls.clone(),
                 labelled_by: self.labelled_by.clone(),
@@ -441,6 +459,8 @@ mod tests {
             "expanded",
             "has_popup",
             "orientation",
+            "validation_state",
+            "validation_message",
             "modal",
             "controls",
             "labelled_by",
@@ -459,6 +479,11 @@ mod tests {
         assert_eq!(decoded.expanded, None);
         assert_eq!(decoded.has_popup, None);
         assert_eq!(decoded.orientation, None);
+        assert_eq!(
+            decoded.validation_state,
+            TextFieldValidationState::Unvalidated
+        );
+        assert_eq!(decoded.validation_message, None);
         assert!(!decoded.modal);
         assert!(decoded.controls.is_empty());
         assert!(decoded.labelled_by.is_empty());

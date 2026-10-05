@@ -163,6 +163,7 @@ fn menu_select_and_combobox_choose_control_specific_policies() {
             id: WidgetId::explicit("assignee"),
             semantics_identifier: None,
             value: String::new(),
+            placeholder: None,
             items: vec!["Avery".into()],
             is_open: true,
             width: None,

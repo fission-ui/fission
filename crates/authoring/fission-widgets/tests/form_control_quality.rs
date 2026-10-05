@@ -331,6 +331,7 @@ fn form_control_relates_the_actual_editable_combobox_input() {
                 id: combobox_id,
                 semantics_identifier: None,
                 value: "Av".into(),
+                placeholder: None,
                 items: vec!["Avery".into()],
                 is_open: false,
                 width: Some(240.0),

@@ -17,7 +17,9 @@ use fission::prelude::*;
 let widget: Widget = FileUpload {
 label: "Browse".into(),
 selected_file: view.state().attachment_name.clone(),
+error_text: view.state().attachment_error.clone(),
 on_browse: Some(with_reducer!(ctx, PickAttachment, on_pick_attachment)),
+browse_semantics_identifier: Some("attachment.file-picker".into()),
 }
 .into();
 ```
@@ -30,7 +32,9 @@ A common next step is for `on_pick_attachment` to ask the runtime for a file pic
 | --- | --- | --- | --- |
 | `label` | `String` | Text shown on the browse button. | Required. Use an explicit verb such as "Browse" or "Choose file". |
 | `selected_file` | `Option<String>` | Display text for the chosen file. | If `None`, the widget shows "No file selected". |
+| `error_text` | `Option<String>` | Validation or picker failure shown below the selection row. | Marks the semantic group invalid and exposes the same validation message to assistive technology. |
 | `on_browse` | `Option<ActionEnvelope>` | Action fired when the browse button is pressed. | Defaults to `None`. The reducer usually emits a file-picker capability from here. |
+| `browse_semantics_identifier` | `Option<String>` | Stable identifier for the generated browse button. | Recommended for LiveTest and accessibility audits when multiple pickers share a screen. |
 
 ## How it fits into the state and effect loop
 
@@ -48,7 +52,7 @@ Show a meaningful filename or summary after selection so the user can confirm wh
 
 ## Production checklist
 
-For `FileUpload`, review the fields that change behavior before treating the widget as finished: `label`, `selected_file`, `on_browse`. The goal is to make the product rule visible in state and actions, not hidden inside ad-hoc construction code.
+For `FileUpload`, review the fields that change behavior before treating the widget as finished: `label`, `selected_file`, `error_text`, `on_browse`. The goal is to make the product rule visible in state and actions, not hidden inside ad-hoc construction code.
 
 - Bind `on_browse` to explicit reducer actions and test that the reducer handles unavailable, duplicate, or invalid input safely.
 - Check the semantics tree for the user-facing label or role that makes this widget understandable without relying only on pixels.

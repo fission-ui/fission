@@ -295,6 +295,7 @@ pub(crate) fn file_upload() -> Vec<Widget> {
         children: widgets![FileUpload {
             label: "Choose file".into(),
             selected_file: state.file_upload_name.clone(),
+            error_text: None,
             on_browse: Some(with_reducer!(ctx, BrowseFiles, browse_files)),
             browse_semantics_identifier: Some("gallery.file_upload.browse".into()),
         }],
