@@ -280,6 +280,9 @@ mod tests {
         let all: Vec<_> = paths.iter().map(|p| path_extent(&p.path)).collect();
         let left = all.iter().map(|e| e.0).fold(f32::MAX, f32::min);
         let right = all.iter().map(|e| e.2).fold(f32::MIN, f32::max);
-        assert!((left - (800.0 - right)).abs() < 0.5, "map not centred: {left}..{right}");
+        assert!(
+            (left - (800.0 - right)).abs() < 0.5,
+            "map not centred: {left}..{right}"
+        );
     }
 }
