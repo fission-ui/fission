@@ -24,7 +24,7 @@ and read the migration notes when updating.
 | Rapier-backed 2D physics | `physics-rapier2d` | `fission::physics_rapier2d` |
 | Rapier-backed 3D physics | `physics-rapier3d` | `fission::physics_rapier3d` |
 
-For a 2D game with optional Rapier physics:
+For a 2D game with optional Rapier physics, enable the facade features:
 
 ```toml
 [dependencies]
@@ -34,6 +34,12 @@ fission = { version = "0.15.1", features = [
   "scene2d",
   "physics-rapier2d",
 ] }
+```
+
+The facade already pins its alpha crates exactly. If you depend on those crates
+directly instead, use exact prerelease requirements:
+
+```toml
 fission-scene = "=0.1.0-alpha.1"
 fission-scene2d = "=0.1.0-alpha.1"
 fission-game = "=0.1.0-alpha.1"
@@ -114,7 +120,7 @@ impl Game for MyGame {
     }
 
     fn step(&mut self, ctx: &mut StepCtx<'_, Self>) {
-        self.simulate(ctx.step());
+        self.simulate(ctx.duration());
     }
 
     fn present(&self, _time: GameTime) -> Self::Presentation {
