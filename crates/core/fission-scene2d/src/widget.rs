@@ -160,7 +160,10 @@ impl LowerWidget for Scene2DLowerer {
     }
 
     fn widget_id(&self) -> Option<WidgetId> {
-        Some(sid(self.scene.id.get(), 0, "root"))
+        Some(WidgetId::derived(
+            sid(self.scene.id.get(), 0, "root").as_u128(),
+            &[0x57_4944],
+        ))
     }
 }
 

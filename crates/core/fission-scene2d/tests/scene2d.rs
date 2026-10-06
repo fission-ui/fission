@@ -197,6 +197,10 @@ fn lowering_keeps_one_scene_batch_as_one_paint_operation() {
         node.op,
         fission_ir::Op::Layout(fission_ir::LayoutOp::Embed { .. })
     )));
+    assert!(ir
+        .nodes
+        .iter()
+        .all(|(id, node)| node.parent != Some(*id)), "retained nodes must not parent themselves");
     let viewport_clips = ir
         .nodes
         .values()

@@ -179,7 +179,9 @@ impl LowerWidget for GameInputRegionLowerer {
     }
 
     fn widget_id(&self) -> Option<WidgetId> {
-        self.0.identifier.as_deref().map(WidgetId::explicit)
+        self.0.identifier.as_deref().map(|identifier| {
+            WidgetId::derived(WidgetId::explicit(identifier).as_u128(), &[0x47_414D45])
+        })
     }
 }
 
@@ -259,5 +261,32 @@ mod tests {
         }
         .apply(&mut runtime);
         assert!(!runtime.input_state().key_pressed(&GameKey::ArrowLeft));
+    }
+
+    #[test]
+    fn explicit_region_identity_keeps_wrapper_and_semantics_distinct() {
+        let widget: Widget = GameInputRegion::for_game::<TestGame>(
+            fission_core::ui::Spacer::default(),
+            ActionEnvelope {
+                id: GameHostInput::static_id(),
+                payload: Vec::new(),
+            },
+        )
+        .semantics_identifier("test.game-input")
+        .into();
+        let ir = fission_core::internal::lower_widget_to_ir(&widget);
+
+        assert!(ir
+            .nodes
+            .iter()
+            .all(|(id, node)| node.parent != Some(*id)));
+        assert!(ir
+            .root
+            .is_some_and(|root| ir.custom_render_objects.contains_key(&root)));
+        assert!(ir.nodes.values().any(|node| matches!(
+            &node.op,
+            Op::Semantics(semantics)
+                if semantics.identifier.as_deref() == Some("test.game-input")
+        )));
     }
 }
