@@ -137,6 +137,8 @@ impl Game for MyGame {
 steps. `GameTestHarness` controls ticks and semantic input without a window.
 Versioned snapshots preserve supported state, clock, input, and random-stream
 data; replay records the ordered input stream and rejects unsupported formats.
+`GameInputRegion` routes focused key-down and key-up transitions through the
+same reducer action, so held movement remains visible across simulation ticks.
 
 ## Connect interaction and accessibility
 
