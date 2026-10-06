@@ -170,6 +170,7 @@ fn migrate(connection: &Connection) -> Result<()> {
             repository TEXT,
             documentation TEXT,
             license TEXT,
+            api_status TEXT NOT NULL DEFAULT 'stable',
             platforms TEXT NOT NULL,
             keywords TEXT NOT NULL,
             categories TEXT NOT NULL,
@@ -177,6 +178,18 @@ fn migrate(connection: &Connection) -> Result<()> {
             readme_markdown TEXT NOT NULL
         );",
     )?;
+    let has_api_status = connection
+        .prepare("PRAGMA table_info(crates)")?
+        .query_map([], |row| row.get::<_, String>(1))?
+        .collect::<rusqlite::Result<Vec<_>>>()?
+        .iter()
+        .any(|column| column == "api_status");
+    if !has_api_status {
+        connection.execute(
+            "ALTER TABLE crates ADD COLUMN api_status TEXT NOT NULL DEFAULT 'stable'",
+            [],
+        )?;
+    }
     Ok(())
 }
 
@@ -249,6 +262,7 @@ fn ingest_crate(
         .map(|keyword| keyword.keyword)
         .collect::<Vec<_>>();
     let platforms = declared_platforms(&packaged.manifest, &keywords)?;
+    let api_status = declared_api_status(&packaged.manifest)?;
     let rendered_readme =
         comrak::markdown_to_html(&packaged.readme_markdown, &comrak::Options::default());
     let readme_markdown = html2md::parse_html(&ammonia::clean(&rendered_readme));
@@ -267,12 +281,13 @@ fn ingest_crate(
     connection.execute(
         "INSERT INTO crates (
             name, version, description, downloads, updated_at, repository, documentation,
-            license, platforms, keywords, categories, versions, readme_markdown
-         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
+            license, api_status, platforms, keywords, categories, versions, readme_markdown
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
          ON CONFLICT(name) DO UPDATE SET
             version=excluded.version, description=excluded.description, downloads=excluded.downloads,
             updated_at=excluded.updated_at, repository=excluded.repository,
             documentation=excluded.documentation, license=excluded.license,
+            api_status=excluded.api_status,
             platforms=excluded.platforms, keywords=excluded.keywords, categories=excluded.categories,
             versions=excluded.versions, readme_markdown=excluded.readme_markdown",
         params![
@@ -284,6 +299,7 @@ fn ingest_crate(
             response.crate_data.repository,
             response.crate_data.documentation,
             version.license,
+            api_status,
             serde_json::to_string(&platforms)?,
             serde_json::to_string(&keywords)?,
             serde_json::to_string(&categories)?,
@@ -439,6 +455,25 @@ fn declared_platforms(manifest: &toml::Value, keywords: &[String]) -> Result<Vec
         .collect())
 }
 
+fn declared_api_status(manifest: &toml::Value) -> Result<String> {
+    let status = manifest
+        .get("package")
+        .and_then(|package| package.get("metadata"))
+        .and_then(|metadata| metadata.get("fission"))
+        .and_then(|fission| fission.get("api-status"))
+        .map(|value| {
+            value
+                .as_str()
+                .ok_or_else(|| anyhow!("package.metadata.fission.api-status must be a string"))
+        })
+        .transpose()?
+        .unwrap_or("stable");
+    match status {
+        "stable" | "beta" | "alpha" => Ok(status.to_owned()),
+        _ => Err(anyhow!("unknown Fission API status `{status}`")),
+    }
+}
+
 fn platform_from_keyword(keyword: &str) -> Option<&'static str> {
     match keyword.trim().to_ascii_lowercase().as_str() {
         "android" => Some("android"),
@@ -504,6 +539,31 @@ platforms = ["web", "ssr"]
         )
         .unwrap();
         assert_eq!(declared_platforms(&manifest, &[]).unwrap(), ["web", "ssr"]);
+    }
+
+    #[test]
+    fn validates_declared_api_status() {
+        let alpha: toml::Value = toml::from_str(
+            r#"[package]
+name = "demo"
+[package.metadata.fission]
+api-status = "alpha"
+"#,
+        )
+        .unwrap();
+        let stable: toml::Value = toml::from_str("[package]\nname = \"demo\"\n").unwrap();
+        let invalid: toml::Value = toml::from_str(
+            r#"[package]
+name = "demo"
+[package.metadata.fission]
+api-status = "preview"
+"#,
+        )
+        .unwrap();
+
+        assert_eq!(declared_api_status(&alpha).unwrap(), "alpha");
+        assert_eq!(declared_api_status(&stable).unwrap(), "stable");
+        assert!(declared_api_status(&invalid).is_err());
     }
 
     #[test]

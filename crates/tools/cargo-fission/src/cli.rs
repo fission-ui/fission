@@ -17,6 +17,8 @@ pub(crate) struct Cli {
 
 #[derive(Subcommand, Debug)]
 pub(crate) enum Command {
+    /// List opt-in Fission features and their API stability.
+    Features,
     /// Create a new Fission application.
     Init {
         /// Directory to create.
