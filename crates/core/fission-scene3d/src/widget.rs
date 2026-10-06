@@ -160,6 +160,7 @@ impl LowerWidget for Scene3DLowerer {
                 instance: None,
                 dimension: SceneDimension::Three,
                 viewport_origin: [viewport_origin.x, viewport_origin.y],
+                viewport_size: [viewport.x, viewport.y],
                 view_to_scene: None,
             }),
             ..Default::default()
@@ -215,5 +216,6 @@ mod tests {
             .expect("scene picking semantics");
 
         assert_eq!(target.viewport_origin, [12.0, 18.0]);
+        assert_eq!(target.viewport_size, [320.0, 180.0]);
     }
 }

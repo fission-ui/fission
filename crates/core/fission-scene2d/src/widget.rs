@@ -136,6 +136,7 @@ impl LowerWidget for Scene2DLowerer {
                         prepared.view_to_scene,
                         interaction,
                         self.scene.viewport.rect.origin,
+                        self.scene.viewport.rect.size,
                     );
                     stack.add_child(wrap_zstack_child(cx, semantics));
                 }
@@ -433,6 +434,7 @@ fn lower_semantics(
     view_to_scene: Affine2,
     interaction: &crate::Interaction2D,
     origin: Vec2,
+    viewport_size: Vec2,
 ) -> WidgetId {
     let suffix = instance.map_or_else(
         || "interaction".to_owned(),
@@ -462,6 +464,7 @@ fn lower_semantics(
             instance,
             dimension: SceneDimension::Two,
             viewport_origin: [origin.x, origin.y],
+            viewport_size: [viewport_size.x, viewport_size.y],
             view_to_scene: Some([
                 view_to_scene.m11,
                 view_to_scene.m12,

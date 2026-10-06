@@ -146,7 +146,8 @@ and carries stable scene, node, and batch-instance identities in the normal
 Fission action input. Decorative nodes remain pointer-transparent.
 
 For 3D, give `Scene3D` an `on_pick` action. The action receives viewport-local
-coordinates; call `PreparedScene3D::pick_viewport` to obtain the stable node.
+coordinates in the scene's declared viewport, including when layout resizes the
+surface; call `PreparedScene3D::pick_viewport` to obtain the stable node.
 Provide an ordinary semantic action for every important operation so keyboard,
 assistive technology, and semantic tests do not depend on visual ray selection.
 

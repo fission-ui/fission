@@ -858,6 +858,9 @@ pub struct SceneTarget {
     pub dimension: SceneDimension,
     /// Scene viewport origin represented by widget-local `[x, y]`.
     pub viewport_origin: [f32; 2],
+    /// Declared logical viewport extent used to map a resized layout rectangle
+    /// back into stable scene coordinates.
+    pub viewport_size: [f32; 2],
     /// View-to-scene affine matrix `[a, b, c, d, tx, ty]` for 2D scenes.
     pub view_to_scene: Option<[f32; 6]>,
 }
@@ -870,6 +873,7 @@ impl std::hash::Hash for SceneTarget {
         self.instance.hash(state);
         self.dimension.hash(state);
         self.viewport_origin.map(f32::to_bits).hash(state);
+        self.viewport_size.map(f32::to_bits).hash(state);
         self.view_to_scene
             .map(|matrix| matrix.map(f32::to_bits))
             .hash(state);
