@@ -5,8 +5,10 @@
 //! build tooling can reject unattributed or unlicensed assets before release.
 
 use std::collections::BTreeSet;
+use std::fmt::Write;
 
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 
 /// Stable, application-owned identity for one source asset.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -118,6 +120,59 @@ pub struct AssetManifest {
 pub struct AssetManifestError {
     pub asset: Option<AssetId>,
     pub message: String,
+}
+
+/// A packaged asset whose bytes do not match its declared build input.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AssetDigestError {
+    pub asset: String,
+    pub expected: String,
+    pub actual: String,
+}
+
+impl std::fmt::Display for AssetDigestError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "asset '{}' has SHA-256 {}; expected {}",
+            self.asset, self.actual, self.expected
+        )
+    }
+}
+
+impl std::error::Error for AssetDigestError {}
+
+/// Computes the lowercase SHA-256 used by scene asset bundles.
+pub fn sha256_hex(bytes: &[u8]) -> String {
+    let digest = Sha256::digest(bytes);
+    let mut encoded = String::with_capacity(64);
+    for byte in digest {
+        write!(&mut encoded, "{byte:02x}").expect("writing to a String cannot fail");
+    }
+    encoded
+}
+
+/// Verifies packaged bytes during an application's build.
+///
+/// Call this from `build.rs` with `include_bytes!` so an asset change cannot
+/// leave stale deterministic bundle metadata in the executable.
+pub fn verify_sha256(
+    asset: impl Into<String>,
+    bytes: &[u8],
+    expected: impl Into<String>,
+) -> Result<(), AssetDigestError> {
+    let asset = asset.into();
+    let expected = expected.into();
+    let actual = sha256_hex(bytes);
+    if actual == expected {
+        Ok(())
+    } else {
+        Err(AssetDigestError {
+            asset,
+            expected,
+            actual,
+        })
+    }
 }
 
 impl AssetManifest {
@@ -247,5 +302,16 @@ mod tests {
         assert!(errors
             .iter()
             .any(|error| error.message.contains("duplicated")));
+    }
+
+    #[test]
+    fn packaged_bytes_are_checked_against_the_declared_digest() {
+        let digest = sha256_hex(b"fission");
+        assert_eq!(digest.len(), 64);
+        assert!(verify_sha256("test.asset", b"fission", digest).is_ok());
+
+        let error = verify_sha256("test.asset", b"changed", "0".repeat(64)).unwrap_err();
+        assert_eq!(error.asset, "test.asset");
+        assert_ne!(error.actual, error.expected);
     }
 }

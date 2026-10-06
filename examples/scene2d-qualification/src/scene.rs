@@ -11,7 +11,7 @@ const SHEET_ASSET: AssetId = AssetId::new(1);
 const SHEET_RESOURCE: ResourceId = ResourceId(1);
 const ROUTE_RESOURCE: ResourceId = ResourceId(2);
 const STATUS_RESOURCE: ResourceId = ResourceId(3);
-const SHEET_SHA256: &str = "c8f7e002bc807665ca7f456a794be2a785a27f61d1244c0d23a7ab3d0bee1d6f";
+const SHEET_SHA256: &str = env!("SCENE2D_SCOUT_SHA256");
 
 const PLAYER_NODE: NodeId = NodeId::new(10);
 const BEACON_NODE: NodeId = NodeId::new(11);

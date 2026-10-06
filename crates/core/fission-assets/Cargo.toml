@@ -17,3 +17,4 @@ api-status = "alpha"
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
+sha2 = "0.10"

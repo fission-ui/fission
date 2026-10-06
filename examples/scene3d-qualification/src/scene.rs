@@ -4,9 +4,8 @@ use fission::scene3d::*;
 
 use crate::game::{BEACON_NODE, CARGO_BODY, PLAYER_BODY};
 
-const BEACON_GLTF_SHA256: &str = "4ef92e6f2cb0484c7589aa3dd64bb74bba87065c4c049f2e6abd7bf57832bdcf";
-const BEACON_TEXTURE_SHA256: &str =
-    "03065457d2d800f1f8d2103f15e9a72dcf9ecc288437850c3294dcbe95b4925f";
+const BEACON_GLTF_SHA256: &str = env!("SCENE3D_BEACON_GLTF_SHA256");
+const BEACON_TEXTURE_SHA256: &str = env!("SCENE3D_BEACON_TEXTURE_SHA256");
 
 const GROUND_MATERIAL: ResourceId = ResourceId(1_000);
 const PLAYER_MATERIAL: ResourceId = ResourceId(1_001);

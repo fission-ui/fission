@@ -172,9 +172,21 @@ restore. The 3D provider also exposes the MVP kinematic character controller.
 ## Assets and diagnostics
 
 Give assets stable typed IDs and a versioned `AssetBundle`. Record the source
-and digest used to build the bundle. 2D scenes retain decoded images and batch
-instances. `GltfImporter` imports static glTF or GLB meshes, referenced
-textures, and the metallic-roughness values supported by the renderer.
+and digest used to build the bundle. Call `fission_assets::verify_sha256` from
+`build.rs` with the packaged bytes so a changed asset cannot leave stale bundle
+metadata in the executable. The qualification games use this pattern and pass
+the verified digest into their scene declarations. 2D scenes retain decoded
+images and batch instances. `GltfImporter` imports static glTF or GLB meshes,
+referenced textures, and the metallic-roughness values supported by the
+renderer.
+
+Add the verifier as an exact build dependency; it does not enter the runtime
+dependency graph:
+
+```toml
+[build-dependencies]
+fission-assets = "=0.1.0-alpha.1"
+```
 
 Loading, ready, and failed states are explicit. Scene preparation returns
 diagnostics for invalid transforms, geometry, cameras, material values, assets,

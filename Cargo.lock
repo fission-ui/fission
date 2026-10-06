@@ -2850,6 +2850,7 @@ name = "fission-assets"
 version = "0.1.0-alpha.1"
 dependencies = [
  "serde",
+ "sha2 0.10.9",
 ]
 
 [[package]]
@@ -5176,7 +5177,6 @@ dependencies = [
  "console_error_panic_hook",
  "fission",
  "serde",
- "serde_yaml",
  "wasm-bindgen",
 ]
 
@@ -8285,9 +8285,11 @@ dependencies = [
  "anyhow",
  "console_error_panic_hook",
  "fission",
+ "fission-assets",
  "fission-test-driver",
  "image 0.25.8",
  "serde",
+ "serde_yaml",
  "wasm-bindgen",
 ]
 
@@ -8298,6 +8300,7 @@ dependencies = [
  "anyhow",
  "console_error_panic_hook",
  "fission",
+ "fission-assets",
  "fission-test-driver",
  "image 0.25.8",
  "serde",
