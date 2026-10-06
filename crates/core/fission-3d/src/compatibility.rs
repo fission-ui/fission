@@ -199,6 +199,6 @@ mod tests {
         .unwrap();
         let packet = decode_legacy_render_packet(&payload, 320.0, 180.0).unwrap();
         assert_eq!(packet.prepared.draws.len(), 1);
-        assert_eq!(packet.scene.resources.materials.len(), 1);
+        assert_eq!(packet.prepared.source.resources.materials.len(), 1);
     }
 }

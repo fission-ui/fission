@@ -186,7 +186,10 @@ mod tests {
 
         assert!(encoded.starts_with(SCENE3D_EMBED_MAGIC));
         assert_eq!(Scene3DRenderPacket::decode(&encoded).unwrap(), packet);
-        assert_eq!(packet.scene.format_version, crate::SCENE3D_FORMAT_VERSION);
+        assert_eq!(
+            packet.prepared.source.format_version,
+            crate::SCENE3D_FORMAT_VERSION
+        );
         assert!(Scene3DRenderPacket::decode(b"not-a-scene").is_err());
     }
 
