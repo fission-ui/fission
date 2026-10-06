@@ -173,6 +173,24 @@ notes and do not imply it was validated.
 
 ## 7. Dry-run crates.io publishing
 
+The preferred path is the **Release Fission** workflow in GitHub Actions. Enter
+the version without a `v` prefix after the release-prep commit has reached
+`main`. The workflow tags that exact commit, creates a draft GitHub Release,
+uses the matching changelog section as its release notes, publishes in dependency
+order only after every missing package passes a dry run, and verifies the
+installed public CLI by creating and serving a fresh Web application.
+
+Configure the `crates-io` GitHub environment with a
+`CARGO_REGISTRY_TOKEN` secret. If crates.io throttles or has not propagated an
+upload, the release job exits instead of occupying a runner. It enables the
+normally dormant **Resume deferred Fission release** workflow, which checks at
+five-minute intervals and dispatches a resume from the immutable tag. A resumed
+run verifies already-published archives against the release commit before
+skipping them. The resumer disables itself when no draft release remains.
+
+The commands below remain the manual fallback and explain the ordering enforced
+by `scripts/publish_release_crates.sh`.
+
 Publish only first-party crates, not examples or the documentation site crate
 unless that is an explicit release goal.
 
@@ -207,12 +225,12 @@ fission-charts
 fission-shell-site
 fission-shell-terminal
 fission-shell-winit
-fission-test
-fission-command-site
 fission-shell-desktop
 fission-shell-mobile
 fission-shell-server
 fission-shell-web
+fission-test
+fission-command-site
 fission
 fission-command-run
 fission-command-package

@@ -1,0 +1,47 @@
+name: Resume deferred Fission release
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+
+concurrency:
+  group: fission-release-resumer
+  cancel-in-progress: false
+
+jobs:
+  resume:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resume the current draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          draft_tag=$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases" \
+            --jq '[.[] | select(.draft == true and (.tag_name | startswith("v")))] | sort_by(.created_at) | last | .tag_name // empty')
+          if [[ -z $draft_tag ]]; then
+            echo "No draft Fission release remains; disabling scheduled resumption."
+            gh api --method PUT "repos/$GITHUB_REPOSITORY/actions/workflows/release-resume.yml/disable"
+            exit 0
+          fi
+
+          active=$(gh run list \
+            --repo "$GITHUB_REPOSITORY" \
+            --workflow release.yml \
+            --json status \
+            --jq '[.[] | select(.status == "queued" or .status == "in_progress" or .status == "waiting" or .status == "pending")] | length')
+          if [[ $active -gt 0 ]]; then
+            echo "A release workflow is already active; the next schedule will check again."
+            exit 0
+          fi
+
+          gh workflow run release.yml \
+            --repo "$GITHUB_REPOSITORY" \
+            --ref main \
+            --field version="${draft_tag#v}"
