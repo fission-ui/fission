@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use fission_scene::{AssetKind, Bounds3, NodeId, SceneDiagnostic, ScenePassStats, Vec3};
 use serde::{Deserialize, Serialize};
 
-use crate::geometry::{transform_bounds, transform_matrix, union_bounds, vec3};
+use crate::geometry::{transform_bounds, transform_matrix, vec3};
 use crate::{
     AlphaMode3D, CameraProjection3D, Light3D, MaterialModel3D, NodeContent3D, Primitive3D,
     ResourceId, Scene3DIR, SCENE3D_FORMAT_VERSION,

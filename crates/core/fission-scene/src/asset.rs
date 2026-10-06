@@ -106,7 +106,7 @@ pub enum AssetLoadState {
     Failed { message: String },
 }
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct AssetHandle<T> {
     id: AssetId,
@@ -132,6 +132,41 @@ impl<T> Copy for AssetHandle<T> {}
 impl<T> Clone for AssetHandle<T> {
     fn clone(&self) -> Self {
         *self
+    }
+}
+
+impl<T> std::fmt::Debug for AssetHandle<T> {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_tuple("AssetHandle")
+            .field(&self.id)
+            .finish()
+    }
+}
+
+impl<T> PartialEq for AssetHandle<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+    }
+}
+
+impl<T> Eq for AssetHandle<T> {}
+
+impl<T> PartialOrd for AssetHandle<T> {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl<T> Ord for AssetHandle<T> {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.id.cmp(&other.id)
+    }
+}
+
+impl<T> std::hash::Hash for AssetHandle<T> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        std::hash::Hash::hash(&self.id, state);
     }
 }
 
@@ -166,5 +201,16 @@ mod tests {
         let handle = AssetHandle::<TextureAsset>::new(AssetId(7));
         assert_eq!(handle.id(), AssetId(7));
         assert_eq!(serde_json::to_value(handle).unwrap(), 7);
+    }
+
+    #[test]
+    fn application_marker_types_need_no_trait_implementations() {
+        enum ApplicationAsset {}
+
+        let first = AssetHandle::<ApplicationAsset>::new(AssetId(1));
+        let same = AssetHandle::<ApplicationAsset>::new(AssetId(1));
+        assert_eq!(first, same);
+        assert_eq!(format!("{first:?}"), "AssetHandle(AssetId(1))");
+        assert_eq!(std::collections::BTreeSet::from([first]).len(), 1);
     }
 }
