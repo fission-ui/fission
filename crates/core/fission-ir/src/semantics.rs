@@ -856,7 +856,7 @@ pub struct SceneTarget {
     pub node_id: Option<u64>,
     pub instance: Option<u32>,
     pub dimension: SceneDimension,
-    /// Scene viewport origin represented by widget-local `[x, y]`.
+    /// Origin of the declared logical scene viewport.
     pub viewport_origin: [f32; 2],
     /// Declared logical viewport extent used to map a resized layout rectangle
     /// back into stable scene coordinates.
