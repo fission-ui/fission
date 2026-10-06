@@ -4,7 +4,21 @@
 //! window, network, or product dependency and can therefore be used by
 //! headless tests and every graphical Fission shell.
 
+mod input;
+mod random;
+mod runtime;
+
 pub use fission_scene::{AssetId, NodeId, PresentationId, SceneId};
+pub use input::{
+    GameAxis, GameButton, GameKey, HostInputEvent, InputBinding, InputMap, InputState,
+    InputTrigger, PointerButton, PointerId, PointerKind, PointerPhase, SceneGesture,
+};
+pub use random::{DeterministicRandom, RandomSnapshot};
+pub use runtime::{
+    Game, GameConfig, GameCtx, GameFrame, GameRecorder, GameReplay, GameReplayError,
+    GameReplayEvent, GameReplayRun, GameRuntime, GameSnapshot, GameSnapshotError, GameState,
+    GameTestHarness, GameTime, RuntimeDiagnostic, StepCtx,
+};
 
 use std::time::Duration;
 
@@ -84,6 +98,15 @@ pub struct FixedStepClock {
     accumulator: Duration,
 }
 
+/// Serializable state of one fixed-step scheduler.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FixedStepClockSnapshot {
+    pub step: StepDuration,
+    pub max_steps_per_frame: u32,
+    pub next_tick: Tick,
+    pub accumulator_nanos: u128,
+}
+
 impl FixedStepClock {
     pub fn new(step: StepDuration) -> Self {
         Self {
@@ -108,6 +131,32 @@ impl FixedStepClock {
 
     pub const fn next_tick(&self) -> Tick {
         self.next_tick
+    }
+
+    pub fn snapshot(&self) -> FixedStepClockSnapshot {
+        FixedStepClockSnapshot {
+            step: self.step,
+            max_steps_per_frame: self.max_steps_per_frame,
+            next_tick: self.next_tick,
+            accumulator_nanos: self.accumulator.as_nanos(),
+        }
+    }
+
+    pub(crate) fn from_snapshot(snapshot: FixedStepClockSnapshot) -> Option<Self> {
+        if snapshot.step.as_nanos() == 0
+            || snapshot.max_steps_per_frame == 0
+            || snapshot.accumulator_nanos >= u128::from(snapshot.step.as_nanos())
+        {
+            return None;
+        }
+        let seconds = u64::try_from(snapshot.accumulator_nanos / 1_000_000_000).ok()?;
+        let nanos = (snapshot.accumulator_nanos % 1_000_000_000) as u32;
+        Some(Self {
+            step: snapshot.step,
+            max_steps_per_frame: snapshot.max_steps_per_frame,
+            next_tick: snapshot.next_tick,
+            accumulator: Duration::new(seconds, nanos),
+        })
     }
 
     pub fn advance(&mut self, elapsed: Duration) -> StepBatch {
