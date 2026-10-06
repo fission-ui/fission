@@ -454,7 +454,10 @@ fn lower_semantics(
             SemanticRole2D::Generic => Role::Generic,
         },
         label: interaction.semantic_label.clone(),
-        identifier: Some(format!("scene2d:{scene}:node:{}", meta.node.get())),
+        identifier: Some(instance.map_or_else(
+            || format!("scene2d:{scene}:node:{}", meta.node.get()),
+            |index| format!("scene2d:{scene}:node:{}:instance:{index}", meta.node.get()),
+        )),
         focusable: interaction.tap.is_some(),
         draggable: interaction.drag.is_some(),
         scene_target: Some(SceneTarget {

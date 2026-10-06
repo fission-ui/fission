@@ -143,17 +143,34 @@ fn lowering_keeps_one_scene_batch_as_one_paint_operation() {
         layer: 0,
         blend_mode: BlendMode2D::Normal,
         clip: None,
-        interaction: None,
+        interaction: Some(Interaction2D {
+            tap: Some(ActionBinding2D::new(ActionToken(77), b"batch".to_vec())),
+            semantic_label: Some("Batch item".into()),
+            semantic_role: Some(SemanticRole2D::Button),
+            ..Default::default()
+        }),
         content: NodeContent2D::ImageBatch(ImageBatch2D {
             image: ImageHandle2D::new(AssetId(9)),
             sampling: ImageSampling2D::Nearest,
-            instances: vec![ImageInstance2D {
-                transform: Transform2::IDENTITY,
-                destination: Rect2D::new(Vec2::ZERO, Vec2::new(8.0, 8.0)),
-                source: None,
-                tint: Rgba::WHITE,
-                opacity: 1.0,
-            }],
+            instances: vec![
+                ImageInstance2D {
+                    transform: Transform2::IDENTITY,
+                    destination: Rect2D::new(Vec2::ZERO, Vec2::new(8.0, 8.0)),
+                    source: None,
+                    tint: Rgba::WHITE,
+                    opacity: 1.0,
+                },
+                ImageInstance2D {
+                    transform: Transform2 {
+                        translation: Vec2::new(12.0, 0.0),
+                        ..Transform2::IDENTITY
+                    },
+                    destination: Rect2D::new(Vec2::ZERO, Vec2::new(8.0, 8.0)),
+                    source: None,
+                    tint: Rgba::WHITE,
+                    opacity: 1.0,
+                },
+            ],
         }),
     });
 
@@ -171,7 +188,7 @@ fn lowering_keeps_one_scene_batch_as_one_paint_operation() {
         })
         .collect::<Vec<_>>();
     assert_eq!(batches.len(), 1);
-    assert_eq!(batches[0].1.len(), 1);
+    assert_eq!(batches[0].1.len(), 2);
     assert!(matches!(
         &batches[0].0.source,
         fission_ir::op::ImageSource::Asset { path } if path == "assets/9.png"
@@ -189,6 +206,21 @@ fn lowering_keeps_one_scene_batch_as_one_paint_operation() {
         })
         .collect::<Vec<_>>();
     assert_eq!(viewport_clips, vec!["M0 0 L200 0 L200 100 L0 100 Z"]);
+    let identifiers = ir
+        .nodes
+        .values()
+        .filter_map(|node| match &node.op {
+            fission_ir::Op::Semantics(semantics) => semantics.identifier.as_deref(),
+            _ => None,
+        })
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(
+        identifiers,
+        std::collections::BTreeSet::from([
+            "scene2d:1:node:7:instance:0",
+            "scene2d:1:node:7:instance:1",
+        ])
+    );
 }
 
 #[test]
