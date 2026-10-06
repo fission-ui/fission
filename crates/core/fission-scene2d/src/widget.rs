@@ -113,14 +113,7 @@ impl LowerWidget for Scene2DLowerer {
             Op::Layout(LayoutOp::ZStack),
         );
         for draw in &prepared.draws {
-            let visual = lower_draw(
-                cx,
-                &self.scene,
-                presentation,
-                draw,
-                self.width,
-                self.height,
-            );
+            let visual = lower_draw(cx, &self.scene, presentation, draw, self.width, self.height);
             let visual = inert(cx, visual);
             stack.add_child(wrap_zstack_child(cx, visual));
             if let Some(interaction) = draw

@@ -267,7 +267,9 @@ impl<G: Game> GameRuntime<G> {
             || snapshot.config.max_steps_per_frame == 0
             || snapshot.config.max_messages_per_step == 0
         {
-            return Err(GameSnapshotError("snapshot configuration is invalid".into()));
+            return Err(GameSnapshotError(
+                "snapshot configuration is invalid".into(),
+            ));
         }
         if snapshot.config.step != snapshot.clock.step
             || snapshot.config.max_steps_per_frame != snapshot.clock.max_steps_per_frame

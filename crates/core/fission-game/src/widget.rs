@@ -132,6 +132,10 @@ impl CustomRenderObject for GameInputRenderObject {
         });
         CustomEventResult::consumed_with(vec![(node_id, envelope)])
     }
+
+    fn blur_actions(&self, node_id: WidgetId) -> Vec<(WidgetId, ActionEnvelope)> {
+        vec![(node_id, self.action.with_action(&GameHostInput::FocusLost))]
+    }
 }
 
 #[derive(Debug)]
@@ -276,10 +280,7 @@ mod tests {
         .into();
         let ir = fission_core::internal::lower_widget_to_ir(&widget);
 
-        assert!(ir
-            .nodes
-            .iter()
-            .all(|(id, node)| node.parent != Some(*id)));
+        assert!(ir.nodes.iter().all(|(id, node)| node.parent != Some(*id)));
         assert!(ir
             .root
             .is_some_and(|root| ir.custom_render_objects.contains_key(&root)));

@@ -7968,6 +7968,24 @@ where
                             window.request_redraw();
                             redraw_pending = true;
                         }
+                        WindowEvent::Focused(false) => {
+                            if let Some(ir) = pipeline.prev_ir.as_ref() {
+                                if let Err(error) = runtime.set_focused_widget(
+                                    ir,
+                                    None,
+                                    fission_core::TextEditSource::Programmatic,
+                                ) {
+                                    eprintln!("Failed to clear focus after window blur: {error:?}");
+                                }
+                            }
+                            active_keys.clear();
+                            current_mods = 0;
+                            invalidations.mark_build();
+                            frame_trace.note_redraw_reason("window_focus_lost");
+                            window.request_redraw();
+                            redraw_pending = true;
+                        }
+                        WindowEvent::Focused(true) => {}
                         WindowEvent::Occluded(occluded) => {
                             surface_occluded = occluded;
                             if !occluded {
