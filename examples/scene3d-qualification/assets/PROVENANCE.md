@@ -8,4 +8,3 @@ The model is deliberately small: a static textured glTF panel with positions,
 normals, UV coordinates, indexed triangles, a metallic-roughness material, and
 an external image. Keeping the source readable makes the complete asset path
 auditable without adding a binary fixture.
-

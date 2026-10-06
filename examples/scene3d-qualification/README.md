@@ -25,4 +25,3 @@ The asset provenance is recorded in [`assets/PROVENANCE.md`](assets/PROVENANCE.m
 
 The focused tests cover static import, picking, collision, snapshot restore,
 and deterministic replay of a complete successful run.
-
