@@ -503,7 +503,7 @@ const ALPHA_FEATURES: &[(&str, &str)] = &[
 ];
 
 fn print_feature_catalog() {
-    println!("Fission opt-in features");
+    println!("Fission alpha features");
     println!();
     for (feature, summary) in ALPHA_FEATURES {
         println!("{feature:<18} alpha  {summary}");
