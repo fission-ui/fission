@@ -205,10 +205,12 @@ Use `linux`, `macos`, or `windows` for the other initially qualified targets.
 The examples include their public assets and provenance, complete objectives,
 physics, picking, snapshots, and replay tests.
 
-Each example also contains an ignored `web_live` qualification test. Against a
-running Web build it launches Chrome, uses browser touch and keyboard events,
-finishes the game, captures the real canvas, and rejects a blank or
-compatibility-only scene region. See the example README for the exact command.
+Each example contains ignored `native_live` and `web_live` qualification tests.
+The native test launches the real desktop shell on Linux, macOS, or Windows;
+the Web test connects to a running build in Chrome. Together they drive
+coordinate and keyboard input, finish the games, capture the rendered scene,
+and reject a blank or compatibility-only viewport. See each example README for
+the exact commands and graphical-session requirements.
 
 ## Current alpha boundary
 
