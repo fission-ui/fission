@@ -1,0 +1,5 @@
+game.title: "Beacon Run"
+game.ready: "Guide the scout around the station and reach the beacon."
+game.success: "Success — beacon secured."
+game.restart: "Restart"
+game.controls_help: "Arrow controls support pointer, touch, keyboard focus, and accessibility activation."

@@ -3,9 +3,7 @@ use std::fmt;
 use std::time::Duration;
 
 use fission::core::{ResourceKey, TimerResource};
-use fission::game::{
-    Game, GameHostInput, GameInputRegion, GameRuntime, GameTime, StepDuration,
-};
+use fission::game::{Game, GameHostInput, GameInputRegion, GameRuntime, GameTime, StepDuration};
 use fission::i18n::{Locale, TranslationBundle};
 use fission::prelude::*;
 use fission::scene3d::{RenderCapabilities3D, Scene3D, Scene3DIR, Scene3DProcessor, Vec2};

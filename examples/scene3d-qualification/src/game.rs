@@ -77,8 +77,8 @@ impl HarborGame {
 
     fn queue_move(&mut self, direction: Direction) {
         let movement = direction_vector(direction);
-        self.queued_move.x += movement.x;
-        self.queued_move.z += movement.z;
+        self.queued_move.x += movement.x * 0.45;
+        self.queued_move.z += movement.z * 0.45;
     }
 }
 
@@ -169,8 +169,9 @@ impl Game for HarborGame {
     }
 
     fn step(&mut self, ctx: &mut StepCtx<'_, Self>) {
-        let mut movement = self.queued_move;
+        let mut desired = self.queued_move;
         self.queued_move = Vec3::ZERO;
+        let mut held = Vec3::ZERO;
         for (key, direction) in [
             (GameKey::ArrowUp, Direction::Forward),
             (GameKey::Character('w'), Direction::Forward),
@@ -183,18 +184,17 @@ impl Game for HarborGame {
         ] {
             if ctx.input().key_pressed(&key) {
                 let vector = direction_vector(direction);
-                movement.x += vector.x;
-                movement.z += vector.z;
+                held.x += vector.x;
+                held.z += vector.z;
             }
         }
-        let length = (movement.x * movement.x + movement.z * movement.z).sqrt();
+        let length = (held.x * held.x + held.z * held.z).sqrt();
         if length > 0.0 {
             let distance = 3.5 * ctx.duration().as_secs_f32();
-            let desired = Vec3::new(
-                movement.x / length * distance,
-                0.0,
-                movement.z / length * distance,
-            );
+            desired.x += held.x / length * distance;
+            desired.z += held.z / length * distance;
+        }
+        if desired.x != 0.0 || desired.y != 0.0 || desired.z != 0.0 {
             self.physics
                 .move_character(
                     PLAYER_BODY,

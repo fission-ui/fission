@@ -3085,6 +3085,8 @@ dependencies = [
 name = "fission-game"
 version = "0.1.0-alpha.1"
 dependencies = [
+ "fission-core",
+ "fission-ir",
  "fission-scene",
  "serde",
 ]
@@ -5174,6 +5176,7 @@ dependencies = [
  "console_error_panic_hook",
  "fission",
  "serde",
+ "serde_yaml",
  "wasm-bindgen",
 ]
 
@@ -8288,12 +8291,14 @@ dependencies = [
 
 [[package]]
 name = "scene3d-qualification"
-version = "0.1.0"
+version = "0.1.0-alpha.1"
 dependencies = [
  "anyhow",
+ "console_error_panic_hook",
  "fission",
  "serde",
  "serde_yaml",
+ "wasm-bindgen",
 ]
 
 [[package]]

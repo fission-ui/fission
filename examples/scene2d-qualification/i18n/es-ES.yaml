@@ -1,0 +1,5 @@
+game.title: "Carrera hacia la baliza"
+game.ready: "Guía al explorador por la estación hasta llegar a la baliza."
+game.success: "Éxito: baliza asegurada."
+game.restart: "Reiniciar"
+game.controls_help: "Los controles de flecha funcionan con puntero, toque, teclado y accesibilidad."

@@ -12,11 +12,13 @@ and ordinary Fission controls dispatch the same typed `MovePlayer` action for
 pointer, touch, keyboard/accessibility activation, while the game input map
 maps arrow keys and scene gestures to the same `GameMessage` values.
 
-Run the desktop target:
+Run a native target:
 
 ```sh
-fission run --target desktop --project-dir examples/scene2d-qualification
+fission run --target linux --project-dir examples/scene2d-qualification
 ```
+
+Use `macos` or `windows` on those hosts.
 
 Run the Web target:
 

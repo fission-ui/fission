@@ -1,6 +1,8 @@
+use std::collections::HashMap;
 use std::fmt;
 
 use fission::game::{Game, GameHostInput, GameInputRegion, GameRuntime, GameTime, StepDuration};
+use fission::i18n::{Locale, TranslationBundle};
 use fission::prelude::*;
 use fission::scene2d::{Scene2D, Scene2DIR};
 
@@ -116,27 +118,30 @@ impl From<QualificationApp> for Widget {
         );
         let state = view.state();
         let game = state.runtime.state();
-        let status = if let Some(error) = &game.last_error {
-            format!("Physics error: {error}")
+        let status: Widget = if let Some(error) = &game.last_error {
+            Text::new(error.clone())
+                .size(tokens.typography.body_medium_size)
+                .color(tokens.colors.error)
+                .into()
         } else if game.beacon_collected {
-            format!("Success — beacon secured in {} moves", game.moves)
+            Text::new(TextContent::Key("game.success".into()))
+                .size(tokens.typography.body_medium_size)
+                .color(tokens.colors.success)
+                .into()
         } else {
-            "Guide the scout around the station and reach the beacon.".into()
+            Text::new(TextContent::Key("game.ready".into()))
+                .size(tokens.typography.body_medium_size)
+                .color(tokens.colors.text_secondary)
+                .into()
         };
 
         let content: Widget = Container::new(Column {
             gap: Some(tokens.spacing.m),
             children: widgets![
-                Text::new("Beacon Run")
+                Text::new(TextContent::Key("game.title".into()))
                     .size(tokens.typography.heading1_size)
                     .color(tokens.colors.text_primary),
-                Text::new(status)
-                    .size(tokens.typography.body_medium_size)
-                    .color(if game.beacon_collected {
-                        tokens.colors.success
-                    } else {
-                        tokens.colors.text_secondary
-                    }),
+                status,
                 Container::new(
                     Scene2D::new(state.scene.clone())
                         .width(VIEWPORT_SIZE.x)
@@ -155,14 +160,14 @@ impl From<QualificationApp> for Widget {
                         direction_button("→", Direction::Right, &move_action),
                         Button {
                             on_press: Some(reset),
-                            child: Some(Text::new("Restart").into()),
+                            child: Some(Text::new(TextContent::Key("game.restart".into())).into()),
                             ..Default::default()
                         }
                         .semantics_identifier("beacon-run.restart"),
                     ],
                     ..Default::default()
                 },
-                Text::new("Arrow controls support pointer, touch, keyboard focus, and accessibility activation.")
+                Text::new(TextContent::Key("game.controls_help".into()))
                     .size(tokens.typography.font_size_sm)
                     .color(tokens.colors.text_muted),
             ],
@@ -175,6 +180,21 @@ impl From<QualificationApp> for Widget {
             .semantics_identifier("beacon-run.game-input")
             .into()
     }
+}
+
+pub(crate) fn create_env() -> anyhow::Result<Env> {
+    let mut env = Env::default();
+    for (locale, yaml) in [
+        ("en-US", include_str!("../i18n/en-US.yaml")),
+        ("es-ES", include_str!("../i18n/es-ES.yaml")),
+    ] {
+        env.i18n.add_bundle(TranslationBundle {
+            locale: Locale::from(locale),
+            messages: serde_yaml::from_str::<HashMap<String, String>>(yaml)?,
+        });
+    }
+    env.locale = Locale::from("en-US");
+    Ok(env)
 }
 
 fn direction_button(label: &str, direction: Direction, action: &ActionEnvelope) -> Widget {

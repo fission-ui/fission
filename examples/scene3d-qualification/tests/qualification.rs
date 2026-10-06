@@ -75,6 +75,18 @@ fn kinematic_controller_collides_and_dynamic_cargo_falls() {
 }
 
 #[test]
+fn one_semantic_move_is_a_usable_pointer_step() {
+    let mut runtime = GameRuntime::new(HarborGame::new());
+    let before = runtime.state().player_position();
+    runtime.send(scene3d_qualification::HarborMessage::Move(
+        scene3d_qualification::Direction::Right,
+    ));
+    runtime.advance(fixed_step());
+
+    assert!(runtime.state().player_position().x - before.x > 0.4);
+}
+
+#[test]
 fn pointer_and_semantic_selection_share_the_game_message_path() {
     let mut pointer_runtime = GameRuntime::new(HarborGame::new());
     pointer_runtime.handle_input(HostInputEvent::Pointer {
