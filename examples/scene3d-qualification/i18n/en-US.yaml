@@ -1,0 +1,12 @@
+game.title: "Beacon Run"
+game.instructions: "Select the striped beacon, then guide the explorer around the cargo block to reach it."
+game.ready: "Objective: select the beacon"
+game.selected: "Beacon selected — reach it to complete the run"
+game.success: "Beacon reached — qualification complete"
+game.forward: "Forward"
+game.back: "Back"
+game.left: "Left"
+game.right: "Right"
+game.select: "Select beacon accessibly"
+game.restart: "Restart run"
+

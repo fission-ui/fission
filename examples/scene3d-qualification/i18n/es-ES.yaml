@@ -1,0 +1,12 @@
+game.title: "Carrera de la baliza"
+game.instructions: "Selecciona la baliza rayada y guía al explorador alrededor de la carga para alcanzarla."
+game.ready: "Objetivo: selecciona la baliza"
+game.selected: "Baliza seleccionada — alcánzala para completar el recorrido"
+game.success: "Baliza alcanzada — prueba completada"
+game.forward: "Adelante"
+game.back: "Atrás"
+game.left: "Izquierda"
+game.right: "Derecha"
+game.select: "Seleccionar baliza de forma accesible"
+game.restart: "Reiniciar recorrido"
+
