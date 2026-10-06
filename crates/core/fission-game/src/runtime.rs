@@ -263,6 +263,12 @@ impl<G: Game> GameRuntime<G> {
                 "unsupported game snapshot version".into(),
             ));
         }
+        if snapshot.config.step.as_nanos() == 0
+            || snapshot.config.max_steps_per_frame == 0
+            || snapshot.config.max_messages_per_step == 0
+        {
+            return Err(GameSnapshotError("snapshot configuration is invalid".into()));
+        }
         if snapshot.config.step != snapshot.clock.step
             || snapshot.config.max_steps_per_frame != snapshot.clock.max_steps_per_frame
         {
@@ -558,5 +564,14 @@ mod tests {
         let run = GameRuntime::<Counter>::replay(replay).unwrap();
         assert_eq!(run.frames, vec![expected]);
         assert_eq!(run.runtime.state().value, 1);
+    }
+
+    #[test]
+    fn malformed_snapshot_configuration_returns_an_error() {
+        let runtime = GameRuntime::new(counter());
+        let mut snapshot = runtime.snapshot();
+        snapshot.config.max_messages_per_step = 0;
+
+        assert!(GameRuntime::from_snapshot(snapshot).is_err());
     }
 }
