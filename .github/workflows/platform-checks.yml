@@ -39,6 +39,18 @@ jobs:
       - name: Check scene and physics feature boundaries
         run: ./scripts/check_scene_feature_boundaries.sh
 
+      - name: Test scene, game, asset, and physics foundations
+        run: |
+          cargo test --locked \
+            -p fission-assets \
+            -p fission-scene \
+            -p fission-scene2d \
+            -p fission-scene3d \
+            -p fission-game \
+            -p fission-physics \
+            -p fission-physics-rapier2d \
+            -p fission-physics-rapier3d
+
       - name: Test generated platform scripts
         run: cargo test -p cargo-fission
 
