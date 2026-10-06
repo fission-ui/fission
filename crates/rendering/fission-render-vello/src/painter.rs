@@ -11,7 +11,8 @@ use std::sync::Arc;
 use vello_cpu::filter_effects::{Filter, FilterFunction};
 use vello_cpu::kurbo::{Affine, BezPath, Rect, Stroke};
 use vello_cpu::peniko::{BlendMode, Color, Compose, FontData, Mix};
-use vello_cpu::{Glyph, ImageSource, PaintType, Pixmap, TextureId, Tint};
+use vello_cpu::{Glyph, ImageSource, PaintType, Pixmap, Tint};
+use vello_gpu::TextureId;
 
 /// The drawing operations the scene encoder needs.
 ///

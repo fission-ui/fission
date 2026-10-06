@@ -1006,7 +1006,7 @@ mod tests {
             self.external_surfaces.push((texture_id, width, height));
             self.resolve_external_surfaces.then(|| {
                 ImageSource::external_texture(
-                    vello_cpu::TextureId(texture_id),
+                    vello_gpu::TextureId(texture_id),
                     vello_cpu::geometry::RectU16::new(0, 0, width, height),
                     true,
                 )
