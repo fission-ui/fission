@@ -26,6 +26,7 @@ pub(crate) enum Scene3DRenderDiagnosticKind {
     UnsupportedPacket,
     MissingTextureAsset,
     WrongTextureAssetKind,
+    #[cfg(target_arch = "wasm32")]
     TextureLoading,
     TextureUnreadable,
     TextureDecodeFailed,
@@ -979,6 +980,7 @@ impl Scene3DRenderer {
                     None
                 }
             },
+            #[cfg(target_arch = "wasm32")]
             AssetBytes::Loading => {
                 report.ready = false;
                 report.diagnostics.push(Scene3DRenderDiagnostic {
@@ -1569,6 +1571,7 @@ fn clamp_viewport(
 
 enum AssetBytes {
     Ready(Vec<u8>),
+    #[cfg(target_arch = "wasm32")]
     Loading,
     Failed(String),
 }
