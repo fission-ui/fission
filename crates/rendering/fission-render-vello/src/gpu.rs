@@ -13,7 +13,7 @@ use crate::{GpuImageCache, GpuPainter, GpuUploader, Painter, VelloRenderer, Vell
 /// External GPU textures referenced by retained `DrawSurface` operations.
 pub type ExternalTextureBindings = vello_gpu::TextureBindings;
 /// Stable identifier connecting a retained surface operation to its texture.
-pub type ExternalTextureId = vello_gpu::TextureId;
+pub use vello_gpu::TextureId as ExternalTextureId;
 
 /// Renders Fission scenes into wgpu textures.
 ///

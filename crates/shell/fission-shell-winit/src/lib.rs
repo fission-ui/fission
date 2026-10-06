@@ -7978,7 +7978,6 @@ where
                                     eprintln!("Failed to clear focus after window blur: {error:?}");
                                 }
                             }
-                            active_keys.clear();
                             current_mods = 0;
                             invalidations.mark_build();
                             frame_trace.note_redraw_reason("window_focus_lost");

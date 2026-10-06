@@ -504,7 +504,7 @@ impl Scene3DRenderer {
             target,
             viewport,
             scissor,
-            [clear.r, clear.g, clear.b, clear.a],
+            [clear.red, clear.green, clear.blue, clear.alpha],
         );
         if frame_draws.is_empty() {
             return report;
@@ -1365,11 +1365,20 @@ fn make_scene_uniforms(prepared: &PreparedScene3D, viewport: Scene3DViewport) ->
     for light in &prepared.source.lights {
         match *light {
             Light3D::Ambient(light) => {
-                result.ambient = [light.color.r, light.color.g, light.color.b, light.intensity]
+                result.ambient = [
+                    light.color.red,
+                    light.color.green,
+                    light.color.blue,
+                    light.intensity,
+                ]
             }
             Light3D::Directional(light) => {
-                result.directional_color =
-                    [light.color.r, light.color.g, light.color.b, light.intensity];
+                result.directional_color = [
+                    light.color.red,
+                    light.color.green,
+                    light.color.blue,
+                    light.intensity,
+                ];
                 result.directional_direction =
                     [light.direction.x, light.direction.y, light.direction.z, 0.0];
             }
@@ -1380,8 +1389,12 @@ fn make_scene_uniforms(prepared: &PreparedScene3D, viewport: Scene3DViewport) ->
                     light.position.z,
                     light.range,
                 ];
-                result.point_color_intensity[point] =
-                    [light.color.r, light.color.g, light.color.b, light.intensity];
+                result.point_color_intensity[point] = [
+                    light.color.red,
+                    light.color.green,
+                    light.color.blue,
+                    light.intensity,
+                ];
                 point += 1;
             }
             Light3D::Point(_) => {}
@@ -1409,7 +1422,7 @@ fn transform_matrix(transform: fission_scene::Transform3) -> Mat4 {
 }
 
 fn rgba(value: fission_scene::Rgba) -> [f32; 4] {
-    [value.r, value.g, value.b, value.a]
+    [value.red, value.green, value.blue, value.alpha]
 }
 
 fn cube_geometry() -> (Vec<Vertex>, Vec<u32>) {
