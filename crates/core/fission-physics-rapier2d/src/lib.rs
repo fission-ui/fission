@@ -10,9 +10,8 @@ use fission_physics::{
     StepDuration, Vec2, PHYSICS_SNAPSHOT_VERSION,
 };
 use rapier2d::prelude::{
-    ColliderBuilder, ColliderHandle, CollisionPipeline, PhysicsWorld, Pose, QueryFilter,
-    QueryFilterFlags, Ray, RigidBody, RigidBodyBuilder, RigidBodyHandle, Rotation, SharedShape,
-    Vector,
+    ColliderBuilder, ColliderHandle, PhysicsWorld, Pose, QueryFilter, QueryFilterFlags, Ray,
+    RigidBody, RigidBodyBuilder, RigidBodyHandle, Rotation, SharedShape, Vector,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -151,18 +150,20 @@ impl RapierPhysicsWorld2D {
     }
 
     fn refresh_queries(&mut self) {
-        CollisionPipeline::new().step(
+        self.world
+            .bodies
+            .propagate_modified_body_positions_to_colliders(&mut self.world.colliders);
+        let bounds = self
+            .world
+            .colliders
+            .iter_enabled()
+            .map(|(handle, collider)| (handle, collider.compute_aabb()))
+            .collect::<Vec<_>>();
+        for (handle, bounds) in bounds {
             self.world
-                .integration_parameters
-                .normalized_prediction_distance,
-            &mut self.world.islands,
-            &mut self.world.broad_phase,
-            &mut self.world.narrow_phase,
-            &mut self.world.bodies,
-            &mut self.world.colliders,
-            &(),
-            &(),
-        );
+                .broad_phase
+                .set_aabb(&self.world.integration_parameters, handle, bounds);
+        }
     }
 }
 
@@ -514,6 +515,16 @@ mod tests {
         let mut dynamic = PhysicsBody2D::dynamic(actor, PhysicsShape2D::Circle { radius: 0.5 });
         dynamic.pose.translation = Vec2::new(0.0, 0.75);
         world.insert_body(dynamic).unwrap();
+        assert_eq!(
+            world
+                .overlap_shape(
+                    &PhysicsShape2D::Circle { radius: 1.0 },
+                    PhysicsPose2D::new(Vec2::new(0.0, 0.75), 0.0),
+                    PhysicsQueryFilter::ALL,
+                )
+                .unwrap(),
+            vec![floor, actor]
+        );
         world.step(STEP);
         assert!(!world.contacts().is_empty());
         assert_eq!(
