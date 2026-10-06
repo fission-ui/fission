@@ -30,6 +30,7 @@ test_output.txt
 /manual_audit/*/*
 !/manual_audit/*/findings.md
 **/platforms/*/build/
+**/platforms/web/pkg/
 
 # Static site output
 **/dist/site/
