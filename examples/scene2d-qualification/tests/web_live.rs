@@ -74,9 +74,9 @@ fn touch_completes_the_real_web_game_and_renders_scene_pixels() {
     client
         .wait_for_text("Guide the scout", 30_000)
         .expect("game becomes ready");
-    let up = semantic_node(&client, "beacon-run.move-up");
-    let right = semantic_node(&client, "beacon-run.move-right");
-    let down = semantic_node(&client, "beacon-run.move-down");
+    let up = semantic_node(&client, "scene2d:1:node:20");
+    let right = semantic_node(&client, "scene2d:1:node:23");
+    let down = semantic_node(&client, "scene2d:1:node:21");
     let mut pointer_id = 1;
     for (node, count) in [(&up, 8), (&right, 40), (&down, 8)] {
         for _ in 0..count {

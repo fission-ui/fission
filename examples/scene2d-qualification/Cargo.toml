@@ -26,4 +26,4 @@ wasm-bindgen = "0.2"
 
 [dev-dependencies]
 fission-test-driver = { path = "../../crates/tools/fission-test-driver", version = "0.15.1" }
-image = "0.25"
+image = { version = "0.25", default-features = false, features = ["png"] }
