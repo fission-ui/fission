@@ -7,6 +7,7 @@
 mod input;
 mod random;
 mod runtime;
+mod widget;
 
 pub use fission_scene::{AssetId, NodeId, PresentationId, SceneId};
 pub use input::{
@@ -19,6 +20,7 @@ pub use runtime::{
     GameReplayEvent, GameReplayRun, GameRuntime, GameSnapshot, GameSnapshotError, GameState,
     GameTestHarness, GameTime, RuntimeDiagnostic, StepCtx,
 };
+pub use widget::{GameHostInput, GameInputRegion};
 
 use std::time::Duration;
 

@@ -2509,6 +2509,20 @@ fn build_local_paint_list(
                 node_id: Some(node_id),
             });
         }
+        Op::Paint(fission_ir::PaintOp::DrawImageBatch {
+            request,
+            sampling,
+            instances,
+        }) => {
+            list.push(DisplayOp::DrawImageBatch {
+                rect,
+                request: request.clone(),
+                sampling: *sampling,
+                instances: instances.clone(),
+                bounds: rect,
+                node_id: Some(node_id),
+            });
+        }
         Op::Paint(fission_ir::PaintOp::DrawPath {
             path,
             fill,
@@ -3070,6 +3084,58 @@ mod tests {
                 assert_eq!(*image_node_id, node_id);
             }
             other => panic!("expected image display op, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn image_batch_lowers_to_one_display_op_without_instance_expansion() {
+        let node_id = WidgetId::derived(14, &[0]);
+        let request = ImageRequest {
+            source: ImageSource::Asset {
+                path: "sprites/world.png".into(),
+            },
+            ..Default::default()
+        };
+        let instances = vec![
+            fission_ir::ImageBatchInstance {
+                destination: [0.0, 0.0, 16.0, 16.0],
+                ..Default::default()
+            },
+            fission_ir::ImageBatchInstance {
+                destination: [16.0, 0.0, 16.0, 16.0],
+                ..Default::default()
+            },
+        ];
+        let mut ir = CoreIR::new();
+        ir.add_node(
+            node_id,
+            Op::Paint(PaintOp::DrawImageBatch {
+                request: request.clone(),
+                sampling: fission_ir::ImageSampling::Nearest,
+                instances: instances.clone(),
+            }),
+            vec![],
+        );
+
+        let node = ir.nodes.get(&node_id).expect("batch node");
+        let rect = LayoutRect::new(24.0, 32.0, 220.0, 160.0);
+        let list = build_local_paint_list(&ir, node_id, node, rect, None).expect("display list");
+
+        assert_eq!(list.ops.len(), 1, "a batch must survive as one display op");
+        match &list.ops[0] {
+            DisplayOp::DrawImageBatch {
+                rect: batch_rect,
+                request: batch_request,
+                sampling,
+                instances: batch_instances,
+                ..
+            } => {
+                assert_eq!(*batch_rect, rect);
+                assert_eq!(batch_request, &request);
+                assert_eq!(*sampling, fission_ir::ImageSampling::Nearest);
+                assert_eq!(batch_instances, &instances);
+            }
+            other => panic!("expected one image batch display op, got {other:?}"),
         }
     }
 

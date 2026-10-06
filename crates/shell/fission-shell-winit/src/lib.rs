@@ -23,7 +23,7 @@ macro_rules! eprintln {
 use anyhow::Result;
 use base64::Engine;
 use fission_core::authoring::BuildCtx;
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -73,7 +73,9 @@ use fission_ir::semantics::{ActionTrigger, MouseCursor, Role, Semantics};
 use fission_ir::{CoreIR, Op, WidgetId};
 use fission_layout::{LayoutEngine, LayoutSize};
 use fission_render::{LayoutPoint, LayoutRect};
-use fission_render_vello::gpu::GpuSceneRenderer;
+#[cfg(feature = "scene3d")]
+use fission_render_vello::gpu::ExternalTextureId;
+use fission_render_vello::gpu::{ExternalTextureBindings, GpuSceneRenderer};
 use fission_render_vello::parley::FontContext;
 use fission_render_vello::VelloTextMeasurer;
 use fission_shell::async_host::{
@@ -115,6 +117,8 @@ mod platform_motion_preference;
 mod platform_text_scale;
 pub use pipeline::{InvalidationSet, Pipeline};
 mod renderer_diagnostics;
+#[cfg(feature = "scene3d")]
+mod scene3d_renderer;
 #[cfg(target_arch = "wasm32")]
 use renderer_diagnostics::renderer_request_from_value;
 use renderer_diagnostics::{emit_renderer_report, RendererReport, RendererRequest};
@@ -442,10 +446,162 @@ struct ActivePlayer {
 struct RenderState<'w> {
     surface: RenderSurface<'w>,
     target_texture_size: (u32, u32),
-    #[cfg(feature = "three-d")]
-    scene3d_renderer: fission_3d::render::Scene3DRenderer,
+    #[cfg(feature = "scene3d")]
+    scene3d_renderer: scene3d_renderer::Scene3DRenderer,
+    #[cfg(feature = "scene3d")]
+    scene3d_surfaces: HashMap<u64, Scene3DExternalSurface>,
     main_renderer: MainRenderer,
     renderer_report: RendererReport,
+}
+
+#[cfg(feature = "scene3d")]
+struct Scene3DExternalSurface {
+    texture: wgpu::Texture,
+    width: u32,
+    height: u32,
+}
+
+#[cfg(feature = "scene3d")]
+impl Scene3DExternalSurface {
+    fn new(device: &wgpu::Device, width: u32, height: u32) -> Self {
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("fission scene3d composited surface"),
+            size: wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        });
+        Self {
+            texture,
+            width,
+            height,
+        }
+    }
+}
+
+#[cfg(feature = "scene3d")]
+fn render_scene3d_external_surfaces(
+    render_state: &mut RenderState<'_>,
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    surfaces: &[fission_shell::NativeSurfaceFrame],
+    scale_factor: f64,
+) -> (ExternalTextureBindings, bool) {
+    let mut bindings = ExternalTextureBindings::new();
+    let mut live = HashSet::new();
+    let mut all_ready = true;
+    let max_dimension = device
+        .limits()
+        .max_texture_dimension_2d
+        .min(u16::MAX as u32);
+
+    for surface in surfaces {
+        let modern = surface
+            .payload
+            .starts_with(fission_scene3d::SCENE3D_EMBED_MAGIC);
+        #[cfg(feature = "three-d")]
+        let legacy = !modern
+            && fission_3d::decode_legacy_render_packet(
+                &surface.payload,
+                surface.rect.size.width,
+                surface.rect.size.height,
+            )
+            .ok();
+        #[cfg(not(feature = "three-d"))]
+        let legacy: Option<()> = None;
+        if !modern && legacy.is_none() {
+            continue;
+        }
+        let surface_id = fission_render::embed_surface_id(
+            &fission_ir::EmbedKind::Custom(Vec::new()),
+            surface.widget_id,
+        );
+
+        let width = (f64::from(surface.rect.size.width) * scale_factor)
+            .round()
+            .max(1.0) as u32;
+        let height = (f64::from(surface.rect.size.height) * scale_factor)
+            .round()
+            .max(1.0) as u32;
+        if width > max_dimension || height > max_dimension {
+            all_ready = false;
+            log::warn!(
+                "Fission 3D surface {}x{} exceeds renderer limit {}",
+                width,
+                height,
+                max_dimension
+            );
+            continue;
+        }
+
+        live.insert(surface_id);
+        let cached = render_state
+            .scene3d_surfaces
+            .entry(surface_id)
+            .or_insert_with(|| Scene3DExternalSurface::new(device, width, height));
+        if cached.width != width || cached.height != height {
+            *cached = Scene3DExternalSurface::new(device, width, height);
+        }
+        let view = cached
+            .texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
+        render_state.scene3d_renderer.resize(device, width, height);
+        let viewport = scene3d_renderer::Scene3DViewport {
+            x: 0.0,
+            y: 0.0,
+            width: width as f32,
+            height: height as f32,
+        };
+        let report = if modern {
+            render_state.scene3d_renderer.render_packet(
+                device,
+                queue,
+                &view,
+                &surface.payload,
+                viewport,
+            )
+        } else {
+            #[cfg(feature = "three-d")]
+            {
+                render_state.scene3d_renderer.render_prepared(
+                    device,
+                    queue,
+                    &view,
+                    &legacy.expect("legacy packet was decoded").prepared,
+                    viewport,
+                )
+            }
+            #[cfg(not(feature = "three-d"))]
+            {
+                unreachable!("legacy surfaces are unavailable without the three-d feature")
+            }
+        };
+        bindings.insert(ExternalTextureId(surface_id), view);
+        all_ready &= report.ready;
+        if report.first_meaningful_content {
+            log::info!(
+                "Fission 3D first meaningful content: draws={}, triangles={}, mesh_uploads={}, texture_uploads={}",
+                report.draw_calls,
+                report.triangles,
+                report.uploaded_meshes,
+                report.uploaded_textures,
+            );
+        }
+        for diagnostic in report.diagnostics {
+            log::warn!("Fission 3D {:?}: {}", diagnostic.kind, diagnostic.message);
+        }
+    }
+    render_state
+        .scene3d_surfaces
+        .retain(|surface_id, _| live.contains(surface_id));
+    (bindings, all_ready)
 }
 
 enum MainRenderer {
@@ -696,9 +852,10 @@ fn create_render_state<'w>(
         target_texture_size.1,
     );
 
-    #[cfg(feature = "three-d")]
-    let scene3d_renderer = fission_3d::render::Scene3DRenderer::new(
+    #[cfg(feature = "scene3d")]
+    let scene3d_renderer = scene3d_renderer::Scene3DRenderer::new(
         &device_handle.device,
+        &device_handle.queue,
         viewport.physical_size.width,
         viewport.physical_size.height,
         wgpu::TextureFormat::Rgba8Unorm,
@@ -717,8 +874,10 @@ fn create_render_state<'w>(
     Ok(RenderState {
         surface,
         target_texture_size,
-        #[cfg(feature = "three-d")]
+        #[cfg(feature = "scene3d")]
         scene3d_renderer,
+        #[cfg(feature = "scene3d")]
+        scene3d_surfaces: HashMap::new(),
         main_renderer,
         renderer_report,
     })
@@ -1227,13 +1386,16 @@ async fn create_webgpu_presenter(
     let render_state = RenderState {
         surface,
         target_texture_size,
-        #[cfg(feature = "three-d")]
-        scene3d_renderer: fission_3d::render::Scene3DRenderer::new(
+        #[cfg(feature = "scene3d")]
+        scene3d_renderer: scene3d_renderer::Scene3DRenderer::new(
             &device_handle.device,
+            &device_handle.queue,
             viewport.physical_size.width,
             viewport.physical_size.height,
             wgpu::TextureFormat::Rgba8Unorm,
         ),
+        #[cfg(feature = "scene3d")]
+        scene3d_surfaces: HashMap::new(),
         main_renderer,
         renderer_report,
     };
@@ -7307,9 +7469,27 @@ where
                         None
                     };
 
+                    let long_press_wake_at = runtime.next_long_press_deadline().map(|deadline| {
+                        let remaining = deadline.saturating_sub(runtime.clock().current_time());
+                        last_frame_time + Duration::from_millis(remaining)
+                    });
+                    let long_press_due = long_press_wake_at.is_some_and(|wake_at| wake_at <= now);
+                    if long_press_due {
+                        request_redraw_logged(
+                            &window,
+                            elwt,
+                            &mut last_redraw_at,
+                            Duration::ZERO,
+                            &mut redraw_pending,
+                            &mut frame_trace,
+                            "input:long_press",
+                        );
+                    }
+
                     let has_pending_work = effect_results_dispatched
                         || frame_hook_wants_redraw
                         || image_cache_changed
+                        || long_press_due
                         || invalidations.any()
                         || resize_unsettled
                         || pending_capture_settle;
@@ -7376,6 +7556,11 @@ where
                                 wake_at = hook_at;
                             }
                         }
+                        if let Some(long_press_at) = long_press_wake_at {
+                            if long_press_at < wake_at {
+                                wake_at = long_press_at;
+                            }
+                        }
                         elwt.set_control_flow(ControlFlow::WaitUntil(wake_at));
                     } else if let Some(animation_frame) = animation_frame {
                         request_redraw_logged(
@@ -7419,9 +7604,19 @@ where
                                 wake_at = hook_at;
                             }
                         }
+                        if let Some(long_press_at) = long_press_wake_at {
+                            if long_press_at < wake_at {
+                                wake_at = long_press_at;
+                            }
+                        }
                         elwt.set_control_flow(ControlFlow::WaitUntil(wake_at));
                     } else if image_cache_pending {
-                        let wake_at = now + Duration::from_millis(50);
+                        let mut wake_at = now + Duration::from_millis(50);
+                        if let Some(long_press_at) = long_press_wake_at {
+                            if long_press_at < wake_at {
+                                wake_at = long_press_at;
+                            }
+                        }
                         elwt.set_control_flow(ControlFlow::WaitUntil(wake_at));
                     } else if let Some(blink_at) = blink_wake_at {
                         let reasons = frame_trace.take_redraw_reasons();
@@ -7439,6 +7634,11 @@ where
                                 wake_at = hook_at;
                             }
                         }
+                        if let Some(long_press_at) = long_press_wake_at {
+                            if long_press_at < wake_at {
+                                wake_at = long_press_at;
+                            }
+                        }
                         elwt.set_control_flow(ControlFlow::WaitUntil(wake_at));
                     } else if let Some(hook_at) = frame_hook_wake_at {
                         let reasons = frame_trace.take_redraw_reasons();
@@ -7450,7 +7650,11 @@ where
                                 &reasons,
                                 "schedule=hook_wait pending_resize=false redraw_pending=false highest=none",
                             );
-                        elwt.set_control_flow(ControlFlow::WaitUntil(hook_at));
+                        elwt.set_control_flow(ControlFlow::WaitUntil(
+                            long_press_wake_at.map_or(hook_at, |wake_at| wake_at.min(hook_at)),
+                        ));
+                    } else if let Some(long_press_at) = long_press_wake_at {
+                        elwt.set_control_flow(ControlFlow::WaitUntil(long_press_at));
                     } else {
                         let reasons = frame_trace.take_redraw_reasons();
                         frame_trace.emit(
@@ -7624,6 +7828,17 @@ where
                                 }
                                 Err(e) => {
                                     eprintln!("Runtime tick error: {:?}", e);
+                                }
+                            }
+                            if let (Some(ir), Some(layout)) =
+                                (&pipeline.prev_ir, &pipeline.last_snapshot)
+                            {
+                                match runtime.dispatch_due_long_press(ir, layout) {
+                                    Ok(true) => invalidations.mark_build(),
+                                    Ok(false) => {}
+                                    Err(error) => {
+                                        eprintln!("Long-press dispatch error: {error:?}")
+                                    }
                                 }
                             }
                             if process_pending_effects(
@@ -7891,7 +8106,7 @@ where
                                         render_target_size.0,
                                         render_target_size.1,
                                     );
-                                    #[cfg(feature = "three-d")]
+                                    #[cfg(feature = "scene3d")]
                                     {
                                         let device_handle =
                                             &render_cx.devices[render_state.surface.dev_id];
@@ -8661,6 +8876,35 @@ where
                                             b: env.theme.tokens.colors.background.b as f64 / 255.0,
                                             a: env.theme.tokens.colors.background.a as f64 / 255.0,
                                         };
+                                        #[cfg(feature = "scene3d")]
+                                        let (scene3d_bindings, scene3d_ready) = if matches!(
+                                            &render_state.main_renderer,
+                                            MainRenderer::Vello { .. }
+                                        ) {
+                                            render_scene3d_external_surfaces(
+                                                render_state,
+                                                &device_handle.device,
+                                                &device_handle.queue,
+                                                &pipeline.native_surfaces,
+                                                scale_factor,
+                                            )
+                                        } else {
+                                            (ExternalTextureBindings::new(), true)
+                                        };
+                                        #[cfg(feature = "scene3d")]
+                                        if !scene3d_ready {
+                                            request_redraw_logged(
+                                                &window,
+                                                elwt,
+                                                &mut last_redraw_at,
+                                                min_frame,
+                                                &mut redraw_pending,
+                                                &mut frame_trace,
+                                                "scene3d_assets_loading",
+                                            );
+                                        }
+                                        #[cfg(not(feature = "scene3d"))]
+                                        let scene3d_bindings = ExternalTextureBindings::new();
                                         match &mut render_state.main_renderer {
                                             MainRenderer::Vello {
                                                 renderer,
@@ -8693,6 +8937,7 @@ where
                                                     || texture_plans.is_empty()
                                                     || !texture_plans_fit_limits
                                                     || has_active_scroll_offsets
+                                                    || !pipeline.native_surfaces.is_empty()
                                                 {
                                                     let retained_scene = pipeline
                                                         .retained_scene()
@@ -8700,7 +8945,7 @@ where
                                                             "retained render scene missing before render",
                                                         );
                                                     renderer
-                                                        .render(
+                                                        .render_with_external_textures(
                                                             &device_handle.device,
                                                             &device_handle.queue,
                                                             retained_scene,
@@ -8712,6 +8957,7 @@ where
                                                             Some(theme_background_render_color(
                                                                 &env,
                                                             )),
+                                                            &scene3d_bindings,
                                                         )
                                                         .inspect_err(|error| {
                                                             report_frame_failure(
@@ -8804,37 +9050,6 @@ where
                                                         depth_or_array_layers: 1,
                                                     },
                                                 );
-                                            }
-                                        }
-
-                                        #[cfg(feature = "three-d")]
-                                        {
-                                            for surface in &pipeline.native_surfaces {
-                                                if let Ok(primitives) = bincode::deserialize::<
-                                                    Vec<fission_3d::Primitive3D>,
-                                                >(
-                                                    &surface.payload
-                                                ) {
-                                                    let scene3d = fission_3d::Scene3D {
-                                                        width: Some(surface.rect.size.width),
-                                                        height: Some(surface.rect.size.height),
-                                                        primitives,
-                                                    };
-                                                    let scale = scale_factor as f32;
-                                                    render_state.scene3d_renderer.render_in_rect(
-                                                        &device_handle.device,
-                                                        &device_handle.queue,
-                                                        &render_state.surface.target_view,
-                                                        &scene3d,
-                                                        fission_3d::render::Scene3DViewport {
-                                                            x: surface.rect.origin.x * scale,
-                                                            y: surface.rect.origin.y * scale,
-                                                            width: surface.rect.size.width * scale,
-                                                            height: surface.rect.size.height
-                                                                * scale,
-                                                        },
-                                                    );
-                                                }
                                             }
                                         }
 

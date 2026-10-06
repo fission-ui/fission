@@ -13,6 +13,7 @@ pub mod canvas;
 pub mod gesture;
 pub mod hover;
 pub mod range_slider;
+pub mod scene;
 pub mod selectable_text;
 pub mod slider;
 pub mod text;

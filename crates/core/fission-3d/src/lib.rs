@@ -1,4 +1,6 @@
+mod compatibility;
 pub mod render;
+pub use compatibility::decode_legacy_render_packet;
 use fission_core::authoring::{IrBuilder, LowerWidget, LoweringContext};
 use fission_core::op::Color;
 use fission_core::ui::{Container, Widget};

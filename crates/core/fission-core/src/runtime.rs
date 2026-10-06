@@ -1537,6 +1537,51 @@ impl Runtime {
         changed
     }
 
+    /// Monotonic clock deadline for the active long press, when one is pending.
+    pub fn next_long_press_deadline(&self) -> Option<crate::time::CurrentTime> {
+        let gesture = &self.runtime_state.gesture;
+        if gesture.long_press_dispatched
+            || gesture.is_panning
+            || gesture.target_node.is_none()
+            || !matches!(
+                gesture.pressed_button,
+                Some(crate::event::PointerButton::Primary)
+            )
+        {
+            return None;
+        }
+        gesture
+            .press_started_at
+            .map(|started| started.saturating_add(500))
+    }
+
+    /// Dispatch a due long press without waiting for another pointer event.
+    ///
+    /// Shells call this after advancing the shared runtime clock. Returning
+    /// `true` means the semantic action was dispatched and the retained tree
+    /// may need rebuilding.
+    pub fn dispatch_due_long_press(
+        &mut self,
+        ir: &CoreIR,
+        layout: &LayoutSnapshot,
+    ) -> Result<bool> {
+        let Some(deadline) = self.next_long_press_deadline() else {
+            return Ok(false);
+        };
+        if self.clock().current_time() < deadline {
+            return Ok(false);
+        }
+        let Some(point) = self.runtime_state.gesture.last_point else {
+            return Ok(false);
+        };
+        self.handle_input(
+            InputEvent::Gesture(crate::event::GestureEvent::LongPress { point }),
+            ir,
+            layout,
+        )?;
+        Ok(self.runtime_state.gesture.long_press_dispatched)
+    }
+
     pub fn handle_input(
         &mut self,
         event: InputEvent,

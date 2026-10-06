@@ -1760,6 +1760,64 @@ pub struct ImageRequest {
     pub error: ImageErrorBehavior,
 }
 
+/// Texture sampling used by a retained image batch.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash, Default)]
+pub enum ImageSampling {
+    /// Preserve hard texel edges, suitable for pixel art.
+    Nearest,
+    /// Interpolate neighbouring texels.
+    #[default]
+    Linear,
+}
+
+/// One image drawn by [`PaintOp::DrawImageBatch`].
+///
+/// `transform` is a two-dimensional affine matrix in `[a, b, c, d, e, f]`
+/// order. `destination` and `source` are interpreted in the batch node's local
+/// coordinates and source-image pixels respectively. Omitting `source` draws
+/// the complete image.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct ImageBatchInstance {
+    pub transform: [LayoutUnit; 6],
+    pub destination: [LayoutUnit; 4],
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<[LayoutUnit; 4]>,
+    #[serde(default = "white_color")]
+    pub tint: Color,
+    #[serde(default = "unit_opacity")]
+    pub opacity: f32,
+}
+
+impl Default for ImageBatchInstance {
+    fn default() -> Self {
+        Self {
+            transform: [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+            destination: [0.0; 4],
+            source: None,
+            tint: Color::WHITE,
+            opacity: 1.0,
+        }
+    }
+}
+
+fn white_color() -> Color {
+    Color::WHITE
+}
+
+fn unit_opacity() -> f32 {
+    1.0
+}
+
+impl std::hash::Hash for ImageBatchInstance {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.transform.map(f32::to_bits).hash(state);
+        self.destination.map(f32::to_bits).hash(state);
+        self.source.map(|rect| rect.map(f32::to_bits)).hash(state);
+        self.tint.hash(state);
+        self.opacity.to_bits().hash(state);
+    }
+}
+
 impl ImageSource {
     pub fn stable_identity(&self) -> String {
         match self {
@@ -2212,6 +2270,14 @@ pub enum PaintOp {
         fit: ImageFit,
         alignment: ImageAlignment,
     },
+    /// Draw repeated regions of one image without expanding the batch into
+    /// independent retained widgets or paint operations.
+    DrawImageBatch {
+        request: ImageRequest,
+        #[serde(default)]
+        sampling: ImageSampling,
+        instances: Vec<ImageBatchInstance>,
+    },
     DrawPath {
         path: String,
         fill: Option<Fill>,
@@ -2396,6 +2462,16 @@ impl std::hash::Hash for PaintOp {
                 request.hash(state);
                 fit.hash(state);
                 alignment.hash(state);
+            }
+            Self::DrawImageBatch {
+                request,
+                sampling,
+                instances,
+            } => {
+                7_u8.hash(state);
+                request.hash(state);
+                sampling.hash(state);
+                instances.hash(state);
             }
             Self::DrawPath {
                 path,

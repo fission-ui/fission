@@ -36,5 +36,5 @@ fn test_op_serialization() {
 fn test_ir_versioning() {
     // Composite semantics, layout direction, interaction-inert structure, and
     // configurable flyouts expanded the serialized schema after version 1.
-    assert_eq!(fission_ir::IR_VERSION, 2);
+    assert_eq!(fission_ir::IR_VERSION, 3);
 }

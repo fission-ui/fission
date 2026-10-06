@@ -11,7 +11,7 @@ use std::sync::Arc;
 use vello_cpu::filter_effects::{Filter, FilterFunction};
 use vello_cpu::kurbo::{Affine, BezPath, Rect, Stroke};
 use vello_cpu::peniko::{BlendMode, Color, Compose, FontData, Mix};
-use vello_cpu::{Glyph, ImageSource, PaintType, Pixmap};
+use vello_cpu::{Glyph, ImageSource, PaintType, Pixmap, TextureId, Tint};
 
 /// The drawing operations the scene encoder needs.
 ///
@@ -23,6 +23,18 @@ pub trait Painter {
 
     /// Fill `rect` with `paint`.
     fn fill_rect(&mut self, transform: Affine, paint: PaintType, rect: &Rect);
+
+    /// Fill an image rectangle with an optional component-multiply tint.
+    ///
+    /// Tint belongs to this call rather than ambient renderer state so one
+    /// batch instance cannot leak its tint into following display-list ops.
+    fn fill_image_rect(
+        &mut self,
+        transform: Affine,
+        paint: PaintType,
+        tint: Option<Tint>,
+        rect: &Rect,
+    );
 
     /// Stroke `path` with `paint`.
     fn stroke_path(&mut self, transform: Affine, stroke: &Stroke, paint: PaintType, path: &BezPath);
@@ -71,6 +83,20 @@ pub trait Painter {
     ///
     /// The CPU paints pixmaps directly; the GPU has to upload them into its atlas first.
     fn image_source(&mut self, image: &Arc<Pixmap>) -> ImageSource;
+
+    /// Resolve an externally-owned GPU texture used by an embedded surface.
+    ///
+    /// CPU painters return `None`, allowing the caller to draw its deliberate
+    /// compatibility placeholder. GPU painters return a renderer-neutral
+    /// image handle; the matching texture view is supplied at render time.
+    fn external_image_source(
+        &mut self,
+        _texture_id: u64,
+        _width: u16,
+        _height: u16,
+    ) -> Option<ImageSource> {
+        None
+    }
 }
 
 /// Paints into a [`vello_cpu::RenderContext`].
@@ -90,6 +116,20 @@ impl Painter for CpuPainter<'_> {
         self.ctx.set_transform(transform);
         self.ctx.set_paint(paint);
         self.ctx.fill_rect(rect);
+    }
+
+    fn fill_image_rect(
+        &mut self,
+        transform: Affine,
+        paint: PaintType,
+        tint: Option<Tint>,
+        rect: &Rect,
+    ) {
+        self.ctx.set_transform(transform);
+        self.ctx.set_paint(paint);
+        self.ctx.set_tint(tint);
+        self.ctx.fill_rect(rect);
+        self.ctx.reset_tint();
     }
 
     fn stroke_path(
@@ -191,6 +231,20 @@ impl Painter for GpuPainter<'_> {
         self.scene.fill_rect(rect);
     }
 
+    fn fill_image_rect(
+        &mut self,
+        transform: Affine,
+        paint: PaintType,
+        tint: Option<Tint>,
+        rect: &Rect,
+    ) {
+        self.scene.set_transform(transform);
+        self.scene.set_paint(paint);
+        self.scene.set_tint(tint);
+        self.scene.fill_rect(rect);
+        self.scene.reset_tint();
+    }
+
     fn stroke_path(
         &mut self,
         transform: Affine,
@@ -259,6 +313,21 @@ impl Painter for GpuPainter<'_> {
     fn image_source(&mut self, image: &Arc<Pixmap>) -> ImageSource {
         self.images
             .source_for(image, self.resources, &mut self.uploader)
+    }
+
+    fn external_image_source(
+        &mut self,
+        texture_id: u64,
+        width: u16,
+        height: u16,
+    ) -> Option<ImageSource> {
+        (width > 0 && height > 0).then(|| {
+            ImageSource::external_texture(
+                TextureId(texture_id),
+                vello_cpu::geometry::RectU16::new(0, 0, width, height),
+                true,
+            )
+        })
     }
 }
 

@@ -7,6 +7,7 @@ repository = "https://github.com/fission-ui/fission"
 homepage = "https://fission.rs"
 documentation = "https://fission.rs"
 description = "Renderer-neutral scene identity, assets, math, and diagnostics for Fission"
+readme = "README.md"
 categories = ["game-development", "graphics"]
 keywords = ["fission", "scene", "2d", "3d", "assets"]
 

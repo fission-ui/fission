@@ -410,6 +410,10 @@ pub enum ActionTrigger {
     /// means "activate", this says nothing about what the key does — that is
     /// the application's to decide.
     Key,
+    /// The primary pointer remained pressed for the platform long-press interval.
+    LongPress,
+    /// An active drag ended without committing, for example after pointer cancellation.
+    DragCancel,
 }
 
 #[cfg(test)]
@@ -447,6 +451,18 @@ mod tests {
         assert_eq!(ActionTrigger::Validation as u8, 23);
         assert_eq!(ActionTrigger::Dismiss as u8, 24);
         assert_eq!(ActionTrigger::Key as u8, 25);
+        assert_eq!(ActionTrigger::LongPress as u8, 26);
+        assert_eq!(ActionTrigger::DragCancel as u8, 27);
+    }
+
+    #[test]
+    fn appended_gesture_triggers_round_trip_through_ir_serialization() {
+        for trigger in [ActionTrigger::LongPress, ActionTrigger::DragCancel] {
+            let encoded = serde_json::to_string(&trigger).expect("serialize gesture trigger");
+            let decoded: ActionTrigger =
+                serde_json::from_str(&encoded).expect("deserialize gesture trigger");
+            assert_eq!(decoded, trigger);
+        }
     }
 
     #[test]
@@ -518,6 +534,7 @@ mod tests {
             "active_descendant",
             "sequential_focusable",
             "text_editable",
+            "scene_target",
         ];
         let mut encoded = serde_json::to_value(Semantics::default()).unwrap();
         let object = encoded.as_object_mut().unwrap();
@@ -541,6 +558,7 @@ mod tests {
             "the compatibility default must not make an unfocusable legacy node a Tab target"
         );
         assert!(!decoded.text_editable);
+        assert_eq!(decoded.scene_target, None);
 
         let mut legacy_focusable = serde_json::to_value(Semantics {
             focusable: true,
@@ -824,6 +842,47 @@ pub struct CanvasTarget {
     pub snap_threshold: f32,
 }
 
+/// Scene-specific semantic target used to attach stable retained-scene
+/// identity and coordinate conversion to ordinary Fission actions.
+///
+/// The runtime always reports viewport-local coordinates. Two-dimensional
+/// scenes additionally provide an affine conversion into scene coordinates;
+/// three-dimensional scenes use the local point as the input to their public
+/// viewport-ray and picking APIs.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SceneTarget {
+    pub viewport_id: u128,
+    pub scene_id: u64,
+    pub node_id: Option<u64>,
+    pub instance: Option<u32>,
+    pub dimension: SceneDimension,
+    /// Scene viewport origin represented by widget-local `[x, y]`.
+    pub viewport_origin: [f32; 2],
+    /// View-to-scene affine matrix `[a, b, c, d, tx, ty]` for 2D scenes.
+    pub view_to_scene: Option<[f32; 6]>,
+}
+
+impl std::hash::Hash for SceneTarget {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.viewport_id.hash(state);
+        self.scene_id.hash(state);
+        self.node_id.hash(state);
+        self.instance.hash(state);
+        self.dimension.hash(state);
+        self.viewport_origin.map(f32::to_bits).hash(state);
+        self.view_to_scene
+            .map(|matrix| matrix.map(f32::to_bits))
+            .hash(state);
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum SceneDimension {
+    Two,
+    Three,
+}
+
 impl std::hash::Hash for CanvasTarget {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.canvas_id.hash(state);
@@ -1007,6 +1066,9 @@ pub struct Semantics {
     /// Structured InfiniteCanvas target metadata for contextual gesture input.
     #[serde(default)]
     pub canvas_target: Option<CanvasTarget>,
+    /// Structured 2D/3D scene target metadata for contextual action input.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scene_target: Option<SceneTarget>,
     /// Optional raw action dispatch scope inherited by descendant actions.
     #[serde(default)]
     pub action_scope_id: Option<u128>,
@@ -1188,6 +1250,7 @@ impl std::hash::Hash for Semantics {
         self.popover_target.hash(state);
         self.actions.hash(state);
         self.canvas_target.hash(state);
+        self.scene_target.hash(state);
         self.action_scope_id.hash(state);
         self.focusable.hash(state);
         self.sequential_focusable.hash(state);
@@ -1267,6 +1330,7 @@ impl Default for Semantics {
             actions: ActionSet::default(),
             key_actions: Vec::new(),
             canvas_target: None,
+            scene_target: None,
             action_scope_id: None,
             focusable: false,
             sequential_focusable: true,

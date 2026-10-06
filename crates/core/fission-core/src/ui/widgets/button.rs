@@ -1842,6 +1842,7 @@ fn default_button_semantics() -> Semantics {
         actions: ActionSet::default(),
         key_actions: Vec::new(),
         canvas_target: None,
+        scene_target: None,
         action_scope_id: None,
         focusable: true,
         sequential_focusable: true,

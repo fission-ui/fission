@@ -27,8 +27,8 @@ use fission_render::{
 use vello_cpu::kurbo::{
     Affine, BezPath, Circle, Point, Rect, RoundedRect, RoundedRectRadii, Shape, Stroke, Vec2,
 };
-use vello_cpu::peniko::{BlendMode, Color, ImageSampler};
-use vello_cpu::{Glyph, Image, PaintType, Pixmap};
+use vello_cpu::peniko::{BlendMode, Color, ImageQuality, ImageSampler};
+use vello_cpu::{Glyph, Image, PaintType, Pixmap, Tint, TintMode};
 
 fn text_style_requires_rich_layout(style: &RenderTextStyle) -> bool {
     text::text_style_requires_rich_layout(style)
@@ -923,7 +923,7 @@ mod tests {
     use vello_cpu::filter_effects::Filter;
     use vello_cpu::kurbo::{Affine, BezPath, Point, Rect, Shape, Stroke};
     use vello_cpu::peniko::{BlendMode, Color, Compose, FontData, GradientKind};
-    use vello_cpu::{Glyph, ImageSource, PaintType, Pixmap};
+    use vello_cpu::{Glyph, ImageSource, PaintType, Pixmap, Tint};
 
     /// A painter that records what the encoder asked for instead of drawing it.
     #[derive(Default)]
@@ -937,6 +937,8 @@ mod tests {
         layers: Vec<(Option<Rect>, BlendMode, f32)>,
         blurred_rects: Vec<(Rect, bool)>,
         backdrop_filters: Vec<Rect>,
+        external_surfaces: Vec<(u64, u16, u16)>,
+        resolve_external_surfaces: bool,
     }
 
     impl Painter for RecordingPainter {
@@ -944,6 +946,9 @@ mod tests {
             self.paths += 1;
         }
         fn fill_rect(&mut self, _: Affine, _: PaintType, _: &Rect) {
+            self.rects += 1;
+        }
+        fn fill_image_rect(&mut self, _: Affine, _: PaintType, _: Option<Tint>, _: &Rect) {
             self.rects += 1;
         }
         fn stroke_path(&mut self, _: Affine, _: &Stroke, _: PaintType, _: &BezPath) {
@@ -991,6 +996,21 @@ mod tests {
         }
         fn image_source(&mut self, image: &Arc<Pixmap>) -> ImageSource {
             ImageSource::Pixmap(Arc::clone(image))
+        }
+        fn external_image_source(
+            &mut self,
+            texture_id: u64,
+            width: u16,
+            height: u16,
+        ) -> Option<ImageSource> {
+            self.external_surfaces.push((texture_id, width, height));
+            self.resolve_external_surfaces.then(|| {
+                ImageSource::external_texture(
+                    vello_cpu::TextureId(texture_id),
+                    vello_cpu::geometry::RectU16::new(0, 0, width, height),
+                    true,
+                )
+            })
         }
     }
 
@@ -1787,6 +1807,32 @@ mod tests {
         painter
     }
 
+    #[test]
+    fn gpu_surface_paints_the_bound_external_texture_at_device_resolution() {
+        let rect = LayoutRect::new(10.0, 20.0, 120.0, 80.0);
+        let mut list = DisplayList::new(LayoutRect::new(0.0, 0.0, 200.0, 200.0));
+        list.push(DisplayOp::DrawSurface {
+            rect,
+            surface_id: 42,
+            position: 0,
+            bounds: rect,
+            node_id: None,
+        });
+        let mut painter = RecordingPainter {
+            resolve_external_surfaces: true,
+            ..RecordingPainter::default()
+        };
+        let measurer = Arc::new(VelloTextMeasurer::new(Arc::new(Mutex::new(
+            FontContext::new(),
+        ))));
+        VelloRenderer::new(&mut painter, measurer, 2.0)
+            .render_scene(&RenderScene::from_display_list(list))
+            .expect("render external surface");
+
+        assert_eq!(painter.external_surfaces, [(42, 240, 160)]);
+        assert_eq!(painter.rects, 1);
+    }
+
     fn draw_rect(
         stroke: Option<fission_render::Stroke>,
         border_sides: Option<fission_render::BorderSides>,
@@ -1931,6 +1977,7 @@ pub struct VelloRenderer<'a> {
     layer_count_stack: Vec<usize>,
     current_layer_count: usize,
     clip_stack: Vec<Rect>,
+    scale_factor: f64,
 }
 
 impl<'a> VelloRenderer<'a> {
@@ -1947,6 +1994,7 @@ impl<'a> VelloRenderer<'a> {
             layer_count_stack: Vec::new(),
             current_layer_count: 0,
             clip_stack: Vec::new(),
+            scale_factor,
         }
     }
 
@@ -2001,14 +2049,37 @@ impl<'a> VelloRenderer<'a> {
     }
 
     fn local_rect_visible(&self, rect: Rect) -> bool {
+        self.rect_visible_with_transform(Affine::IDENTITY, rect)
+    }
+
+    fn rect_visible_with_transform(&self, local_transform: Affine, rect: Rect) -> bool {
         if rect.width() <= 0.0 || rect.height() <= 0.0 {
             return false;
         }
         let Some(active_clip) = self.clip_stack.last().copied() else {
             return true;
         };
-        let transformed = Self::transform_rect_bounds(self.current_transform, rect);
+        let transformed =
+            Self::transform_rect_bounds(self.current_transform * local_transform, rect);
         Self::rects_intersect(transformed, active_clip)
+    }
+
+    fn rect_visible_in_local_clip(
+        &self,
+        local_transform: Affine,
+        rect: Rect,
+        local_clip: Rect,
+    ) -> bool {
+        if rect.width() <= 0.0 || rect.height() <= 0.0 {
+            return false;
+        }
+        let transformed =
+            Self::transform_rect_bounds(self.current_transform * local_transform, rect);
+        let transformed_clip = Self::transform_rect_bounds(self.current_transform, local_clip);
+        Self::rects_intersect(transformed, transformed_clip)
+            && self.clip_stack.last().map_or(true, |active_clip| {
+                Self::rects_intersect(transformed, *active_clip)
+            })
     }
 
     fn image_request_for_rect(
@@ -3652,6 +3723,125 @@ impl<'a> VelloRenderer<'a> {
                         );
                     });
                 }
+                DisplayOp::DrawImageBatch {
+                    rect,
+                    request,
+                    sampling,
+                    instances,
+                    ..
+                } => {
+                    if instances.is_empty()
+                        || !self.local_rect_visible(Self::layout_rect_to_rect(*rect))
+                    {
+                        IMAGE_OFFSCREEN_SKIPS.fetch_add(1, Ordering::Relaxed);
+                        continue;
+                    }
+
+                    // Decode and upload once. Batch source rectangles address
+                    // decoded-image pixels, so do not infer a viewport-sized
+                    // decode request. Explicit cache dimensions remain honored.
+                    let Some(image) = self.get_image(request) else {
+                        continue;
+                    };
+                    let image_width = f64::from(image.width());
+                    let image_height = f64::from(image.height());
+                    if image_width <= 0.0 || image_height <= 0.0 {
+                        continue;
+                    }
+                    let source_image = self.painter.image_source(&image);
+                    let sampler = ImageSampler {
+                        quality: match sampling {
+                            fission_ir::ImageSampling::Nearest => ImageQuality::Low,
+                            fission_ir::ImageSampling::Linear => ImageQuality::Medium,
+                        },
+                        ..ImageSampler::default()
+                    };
+                    let node_origin =
+                        Affine::translate((rect.origin.x as f64, rect.origin.y as f64));
+                    let batch_clip = Self::layout_rect_to_rect(*rect);
+
+                    self.with_clip_rect(batch_clip, |this| {
+                        for instance in instances {
+                            let [dx, dy, destination_width, destination_height] =
+                                instance.destination;
+                            let [source_x, source_y, source_width, source_height] = instance
+                                .source
+                                .unwrap_or([0.0, 0.0, image_width as f32, image_height as f32]);
+                            if !instance.transform.iter().all(|value| value.is_finite())
+                                || !instance.destination.iter().all(|value| value.is_finite())
+                                || ![source_x, source_y, source_width, source_height]
+                                    .iter()
+                                    .all(|value| value.is_finite())
+                                || !instance.opacity.is_finite()
+                                || instance.opacity <= 0.0
+                                || destination_width <= 0.0
+                                || destination_height <= 0.0
+                                || source_width <= 0.0
+                                || source_height <= 0.0
+                                || source_x < 0.0
+                                || source_y < 0.0
+                                || source_x + source_width > image_width as f32
+                                || source_y + source_height > image_height as f32
+                            {
+                                continue;
+                            }
+
+                            let affine = Affine::new(instance.transform.map(f64::from));
+                            let instance_transform = node_origin * affine;
+                            let destination = Rect::new(
+                                dx as f64,
+                                dy as f64,
+                                (dx + destination_width) as f64,
+                                (dy + destination_height) as f64,
+                            );
+                            if !this.rect_visible_in_local_clip(
+                                instance_transform,
+                                destination,
+                                batch_clip,
+                            ) {
+                                IMAGE_OFFSCREEN_SKIPS.fetch_add(1, Ordering::Relaxed);
+                                continue;
+                            }
+
+                            let source_rect = Rect::new(
+                                source_x as f64,
+                                source_y as f64,
+                                (source_x + source_width) as f64,
+                                (source_y + source_height) as f64,
+                            );
+                            let image_transform = this.current_transform
+                                * instance_transform
+                                * Affine::translate((dx as f64, dy as f64))
+                                * Affine::scale_non_uniform(
+                                    destination_width as f64 / source_width as f64,
+                                    destination_height as f64 / source_height as f64,
+                                )
+                                * Affine::translate((-source_x as f64, -source_y as f64));
+                            let alpha = ((instance.tint.a as f32 / 255.0)
+                                * instance.opacity.clamp(0.0, 1.0))
+                            .clamp(0.0, 1.0);
+                            let tint = Tint {
+                                color: Color::from_rgba8(
+                                    instance.tint.r,
+                                    instance.tint.g,
+                                    instance.tint.b,
+                                    (alpha * 255.0).round() as u8,
+                                ),
+                                mode: TintMode::Multiply,
+                            };
+                            let paint = PaintType::from(Image {
+                                image: source_image.clone(),
+                                sampler,
+                            });
+                            this.painter.fill_image_rect(
+                                image_transform,
+                                paint,
+                                Some(tint),
+                                &source_rect,
+                            );
+                        }
+                    });
+                }
                 DisplayOp::DrawPath {
                     path,
                     fill,
@@ -3743,6 +3933,41 @@ impl<'a> VelloRenderer<'a> {
                     position,
                     ..
                 } => {
+                    let physical_width = (rect.size.width as f64 * self.scale_factor)
+                        .round()
+                        .clamp(1.0, u16::MAX as f64)
+                        as u16;
+                    let physical_height = (rect.size.height as f64 * self.scale_factor)
+                        .round()
+                        .clamp(1.0, u16::MAX as f64)
+                        as u16;
+                    if let Some(source) = self.painter.external_image_source(
+                        *surface_id,
+                        physical_width,
+                        physical_height,
+                    ) {
+                        let paint = PaintType::from(Image {
+                            image: source,
+                            sampler: ImageSampler::default(),
+                        });
+                        let image_transform = self.current_transform
+                            * Affine::translate((rect.origin.x as f64, rect.origin.y as f64))
+                            * Affine::scale_non_uniform(
+                                rect.size.width as f64 / f64::from(physical_width),
+                                rect.size.height as f64 / f64::from(physical_height),
+                            );
+                        self.painter.fill_rect(
+                            image_transform,
+                            paint,
+                            &Rect::new(
+                                0.0,
+                                0.0,
+                                f64::from(physical_width),
+                                f64::from(physical_height),
+                            ),
+                        );
+                        continue;
+                    }
                     let color = surface_placeholder_color(*surface_id, *position);
                     self.painter.fill_rect(
                         self.current_transform,

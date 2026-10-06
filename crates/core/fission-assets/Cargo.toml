@@ -7,6 +7,7 @@ repository = "https://github.com/fission-ui/fission"
 homepage = "https://fission.rs"
 documentation = "https://fission.rs"
 description = "Typed asset provenance and licence metadata for Fission build tooling"
+readme = "README.md"
 categories = ["game-development", "development-tools"]
 keywords = ["fission", "assets", "provenance", "licensing", "games"]
 

@@ -18,6 +18,18 @@ readme = "README.md"
 default = []
 assets = ["dep:fission-assets"]
 game = ["assets", "dep:fission-game"]
+scene = ["assets", "dep:fission-scene"]
+scene2d = ["scene", "dep:fission-scene2d"]
+scene3d = [
+    "scene",
+    "dep:fission-scene3d",
+    "fission-shell-desktop?/scene3d",
+    "fission-shell-mobile?/scene3d",
+    "fission-shell-web?/scene3d",
+]
+physics = ["game", "scene", "dep:fission-physics"]
+physics-rapier2d = ["physics", "dep:fission-physics-rapier2d"]
+physics-rapier3d = ["physics", "dep:fission-physics-rapier3d"]
 charts = ["dep:fission-charts"]
 desktop = ["dep:fission-shell-desktop", "interactive-canvas"]
 desktop-tray = ["desktop", "fission-shell-desktop?/tray"]
@@ -48,6 +60,7 @@ terminal-shell = ["dep:fission-shell-terminal"]
 terminal-widget = ["fission-widgets/terminal"]
 test-driver = ["dep:fission-test-driver"]
 three-d = [
+    "scene3d",
     "dep:fission-3d",
     "fission-shell-desktop?/three-d",
     "fission-shell-mobile?/three-d",
@@ -82,6 +95,12 @@ fission-core = { path = "../../core/fission-core", version = "0.15.1" }
 fission-3d = { path = "../../core/fission-3d", version = "0.15.1", optional = true }
 fission-assets = { path = "../../core/fission-assets", version = "=0.1.0-alpha.1", optional = true }
 fission-game = { path = "../../core/fission-game", version = "=0.1.0-alpha.1", optional = true }
+fission-scene = { path = "../../core/fission-scene", version = "=0.1.0-alpha.1", optional = true }
+fission-scene2d = { path = "../../core/fission-scene2d", version = "=0.1.0-alpha.1", optional = true }
+fission-scene3d = { path = "../../core/fission-scene3d", version = "=0.1.0-alpha.1", optional = true }
+fission-physics = { path = "../../core/fission-physics", version = "=0.1.0-alpha.1", optional = true }
+fission-physics-rapier2d = { path = "../../core/fission-physics-rapier2d", version = "=0.1.0-alpha.1", optional = true }
+fission-physics-rapier3d = { path = "../../core/fission-physics-rapier3d", version = "=0.1.0-alpha.1", optional = true }
 fission-ir = { path = "../../core/fission-ir", version = "0.15.1" }
 fission-layout = { path = "../../core/fission-layout", version = "0.15.1" }
 fission-text-engine = { path = "../../core/fission-text-engine", version = "0.15.1" }

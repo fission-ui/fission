@@ -95,6 +95,44 @@ pub mod game {
     pub use fission_game::*;
 }
 
+/// Shared retained-scene identities, asset handles, diagnostics, and math.
+#[cfg(feature = "scene")]
+pub mod scene {
+    pub use fission_scene::*;
+}
+
+/// Retained, renderer-neutral 2D scenes and their Fission widget adapter.
+#[cfg(feature = "scene2d")]
+pub mod scene2d {
+    pub use fission_scene::*;
+    pub use fission_scene2d::*;
+}
+
+/// Retained, renderer-neutral 3D scenes and their Fission widget adapter.
+#[cfg(feature = "scene3d")]
+pub mod scene3d {
+    pub use fission_scene::*;
+    pub use fission_scene3d::*;
+}
+
+/// Backend-neutral 2D and 3D physics contracts.
+#[cfg(feature = "physics")]
+pub mod physics {
+    pub use fission_physics::*;
+}
+
+/// Optional Rapier 2D provider.
+#[cfg(feature = "physics-rapier2d")]
+pub mod physics_rapier2d {
+    pub use fission_physics_rapier2d::*;
+}
+
+/// Optional Rapier 3D provider.
+#[cfg(feature = "physics-rapier3d")]
+pub mod physics_rapier3d {
+    pub use fission_physics_rapier3d::*;
+}
+
 #[cfg(feature = "assets")]
 pub use fission_assets::{
     AssetId, AssetKind, AssetLicense, AssetManifest, AssetManifestError, AssetProvenance,

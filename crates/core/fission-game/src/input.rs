@@ -265,6 +265,14 @@ impl<M> InputMap<M> {
     pub fn on(&mut self, trigger: InputTrigger) -> InputBinding<'_, M> {
         InputBinding { map: self, trigger }
     }
+
+    /// Returns the device-independent triggers declared by the game.
+    ///
+    /// Host adapters use this to expose only the keys and controls the game
+    /// actually owns instead of intercepting unrelated application input.
+    pub fn triggers(&self) -> impl Iterator<Item = &InputTrigger> {
+        self.bindings.iter().map(|(trigger, _)| trigger)
+    }
 }
 
 impl<M: Clone> InputMap<M> {

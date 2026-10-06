@@ -10,6 +10,7 @@ use fission_layout::{LayoutNodeGeometry, LayoutPoint, LayoutRect, LayoutSize, La
 struct ClickState {
     primary: usize,
     secondary: usize,
+    long_press: usize,
 }
 
 impl GlobalState for ClickState {}
@@ -130,6 +131,71 @@ fn semantic_context_menu_request_dispatches_secondary_only() -> anyhow::Result<(
     Ok(())
 }
 
+#[test]
+fn stationary_long_press_dispatches_at_deadline_without_another_pointer_event() -> anyhow::Result<()>
+{
+    let node_id = WidgetId::explicit("long-press-target");
+    let long_press_id = ActionId::from_name("pointer_button_test::LongPress");
+    let mut ir = CoreIR::default();
+    ir.root = Some(node_id);
+    ir.nodes.insert(
+        node_id,
+        CoreNode {
+            id: node_id,
+            op: Op::Semantics(Semantics {
+                role: Role::Button,
+                actions: ActionSet {
+                    entries: vec![action_entry(ActionTrigger::LongPress, long_press_id)],
+                },
+                ..Default::default()
+            }),
+            composite: CompositeStyle::default(),
+            children: Vec::new(),
+            parent: None,
+            hash: 0,
+        },
+    );
+    let mut layout = LayoutSnapshot::new(LayoutSize::new(200.0, 100.0));
+    layout.nodes.insert(
+        node_id,
+        LayoutNodeGeometry {
+            rect: LayoutRect::new(10.0, 10.0, 100.0, 40.0),
+            content_size: LayoutSize::new(100.0, 40.0),
+        },
+    );
+
+    let mut runtime = Runtime::default();
+    runtime.add_app_state(Box::new(ClickState::default()))?;
+    runtime.register_reducer::<ClickState>(long_press_id, record_long_press)?;
+    runtime.handle_input(
+        InputEvent::Pointer(PointerEvent::Down {
+            pointer_id: Default::default(),
+            kind: Default::default(),
+            point: LayoutPoint::new(20.0, 20.0),
+            button: PointerButton::Primary,
+            modifiers: 0,
+        }),
+        &ir,
+        &layout,
+    )?;
+
+    assert_eq!(runtime.next_long_press_deadline(), Some(500));
+    runtime.tick(499)?;
+    assert!(!runtime.dispatch_due_long_press(&ir, &layout)?);
+    runtime.tick(1)?;
+    assert!(runtime.dispatch_due_long_press(&ir, &layout)?);
+    assert_eq!(runtime.next_long_press_deadline(), None);
+    assert!(!runtime.dispatch_due_long_press(&ir, &layout)?);
+    assert_eq!(
+        runtime
+            .get_app_state::<ClickState>()
+            .expect("click state")
+            .long_press,
+        1
+    );
+    Ok(())
+}
+
 fn click_runtime(
     with_secondary_action: bool,
 ) -> anyhow::Result<(Runtime, CoreIR, LayoutSnapshot, WidgetId)> {
@@ -231,5 +297,14 @@ fn record_secondary(
     _target: WidgetId,
 ) -> anyhow::Result<()> {
     state.secondary += 1;
+    Ok(())
+}
+
+fn record_long_press(
+    state: &mut ClickState,
+    _action: &ActionEnvelope,
+    _target: WidgetId,
+) -> anyhow::Result<()> {
+    state.long_press += 1;
     Ok(())
 }

@@ -113,6 +113,10 @@ fn verify_paint(node_id: WidgetId, paint: &PaintOp) -> Result<(), TerminalSuppor
             node_id,
             "images require a graphical shell or an explicit terminal representation",
         )),
+        PaintOp::DrawImageBatch { .. } => Err(unsupported(
+            node_id,
+            "image batches require a graphical shell or an explicit terminal representation",
+        )),
         PaintOp::DrawPath { .. } => Err(unsupported(
             node_id,
             "vector paths require a graphical shell or an explicit terminal representation",
