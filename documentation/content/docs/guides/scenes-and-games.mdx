@@ -185,6 +185,11 @@ Use `linux`, `macos`, or `windows` for the other initially qualified targets.
 The examples include their public assets and provenance, complete objectives,
 physics, picking, snapshots, and replay tests.
 
+Each example also contains an ignored `web_live` qualification test. Against a
+running Web build it launches Chrome, uses browser touch and keyboard events,
+finishes the game, captures the real canvas, and rejects a blank or
+compatibility-only scene region. See the example README for the exact command.
+
 ## Current alpha boundary
 
 The first alpha deliberately omits audio, skeletal animation and blending,

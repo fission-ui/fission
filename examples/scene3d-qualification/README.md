@@ -25,3 +25,12 @@ The asset provenance is recorded in [`assets/PROVENANCE.md`](assets/PROVENANCE.m
 
 The focused tests cover static import, picking, collision, snapshot restore,
 and deterministic replay of a complete successful run.
+
+With the Web app running, the ignored browser qualification performs real
+coordinate-based touch picking, completes the run through browser keyboard
+events, captures a screenshot, and rejects blank or compatibility-only pixels:
+
+```sh
+FISSION_SCENE3D_WEB_URL=http://127.0.0.1:8000 \
+  cargo test -p scene3d-qualification --test web_live -- --ignored
+```

@@ -28,6 +28,13 @@ fission run --target web --project-dir examples/scene2d-qualification
 
 The headless tests cover collision, equivalent keyboard/pointer/accessible
 input, a mid-run snapshot restore, and deterministic replay of a complete run.
+With the Web app running, the ignored browser qualification drives a complete
+touch run and rejects a blank or flat-colour scene viewport:
+
+```sh
+FISSION_SCENE2D_WEB_URL=http://127.0.0.1:8000 \
+  cargo test -p scene2d-qualification --test web_live -- --ignored
+```
 
 ## Asset provenance
 

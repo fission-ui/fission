@@ -8285,6 +8285,8 @@ dependencies = [
  "anyhow",
  "console_error_panic_hook",
  "fission",
+ "fission-test-driver",
+ "image 0.25.8",
  "serde",
  "wasm-bindgen",
 ]
@@ -8296,6 +8298,8 @@ dependencies = [
  "anyhow",
  "console_error_panic_hook",
  "fission",
+ "fission-test-driver",
+ "image 0.25.8",
  "serde",
  "serde_yaml",
  "wasm-bindgen",

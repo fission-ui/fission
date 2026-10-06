@@ -150,7 +150,8 @@ impl From<QualificationApp> for Widget {
                 .width(VIEWPORT_SIZE.x)
                 .height(VIEWPORT_SIZE.y)
                 .border(tokens.colors.border, 1.0)
-                .clip_overflow(true),
+                .clip_overflow(true)
+                .semantics_identifier("scene2d-qualification.viewport"),
                 Row {
                     gap: Some(tokens.spacing.s),
                     children: widgets![
