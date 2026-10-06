@@ -450,6 +450,8 @@ struct RenderState<'w> {
     scene3d_renderer: scene3d_renderer::Scene3DRenderer,
     #[cfg(feature = "scene3d")]
     scene3d_surfaces: HashMap<u64, Scene3DExternalSurface>,
+    #[cfg(feature = "scene3d")]
+    scene3d_hardware_supported: bool,
     main_renderer: MainRenderer,
     renderer_report: RendererReport,
 }
@@ -459,6 +461,7 @@ struct Scene3DExternalSurface {
     texture: wgpu::Texture,
     width: u32,
     height: u32,
+    renderable: bool,
 }
 
 #[cfg(feature = "scene3d")]
@@ -482,8 +485,85 @@ impl Scene3DExternalSurface {
             texture,
             width,
             height,
+            renderable: true,
         }
     }
+
+    fn compatibility(device: &wgpu::Device, queue: &wgpu::Queue, width: u32, height: u32) -> Self {
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("fission scene3d compatibility surface"),
+            size: wgpu::Extent3d {
+                width: 1,
+                height: 1,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            &[196, 36, 48, 255],
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(4),
+                rows_per_image: Some(1),
+            },
+            wgpu::Extent3d {
+                width: 1,
+                height: 1,
+                depth_or_array_layers: 1,
+            },
+        );
+        Self {
+            texture,
+            width,
+            height,
+            renderable: false,
+        }
+    }
+}
+
+#[cfg(feature = "scene3d")]
+fn bind_scene3d_compatibility_surface(
+    surfaces: &mut HashMap<u64, Scene3DExternalSurface>,
+    bindings: &mut ExternalTextureBindings,
+    live: &mut HashSet<u64>,
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    surface_id: u64,
+    width: u32,
+    height: u32,
+    reason: &str,
+) {
+    live.insert(surface_id);
+    let cached = surfaces.entry(surface_id).or_insert_with(|| {
+        log::warn!("Fission 3D compatibility surface: {reason}");
+        Scene3DExternalSurface::compatibility(device, queue, width, height)
+    });
+    if cached.width != width || cached.height != height || cached.renderable {
+        log::warn!("Fission 3D compatibility surface: {reason}");
+        *cached = Scene3DExternalSurface::compatibility(device, queue, width, height);
+    }
+    bindings.insert(
+        ExternalTextureId(surface_id),
+        cached
+            .texture
+            .create_view(&wgpu::TextureViewDescriptor::default()),
+    );
+}
+
+#[cfg(feature = "scene3d")]
+fn scene3d_hardware_adapter_supported(device_type: wgpu::DeviceType) -> bool {
+    device_type != wgpu::DeviceType::Cpu
 }
 
 #[cfg(feature = "scene3d")]
@@ -530,13 +610,31 @@ fn render_scene3d_external_surfaces(
         let height = (f64::from(surface.rect.size.height) * scale_factor)
             .round()
             .max(1.0) as u32;
-        if width > max_dimension || height > max_dimension {
-            all_ready = false;
-            log::warn!(
-                "Fission 3D surface {}x{} exceeds renderer limit {}",
+        if !render_state.scene3d_hardware_supported {
+            bind_scene3d_compatibility_surface(
+                &mut render_state.scene3d_surfaces,
+                &mut bindings,
+                &mut live,
+                device,
+                queue,
+                surface_id,
                 width,
                 height,
-                max_dimension
+                "the selected adapter is software; Fission 3D requires a hardware GPU",
+            );
+            continue;
+        }
+        if width > max_dimension || height > max_dimension {
+            bind_scene3d_compatibility_surface(
+                &mut render_state.scene3d_surfaces,
+                &mut bindings,
+                &mut live,
+                device,
+                queue,
+                surface_id,
+                width,
+                height,
+                &format!("surface {width}x{height} exceeds the adapter limit {max_dimension}"),
             );
             continue;
         }
@@ -546,7 +644,7 @@ fn render_scene3d_external_surfaces(
             .scene3d_surfaces
             .entry(surface_id)
             .or_insert_with(|| Scene3DExternalSurface::new(device, width, height));
-        if cached.width != width || cached.height != height {
+        if cached.width != width || cached.height != height || !cached.renderable {
             *cached = Scene3DExternalSurface::new(device, width, height);
         }
         let view = cached
@@ -561,6 +659,7 @@ fn render_scene3d_external_surfaces(
         };
         let report = if modern {
             render_state.scene3d_renderer.render_packet(
+                surface_id,
                 device,
                 queue,
                 &view,
@@ -601,6 +700,7 @@ fn render_scene3d_external_surfaces(
     render_state
         .scene3d_surfaces
         .retain(|surface_id, _| live.contains(surface_id));
+    render_state.scene3d_renderer.retain_packet_cache(&live);
     (bindings, all_ready)
 }
 
@@ -878,6 +978,10 @@ fn create_render_state<'w>(
         scene3d_renderer,
         #[cfg(feature = "scene3d")]
         scene3d_surfaces: HashMap::new(),
+        #[cfg(feature = "scene3d")]
+        scene3d_hardware_supported: scene3d_hardware_adapter_supported(
+            device_handle.adapter().get_info().device_type,
+        ),
         main_renderer,
         renderer_report,
     })
@@ -1396,6 +1500,10 @@ async fn create_webgpu_presenter(
         ),
         #[cfg(feature = "scene3d")]
         scene3d_surfaces: HashMap::new(),
+        #[cfg(feature = "scene3d")]
+        scene3d_hardware_supported: scene3d_hardware_adapter_supported(
+            device_handle.adapter().get_info().device_type,
+        ),
         main_renderer,
         renderer_report,
     };
@@ -11733,6 +11841,18 @@ mod tests {
         assert!(resize_is_unsettled(false, true, false));
         assert!(resize_is_unsettled(false, false, true));
         assert!(!resize_is_unsettled(false, false, false));
+    }
+
+    #[cfg(feature = "scene3d")]
+    #[test]
+    fn scene3d_refuses_software_adapters() {
+        assert!(!scene3d_hardware_adapter_supported(wgpu::DeviceType::Cpu));
+        assert!(scene3d_hardware_adapter_supported(
+            wgpu::DeviceType::IntegratedGpu
+        ));
+        assert!(scene3d_hardware_adapter_supported(
+            wgpu::DeviceType::DiscreteGpu
+        ));
     }
 
     #[test]

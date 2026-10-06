@@ -180,6 +180,15 @@ fn lowering_keeps_one_scene_batch_as_one_paint_operation() {
         node.op,
         fission_ir::Op::Layout(fission_ir::LayoutOp::Embed { .. })
     )));
+    let viewport_clips = ir
+        .nodes
+        .values()
+        .filter_map(|node| match &node.op {
+            fission_ir::Op::Layout(fission_ir::LayoutOp::Clip { path }) => path.as_deref(),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(viewport_clips, vec!["M0 0 L200 0 L200 100 L0 100 Z"]);
 }
 
 #[test]

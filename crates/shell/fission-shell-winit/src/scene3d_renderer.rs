@@ -190,6 +190,25 @@ struct FrameDraw {
     transform_bind_group: wgpu::BindGroup,
 }
 
+struct CachedRenderPacket {
+    payload: Vec<u8>,
+    packet: Scene3DRenderPacket,
+}
+
+fn decode_or_reuse_packet(
+    packets: &mut HashMap<u64, CachedRenderPacket>,
+    surface_id: u64,
+    payload: &[u8],
+) -> Result<CachedRenderPacket, String> {
+    match packets.remove(&surface_id) {
+        Some(cached) if cached.payload == payload => Ok(cached),
+        _ => Scene3DRenderPacket::decode(payload).map(|packet| CachedRenderPacket {
+            payload: payload.to_vec(),
+            packet,
+        }),
+    }
+}
+
 pub(crate) struct Scene3DRenderer {
     target_format: wgpu::TextureFormat,
     width: u32,
@@ -208,6 +227,7 @@ pub(crate) struct Scene3DRenderer {
     materials: HashMap<MaterialCacheKey, GpuMaterial>,
     failed_textures: HashSet<TextureCacheKey>,
     fallback_texture: GpuTexture,
+    packets: HashMap<u64, CachedRenderPacket>,
     reported_first_content: bool,
 }
 
@@ -330,6 +350,7 @@ impl Scene3DRenderer {
             materials: HashMap::new(),
             failed_textures: HashSet::new(),
             fallback_texture,
+            packets: HashMap::new(),
             reported_first_content: false,
         }
     }
@@ -345,14 +366,15 @@ impl Scene3DRenderer {
 
     pub(crate) fn render_packet(
         &mut self,
+        surface_id: u64,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         target: &wgpu::TextureView,
         payload: &[u8],
         viewport: Scene3DViewport,
     ) -> Scene3DRenderReport {
-        match Scene3DRenderPacket::decode(payload) {
-            Ok(packet) => self.render_prepared(device, queue, target, &packet.prepared, viewport),
+        let packet = match decode_or_reuse_packet(&mut self.packets, surface_id, payload) {
+            Ok(packet) => packet,
             Err(message) => {
                 let kind = if payload.starts_with(fission_scene3d::SCENE3D_EMBED_MAGIC) {
                     Scene3DRenderDiagnosticKind::InvalidPacket
@@ -367,9 +389,17 @@ impl Scene3DRenderer {
                     .diagnostics
                     .push(Scene3DRenderDiagnostic { kind, message });
                 self.render_error_surface(device, queue, target, viewport);
-                report
+                return report;
             }
-        }
+        };
+        let report = self.render_prepared(device, queue, target, &packet.packet.prepared, viewport);
+        self.packets.insert(surface_id, packet);
+        report
+    }
+
+    pub(crate) fn retain_packet_cache(&mut self, live_surface_ids: &HashSet<u64>) {
+        self.packets
+            .retain(|surface_id, _| live_surface_ids.contains(surface_id));
     }
 
     pub(crate) fn render_prepared(
@@ -1660,6 +1690,27 @@ mod tests {
         assert_eq!(cube_indices.len(), 36);
         assert!(!sphere_vertices.is_empty());
         assert_eq!(sphere_indices.len() % 3, 0);
+    }
+
+    #[test]
+    fn unchanged_scene_packets_are_reused_per_retained_surface() {
+        let packet = Scene3DRenderPacket::new(fission_scene3d::Scene3DIR::new(
+            fission_scene3d::SceneId::new(41),
+            fission_scene3d::Viewport3D::new(320.0, 180.0),
+        ));
+        let payload = packet.encode().unwrap();
+        let mut packets = HashMap::new();
+
+        let first = decode_or_reuse_packet(&mut packets, 7, &payload).unwrap();
+        packets.insert(7, first);
+        let cached_payload = packets.get(&7).unwrap().payload.as_ptr();
+        let reused = decode_or_reuse_packet(&mut packets, 7, &payload).unwrap();
+
+        assert_eq!(reused.payload.as_ptr(), cached_payload);
+        assert_eq!(
+            reused.packet.prepared.source.id,
+            fission_scene3d::SceneId::new(41)
+        );
     }
 
     #[cfg(not(target_arch = "wasm32"))]

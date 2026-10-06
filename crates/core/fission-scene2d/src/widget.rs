@@ -142,8 +142,19 @@ impl LowerWidget for Scene2DLowerer {
             }
         }
         let stack = stack.build(cx);
+        let mut viewport_clip = IrBuilder::new(
+            WidgetId::derived(root_id.as_u128(), &[2]),
+            Op::Layout(LayoutOp::Clip {
+                path: Some(format!(
+                    "M0 0 L{} 0 L{} {} L0 {} Z",
+                    self.width, self.width, self.height, self.height
+                )),
+            }),
+        );
+        viewport_clip.add_child(stack);
+        let viewport_clip = viewport_clip.build(cx);
         let mut root = IrBuilder::new(root_id, fixed_box(self.width, self.height));
-        root.add_child(stack);
+        root.add_child(viewport_clip);
         root.build(cx)
     }
 

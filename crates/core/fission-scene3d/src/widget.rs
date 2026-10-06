@@ -19,14 +19,13 @@ pub const SCENE3D_EMBED_MAGIC: &[u8; 16] = b"fission.scene3d\0";
 /// and draw plan for the declared default renderer capabilities.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Scene3DRenderPacket {
-    pub scene: Scene3DIR,
     pub prepared: PreparedScene3D,
 }
 
 impl Scene3DRenderPacket {
     pub fn new(scene: Scene3DIR) -> Self {
         let prepared = Scene3DProcessor::new().prepare(&scene, RenderCapabilities3D::default());
-        Self { scene, prepared }
+        Self { prepared }
     }
 
     pub fn encode(&self) -> Result<Vec<u8>, bincode::Error> {
