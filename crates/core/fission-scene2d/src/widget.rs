@@ -718,12 +718,17 @@ fn blend(v: BlendMode2D) -> BlendMode {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::Viewport2D;
-    use fission_scene::SceneId;
+    use crate::{Node2D, Viewport2D};
+    use fission_scene::{NodeId, SceneDiagnostic, SceneId};
     #[test]
     fn packets_round_trip() {
-        let packet =
-            Scene2DRenderPacket::new(Scene2DIR::new(SceneId(5), Viewport2D::new(320., 180.)));
+        let mut scene = Scene2DIR::new(SceneId(5), Viewport2D::new(320., 180.));
+        scene.nodes.push(Node2D::group(NodeId::new(9)));
+        let mut packet = Scene2DRenderPacket::new(scene);
+        packet
+            .prepared
+            .diagnostics
+            .push(SceneDiagnostic::error("round-trip", "diagnostic payload"));
         let bytes = packet.encode().unwrap();
         assert_eq!(Scene2DRenderPacket::decode(&bytes).unwrap(), packet);
     }

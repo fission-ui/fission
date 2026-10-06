@@ -53,7 +53,7 @@ impl Viewport3D {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case", tag = "projection")]
+#[serde(rename_all = "kebab-case")]
 pub enum CameraProjection3D {
     Perspective {
         vertical_fov_radians: f32,
@@ -234,7 +234,7 @@ pub enum AlphaMode3D {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case", tag = "model")]
+#[serde(rename_all = "kebab-case")]
 pub enum MaterialModel3D {
     Unlit,
     MetallicRoughness { metallic: f32, roughness: f32 },
@@ -294,7 +294,7 @@ pub struct Model3D {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case", tag = "primitive")]
+#[serde(rename_all = "kebab-case")]
 pub enum Primitive3D {
     Cube { size: Vec3 },
     Sphere { radius: f32 },
@@ -302,7 +302,7 @@ pub enum Primitive3D {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case", tag = "content")]
+#[serde(rename_all = "kebab-case")]
 pub enum NodeContent3D {
     Group,
     Primitive(Primitive3D),
@@ -361,7 +361,7 @@ pub struct PointLight3D {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case", tag = "light")]
+#[serde(rename_all = "kebab-case")]
 pub enum Light3D {
     Ambient(AmbientLight3D),
     Directional(DirectionalLight3D),

@@ -94,7 +94,7 @@ impl Camera2D {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case", tag = "kind")]
+#[serde(rename_all = "kebab-case")]
 pub enum Clip2D {
     Rectangle { rect: Rect2D },
     Path { path: ResourceId },
@@ -132,7 +132,7 @@ pub struct ImageSource2D {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case", tag = "command")]
+#[serde(rename_all = "kebab-case")]
 pub enum PathCommand2D {
     MoveTo {
         point: Vec2,
@@ -233,7 +233,7 @@ pub struct SpriteBatch2D {
 
 /// Closed visual vocabulary for the first 2D alpha.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case", tag = "kind")]
+#[serde(rename_all = "kebab-case")]
 pub enum NodeContent2D {
     Group,
     Rectangle {

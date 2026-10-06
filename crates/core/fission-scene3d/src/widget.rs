@@ -187,15 +187,20 @@ impl LowerWidget for Scene3DLowerer {
 #[cfg(test)]
 mod tests {
     use fission_core::{ActionEnvelope, ActionId};
-    use fission_scene::SceneId;
+    use fission_scene::{NodeId, SceneDiagnostic, SceneId};
 
     use super::*;
     use crate::Viewport3D;
 
     #[test]
     fn packets_are_typed_versioned_and_round_trip() {
-        let packet =
-            Scene3DRenderPacket::new(Scene3DIR::new(SceneId(5), Viewport3D::new(320.0, 180.0)));
+        let mut scene = Scene3DIR::new(SceneId(5), Viewport3D::new(320.0, 180.0));
+        scene.nodes.push(crate::Node3D::group(NodeId::new(9)));
+        let mut packet = Scene3DRenderPacket::new(scene);
+        packet
+            .prepared
+            .diagnostics
+            .push(SceneDiagnostic::error("round-trip", "diagnostic payload"));
         let encoded = packet.encode().unwrap();
 
         assert!(encoded.starts_with(SCENE3D_EMBED_MAGIC));

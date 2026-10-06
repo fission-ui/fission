@@ -99,7 +99,7 @@ fn is_sha256(value: &str) -> bool {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case", tag = "state")]
+#[serde(rename_all = "kebab-case")]
 pub enum AssetLoadState {
     Loading,
     Ready,

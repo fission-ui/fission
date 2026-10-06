@@ -63,7 +63,7 @@ impl Interaction2D {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case", tag = "kind")]
+#[serde(rename_all = "kebab-case")]
 pub enum InteractionEvent2D {
     Tap {
         scene_position: Vec2,

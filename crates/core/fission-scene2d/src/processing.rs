@@ -56,7 +56,7 @@ pub struct PreparedSpriteInstance2D {
 /// in one command so adapters cannot accidentally turn them into retained
 /// child widgets.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case", tag = "kind")]
+#[serde(rename_all = "kebab-case")]
 pub enum DrawCommand2D {
     Rectangle {
         metadata: DrawMetadata2D,
