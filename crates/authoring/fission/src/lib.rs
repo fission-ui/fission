@@ -133,11 +133,6 @@ pub mod physics_rapier3d {
     pub use fission_physics_rapier3d::*;
 }
 
-#[cfg(feature = "assets")]
-pub use fission_assets::{
-    AssetId, AssetKind, AssetLicense, AssetManifest, AssetManifestError, AssetProvenance,
-    RedistributionPolicy,
-};
 #[cfg(feature = "game")]
 pub use fission_game::{FixedStepClock, StepBatch, StepDuration, Tick};
 
