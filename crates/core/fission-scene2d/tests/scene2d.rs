@@ -1,6 +1,7 @@
 use fission_core::Widget;
 use fission_scene::{
-    AssetDescriptor, AssetId, AssetKind, Bounds2, NodeId, Rgba, SceneId, Transform2, Vec2,
+    AssetDescriptor, AssetId, AssetKind, Bounds2, NodeId, PresentationId, Rgba, SceneId,
+    Transform2, Vec2,
 };
 use fission_scene2d::*;
 
@@ -324,7 +325,9 @@ fn lowering_makes_decorations_inert_and_actions_semantic() {
     });
     scene.nodes.push(interactive);
 
-    let ir = fission_core::internal::lower_widget_to_ir(&Widget::from(Scene2D::new(scene)));
+    let ir = fission_core::internal::lower_widget_to_ir(&Widget::from(
+        Scene2D::new(scene).presentation_id(PresentationId::new(9)),
+    ));
     assert_eq!(
         ir.nodes
             .values()
@@ -343,7 +346,10 @@ fn lowering_makes_decorations_inert_and_actions_semantic() {
             _ => None,
         })
         .expect("interactive scene object semantics");
-    assert_eq!(semantics.identifier.as_deref(), Some("scene2d:1:node:2"));
+    assert_eq!(semantics.identifier.as_deref(), Some("scene2d:9:node:2"));
+    let target = semantics.scene_target.as_ref().expect("scene target");
+    assert_eq!(target.scene_id, 1);
+    assert_eq!(target.presentation_id, 9);
     let action = |trigger| {
         semantics
             .actions

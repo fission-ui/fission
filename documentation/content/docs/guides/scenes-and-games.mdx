@@ -101,6 +101,11 @@ spheres, application-provided triangle meshes, and static glTF or GLB models,
 with unlit or basic metallic-roughness materials, textures, alpha policy,
 depth, and ambient, directional, or point lights.
 
+Each scene widget defaults its stable `PresentationId` to the scene ID. When
+the same scene is visible in more than one viewport, assign a distinct
+`.presentation_id(...)` to each widget so retained identity and interaction
+coordinates remain independent.
+
 ## Drive state with one deterministic clock
 
 Implement `Game` for the authoritative simulation state. `react` handles typed

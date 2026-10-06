@@ -9,7 +9,7 @@ use fission_ir::op::{
 };
 use fission_ir::semantics::{ActionTrigger, Role, SceneDimension, SceneTarget};
 use fission_ir::{ActionEntry, Semantics, StructuralOp, WidgetId};
-use fission_scene::{Bounds2, Rgba, Vec2};
+use fission_scene::{Bounds2, PresentationId, Rgba, Vec2};
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -51,14 +51,17 @@ impl Scene2DRenderPacket {
 #[derive(Clone, Debug)]
 pub struct Scene2D {
     pub scene: Scene2DIR,
+    pub presentation_id: PresentationId,
     pub width: Option<f32>,
     pub height: Option<f32>,
 }
 
 impl Scene2D {
     pub fn new(scene: Scene2DIR) -> Self {
+        let presentation_id = PresentationId::new(scene.id.get());
         Self {
             scene,
+            presentation_id,
             width: None,
             height: None,
         }
@@ -71,6 +74,10 @@ impl Scene2D {
         self.height = Some(height);
         self
     }
+    pub fn presentation_id(mut self, presentation: PresentationId) -> Self {
+        self.presentation_id = presentation;
+        self
+    }
 }
 
 impl From<Scene2D> for Widget {
@@ -80,6 +87,7 @@ impl From<Scene2D> for Widget {
             "fission_scene2d::Scene2D",
             Scene2DLowerer {
                 scene: value.scene,
+                presentation: value.presentation_id,
                 width: value.width.unwrap_or(size.x),
                 height: value.height.unwrap_or(size.y),
             },
@@ -90,6 +98,7 @@ impl From<Scene2D> for Widget {
 #[derive(Debug)]
 struct Scene2DLowerer {
     scene: Scene2DIR,
+    presentation: PresentationId,
     width: f32,
     height: f32,
 }
@@ -97,13 +106,21 @@ struct Scene2DLowerer {
 impl LowerWidget for Scene2DLowerer {
     fn lower_dyn(&self, cx: &mut LoweringContext) -> WidgetId {
         let prepared = Scene2DProcessor::prepare(&self.scene);
-        let root_id = sid(self.scene.id.get(), 0, "root");
+        let presentation = self.presentation.get();
+        let root_id = sid(presentation, 0, "root");
         let mut stack = IrBuilder::new(
             WidgetId::derived(root_id.as_u128(), &[1]),
             Op::Layout(LayoutOp::ZStack),
         );
         for draw in &prepared.draws {
-            let visual = lower_draw(cx, &self.scene, draw, self.width, self.height);
+            let visual = lower_draw(
+                cx,
+                &self.scene,
+                presentation,
+                draw,
+                self.width,
+                self.height,
+            );
             let visual = inert(cx, visual);
             stack.add_child(wrap_zstack_child(cx, visual));
             if let Some(interaction) = draw
@@ -129,6 +146,7 @@ impl LowerWidget for Scene2DLowerer {
                     let semantics = lower_semantics(
                         cx,
                         self.scene.id.get(),
+                        presentation,
                         root_id,
                         draw.metadata(),
                         bounds,
@@ -161,7 +179,7 @@ impl LowerWidget for Scene2DLowerer {
 
     fn widget_id(&self) -> Option<WidgetId> {
         Some(WidgetId::derived(
-            sid(self.scene.id.get(), 0, "root").as_u128(),
+            sid(self.presentation.get(), 0, "root").as_u128(),
             &[0x57_4944],
         ))
     }
@@ -170,6 +188,7 @@ impl LowerWidget for Scene2DLowerer {
 fn lower_draw(
     cx: &mut LoweringContext,
     scene: &Scene2DIR,
+    presentation: u64,
     draw: &DrawCommand2D,
     width: f32,
     height: f32,
@@ -184,6 +203,7 @@ fn lower_draw(
         } => lower_batch(
             cx,
             scene,
+            presentation,
             metadata,
             *image,
             *sampling,
@@ -205,6 +225,7 @@ fn lower_draw(
         } => lower_batch(
             cx,
             scene,
+            presentation,
             metadata,
             *image,
             *sampling,
@@ -226,6 +247,7 @@ fn lower_draw(
         } => lower_paint(
             cx,
             scene,
+            presentation,
             metadata,
             PaintOp::DrawRect {
                 fill: style.fill.map(|v| Fill::Solid(color(v.color))),
@@ -245,6 +267,7 @@ fn lower_draw(
             lower_paint(
                 cx,
                 scene,
+                presentation,
                 metadata,
                 PaintOp::DrawPath {
                     path: svg(&resource.commands, Affine2::IDENTITY, resource.bounds.min),
@@ -262,6 +285,7 @@ fn lower_draw(
             lower_paint(
                 cx,
                 scene,
+                presentation,
                 metadata,
                 PaintOp::DrawText {
                     text: text.text.clone(),
@@ -289,6 +313,7 @@ fn lower_draw(
         } if source.is_some() || *tint != Rgba::WHITE => lower_paint(
             cx,
             scene,
+            presentation,
             metadata,
             PaintOp::DrawImageBatch {
                 request: request(scene, *image),
@@ -310,6 +335,7 @@ fn lower_draw(
         } => lower_paint(
             cx,
             scene,
+            presentation,
             metadata,
             PaintOp::DrawImage {
                 request: request(scene, *image),
@@ -323,10 +349,11 @@ fn lower_draw(
 fn lower_paint(
     cx: &mut LoweringContext,
     scene: &Scene2DIR,
+    presentation: u64,
     meta: &DrawMetadata2D,
     paint: PaintOp,
 ) -> WidgetId {
-    let base = sid(scene.id.get(), meta.node.get(), "visual");
+    let base = sid(presentation, meta.node.get(), "visual");
     let paint = IrBuilder::new(WidgetId::derived(base.as_u128(), &[1]), Op::Paint(paint)).build(cx);
     let size = size(meta.local_bounds);
     let mut box_node = IrBuilder::new(
@@ -385,6 +412,7 @@ fn lower_paint(
 fn lower_batch(
     cx: &mut LoweringContext,
     scene: &Scene2DIR,
+    presentation: u64,
     meta: &DrawMetadata2D,
     image: crate::ImageHandle2D,
     sampling: ImageSampling2D,
@@ -392,7 +420,7 @@ fn lower_batch(
     width: f32,
     height: f32,
 ) -> WidgetId {
-    let base = sid(scene.id.get(), meta.node.get(), "batch");
+    let base = sid(presentation, meta.node.get(), "batch");
     let paint = IrBuilder::new(
         WidgetId::derived(base.as_u128(), &[1]),
         Op::Paint(PaintOp::DrawImageBatch {
@@ -430,6 +458,7 @@ fn lower_batch(
 fn lower_semantics(
     cx: &mut LoweringContext,
     scene: u64,
+    presentation: u64,
     viewport_id: WidgetId,
     meta: &DrawMetadata2D,
     bounds: Bounds2,
@@ -443,7 +472,7 @@ fn lower_semantics(
         || "interaction".to_owned(),
         |index| format!("interaction:{index}"),
     );
-    let base = sid(scene, meta.node.get(), &suffix);
+    let base = sid(presentation, meta.node.get(), &suffix);
     let dimensions = size(bounds);
     let child = IrBuilder::new(
         WidgetId::derived(base.as_u128(), &[1]),
@@ -458,14 +487,20 @@ fn lower_semantics(
         },
         label: interaction.semantic_label.clone(),
         identifier: Some(instance.map_or_else(
-            || format!("scene2d:{scene}:node:{}", meta.node.get()),
-            |index| format!("scene2d:{scene}:node:{}:instance:{index}", meta.node.get()),
+            || format!("scene2d:{presentation}:node:{}", meta.node.get()),
+            |index| {
+                format!(
+                    "scene2d:{presentation}:node:{}:instance:{index}",
+                    meta.node.get()
+                )
+            },
         )),
         focusable: interaction.tap.is_some(),
         draggable: interaction.drag.is_some(),
         scene_target: Some(SceneTarget {
             viewport_id: viewport_id.as_u128(),
             scene_id: scene,
+            presentation_id: presentation,
             node_id: Some(meta.node.get()),
             instance,
             dimension: SceneDimension::Two,

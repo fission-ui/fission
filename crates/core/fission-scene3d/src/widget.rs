@@ -6,6 +6,7 @@ use fission_ir::{
     ActionEntry, ActionTrigger, Role, SceneDimension, SceneTarget, Semantics, WidgetId,
 };
 use serde::{Deserialize, Serialize};
+use fission_scene::PresentationId;
 
 use crate::{PreparedScene3D, RenderCapabilities3D, Scene3DIR, Scene3DProcessor};
 
@@ -48,6 +49,7 @@ impl Scene3DRenderPacket {
 #[derive(Clone, Debug)]
 pub struct Scene3D {
     pub scene: Scene3DIR,
+    pub presentation_id: PresentationId,
     pub width: Option<f32>,
     pub height: Option<f32>,
     pub on_pick: Option<ActionEnvelope>,
@@ -56,8 +58,10 @@ pub struct Scene3D {
 
 impl Scene3D {
     pub fn new(scene: Scene3DIR) -> Self {
+        let presentation_id = PresentationId::new(scene.id.get());
         Self {
             scene,
+            presentation_id,
             width: None,
             height: None,
             on_pick: None,
@@ -88,6 +92,11 @@ impl Scene3D {
         self.semantic_label = Some(label.into());
         self
     }
+
+    pub fn presentation_id(mut self, presentation: PresentationId) -> Self {
+        self.presentation_id = presentation;
+        self
+    }
 }
 
 impl From<Scene3D> for Widget {
@@ -96,6 +105,7 @@ impl From<Scene3D> for Widget {
             "fission_scene3d::Scene3D",
             Scene3DLowerer {
                 scene: scene.scene,
+                presentation: scene.presentation_id,
                 on_pick: scene.on_pick,
                 semantic_label: scene.semantic_label,
             },
@@ -115,19 +125,21 @@ impl From<Scene3D> for Widget {
 #[derive(Debug)]
 struct Scene3DLowerer {
     scene: Scene3DIR,
+    presentation: PresentationId,
     on_pick: Option<ActionEnvelope>,
     semantic_label: Option<String>,
 }
 
 impl LowerWidget for Scene3DLowerer {
     fn lower_dyn(&self, cx: &mut LoweringContext) -> fission_ir::WidgetId {
-        let viewport_id = WidgetId::explicit(&format!("fission.scene3d:{}", self.scene.id.get()));
+        let presentation = self.presentation.get();
+        let viewport_id = WidgetId::explicit(&format!("fission.scene3d:{presentation}"));
         let node_id = WidgetId::derived(viewport_id.as_u128(), &[1]);
         let packet = Scene3DRenderPacket::new(self.scene.clone());
         let payload = packet.encode().unwrap_or_default();
         let viewport = self.scene.viewport.size;
         let viewport_origin = self.scene.viewport.origin;
-        let widget_key = format!("fission_scene3d_scene_{}", self.scene.id.get());
+        let widget_key = format!("fission_scene3d_presentation_{presentation}");
         let embed = IrBuilder::new(
             node_id,
             fission_ir::Op::Layout(LayoutOp::Embed {
@@ -144,7 +156,7 @@ impl LowerWidget for Scene3DLowerer {
         let semantics = Semantics {
             role: Role::Image,
             label: self.semantic_label.clone(),
-            identifier: Some(format!("scene3d:{}", self.scene.id.get())),
+            identifier: Some(format!("scene3d:{presentation}")),
             actions: fission_ir::ActionSet {
                 entries: vec![ActionEntry {
                     trigger: ActionTrigger::Default,
@@ -156,6 +168,7 @@ impl LowerWidget for Scene3DLowerer {
             scene_target: Some(SceneTarget {
                 viewport_id: viewport_id.as_u128(),
                 scene_id: self.scene.id.get(),
+                presentation_id: presentation,
                 node_id: None,
                 instance: None,
                 dimension: SceneDimension::Three,
@@ -199,6 +212,7 @@ mod tests {
         let mut scene = Scene3DIR::new(SceneId(7), Viewport3D::new(320.0, 180.0));
         scene.viewport.origin = fission_scene::Vec2::new(12.0, 18.0);
         let widget: Widget = Scene3D::new(scene)
+            .presentation_id(PresentationId::new(55))
             .on_pick(ActionEnvelope {
                 id: ActionId::from_name("scene3d-test-pick"),
                 payload: vec![],
@@ -217,5 +231,7 @@ mod tests {
 
         assert_eq!(target.viewport_origin, [12.0, 18.0]);
         assert_eq!(target.viewport_size, [320.0, 180.0]);
+        assert_eq!(target.scene_id, 7);
+        assert_eq!(target.presentation_id, 55);
     }
 }

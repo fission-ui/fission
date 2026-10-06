@@ -22,6 +22,7 @@ pub struct SceneInteraction {
     pub viewport_id: WidgetId,
     pub target_id: WidgetId,
     pub scene_id: u64,
+    pub presentation_id: u64,
     pub node_id: Option<u64>,
     pub instance: Option<u32>,
     pub dimension: SceneDimension,
@@ -78,6 +79,7 @@ pub(crate) fn scene_interaction(
         viewport_id,
         target_id,
         scene_id: target.scene_id,
+        presentation_id: target.presentation_id,
         node_id: target.node_id,
         instance: target.instance,
         dimension: target.dimension,
@@ -127,6 +129,7 @@ mod tests {
         let target = SceneTarget {
             viewport_id: viewport_id.as_u128(),
             scene_id: 7,
+            presentation_id: 9,
             node_id: Some(8),
             instance: None,
             dimension: SceneDimension::Two,

@@ -853,6 +853,7 @@ pub struct CanvasTarget {
 pub struct SceneTarget {
     pub viewport_id: u128,
     pub scene_id: u64,
+    pub presentation_id: u64,
     pub node_id: Option<u64>,
     pub instance: Option<u32>,
     pub dimension: SceneDimension,
@@ -869,6 +870,7 @@ impl std::hash::Hash for SceneTarget {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.viewport_id.hash(state);
         self.scene_id.hash(state);
+        self.presentation_id.hash(state);
         self.node_id.hash(state);
         self.instance.hash(state);
         self.dimension.hash(state);
