@@ -1708,7 +1708,7 @@ mod tests {
     #[test]
     fn unchanged_scene_packets_are_reused_per_retained_surface() {
         let packet = Scene3DRenderPacket::new(fission_scene3d::Scene3DIR::new(
-            fission_scene3d::SceneId::new(41),
+            fission_scene::SceneId::new(41),
             fission_scene3d::Viewport3D::new(320.0, 180.0),
         ));
         let payload = packet.encode().unwrap();
@@ -1722,7 +1722,7 @@ mod tests {
         assert_eq!(reused.payload.as_ptr(), cached_payload);
         assert_eq!(
             reused.packet.prepared.source.id,
-            fission_scene3d::SceneId::new(41)
+            fission_scene::SceneId::new(41)
         );
     }
 

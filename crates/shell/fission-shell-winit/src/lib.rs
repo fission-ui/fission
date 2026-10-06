@@ -10644,6 +10644,8 @@ fn native_window_size_for_logical_viewport(size: LayoutSize) -> winit::dpi::Logi
 
 #[cfg(test)]
 mod tests {
+    #[cfg(feature = "scene3d")]
+    use super::scene3d_hardware_adapter_supported;
     use super::{
         animation_redraw_interval, build_window_attributes, clamp_copy_extent_to_texture,
         classify_web_text_value, collect_semantic_records, collect_startup_deep_links_from,
