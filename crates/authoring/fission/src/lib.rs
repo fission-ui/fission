@@ -83,6 +83,26 @@ pub mod text_engine {
     pub use fission_text_engine::*;
 }
 
+/// Asset provenance and licence metadata used by build and release tooling.
+#[cfg(feature = "assets")]
+pub mod assets {
+    pub use fission_assets::*;
+}
+
+/// Deterministic clocks and runtime primitives shared by 2D and 3D games.
+#[cfg(feature = "game")]
+pub mod game {
+    pub use fission_game::*;
+}
+
+#[cfg(feature = "assets")]
+pub use fission_assets::{
+    AssetId, AssetKind, AssetLicense, AssetManifest, AssetManifestError, AssetProvenance,
+    RedistributionPolicy,
+};
+#[cfg(feature = "game")]
+pub use fission_game::{FixedStepClock, StepBatch, StepDuration, Tick};
+
 /// Authoring widgets — Modal, Popover, Tooltip, Menu, Combobox, SplitView, etc.
 pub mod widgets {
     pub use fission_core::motion::*;

@@ -2776,9 +2776,11 @@ name = "fission"
 version = "0.15.1"
 dependencies = [
  "fission-3d",
+ "fission-assets",
  "fission-charts",
  "fission-core",
  "fission-diagnostics",
+ "fission-game",
  "fission-i18n",
  "fission-icons",
  "fission-ir",
@@ -2826,6 +2828,13 @@ dependencies = [
  "accesskit_windows",
  "fission-winit",
  "raw-window-handle",
+]
+
+[[package]]
+name = "fission-assets"
+version = "0.1.0-alpha.1"
+dependencies = [
+ "serde",
 ]
 
 [[package]]
@@ -3058,6 +3067,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "fission-game"
+version = "0.1.0-alpha.1"
+dependencies = [
+ "fission-scene",
+ "serde",
+]
+
+[[package]]
 name = "fission-glifo"
 version = "0.3.0-fission.1"
 dependencies = [
@@ -3153,6 +3170,14 @@ dependencies = [
  "web-sys",
  "web-time",
  "wgpu",
+]
+
+[[package]]
+name = "fission-scene"
+version = "0.1.0-alpha.1"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
