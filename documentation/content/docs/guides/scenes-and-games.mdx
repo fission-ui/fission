@@ -1,0 +1,184 @@
+---
+title: 2D and 3D scenes and games
+sidebar_label: 2D and 3D scenes and games
+description: Build retained 2D or 3D scenes, add a deterministic game loop, and opt into physics only when a game needs it.
+---
+
+Fission's scene APIs let an ordinary application add a retained 2D or 3D
+viewport without giving up Fission layout, actions, semantics, or testing. Add
+the game runtime when you need fixed-step simulation, snapshots, or replay. Add
+a physics provider only when the game actually needs one.
+
+These APIs are **alpha**. The supported workflows are functional, but public
+details may change between alpha releases. Pin the prerelease crates exactly
+and read the migration notes when updating.
+
+## Choose the smallest capability
+
+| Need | Features | Public API |
+| --- | --- | --- |
+| Retained sprites, paths, text, picking, and batching | `scene2d` | `fission::scene2d` |
+| Retained meshes, materials, lights, glTF, and picking | `scene3d` | `fission::scene3d` |
+| Deterministic fixed-step state, input, snapshots, and replay | `game` | `fission::game` |
+| Provider-neutral physics contracts | `physics` | `fission::physics` |
+| Rapier-backed 2D physics | `physics-rapier2d` | `fission::physics_rapier2d` |
+| Rapier-backed 3D physics | `physics-rapier3d` | `fission::physics_rapier3d` |
+
+For a 2D game with optional Rapier physics:
+
+```toml
+[dependencies]
+fission = { version = "0.15.1", features = [
+  "desktop",
+  "game",
+  "scene2d",
+  "physics-rapier2d",
+] }
+fission-scene = "=0.1.0-alpha.1"
+fission-scene2d = "=0.1.0-alpha.1"
+fission-game = "=0.1.0-alpha.1"
+fission-physics = "=0.1.0-alpha.1"
+fission-physics-rapier2d = "=0.1.0-alpha.1"
+```
+
+Use `scene3d` and `physics-rapier3d` for the corresponding 3D stack. Rapier is
+not in the dependency graph unless its provider feature is enabled, and the 2D
+and 3D providers are independently selectable.
+
+## Build a retained scene
+
+An application owns a closed, serialisable scene value. The processor validates
+that value and prepares deterministic draw, culling, diagnostic, bounds, and
+picking results. Renderer handles and backend types do not enter the scene.
+
+```rust,ignore
+use fission::scene2d::*;
+
+let mut scene = Scene2DIR::new(
+    SceneId::new(1),
+    Viewport2D::new(960.0, 540.0),
+);
+scene.nodes.push(Node2D {
+    id: NodeId::new(1),
+    parent: None,
+    transform: Transform2::IDENTITY,
+    visible: true,
+    opacity: 1.0,
+    layer: 0,
+    blend_mode: BlendMode2D::Normal,
+    clip: None,
+    content: NodeContent2D::Rectangle {
+        rect: Rect2D::new(Vec2::ZERO, Vec2::new(120.0, 80.0)),
+        style: PathStyle2D {
+            fill: Some(Fill2D {
+                color: Rgba::new(0.18, 0.44, 0.94, 1.0),
+            }),
+            stroke: None,
+        },
+        corner_radius: 8.0,
+    },
+    interaction: None,
+});
+
+let viewport: Widget = Scene2D::new(scene)
+    .width(960.0)
+    .height(540.0)
+    .into();
+```
+
+The same ownership model applies to `Scene3DIR`. A 3D scene can contain cubes,
+spheres, application-provided triangle meshes, and static glTF or GLB models,
+with unlit or basic metallic-roughness materials, textures, alpha policy,
+depth, and ambient, directional, or point lights.
+
+## Drive state with one deterministic clock
+
+Implement `Game` for the authoritative simulation state. `react` handles typed
+messages, `step` advances one fixed simulation step, and `present` derives the
+scene. Rendering and physics remain projections of that state.
+
+```rust,ignore
+use fission::game::*;
+
+impl Game for MyGame {
+    type Message = GameMessage;
+    type Presentation = Scene2DIR;
+
+    fn input(map: &mut InputMap<Self::Message>) {
+        map.on(InputTrigger::KeyPressed { key: GameKey::ArrowLeft })
+            .send(GameMessage::MoveLeft);
+    }
+
+    fn react(&mut self, message: Self::Message, _ctx: &mut GameCtx<'_, Self>) {
+        self.pending.push(message);
+    }
+
+    fn step(&mut self, ctx: &mut StepCtx<'_, Self>) {
+        self.simulate(ctx.step());
+    }
+
+    fn present(&self, _time: GameTime) -> Self::Presentation {
+        self.scene()
+    }
+}
+```
+
+`GameRuntime` accepts elapsed presentation time but advances state in fixed
+steps. `GameTestHarness` controls ticks and semantic input without a window.
+Versioned snapshots preserve supported state, clock, input, and random-stream
+data; replay records the ordered input stream and rejects unsupported formats.
+
+## Connect interaction and accessibility
+
+2D nodes can declare tap, long-press, and drag start, update, end, and cancel
+actions. The scene widget converts viewport coordinates into scene coordinates
+and carries stable scene, node, and batch-instance identities in the normal
+Fission action input. Decorative nodes remain pointer-transparent.
+
+For 3D, give `Scene3D` an `on_pick` action. The action receives viewport-local
+coordinates; call `PreparedScene3D::pick_viewport` to obtain the stable node.
+Provide an ordinary semantic action for every important operation so keyboard,
+assistive technology, and semantic tests do not depend on visual ray selection.
+
+## Add physics without binding game state to Rapier
+
+Create bodies with stable `PhysicsBodyId` values and Fission shapes, poses, and
+velocities. Keep the provider behind `PhysicsProvider2D` or
+`PhysicsProvider3D`. This keeps game state, queries, events, and snapshots free
+of Rapier handles and lets a later provider implement the same contract.
+
+The providers support fixed, kinematic, and dynamic bodies, collision and
+trigger transitions, ray and overlap queries, forces, impulses, and snapshot
+restore. The 3D provider also exposes the MVP kinematic character controller.
+
+## Assets and diagnostics
+
+Give assets stable typed IDs and a versioned `AssetBundle`. Record the source
+and digest used to build the bundle. 2D scenes retain decoded images and batch
+instances. `GltfImporter` imports static glTF or GLB meshes, referenced
+textures, and the metallic-roughness values supported by the renderer.
+
+Loading, ready, and failed states are explicit. Scene preparation returns
+diagnostics for invalid transforms, geometry, cameras, material values, assets,
+and renderer capabilities rather than silently presenting a blank viewport.
+
+## Run the complete examples
+
+The repository contains two small games that use only public APIs:
+
+```sh
+fission run --target web --project-dir examples/scene2d-qualification
+fission run --target web --project-dir examples/scene3d-qualification
+```
+
+Use `linux`, `macos`, or `windows` for the other initially qualified targets.
+The examples include their public assets and provenance, complete objectives,
+physics, picking, snapshots, and replay tests.
+
+## Current alpha boundary
+
+The first alpha deliberately omits audio, skeletal animation and blending,
+advanced gamepad setup, custom shaders, shadows, post-processing, multiplayer,
+advanced asset streaming, and editor tooling. Android and iOS compile with the
+scene APIs but are not advertised game targets until real-device rendering,
+input, and lifecycle qualification is complete.

@@ -126,6 +126,11 @@ href = "/docs/guides/media-animation-portals-and-3d/"
 level = 2
 
 [[items]]
+title = "2D and 3D scenes and games"
+href = "/docs/guides/scenes-and-games/"
+level = 2
+
+[[items]]
 title = "Fission for..."
 href = "/docs/fission/for/overview/"
 level = 1

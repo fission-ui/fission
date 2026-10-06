@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Alpha 2D and 3D scenes** - Opt-in retained `scene2d` and `scene3d`
+  capabilities provide closed scene IR, validation, culling, picking, typed
+  interaction, batching, static glTF/GLB import, and GPU-composited 3D
+  viewports. The intended import paths are `fission::scene2d` and
+  `fission::scene3d`.
+- **Deterministic game runtime** - The opt-in `game` capability adds one
+  fixed-step state and clock authority, device-independent input, explicit
+  random streams, versioned snapshots, replay, and headless test control.
+- **Optional physics providers** - `physics-rapier2d` and
+  `physics-rapier3d` independently enable Rapier behind Fission-owned physics
+  contracts; applications that enable neither do not compile Rapier.
+
+### Migration notes
+
+- The new scene, game, and physics APIs are alpha and opt-in. Existing
+  applications require no changes. Alpha crates use exact prerelease versions
+  such as `=0.1.0-alpha.1`; breaking alpha updates will be recorded here with
+  their required source changes.
+- The legacy `three-d` feature remains an alias during this alpha. New code
+  should enable `scene3d` and use `fission::scene3d`.
+
 ## [0.15.1] - 2026-10-05
 
 ### Added
