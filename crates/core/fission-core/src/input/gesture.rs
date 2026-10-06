@@ -174,13 +174,16 @@ impl InputController for GestureController {
 
         match event {
             InputEvent::Gesture(GestureEvent::LongPress { point }) => {
-                let Some(hit) = crate::hit_test::hit_test_with_viewports(
-                    ctx.ir,
-                    ctx.layout,
-                    ctx.scroll,
-                    ctx.viewport,
-                    *point,
-                ) else {
+                let hit = ctx.gesture.target_node.or_else(|| {
+                    crate::hit_test::hit_test_with_viewports(
+                        ctx.ir,
+                        ctx.layout,
+                        ctx.scroll,
+                        ctx.viewport,
+                        *point,
+                    )
+                });
+                let Some(hit) = hit else {
                     return false;
                 };
                 let handled =

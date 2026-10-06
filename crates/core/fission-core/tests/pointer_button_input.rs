@@ -132,8 +132,7 @@ fn semantic_context_menu_request_dispatches_secondary_only() -> anyhow::Result<(
 }
 
 #[test]
-fn stationary_long_press_dispatches_at_deadline_without_another_pointer_event() -> anyhow::Result<()>
-{
+fn stationary_long_press_dispatches_to_pressed_target_after_layout_changes() -> anyhow::Result<()> {
     let node_id = WidgetId::explicit("long-press-target");
     let long_press_id = ActionId::from_name("pointer_button_test::LongPress");
     let mut ir = CoreIR::default();
@@ -182,6 +181,7 @@ fn stationary_long_press_dispatches_at_deadline_without_another_pointer_event() 
     assert_eq!(runtime.next_long_press_deadline(), Some(500));
     runtime.tick(499)?;
     assert!(!runtime.dispatch_due_long_press(&ir, &layout)?);
+    layout.nodes.get_mut(&node_id).unwrap().rect = LayoutRect::new(120.0, 10.0, 70.0, 40.0);
     runtime.tick(1)?;
     assert!(runtime.dispatch_due_long_press(&ir, &layout)?);
     assert_eq!(runtime.next_long_press_deadline(), None);
