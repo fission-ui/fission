@@ -103,8 +103,11 @@ fn restart_run(state: &mut QualificationState) {
     state.dispatch(HarborMessage::Restart);
 }
 
-#[fission_reducer(HandleGameInput)]
-fn handle_game_input(state: &mut QualificationState, action: GameHostInput) {
+fn handle_game_input(
+    state: &mut QualificationState,
+    action: GameHostInput,
+    _ctx: &mut ReducerContext<QualificationState>,
+) {
     action.apply(&mut state.runtime);
     state.advance();
 }
@@ -140,7 +143,15 @@ impl From<QualificationApp> for Widget {
         let select = with_reducer!(ctx, SelectBeacon, select_beacon);
         let restart = with_reducer!(ctx, RestartRun, restart_run);
         let pick = with_reducer!(ctx, PickViewport, pick_viewport);
-        let host_input = with_reducer!(ctx, HandleGameInput, handle_game_input);
+        let host_input = ctx.bind(
+            GameHostInput::FocusLost,
+            handle_game_input
+                as fn(
+                    &mut QualificationState,
+                    GameHostInput,
+                    &mut ReducerContext<QualificationState>,
+                ),
+        );
 
         ctx.with_resources(|resources| {
             resources.timer(
