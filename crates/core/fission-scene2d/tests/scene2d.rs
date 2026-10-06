@@ -319,6 +319,11 @@ fn lowering_makes_decorations_inert_and_actions_semantic() {
     let mut interactive = rect_node(2, 1, rect);
     interactive.interaction = Some(Interaction2D {
         tap: Some(ActionBinding2D::new(ActionToken(42), b"collect".to_vec())),
+        long_press: Some(ActionBinding2D::new(ActionToken(43), b"inspect".to_vec())),
+        drag: Some(DragActions2D {
+            cancel: Some(ActionBinding2D::new(ActionToken(44), b"cancel".to_vec())),
+            ..DragActions2D::default()
+        }),
         semantic_label: Some("Collect".into()),
         semantic_role: Some(SemanticRole2D::Button),
         ..Default::default()
