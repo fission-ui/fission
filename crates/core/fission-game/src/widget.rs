@@ -1,10 +1,12 @@
 //! Fission widget integration for the deterministic game input map.
 
 use std::collections::BTreeSet;
+use std::sync::Arc;
 
-use fission_core::authoring::{custom_widget, IrBuilder, Lower, LowerWidget, LoweringContext};
+use fission_core::authoring::{IrBuilder, Lower, LowerWidget, LoweringContext};
+use fission_core::internal::{CustomEventResult, CustomRender, CustomRenderObject};
 use fission_core::ui::Widget;
-use fission_core::{Action, ActionEnvelope, ActionId};
+use fission_core::{Action, ActionEnvelope, ActionId, InputEvent, KeyEvent, LayoutRect};
 use fission_ir::{ActionEntry, ActionTrigger, KeyAction, KeyCode, Op, Role, Semantics, WidgetId};
 use serde::{Deserialize, Serialize};
 
@@ -12,13 +14,10 @@ use crate::{Game, GameKey, HostInputEvent, InputMap, InputTrigger};
 
 /// A device-independent host input delivered through Fission's reducer path.
 ///
-/// Keyboard bindings use a pulse because Fission semantic key actions represent
-/// one press. The reducer feeds the press and matching release to
-/// [`crate::GameRuntime`], preserving the game's declared message mapping
-/// without leaving a key stuck in the runtime input state.
+/// Key transitions preserve their pressed state across fixed simulation ticks.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum GameHostInput {
-    KeyPulse(GameKey),
+    Key { key: GameKey, pressed: bool },
     FocusLost,
 }
 
@@ -26,14 +25,10 @@ impl GameHostInput {
     /// Applies this semantic host input to a game runtime.
     pub fn apply<G: Game>(&self, runtime: &mut crate::GameRuntime<G>) {
         match self {
-            Self::KeyPulse(key) => {
+            Self::Key { key, pressed } => {
                 runtime.handle_input(HostInputEvent::Key {
                     key: key.clone(),
-                    pressed: true,
-                });
-                runtime.handle_input(HostInputEvent::Key {
-                    key: key.clone(),
-                    pressed: false,
+                    pressed: *pressed,
                 });
             }
             Self::FocusLost => runtime.handle_input(HostInputEvent::FocusLost),
@@ -68,7 +63,9 @@ impl GameInputRegion {
         let keys = map
             .triggers()
             .filter_map(|trigger| match trigger {
-                InputTrigger::KeyPressed { key } => Some(key.clone()),
+                InputTrigger::KeyPressed { key } | InputTrigger::KeyReleased { key } => {
+                    Some(key.clone())
+                }
                 _ => None,
             })
             .collect::<BTreeSet<_>>()
@@ -90,10 +87,50 @@ impl GameInputRegion {
 
 impl From<GameInputRegion> for Widget {
     fn from(region: GameInputRegion) -> Self {
-        custom_widget(
+        let input = Arc::new(GameInputRenderObject {
+            action: region.action.clone(),
+            keys: region.keys.clone(),
+        });
+        CustomRender::new(
             "fission_game::GameInputRegion",
-            GameInputRegionLowerer(region),
+            Arc::new(GameInputRegionLowerer(region)),
         )
+        .with_render_object(input)
+        .into()
+    }
+}
+
+#[derive(Debug)]
+struct GameInputRenderObject {
+    action: ActionEnvelope,
+    keys: Vec<GameKey>,
+}
+
+impl CustomRenderObject for GameInputRenderObject {
+    fn handle_event(
+        &self,
+        node_id: WidgetId,
+        event: &InputEvent,
+        _node_rect: LayoutRect,
+    ) -> CustomEventResult {
+        let (key_code, pressed) = match event {
+            InputEvent::Keyboard(KeyEvent::Down { key_code, .. })
+            | InputEvent::Keyboard(KeyEvent::DownWithText { key_code, .. }) => (key_code, true),
+            InputEvent::Keyboard(KeyEvent::Up { key_code, .. }) => (key_code, false),
+            _ => return CustomEventResult::ignored(),
+        };
+        let Some(key) = self
+            .keys
+            .iter()
+            .find(|key| fission_key(key).as_ref() == Some(key_code))
+        else {
+            return CustomEventResult::ignored();
+        };
+        let envelope = self.action.with_action(&GameHostInput::Key {
+            key: key.clone(),
+            pressed,
+        });
+        CustomEventResult::consumed_with(vec![(node_id, envelope)])
     }
 }
 
@@ -115,10 +152,10 @@ impl LowerWidget for GameInputRegionLowerer {
             .iter()
             .filter_map(|key| {
                 let key_code = fission_key(key)?;
-                let envelope = self
-                    .0
-                    .action
-                    .with_action(&GameHostInput::KeyPulse(key.clone()));
+                let envelope = self.0.action.with_action(&GameHostInput::Key {
+                    key: key.clone(),
+                    pressed: true,
+                });
                 Some(KeyAction::new(key_code, envelope.id.as_u128()).payload(envelope.payload))
             })
             .collect();
@@ -205,12 +242,22 @@ mod tests {
     }
 
     #[test]
-    fn key_pulse_uses_the_declared_game_mapping_without_sticking() {
+    fn key_transitions_use_the_declared_mapping_and_preserve_held_state() {
         let mut runtime = crate::GameRuntime::new(TestGame::default());
-        GameHostInput::KeyPulse(GameKey::ArrowLeft).apply(&mut runtime);
+        GameHostInput::Key {
+            key: GameKey::ArrowLeft,
+            pressed: true,
+        }
+        .apply(&mut runtime);
         runtime.advance(Duration::from_millis(20));
 
         assert_eq!(runtime.state().presses, 1);
+        assert!(runtime.input_state().key_pressed(&GameKey::ArrowLeft));
+        GameHostInput::Key {
+            key: GameKey::ArrowLeft,
+            pressed: false,
+        }
+        .apply(&mut runtime);
         assert!(!runtime.input_state().key_pressed(&GameKey::ArrowLeft));
     }
 }

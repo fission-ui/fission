@@ -3649,6 +3649,33 @@ fn parse_key_code(key: &str) -> KeyCode {
     }
 }
 
+fn winit_key_code(event: &winit::event::KeyEvent) -> Option<KeyCode> {
+    use winit::keyboard::{Key, NamedKey};
+
+    match &event.logical_key {
+        Key::Named(NamedKey::Space) => Some(KeyCode::Space),
+        Key::Named(NamedKey::Enter) => Some(KeyCode::Enter),
+        Key::Named(NamedKey::Escape) => Some(KeyCode::Escape),
+        Key::Named(NamedKey::Backspace) => Some(KeyCode::Backspace),
+        Key::Named(NamedKey::Delete) => Some(KeyCode::Delete),
+        Key::Named(NamedKey::Tab) => Some(KeyCode::Tab),
+        Key::Named(NamedKey::ArrowLeft) => Some(KeyCode::Left),
+        Key::Named(NamedKey::ArrowRight) => Some(KeyCode::Right),
+        Key::Named(NamedKey::ArrowUp) => Some(KeyCode::Up),
+        Key::Named(NamedKey::ArrowDown) => Some(KeyCode::Down),
+        Key::Named(NamedKey::Home) => Some(KeyCode::Home),
+        Key::Named(NamedKey::End) => Some(KeyCode::End),
+        Key::Named(NamedKey::PageUp) => Some(KeyCode::PageUp),
+        Key::Named(NamedKey::PageDown) => Some(KeyCode::PageDown),
+        Key::Character(text) => text.chars().next().map(KeyCode::Char),
+        _ => event
+            .text
+            .as_ref()
+            .and_then(|text| text.chars().next())
+            .map(KeyCode::Char),
+    }
+}
+
 /// Handle a key-down event — shared by WindowEvent::KeyboardInput and
 /// TestEvent::KeyDown / TestEvent::TextInput.
 ///
@@ -3805,6 +3832,59 @@ fn handle_key_down<S: GlobalState>(
     }
 
     false
+}
+
+fn handle_key_up(
+    code: KeyCode,
+    modifiers: u8,
+    runtime: &mut Runtime,
+    pipeline: &Pipeline,
+    effect_result_tx: &mpsc::Sender<EffectResult>,
+    event_proxy: &EventLoopProxy<TestEvent>,
+    async_registry: &AsyncRegistry,
+    active_services: &mut HashMap<ServiceKey, ActiveServiceHandle>,
+    service_bindings: &mut HashMap<ServiceBindingKey, ServiceBindings>,
+    next_service_instance_id: &mut u64,
+    window: &Window,
+    elwt: &EventLoopWindowTarget,
+    last_redraw_at: &mut Instant,
+    min_frame: Duration,
+    redraw_pending: &mut bool,
+    frame_trace: &mut FrameTraceState,
+    invalidations: &mut InvalidationSet,
+) {
+    let (Some(ir), Some(layout)) = (&pipeline.prev_ir, &pipeline.last_snapshot) else {
+        return;
+    };
+    let _ = runtime.handle_input(
+        InputEvent::Keyboard(FissionKeyEvent::Up {
+            key_code: code,
+            modifiers,
+        }),
+        ir,
+        layout,
+    );
+    invalidations.mark_build();
+    if process_pending_effects(
+        runtime,
+        effect_result_tx,
+        event_proxy,
+        async_registry,
+        active_services,
+        service_bindings,
+        next_service_instance_id,
+    ) {
+        invalidations.mark_build();
+    }
+    request_redraw_logged(
+        window,
+        elwt,
+        last_redraw_at,
+        min_frame,
+        redraw_pending,
+        frame_trace,
+        "keyboard:release",
+    );
 }
 
 fn rects_intersect(a: LayoutRect, b: LayoutRect) -> bool {
@@ -5875,18 +5955,31 @@ where
                             &mut invalidations,
                         );
                     }
-                    TestEvent::KeyUp { .. } => {
+                    TestEvent::KeyUp {
+                        key_code,
+                        modifiers,
+                    } => {
                         let Some(window) = platform_window.active_window() else {
                             return;
                         };
-                        request_redraw_logged(
+                        handle_key_up(
+                            parse_key_code(&key_code),
+                            modifiers,
+                            &mut runtime,
+                            &pipeline,
+                            &effect_result_tx,
+                            &event_proxy,
+                            &async_registry,
+                            &mut active_services,
+                            &mut service_bindings,
+                            &mut next_service_instance_id,
                             window,
                             elwt,
                             &mut last_redraw_at,
                             min_frame,
                             &mut redraw_pending,
                             &mut frame_trace,
-                            "test_key_up",
+                            &mut invalidations,
                         );
                     }
                     TestEvent::TextInput { text } => {
@@ -9731,28 +9824,7 @@ where
                                     redraw_pending = true;
                                     return;
                                 }
-                                let key_code = match &event.logical_key {
-                                    Key::Named(NamedKey::Space) => Some(KeyCode::Space),
-                                    Key::Named(NamedKey::Enter) => Some(KeyCode::Enter),
-                                    Key::Named(NamedKey::Escape) => Some(KeyCode::Escape),
-                                    Key::Named(NamedKey::Backspace) => Some(KeyCode::Backspace),
-                                    Key::Named(NamedKey::Delete) => Some(KeyCode::Delete),
-                                    Key::Named(NamedKey::Tab) => Some(KeyCode::Tab),
-                                    Key::Named(NamedKey::ArrowLeft) => Some(KeyCode::Left),
-                                    Key::Named(NamedKey::ArrowRight) => Some(KeyCode::Right),
-                                    Key::Named(NamedKey::ArrowUp) => Some(KeyCode::Up),
-                                    Key::Named(NamedKey::ArrowDown) => Some(KeyCode::Down),
-                                    Key::Named(NamedKey::Home) => Some(KeyCode::Home),
-                                    Key::Named(NamedKey::End) => Some(KeyCode::End),
-                                    Key::Named(NamedKey::PageUp) => Some(KeyCode::PageUp),
-                                    Key::Named(NamedKey::PageDown) => Some(KeyCode::PageDown),
-                                    Key::Character(text) => text.chars().next().map(KeyCode::Char),
-                                    _ => event
-                                        .text
-                                        .as_ref()
-                                        .and_then(|text| text.chars().next())
-                                        .map(KeyCode::Char),
-                                };
+                                let key_code = winit_key_code(&event);
 
                                 if let Some(code) = key_code {
                                     #[cfg(target_arch = "wasm32")]
@@ -9795,6 +9867,26 @@ where
                                         &mut invalidations,
                                     );
                                 }
+                            } else if let Some(code) = winit_key_code(&event) {
+                                handle_key_up(
+                                    code,
+                                    current_mods,
+                                    &mut runtime,
+                                    &pipeline,
+                                    &effect_result_tx,
+                                    &event_proxy,
+                                    &async_registry,
+                                    &mut active_services,
+                                    &mut service_bindings,
+                                    &mut next_service_instance_id,
+                                    &window,
+                                    elwt,
+                                    &mut last_redraw_at,
+                                    min_frame,
+                                    &mut redraw_pending,
+                                    &mut frame_trace,
+                                    &mut invalidations,
+                                );
                             }
                         }
                         #[cfg(target_arch = "wasm32")]
