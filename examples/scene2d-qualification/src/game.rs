@@ -1,8 +1,10 @@
 use std::time::Duration;
 
+#[cfg(test)]
+use fission::game::HostInputEvent;
 use fission::game::{
-    Game, GameCtx, GameKey, GameRuntime, GameState, GameTime, HostInputEvent, InputMap,
-    InputTrigger, SceneGesture, StepCtx, StepDuration,
+    Game, GameCtx, GameKey, GameRuntime, GameState, GameTime, InputMap, InputTrigger, SceneGesture,
+    StepCtx, StepDuration,
 };
 use fission::physics::{
     Collider2D, PhysicsBody2D, PhysicsBodyId, PhysicsPose2D, PhysicsProvider2D, PhysicsQueryFilter,
@@ -261,6 +263,7 @@ fn insert_box(
     world.insert_body(body).map_err(|error| error.to_string())
 }
 
+#[cfg(test)]
 pub fn run_step(runtime: &mut GameRuntime<QualificationGame>, message: GameMessage) {
     runtime.send(message);
     runtime.advance(Duration::from_nanos(StepDuration::from_hz(60).as_nanos()));

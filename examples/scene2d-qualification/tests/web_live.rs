@@ -95,3 +95,28 @@ fn touch_completes_the_real_web_game_and_renders_scene_pixels() {
         .expect("capture completed game");
     assert_varied_pixels(&screenshot, &viewport);
 }
+
+#[test]
+#[ignore = "requires a running Web qualification app and Chrome"]
+fn keyboard_completes_the_real_web_game_and_renders_scene_pixels() {
+    let client = browser();
+    client
+        .wait_for_text("Guide the scout", 30_000)
+        .expect("game becomes ready");
+
+    for (key, count) in [("ArrowUp", 8), ("ArrowRight", 40), ("ArrowDown", 8)] {
+        for _ in 0..count {
+            client.press_key(key, 0).expect("drive game with keyboard");
+        }
+    }
+    client
+        .wait_for_text("Success — beacon secured.", 10_000)
+        .expect("keyboard run completes");
+
+    let viewport = semantic_node(&client, "scene2d-qualification.viewport");
+    let screenshot = screenshot_path("complete-keyboard-run");
+    client
+        .screenshot(screenshot.to_str().unwrap())
+        .expect("capture completed game");
+    assert_varied_pixels(&screenshot, &viewport);
+}
