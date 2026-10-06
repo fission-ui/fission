@@ -3,7 +3,7 @@
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
-use fission_core::authoring::{IrBuilder, Lower, LowerWidget, LoweringContext};
+use fission_core::authoring::{lower_widget, IrBuilder, LowerWidget, LoweringContext};
 use fission_core::internal::{CustomEventResult, CustomRender, CustomRenderObject};
 use fission_core::ui::Widget;
 use fission_core::{Action, ActionEnvelope, ActionId, InputEvent, KeyEvent, LayoutRect};
@@ -149,7 +149,7 @@ impl LowerWidget for GameInputRegionLowerer {
             .as_deref()
             .map(WidgetId::explicit)
             .unwrap_or_else(|| cx.next_node_id());
-        let child = cx.with_scope(id, |cx| self.0.child.lower(cx));
+        let child = cx.with_scope(id, |cx| lower_widget(&self.0.child, cx));
         let key_actions = self
             .0
             .keys
