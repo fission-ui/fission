@@ -142,16 +142,18 @@ impl From<QualificationApp> for Widget {
                     .size(tokens.typography.heading1_size)
                     .color(tokens.colors.text_primary),
                 status,
-                Container::new(
-                    Scene2D::new(state.scene.clone())
-                        .width(VIEWPORT_SIZE.x)
-                        .height(VIEWPORT_SIZE.y),
+                SemanticsRegion::new(
+                    Container::new(
+                        Scene2D::new(state.scene.clone())
+                            .width(VIEWPORT_SIZE.x)
+                            .height(VIEWPORT_SIZE.y),
+                    )
+                    .width(VIEWPORT_SIZE.x)
+                    .height(VIEWPORT_SIZE.y)
+                    .border(tokens.colors.border, 1.0)
+                    .clip_overflow(true)
                 )
-                .width(VIEWPORT_SIZE.x)
-                .height(VIEWPORT_SIZE.y)
-                .border(tokens.colors.border, 1.0)
-                .clip_overflow(true)
-                .semantics_identifier("scene2d-qualification.viewport"),
+                .identifier("scene2d-qualification.viewport"),
                 Row {
                     gap: Some(tokens.spacing.s),
                     children: widgets![
