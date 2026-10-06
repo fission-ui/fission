@@ -1,6 +1,5 @@
-use fission_core::authoring::{
-    custom_widget, wrap_zstack_child, IrBuilder, LowerWidget, LoweringContext,
-};
+use fission_core::authoring::{custom_widget, IrBuilder, LowerWidget, LoweringContext};
+use fission_core::internal::wrap_zstack_child;
 use fission_core::ui::Widget;
 use fission_ir::op::{
     BlendMode, BoxStyle, Color, CompositeScalar, CompositeStyle, Fill, ImageAlignment,
