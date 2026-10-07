@@ -282,12 +282,7 @@ pub fn build_site(options: &SiteBuildOptions, site: &FissionSite) -> Result<Site
     eprintln!("Preparing output for {} static routes...", routes.len());
 
     if options.clean && options.output_dir.exists() {
-        fs::remove_dir_all(&options.output_dir).with_context(|| {
-            format!(
-                "failed to clean site output dir {}",
-                options.output_dir.display()
-            )
-        })?;
+        clean_output_dir(&options.output_dir)?;
     }
     prepare_output_dir(options)?;
     copy_asset_dirs(options)?;
@@ -331,6 +326,37 @@ pub fn build_site(options: &SiteBuildOptions, site: &FissionSite) -> Result<Site
         output_dir: options.output_dir.clone(),
         routes: report_routes,
     })
+}
+
+fn clean_output_dir(output_dir: &Path) -> Result<()> {
+    for entry in fs::read_dir(output_dir).with_context(|| {
+        format!(
+            "failed to read site output dir {} while cleaning",
+            output_dir.display()
+        )
+    })? {
+        let entry = entry.with_context(|| {
+            format!(
+                "failed to read an entry in site output dir {}",
+                output_dir.display()
+            )
+        })?;
+        let path = entry.path();
+        let file_type = entry
+            .file_type()
+            .with_context(|| format!("failed to inspect generated output {}", path.display()))?;
+        if file_type.is_dir() && !file_type.is_symlink() {
+            clean_output_dir(&path)?;
+        } else {
+            fs::remove_file(&path)
+                .with_context(|| format!("failed to remove generated output {}", path.display()))?;
+        }
+    }
+    // Retain directory nodes and clear their files. Some shared and WebDAV filesystems report an
+    // empty directory as non-empty when recursively deleting its final directory node. Reusing
+    // those empty directories provides the same clean output contract without depending on that
+    // unsupported operation.
+    Ok(())
 }
 
 fn report_route_progress(stage: &str, index: usize, total: usize, path: &str) {
@@ -1541,6 +1567,28 @@ mod tests {
             messages: HashMap::from([("page.title".to_string(), "Bonjour static".to_string())]),
         });
         env
+    }
+
+    #[test]
+    fn clean_output_dir_removes_stale_files_without_removing_directories() {
+        let temp = std::env::temp_dir().join(format!(
+            "fission-site-clean-output-test-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let nested = temp.join("old/route");
+        fs::create_dir_all(&nested).unwrap();
+        fs::write(temp.join("old-index.html"), "obsolete").unwrap();
+        fs::write(nested.join("index.html"), "obsolete").unwrap();
+
+        clean_output_dir(&temp).unwrap();
+
+        assert!(!temp.join("old-index.html").exists());
+        assert!(!nested.join("index.html").exists());
+        assert!(nested.is_dir());
+        let _ = fs::remove_dir_all(temp);
     }
 
     #[test]
