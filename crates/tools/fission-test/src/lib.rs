@@ -1016,6 +1016,20 @@ fn generate_display_list_with_visited(
                         node_id: Some(node_id),
                     });
                 }
+                fission_ir::Op::Paint(fission_ir::PaintOp::DrawImageBatch {
+                    request,
+                    sampling,
+                    instances,
+                }) => {
+                    list.push(DisplayOp::DrawImageBatch {
+                        rect: geom.rect,
+                        request: request.clone(),
+                        sampling: *sampling,
+                        instances: instances.clone(),
+                        bounds: geom.rect,
+                        node_id: Some(node_id),
+                    });
+                }
                 fission_ir::Op::Paint(fission_ir::PaintOp::DrawPath {
                     path,
                     fill,

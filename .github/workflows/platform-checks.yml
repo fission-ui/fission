@@ -36,6 +36,21 @@ jobs:
       - name: Check published dependency boundaries
         run: ./scripts/check_published_dependency_boundaries.sh
 
+      - name: Check scene and physics feature boundaries
+        run: ./scripts/check_scene_feature_boundaries.sh
+
+      - name: Test scene, game, asset, and physics foundations
+        run: |
+          cargo test --locked \
+            -p fission-assets \
+            -p fission-scene \
+            -p fission-scene2d \
+            -p fission-scene3d \
+            -p fission-game \
+            -p fission-physics \
+            -p fission-physics-rapier2d \
+            -p fission-physics-rapier3d
+
       - name: Test generated platform scripts
         run: cargo test -p cargo-fission
 
@@ -64,6 +79,10 @@ jobs:
           cargo check -p fission-core --target wasm32-unknown-unknown
           cargo check -p fission-widgets --target wasm32-unknown-unknown
           cargo check -p fission-charts --target wasm32-unknown-unknown
+          cargo check -p fission-scene2d --target wasm32-unknown-unknown
+          cargo check -p fission-scene3d --target wasm32-unknown-unknown
+          cargo check -p scene2d-qualification --target wasm32-unknown-unknown
+          cargo check -p scene3d-qualification --target wasm32-unknown-unknown
           cargo check -p web-smoke --target wasm32-unknown-unknown
 
       - name: Install wasm-pack
@@ -185,6 +204,7 @@ jobs:
           export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$CC_aarch64_linux_android"
           export CARGO_TARGET_AARCH64_LINUX_ANDROID_AR="$AR_aarch64_linux_android"
           cargo check -p mobile-smoke --target aarch64-linux-android
+          cargo check -p fission --target aarch64-linux-android --no-default-features --features android,game,scene2d,scene3d
 
       - name: Package mobile-smoke APK
         run: |
@@ -220,6 +240,11 @@ jobs:
 
       - name: Check mobile-smoke for iOS device
         run: cargo check -p mobile-smoke --target aarch64-apple-ios
+
+      - name: Check scene APIs for iOS simulator and device
+        run: |
+          cargo check -p fission --target aarch64-apple-ios-sim --no-default-features --features ios,game,scene2d,scene3d
+          cargo check -p fission --target aarch64-apple-ios --no-default-features --features ios,game,scene2d,scene3d
 
       - name: Package mobile-smoke simulator app
         run: ./platforms/ios/package-sim.sh

@@ -1,0 +1,7 @@
+targets = ["linux", "macos", "web", "windows"]
+
+[app]
+name = "Beacon Run 3D"
+app_id = "dev.fission.examples.beacon_run_3d"
+version = "0.1.0-alpha.1"
+build = 1

@@ -1,0 +1,5 @@
+Copyright 2026 Fission contributors
+
+The scout and beacon artwork in scout-sheet.svg was created for this example
+and is licensed under the Apache License, Version 2.0. The complete licence is
+available in the repository root LICENSE file.

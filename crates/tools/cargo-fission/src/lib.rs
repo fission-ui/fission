@@ -46,7 +46,12 @@ where
         }
     }
     let cli = Cli::parse_from(argv);
+    warn_for_alpha_features(&cli.command);
     match cli.command {
+        Command::Features => {
+            print_feature_catalog();
+            Ok(())
+        }
         Command::Init {
             path,
             name,
@@ -483,6 +488,51 @@ where
             port,
             open,
         }),
+    }
+}
+
+const ALPHA_FEATURES: &[(&str, &str)] = &[
+    ("assets", "typed asset provenance and licence metadata"),
+    ("game", "deterministic fixed-step game runtime"),
+    ("scene", "shared renderer-neutral scene contracts"),
+    ("scene2d", "retained interactive 2D scenes"),
+    ("scene3d", "retained interactive 3D scenes"),
+    ("physics", "provider-neutral 2D and 3D physics contracts"),
+    ("physics-rapier2d", "optional Rapier 2D physics provider"),
+    ("physics-rapier3d", "optional Rapier 3D physics provider"),
+];
+
+fn print_feature_catalog() {
+    println!("Fission alpha features");
+    println!();
+    for (feature, summary) in ALPHA_FEATURES {
+        println!("{feature:<18} alpha  {summary}");
+    }
+    println!();
+    println!("Alpha APIs are usable but may change between alpha releases.");
+}
+
+fn warn_for_alpha_features(command: &Command) {
+    let features = match command {
+        Command::Run { features, .. }
+        | Command::Build { features, .. }
+        | Command::Test { features, .. } => features,
+        _ => return,
+    };
+    let selected = ALPHA_FEATURES
+        .iter()
+        .filter_map(|(feature, _)| {
+            features
+                .iter()
+                .any(|value| value == feature)
+                .then_some(*feature)
+        })
+        .collect::<Vec<_>>();
+    if !selected.is_empty() {
+        eprintln!(
+            "note: {} use alpha APIs that may change between alpha releases",
+            selected.join(", ")
+        );
     }
 }
 

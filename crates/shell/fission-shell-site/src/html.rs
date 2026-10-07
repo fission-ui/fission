@@ -2048,6 +2048,10 @@ impl HtmlRenderer<'_> {
                     node.id
                 ))
             }
+            PaintOp::DrawImageBatch { .. } => anyhow::bail!(
+                "image batches require an interactive graphical renderer (node {})",
+                node.id
+            ),
             PaintOp::DrawPath {
                 path,
                 fill,

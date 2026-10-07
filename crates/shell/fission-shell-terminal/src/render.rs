@@ -196,6 +196,7 @@ impl TerminalRenderer {
             }
             PaintOp::BackdropFilter { .. }
             | PaintOp::DrawImage { .. }
+            | PaintOp::DrawImageBatch { .. }
             | PaintOp::DrawPath { .. }
             | PaintOp::DrawSvg { .. } => {
                 // Unsupported paint operations are rejected by verify_terminal_ir before render.
