@@ -161,6 +161,15 @@ impl BrowserController {
         )?;
         let mut client = CdpClient::connect(&ws_url)?;
         client.send("Runtime.enable", json!({}))?;
+        let icons = client.send("Runtime.evaluate", json!({
+            "expression": "JSON.stringify([new URL('/favicon.ico', location.href).href, ...Array.from(document.querySelectorAll('link[rel]')).filter(link => link.rel.split(/\\s+/).some(rel => rel === 'icon' || rel === 'apple-touch-icon')).map(link => link.href)])",
+            "returnByValue": true
+        }))?;
+        client.optional_icons = icons
+            .pointer("/result/value")
+            .and_then(Value::as_str)
+            .and_then(|value| serde_json::from_str(value).ok())
+            .unwrap_or_default();
         client.send("Log.enable", json!({}))?;
         client.send("Page.enable", json!({}))?;
         // Headless Chromium has no desktop clipboard broker. Grant clipboard
@@ -875,6 +884,7 @@ struct CdpClient {
     next_id: u64,
     backlog: VecDeque<Value>,
     errors: Vec<String>,
+    optional_icons: Vec<String>,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -890,6 +900,7 @@ impl CdpClient {
             next_id: 1,
             backlog: VecDeque::new(),
             errors: Vec::new(),
+            optional_icons: Vec::new(),
         })
     }
 
@@ -1010,8 +1021,7 @@ impl CdpClient {
                         .pointer("/params/entry/url")
                         .and_then(Value::as_str)
                         .unwrap_or("unknown URL");
-                    if !text.contains("/__fission/renderer") && !url.contains("/__fission/renderer")
-                    {
+                    if !optional_network_error(message, &self.optional_icons) {
                         self.errors
                             .push(format!("browser log error at {url}: {text}"));
                     }
@@ -1022,10 +1032,57 @@ impl CdpClient {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+fn optional_network_error(message: &Value, icons: &[String]) -> bool {
+    if message
+        .pointer("/params/entry/source")
+        .and_then(Value::as_str)
+        != Some("network")
+    {
+        return false;
+    }
+    let url = message
+        .pointer("/params/entry/url")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    icons.iter().any(|icon| icon == url)
+        || url
+            .split('?')
+            .next()
+            .is_some_and(|url| url.ends_with("/__fission/renderer"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::{Bounds, SemanticNode};
+
+    #[test]
+    fn only_known_optional_network_assets_are_ignored() {
+        let icons = vec!["http://localhost/missing-icon.png".to_string()];
+        let event =
+            |source: &str, url: &str| json!({"params": {"entry": {"source": source, "url": url}}});
+        assert!(optional_network_error(&event("network", &icons[0]), &icons));
+        assert!(optional_network_error(
+            &event("network", "http://localhost/__fission/renderer"),
+            &icons
+        ));
+        assert!(!optional_network_error(
+            &event("network", "http://localhost/bootstrap.mjs"),
+            &icons
+        ));
+        assert!(!optional_network_error(
+            &event("javascript", &icons[0]),
+            &icons
+        ));
+        assert!(!optional_network_error(
+            &event(
+                "network",
+                "http://localhost/app.js?next=/__fission/renderer"
+            ),
+            &icons
+        ));
+    }
 
     #[test]
     fn reduced_motion_is_an_explicit_browser_option() {

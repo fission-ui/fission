@@ -310,6 +310,15 @@ fn read_http_body(reader: &mut io::BufReader<TcpStream>) -> Result<String> {
 }
 
 fn static_response(root: &Path, request_path: &str, spa_fallback: bool) -> Result<Vec<u8>> {
+    static_response_at_mount(root, request_path, spa_fallback, None)
+}
+
+fn static_response_at_mount(
+    root: &Path,
+    request_path: &str,
+    spa_fallback: bool,
+    mount: Option<&str>,
+) -> Result<Vec<u8>> {
     let mut relative = request_path.trim_start_matches('/').to_string();
     if relative.is_empty() {
         relative = if root.join("index.html").exists() {
@@ -334,7 +343,21 @@ fn static_response(root: &Path, request_path: &str, spa_fallback: bool) -> Resul
     {
         let index = sanitize_static_path(root, "index.html")?;
         if index.is_file() {
-            let body = fs::read(index)?;
+            let mut body = fs::read(index)?;
+            // A deep-route refresh must resolve relative bootstrap URLs from
+            // the mounted app root, rather than from the current route.
+            if let Some(mount) = mount {
+                let html = std::str::from_utf8(&body).context("Web fallback entry is not UTF-8")?;
+                let lower = html.to_ascii_lowercase();
+                if !lower.contains("<base ") && !lower.contains("<base>") {
+                    if let Some(head) = lower.find("<head>") {
+                        let position = head + "<head>".len();
+                        let mut mounted = html.to_string();
+                        mounted.insert_str(position, &format!("<base href=\"{mount}\">"));
+                        body = mounted.into_bytes();
+                    }
+                }
+            }
             eprintln!("GET {} 200 (SPA fallback)", request_path);
             return Ok(http_response(
                 200,

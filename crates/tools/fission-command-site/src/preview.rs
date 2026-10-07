@@ -1,6 +1,6 @@
 //! Owned in-process file server used by the browser preview lifecycle.
 
-use super::{http_response, static_response};
+use super::{http_response, static_response_at_mount};
 use anyhow::{bail, Context, Result};
 use std::{
     io::{BufRead, BufReader, Read, Write},
@@ -56,13 +56,27 @@ impl PreviewServer {
             while !thread_stop.load(Ordering::Acquire) {
                 match listener.accept() {
                     Ok((mut stream, _)) => {
+                        // macOS can inherit O_NONBLOCK from the listener. A
+                        // connection arriving before its GET must still wait
+                        // for the bounded request timeout, rather than close.
+                        stream.set_nonblocking(false)?;
                         stream.set_read_timeout(Some(Duration::from_millis(250)))?;
                         stream.set_write_timeout(Some(Duration::from_millis(250)))?;
                         // Per-request failures (including optional renderer diagnostics)
                         // do not turn into startup failures; required GETs are verified
                         // separately by the lifecycle owner.
                         if let Err(error) = respond(&mut stream, &root, &mount, spa) {
-                            eprintln!("preview request: {error}");
+                            let idle =
+                                error.downcast_ref::<std::io::Error>().is_some_and(|error| {
+                                    matches!(
+                                        error.kind(),
+                                        std::io::ErrorKind::WouldBlock
+                                            | std::io::ErrorKind::TimedOut
+                                    )
+                                });
+                            if !idle {
+                                eprintln!("preview request: {error}");
+                            }
                         }
                     }
                     Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
@@ -127,7 +141,7 @@ fn respond(stream: &mut TcpStream, root: &std::path::Path, mount: &str, spa: boo
     } else if method != "GET" {
         http_response(404, "text/plain", b"not found", spa)
     } else if let Some(relative) = path.strip_prefix(mount) {
-        static_response(root, &format!("/{relative}"), spa)?
+        static_response_at_mount(root, &format!("/{relative}"), spa, Some(mount))?
     } else {
         http_response(404, "text/plain", b"outside preview mount", spa)
     };
@@ -139,15 +153,17 @@ fn respond(stream: &mut TcpStream, root: &std::path::Path, mount: &str, spa: boo
 mod tests {
     use super::*;
     use std::time::{SystemTime, UNIX_EPOCH};
+    static NEXT_FIXTURE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
     fn fixture_root() -> PathBuf {
         let root = std::env::temp_dir().join(format!(
-            "fission-mounted-preview-{}-{}",
+            "fission-mounted-preview-{}-{}-{}",
             std::process::id(),
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .unwrap()
-                .as_nanos()
+                .as_nanos(),
+            NEXT_FIXTURE.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
         ));
         std::fs::create_dir_all(root.join("about")).unwrap();
         std::fs::write(root.join("index.html"), "<html>Home</html>").unwrap();
@@ -163,6 +179,30 @@ mod tests {
         let mut response = String::new();
         stream.read_to_string(&mut response).unwrap();
         response
+    }
+
+    #[test]
+    fn waits_for_get_and_keeps_deep_route_bootstrap_at_mount_root() {
+        let root = fixture_root();
+        std::fs::write(
+            root.join("index.html"),
+            "<html><head></head><body><script src='./bootstrap.mjs'></script></body></html>",
+        )
+        .unwrap();
+        let server =
+            PreviewServer::start(root.clone(), "127.0.0.1", 0, "/repository-name/", true).unwrap();
+        let mut stream = TcpStream::connect(server.address()).unwrap();
+        std::thread::sleep(Duration::from_millis(50));
+        stream
+            .write_all(b"GET /repository-name/details/nested/ HTTP/1.1\r\nHost: localhost\r\n\r\n")
+            .unwrap();
+        let mut response = String::new();
+        stream.read_to_string(&mut response).unwrap();
+        assert!(response.contains("<head><base href=\"/repository-name/\">"));
+        assert!(response.contains("src='./bootstrap.mjs'"));
+        assert!(!get(&server, "/repository-name/").contains("<base"));
+        drop(server);
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
