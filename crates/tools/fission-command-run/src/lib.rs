@@ -1,4 +1,5 @@
 pub mod doctor;
+pub mod preview;
 
 use anyhow::{bail, Context, Result};
 use fission_command_core::{

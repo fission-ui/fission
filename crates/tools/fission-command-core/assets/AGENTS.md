@@ -5,6 +5,34 @@
 These instructions apply when building or reviewing a Fission-based app in this
 tree.
 
+## Browser Project Setup and Preview
+
+- Immediately after `fission init`, read the generated `AGENTS.md` and any
+  referenced `AGENTS.fission.md` before changing application files.
+- Preserve the CLI-generated `fission.toml`. Add browser targets with
+  `fission add-target static-site web --project-dir .` and use the supported
+  target commands instead of replacing generated configuration or host files.
+- Use `fission preview --target static-site --project-dir . --port 0` or
+  `fission preview --target web --project-dir . --port 0` for a verified local
+  browser preview. `--mount /repository-name/` serves the existing build under
+  that URL prefix. The default entry is `index.html`; use `--entry` for a site
+  whose entry is elsewhere in its output directory.
+- CLI wrappers should use `--json --stdin-control`, consume the `ready` event's
+  exact `url`, and retain the attached process and stdin. Send `stop` followed by
+  a newline, close stdin, or send Ctrl+C/SIGTERM to stop. Wait for the terminal
+  event and process exit. Never kill a listener by port or trust a saved PID.
+- `local_assets` readiness checks the built HTML and required local assets;
+  it does not claim the app has rendered in a browser. For Web development,
+  `--live-test` additionally compiles test control and verifies renderer and
+  bridge readiness in a temporary Chrome session. Keep it opt-in; rebuild
+  without it before packaging a production Web app. Static packages have no
+  test-control dependency or endpoint.
+- A failed preview reports its stage, diagnostic tail, and retry arguments.
+  Correct the reported build, tool, path, asset, or port problem and retry. Use
+  `--port 0` for an occupied port. Use `--startup-timeout-seconds` (1–3600) for
+  a slow build. The supported stop path cleans up only this preview's owned
+  build tree and listener.
+
 ## Source-Grounded Work
 
 - Start from the real app entrypoint, then trace into screens, reusable widgets,

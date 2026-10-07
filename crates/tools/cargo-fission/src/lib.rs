@@ -48,6 +48,51 @@ where
     let cli = Cli::parse_from(argv);
     warn_for_alpha_features(&cli.command);
     match cli.command {
+        Command::Preview(args) => {
+            fission_command_run::preview::run(fission_command_run::preview::PreviewOptions {
+                project_dir: args.project_dir,
+                target: args.target.into(),
+                release: args.release,
+                web_cargo: fission_command_run::WebCargoOptions {
+                    features: args.features,
+                    no_default_features: args.no_default_features,
+                },
+                host: args.host,
+                port: args.port,
+                mount: args.mount,
+                entry: args.entry,
+                startup_timeout: std::time::Duration::from_secs(args.startup_timeout_seconds),
+                live_test: args.live_test,
+                json: args.json,
+                stdin_control: args.stdin_control,
+                open: args.open,
+            })
+        }
+        Command::PreviewBuild {
+            target,
+            project_dir,
+            release,
+            features,
+            no_default_features,
+        } => fission_command_run::preview::build_worker(
+            fission_command_run::BuildOptions {
+                project_dir,
+                target: Some(target),
+                release,
+                variant: None,
+            },
+            fission_command_run::WebCargoOptions {
+                features,
+                no_default_features,
+            },
+        ),
+        Command::PreviewProbe {
+            url,
+            timeout_seconds,
+        } => fission_command_run::preview::probe_worker(
+            url,
+            std::time::Duration::from_secs(timeout_seconds),
+        ),
         Command::Features => {
             print_feature_catalog();
             Ok(())
