@@ -14,6 +14,16 @@ use std::{
 };
 
 const LOG_LIMIT: usize = 32 * 1024;
+
+/// Cleanup could not be confirmed. Callers must not report released resources.
+#[derive(Debug)]
+pub struct CleanupError(pub std::io::Error);
+impl std::fmt::Display for CleanupError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "failed to stop owned worker tree: {}", self.0)
+    }
+}
+impl std::error::Error for CleanupError {}
 thread_local! { static INHERITED_GROUP: Cell<bool> = const { Cell::new(false) }; }
 
 /// Runs a CLI worker's nested commands in the process tree owned by its parent.
@@ -103,9 +113,14 @@ pub fn run_captured(
         }
     };
     // Also clean up descendants if the worker exited before they did.
-    child
-        .terminate()
-        .context("failed to stop owned worker tree")?;
+    child.terminate().map_err(CleanupError).with_context(|| {
+        format!(
+            "{label}: {:?}\n{}{}",
+            result.as_ref().err(),
+            tail(&out),
+            tail(&err)
+        )
+    })?;
     out_reader
         .join()
         .map_err(|_| anyhow::anyhow!("stdout capture failed"))?;
