@@ -310,7 +310,12 @@ fn read_http_body(reader: &mut io::BufReader<TcpStream>) -> Result<String> {
 }
 
 fn static_response(root: &Path, request_path: &str, spa_fallback: bool) -> Result<Vec<u8>> {
-    static_response_at_mount(root, request_path, spa_fallback, None)
+    static_response_at_mount(
+        root,
+        request_path,
+        spa_fallback,
+        spa_fallback.then_some("/"),
+    )
 }
 
 fn static_response_at_mount(
@@ -440,6 +445,26 @@ mod tests {
         fs,
         time::{SystemTime, UNIX_EPOCH},
     };
+
+    #[test]
+    fn legacy_web_server_keeps_relative_bootstrap_at_root_on_deep_refresh() {
+        let root =
+            std::env::temp_dir().join(format!("fission-legacy-spa-base-{}", std::process::id()));
+        fs::create_dir_all(&root).unwrap();
+        fs::write(
+            root.join("index.html"),
+            "<html><head></head><body><script src='./bootstrap.mjs'></script></body></html>",
+        )
+        .unwrap();
+        let response =
+            String::from_utf8(static_response(&root, "/about/details/", true).unwrap()).unwrap();
+        assert!(response.contains("<head><base href=\"/\">"));
+        assert!(response.contains("src='./bootstrap.mjs'"));
+        let missing =
+            String::from_utf8(static_response(&root, "/about/app.wasm", true).unwrap()).unwrap();
+        assert!(missing.starts_with("HTTP/1.1 404"));
+        fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn formats_renderer_diagnostic_as_cli_line() {
