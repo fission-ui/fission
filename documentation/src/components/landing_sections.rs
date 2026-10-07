@@ -95,8 +95,8 @@ impl From<FoundationSection> for Widget {
             identifier: "site-home-foundation",
             anchor: Some("why"),
             eyebrow: "Why Fission",
-            title: "One foundation. Less repeated work.",
-            lead: "Tangible benefits for developers, teams and organisations.",
+            title: "A Rust app framework built for shipping.",
+            lead: "Share the work that should be shared, keep platform-specific control where it matters, and take the same product from development to release.",
             align: HeadingAlign::Center,
             tinted: false,
             content: vec![feature_columns(tokens, "site-kit-columns", &FOUNDATION)],
@@ -117,9 +117,9 @@ impl From<WriteOnceSection> for Widget {
                 heading_block(
                     tokens,
                     None,
-                    "Plain Rust",
-                    "Plain Rust in. Native apps out.",
-                    "State is a struct, updates are typed reducers and the interface is a value built from them. When the state changes, Fission rebuilds the view and updates only what changed.",
+                    "Rust UI development",
+                    "Build the interface and app logic in Rust.",
+                    "Define state with Rust types, update it with typed reducers and compose the interface from retained widgets. Fission updates the rendered app when state changes without requiring a JavaScript frontend or a separate UI language.",
                     false,
                 ),
                 arrow_link("Follow the quickstart  →", "/docs/learn/quickstart/"),
@@ -229,12 +229,18 @@ impl From<TargetsSection> for Widget {
         Section {
             identifier: "site-home-targets",
             anchor: Some("how"),
-            eyebrow: "How it works",
-            title: "Different targets. One way of working.",
-            lead: "Write your app once as plain Rust, then run it on every surface with the fission command.",
+            eyebrow: "Supported platforms",
+            title: "One Rust codebase for desktop, mobile and web.",
+            lead: "Build for macOS, Windows, Linux, Android, iOS and Web with shared Rust UI and application code. The same framework also supports terminal apps, static sites and server rendering.",
             align: HeadingAlign::Center,
             tinted: false,
-            content: vec![targets.into()],
+            content: vec![
+                targets.into(),
+                arrow_link(
+                    "Explore cross-platform Rust app development  →",
+                    "/product/cross-platform-apps/",
+                ),
+            ],
         }
         .into()
     }
@@ -278,8 +284,8 @@ impl From<GallerySection> for Widget {
             identifier: "site-home-gallery",
             anchor: Some("examples"),
             eyebrow: "Examples",
-            title: "See what it builds",
-            lead: "Every screenshot is a checked-in example you can run with cargo run.",
+            title: "See real Fission apps and Rust UI examples.",
+            lead: "Every screenshot comes from a checked-in example you can run, inspect and adapt for your own application.",
             align: HeadingAlign::Center,
             tinted: true,
             content: vec![shots.into()],
@@ -298,9 +304,9 @@ impl From<DeliverySection> for Widget {
         Section {
             identifier: "site-home-delivery",
             anchor: None,
-            eyebrow: "Production",
-            title: "Built for real delivery",
-            lead: "What it takes to ship and maintain high-quality applications on every target.",
+            eyebrow: "From UI to release",
+            title: "More than a Rust GUI toolkit.",
+            lead: "Fission combines the UI framework with accessibility, platform integration, testing and packaging so teams can finish and ship the application.",
             align: HeadingAlign::Center,
             tinted: false,
             content: vec![feature_columns(tokens, "site-kit-columns", &DELIVERY)],
@@ -322,12 +328,18 @@ impl From<StartSection> for Widget {
                     tokens,
                     Some("start"),
                     "Get started",
-                    "Start in a minute",
-                    "If you have Rust installed, four commands give you a running app. New to Rust? The quickstart walks through installing the toolchain first.",
+                    "Build your first Rust app in minutes.",
+                    "If you have Rust installed, four commands create and run a Fission app. The quickstart also covers the toolchain and adding Web, Android and iOS targets.",
                     false,
                 ),
-                arrow_link("Open the quickstart  →", "/docs/learn/quickstart/"),
-                arrow_link("Browse the examples  →", "/docs/learn/examples-and-targets/"),
+                arrow_link(
+                    "Follow the Rust app quickstart  →",
+                    "/docs/learn/quickstart/",
+                ),
+                arrow_link(
+                    "Browse runnable Fission examples  →",
+                    "/docs/learn/examples-and-targets/",
+                ),
             ],
             gap: Some(tokens.spacing.l),
             ..Default::default()
@@ -357,10 +369,10 @@ pub(super) struct CtaBand;
 impl From<CtaBand> for Widget {
     fn from(_band: CtaBand) -> Self {
         CallToAction {
-            title: "Ready to build without limits?",
-            body: "Install the fission command and have an app running in a minute.",
-            primary: ("Get started  →", "/docs/learn/quickstart/"),
-            secondary: Some(("Read the docs", "/docs/")),
+            title: "Ready to build an app in Rust?",
+            body: "Install the Fission CLI and run your first desktop app, then add Web, Android or iOS when you need them.",
+            primary: ("Build your first Rust app  →", "/docs/learn/quickstart/"),
+            secondary: Some(("Explore the Fission docs", "/docs/")),
         }
         .into()
     }

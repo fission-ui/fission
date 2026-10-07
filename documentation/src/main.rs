@@ -35,9 +35,9 @@ fn site_app() -> FissionSite {
         )
         .route_widget::<DocsState, _>(
             "/",
-            "Fission — One Rust application across every surface",
+            "Fission — Rust GUI Framework for Desktop, Mobile & Web",
             Some(
-                "Fission helps Rust teams turn one product model into native, mobile, web, terminal, and server experiences without rebuilding the organisation around every target."
+                "Build desktop, mobile and web apps in Rust with Fission, a cross-platform Rust application and GUI framework for macOS, Windows, Linux, Android, iOS and Web."
                     .to_string(),
             ),
             RoutedHomePage::new("/"),
