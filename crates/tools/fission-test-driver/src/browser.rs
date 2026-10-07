@@ -214,10 +214,7 @@ impl BrowserController {
                 ));
             }
             let status = read_runtime_status(&mut client)?;
-            let ready = match options.mode {
-                BrowserSmokeMode::Dom => status.ready_dom,
-                BrowserSmokeMode::FissionCanvas => status.ready_canvas && status.renderer.is_some(),
-            } && (!require_live_control || status.test_bridge_ready);
+            let ready = browser_is_ready(&status, options.mode, require_live_control);
             if ready {
                 let report = BrowserSmokeReport {
                     url: options.url.clone(),
@@ -590,9 +587,16 @@ impl BrowserController {
     }
 
     fn capture_page_screenshot(&mut self) -> Result<Vec<u8>> {
+        // A submitted WebGPU frame can precede its compositor presentation.
+        // Cross a browser paint boundary before capturing that surface.
+        self.client.send("Runtime.evaluate", json!({
+            "expression": "new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve(true))))",
+            "awaitPromise": true,
+            "returnByValue": true
+        }))?;
         let result = self.client.send(
             "Page.captureScreenshot",
-            json!({ "format": "png", "captureBeyondViewport": true }),
+            json!({ "format": "png", "captureBeyondViewport": false, "fromSurface": true }),
         )?;
         let data = result
             .get("data")
@@ -736,6 +740,22 @@ struct RuntimeStatus {
     body_text_len: usize,
     renderer: Option<String>,
     test_bridge_ready: bool,
+    #[serde(default)]
+    rendered_frames: u64,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn browser_is_ready(
+    status: &RuntimeStatus,
+    mode: BrowserSmokeMode,
+    require_live_control: bool,
+) -> bool {
+    (match mode {
+        BrowserSmokeMode::Dom => status.ready_dom,
+        BrowserSmokeMode::FissionCanvas => {
+            status.ready_canvas && status.renderer.is_some() && status.rendered_frames > 0
+        }
+    }) && (!require_live_control || status.test_bridge_ready)
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -753,6 +773,7 @@ fn read_runtime_status(client: &mut CdpClient) -> Result<RuntimeStatus> {
         height: Math.round(rect.height || window.innerHeight || 0),
         body_text_len: body ? body.innerText.trim().length : 0,
         renderer: renderer ? renderer.active : null,
+        rendered_frames: globalThis.__FISSION_RENDERED_FRAME_COUNT || 0,
         test_bridge_ready: !!globalThis.__FISSION_TEST__
           && typeof globalThis.__FISSION_TEST__.submit === 'function'
           && typeof globalThis.__FISSION_TEST__.poll === 'function',
@@ -1209,6 +1230,36 @@ mod tests {
 
         assert!(status.test_bridge_ready);
         assert_eq!(status.renderer.as_deref(), Some("webgpu-vello"));
+    }
+
+    #[test]
+    fn a_canvas_and_bridge_without_a_presented_frame_are_not_ready() {
+        let mut status: RuntimeStatus = serde_json::from_value(json!({
+            "ready_dom": false, "ready_canvas": true, "title": "Fission", "width": 1280, "height": 900,
+            "body_text_len": 0, "renderer": "webgpu-vello", "test_bridge_ready": true
+        })).unwrap();
+        assert!(!browser_is_ready(
+            &status,
+            BrowserSmokeMode::FissionCanvas,
+            true
+        ));
+        status.rendered_frames = 1;
+        assert!(browser_is_ready(
+            &status,
+            BrowserSmokeMode::FissionCanvas,
+            true
+        ));
+        status.test_bridge_ready = false;
+        assert!(!browser_is_ready(
+            &status,
+            BrowserSmokeMode::FissionCanvas,
+            true
+        ));
+        assert!(browser_is_ready(
+            &status,
+            BrowserSmokeMode::FissionCanvas,
+            false
+        ));
     }
 
     #[test]
