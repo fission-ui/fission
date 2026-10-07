@@ -87,6 +87,7 @@ jobs:
           test -f documentation/target/fission/release/static-site/static/img/charts/line-gradient-area.png
           test -f documentation/target/fission/release/static-site/static/artifact-manifest.json
           test -f documentation/target/fission/release/static-site/static/crates/index.html
+          scripts/check_homepage_seo.sh documentation/target/fission/release/static-site/static
 
       - name: Replace accumulated crate index asset
         env:
