@@ -333,16 +333,25 @@ fn lowering_makes_decorations_inert_and_actions_semantic() {
     let ir = fission_core::internal::lower_widget_to_ir(&Widget::from(
         Scene2D::new(scene).presentation_id(PresentationId::new(9)),
     ));
-    assert_eq!(
-        ir.nodes
-            .values()
-            .filter(|node| matches!(
-                node.op,
-                fission_ir::Op::Structural(fission_ir::StructuralOp::PointerTransparent { .. })
-            ))
-            .count(),
-        2
-    );
+    let inert_visuals = ir
+        .nodes
+        .values()
+        .filter(|node| matches!(
+            node.op,
+            fission_ir::Op::Structural(fission_ir::StructuralOp::PointerTransparent { .. })
+        ))
+        .collect::<Vec<_>>();
+    assert_eq!(inert_visuals.len(), 2);
+    assert!(inert_visuals.iter().all(|visual| {
+        visual.parent.is_some_and(|parent| {
+            matches!(
+                ir.nodes.get(&parent).map(|node| &node.op),
+                Some(fission_ir::Op::Layout(fission_ir::LayoutOp::Positioned {
+                    ..
+                }))
+            )
+        })
+    }));
     let semantics = ir
         .nodes
         .values()

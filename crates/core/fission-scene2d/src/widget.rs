@@ -113,7 +113,6 @@ impl LowerWidget for Scene2DLowerer {
         );
         for draw in &prepared.draws {
             let visual = lower_draw(cx, &self.scene, presentation, draw, self.width, self.height);
-            let visual = inert(cx, visual);
             stack.add_child(wrap_zstack_child(cx, visual));
             if let Some(interaction) = draw
                 .metadata()
@@ -389,7 +388,8 @@ fn lower_paint(
         ..Default::default()
     });
     node.add_child(child);
-    child = node.build(cx);
+    let transformed = node.build(cx);
+    child = inert(cx, transformed);
     positioned(
         cx,
         WidgetId::derived(base.as_u128(), &[5]),
@@ -443,6 +443,7 @@ fn lower_batch(
         blend_mode: blend(meta.blend_mode),
         ..Default::default()
     });
+    let child = inert(cx, child);
     node.add_child(child);
     node.build(cx)
 }

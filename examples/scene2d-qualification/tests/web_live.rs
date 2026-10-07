@@ -1,7 +1,9 @@
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
-use fission_test_driver::{BrowserTestOptions, LiveTestClient, SemanticNode, TestPointerKind};
+use fission_test_driver::{
+    BrowserTestOptions, LiveTestClient, SelectorQuery, SemanticNode, TestPointerKind,
+};
 
 fn browser() -> LiveTestClient {
     let url = std::env::var("FISSION_SCENE2D_WEB_URL")
@@ -104,6 +106,18 @@ fn keyboard_completes_the_real_web_game_and_renders_scene_pixels() {
         .wait_for_text("Guide the scout", 30_000)
         .expect("game becomes ready");
 
+    let viewport = semantic_node(&client, "scene2d-qualification.viewport");
+    let initial = screenshot_path("initial-keyboard-run");
+    client
+        .screenshot(initial.to_str().unwrap())
+        .expect("capture initial game");
+    assert_varied_pixels(&initial, &viewport);
+    client
+        .focus_selector(SelectorQuery::semantic_identifier(
+            "beacon-run.game-input",
+        ))
+        .expect("focus game input region");
+
     for (key, count) in [("ArrowUp", 8), ("ArrowRight", 40), ("ArrowDown", 8)] {
         for _ in 0..count {
             client.press_key(key, 0).expect("drive game with keyboard");
@@ -113,7 +127,6 @@ fn keyboard_completes_the_real_web_game_and_renders_scene_pixels() {
         .wait_for_text("Success — beacon secured.", 10_000)
         .expect("keyboard run completes");
 
-    let viewport = semantic_node(&client, "scene2d-qualification.viewport");
     let screenshot = screenshot_path("complete-keyboard-run");
     client
         .screenshot(screenshot.to_str().unwrap())

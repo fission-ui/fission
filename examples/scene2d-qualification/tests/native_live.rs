@@ -3,7 +3,7 @@ use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command};
 
-use fission_test_driver::{LiveTestClient, SemanticNode};
+use fission_test_driver::{LiveTestClient, SelectorQuery, SemanticNode};
 
 struct ChildGuard(Option<Child>);
 
@@ -101,6 +101,18 @@ fn keyboard_completes_the_native_game_and_renders_scene_pixels() {
         .wait_for_text("Guide the scout", 30_000)
         .expect("game becomes ready");
 
+    let viewport = semantic_node(&client, "scene2d-qualification.viewport");
+    let screenshot = screenshot_path();
+    client
+        .screenshot(screenshot.to_str().expect("UTF-8 screenshot path"))
+        .expect("capture initial native game");
+    assert_varied_pixels(&screenshot, &viewport);
+    client
+        .focus_selector(SelectorQuery::semantic_identifier(
+            "beacon-run.game-input",
+        ))
+        .expect("focus game input region");
+
     for (key, count) in [("ArrowUp", 8), ("ArrowRight", 40), ("ArrowDown", 8)] {
         for _ in 0..count {
             client.press_key(key, 0).expect("drive game with keyboard");
@@ -110,8 +122,6 @@ fn keyboard_completes_the_native_game_and_renders_scene_pixels() {
         .wait_for_text("Success — beacon secured.", 10_000)
         .expect("native keyboard run completes");
 
-    let viewport = semantic_node(&client, "scene2d-qualification.viewport");
-    let screenshot = screenshot_path();
     client
         .screenshot(screenshot.to_str().expect("UTF-8 screenshot path"))
         .expect("capture completed native game");

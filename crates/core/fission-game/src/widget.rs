@@ -167,6 +167,7 @@ impl LowerWidget for GameInputRegionLowerer {
         let semantics = Semantics {
             role: Role::Group,
             identifier: self.0.identifier.clone(),
+            focusable: true,
             actions: fission_ir::ActionSet {
                 entries: vec![ActionEntry {
                     trigger: ActionTrigger::Blur,
@@ -288,6 +289,7 @@ mod tests {
             &node.op,
             Op::Semantics(semantics)
                 if semantics.identifier.as_deref() == Some("test.game-input")
+                    && semantics.focusable
         )));
     }
 }
