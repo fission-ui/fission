@@ -8,6 +8,8 @@ crates=(
   fission-command-process
   fission-design-system-codegen
   fission-diagnostics
+  fission-assets
+  fission-scene
   fission-i18n
   fission-icons
   fission-ir
@@ -22,6 +24,12 @@ crates=(
   fission-theme
   fission-command-core
   fission-core
+  fission-scene2d
+  fission-scene3d
+  fission-game
+  fission-physics
+  fission-physics-rapier2d
+  fission-physics-rapier3d
   fission-render
   fission-3d
   fission-devtools
@@ -52,9 +60,11 @@ Usage: publish_release_crates.sh <version>
        publish_release_crates.sh --list
        publish_release_crates.sh --preflight <version> <crate>
 
-Publishes Fission's crates in dependency order. Existing versions are accepted
-only when their registry archive identifies the current release commit. Exit 75
-means registry propagation or throttling deferred the release safely.
+Publishes Fission's crates in dependency order. Existing framework-version
+archives must identify the current release commit. Existing independently
+versioned alpha prerequisites are verified but may identify their original
+release commit. Exit 75 means registry propagation or throttling deferred the
+release safely.
 EOF
 }
 
@@ -86,6 +96,7 @@ fi
 readonly expected_commit=${RELEASE_COMMIT:-$(git rev-parse HEAD)}
 readonly user_agent="fission-release/${version} (https://github.com/fission-ui/fission)"
 readonly target_dir=${CARGO_TARGET_DIR:-target}
+readonly repository_root=$(git rev-parse --show-toplevel)
 
 if [[ $(git rev-parse HEAD) != "$expected_commit" ]]; then
   echo "release checkout does not match RELEASE_COMMIT=$expected_commit" >&2
@@ -97,12 +108,22 @@ if [[ -n $(git status --porcelain) ]]; then
 fi
 
 metadata=$(cargo metadata --locked --no-deps --format-version 1)
+declare -A crate_versions
+declare -A crate_paths
 for crate in "${crates[@]}"; do
   actual_version=$(jq -r --arg crate "$crate" '.packages[] | select(.name == $crate) | .version' <<<"$metadata")
-  if [[ $actual_version != "$version" ]]; then
-    echo "$crate has version ${actual_version:-<missing>}, expected $version" >&2
+  api_status=$(jq -r --arg crate "$crate" '.packages[] | select(.name == $crate) | .metadata.fission["api-status"] // "stable"' <<<"$metadata")
+  manifest_path=$(jq -r --arg crate "$crate" '.packages[] | select(.name == $crate) | .manifest_path' <<<"$metadata")
+  if [[ -z $actual_version ]]; then
+    echo "$crate is missing from workspace metadata" >&2
     exit 1
   fi
+  if [[ $actual_version != "$version" && $api_status != "alpha" ]]; then
+    echo "$crate has version $actual_version, expected framework version $version" >&2
+    exit 1
+  fi
+  crate_versions["$crate"]=$actual_version
+  crate_paths["$crate"]=$(dirname "${manifest_path#"$repository_root"/}")
 done
 
 metadata_file=$(mktemp "${RUNNER_TEMP:-/tmp}/fission-release-metadata.XXXXXX.json")
@@ -133,8 +154,9 @@ defer() {
 
 registry_response() {
   local crate=$1
-  local body=$2
-  local headers=$3
+  local crate_version=$2
+  local body=$3
+  local headers=$4
   local code retry_after
 
   if ! code=$(curl \
@@ -144,8 +166,8 @@ registry_response() {
     --dump-header "$headers" \
     --output "$body" \
     --write-out '%{http_code}' \
-    "$CRATES_IO_API/$crate/$version"); then
-    echo "failed to query crates.io for $crate $version" >&2
+    "$CRATES_IO_API/$crate/$crate_version"); then
+    echo "failed to query crates.io for $crate $crate_version" >&2
     return 1
   fi
 
@@ -161,7 +183,7 @@ registry_response() {
       defer "crates.io returned HTTP $code for $crate"
       ;;
     *)
-      echo "crates.io returned unexpected HTTP $code for $crate $version" >&2
+      echo "crates.io returned unexpected HTTP $code for $crate $crate_version" >&2
       return 1
       ;;
   esac
@@ -169,36 +191,54 @@ registry_response() {
 
 verify_registry_archive() {
   local crate=$1
-  local response_body=$2
-  local expected_checksum archive archive_checksum unpack_dir package_root
+  local crate_version=$2
+  local response_body=$3
+  local expected_checksum archive archive_checksum unpack_dir package_root published_commit
 
   expected_checksum=$(jq -er '.version.checksum' "$response_body")
-  archive=$(mktemp "${RUNNER_TEMP:-/tmp}/${crate}-${version}.XXXXXX.crate")
-  unpack_dir=$(mktemp -d "${RUNNER_TEMP:-/tmp}/${crate}-${version}.XXXXXX")
+  archive=$(mktemp "${RUNNER_TEMP:-/tmp}/${crate}-${crate_version}.XXXXXX.crate")
+  unpack_dir=$(mktemp -d "${RUNNER_TEMP:-/tmp}/${crate}-${crate_version}.XXXXXX")
 
   curl --fail --silent --show-error --location --retry 3 \
     --user-agent "$user_agent" \
-    "$CRATES_IO_API/$crate/$version/download" \
+    "$CRATES_IO_API/$crate/$crate_version/download" \
     --output "$archive"
   archive_checksum=$(sha256sum "$archive" | awk '{print $1}')
   if [[ $archive_checksum != "$expected_checksum" ]]; then
-    echo "$crate $version download checksum does not match crates.io metadata" >&2
+    echo "$crate $crate_version download checksum does not match crates.io metadata" >&2
     return 1
   fi
 
   tar -xzf "$archive" -C "$unpack_dir"
-  package_root="$unpack_dir/$crate-$version"
+  package_root="$unpack_dir/$crate-$crate_version"
   if [[ ! -f $package_root/.cargo_vcs_info.json || ! -f $package_root/Cargo.toml.orig ]]; then
-    echo "$crate $version archive lacks release provenance files" >&2
+    echo "$crate $crate_version archive lacks release provenance files" >&2
     return 1
   fi
-  if ! jq -e --arg commit "$expected_commit" \
-    '.git.sha1 == $commit and ((.git.dirty // false) == false)' \
+  if [[ $crate_version == "$version" ]]; then
+    if ! jq -e --arg commit "$expected_commit" \
+      '.git.sha1 == $commit and ((.git.dirty // false) == false)' \
+      "$package_root/.cargo_vcs_info.json" >/dev/null; then
+      echo "$crate $crate_version was not packaged from release commit $expected_commit" >&2
+      return 1
+    fi
+  elif ! jq -e \
+    '(.git.sha1 | type == "string" and test("^[0-9a-f]{40}$")) and ((.git.dirty // false) == false)' \
     "$package_root/.cargo_vcs_info.json" >/dev/null; then
-    echo "$crate $version was not packaged from release commit $expected_commit" >&2
+    echo "$crate $crate_version lacks clean source provenance" >&2
     return 1
+  else
+    published_commit=$(jq -er '.git.sha1' "$package_root/.cargo_vcs_info.json")
+    if ! git cat-file -e "$published_commit^{commit}"; then
+      echo "$crate $crate_version was published from unavailable commit $published_commit" >&2
+      return 1
+    fi
+    if ! git diff --quiet "$published_commit" "$expected_commit" -- "${crate_paths[$crate]}"; then
+      echo "$crate $crate_version changed after publication; bump its alpha version" >&2
+      return 1
+    fi
   fi
-  python3 - "$package_root/Cargo.toml.orig" "$crate" "$version" <<'PY'
+  python3 - "$package_root/Cargo.toml.orig" "$crate" "$crate_version" <<'PY'
 import pathlib
 import sys
 import tomllib
@@ -209,12 +249,13 @@ if package.get("name") != sys.argv[2] or package.get("version") != sys.argv[3]:
     raise SystemExit("published Cargo.toml.orig identity does not match the release")
 PY
 
-  echo "RELEASE_VERIFIED $crate $version checksum=$expected_checksum commit=$expected_commit"
+  echo "RELEASE_VERIFIED $crate $crate_version checksum=$expected_checksum"
 }
 
 audit_package() {
   local crate=$1
-  local package_dir="$target_dir/package/$crate-$version"
+  local crate_version=$2
+  local package_dir="$target_dir/package/$crate-$crate_version"
 
   # Patch first-party registry dependencies back to this immutable checkout for
   # the dry run. This lets every archive compile before the first new version is
@@ -252,8 +293,9 @@ if [[ -n $preflight_crate ]]; then
     echo "unknown release crate: $preflight_crate" >&2
     exit 2
   fi
-  audit_package "$preflight_crate"
-  echo "RELEASE_PREFLIGHT_COMPLETE $preflight_crate $version"
+  preflight_version=${crate_versions[$preflight_crate]}
+  audit_package "$preflight_crate" "$preflight_version"
+  echo "RELEASE_PREFLIGHT_COMPLETE $preflight_crate $preflight_version"
   exit 0
 fi
 
@@ -280,12 +322,13 @@ publish_crate() {
 
 unpublished=()
 for crate in "${crates[@]}"; do
+  crate_version=${crate_versions[$crate]}
   response_body=$(mktemp "${RUNNER_TEMP:-/tmp}/${crate}-response.XXXXXX.json")
   response_headers=$(mktemp "${RUNNER_TEMP:-/tmp}/${crate}-headers.XXXXXX")
-  code=$(registry_response "$crate" "$response_body" "$response_headers")
+  code=$(registry_response "$crate" "$crate_version" "$response_body" "$response_headers")
 
   if [[ $code == 200 ]]; then
-    verify_registry_archive "$crate" "$response_body"
+    verify_registry_archive "$crate" "$crate_version" "$response_body"
     continue
   fi
 
@@ -293,20 +336,22 @@ for crate in "${crates[@]}"; do
 done
 
 for crate in "${unpublished[@]}"; do
-  echo "RELEASE_STEP package-and-audit $crate $version"
-  audit_package "$crate"
+  crate_version=${crate_versions[$crate]}
+  echo "RELEASE_STEP package-and-audit $crate $crate_version"
+  audit_package "$crate" "$crate_version"
 done
 
 for crate in "${unpublished[@]}"; do
+  crate_version=${crate_versions[$crate]}
   response_body=$(mktemp "${RUNNER_TEMP:-/tmp}/${crate}-response.XXXXXX.json")
   response_headers=$(mktemp "${RUNNER_TEMP:-/tmp}/${crate}-headers.XXXXXX")
-  code=$(registry_response "$crate" "$response_body" "$response_headers")
+  code=$(registry_response "$crate" "$crate_version" "$response_body" "$response_headers")
   if [[ $code == 200 ]]; then
-    verify_registry_archive "$crate" "$response_body"
+    verify_registry_archive "$crate" "$crate_version" "$response_body"
     continue
   fi
 
-  echo "RELEASE_STEP publish $crate $version"
+  echo "RELEASE_STEP publish $crate $crate_version"
 
   set +e
   publish_crate "$crate"
@@ -315,9 +360,9 @@ for crate in "${unpublished[@]}"; do
 
   # Check the registry after both success and failure. An upload may have
   # succeeded even when Cargo timed out waiting for index propagation.
-  code=$(registry_response "$crate" "$response_body" "$response_headers")
+  code=$(registry_response "$crate" "$crate_version" "$response_body" "$response_headers")
   if [[ $code == 200 ]]; then
-    verify_registry_archive "$crate" "$response_body"
+    verify_registry_archive "$crate" "$crate_version" "$response_body"
     continue
   fi
   if [[ $publish_status -eq $DEFERRED_EXIT ]]; then

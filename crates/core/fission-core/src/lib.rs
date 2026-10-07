@@ -439,6 +439,7 @@ pub mod public {
     pub use crate::input::range_slider::{
         RangeSliderChangeSource, RangeSliderChanged, RangeSliderThumb,
     };
+    pub use crate::input::scene::{SceneInteraction, SceneInteractionPhase};
     pub use crate::input::viewport::{
         ViewportInputKind, ViewportInteraction, ViewportInteractionPhase, ViewportStateMap,
     };
@@ -574,9 +575,9 @@ pub mod public {
     };
     pub use fission_ir::{
         EmbedKind, FocusPolicy, Hyperlink, InputFormatter, LinkTarget, MaxLengthEnforcement, Op,
-        PopoverAction, PopoverTarget, PopupKind, Role, SemanticOrientation, Semantics,
-        TextCapitalization, TextFieldValidationState, TextInputAction, TextInputType, TextWrapMode,
-        WidgetId,
+        PopoverAction, PopoverTarget, PopupKind, Role, SceneDimension, SceneTarget,
+        SemanticOrientation, Semantics, TextCapitalization, TextFieldValidationState,
+        TextInputAction, TextInputType, TextWrapMode, WidgetId,
     };
     pub use fission_layout::{
         BoxConstraints, FlexDirection, LayoutEngine, LayoutInspection, LayoutNodeGeometry,
@@ -662,9 +663,9 @@ pub use fission_ir::op::{
 };
 pub use fission_ir::{
     EmbedKind, FocusPolicy, Hyperlink, InputFormatter, LinkTarget, MaxLengthEnforcement, Op,
-    PopoverAction, PopoverTarget, PopupKind, Role, SemanticOrientation, Semantics,
-    TextCapitalization, TextFieldValidationState, TextInputAction, TextInputType, TextWrapMode,
-    WidgetId,
+    PopoverAction, PopoverTarget, PopupKind, Role, SceneDimension, SceneTarget,
+    SemanticOrientation, Semantics, TextCapitalization, TextFieldValidationState, TextInputAction,
+    TextInputType, TextWrapMode, WidgetId,
 };
 pub use fission_layout::{
     BoxConstraints, FlexDirection, LayoutEngine, LayoutInspection, LayoutNodeGeometry, LayoutOp,
@@ -675,6 +676,7 @@ pub use input::canvas::{
     CanvasNodeBoundsChange,
 };
 pub use input::range_slider::{RangeSliderChangeSource, RangeSliderChanged, RangeSliderThumb};
+pub use input::scene::{SceneInteraction, SceneInteractionPhase};
 pub use input::viewport::{
     ViewportInputKind, ViewportInteraction, ViewportInteractionPhase, ViewportStateMap,
 };

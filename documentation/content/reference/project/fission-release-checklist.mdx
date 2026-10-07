@@ -47,14 +47,15 @@ shells, CLI, packaging, docs, examples, tests, and migration notes.
 
 ## 2. Update versions
 
-Bump every Fission workspace crate and internal dependency requirement to the
-new version. Do not bump forked third-party packages unless that fork actually
-changed.
+Bump every stable Fission workspace crate and internal dependency requirement
+to the new framework version. Independently versioned alpha crates keep their
+exact prerelease version unless that alpha API is being released again. Do not
+bump forked third-party packages unless that fork actually changed.
 
 For a release from `<old-version>` to `<new-version>`, update these values:
 
-- every first-party `package.version = "<old-version>"` to `"<new-version>"`;
-- every first-party dependency `version = "<old-version>"` to `"<new-version>"`;
+- every stable first-party `package.version = "<old-version>"` to `"<new-version>"`;
+- every stable first-party dependency `version = "<old-version>"` to `"<new-version>"`;
 - documentation snippets that tell users to depend on the old Fission version;
 - generated-app snippets and `fission init` templates, including the generated
   `AGENTS.md` design-system codegen version;
@@ -185,8 +186,12 @@ Configure the `crates-io` GitHub environment with a
 upload, the release job exits instead of occupying a runner. It enables the
 normally dormant **Resume deferred Fission release** workflow, which checks at
 five-minute intervals and dispatches a resume from the immutable tag. A resumed
-run verifies already-published archives against the release commit before
-skipping them. The resumer disables itself when no draft release remains.
+run verifies already-published framework archives against the release commit
+before skipping them. Independently versioned alpha prerequisites are verified
+by registry checksum, package identity, clean source provenance, and confirmation
+that the package source has not changed since its earlier publishing commit. An
+alpha package that changed must receive a new prerelease version. The resumer
+disables itself when no draft release remains.
 
 The commands below remain the manual fallback and explain the ordering enforced
 by `scripts/publish_release_crates.sh`.
@@ -201,6 +206,8 @@ The current first-party order is:
 fission-command-process
 fission-design-system-codegen
 fission-diagnostics
+fission-assets
+fission-scene
 fission-i18n
 fission-icons
 fission-ir
@@ -215,6 +222,12 @@ fission-store-sqlite
 fission-theme
 fission-command-core
 fission-core
+fission-scene2d
+fission-scene3d
+fission-game
+fission-physics
+fission-physics-rapier2d
+fission-physics-rapier3d
 fission-render
 fission-3d
 fission-devtools

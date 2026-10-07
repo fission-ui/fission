@@ -17,6 +17,8 @@ pub(crate) struct Cli {
 
 #[derive(Subcommand, Debug)]
 pub(crate) enum Command {
+    /// List alpha scene, game, asset, and physics features.
+    Features,
     /// Create a new Fission application.
     Init {
         /// Directory to create.
@@ -635,5 +637,11 @@ mod tests {
             assert_eq!(features, ["fixtures", "diagnostics", "testing"]);
             assert!(no_default_features);
         }
+    }
+
+    #[test]
+    fn features_command_parses_without_project_context() {
+        let cli = Cli::try_parse_from(["fission", "features"]).unwrap();
+        assert!(matches!(cli.command, Command::Features));
     }
 }

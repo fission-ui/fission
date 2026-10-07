@@ -1,0 +1,20 @@
+[package]
+name = "fission-physics-rapier2d"
+version = "0.1.0-alpha.1"
+edition = "2021"
+license = "Apache-2.0"
+repository = "https://github.com/fission-ui/fission"
+homepage = "https://fission.rs"
+documentation = "https://fission.rs"
+description = "Optional Rapier 2D physics provider for Fission"
+readme = "README.md"
+categories = ["game-development", "game-engines"]
+keywords = ["fission", "rapier", "physics", "2d"]
+
+[package.metadata.fission]
+platforms = ["android", "ios", "linux", "macos", "windows", "web"]
+api-status = "alpha"
+
+[dependencies]
+fission-physics = { path = "../fission-physics", version = "=0.1.0-alpha.1" }
+rapier2d = { version = "0.35.3", default-features = false, features = ["dim2", "f32", "std", "block-solver", "enhanced-determinism"] }

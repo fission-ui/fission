@@ -77,8 +77,13 @@ jobs:
             metadata=$(cargo metadata --locked --no-deps --format-version 1)
             while read -r crate; do
               actual=$(jq -r --arg crate "$crate" '.packages[] | select(.name == $crate) | .version' <<<"$metadata")
-              if [[ $actual != "$RELEASE_VERSION" ]]; then
-                echo "$crate has version ${actual:-<missing>}, expected $RELEASE_VERSION" >&2
+              api_status=$(jq -r --arg crate "$crate" '.packages[] | select(.name == $crate) | .metadata.fission["api-status"] // "stable"' <<<"$metadata")
+              if [[ -z $actual ]]; then
+                echo "$crate is missing from workspace metadata" >&2
+                exit 1
+              fi
+              if [[ $actual != "$RELEASE_VERSION" && $api_status != "alpha" ]]; then
+                echo "$crate has version $actual, expected framework version $RELEASE_VERSION" >&2
                 exit 1
               fi
             done < <(./scripts/publish_release_crates.sh --list)

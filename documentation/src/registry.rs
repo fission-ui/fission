@@ -25,6 +25,8 @@ pub struct RegistryCrate {
     pub repository: Option<String>,
     pub documentation: Option<String>,
     pub license: Option<String>,
+    /// Machine-readable maturity declared by `package.metadata.fission.api-status`.
+    pub api_status: String,
     pub platforms: Vec<String>,
     pub keywords: Vec<String>,
     pub categories: Vec<String>,
@@ -45,11 +47,23 @@ pub fn load_registry(path: &Path) -> Result<Vec<RegistryCrate>> {
 
     let connection = Connection::open(path)
         .with_context(|| format!("open crate registry at {}", path.display()))?;
-    let mut statement = connection.prepare(
+    let has_api_status = connection
+        .prepare("PRAGMA table_info(crates)")?
+        .query_map([], |row| row.get::<_, String>(1))?
+        .collect::<rusqlite::Result<Vec<_>>>()?
+        .iter()
+        .any(|column| column == "api_status");
+    let api_status = if has_api_status {
+        "api_status"
+    } else {
+        "'stable' AS api_status"
+    };
+    let query = format!(
         "SELECT name, version, description, downloads, updated_at, repository, documentation, \
-         license, platforms, keywords, categories, versions, readme_markdown \
-         FROM crates ORDER BY updated_at DESC, name ASC",
-    )?;
+         license, {api_status}, platforms, keywords, categories, versions, readme_markdown \
+         FROM crates ORDER BY updated_at DESC, name ASC"
+    );
+    let mut statement = connection.prepare(&query)?;
     let crates = statement
         .query_map([], row_to_crate)?
         .collect::<rusqlite::Result<Vec<_>>>()?;
@@ -66,11 +80,12 @@ fn row_to_crate(row: &Row<'_>) -> rusqlite::Result<RegistryCrate> {
         repository: row.get(5)?,
         documentation: row.get(6)?,
         license: row.get(7)?,
-        platforms: json_column(row, 8),
-        keywords: json_column(row, 9),
-        categories: json_column(row, 10),
-        versions: json_column(row, 11),
-        readme_markdown: row.get(12)?,
+        api_status: row.get(8)?,
+        platforms: json_column(row, 9),
+        keywords: json_column(row, 10),
+        categories: json_column(row, 11),
+        versions: json_column(row, 12),
+        readme_markdown: row.get(13)?,
     })
 }
 
