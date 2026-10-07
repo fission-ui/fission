@@ -113,12 +113,10 @@ fn keyboard_completes_the_real_web_game_and_renders_scene_pixels() {
         .expect("capture initial game");
     assert_varied_pixels(&initial, &viewport);
     client
-        .focus_selector(SelectorQuery::semantic_identifier(
-            "beacon-run.game-input",
-        ))
+        .focus_selector(SelectorQuery::semantic_identifier("beacon-run.game-input"))
         .expect("focus game input region");
 
-    for (key, count) in [("ArrowUp", 8), ("ArrowRight", 40), ("ArrowDown", 8)] {
+    for (key, count) in [("Up", 8), ("Right", 40), ("Down", 8)] {
         for _ in 0..count {
             client.press_key(key, 0).expect("drive game with keyboard");
         }

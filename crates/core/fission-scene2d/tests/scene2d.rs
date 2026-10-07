@@ -336,19 +336,21 @@ fn lowering_makes_decorations_inert_and_actions_semantic() {
     let inert_visuals = ir
         .nodes
         .values()
-        .filter(|node| matches!(
-            node.op,
-            fission_ir::Op::Structural(fission_ir::StructuralOp::PointerTransparent { .. })
-        ))
+        .filter(|node| {
+            matches!(
+                node.op,
+                fission_ir::Op::Structural(fission_ir::StructuralOp::PointerTransparent { .. })
+            )
+        })
         .collect::<Vec<_>>();
     assert_eq!(inert_visuals.len(), 2);
     assert!(inert_visuals.iter().all(|visual| {
         visual.parent.is_some_and(|parent| {
             matches!(
                 ir.nodes.get(&parent).map(|node| &node.op),
-                Some(fission_ir::Op::Layout(fission_ir::LayoutOp::Positioned {
-                    ..
-                }))
+                Some(fission_ir::Op::Layout(
+                    fission_ir::LayoutOp::Positioned { .. }
+                ))
             )
         })
     }));
