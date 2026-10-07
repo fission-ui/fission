@@ -1,4 +1,5 @@
 use anyhow::{bail, Context, Result};
+pub mod preview;
 use fission_command_process::run_status;
 use std::ffi::OsStr;
 use std::fs;
@@ -150,6 +151,15 @@ fn site_build_options(project_dir: &Path) -> Result<fission_shell_site::SiteBuil
             ))
         },
     )
+}
+
+/// The configured static output directory, shared by build and preview.
+pub fn output_dir(project_dir: &Path) -> Result<PathBuf> {
+    Ok(fission_shell_site::SiteBuildOptions::from_project_dir(
+        project_dir,
+        project_name(project_dir)?,
+    )?
+    .output_dir)
 }
 
 fn project_name(project_dir: &Path) -> Result<String> {
@@ -325,7 +335,7 @@ fn static_response(root: &Path, request_path: &str, spa_fallback: bool) -> Resul
         let index = sanitize_static_path(root, "index.html")?;
         if index.is_file() {
             let body = fs::read(index)?;
-            println!("GET {} 200 (SPA fallback)", request_path);
+            eprintln!("GET {} 200 (SPA fallback)", request_path);
             return Ok(http_response(
                 200,
                 "text/html; charset=utf-8",
@@ -335,12 +345,12 @@ fn static_response(root: &Path, request_path: &str, spa_fallback: bool) -> Resul
         }
     }
     if !path.exists() || !path.is_file() {
-        println!("GET {} 404", request_path);
+        eprintln!("GET {} 404", request_path);
         return Ok(http_response(404, "text/plain", b"not found", spa_fallback));
     }
     let body = fs::read(&path)?;
     let content_type = content_type(&path);
-    println!("GET {} 200", request_path);
+    eprintln!("GET {} 200", request_path);
     Ok(http_response(200, content_type, &body, spa_fallback))
 }
 
@@ -355,6 +365,9 @@ fn sanitize_static_path(root: &Path, relative: &str) -> Result<PathBuf> {
         }
         path.push(part);
     }
+    if path.exists() && !path.canonicalize()?.starts_with(root.canonicalize()?) {
+        bail!("static path escapes the output directory: `{relative}`");
+    }
     Ok(path)
 }
 
@@ -366,6 +379,7 @@ fn http_response(
 ) -> Vec<u8> {
     let reason = match status {
         200 => "OK",
+        204 => "No Content",
         404 => "Not Found",
         _ => "Error",
     };
@@ -464,7 +478,8 @@ mod tests {
     }
 }
 
-fn open_url(url: &str) -> Result<()> {
+/// Opens a preview URL using the host's default browser.
+pub fn open_url(url: &str) -> Result<()> {
     let mut command = if cfg!(target_os = "macos") {
         let mut cmd = Command::new("open");
         cmd.arg(url);

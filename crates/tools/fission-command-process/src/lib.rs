@@ -1,5 +1,8 @@
 //! Owned child-process supervision for Fission CLI commands.
 
+mod session;
+pub use session::{in_owned_process_tree, run_captured, ProcessSession};
+
 use anyhow::{bail, Context, Result};
 use command_group::{CommandGroup, GroupChild};
 use std::process::{Command, ExitStatus};
@@ -33,10 +36,15 @@ impl SupervisedChild {
         let Some(mut child) = self.child.take() else {
             return Ok(None);
         };
-        if let Some(status) = child.try_wait()? {
-            return Ok(Some(status));
+        // The leader may have exited while owned descendants still run. Kill
+        // the owned group before waiting, rather than returning on leader exit.
+        if let Err(error) = child.kill() {
+            if error.kind() != std::io::ErrorKind::InvalidInput
+                && !(cfg!(unix) && error.raw_os_error() == Some(3))
+            {
+                return Err(error);
+            }
         }
-        child.kill()?;
         child.wait().map(Some)
     }
 
@@ -65,6 +73,15 @@ impl Drop for SupervisedChild {
 
 /// Runs a child process under tree supervision and validates its exit status.
 pub fn run_status(command: &mut Command, label: &str) -> Result<()> {
+    if session::inherits_group() {
+        let status = command
+            .status()
+            .with_context(|| format!("failed to run {label}"))?;
+        if !status.success() {
+            bail!("{label} failed with {status}");
+        }
+        return Ok(());
+    }
     let _active = ACTIVE_SUPERVISOR
         .lock()
         .map_err(|_| anyhow::anyhow!("process supervisor lock was poisoned"))?;
