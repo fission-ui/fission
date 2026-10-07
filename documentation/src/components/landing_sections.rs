@@ -99,7 +99,13 @@ impl From<FoundationSection> for Widget {
             lead: "Share the work that should be shared, keep platform-specific control where it matters, and take the same product from development to release.",
             align: HeadingAlign::Center,
             tinted: false,
-            content: vec![feature_columns(tokens, "site-kit-columns", &FOUNDATION)],
+            content: vec![
+                feature_columns(tokens, "site-kit-columns", &FOUNDATION),
+                arrow_link(
+                    "Explore Fission as a Rust application framework  →",
+                    "/product/overview/",
+                ),
+            ],
         }
         .into()
     }

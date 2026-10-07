@@ -42,6 +42,7 @@ fn site_app() -> FissionSite {
             ),
             RoutedHomePage::new("/"),
         )
+        .with_route_structured_data("/", homepage_structured_data())
         .route_widget::<DocsState, _>(
             "/es/",
             "Fission",
@@ -135,6 +136,34 @@ fn site_app() -> FissionSite {
             site.route_widget::<DocsState, _>(path, title, description, CrateDetailPage::new(item));
     }
     site
+}
+
+fn homepage_structured_data() -> [String; 2] {
+    let organisation = serde_json::json!({
+        "@context": "https://schema.org",
+        "@type": "Organization",
+        "@id": "https://fission.rs/#organization",
+        "name": "Fission",
+        "url": "https://fission.rs/",
+        "logo": "https://fission.rs/img/fission-mark.svg",
+        "sameAs": ["https://github.com/fission-ui/fission"]
+    });
+    let application = serde_json::json!({
+        "@context": "https://schema.org",
+        "@type": "SoftwareApplication",
+        "@id": "https://fission.rs/#software",
+        "name": "Fission",
+        "applicationCategory": "DeveloperApplication",
+        "operatingSystem": "macOS, Windows, Linux, Android, iOS and Web",
+        "description": "A cross-platform Rust application and GUI framework for building desktop, mobile and web apps from one shared codebase.",
+        "softwareVersion": env!("CARGO_PKG_VERSION"),
+        "isAccessibleForFree": true,
+        "license": "https://www.apache.org/licenses/LICENSE-2.0",
+        "url": "https://fission.rs/",
+        "sameAs": ["https://github.com/fission-ui/fission"],
+        "publisher": { "@id": "https://fission.rs/#organization" }
+    });
+    [organisation.to_string(), application.to_string()]
 }
 
 fn atlas_theme(mode: DesignMode) -> Theme {
