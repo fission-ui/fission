@@ -1,0 +1,5 @@
+{
+  "$package": { "name": "website-design-system", "version": "0.1.0" },
+  "tokens": { "$ref": "./tokens.json" },
+  "components": {}
+}

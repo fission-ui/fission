@@ -21,6 +21,7 @@ mod native_cargo;
 mod native_variant;
 mod splash;
 mod web_storage;
+mod website;
 mod windows_native;
 pub use desktop_features::{read_desktop_cargo_options, DesktopCargoOptions};
 pub use icons::{copy_icon_for_bundle, normalized_extension, resolve_app_icon, ResolvedIcon};
@@ -42,6 +43,7 @@ pub use macos_signing::{
 pub use native_variant::{ensure_native_variant_target, variant_output_path, NativeVariant};
 pub use splash::{SplashConfig, SplashResizeMode};
 pub use web_storage::prepare_web_target;
+pub use website::WebsiteTarget;
 pub use windows_native::{
     build_windows_native_modules, stage_windows_runtime_products, test_windows_native_modules,
     BuiltWindowsNativeProduct, NativeWindowsModuleConfig, NativeWindowsProductConfig,
@@ -397,6 +399,26 @@ pub fn init_project(
     app_id: Option<String>,
     local_path: Option<PathBuf>,
 ) -> Result<()> {
+    init_project_with_website(root, name, app_id, local_path, None)
+}
+
+/// Initializes an application, optionally selecting the complete website starter.
+pub fn init_project_with_website(
+    root: &Path,
+    name: Option<String>,
+    app_id: Option<String>,
+    local_path: Option<PathBuf>,
+    website: Option<WebsiteTarget>,
+) -> Result<()> {
+    if website.is_some()
+        && (root.join("Cargo.toml").exists()
+            || root.join("fission.toml").exists()
+            || root.join("src").exists())
+    {
+        bail!(
+            "--website requires a new source directory; use fission add-target on an existing app"
+        );
+    }
     let existing_project = root.exists() && root.read_dir()?.next().is_some();
     fs::create_dir_all(root.join("src"))?;
 
@@ -405,30 +427,37 @@ pub fn init_project(
     } else {
         WritePolicy::Overwrite
     };
-    let project = initial_project_config(root, name, app_id)?;
+    let mut project = initial_project_config(root, name, app_id)?;
+    if let Some(target) = website {
+        project.targets = target.targets();
+    }
 
     write_file_with_policy(
         &root.join("Cargo.toml"),
         &render_cargo_toml(&project, local_path.as_deref()),
         write_policy,
     )?;
-    write_file_with_policy(
-        &root.join("src/main.rs"),
-        &render_app_main(project.app.name.as_str()),
-        write_policy,
-    )?;
-    write_file_with_policy(&root.join("src/lib.rs"), APP_LIB, write_policy)?;
-    write_file_with_policy(&root.join("src/app.rs"), APP_RS, write_policy)?;
+    if website.is_none() {
+        write_file_with_policy(
+            &root.join("src/main.rs"),
+            &render_app_main(project.app.name.as_str()),
+            write_policy,
+        )?;
+        write_file_with_policy(&root.join("src/lib.rs"), APP_LIB, write_policy)?;
+        write_file_with_policy(&root.join("src/app.rs"), APP_RS, write_policy)?;
+    }
     write_binary_file_with_policy(
         &root.join("assets/app-icon.png"),
         DEFAULT_APP_ICON_PNG,
         write_policy,
     )?;
-    write_file_with_policy(
-        &root.join("README.md"),
-        &render_project_readme(&project),
-        write_policy,
-    )?;
+    if website.is_none() {
+        write_file_with_policy(
+            &root.join("README.md"),
+            &render_project_readme(&project),
+            write_policy,
+        )?;
+    }
     write_generated_app_agents(root)?;
     write_file_with_policy(
         &root.join(".gitignore"),
@@ -439,10 +468,15 @@ pub fn init_project(
 
     let targets = project.targets.iter().copied().collect::<Vec<_>>();
     for target in targets {
-        scaffold_target_with_policy(root, &project, target, write_policy)?;
+        scaffold_target_with_policy(root, &project, target, write_policy, website.is_none())?;
     }
     sync_platform_config(root, &project)?;
     sync_cargo_fission_dependency(root, &project, local_path.as_deref())?;
+
+    if website.is_some() {
+        website::scaffold(root, &project, local_path.as_deref(), write_policy)?;
+    }
+    println!("Immediately read generated AGENTS.md (or AGENTS.fission.md beside user instructions) and its linked guidance before editing. Keep fission.toml; change targets with fission add-target.");
 
     Ok(())
 }
@@ -570,7 +604,7 @@ pub fn add_targets(project_dir: &Path, targets: &[Target]) -> Result<()> {
         } else {
             WritePolicy::Overwrite
         };
-        scaffold_target_with_policy(project_dir, &project, *target, write_policy)?;
+        scaffold_target_with_policy(project_dir, &project, *target, write_policy, true)?;
     }
     sync_platform_config(project_dir, &project)?;
     write_project_config(project_dir, &project)?;
@@ -2349,6 +2383,7 @@ fn scaffold_target_with_policy(
     project: &FissionProject,
     target: Target,
     write_policy: WritePolicy,
+    example_content: bool,
 ) -> Result<()> {
     let relative = Path::new(target.scaffold_relative_path());
     let text = match target {
@@ -2454,11 +2489,14 @@ fn scaffold_target_with_policy(
             ],
         ),
         Target::Site => {
-            write_file_with_policy(
-                &root.join("content/getting-started.md"),
-                "---\ntitle: Site content\ndescription: Static site content rendered by the Fission static site shell.\n---\n\n# Site content\n\nAdd Markdown files under `content/`. `fission site build` renders them through real Fission widgets, lowers the nodes to Core IR, and emits static HTML.\n",
-                write_policy,
-            )?;
+            if example_content {
+                let starter = "---\ntitle: Site content\ndescription: Static site content rendered by the Fission static site shell.\n---\n\n# Site content\n\nAdd Markdown files under `content/`. `fission site build` renders them through real Fission widgets, lowers the nodes to Core IR, and emits static HTML.\n";
+                write_file_with_policy(
+                    &root.join("content/getting-started.md"),
+                    starter,
+                    write_policy,
+                )?;
+            }
             platform_readme(
                 "Static site",
                 "Static multi-page website target. The site shell renders Markdown content through real Fission widgets, lowers nodes to Core IR, and emits semantic static HTML.",
@@ -3372,6 +3410,17 @@ fn scaffold_web_bundle(
     write_file_with_policy(
         &root.join("platforms/web/bootstrap.mjs"),
         &bootstrap,
+        write_policy,
+    )?;
+    let icon_path = root.join("assets/app-icon.png");
+    let icon = if icon_path.exists() {
+        fs::read(&icon_path)?
+    } else {
+        DEFAULT_APP_ICON_PNG.to_vec()
+    };
+    write_binary_file_with_policy(
+        &root.join("platforms/web/assets/app-icon.png"),
+        &icon,
         write_policy,
     )?;
     if project.capabilities.contains(&PlatformCapability::Storage) {
@@ -5482,7 +5531,7 @@ fn render_web_index(project: &FissionProject) -> String {
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{title}</title>
-    <link rel="icon" type="image/png" href="../../assets/app-icon.png" />
+    <link rel="icon" type="image/png" href="assets/app-icon.png" />
     <style>
       :root {{
         color-scheme: dark;
@@ -5518,7 +5567,7 @@ fn render_web_index(project: &FissionProject) -> String {
   </head>
   <body>
     <main id="fission-web-mount" aria-label="{title}"></main>
-    <script type="module" src="/bootstrap.mjs"></script>
+    <script type="module" src="./bootstrap.mjs"></script>
   </body>
 </html>
 "#,

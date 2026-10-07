@@ -52,7 +52,10 @@ where
             name,
             app_id,
             local_path,
-        } => fission_command_core::init_project(&path, name, app_id, local_path),
+            website,
+        } => fission_command_core::init_project_with_website(
+            &path, name, app_id, local_path, website,
+        ),
         Command::AddTarget {
             targets,
             project_dir,
@@ -929,6 +932,30 @@ mkdir -p "$(dirname "$artifact")"
     }
 
     #[test]
+    fn init_website_is_noninteractive_and_defaults_to_static_site() {
+        let dir = unique_dir("website-default");
+        run(["fission", "init", dir.to_str().unwrap(), "--website"]).unwrap();
+        assert_eq!(
+            read_project_config(&dir).unwrap().targets,
+            std::collections::BTreeSet::from([Target::Site])
+        );
+        assert!(dir.join("src/page.rs").exists());
+        assert!(dir.join("WEBSITE.md").exists());
+        assert!(!dir.join("src/app.rs").exists());
+    }
+
+    #[test]
+    fn init_website_web_uses_existing_web_scaffold() {
+        let dir = unique_dir("website-web");
+        run(["fission", "init", dir.to_str().unwrap(), "--website", "web"]).unwrap();
+        assert_eq!(
+            read_project_config(&dir).unwrap().targets,
+            std::collections::BTreeSet::from([Target::Site, Target::Web])
+        );
+        assert!(dir.join("platforms/web/bootstrap.mjs").exists());
+    }
+
+    #[test]
     fn init_creates_project_files() {
         let dir = unique_dir("init");
         run([
@@ -1227,8 +1254,9 @@ mkdir -p "$(dirname "$artifact")"
         assert!(
             std::fs::read_to_string(dir.join("platforms/web/index.html"))
                 .unwrap()
-                .contains("../../assets/app-icon.png")
+                .contains("href=\"assets/app-icon.png\"")
         );
+        assert!(dir.join("platforms/web/assets/app-icon.png").is_file());
         let web_index = std::fs::read_to_string(dir.join("platforms/web/index.html")).unwrap();
         assert!(web_index.contains("id=\"fission-web-mount\""));
         assert!(web_index.contains("height: 100vh"));

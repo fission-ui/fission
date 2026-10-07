@@ -20,6 +20,27 @@ Create a new app:
 fission init my-app
 ```
 
+Create a complete website without prompts:
+
+```sh
+fission init my-site --website
+fission init my-site --website static-site
+fission init my-web-site --website web
+```
+
+`static-site` is the default for content websites. `web` adds a client-side
+Web/WASM target alongside the static website. Both generate Rust home/about
+pages, reusable navigation/footer widgets, design tokens, translations, target
+wiring, source assets, and `WEBSITE.md` with check/preview/Pages preparation
+commands. Web uses hash routes so secondary routes survive direct visits and
+refresh on GitHub Pages. No backend or website is provisioned or deployed.
+`--website` requires a new source directory; user instructions and other
+pre-existing files are preserved. Existing apps should use `fission add-target`.
+
+Immediately read generated `AGENTS.md` and linked guidance after init. If the
+enclosing Git root has user instructions, read those and `AGENTS.fission.md`.
+Keep generated `fission.toml` and edit Rust source, never generated HTML.
+
 Register an existing app or example without overwriting existing files:
 
 ```sh

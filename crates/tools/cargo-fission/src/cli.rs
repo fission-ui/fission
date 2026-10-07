@@ -1,5 +1,7 @@
 use clap::{Parser, Subcommand};
-use fission_command_core::{DistributionProvider, NativeVariant, PlatformCapability, Target};
+use fission_command_core::{
+    DistributionProvider, NativeVariant, PlatformCapability, Target, WebsiteTarget,
+};
 use fission_command_package as package;
 use fission_command_release as release;
 use std::path::PathBuf;
@@ -30,6 +32,9 @@ pub(crate) enum Command {
         /// Optional local Fission checkout to use as a path dependency.
         #[arg(long)]
         local_path: Option<PathBuf>,
+        /// Scaffold a complete website without prompts (static-site by default; web adds WASM).
+        #[arg(long, value_enum, num_args = 0..=1, default_missing_value = "static-site")]
+        website: Option<WebsiteTarget>,
     },
     /// Add one or more platform targets to an existing Fission app.
     AddTarget {
