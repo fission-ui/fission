@@ -257,11 +257,11 @@ mod tests {
             controller.evaluate_json("typeof globalThis.__FISSION_REVIEW_FRAME")?,
             "undefined"
         );
-        assert!(controller
-            .resize_viewport(390, 900)
-            .unwrap_err()
-            .to_string()
-            .contains("unsupported_host"));
+        let error = controller.resize_viewport(390, 900).unwrap_err();
+        assert!(
+            format!("{error:#}").contains("unsupported_host"),
+            "{error:#}"
+        );
         assert_eq!(controller.evaluate_json("innerWidth")?, 1280);
         println!(
             "production canvas rendered without test control; resize rejected before mutation"
