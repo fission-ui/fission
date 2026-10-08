@@ -10,15 +10,21 @@ mod version;
 pub use version::{Compatibility, FrameworkDependency};
 
 pub const SCHEMA_VERSION: u32 = 1;
-pub const GUIDANCE_VERSION: u32 = 2;
+pub const GUIDANCE_VERSION: u32 = 3;
 /// API revision reviewed for these maintained assets; independent of CLI packaging.
 pub const FRAMEWORK_API_VERSION: &str = "0.15.1";
 pub const MANIFEST_PATH: &str = ".fission/guidance-manifest.json";
 const TRANSACTION_PATH: &str = ".fission/guidance-transaction";
 const SKILL_PATH: &str = ".fission/skills/fission-web/SKILL.md";
+const SHARED_PATH: &str = ".fission/references/shared-app.md";
 const LEGACY: &str = include_str!("../assets/legacy/AGENTS-v1.md");
+const LEGACY_V2: &str = include_str!("../assets/legacy/AGENTS-v2.md");
 const ROUTER: &str = include_str!("../assets/AGENTS.md");
 const ASSETS: &[(&str, &str)] = &[
+    (
+        SHARED_PATH,
+        include_str!("../assets/guidance/shared-app.md"),
+    ),
     (
         SKILL_PATH,
         include_str!("../assets/guidance/fission-web/SKILL.md"),
@@ -155,6 +161,10 @@ fn hash(bytes: &[u8]) -> String {
 }
 
 fn render(raw: &str, instruction: bool, path: &str) -> String {
+    render_version(raw, instruction, path, GUIDANCE_VERSION)
+}
+
+fn render_version(raw: &str, instruction: bool, path: &str, guidance_version: u32) -> String {
     let skill = if path == ".fission/AGENTS.md" {
         "skills/fission-web/SKILL.md"
     } else {
@@ -163,10 +173,18 @@ fn render(raw: &str, instruction: bool, path: &str) -> String {
     let mut text = raw
         .replace("{{CLI_VERSION}}", super::CURRENT_VERSION)
         .replace("{{FRAMEWORK_VERSION}}", FRAMEWORK_API_VERSION)
-        .replace("{{GUIDANCE_VERSION}}", &GUIDANCE_VERSION.to_string())
+        .replace("{{GUIDANCE_VERSION}}", &guidance_version.to_string())
         .replace("{{SCHEMA_VERSION}}", &SCHEMA_VERSION.to_string());
     if instruction {
         text = text.replace("{{SKILL_PATH}}", skill);
+        text = text.replace(
+            "{{SHARED_PATH}}",
+            if path == ".fission/AGENTS.md" {
+                "references/shared-app.md"
+            } else {
+                SHARED_PATH
+            },
+        );
     }
     text
 }
@@ -299,6 +317,12 @@ fn generated_candidate(bytes: &[u8]) -> bool {
     String::from_utf8_lossy(bytes).contains("fission-cli-generated-agents:")
 }
 
+fn known_instruction(bytes: &[u8], path: &str) -> bool {
+    bytes == LEGACY.as_bytes()
+        || bytes == render_version(LEGACY_V2, true, path, 2).as_bytes()
+        || bytes == render(ROUTER, true, path).as_bytes()
+}
+
 fn entrypoint(root: &Path, old: Option<&Manifest>) -> Result<String> {
     if let Some(old) = old {
         return Ok(old
@@ -312,11 +336,10 @@ fn entrypoint(root: &Path, old: Option<&Manifest>) -> Result<String> {
     for name in INSTRUCTIONS {
         let path = safe_destination(root, name, false)?;
         let bytes = optional_bytes(&path)?;
-        if bytes.as_ref().is_none_or(|b| {
-            b == LEGACY.as_bytes()
-                || b == &render(ROUTER, true, name).into_bytes()
-                || generated_candidate(b)
-        }) {
+        if bytes
+            .as_ref()
+            .is_none_or(|b| known_instruction(b, name) || generated_candidate(b))
+        {
             return Ok((*name).into());
         }
     }
@@ -353,7 +376,7 @@ fn inspect(project: &Path, operation: &str) -> GuidanceResult {
         project_dir: project.clone(), guidance_root: root.clone(), bundled: bundled_manifest(), installed: None,
         framework_dependency: version::inspect(&project),
         coverage: Coverage {
-            domains: vec!["website_setup_targets".into(), "widgets_state_routing".into(), "design_i18n".into(), "testing_review".into()],
+            domains: vec!["shared_app_rules".into(), "website_setup_targets".into(), "widgets_state_routing".into(), "design_i18n".into(), "testing_review".into()],
             browser_readiness: "DOM, canvas/renderer, and test-bridge smoke evidence; not complete paint validation".into(),
             geometry: "Partial semantic-node bounds; inspect screenshots and product behavior".into(),
             unavailable_commands: vec!["preview".into(), "review".into(), "verified_in_session_resize".into()],
@@ -495,7 +518,7 @@ fn inspect(project: &Path, operation: &str) -> GuidanceResult {
                 let health = if actual == bytes {
                     FileHealth::Current
                 } else if recorded.as_deref() == Some(actual_hash.as_str())
-                    || (INSTRUCTIONS.contains(&path.as_str()) && actual == LEGACY.as_bytes())
+                    || (INSTRUCTIONS.contains(&path.as_str()) && known_instruction(&actual, &path))
                 {
                     FileHealth::Stale
                 } else {

@@ -1,12 +1,10 @@
-<!-- fission-cli-generated-agents:v3 -->
+<!-- fission-cli-generated-agents:v2 -->
 <!-- CLI {{CLI_VERSION}}; framework API {{FRAMEWORK_VERSION}}; guidance {{GUIDANCE_VERSION}}; schema {{SCHEMA_VERSION}} -->
 
 # Fission App Guidelines
 
 Immediately after `fission init`, read this file and any `AGENTS.fission.md`
 reported by init, alongside applicable user/contributor instructions.
-For every Fission target, read [shared application rules]({{SHARED_PATH}})
-before changing widgets, state, reducers or asynchronous behavior.
 For a website or browser app, read [the bundled web router]({{SKILL_PATH}}).
 Load only its references relevant to the requested task.
 

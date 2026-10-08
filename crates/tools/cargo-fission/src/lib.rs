@@ -1054,7 +1054,7 @@ mkdir -p "$(dirname "$artifact")"
         let readme = std::fs::read_to_string(dir.join("README.md")).unwrap();
         let agents = std::fs::read_to_string(dir.join("AGENTS.md")).unwrap();
         assert!(agents.contains("# Fission App Guidelines"));
-        assert!(agents.contains("fission-cli-generated-agents:v2"));
+        assert!(agents.contains("fission-cli-generated-agents:v3"));
         let guidance = fission_command_core::guidance::check(&dir);
         assert!(guidance
             .files
@@ -1127,7 +1127,7 @@ mkdir -p "$(dirname "$artifact")"
         );
         let fission_agents = fs::read_to_string(repo.join("AGENTS.fission.md")).unwrap();
         assert!(fission_agents.contains("# Fission App Guidelines"));
-        assert!(fission_agents.contains("fission-cli-generated-agents:v2"));
+        assert!(fission_agents.contains("fission-cli-generated-agents:v3"));
         assert!(!app.join("AGENTS.md").exists());
     }
 
@@ -1146,7 +1146,7 @@ mkdir -p "$(dirname "$artifact")"
 
         let agents = fs::read_to_string(repo.join("AGENTS.md")).unwrap();
         assert!(agents.contains("old generated content"));
-        assert!(!agents.contains("fission-cli-generated-agents:v2"));
+        assert!(!agents.contains("fission-cli-generated-agents:v3"));
         assert!(repo.join("AGENTS.fission.md").exists());
         assert!(!app.join("AGENTS.md").exists());
     }

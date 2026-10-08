@@ -1,8 +1,11 @@
 # Offline application guidance
 
-The installed CLI bundles one small generated application router and a local
-`fission-web` skill with four conditional references. Immediately after init,
-read the printed instruction paths. Website tasks load setup/targets,
+The installed CLI bundles one small generated application router, a local
+target-neutral shared application reference and a `fission-web` skill with four
+conditional browser references. Immediately after init, read the printed
+instruction paths.
+All app targets read `.fission/references/shared-app.md` for widget/state/identity,
+reducer, build-scope handle and asynchronous-work rules. Website tasks load setup/targets,
 widgets/state/routing, design/i18n or testing/review only when relevant.
 No assistant connector, global skill installation or network request is needed.
 
@@ -32,7 +35,7 @@ symlinks/collisions; explicitly supplying a linked project root is supported.
 The skill is `.fission/skills/fission-web/SKILL.md`; its relative references
 resolve entirely inside the generated tree.
 
-`.fission/guidance-manifest.json` schema 1 records guidance version 2, CLI asset
+`.fission/guidance-manifest.json` schema 1 records guidance version 3, CLI asset
 version, framework API version, and relative managed paths with exact SHA-256s.
 The included maintained Markdown assets and a single Rust asset table generate
 the bundled manifest/hashes, so no second hand-maintained copy can drift.
@@ -76,7 +79,7 @@ Conflicts preserve bytes and block all managed-file writes. Back up the indicate
 file, explicitly merge its instructions, or move it aside after preserving user
 content, then rerun check/update. Do not delete a customized instruction merely
 to clear a conflict. Unmodified legacy v1 instructions migrate only when they
-match the bundled historical template byte-for-byte; unknown/edited legacy
+match a bundled v1/v2 historical entrypoint template byte-for-byte; unknown/edited legacy
 markers remain conflicts. Unrelated local skills are never claimed or removed.
 The manifest cannot claim arbitrary paths: only bundled asset paths and one
 known instruction entrypoint are accepted. Traversal, duplicate paths,

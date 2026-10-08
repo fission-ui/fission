@@ -93,7 +93,20 @@ fn fresh_bundle_versions_hashes_and_links_resolve() {
             );
         }
     }
-    assert_eq!(r.bundled.files.len(), 6);
+    assert_eq!(r.bundled.files.len(), 7);
+    let agents = fs::read_to_string(p.0.join("AGENTS.md")).unwrap();
+    assert!(agents.contains("[shared application rules](.fission/references/shared-app.md)"));
+    let shared = fs::read_to_string(p.0.join(SHARED_PATH)).unwrap();
+    for rule in [
+        "GlobalState",
+        "bind_local",
+        "WidgetId::explicit",
+        "Never block the UI thread",
+        "BuildCtxHandle",
+    ] {
+        assert!(shared.contains(rule), "shared reference omits {rule}");
+    }
+    assert!(!shared.contains("WebApp::"));
 }
 
 #[test]
@@ -458,8 +471,49 @@ fn json_schema_round_trip_and_recovery_argv_preserve_project_path() {
     let parsed: GuidanceResult = serde_json::from_str(&json).unwrap();
     assert_eq!(parsed.schema_version, SCHEMA_VERSION);
     assert_eq!(parsed.recovery[0].argv[4], path.to_string_lossy());
-    assert_eq!(parsed.coverage.domains.len(), 4);
+    assert_eq!(parsed.coverage.domains.len(), 5);
     assert!(!json.contains("updateAvailable"));
+}
+
+#[test]
+fn v2_bundle_adds_shared_rules_and_conflicts_preserve_the_entire_old_bundle() {
+    for customized in [false, true] {
+        let p = Project::new();
+        let mut old = p.install().bundled;
+        old.guidance_version = 2;
+        old.files.retain(|file| file.path != SHARED_PATH);
+        fs::remove_file(p.0.join(SHARED_PATH)).unwrap();
+        let entry = old
+            .files
+            .iter_mut()
+            .find(|f| f.path == "AGENTS.md")
+            .unwrap();
+        let bytes = render_version(LEGACY_V2, true, "AGENTS.md", 2);
+        entry.sha256 = hash(bytes.as_bytes());
+        fs::write(p.0.join("AGENTS.md"), &bytes).unwrap();
+        write_manifest(&p.0, &old);
+        if customized {
+            fs::write(p.0.join("AGENTS.md"), format!("{bytes}\nuser policy")).unwrap();
+        }
+        let before = snapshot(&p.0);
+        let r = update(&p.0);
+        if customized {
+            assert_eq!(r.status, Status::Conflict);
+            assert_eq!(snapshot(&p.0), before);
+            assert!(!p.0.join(SHARED_PATH).exists());
+        } else {
+            assert_eq!(r.status, Status::Updated);
+            assert_eq!(r.bundled.guidance_version, 3);
+            assert!(p.0.join(SHARED_PATH).is_file());
+        }
+    }
+    let p = Project::new();
+    fs::write(
+        p.0.join("AGENTS.md"),
+        render_version(LEGACY_V2, true, "AGENTS.md", 2),
+    )
+    .unwrap();
+    p.install(); // Exact known v2 entrypoint without a manifest is migratable too.
 }
 
 #[test]

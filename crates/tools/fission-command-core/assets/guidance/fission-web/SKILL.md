@@ -14,6 +14,8 @@ Use `fission skills check --project-dir <app> --json` to inspect that evidence.
 
 Read only the references needed now:
 
+- All targets share [application rules](../../references/shared-app.md), linked
+  directly from the generated entrypoint too.
 - New website or target choice: [setup and targets](references/setup-targets.md).
 - Widget composition, retained state or navigation:
   [widgets, state and routing](references/widgets-state-routing.md).

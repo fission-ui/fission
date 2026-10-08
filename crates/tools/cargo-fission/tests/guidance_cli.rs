@@ -50,12 +50,16 @@ fn fresh_init_prints_actual_paths_and_installs_readable_router() {
     let output = f.cli(&["init", ".", "--name", "guidance_fixture"]);
     assert!(output.status.success(), "{output:?}");
     let stdout = String::from_utf8(output.stdout).unwrap();
-    assert!(stdout.contains(f.0.join("AGENTS.md").to_str().unwrap()));
+    let invoked = f.0.join(".");
+    assert!(stdout.contains(invoked.join("AGENTS.md").to_str().unwrap()));
     assert!(stdout.contains(
-        f.0.join(".fission/skills/fission-web/SKILL.md")
+        invoked.join(".fission/skills/fission-web/SKILL.md")
             .to_str()
             .unwrap()
     ));
+    let entrypoint = fs::read_to_string(f.0.join("AGENTS.md")).unwrap();
+    assert!(entrypoint.contains("[shared application rules](.fission/references/shared-app.md)"));
+    assert!(f.0.join(".fission/references/shared-app.md").is_file());
     let config = fs::read(f.0.join("fission.toml")).unwrap();
     let (output, result) = f.skills("check");
     assert_eq!(output.status.code(), Some(1)); // Dependency has not been resolved.
