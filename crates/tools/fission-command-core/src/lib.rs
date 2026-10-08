@@ -5563,7 +5563,7 @@ fn render_web_index(project: &FissionProject) -> String {
   </head>
   <body>
     <main id="fission-web-mount" aria-label="{title}"></main>
-    <script type="module" src="/bootstrap.mjs"></script>
+    <script type="module" src="./bootstrap.mjs"></script>
   </body>
 </html>
 "#,
