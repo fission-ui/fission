@@ -56,6 +56,7 @@ pub struct CanvasGeometry {
 /// Called in an owned, deadline-supervised review worker. No browser session
 /// or arbitrary evaluation API is exposed as part of the CLI contract.
 pub fn review_case(options: BrowserTestOptions, mount_url: &str) -> Result<BrowserReview> {
+    viewport::validate_dimensions(options.viewport_width, options.viewport_height)?;
     let mut launch = options.clone();
     launch.url = "about:blank".into();
     let chrome = options
@@ -95,6 +96,9 @@ pub fn review_case(options: BrowserTestOptions, mount_url: &str) -> Result<Brows
     let mut controller = BrowserController {
         _session: session,
         client,
+        options: options.clone(),
+        require_frame: options.mode == BrowserSmokeMode::FissionCanvas,
+        viewport_after: None,
         report: BrowserSmokeReport {
             url: options.url.clone(),
             title: String::new(),
@@ -145,7 +149,7 @@ fn inspect(
         r.renderer = status.renderer.clone();
         r.rendered_frames = status.rendered_frames;
         r.bridge_ready = status.test_bridge_ready;
-        let measured = c.evaluate_json("(() => {const c=document.querySelector('canvas');const b=c?c.getBoundingClientRect():null;return {width:innerWidth,height:innerHeight,scale:devicePixelRatio,url:location.href,frame:globalThis.__FISSION_REVIEW_FRAME||null,canvas:b?{x:b.x,y:b.y,width:b.width,height:b.height,pixel_width:c.width,pixel_height:c.height}:null};})()")?;
+        let measured = viewport::read(&mut c.client)?;
         r.actual_url = measured["url"].as_str().unwrap_or("").into();
         r.viewport = Some((
             measured["width"].as_u64().unwrap_or(0) as u32,
@@ -231,19 +235,7 @@ fn url_parts(value: &str) -> Result<(String, String)> {
     Ok((format!("{origin}://{authority}"), format!("/{path}")))
 }
 fn viewport_acknowledged(v: &Value, o: &BrowserTestOptions, canvas: bool) -> bool {
-    v["width"].as_u64() == Some(o.viewport_width as u64)
-        && v["height"].as_u64() == Some(o.viewport_height as u64)
-        && v["scale"].as_f64() == Some(1.0)
-        && (!canvas
-            || (v["frame"]["width"].as_f64() == Some(o.viewport_width as f64)
-                && v["frame"]["height"].as_f64() == Some(o.viewport_height as f64)
-                && v["frame"]["frame"].as_u64().unwrap_or(0) > 0
-                && v["canvas"]["width"].as_f64() == Some(o.viewport_width as f64)
-                && v["canvas"]["height"].as_f64() == Some(o.viewport_height as f64)
-                && v["canvas"]["pixel_width"].as_u64() == Some(o.viewport_width as u64)
-                && v["canvas"]["pixel_height"].as_u64() == Some(o.viewport_height as u64)
-                && v["canvas"]["x"].as_f64() == Some(0.0)
-                && v["canvas"]["y"].as_f64() == Some(0.0)))
+    viewport::acknowledged(v, o, canvas, None)
 }
 
 fn dom_findings(c: &mut BrowserController) -> Result<Vec<Finding>> {
@@ -422,7 +414,7 @@ mod tests {
     use super::*;
     #[test]
     fn viewport_requires_actual_browser_and_frame_acknowledgment() {
-        let o = BrowserTestOptions::new("http://localhost/");
+        let o = BrowserTestOptions::new("http://localhost/").fission_canvas();
         let mut v = json!({"width":1280,"height":900,"scale":1,"frame":{"width":1280,"height":900,"frame":1},"canvas":{"width":1280,"height":900,"pixel_width":1280,"pixel_height":900,"x":0,"y":0}});
         assert!(viewport_acknowledged(&v, &o, true));
         v["width"] = json!(390);
@@ -430,7 +422,11 @@ mod tests {
         v["width"] = json!(1280);
         v["frame"]["width"] = json!(390);
         assert!(!viewport_acknowledged(&v, &o, true));
-        assert!(viewport_acknowledged(&v, &o, false));
+        assert!(viewport_acknowledged(
+            &v,
+            &BrowserTestOptions::new("http://localhost/"),
+            false
+        ));
     }
     fn node(id: &str, x: f32, width: f32, parent: Option<&str>, scroll: bool) -> SemanticNode {
         serde_json::from_value(json!({

@@ -374,8 +374,8 @@ fn dispatch(command: TestCommand, proxy: &EventLoopProxy<TestEvent>) -> PendingR
                 TestEvent::MouseUp { x, y, button: 1 },
             ],
         ),
-        TestCommand::SimulateResize { width, height } => {
-            ready_after(proxy, [TestEvent::Resize { width, height }])
+        TestCommand::SimulateResize { .. } => {
+            PendingResponse::Ready(fission_test_driver::unsupported_browser_resize_response())
         }
         TestCommand::WaitForSelector { .. }
         | TestCommand::WaitForVisible { .. }

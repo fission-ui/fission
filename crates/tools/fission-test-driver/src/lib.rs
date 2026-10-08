@@ -35,6 +35,14 @@ pub use browser::{
     detect_chrome, run_browser_smoke, BrowserSmokeMode, BrowserSmokeReport, BrowserTestOptions,
 };
 
+/// Raw Web bridge dispatch has no browser-host capability. This response is
+/// shared with the Web shell so it cannot claim a runtime-only resize succeeded.
+pub fn unsupported_browser_resize_response() -> TestResponse {
+    TestResponse::Error {
+        message: "unsupported_host: raw Web SimulateResize cannot control Chromium and changed no runtime dimensions; use LiveTestClient::launch_browser(BrowserTestOptions::new(url).fission_canvas()) then client.simulate_resize(width, height) in that same session".into(),
+    }
+}
+
 // --- Protocol types (shared between client and server) ---
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -832,10 +840,12 @@ impl LiveTestClient {
         self
     }
 
-    /// Launches Chromium and connects to a Web application built with
-    /// Fission's test-only browser bridge.
+    /// Launches an owned Chromium session. Canvas mode requires a Web
+    /// test-control build; DOM mode supports host resize and screenshots
+    /// without injecting a bridge into static HTML.
     pub fn launch_browser(options: BrowserTestOptions) -> Result<Self> {
-        let controller = browser::BrowserController::launch(options, true)?;
+        let live_control = options.mode == BrowserSmokeMode::FissionCanvas;
+        let controller = browser::BrowserController::launch(options, live_control)?;
         Ok(Self {
             transport: LiveTestTransport::Browser(std::sync::Mutex::new(controller)),
             scope: None,
@@ -1576,8 +1586,18 @@ impl LiveTestClient {
         Ok(())
     }
 
-    /// Simulate a window resize in logical test-space pixels.
+    /// Resize an owned Chromium viewport in CSS pixels (1..=8192 per axis,
+    /// at most 16,777,216 pixels, device scale 1), retaining the page and route.
+    /// Waits up to `BrowserTestOptions::timeout_ms` (capped at 60 seconds) for
+    /// viewport/layout/frame acknowledgment and paint. Same-size requests
+    /// verify the current frame without requiring a new one. Raw Web bridge
+    /// calls cannot resize the host. Native logical test-space behavior is
+    /// unchanged; browser scopes do not change viewport dimensions.
     pub fn simulate_resize(&self, width: u32, height: u32) -> Result<()> {
+        if matches!(&self.transport, LiveTestTransport::Browser(_)) {
+            self.send(TestCommand::SimulateResize { width, height })?;
+            return Ok(());
+        }
         let (width, height) = if let Some(scope) = self.scope_node()? {
             let png = screenshot_bytes(self.send(TestCommand::CaptureScreenshot {})?)?;
             let image = image::load_from_memory(&png)?.to_rgba8();

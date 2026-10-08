@@ -31,6 +31,9 @@ use crate::{
 pub mod review;
 
 #[cfg(not(target_arch = "wasm32"))]
+mod viewport;
+
+#[cfg(not(target_arch = "wasm32"))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BrowserSmokeMode {
     Dom,
@@ -44,9 +47,12 @@ pub struct BrowserTestOptions {
     pub mode: BrowserSmokeMode,
     pub chrome_path: Option<PathBuf>,
     pub cdp_port: Option<u16>,
+    /// CSS pixels, 1..=8192 per axis and at most 16,777,216 pixels total.
+    /// Chromium is emulated at device scale 1 with mobile=false.
     pub viewport_width: u32,
     pub viewport_height: u32,
     pub prefers_reduced_motion: bool,
+    /// Startup budget; each in-session resize/capture clamps this to 1..=60,000 ms.
     pub timeout_ms: u64,
     pub screenshot_path: Option<PathBuf>,
 }
@@ -145,11 +151,15 @@ pub(crate) struct BrowserController {
     _session: ChromeSession,
     client: CdpClient,
     report: BrowserSmokeReport,
+    options: BrowserTestOptions,
+    require_frame: bool,
+    viewport_after: Option<u64>,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 impl BrowserController {
     pub(crate) fn launch(options: BrowserTestOptions, require_live_control: bool) -> Result<Self> {
+        viewport::validate_dimensions(options.viewport_width, options.viewport_height)?;
         let chrome = options
             .chrome_path
             .clone()
@@ -208,6 +218,7 @@ impl BrowserController {
 
         let deadline = Instant::now() + Duration::from_millis(options.timeout_ms);
         let mut last_status = None;
+        let mut last_viewport = Value::Null;
         while Instant::now() < deadline {
             client.drain_events(Duration::from_millis(25))?;
             if !client.errors.is_empty() {
@@ -217,13 +228,15 @@ impl BrowserController {
                 ));
             }
             let status = read_runtime_status(&mut client)?;
-            let ready = browser_is_ready(&status, options.mode, require_live_control);
+            let measured = viewport::read(&mut client)?;
+            let ready = browser_is_ready(&status, options.mode, require_live_control)
+                && viewport::acknowledged(&measured, &options, require_live_control, None);
             if ready {
                 let report = BrowserSmokeReport {
                     url: options.url.clone(),
                     title: status.title,
-                    width: status.width,
-                    height: status.height,
+                    width: options.viewport_width,
+                    height: options.viewport_height,
                     renderer: status.renderer,
                     body_text_len: status.body_text_len,
                     screenshot_path: options.screenshot_path.clone(),
@@ -232,13 +245,17 @@ impl BrowserController {
                     _session: session,
                     client,
                     report,
+                    options,
+                    require_frame: require_live_control,
+                    viewport_after: None,
                 });
             }
+            last_viewport = measured;
             last_status = Some(status);
             std::thread::sleep(Duration::from_millis(100));
         }
         Err(anyhow!(
-            "browser{} test timed out for {}; last status: {:?}",
+            "browser{} test timed out for {}; last viewport: {last_viewport}; last status: {:?}",
             if require_live_control {
                 " live-control"
             } else {
@@ -266,7 +283,17 @@ impl BrowserController {
     }
 
     pub(crate) fn send_test_command(&mut self, command: TestCommand) -> Result<TestResponse> {
+        anyhow::ensure!(
+            self.options.mode != BrowserSmokeMode::Dom
+                || matches!(&command, TestCommand::SimulateResize { .. } | TestCommand::Wait { .. }
+                    | TestCommand::Screenshot { .. } | TestCommand::CaptureScreenshot {}),
+            "unsupported_page_mode: DOM sessions support host resize, wait and screenshots; semantic/input commands require a Web --live-test canvas build"
+        );
         match command {
+            TestCommand::SimulateResize { width, height } => {
+                self.resize_viewport(width, height)?;
+                Ok(TestResponse::Ok {})
+            }
             TestCommand::Wait { ms } => {
                 std::thread::sleep(Duration::from_millis(ms));
                 Ok(TestResponse::Ok {})
@@ -539,6 +566,10 @@ impl BrowserController {
     }
 
     fn send_bridge_command(&mut self, command: TestCommand) -> Result<TestResponse> {
+        anyhow::ensure!(
+            self.options.mode == BrowserSmokeMode::FissionCanvas,
+            "unsupported_page_mode: this command requires a Web --live-test canvas build; DOM sessions support host resize and screenshots"
+        );
         let command_json = serde_json::to_string(&command)?;
         let argument = serde_json::to_string(&command_json)?;
         let submit = format!("globalThis.__FISSION_TEST__.submit({argument})");
@@ -581,22 +612,32 @@ impl BrowserController {
 
     fn capture_page_response(&mut self) -> Result<TestResponse> {
         let bytes = self.capture_page_screenshot()?;
-        let status = read_runtime_status(&mut self.client)?;
+        let decoded = image::load_from_memory(&bytes)?;
         Ok(TestResponse::Screenshot {
             png_base64: base64::engine::general_purpose::STANDARD.encode(bytes),
-            width: status.width,
-            height: status.height,
+            width: decoded.width(),
+            height: decoded.height(),
         })
     }
 
     fn capture_page_screenshot(&mut self) -> Result<Vec<u8>> {
-        // A submitted WebGPU frame can precede its compositor presentation.
-        // Cross a browser paint boundary before capturing that surface.
-        self.client.send("Runtime.evaluate", json!({
-            "expression": "new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve(true))))",
-            "awaitPromise": true,
-            "returnByValue": true
-        }))?;
+        let previous = self.client.operation_deadline;
+        if previous.is_none() {
+            self.client.operation_deadline = Some(
+                Instant::now() + Duration::from_millis(self.options.timeout_ms.clamp(1, 60_000)),
+            );
+        }
+        let result = self.capture_verified_viewport();
+        self.client.operation_deadline = previous;
+        result
+    }
+
+    fn capture_verified_viewport(&mut self) -> Result<Vec<u8>> {
+        self.paint_boundary()?;
+        let measured = viewport::read(&mut self.client)?;
+        anyhow::ensure!(viewport::acknowledged(&measured, &self.options, self.require_frame, self.viewport_after),
+            "capture_viewport: viewport/layout differs from requested dimensions; observed {measured}; retry LiveTestClient::simulate_resize before capturing");
+        self.fail_on_browser_errors()?;
         let result = self.client.send(
             "Page.captureScreenshot",
             json!({ "format": "png", "captureBeyondViewport": false, "fromSurface": true }),
@@ -605,9 +646,16 @@ impl BrowserController {
             .get("data")
             .and_then(Value::as_str)
             .context("Page.captureScreenshot returned no data")?;
-        base64::engine::general_purpose::STANDARD
+        let bytes = base64::engine::general_purpose::STANDARD
             .decode(data)
-            .context("Chrome returned invalid screenshot base64")
+            .context("Chrome returned invalid screenshot base64")?;
+        let decoded = image::load_from_memory(&bytes)?;
+        anyhow::ensure!(
+            decoded.width() == self.options.viewport_width
+                && decoded.height() == self.options.viewport_height,
+            "capture_viewport: PNG dimensions differ from requested CSS viewport at device scale 1"
+        );
+        Ok(bytes)
     }
 
     fn fail_on_browser_errors(&mut self) -> Result<()> {
@@ -738,8 +786,6 @@ struct RuntimeStatus {
     ready_dom: bool,
     ready_canvas: bool,
     title: String,
-    width: u32,
-    height: u32,
     body_text_len: usize,
     renderer: Option<String>,
     test_bridge_ready: bool,
@@ -772,8 +818,6 @@ fn read_runtime_status(client: &mut CdpClient) -> Result<RuntimeStatus> {
         ready_dom: document.readyState === 'complete' && !!body && body.innerText.trim().length > 0,
         ready_canvas: !!canvas && rect.width > 0 && rect.height > 0,
         title: document.title || '',
-        width: Math.round(rect.width || window.innerWidth || 0),
-        height: Math.round(rect.height || window.innerHeight || 0),
         body_text_len: body ? body.innerText.trim().length : 0,
         renderer: renderer ? renderer.active : null,
         rendered_frames: globalThis.__FISSION_RENDERED_FRAME_COUNT || 0,
@@ -911,6 +955,7 @@ struct CdpClient {
     optional_icons: Vec<String>,
     review_events: Vec<Value>,
     report_only: bool,
+    operation_deadline: Option<Instant>,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -929,17 +974,26 @@ impl CdpClient {
             optional_icons: Vec::new(),
             review_events: Vec::new(),
             report_only: false,
+            operation_deadline: None,
         })
     }
 
     fn send(&mut self, method: &str, params: Value) -> Result<Value> {
+        let deadline = self
+            .operation_deadline
+            .map(|d| d.min(Instant::now() + Duration::from_secs(15)))
+            .unwrap_or_else(|| Instant::now() + Duration::from_secs(15));
+        self.set_socket_budget(deadline)?;
         let id = self.next_id;
         self.next_id += 1;
         self.socket.send(Message::Text(serde_json::to_string(
             &json!({ "id": id, "method": method, "params": params }),
         )?))?;
-        let deadline = Instant::now() + Duration::from_secs(15);
         loop {
+            if Instant::now() >= deadline {
+                return Err(anyhow!("CDP command timed out: {method}"));
+            }
+            self.set_socket_budget(deadline)?;
             if let Some(message) = self.backlog.pop_front() {
                 if message.get("id").and_then(Value::as_u64) == Some(id) {
                     return Self::command_result(method, message);
@@ -975,6 +1029,16 @@ impl CdpClient {
             }
             self.handle_event(&value);
         }
+    }
+
+    fn set_socket_budget(&mut self, deadline: Instant) -> Result<()> {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        anyhow::ensure!(!remaining.is_zero(), "CDP operation deadline expired");
+        if let tungstenite::stream::MaybeTlsStream::Plain(stream) = self.socket.get_mut() {
+            stream.set_read_timeout(Some(remaining.min(Duration::from_millis(100))))?;
+            stream.set_write_timeout(Some(remaining.min(Duration::from_secs(15))))?;
+        }
+        Ok(())
     }
 
     fn drain_events(&mut self, budget: Duration) -> Result<()> {
