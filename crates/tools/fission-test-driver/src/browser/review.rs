@@ -71,6 +71,7 @@ pub fn review_case(options: BrowserTestOptions, mount_url: &str) -> Result<Brows
         Duration::from_millis(options.timeout_ms),
     )?;
     let mut client = CdpClient::connect(&ws)?;
+    client.report_only = true;
     for domain in [
         "Page.enable",
         "Runtime.enable",

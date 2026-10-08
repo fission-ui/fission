@@ -322,7 +322,7 @@ pub fn run(mut o: ReviewOptions) -> Result<()> {
         report.status = "execution_failed".into();
         report.exit_code = 1;
         report.owned_resources_released &= error.downcast_ref::<CleanupError>().is_none();
-        report.failure=Some(Failure {stage:"review_execution".into(),evidence:bounded(&format!("{error:#}")),recovery:"Correct the reported build/configuration/asset error and rerun the same review command. For bind failures use --port 0. Owned resources are stopped; never kill unrelated listeners by port.".into()});
+        report.failure=Some(Failure {stage:"review_execution".into(),evidence:bounded(&format!("{error:#}")),recovery:if report.owned_resources_released { "Correct the reported build/configuration/asset error and rerun the same review command. For bind failures use --port 0. Owned resources are stopped; never kill unrelated listeners by port." } else { "Owned worker cleanup could not be confirmed. Inspect the reported OS failure and only this session's process tree before retrying; do not terminate unrelated listeners by port." }.into()});
     }
     if let Err(error) = write_report(&report) {
         report.exit_code = 1;

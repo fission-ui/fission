@@ -910,6 +910,7 @@ struct CdpClient {
     errors: Vec<String>,
     optional_icons: Vec<String>,
     review_events: Vec<Value>,
+    report_only: bool,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -927,6 +928,7 @@ impl CdpClient {
             errors: Vec::new(),
             optional_icons: Vec::new(),
             review_events: Vec::new(),
+            report_only: false,
         })
     }
 
@@ -1031,6 +1033,11 @@ impl CdpClient {
             )
         {
             self.review_events.push(message.clone());
+        }
+        // Review attributes all errors to its typed per-case observations.
+        // Optional resource timing must not abort semantic bridge operations.
+        if self.report_only {
+            return;
         }
         match message.get("method").and_then(Value::as_str) {
             Some("Runtime.exceptionThrown") => self.errors.push(format!(
