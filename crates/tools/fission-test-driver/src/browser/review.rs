@@ -431,6 +431,36 @@ mod tests {
         assert!(!viewport_acknowledged(&v, &o, true));
         assert!(viewport_acknowledged(&v, &o, false));
     }
+    fn node(id: &str, x: f32, width: f32, parent: Option<&str>, scroll: bool) -> SemanticNode {
+        serde_json::from_value(json!({
+            "identifier":id,"widget_id":id,"stable_node_id":id,"parent":parent,"children":[],
+            "role":"group","label":null,"value":null,"value_present":false,"focusable":false,
+            "disabled":false,"read_only":false,"checked":null,"actions":[],"text_selection":null,
+            "masked":false,"scrollable_x":scroll,"scrollable_y":false,
+            "logical_bounds":{"x":x,"y":0,"width":width,"height":2000},"visible_bounds":null,
+            "visibility":"PartiallyVisible","x":x,"y":0,"width":width,"height":2000
+        }))
+        .unwrap()
+    }
+    #[test]
+    fn semantic_overflow_keeps_stable_evidence_and_excludes_scroll_ancestors() {
+        let root = node("scroll-region", 0.0, 390.0, None, false);
+        let child = node("wide-content", 20.0, 800.0, Some("scroll-region"), false);
+        let findings = semantic_findings(&[root.clone(), child.clone()], 390);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].id.as_deref(), Some("wide-content"));
+        assert_eq!(findings[0].severity, "warning");
+        assert_eq!(findings[0].bounds.unwrap().width, 800.0);
+        let mut scroll_root = root;
+        scroll_root.scrollable_x = true;
+        assert!(semantic_findings(&[scroll_root, child], 390).is_empty());
+    }
+    #[test]
+    fn normal_vertical_content_is_not_horizontal_clipping() {
+        assert!(
+            semantic_findings(&[node("tall-content", 0.0, 390.0, None, false)], 390).is_empty()
+        );
+    }
     #[test]
     fn resource_failures_only_allow_exact_optional_paths() {
         let doc = "http://localhost:123/repo/";
