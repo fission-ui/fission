@@ -90,3 +90,6 @@ not a filesystem-wide atomic transaction or a hostile-writer security boundary.
 This bundle is based on main's existing static-site/Web commands. Its browser
 smoke readiness and semantic geometry coverage are partial. It does not claim
 pending preview/review or verified in-session resize commands are available.
+
+See [validation evidence and limits](testing/agent-guidance.md) for package checks,
+fresh generated-app examples and the observed Web capture limitation.

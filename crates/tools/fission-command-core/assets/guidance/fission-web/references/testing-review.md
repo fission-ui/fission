@@ -46,6 +46,14 @@ Screenshot methods write files: keep the actual path and open the image.
 The browser driver owns its disposable Chromium process/profile; dropping the
 client closes it.
 
+Browser smoke fails on reported resource errors, including missing favicons.
+On this base, a Web scaffold served from `platforms/web/` can request
+`/assets/app-icon.png` while the generated icon lives at project
+`assets/app-icon.png`. Stage that real icon under `platforms/web/assets/` or
+configure an actually served favicon URL. The minimal custom static page also
+needs a served favicon if Chromium requests `/favicon.ico`. Fix the missing
+resource rather than suppressing the browser error.
+
 | Readiness level in this base | Evidence |
 | --- | --- |
 | DOM smoke | Document/body readiness |
@@ -55,7 +63,9 @@ client closes it.
 
 Smoke readiness does not prove all layout/paint. Semantic logical/visible bounds
 cover supported semantic nodes, not every primitive; verify pixels and reachable
-controls too. For responsive UI launch separate real browser sessions at mobile
+controls too. A blank capture is a failed visual check even when semantic
+assertions pass; retrying capture does not establish paint readiness.
+For responsive UI launch separate real browser sessions at mobile
 and desktop viewports; inspect overflow, state, focus and routes.
 
 This main-based bundle has no `fission preview`, `fission review`, or verified
