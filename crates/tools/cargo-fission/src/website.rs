@@ -228,7 +228,7 @@ fn add_recovery(root: &Path, action: Action, targets: &[Target], error: &mut Fai
     match error.code {
         ErrorCode::MissingToolchain => {
             let target = targets.first().copied().unwrap_or(Target::Site);
-            error.recovery.push(website::step(root, "Install the missing executable using its official installer; doctor reports required tools and supported installation suggestions.", &["doctor", target.as_str(), "--strict"]));
+            error.recovery.push(website::step(root, "Install or select a working toolchain for this project; doctor reports required executables and supported installation suggestions.", &["doctor", target.as_str(), "--strict"]));
         }
         ErrorCode::InvalidConfiguration => {
             if action == Action::Init || action == Action::AddTarget {
@@ -243,6 +243,11 @@ fn add_recovery(root: &Path, action: Action, targets: &[Target], error: &mut Fai
         | ErrorCode::SiteFailed
         | ErrorCode::ReportUnavailable
         | ErrorCode::ArtifactMissing => {
+            if action == Action::Init || action == Action::AddTarget {
+                error.recovery.push(website::step(root, "Repair paths that are directories or inaccessible where setup expects files. Inspect the setup command before retrying.",
+                    if action == Action::Init { &["init", "--help"] } else { &["add-target", "--help"] }));
+                return;
+            }
             error.recovery.push(website::step(root, "Repair the source/dependency/rendering problem described in the diagnostic excerpt; programmatic sites require a matching shell revision supporting --report-file.",
                 if targets == [Target::Web] { &["build", "--target", "web", "--json"] } else { &["site", "check", "--json"] }));
         }

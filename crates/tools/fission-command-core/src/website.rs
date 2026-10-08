@@ -237,6 +237,7 @@ pub fn init(
     crate::init_project(root, name, app_id, local_path)
         .map_err(|error| operation_failure(&error))?;
     load_project(root)?;
+    let artifacts = verified_files(vec![root.join("fission.toml"), root.join("Cargo.toml")])?;
     let instructions_root = crate::find_git_root(root).unwrap_or_else(|| root.to_path_buf());
     let mut instructions = ["AGENTS.md", "AGENTS.fission.md"]
         .into_iter()
@@ -246,7 +247,7 @@ pub fn init(
     if root != instructions_root && root.join("AGENTS.md").is_file() {
         instructions.push(root.join("AGENTS.md"));
     }
-    Ok(Data { instructions, artifacts: vec![root.join("fission.toml"), root.join("Cargo.toml")],
+    Ok(Data { instructions, artifacts,
         next_steps: vec![step(root, "Read the instructions immediately; retain fission.toml and add the intended website target.",
             &["add-target", "static-site", "--json"])], ..Data::default() })
 }
@@ -276,7 +277,15 @@ pub fn add_targets(root: &Path, targets: &[Target]) -> Result<Data> {
             &["build", "--target", target.as_str(), "--json"],
         ));
     }
+    data.artifacts = verified_files(data.artifacts)?;
     Ok(data)
+}
+
+fn verified_files(paths: Vec<PathBuf>) -> Result<Vec<PathBuf>> {
+    if paths.iter().any(|path| !path.is_file()) {
+        return Err(Failure::new(ErrorCode::ArtifactMissing, "Project setup did not produce the expected configuration/scaffold files; check for directories or inaccessible paths where files are expected."));
+    }
+    Ok(paths)
 }
 
 fn operation_failure(error: &anyhow::Error) -> Failure {

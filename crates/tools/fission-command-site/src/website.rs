@@ -96,6 +96,15 @@ fn builder_report(root: &Path, release: bool, command_name: &str) -> Result<Site
             "[site].entry requires Cargo.toml.",
         ));
     }
+    let mut cargo_version = Command::new("cargo");
+    cargo_version.current_dir(root).arg("--version");
+    diagnostic::capture_quiet(&mut cargo_version, 16 * 1024)
+        .map_err(|error| process_failure(error, ErrorCode::MissingToolchain, "cargo"))?;
+    let mut rustc_version =
+        Command::new(std::env::var_os("RUSTC").unwrap_or_else(|| "rustc".into()));
+    rustc_version.current_dir(root).arg("--version");
+    diagnostic::capture_quiet(&mut rustc_version, 16 * 1024)
+        .map_err(|error| process_failure(error, ErrorCode::MissingToolchain, "rustc"))?;
     let mut metadata = Command::new("cargo");
     metadata
         .current_dir(root)
@@ -202,7 +211,7 @@ pub fn process_failure(error: DiagnosticFailure, exit_code: ErrorCode, tool: &st
     let mut failure = Failure::new(
         code,
         match code {
-            ErrorCode::MissingToolchain => format!("Required executable `{tool}` is unavailable."),
+        ErrorCode::MissingToolchain => format!("Required toolchain command `{tool}` is unavailable or cannot run for this project."),
             ErrorCode::Interrupted => "The operation was interrupted.".into(),
             ErrorCode::CompileFailed => {
                 "Compilation failed; repair the Rust source or Cargo dependencies before retrying."

@@ -27,8 +27,8 @@ wasm-pack. No website starter/scaffold from unmerged PR #255 is included.
 
 The public Rust types are in `fission_command_core::website`. `CommandResult`
 contains `schema`, `action`, absolute `project_dir`, `selected_targets`, optional
-observed project `state`, and a tagged `outcome`. State contains the package
-name, configuration path and actual configured targets, including the existing
+observed project `state`, and a tagged `outcome`. State contains the application
+name from fission.toml, configuration path and actual configured targets, including the existing
 init defaults. Actions are `init`, `add_target`, `build`, `site_build`,
 `site_check`, `site_routes`. Enum spellings and required fields are part of v1.
 `project_dir` is null if it cannot be resolved or represented in JSON.

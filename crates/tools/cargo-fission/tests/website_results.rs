@@ -235,6 +235,15 @@ fn programmatic_fixture(root: &Path) {
         .nth(3)
         .unwrap();
     let config = fs::read_to_string(root.join("fission.toml")).unwrap();
+    // Distinct executable names keep concurrent fixtures from replacing each
+    // other's Cargo binary in the shared dependency cache.
+    let binary_name = root
+        .file_name()
+        .unwrap()
+        .to_string_lossy()
+        .chars()
+        .map(|ch| if ch.is_ascii_alphanumeric() { ch } else { '-' })
+        .collect::<String>();
     fs::write(
         root.join("fission.toml"),
         format!("{config}\n[site]\nentry = 'src/main.rs'\nout_dir = 'output with spaces'\n"),
@@ -247,6 +256,10 @@ fn programmatic_fixture(root: &Path) {
 name = "website-fixture"
 version = "0.1.0"
 edition = "2021"
+autobins = false
+[[bin]]
+name = {:?}
+path = "src/main.rs"
 [lib]
 path = "src/empty.rs"
 [dependencies]
@@ -258,6 +271,7 @@ debug = "line-tables-only"
 debug = false
 opt-level = 1
 "#,
+            binary_name,
             repo.join("crates/shell/fission-shell-site")
         ),
     )
@@ -327,6 +341,23 @@ fn missing_cargo_is_toolchain_failure_after_argument_parsing() {
 }
 
 #[test]
+fn an_uninstalled_selected_rust_toolchain_has_typed_recovery() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("selected toolchain");
+    programmatic_fixture(&root);
+    fs::write(root.join("src/main.rs"), "fn main() -> anyhow::Result<()> { fission_shell_site::build_from_cli(fission_shell_site::FissionSite::new()) }\n").unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_fission"))
+        .current_dir(&root)
+        .args(["site", "build", "--json"])
+        .env("RUSTUP_TOOLCHAIN", "fission-uninstalled-toolchain-fixture")
+        .output()
+        .unwrap();
+    let recovery = failure(&output, ErrorCode::MissingToolchain);
+    // Select the installed default toolchain again, then execute the exact retry.
+    success(&follow(recovery.last().unwrap()));
+}
+
+#[test]
 fn invalid_cargo_configuration_does_not_echo_source_or_credentials() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path().join("invalid Cargo config");
@@ -360,6 +391,36 @@ fn established_readiness_json_retains_its_original_shape() {
     assert!(value.get("status").is_some());
     assert!(value.get("schema").is_none());
     assert!(value.get("outcome").is_none());
+}
+
+#[test]
+fn setup_never_reports_directories_as_successful_file_artifacts() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("setup artifact paths");
+    fs::create_dir_all(root.join("Cargo.toml")).unwrap();
+    let output = cli(
+        &[
+            "init",
+            root.to_str().unwrap(),
+            "--name",
+            "setup-fixture",
+            "--json",
+        ],
+        temp.path(),
+    );
+    let recovery = failure(&output, ErrorCode::ArtifactMissing);
+    // Read generated guidance immediately after the partially completed init.
+    fs::read_to_string(root.join("AGENTS.md")).unwrap();
+    fs::remove_dir(root.join("Cargo.toml")).unwrap();
+    success(&follow(recovery.last().unwrap()));
+    fs::create_dir_all(root.join("platforms/site/README.md")).unwrap();
+    let recovery = failure(
+        &cli(&["add-target", "static-site", "--json"], &root),
+        ErrorCode::ArtifactMissing,
+    );
+    fs::remove_dir(root.join("platforms/site/README.md")).unwrap();
+    let data = success(&follow(recovery.last().unwrap()));
+    assert!(data.artifacts.iter().all(|path| path.is_file()));
 }
 
 #[cfg(unix)]
