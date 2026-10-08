@@ -73,6 +73,14 @@ fn configure_manifest(root: &Path, local_path: Option<&Path>) -> Result<()> {
     }
     doc["build-dependencies"]["fission-design-system-codegen"] =
         Item::Value(Value::InlineTable(dependency));
+    let mut web_sys = InlineTable::new();
+    web_sys.insert("version", Value::from("0.3"));
+    web_sys.insert(
+        "features",
+        Value::Array(string_array(["Window", "Location"].into_iter())),
+    );
+    doc["target"]["cfg(target_arch = \"wasm32\")"]["dependencies"]["web-sys"] =
+        Item::Value(Value::InlineTable(web_sys));
     write_file(&path, &doc.to_string())
 }
 
@@ -108,6 +116,14 @@ mod tests {
         assert_eq!(
             read_project_config(&root).unwrap().targets,
             BTreeSet::from([Target::Site])
+        );
+        let cargo: toml::Value =
+            toml::from_str(&fs::read_to_string(root.join("Cargo.toml")).unwrap()).unwrap();
+        assert_eq!(
+            cargo["target"]["cfg(target_arch = \"wasm32\")"]["dependencies"]["web-sys"]["features"]
+                .as_array()
+                .unwrap(),
+            &vec![toml::Value::from("Window"), toml::Value::from("Location")]
         );
         assert_eq!(
             fs::read_to_string(root.join("AGENTS.md")).unwrap(),

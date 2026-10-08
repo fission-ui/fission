@@ -97,7 +97,9 @@ as described below. A missing toolchain/browser is a setup gap reported by
 Confirm `pkg/` JavaScript glue and WASM load, inspect the rendered app, and test
 home → about → back/forward. This starter uses Fission hash routing: `/#/about/`
 (or `/repository-name/#/about/`) supports direct visits and refresh on static
-hosts. Plain `/about/` is the separate static page, not a Web application route.
+hosts. The Web entrypoint seeds the shell's existing navigation base path from
+the current host directory, so links retain a project mount without hard-coding
+a repository name. Plain `/about/` is the separate static page, not a Web application route.
 Do not switch to pathname routing on Pages without an intentional fallback;
 Pages cannot provide the local Web preview server's extensionless-route fallback.
 
