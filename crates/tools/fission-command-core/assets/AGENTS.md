@@ -451,6 +451,15 @@ widgets guess.
   inspect those screenshots before calling the UI production-ready.
 - For UI changes, verify a real rendered target when possible, and check mobile
   and desktop layouts when the screen is responsive.
+- For same-session Web viewport tests, compile with `FISSION_WEB_TEST_CONTROL=1`
+  on the Web build command, serve the bundle through the existing Web server,
+  and retain `LiveTestClient::launch_browser(BrowserTestOptions::new(url).fission_canvas())`.
+  Use `client.simulate_resize(width, height)` for owned Chromium CSS viewport
+  changes and `client.capture_screenshot_png()` after acknowledgment/paint.
+  The opt-in `__FISSION_TEST__.frame` getter describes a successful submitted
+  layout frame; production builds omit test control. Raw Web bridge resize has
+  no host authority and returns `unsupported_host`. Static DOM browser sessions
+  need no bridge; native resize retains logical viewport semantics.
 - If docs or configuration target names are changed, keep terminology consistent
   with Fission's public target names: `macOS`, `Windows`, `Linux`, `Web`,
   `Android`, `iOS`, `Terminal`, `Static site`, and `SSR`.

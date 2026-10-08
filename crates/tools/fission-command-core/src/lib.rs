@@ -2349,8 +2349,10 @@ fn sync_fission_table(
         table["version"] = value(CURRENT_VERSION);
     }
     table["default-features"] = value(false);
-    let merged_features =
-        merge_cargo_feature_array(table.get("features").and_then(Item::as_value), features);
+    let merged_features = merge_cargo_feature_array(
+        table.get("features").and_then(Item::as_value),
+        features,
+    );
     table["features"] = Item::Value(merged_features);
     table.to_string() != before
 }
@@ -5561,7 +5563,7 @@ fn render_web_index(project: &FissionProject) -> String {
   </head>
   <body>
     <main id="fission-web-mount" aria-label="{title}"></main>
-    <script type="module" src="./bootstrap.mjs"></script>
+    <script type="module" src="/bootstrap.mjs"></script>
   </body>
 </html>
 "#,

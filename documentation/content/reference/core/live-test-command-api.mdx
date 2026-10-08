@@ -437,7 +437,29 @@ Sends low-level mouse move, secondary down, and secondary up events.
 {"cmd":"SimulateResize","width":390,"height":844}
 ```
 
-Resizes the logical test viewport. Use this for responsive layout tests.
+On native hosts, resizes the logical test viewport. On the Rust Chromium
+transport, `client.simulate_resize(390, 844)` resizes the same browser page in
+CSS pixels and waits for actual metrics, canvas/layout frame acknowledgment
+(Web), and paint. State and route survive. The device scale remains 1;
+dimensions are 1–8192 per axis, at most 16,777,216 pixels total. Same-size
+requests verify the existing matching frame. The deadline is the browser
+options timeout capped at 60 seconds.
+
+Use `LiveTestClient::launch_browser(BrowserTestOptions::new(url).fission_canvas())`
+against a Web build compiled with `FISSION_WEB_TEST_CONTROL=1` (for example,
+`FISSION_WEB_TEST_CONTROL=1 ./platforms/web/build-wasm.sh`) and served through
+the existing Web server or your test host. Raw Web bridge dispatch has
+no Chromium control: it returns `Error` with `unsupported_host` and that exact
+driver path without changing runtime dimensions. Static DOM uses
+`BrowserTestOptions::new(url)` and requires no bridge. Other DOM semantic
+commands remain unsupported. Capture with `client.capture_screenshot_png()`;
+PNG pixels equal CSS pixels at scale 1, and content still needs visual review.
+
+Failure includes last observed state; host metrics may already have changed.
+Repair the cause and retry the supported resize. Capture rejects mismatching
+or stale frames. Drop and relaunch the owned client for a closed page/lost host.
+See [Web test control](https://github.com/fission-ui/fission/blob/main/docs/browser-test-control.md)
+for examples, waiting and recovery details.
 
 ## Best-practice command order
 

@@ -8920,6 +8920,16 @@ where
                                             total_ms,
                                             web_rendered_frames,
                                         );
+                                        // The opt-in test bridge owns the submitted-layout
+                                        // acknowledgment; compositor paint is observed by
+                                        // the Chromium-owning test driver.
+                                        if test_control_enabled {
+                                            web_test_control::publish_frame(
+                                                target_viewport.width,
+                                                target_viewport.height,
+                                                web_rendered_frames,
+                                            );
+                                        }
                                         if let Some(input_at) = pending_web_input_at.take() {
                                             publish_web_input_latency(
                                                 &active_renderer,
