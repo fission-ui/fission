@@ -45,6 +45,27 @@ pub fn unsupported_browser_resize_response() -> TestResponse {
 
 // --- Protocol types (shared between client and server) ---
 
+/// Test-only Web layout acknowledgment, exposed by the read-only
+/// `globalThis.__FISSION_TEST__.frame` getter. Absent in production builds.
+/// The driver additionally observes browser/canvas dimensions and waits for
+/// browser paint before accepting a resize or screenshot.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct WebTestFrame {
+    /// Submitted layout size in CSS pixels.
+    pub width: f32,
+    pub height: f32,
+    /// Monotonically advancing successful-submission count for this page.
+    pub frame: u64,
+    pub phase: WebTestFramePhase,
+}
+
+/// Names the evidence the Web shell actually provides; it is not GPU readback.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WebTestFramePhase {
+    Submitted,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TestPointerKind {

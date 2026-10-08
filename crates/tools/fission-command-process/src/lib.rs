@@ -1,8 +1,5 @@
 //! Owned child-process supervision for Fission CLI commands.
 
-mod session;
-pub use session::{in_owned_process_tree, run_captured, CleanupError, ProcessSession};
-
 use anyhow::{bail, Context, Result};
 use command_group::{CommandGroup, GroupChild};
 use std::process::{Command, ExitStatus};
@@ -33,37 +30,14 @@ impl SupervisedChild {
 
     /// Terminates the owned process tree and reaps its leader.
     pub fn terminate(&mut self) -> std::io::Result<Option<ExitStatus>> {
-        let Some(child) = self.child.as_mut() else {
+        let Some(mut child) = self.child.take() else {
             return Ok(None);
         };
-        // The leader may have exited while owned descendants still run. Kill
-        // the owned group before waiting, rather than returning on leader exit.
-        let cleanup_deadline = Instant::now() + Duration::from_secs(1);
-        loop {
-            match child.kill() {
-                Ok(()) => break,
-                Err(error)
-                    if error.kind() == std::io::ErrorKind::InvalidInput
-                        || (cfg!(unix) && error.raw_os_error() == Some(3)) =>
-                {
-                    break
-                }
-                // Chromium sandbox helpers may briefly remain in the group
-                // while exiting. Retry, but never treat EPERM as successful
-                // cleanup unless the group subsequently disappears.
-                Err(error)
-                    if cfg!(unix)
-                        && error.raw_os_error() == Some(1)
-                        && Instant::now() < cleanup_deadline =>
-                {
-                    std::thread::sleep(POLL_INTERVAL)
-                }
-                Err(error) => return Err(error),
-            }
+        if let Some(status) = child.try_wait()? {
+            return Ok(Some(status));
         }
-        let status = child.wait()?;
-        self.child.take();
-        Ok(Some(status))
+        child.kill()?;
+        child.wait().map(Some)
     }
 
     fn try_wait(&mut self) -> std::io::Result<Option<ExitStatus>> {
@@ -91,15 +65,6 @@ impl Drop for SupervisedChild {
 
 /// Runs a child process under tree supervision and validates its exit status.
 pub fn run_status(command: &mut Command, label: &str) -> Result<()> {
-    if session::inherits_group() {
-        let status = command
-            .status()
-            .with_context(|| format!("failed to run {label}"))?;
-        if !status.success() {
-            bail!("{label} failed with {status}");
-        }
-        return Ok(());
-    }
     let _active = ACTIVE_SUPERVISOR
         .lock()
         .map_err(|_| anyhow::anyhow!("process supervisor lock was poisoned"))?;

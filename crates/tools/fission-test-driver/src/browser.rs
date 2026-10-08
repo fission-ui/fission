@@ -28,9 +28,6 @@ use crate::{
 };
 
 #[cfg(not(target_arch = "wasm32"))]
-pub mod review;
-
-#[cfg(not(target_arch = "wasm32"))]
 mod viewport;
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -174,15 +171,6 @@ impl BrowserController {
         )?;
         let mut client = CdpClient::connect(&ws_url)?;
         client.send("Runtime.enable", json!({}))?;
-        let icons = client.send("Runtime.evaluate", json!({
-            "expression": "JSON.stringify([new URL('/favicon.ico', location.href).href, ...Array.from(document.querySelectorAll('link[rel]')).filter(link => link.rel.split(/\\s+/).some(rel => rel === 'icon' || rel === 'apple-touch-icon')).map(link => link.href)])",
-            "returnByValue": true
-        }))?;
-        client.optional_icons = icons
-            .pointer("/result/value")
-            .and_then(Value::as_str)
-            .and_then(|value| serde_json::from_str(value).ok())
-            .unwrap_or_default();
         client.send("Log.enable", json!({}))?;
         client.send("Page.enable", json!({}))?;
         // Headless Chromium has no desktop clipboard broker. Grant clipboard
@@ -287,7 +275,7 @@ impl BrowserController {
             self.options.mode != BrowserSmokeMode::Dom
                 || matches!(&command, TestCommand::SimulateResize { .. } | TestCommand::Wait { .. }
                     | TestCommand::Screenshot { .. } | TestCommand::CaptureScreenshot {}),
-            "unsupported_page_mode: DOM sessions support host resize, wait and screenshots; semantic/input commands require a Web --live-test canvas build"
+            "unsupported_page_mode: DOM sessions support host resize, wait and screenshots; semantic/input commands require a Web build compiled with FISSION_WEB_TEST_CONTROL=1"
         );
         match command {
             TestCommand::SimulateResize { width, height } => {
@@ -568,7 +556,7 @@ impl BrowserController {
     fn send_bridge_command(&mut self, command: TestCommand) -> Result<TestResponse> {
         anyhow::ensure!(
             self.options.mode == BrowserSmokeMode::FissionCanvas,
-            "unsupported_page_mode: this command requires a Web --live-test canvas build; DOM sessions support host resize and screenshots"
+            "unsupported_page_mode: this command requires a Web build compiled with FISSION_WEB_TEST_CONTROL=1; DOM sessions support host resize and screenshots"
         );
         let command_json = serde_json::to_string(&command)?;
         let argument = serde_json::to_string(&command_json)?;
@@ -952,9 +940,6 @@ struct CdpClient {
     next_id: u64,
     backlog: VecDeque<Value>,
     errors: Vec<String>,
-    optional_icons: Vec<String>,
-    review_events: Vec<Value>,
-    report_only: bool,
     operation_deadline: Option<Instant>,
 }
 
@@ -971,9 +956,6 @@ impl CdpClient {
             next_id: 1,
             backlog: VecDeque::new(),
             errors: Vec::new(),
-            optional_icons: Vec::new(),
-            review_events: Vec::new(),
-            report_only: false,
             operation_deadline: None,
         })
     }
@@ -1083,26 +1065,6 @@ impl CdpClient {
     }
 
     fn handle_event(&mut self, message: &Value) {
-        if self.review_events.len() < 512
-            && matches!(
-                message.get("method").and_then(Value::as_str),
-                Some(
-                    "Network.requestWillBeSent"
-                        | "Network.responseReceived"
-                        | "Network.loadingFailed"
-                        | "Runtime.exceptionThrown"
-                        | "Runtime.consoleAPICalled"
-                        | "Log.entryAdded"
-                )
-            )
-        {
-            self.review_events.push(message.clone());
-        }
-        // Review attributes all errors to its typed per-case observations.
-        // Optional resource timing must not abort semantic bridge operations.
-        if self.report_only {
-            return;
-        }
         match message.get("method").and_then(Value::as_str) {
             Some("Runtime.exceptionThrown") => self.errors.push(format!(
                 "runtime exception: {}",
@@ -1133,7 +1095,8 @@ impl CdpClient {
                         .pointer("/params/entry/url")
                         .and_then(Value::as_str)
                         .unwrap_or("unknown URL");
-                    if !optional_network_error(message, &self.optional_icons) {
+                    if !text.contains("/__fission/renderer") && !url.contains("/__fission/renderer")
+                    {
                         self.errors
                             .push(format!("browser log error at {url}: {text}"));
                     }
@@ -1144,57 +1107,10 @@ impl CdpClient {
     }
 }
 
-#[cfg(not(target_arch = "wasm32"))]
-fn optional_network_error(message: &Value, icons: &[String]) -> bool {
-    if message
-        .pointer("/params/entry/source")
-        .and_then(Value::as_str)
-        != Some("network")
-    {
-        return false;
-    }
-    let url = message
-        .pointer("/params/entry/url")
-        .and_then(Value::as_str)
-        .unwrap_or("");
-    icons.iter().any(|icon| icon == url)
-        || url
-            .split('?')
-            .next()
-            .is_some_and(|url| url.ends_with("/__fission/renderer"))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::{Bounds, SemanticNode};
-
-    #[test]
-    fn only_known_optional_network_assets_are_ignored() {
-        let icons = vec!["http://localhost/missing-icon.png".to_string()];
-        let event =
-            |source: &str, url: &str| json!({"params": {"entry": {"source": source, "url": url}}});
-        assert!(optional_network_error(&event("network", &icons[0]), &icons));
-        assert!(optional_network_error(
-            &event("network", "http://localhost/__fission/renderer"),
-            &icons
-        ));
-        assert!(!optional_network_error(
-            &event("network", "http://localhost/bootstrap.mjs"),
-            &icons
-        ));
-        assert!(!optional_network_error(
-            &event("javascript", &icons[0]),
-            &icons
-        ));
-        assert!(!optional_network_error(
-            &event(
-                "network",
-                "http://localhost/app.js?next=/__fission/renderer"
-            ),
-            &icons
-        ));
-    }
 
     #[test]
     fn reduced_motion_is_an_explicit_browser_option() {
@@ -1324,7 +1240,7 @@ mod tests {
     }
 
     #[test]
-    fn a_canvas_and_bridge_without_a_presented_frame_are_not_ready() {
+    fn a_canvas_and_bridge_without_a_submitted_frame_are_not_ready() {
         let mut status: RuntimeStatus = serde_json::from_value(json!({
             "ready_dom": false, "ready_canvas": true, "title": "Fission", "width": 1280, "height": 900,
             "body_text_len": 0, "renderer": "webgpu-vello", "test_bridge_ready": true

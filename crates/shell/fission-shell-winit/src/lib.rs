@@ -8920,16 +8920,14 @@ where
                                             total_ms,
                                             web_rendered_frames,
                                         );
-                                        // Acknowledges the layout of this submitted frame,
-                                        // only in an explicitly enabled development build.
+                                        // The opt-in test bridge owns the submitted-layout
+                                        // acknowledgment; compositor paint is observed by
+                                        // the Chromium-owning test driver.
                                         if test_control_enabled {
-                                            set_web_global_json(
-                                                "__FISSION_REVIEW_FRAME",
-                                                &serde_json::json!({
-                                                    "width": target_viewport.width,
-                                                    "height": target_viewport.height,
-                                                    "frame": web_rendered_frames,
-                                                }),
+                                            web_test_control::publish_frame(
+                                                target_viewport.width,
+                                                target_viewport.height,
+                                                web_rendered_frames,
                                             );
                                         }
                                         if let Some(input_at) = pending_web_input_at.take() {

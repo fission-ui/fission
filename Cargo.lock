@@ -1643,7 +1643,6 @@ dependencies = [
  "fission-command-server",
  "fission-command-site",
  "fission-command-ui",
- "serde_json",
 ]
 
 [[package]]
@@ -2948,12 +2947,9 @@ dependencies = [
  "fission-command-server",
  "fission-command-site",
  "fission-test-driver",
- "html5ever 0.27.0",
- "regex",
  "serde",
  "serde_json",
  "ureq",
- "url",
 ]
 
 [[package]]

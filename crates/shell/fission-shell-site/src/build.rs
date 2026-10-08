@@ -1156,7 +1156,7 @@ fn write_root_index_if_needed(options: &SiteBuildOptions, routes: &[ContentRoute
         return Ok(());
     }
     let first = &routes[0];
-    let href = format!("./{}", first.path.trim_start_matches('/'));
+    let href = first.path.clone();
     let html = format!(
         "<!doctype html>\n<html lang=\"en\">\n  <head>\n    <meta charset=\"utf-8\">\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n    <meta http-equiv=\"refresh\" content=\"0; url={}\">\n    <title>{}</title>\n  </head>\n  <body><a href=\"{}\">{}</a></body>\n</html>\n",
         escape_attr(&href),

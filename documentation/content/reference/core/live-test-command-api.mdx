@@ -446,7 +446,9 @@ requests verify the existing matching frame. The deadline is the browser
 options timeout capped at 60 seconds.
 
 Use `LiveTestClient::launch_browser(BrowserTestOptions::new(url).fission_canvas())`
-against `fission preview --target web --live-test`. Raw Web bridge dispatch has
+against a Web build compiled with `FISSION_WEB_TEST_CONTROL=1` (for example,
+`FISSION_WEB_TEST_CONTROL=1 ./platforms/web/build-wasm.sh`) and served through
+the existing Web server or your test host. Raw Web bridge dispatch has
 no Chromium control: it returns `Error` with `unsupported_host` and that exact
 driver path without changing runtime dimensions. Static DOM uses
 `BrowserTestOptions::new(url)` and requires no bridge. Other DOM semantic
@@ -456,7 +458,7 @@ PNG pixels equal CSS pixels at scale 1, and content still needs visual review.
 Failure includes last observed state; host metrics may already have changed.
 Repair the cause and retry the supported resize. Capture rejects mismatching
 or stale frames. Drop and relaunch the owned client for a closed page/lost host.
-See [browser preview lifecycle](https://github.com/fission-ui/fission/blob/main/docs/browser-preview.md)
+See [Web test control](https://github.com/fission-ui/fission/blob/main/docs/browser-test-control.md)
 for examples, waiting and recovery details.
 
 ## Best-practice command order

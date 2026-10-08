@@ -17,49 +17,6 @@ pub(crate) struct Cli {
 
 #[derive(Subcommand, Debug)]
 pub(crate) enum Command {
-    /// Build a website, review routes/viewports, and save screenshots + review.json.
-    Review(ReviewArgs),
-    #[command(hide = true)]
-    ReviewCase {
-        #[arg(long)]
-        url: String,
-        #[arg(long)]
-        mount_url: String,
-        #[arg(long, value_enum)]
-        target: Target,
-        #[arg(long)]
-        width: u32,
-        #[arg(long)]
-        height: u32,
-        #[arg(long)]
-        timeout_ms: u64,
-        #[arg(long)]
-        screenshot: PathBuf,
-        #[arg(long)]
-        report: PathBuf,
-    },
-    /// Build and verify a browser preview, serving until stopped (Ctrl+C).
-    Preview(PreviewArgs),
-    #[command(hide = true)]
-    PreviewBuild {
-        #[arg(long, value_enum)]
-        target: Target,
-        #[arg(long)]
-        project_dir: PathBuf,
-        #[arg(long)]
-        release: bool,
-        #[arg(long, value_delimiter = ',')]
-        features: Vec<String>,
-        #[arg(long)]
-        no_default_features: bool,
-    },
-    #[command(hide = true)]
-    PreviewProbe {
-        #[arg(long)]
-        url: String,
-        #[arg(long)]
-        timeout_seconds: u64,
-    },
     /// List alpha scene, game, asset, and physics features.
     Features,
     /// Create a new Fission application.
@@ -442,98 +399,6 @@ pub(crate) enum Command {
     },
 }
 
-#[derive(clap::Args, Debug)]
-pub(crate) struct ReviewArgs {
-    #[arg(long, value_enum)]
-    pub target: PreviewTarget,
-    #[arg(long, default_value = ".")]
-    pub project_dir: PathBuf,
-    /// Directory for deterministic PNG files and the self-contained report.
-    #[arg(long)]
-    pub output_dir: PathBuf,
-    /// Repeatable app-relative route path. Content sites discover metadata routes.
-    #[arg(long = "route")]
-    pub routes: Vec<String>,
-    /// Repeatable WIDTHxHEIGHT CSS pixels. Defaults: 390x900,800x900,1280x900; scale 1.
-    #[arg(long = "viewport")]
-    pub viewports: Vec<fission_command_run::review::Viewport>,
-    #[arg(long, default_value = "/")]
-    pub mount: String,
-    #[arg(long, default_value_t = 0)]
-    pub port: u16,
-    #[arg(long)]
-    pub release: bool,
-    #[arg(long, value_delimiter = ',')]
-    pub features: Vec<String>,
-    #[arg(long)]
-    pub no_default_features: bool,
-    #[arg(long, default_value_t = 300)]
-    pub startup_timeout_seconds: u64,
-    #[arg(long, default_value_t = 60)]
-    pub case_timeout_seconds: u64,
-    /// One JSON report on stdout. Exit: 0 supported checks clean, 1 execution,
-    /// 2 incomplete/cancelled, 3 defects/candidates. Inspect partial limitations.
-    #[arg(long)]
-    pub json: bool,
-}
-
-#[derive(clap::Args, Debug)]
-pub(crate) struct PreviewArgs {
-    /// Browser target: web or static-site.
-    #[arg(long, value_enum)]
-    pub target: PreviewTarget,
-    #[arg(long, default_value = ".")]
-    pub project_dir: PathBuf,
-    #[arg(long)]
-    pub release: bool,
-    #[arg(long, value_delimiter = ',')]
-    pub features: Vec<String>,
-    #[arg(long)]
-    pub no_default_features: bool,
-    #[arg(long, default_value = "127.0.0.1")]
-    pub host: String,
-    /// Requested port; 0 allocates an owned available port. Occupied ports fail.
-    #[arg(long, default_value_t = 8123)]
-    pub port: u16,
-    /// Public URL mount, e.g. /repository-name/. Config is preserved.
-    #[arg(long, default_value = "/")]
-    pub mount: String,
-    /// Expected HTML entry relative to the target's configured output directory.
-    #[arg(long, default_value = "index.html")]
-    pub entry: String,
-    /// Deadline for the complete build and readiness sequence (1..=3600).
-    #[arg(long, default_value_t = 300)]
-    pub startup_timeout_seconds: u64,
-    /// Web only: compile development test control and verify it in Chrome.
-    #[arg(long)]
-    pub live_test: bool,
-    /// Emit flushed JSON lifecycle events on stdout; diagnostics use stderr.
-    #[arg(long)]
-    pub json: bool,
-    /// Stop on stdin `stop` + newline or EOF, including during startup.
-    #[arg(long)]
-    pub stdin_control: bool,
-    /// Open the verified URL in the default browser.
-    #[arg(long)]
-    pub open: bool,
-}
-
-#[derive(clap::ValueEnum, Clone, Debug)]
-pub(crate) enum PreviewTarget {
-    Web,
-    #[value(name = "static-site", alias = "site")]
-    StaticSite,
-}
-
-impl From<PreviewTarget> for Target {
-    fn from(target: PreviewTarget) -> Self {
-        match target {
-            PreviewTarget::Web => Target::Web,
-            PreviewTarget::StaticSite => Target::Site,
-        }
-    }
-}
-
 #[derive(Subcommand, Debug)]
 pub(crate) enum SiteCommand {
     /// Build the static site into its configured output directory.
@@ -638,32 +503,6 @@ pub(crate) enum ServerCommand {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn preview_is_browser_only_and_workers_are_hidden() {
-        use clap::CommandFactory;
-        for target in ["web", "static-site"] {
-            let parsed = Cli::try_parse_from([
-                "fission",
-                "preview",
-                "--target",
-                target,
-                "--port",
-                "0",
-                "--mount",
-                "/repository-name/",
-                "--json",
-                "--stdin-control",
-            ])
-            .unwrap();
-            assert!(matches!(parsed.command, Command::Preview(_)));
-        }
-        assert!(Cli::try_parse_from(["fission", "preview", "--target", "macos"]).is_err());
-        let help = Cli::command().render_help().to_string();
-        assert!(help.contains("preview"));
-        assert!(!help.contains("preview-build"));
-        assert!(!help.contains("preview-probe"));
-    }
 
     fn selected_variant(command: Command) -> Option<NativeVariant> {
         match command {

@@ -13,7 +13,7 @@ pub(super) fn validate_dimensions(width: u32, height: u32) -> Result<()> {
 pub(super) fn read(client: &mut CdpClient) -> Result<Value> {
     // Read-only host observation, never shipped in production HTML.
     let result = client.send("Runtime.evaluate", json!({
-        "expression": "(() => {const c=document.querySelector('canvas');const b=c?c.getBoundingClientRect():null;return {width:innerWidth,height:innerHeight,scale:devicePixelRatio,url:location.href,frame:globalThis.__FISSION_REVIEW_FRAME||null,canvas:b?{x:b.x,y:b.y,width:b.width,height:b.height,pixel_width:c.width,pixel_height:c.height}:null};})()",
+        "expression": "(() => {const c=document.querySelector('canvas');const b=c?c.getBoundingClientRect():null;return {width:innerWidth,height:innerHeight,scale:devicePixelRatio,url:location.href,frame:globalThis.__FISSION_TEST__?.frame||null,canvas:b?{x:b.x,y:b.y,width:b.width,height:b.height,pixel_width:c.width,pixel_height:c.height}:null};})()",
         "returnByValue": true
     }))?;
     runtime_exception(&result)?;
@@ -40,7 +40,8 @@ pub(super) fn acknowledged(
                 && v["canvas"]["x"].as_f64() == Some(0.0)
                 && v["canvas"]["y"].as_f64() == Some(0.0)
                 && (!require_frame
-                    || (v["frame"]["width"].as_f64() == Some(o.viewport_width as f64)
+                    || (v["frame"]["phase"].as_str() == Some("submitted")
+                        && v["frame"]["width"].as_f64() == Some(o.viewport_width as f64)
                         && v["frame"]["height"].as_f64() == Some(o.viewport_height as f64)
                         && v["frame"]["frame"].as_u64().unwrap_or(0) > after.unwrap_or(0)))))
 }
@@ -75,8 +76,8 @@ impl BrowserController {
         let canvas = self.options.mode == BrowserSmokeMode::FissionCanvas;
         if canvas {
             let status = read_runtime_status(&mut self.client)?;
-            anyhow::ensure!(status.test_bridge_ready && last["frame"]["frame"].as_u64().is_some(),
-                "unsupported_host: Web canvas resize needs a matching shell with opt-in test control; run fission preview --target web --live-test and launch BrowserTestOptions::new(url).fission_canvas()");
+            anyhow::ensure!(status.test_bridge_ready && last["frame"]["phase"].as_str() == Some("submitted") && last["frame"]["frame"].as_u64().is_some(),
+                "unsupported_host: Web canvas resize needs the matching opt-in Web test-control frame contract; compile Web with FISSION_WEB_TEST_CONTROL=1, then use LiveTestClient::launch_browser(BrowserTestOptions::new(url).fission_canvas())");
         }
         let same = last["width"].as_u64() == Some(width as u64)
             && last["height"].as_u64() == Some(height as u64)
@@ -151,7 +152,7 @@ mod tests {
         }
     }
     fn measured() -> Value {
-        json!({"width":1280,"height":900,"scale":1,"frame":{"width":1280,"height":900,"frame":42},"canvas":{"width":1280,"height":900,"pixel_width":1280,"pixel_height":900,"x":0,"y":0}})
+        json!({"width":1280,"height":900,"scale":1,"frame":{"width":1280,"height":900,"frame":42,"phase":"submitted"},"canvas":{"width":1280,"height":900,"pixel_width":1280,"pixel_height":900,"x":0,"y":0}})
     }
     #[test]
     fn rejects_stale_frames_and_each_dimension_mismatch() {
@@ -172,6 +173,7 @@ mod tests {
             "/frame/width",
             "/frame/height",
             "/frame/frame",
+            "/frame/phase",
         ] {
             let mut v = measured();
             *v.pointer_mut(path).unwrap() = if path.ends_with("/x") || path.ends_with("/y") {
@@ -239,6 +241,32 @@ mod tests {
             );
             worker.join().unwrap();
         }
+    }
+
+    #[test]
+    #[ignore = "requires FISSION_RESIZE_PRODUCTION_URL, installed Chromium, and loopback sockets"]
+    fn production_canvas_has_no_test_control() -> Result<()> {
+        let url = std::env::var("FISSION_RESIZE_PRODUCTION_URL")?;
+        let mut controller =
+            BrowserController::launch(BrowserTestOptions::new(&url).fission_canvas(), false)?;
+        assert_eq!(
+            controller.evaluate_json("typeof globalThis.__FISSION_TEST__")?,
+            "undefined"
+        );
+        assert_eq!(
+            controller.evaluate_json("typeof globalThis.__FISSION_REVIEW_FRAME")?,
+            "undefined"
+        );
+        assert!(controller
+            .resize_viewport(390, 900)
+            .unwrap_err()
+            .to_string()
+            .contains("unsupported_host"));
+        assert_eq!(controller.evaluate_json("innerWidth")?, 1280);
+        println!(
+            "production canvas rendered without test control; resize rejected before mutation"
+        );
+        Ok(())
     }
 
     #[test]

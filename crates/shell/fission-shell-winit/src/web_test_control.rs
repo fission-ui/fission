@@ -2,7 +2,7 @@ use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::sync::mpsc::{self, Receiver, TryRecvError};
 
-use fission_test_driver::{TestCommand, TestEvent, TestResponse};
+use fission_test_driver::{TestCommand, TestEvent, TestResponse, WebTestFrame, WebTestFramePhase};
 use js_sys::{Object, Reflect};
 use wasm_bindgen::prelude::*;
 use winit::event_loop::EventLoopProxy;
@@ -15,6 +15,22 @@ enum PendingResponse {
 thread_local! {
     static NEXT_REQUEST_ID: Cell<u32> = const { Cell::new(1) };
     static RESPONSES: RefCell<HashMap<u32, PendingResponse>> = RefCell::new(HashMap::new());
+    static FRAME: Cell<Option<WebTestFrame>> = const { Cell::new(None) };
+}
+
+/// Called only after a successful Web renderer submission. The bridge owns
+/// this state independently of any particular driver/review workflow.
+pub(crate) fn publish_frame(width: f32, height: f32, frame: u64) {
+    if cfg!(fission_web_test_control) {
+        FRAME.with(|state| {
+            state.set(Some(WebTestFrame {
+                width,
+                height,
+                frame,
+                phase: WebTestFramePhase::Submitted,
+            }))
+        });
+    }
 }
 
 pub(crate) fn install(proxy: EventLoopProxy<TestEvent>) -> bool {
@@ -79,7 +95,34 @@ pub(crate) fn install(proxy: EventLoopProxy<TestEvent>) -> bool {
         }
     }) as Box<dyn FnMut(u32) -> JsValue>);
 
+    let frame = Closure::wrap(Box::new(move || -> JsValue {
+        FRAME.with(|state| {
+            state
+                .get()
+                .and_then(|frame| serde_json::to_string(&frame).ok())
+                .and_then(|json| js_sys::JSON::parse(&json).ok())
+                .unwrap_or(JsValue::NULL)
+        })
+    }) as Box<dyn FnMut() -> JsValue>);
+    let descriptor = Object::new();
+    if Reflect::set(&descriptor, &JsValue::from_str("get"), frame.as_ref()).is_err()
+        || Reflect::set(
+            &descriptor,
+            &JsValue::from_str("enumerable"),
+            &JsValue::TRUE,
+        )
+        .is_err()
+        || Reflect::set(
+            &descriptor,
+            &JsValue::from_str("configurable"),
+            &JsValue::TRUE,
+        )
+        .is_err()
+    {
+        return false;
+    }
     let bridge = Object::new();
+    Object::define_property(&bridge, &JsValue::from_str("frame"), &descriptor);
     if Reflect::set(&bridge, &JsValue::from_str("submit"), submit.as_ref()).is_err()
         || Reflect::set(&bridge, &JsValue::from_str("poll"), poll.as_ref()).is_err()
         || Reflect::set(
@@ -94,6 +137,7 @@ pub(crate) fn install(proxy: EventLoopProxy<TestEvent>) -> bool {
 
     submit.forget();
     poll.forget();
+    frame.forget();
     true
 }
 

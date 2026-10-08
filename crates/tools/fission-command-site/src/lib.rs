@@ -1,5 +1,4 @@
 use anyhow::{bail, Context, Result};
-pub mod preview;
 use fission_command_process::run_status;
 use std::ffi::OsStr;
 use std::fs;
@@ -69,21 +68,6 @@ pub fn routes(project_dir: &Path) -> Result<()> {
         );
     }
     Ok(())
-}
-
-/// Discover content routes from the configured static route metadata. Custom
-/// Rust site builders have no shared discovery contract; callers must select
-/// their routes explicitly rather than infer coverage from DOM links.
-pub fn review_routes(project_dir: &Path) -> Result<Option<Vec<String>>> {
-    if site_entry_configured(project_dir)? {
-        return Ok(None);
-    }
-    Ok(Some(
-        fission_shell_site::list_content_routes(&site_build_options(project_dir)?)?
-            .into_iter()
-            .map(|route| route.path)
-            .collect(),
-    ))
 }
 
 pub fn serve(project_dir: &Path, release: bool, host: String, port: u16, open: bool) -> Result<()> {
@@ -166,15 +150,6 @@ fn site_build_options(project_dir: &Path) -> Result<fission_shell_site::SiteBuil
             ))
         },
     )
-}
-
-/// The configured static output directory, shared by build and preview.
-pub fn output_dir(project_dir: &Path) -> Result<PathBuf> {
-    Ok(fission_shell_site::SiteBuildOptions::from_project_dir(
-        project_dir,
-        project_name(project_dir)?,
-    )?
-    .output_dir)
 }
 
 fn project_name(project_dir: &Path) -> Result<String> {
@@ -325,20 +300,6 @@ fn read_http_body(reader: &mut io::BufReader<TcpStream>) -> Result<String> {
 }
 
 fn static_response(root: &Path, request_path: &str, spa_fallback: bool) -> Result<Vec<u8>> {
-    static_response_at_mount(
-        root,
-        request_path,
-        spa_fallback,
-        spa_fallback.then_some("/"),
-    )
-}
-
-fn static_response_at_mount(
-    root: &Path,
-    request_path: &str,
-    spa_fallback: bool,
-    mount: Option<&str>,
-) -> Result<Vec<u8>> {
     let mut relative = request_path.trim_start_matches('/').to_string();
     if relative.is_empty() {
         relative = if root.join("index.html").exists() {
@@ -363,22 +324,8 @@ fn static_response_at_mount(
     {
         let index = sanitize_static_path(root, "index.html")?;
         if index.is_file() {
-            let mut body = fs::read(index)?;
-            // A deep-route refresh must resolve relative bootstrap URLs from
-            // the mounted app root, rather than from the current route.
-            if let Some(mount) = mount {
-                let html = std::str::from_utf8(&body).context("Web fallback entry is not UTF-8")?;
-                let lower = html.to_ascii_lowercase();
-                if !lower.contains("<base ") && !lower.contains("<base>") {
-                    if let Some(head) = lower.find("<head>") {
-                        let position = head + "<head>".len();
-                        let mut mounted = html.to_string();
-                        mounted.insert_str(position, &format!("<base href=\"{mount}\">"));
-                        body = mounted.into_bytes();
-                    }
-                }
-            }
-            eprintln!("GET {} 200 (SPA fallback)", request_path);
+            let body = fs::read(index)?;
+            println!("GET {} 200 (SPA fallback)", request_path);
             return Ok(http_response(
                 200,
                 "text/html; charset=utf-8",
@@ -388,12 +335,12 @@ fn static_response_at_mount(
         }
     }
     if !path.exists() || !path.is_file() {
-        eprintln!("GET {} 404", request_path);
+        println!("GET {} 404", request_path);
         return Ok(http_response(404, "text/plain", b"not found", spa_fallback));
     }
     let body = fs::read(&path)?;
     let content_type = content_type(&path);
-    eprintln!("GET {} 200", request_path);
+    println!("GET {} 200", request_path);
     Ok(http_response(200, content_type, &body, spa_fallback))
 }
 
@@ -408,9 +355,6 @@ fn sanitize_static_path(root: &Path, relative: &str) -> Result<PathBuf> {
         }
         path.push(part);
     }
-    if path.exists() && !path.canonicalize()?.starts_with(root.canonicalize()?) {
-        bail!("static path escapes the output directory: `{relative}`");
-    }
     Ok(path)
 }
 
@@ -422,7 +366,6 @@ fn http_response(
 ) -> Vec<u8> {
     let reason = match status {
         200 => "OK",
-        204 => "No Content",
         404 => "Not Found",
         _ => "Error",
     };
@@ -460,26 +403,6 @@ mod tests {
         fs,
         time::{SystemTime, UNIX_EPOCH},
     };
-
-    #[test]
-    fn legacy_web_server_keeps_relative_bootstrap_at_root_on_deep_refresh() {
-        let root =
-            std::env::temp_dir().join(format!("fission-legacy-spa-base-{}", std::process::id()));
-        fs::create_dir_all(&root).unwrap();
-        fs::write(
-            root.join("index.html"),
-            "<html><head></head><body><script src='./bootstrap.mjs'></script></body></html>",
-        )
-        .unwrap();
-        let response =
-            String::from_utf8(static_response(&root, "/about/details/", true).unwrap()).unwrap();
-        assert!(response.contains("<head><base href=\"/\">"));
-        assert!(response.contains("src='./bootstrap.mjs'"));
-        let missing =
-            String::from_utf8(static_response(&root, "/about/app.wasm", true).unwrap()).unwrap();
-        assert!(missing.starts_with("HTTP/1.1 404"));
-        fs::remove_dir_all(root).unwrap();
-    }
 
     #[test]
     fn formats_renderer_diagnostic_as_cli_line() {
@@ -541,8 +464,7 @@ mod tests {
     }
 }
 
-/// Opens a preview URL using the host's default browser.
-pub fn open_url(url: &str) -> Result<()> {
+fn open_url(url: &str) -> Result<()> {
     let mut command = if cfg!(target_os = "macos") {
         let mut cmd = Command::new("open");
         cmd.arg(url);

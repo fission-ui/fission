@@ -5,49 +5,6 @@
 These instructions apply when building or reviewing a Fission-based app in this
 tree.
 
-## Browser Project Setup and Preview
-
-- Immediately after `fission init`, read the generated `AGENTS.md` and any
-  referenced `AGENTS.fission.md` before changing application files.
-- Preserve the CLI-generated `fission.toml`. Add browser targets with
-  `fission add-target static-site web --project-dir .` and use the supported
-  target commands instead of replacing generated configuration or host files.
-- Use `fission preview --target static-site --project-dir . --port 0` or
-  `fission preview --target web --project-dir . --port 0` for a verified local
-  browser preview. `--mount /repository-name/` serves the existing build under
-  that URL prefix. The default entry is `index.html`; use `--entry` for a site
-  whose entry is elsewhere in its output directory.
-- CLI wrappers should use `--json --stdin-control`, consume the `ready` event's
-  exact `url`, and retain the attached process and stdin. Send `stop` followed by
-  a newline, close stdin, or send Ctrl+C/SIGTERM to stop. Wait for the terminal
-  event and process exit. Never kill a listener by port or trust a saved PID.
-- `local_assets` readiness checks the built HTML and required local assets;
-  it does not claim the app has rendered in a browser. For Web development,
-  `--live-test` additionally compiles test control and verifies renderer and
-  bridge readiness in a temporary Chrome session. Keep it opt-in; rebuild
-  without it before packaging a production Web app. Static packages have no
-  test-control dependency or endpoint.
-- A failed preview reports its stage, diagnostic tail, and retry arguments.
-  Correct the reported build, tool, path, asset, or port problem and retry. Use
-  `--port 0` for an occupied port. Use `--startup-timeout-seconds` (1–3600) for
-  a slow build. The supported stop path cleans up only this preview's owned
-  build tree and listener.
-- For in-session responsive checks, keep one Rust
-  `LiveTestClient::launch_browser(BrowserTestOptions::new(url).fission_canvas())`
-  alive and call `client.simulate_resize(390, 844)` then
-  `client.simulate_resize(1280, 900)`. Web needs `preview --target web --live-test`;
-  static DOM uses `BrowserTestOptions::new(url)` without a bridge. Resize uses
-  CSS pixels (1–8192 per axis, at most 16,777,216 pixels), device scale 1, and
-  retains state/route. It waits for actual metrics, canvas/layout frame when
-  applicable, and paint, using the options timeout capped at 60 seconds.
-  Same-size requests verify the current frame. Capture with
-  `client.capture_screenshot_png()`, check PNG dimensions and inspect content.
-  Raw Web `SimulateResize` has no host control and returns an explicit error.
-  On timeout, metrics may have changed: inspect `browser_report()` and the
-  error's observed state, repair the cause, retry the supported call, or drop
-  the client to close its owned browser. DOM supports host resize/screenshots;
-  it does not gain all semantic LiveTest commands.
-
 ## Source-Grounded Work
 
 - Start from the real app entrypoint, then trace into screens, reusable widgets,
@@ -474,25 +431,15 @@ widgets guess.
   inspect those screenshots before calling the UI production-ready.
 - For UI changes, verify a real rendered target when possible, and check mobile
   and desktop layouts when the screen is responsive.
+- For same-session Web viewport tests, compile with `FISSION_WEB_TEST_CONTROL=1`
+  on the Web build command, serve the bundle through the existing Web server,
+  and retain `LiveTestClient::launch_browser(BrowserTestOptions::new(url).fission_canvas())`.
+  Use `client.simulate_resize(width, height)` for owned Chromium CSS viewport
+  changes and `client.capture_screenshot_png()` after acknowledgment/paint.
+  The opt-in `__FISSION_TEST__.frame` getter describes a successful submitted
+  layout frame; production builds omit test control. Raw Web bridge resize has
+  no host authority and returns `unsupported_host`. Static DOM browser sessions
+  need no bridge; native resize retains logical viewport semantics.
 - If docs or configuration target names are changed, keep terminology consistent
   with Fission's public target names: `macOS`, `Windows`, `Linux`, `Web`,
   `Android`, `iOS`, `Terminal`, `Static site`, and `SSR`.
-
-## Browser website review loop
-
-After initialization, read this generated `AGENTS.md` and referenced
-`AGENTS.fission.md` before editing. Retain generated `fission.toml` and use
-`fission add-target` for browser targets. Build/review the Rust/Fission website:
-
-```sh
-fission review --target static-site --project-dir . --output-dir review --json
-fission review --target web --project-dir . --route / --route /details/ --output-dir review --json
-```
-
-Inspect `review/review.json` and the real PNGs at 390, 800 and 1280 CSS pixels.
-Fix the responsible Rust/Fission widget/route or intended site CSS, then rerun.
-Select Web/custom-site routes explicitly; undiscovered routes are not reviewed.
-Use `--mount /repository-name/` when testing a matching app navigation base.
-Treat incomplete/unsupported cases and partial geometry limitations truthfully;
-clean supported checks do not prove no visual clipping. Do not switch UI
-frameworks or reauthor configuration to bypass a review failure.
