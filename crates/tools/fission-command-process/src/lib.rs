@@ -1,7 +1,10 @@
 //! Owned child-process supervision for Fission CLI commands.
 
 mod session;
-pub use session::{in_owned_process_tree, run_captured, CleanupError, ProcessSession};
+pub use session::{
+    capturing_commands, in_owned_process_tree, run_captured, CleanupError, ProcessSession,
+    StartupContext,
+};
 
 use anyhow::{bail, Context, Result};
 use command_group::{CommandGroup, GroupChild};
@@ -91,6 +94,9 @@ impl Drop for SupervisedChild {
 
 /// Runs a child process under tree supervision and validates its exit status.
 pub fn run_status(command: &mut Command, label: &str) -> Result<()> {
+    if let Some(result) = session::run_startup_command(command, label) {
+        return result;
+    }
     if session::inherits_group() {
         let status = command
             .status()

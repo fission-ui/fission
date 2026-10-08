@@ -5,11 +5,14 @@ use super::{
 };
 use anyhow::{bail, Context, Result};
 use std::{
-    cell::Cell,
+    cell::{Cell, RefCell},
     collections::VecDeque,
     io::Read,
     process::{Command, Stdio},
-    sync::{Arc, Mutex, MutexGuard},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Mutex, MutexGuard,
+    },
     time::{Duration, Instant},
 };
 
@@ -25,6 +28,88 @@ impl std::fmt::Display for CleanupError {
 }
 impl std::error::Error for CleanupError {}
 thread_local! { static INHERITED_GROUP: Cell<bool> = const { Cell::new(false) }; }
+thread_local! { static STARTUP: RefCell<Option<(Instant, Arc<AtomicBool>)>> = const { RefCell::new(None) }; }
+
+/// Bounds the existing command execution path without another CLI worker.
+/// The caller retains this signal owner until its attached session finishes.
+pub struct StartupContext {
+    session: ProcessSession,
+    stop: Arc<AtomicBool>,
+    deadline: Instant,
+}
+
+impl StartupContext {
+    pub fn new(timeout: Duration, stop: Arc<AtomicBool>) -> Result<Self> {
+        if timeout.is_zero() || timeout > Duration::from_secs(3600) {
+            bail!("startup timeout must be between 1 and 3600 seconds");
+        }
+        Ok(Self {
+            session: ProcessSession::new()?,
+            stop,
+            deadline: Instant::now() + timeout,
+        })
+    }
+
+    pub fn cancelled(&self) -> bool {
+        if self.session.interrupted() {
+            self.stop.store(true, Ordering::Release);
+        }
+        self.stop.load(Ordering::Acquire)
+    }
+
+    pub fn deadline(&self) -> Instant {
+        self.deadline
+    }
+
+    pub fn run<T>(&self, action: impl FnOnce() -> Result<T>) -> Result<T> {
+        self.check()?;
+        struct Reset(Option<(Instant, Arc<AtomicBool>)>);
+        impl Drop for Reset {
+            fn drop(&mut self) {
+                STARTUP.with(|slot| *slot.borrow_mut() = self.0.take());
+            }
+        }
+        let _reset =
+            Reset(STARTUP.with(|slot| slot.replace(Some((self.deadline, self.stop.clone())))));
+        let value = action()?;
+        self.check()?;
+        Ok(value)
+    }
+
+    fn check(&self) -> Result<()> {
+        if self.cancelled() {
+            bail!("startup cancelled");
+        }
+        if Instant::now() >= self.deadline {
+            bail!("startup timed out");
+        }
+        Ok(())
+    }
+}
+
+pub fn capturing_commands() -> bool {
+    STARTUP.with(|slot| slot.borrow().is_some())
+}
+
+pub(super) fn run_startup_command(command: &mut Command, label: &str) -> Option<Result<()>> {
+    let context = STARTUP.with(|slot| slot.borrow().clone());
+    context.map(|(deadline, stop)| {
+        let remaining = deadline
+            .checked_duration_since(Instant::now())
+            .context("startup timed out")?;
+        let signals = termination_signals()?;
+        let output = run_captured(command, label, remaining, || {
+            if signals.take().is_some() {
+                stop.store(true, Ordering::Release);
+            }
+            stop.load(Ordering::Acquire)
+        })?;
+        if !output.is_empty() {
+            eprint!("{output}");
+        }
+        Ok(())
+    })
+}
 
 /// Runs a CLI worker's nested commands in the process tree owned by its parent.
 /// The caller must already be a child of a supervising process group/Job Object.
@@ -164,6 +249,21 @@ fn capture(
 mod tests {
     use super::*;
 
+    #[test]
+    fn existing_command_path_obeys_scoped_deadline_and_restores_policy() {
+        let stop = Arc::new(AtomicBool::new(false));
+        let context = StartupContext::new(Duration::from_millis(100), stop).unwrap();
+        assert!(!capturing_commands());
+        let error = context
+            .run(|| {
+                assert!(capturing_commands());
+                crate::run_status(&mut fixture("sleep"), "existing command")
+            })
+            .unwrap_err();
+        assert!(error.to_string().contains("timed out"));
+        assert!(!capturing_commands());
+    }
+
     fn fixture(mode: &str) -> Command {
         let mut command = Command::new(std::env::current_exe().unwrap());
         command
@@ -294,6 +394,7 @@ mod tests {
     #[ignore]
     fn capture_fixture() {
         match std::env::var("FISSION_CAPTURE_FIXTURE").unwrap().as_str() {
+            "sleep" => std::thread::sleep(Duration::from_secs(10)),
             "logs" => {
                 println!("old log sentinel");
                 println!("{}", "x".repeat(100_000));
