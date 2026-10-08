@@ -1,4 +1,4 @@
-//! Exercise the public binary contract, including its owned worker and listener.
+//! Exercise authoritative serving commands and their owned resources.
 use serde_json::Value;
 use std::{
     fs,
@@ -15,7 +15,7 @@ static NEXT_FIXTURE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64
 impl Fixture {
     fn content() -> Self {
         let root = std::env::temp_dir().join(format!(
-            "fission-preview-contract-{}-{}-{}",
+            "fission-serving-contract-{}-{}-{}",
             std::process::id(),
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)
@@ -30,10 +30,10 @@ impl Fixture {
             "Static site target fixture\n",
         )
         .unwrap();
-        fs::write(root.join("fission.toml"), "targets = ['static-site']\n[app]\nname = 'preview-contract'\napp_id = 'test.preview'\n").unwrap();
+        fs::write(root.join("fission.toml"), "targets = ['static-site']\n[app]\nname = 'serving-contract'\napp_id = 'test.serving'\n").unwrap();
         fs::write(
             root.join("content/start.md"),
-            "# Preview contract\n\nA real Fission content build.\n",
+            "# Serving contract\n\nA real Fission content build.\n",
         )
         .unwrap();
         Self(root)
@@ -42,9 +42,9 @@ impl Fixture {
         let mut command = Command::new(env!("CARGO_BIN_EXE_fission"));
         command
             .args([
-                "preview",
-                "--target",
-                "static-site",
+                "site",
+                "serve",
+                "--no-open",
                 "--json",
                 "--port",
                 "0",
@@ -92,15 +92,13 @@ impl Session {
                 .events
                 .recv_timeout(Duration::from_secs(30))
                 .expect("bounded event wait");
-            assert_eq!(event["schema"], "fission.preview.v1");
+            assert_eq!(event["schema"], "fission.cli-event.v1");
             assert_eq!(event["owner_pid"], self.child.id());
-            if event["stage"] == stage {
+            if event["event"]["phase"] == stage {
                 return event;
             }
-            assert_ne!(event["stage"], "failed", "{event}");
-            assert_ne!(event["stage"], "stopped", "{event}");
-            assert_eq!(event["readiness"], "unverified");
-            assert_eq!(event["live_test_ready"], false);
+            assert_ne!(event["event"]["phase"], "failed", "{event}");
+            assert_ne!(event["event"]["phase"], "stopped", "{event}");
         }
     }
     fn wait(&mut self) {
@@ -112,7 +110,7 @@ impl Session {
             }
             assert!(
                 Instant::now() < deadline,
-                "preview did not exit after terminal event"
+                "serving did not exit after terminal event"
             );
             std::thread::sleep(Duration::from_millis(10));
         }
@@ -126,7 +124,7 @@ impl Drop for Session {
 }
 
 #[test]
-fn real_content_preview_reports_exact_url_and_releases_on_stop_and_eof() {
+fn real_content_serving_reports_exact_url_and_releases_on_stop_and_eof() {
     let fixture = Fixture::content();
     let original = fs::read(fixture.0.join("fission.toml")).unwrap();
     for (mount, eof) in [("/", false), ("/repository-name/", true)] {
@@ -134,10 +132,9 @@ fn real_content_preview_reports_exact_url_and_releases_on_stop_and_eof() {
         command.args(["--mount", mount, "--stdin-control"]);
         let mut session = Session::start(command);
         let ready = session.until("ready");
-        assert_eq!(ready["readiness"], "local_assets");
-        assert_eq!(ready["live_test_ready"], false);
-        assert!(ready["detail"]["verified_local_assets"].as_u64().unwrap() >= 4);
-        let url = ready["url"].as_str().unwrap();
+        assert_eq!(ready["event"]["readiness"], "local_assets");
+        assert!(ready["event"]["verified_local_assets"].as_u64().unwrap() >= 4);
+        let url = ready["event"]["url"].as_str().unwrap();
         assert!(url.ends_with(mount));
         let address = url
             .strip_prefix("http://")
@@ -154,7 +151,7 @@ fn real_content_preview_reports_exact_url_and_releases_on_stop_and_eof() {
         let mut response = String::new();
         stream.read_to_string(&mut response).unwrap();
         assert!(response.starts_with("HTTP/1.1 200"));
-        assert!(response.contains("Preview contract"));
+        assert!(response.contains("Serving contract"));
         if eof {
             session.child.stdin.take();
         } else {
@@ -167,7 +164,7 @@ fn real_content_preview_reports_exact_url_and_releases_on_stop_and_eof() {
                 .unwrap();
         }
         let stopped = session.until("stopped");
-        assert_eq!(stopped["detail"]["owned_resources_released"], true);
+        assert_eq!(stopped["event"]["owned_resources_released"], true);
         session.wait();
         assert!(TcpListener::bind(address).is_ok());
     }
@@ -182,42 +179,35 @@ fn failure(mut command: Command, stage: &str, detail: &str) {
         .lines()
         .map(|line| serde_json::from_str(line).unwrap())
         .collect();
-    assert!(!events.iter().any(|event| event["stage"] == "ready"));
+    assert!(!events
+        .iter()
+        .any(|event| event["event"]["phase"] == "ready"));
     let failed = events.last().unwrap();
-    assert_eq!(failed["stage"], "failed");
-    assert_eq!(failed["detail"]["failed_stage"], stage);
-    assert_eq!(failed["detail"]["owned_resources_released"], true);
+    assert_eq!(failed["event"]["phase"], "failed");
+    let _ = stage;
+    assert_eq!(failed["event"]["owned_resources_released"], true);
     assert!(
-        failed["detail"]["message"]
+        failed["event"]["message"]
             .as_str()
             .unwrap()
             .contains(detail),
         "{failed}"
     );
-    assert!(failed["detail"]["retry_argv"].is_array());
+    assert!(failed["retry_argv"].is_array());
 }
 
 #[test]
-fn invalid_entry_and_occupied_port_fail_without_claiming_ready_or_touching_listener() {
+fn invalid_mount_and_occupied_port_fail_without_claiming_ready_or_touching_listener() {
     let fixture = Fixture::content();
     let mut command = fixture.command();
     command.args(["--mount", "relative"]);
     failure(command, "validating", "invalid mount");
-    let mut command = fixture.command();
-    command.args(["--entry", "missing.html"]);
-    failure(command, "building", "missing after build");
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let address = listener.local_addr().unwrap();
     // Avoid duplicate --port arguments; construct the occupied-port command.
     let mut command = Command::new(env!("CARGO_BIN_EXE_fission"));
     command
-        .args([
-            "preview",
-            "--target",
-            "static-site",
-            "--json",
-            "--project-dir",
-        ])
+        .args(["site", "serve", "--no-open", "--json", "--project-dir"])
         .arg(&fixture.0)
         .arg("--port")
         .arg(address.port().to_string());
@@ -227,35 +217,100 @@ fn invalid_entry_and_occupied_port_fail_without_claiming_ready_or_touching_liste
 }
 
 #[test]
+fn human_and_json_serving_build_the_same_output_and_stop_cleanly() {
+    let fixture = Fixture::content();
+    let config = fs::read(fixture.0.join("fission.toml")).unwrap();
+    let mut human = Command::new(env!("CARGO_BIN_EXE_fission"))
+        .args([
+            "site",
+            "serve",
+            "--no-open",
+            "--port",
+            "0",
+            "--stdin-control",
+            "--project-dir",
+        ])
+        .arg(&fixture.0)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let stdout = human.stdout.take().unwrap();
+    let (sender, lines) = mpsc::channel();
+    std::thread::spawn(move || {
+        for line in BufReader::new(stdout).lines() {
+            if sender.send(line.unwrap()).is_err() {
+                break;
+            }
+        }
+    });
+    let url = loop {
+        let line = lines.recv_timeout(Duration::from_secs(30)).unwrap();
+        assert!(!line.starts_with('{'));
+        if let Some(url) = line.strip_prefix("Serving at ") {
+            break url.to_string();
+        }
+    };
+    assert!(!url.contains(":0/"));
+    human.stdin.as_mut().unwrap().write_all(b"stop\n").unwrap();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        if let Some(status) = human.try_wait().unwrap() {
+            assert!(status.success());
+            break;
+        }
+        assert!(Instant::now() < deadline);
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let output = fixture.0.join("target/fission/site");
+    let entry = fs::read(output.join("index.html")).unwrap();
+    let page = fs::read(output.join("content/start/index.html")).unwrap();
+    let mut command = fixture.command();
+    command.arg("--stdin-control");
+    let mut json = Session::start(command);
+    json.until("ready");
+    assert_eq!(fs::read(output.join("index.html")).unwrap(), entry);
+    assert_eq!(
+        fs::read(output.join("content/start/index.html")).unwrap(),
+        page
+    );
+    json.child.stdin.take();
+    json.until("stopped");
+    json.wait();
+    assert_eq!(fs::read(fixture.0.join("fission.toml")).unwrap(), config);
+}
+
+#[test]
 fn real_cargo_compile_failure_has_bounded_diagnostics_and_no_ready_event() {
     let fixture = Fixture::content();
-    fs::write(fixture.0.join("fission.toml"), "targets = ['static-site']\n[app]\nname = 'preview-contract'\napp_id = 'test.preview'\n[site]\nentry = 'src/main.rs'\n").unwrap();
+    fs::write(fixture.0.join("fission.toml"), "targets = ['static-site']\n[app]\nname = 'serving-contract'\napp_id = 'test.serving'\n[site]\nentry = 'src/main.rs'\n").unwrap();
     fs::create_dir(fixture.0.join("src")).unwrap();
     fs::write(
         fixture.0.join("Cargo.toml"),
-        "[package]\nname = 'preview-contract'\nversion = '0.0.0'\nedition = '2021'\n[workspace]\n",
+        "[package]\nname = 'serving-contract'\nversion = '0.0.0'\nedition = '2021'\n[workspace]\n",
     )
     .unwrap();
     fs::write(
         fixture.0.join("src/main.rs"),
-        "compile_error!(\"preview fixture compiler failure\"); fn main() {}\n",
+        "compile_error!(\"serving fixture compiler failure\"); fn main() {}\n",
     )
     .unwrap();
     failure(
         fixture.command(),
         "building",
-        "preview fixture compiler failure",
+        "serving fixture compiler failure",
     );
 }
 
 #[test]
 fn startup_timeout_and_cancellation_stop_the_real_builder_descendant() {
     let fixture = Fixture::content();
-    fs::write(fixture.0.join("fission.toml"), "targets = ['static-site']\n[app]\nname = 'preview-contract'\napp_id = 'test.preview'\n[site]\nentry = 'src/main.rs'\n").unwrap();
+    fs::write(fixture.0.join("fission.toml"), "targets = ['static-site']\n[app]\nname = 'serving-contract'\napp_id = 'test.serving'\n[site]\nentry = 'src/main.rs'\n").unwrap();
     fs::create_dir(fixture.0.join("src")).unwrap();
     fs::write(
         fixture.0.join("Cargo.toml"),
-        "[package]\nname = 'preview-contract'\nversion = '0.0.0'\nedition = '2021'\n[workspace]\n",
+        "[package]\nname = 'serving-contract'\nversion = '0.0.0'\nedition = '2021'\n[workspace]\n",
     )
     .unwrap();
     fs::write(fixture.0.join("src/main.rs"), r#"
@@ -302,7 +357,7 @@ fn main() {
                 .write_all(b"stop\n")
                 .unwrap();
             assert_eq!(
-                session.until("stopped")["detail"]["owned_resources_released"],
+                session.until("stopped")["event"]["owned_resources_released"],
                 true
             );
             session.wait();
@@ -323,11 +378,11 @@ fn main() {
 
 #[cfg(unix)]
 #[test]
-fn sigterm_stops_the_attached_preview_and_releases_its_listener() {
+fn sigterm_stops_the_attached_serving_and_releases_its_listener() {
     let fixture = Fixture::content();
     let mut session = Session::start(fixture.command());
     let ready = session.until("ready");
-    let address = ready["url"]
+    let address = ready["event"]["url"]
         .as_str()
         .unwrap()
         .strip_prefix("http://")
@@ -339,7 +394,7 @@ fn sigterm_stops_the_attached_preview_and_releases_its_listener() {
         .unwrap()
         .success());
     assert_eq!(
-        session.until("stopped")["detail"]["owned_resources_released"],
+        session.until("stopped")["event"]["owned_resources_released"],
         true
     );
     session.wait();

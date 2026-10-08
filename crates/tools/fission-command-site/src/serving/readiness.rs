@@ -7,7 +7,8 @@ use regex::Regex;
 use std::{
     collections::{BTreeSet, VecDeque},
     fs,
-    io::Read,
+    io::{Read, Write},
+    net::{IpAddr, SocketAddr, TcpStream},
     path::Path,
     time::{Duration, Instant},
 };
@@ -17,7 +18,10 @@ const MAX_ASSET_BYTES: u64 = 64 * 1024 * 1024;
 const MAX_REFERENCES: usize = 2048;
 
 #[derive(Default)]
-struct Assets(Vec<String>);
+struct Assets {
+    references: Vec<String>,
+    base: Option<String>,
+}
 impl TokenSink for Assets {
     type Handle = ();
     fn process_token(&mut self, token: Token, _line: u64) -> TokenSinkResult<()> {
@@ -30,6 +34,10 @@ impl TokenSink for Assets {
             };
             // Favicons and document navigation are not required startup assets.
             let reference = match tag.name.as_ref() {
+                "base" if self.base.is_none() => {
+                    self.base = attr("href");
+                    None
+                }
                 "script" | "img" | "source" => attr("src"),
                 "meta" if attr("http-equiv").is_some_and(|v| v.eq_ignore_ascii_case("refresh")) => {
                     attr("content").and_then(|content| {
@@ -55,7 +63,7 @@ impl TokenSink for Assets {
                 _ => None,
             };
             if let Some(reference) = reference {
-                self.0.push(reference);
+                self.references.push(reference);
             }
         }
         TokenSinkResult::Continue
@@ -96,18 +104,18 @@ pub(super) fn verify(
             continue;
         }
         if visited.len() > MAX_REFERENCES {
-            bail!("preview has more than {MAX_REFERENCES} required asset references");
+            bail!("serving has more than {MAX_REFERENCES} required asset references");
         }
         if cancelled() {
-            bail!("preview verification cancelled");
+            return Err(fission_command_process::Cancelled.into());
         }
         let remaining = deadline
             .checked_duration_since(Instant::now())
-            .context("preview readiness timed out")?;
+            .context("serving readiness timed out")?;
         let relative = url
             .path()
             .strip_prefix(base.path())
-            .context("required asset is outside the preview mount")?;
+            .context("required asset is outside the serving mount")?;
         let path = root.join(relative);
         let path = if url.path().ends_with('/') {
             path.join("index.html")
@@ -116,7 +124,7 @@ pub(super) fn verify(
         };
         let path = path
             .canonicalize()
-            .with_context(|| format!("required preview asset is missing: {url}"))?;
+            .with_context(|| format!("required serving asset is missing: {url}"))?;
         if !path.starts_with(&root) || !path.is_file() {
             bail!("invalid required asset path: {url}");
         }
@@ -127,21 +135,10 @@ pub(super) fn verify(
         if expected.is_empty() {
             bail!("required asset is empty: {url}");
         }
-        let response = ureq::AgentBuilder::new()
-            .redirects(0)
-            .timeout(remaining.min(Duration::from_secs(1)))
-            .build()
-            .get(url.as_str())
-            .call()
-            .with_context(|| format!("required preview GET failed: {url}"))?;
-        let content_type = response.header("Content-Type").unwrap_or("").to_string();
-        let mut actual = Vec::new();
-        response
-            .into_reader()
-            .take(MAX_ASSET_BYTES + 1)
-            .read_to_end(&mut actual)?;
+        let (content_type, actual) = get_local_asset(&url, remaining, &mut cancelled)
+            .with_context(|| format!("required serving GET failed: {url}"))?;
         if actual != expected {
-            bail!("preview response differs from the expected build asset: {url}");
+            bail!("serving response differs from the expected build asset: {url}");
         }
         let extension = path.extension().and_then(|v| v.to_str()).unwrap_or("");
         match extension {
@@ -159,8 +156,15 @@ pub(super) fn verify(
                 input.push_back(StrTendril::from_slice(html));
                 let _ = tokenizer.feed(&mut input);
                 tokenizer.end();
-                for reference in tokenizer.sink.0 {
-                    enqueue(&mut queue, &url, base, &reference)?;
+                let document_base = tokenizer
+                    .sink
+                    .base
+                    .as_ref()
+                    .map(|reference| url.join(reference))
+                    .transpose()?
+                    .unwrap_or_else(|| url.clone());
+                for reference in tokenizer.sink.references {
+                    enqueue(&mut queue, &document_base, base, &reference)?;
                 }
             }
             "js" | "mjs" | "css" => {
@@ -199,9 +203,107 @@ pub(super) fn verify(
         bail!("Web entry must reference its bootstrap and WASM assets; no complete bootstrap chain was found");
     }
     if Instant::now() >= deadline {
-        bail!("preview readiness timed out");
+        bail!("serving readiness timed out");
     }
     Ok(visited.len())
+}
+
+// The server's internal HTTP contract is loopback/plain HTTP, Content-Length,
+// and Connection: close. No redirects, DNS, TLS, or external requests are made.
+fn get_local_asset(
+    url: &Url,
+    timeout: Duration,
+    cancelled: &mut impl FnMut() -> bool,
+) -> Result<(String, Vec<u8>)> {
+    let ip = match url.host() {
+        Some(url::Host::Ipv4(ip)) => IpAddr::V4(ip),
+        Some(url::Host::Ipv6(ip)) => IpAddr::V6(ip),
+        _ => bail!("asset verification requires the owned server's numeric address"),
+    };
+    if url.scheme() != "http" {
+        bail!("asset verification requires local HTTP");
+    }
+    let deadline = Instant::now() + timeout;
+    let mut stream = TcpStream::connect_timeout(
+        &SocketAddr::new(
+            ip,
+            url.port_or_known_default().context("missing HTTP port")?,
+        ),
+        timeout.min(Duration::from_millis(250)),
+    )?;
+    stream.set_write_timeout(Some(timeout.min(Duration::from_millis(250))))?;
+    let mut path = url.path().to_string();
+    if let Some(query) = url.query() {
+        path.push('?');
+        path.push_str(query);
+    }
+    stream.write_all(
+        format!("GET {path} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n").as_bytes(),
+    )?;
+    let mut response = Vec::new();
+    let mut chunk = [0u8; 8192];
+    loop {
+        if cancelled() {
+            return Err(fission_command_process::Cancelled.into());
+        }
+        let remaining = deadline
+            .checked_duration_since(Instant::now())
+            .context("serving readiness timed out")?;
+        stream.set_read_timeout(Some(remaining.min(Duration::from_millis(100))))?;
+        match stream.read(&mut chunk) {
+            Ok(0) => break,
+            Ok(count) => response.extend_from_slice(&chunk[..count]),
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock
+                ) =>
+            {
+                continue
+            }
+            Err(error) => return Err(error.into()),
+        }
+        if response.len() > MAX_ASSET_BYTES as usize + 16384 {
+            bail!("asset response exceeds 64 MiB");
+        }
+        if response.len() > 16384 && !response.windows(4).take(16384).any(|w| w == b"\r\n\r\n") {
+            bail!("asset HTTP headers exceed 16 KiB");
+        }
+    }
+    let split = response
+        .windows(4)
+        .position(|w| w == b"\r\n\r\n")
+        .context("invalid asset HTTP response")?;
+    if split > 16384 {
+        bail!("asset HTTP headers exceed 16 KiB");
+    }
+    let headers = std::str::from_utf8(&response[..split])?;
+    if !headers
+        .lines()
+        .next()
+        .is_some_and(|line| line.split_whitespace().nth(1) == Some("200"))
+    {
+        bail!("required asset did not return HTTP 200");
+    }
+    let header = |name: &str| {
+        headers
+            .lines()
+            .skip(1)
+            .filter_map(|line| line.split_once(':'))
+            .find(|(key, _)| key.eq_ignore_ascii_case(name))
+            .map(|(_, value)| value.trim())
+    };
+    let body = response[split + 4..].to_vec();
+    if body.len() > MAX_ASSET_BYTES as usize {
+        bail!("asset response exceeds 64 MiB");
+    }
+    let length: usize = header("Content-Length")
+        .context("missing asset Content-Length")?
+        .parse()?;
+    if body.len() != length {
+        bail!("incomplete asset response");
+    }
+    Ok((header("Content-Type").unwrap_or("").into(), body))
 }
 
 fn enqueue(queue: &mut VecDeque<Url>, source: &Url, base: &Url, reference: &str) -> Result<()> {
@@ -213,12 +315,12 @@ fn enqueue(queue: &mut VecDeque<Url>, source: &Url, base: &Url, reference: &str)
     }
     if !url.path().starts_with(base.path()) {
         bail!(
-            "required asset {url} is outside preview mount {}; use mount-relative asset URLs",
+            "required asset {url} is outside serving mount {}; use mount-relative asset URLs",
             base.path()
         );
     }
     if url.path().contains('%') {
-        bail!("encoded required asset paths are not supported by the preview file server: {url}");
+        bail!("encoded required asset paths are not supported by the serving file server: {url}");
     }
     queue.push_back(url);
     Ok(())
@@ -227,7 +329,7 @@ fn enqueue(queue: &mut VecDeque<Url>, source: &Url, base: &Url, reference: &str)
 #[cfg(test)]
 mod tests {
     use super::*;
-    use fission_command_site::preview::PreviewServer;
+    use crate::serving::{OwnedServer, ServerOptions};
     use std::{
         net::TcpListener,
         path::PathBuf,
@@ -239,7 +341,7 @@ mod tests {
     impl Fixture {
         fn new(html: &str) -> Self {
             let root = std::env::temp_dir().join(format!(
-                "fission-preview-assets-{}-{}-{}",
+                "fission-serving-assets-{}-{}-{}",
                 std::process::id(),
                 SystemTime::now()
                     .duration_since(UNIX_EPOCH)
@@ -252,7 +354,14 @@ mod tests {
             Self(root)
         }
         fn verify(&self, mount: &str, web: bool) -> Result<usize> {
-            let server = PreviewServer::start(self.0.clone(), "127.0.0.1", 0, mount, web)?;
+            let server = OwnedServer::start(
+                self.0.clone(),
+                &ServerOptions {
+                    mount: mount.into(),
+                    spa: web,
+                    ..Default::default()
+                },
+            )?;
             let base = Url::parse(&format!("http://{}{mount}", server.address()))?;
             verify(
                 &self.0,
@@ -278,6 +387,20 @@ mod tests {
     }
 
     #[test]
+    fn document_base_is_used_for_required_asset_resolution() {
+        let fixture = Fixture::new(
+            "<html><head><base href='/'><link rel='stylesheet' href='app.css'></head></html>",
+        );
+        fs::write(fixture.0.join("app.css"), "body { color: black; }").unwrap();
+        assert!(fixture
+            .verify("/repo/", false)
+            .unwrap_err()
+            .to_string()
+            .contains("outside serving mount"));
+        assert_eq!(fixture.verify("/", false).unwrap(), 2);
+    }
+
+    #[test]
     fn generated_root_redirect_requires_its_destination_and_assets() {
         let fixture =
             Fixture::new("<html><meta http-equiv='refresh' content='0; url=./content/'></html>");
@@ -298,7 +421,7 @@ mod tests {
         let fixture =
             Fixture::new("<html><script type='module' src='./missing.mjs'></script></html>");
         let error = fixture.verify("/", true).unwrap_err();
-        assert!(format!("{error:#}").contains("required preview asset is missing"));
+        assert!(format!("{error:#}").contains("required serving asset is missing"));
     }
 
     #[test]
@@ -335,14 +458,14 @@ mod tests {
             .verify("/repository-name/", true)
             .unwrap_err()
             .to_string()
-            .contains("outside preview mount"));
+            .contains("outside serving mount"));
     }
 
     #[test]
     fn an_unrelated_server_cannot_supply_a_different_entry_or_fake_readiness() {
         let expected = Fixture::new("<html>Expected build</html>");
         let other = Fixture::new("<html>Unrelated listener</html>");
-        let server = PreviewServer::start(other.0.clone(), "127.0.0.1", 0, "/", false).unwrap();
+        let server = OwnedServer::start(other.0.clone(), &Default::default()).unwrap();
         let base = Url::parse(&format!("http://{}/", server.address())).unwrap();
         assert!(verify(
             &expected.0,
@@ -376,7 +499,7 @@ mod tests {
             || false,
         )
         .unwrap_err();
-        assert!(format!("{error:#}").contains("required preview GET failed"));
+        assert!(format!("{error:#}").contains("required serving GET failed"));
         assert!(started.elapsed() < Duration::from_millis(250));
         handle.join().unwrap();
     }

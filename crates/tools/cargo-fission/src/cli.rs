@@ -17,28 +17,6 @@ pub(crate) struct Cli {
 
 #[derive(Subcommand, Debug)]
 pub(crate) enum Command {
-    /// Build and verify a browser preview, serving until stopped (Ctrl+C).
-    Preview(PreviewArgs),
-    #[command(hide = true)]
-    PreviewBuild {
-        #[arg(long, value_enum)]
-        target: Target,
-        #[arg(long)]
-        project_dir: PathBuf,
-        #[arg(long)]
-        release: bool,
-        #[arg(long, value_delimiter = ',')]
-        features: Vec<String>,
-        #[arg(long)]
-        no_default_features: bool,
-    },
-    #[command(hide = true)]
-    PreviewProbe {
-        #[arg(long)]
-        url: String,
-        #[arg(long)]
-        timeout_seconds: u64,
-    },
     /// List alpha scene, game, asset, and physics features.
     Features,
     /// Create a new Fission application.
@@ -104,7 +82,7 @@ pub(crate) enum Command {
         #[arg(long, default_value = ".")]
         project_dir: PathBuf,
         /// Start the app and return instead of attaching logs/process output.
-        #[arg(long)]
+        #[arg(long, conflicts_with = "json")]
         detach: bool,
         /// Build in release mode.
         #[arg(long)]
@@ -130,6 +108,8 @@ pub(crate) enum Command {
         /// Prefer headless simulator/emulator execution where supported.
         #[arg(long)]
         headless: bool,
+        #[command(flatten)]
+        serving: ServingArgs,
     },
     /// Build a configured target without launching it.
     Build {
@@ -422,58 +402,27 @@ pub(crate) enum Command {
 }
 
 #[derive(clap::Args, Debug)]
-pub(crate) struct PreviewArgs {
-    /// Browser target: web or static-site.
-    #[arg(long, value_enum)]
-    pub target: PreviewTarget,
-    #[arg(long, default_value = ".")]
-    pub project_dir: PathBuf,
-    #[arg(long)]
-    pub release: bool,
-    #[arg(long, value_delimiter = ',')]
-    pub features: Vec<String>,
-    #[arg(long)]
-    pub no_default_features: bool,
-    #[arg(long, default_value = "127.0.0.1")]
-    pub host: String,
-    /// Requested port; 0 allocates an owned available port. Occupied ports fail.
-    #[arg(long, default_value_t = 8123)]
-    pub port: u16,
-    /// Public URL mount, e.g. /repository-name/. Config is preserved.
-    #[arg(long, default_value = "/")]
-    pub mount: String,
-    /// Expected HTML entry relative to the target's configured output directory.
-    #[arg(long, default_value = "index.html")]
-    pub entry: String,
-    /// Deadline for the complete build and readiness sequence (1..=3600).
-    #[arg(long, default_value_t = 300)]
-    pub startup_timeout_seconds: u64,
-    /// Web only: compile development test control and verify it in Chrome.
-    #[arg(long)]
-    pub live_test: bool,
-    /// Emit flushed JSON lifecycle events on stdout; diagnostics use stderr.
+pub(crate) struct ServingArgs {
+    /// Emit typed attached browser-serving events as JSON lines.
     #[arg(long)]
     pub json: bool,
+    /// Serve under this URL mount without changing project configuration.
+    #[arg(long, default_value = "/")]
+    pub mount: String,
+    /// Bound the complete build and local-asset readiness sequence.
+    #[arg(long, default_value_t = 300, value_parser = clap::value_parser!(u64).range(1..=3600))]
+    pub startup_timeout_seconds: u64,
     /// Stop on stdin `stop` + newline or EOF, including during startup.
     #[arg(long)]
     pub stdin_control: bool,
-    /// Open the verified URL in the default browser.
-    #[arg(long)]
-    pub open: bool,
 }
 
-#[derive(clap::ValueEnum, Clone, Debug)]
-pub(crate) enum PreviewTarget {
-    Web,
-    #[value(name = "static-site", alias = "site")]
-    StaticSite,
-}
-
-impl From<PreviewTarget> for Target {
-    fn from(target: PreviewTarget) -> Self {
-        match target {
-            PreviewTarget::Web => Target::Web,
-            PreviewTarget::StaticSite => Target::Site,
+impl ServingArgs {
+    pub fn options(&self) -> fission_command_run::serving::ServeOptions {
+        fission_command_run::serving::ServeOptions {
+            mount: self.mount.clone(),
+            startup_timeout: std::time::Duration::from_secs(self.startup_timeout_seconds),
+            stdin_control: self.stdin_control,
         }
     }
 }
@@ -515,6 +464,8 @@ pub(crate) enum SiteCommand {
         /// Do not open a browser.
         #[arg(long)]
         no_open: bool,
+        #[command(flatten)]
+        serving: ServingArgs,
     },
     /// List custom and content routes.
     Routes {
@@ -584,29 +535,43 @@ mod tests {
     use super::*;
 
     #[test]
-    fn preview_is_browser_only_and_workers_are_hidden() {
+    fn serving_uses_existing_commands_and_preview_is_absent() {
         use clap::CommandFactory;
-        for target in ["web", "static-site"] {
-            let parsed = Cli::try_parse_from([
+        for args in [
+            vec![
                 "fission",
-                "preview",
+                "run",
                 "--target",
-                target,
+                "web",
                 "--port",
                 "0",
-                "--mount",
-                "/repository-name/",
                 "--json",
+                "--mount",
+                "/repo/",
                 "--stdin-control",
-            ])
-            .unwrap();
-            assert!(matches!(parsed.command, Command::Preview(_)));
+            ],
+            vec![
+                "fission",
+                "site",
+                "serve",
+                "--port",
+                "0",
+                "--json",
+                "--mount",
+                "/repo/",
+                "--stdin-control",
+            ],
+        ] {
+            assert!(Cli::try_parse_from(args).is_ok());
         }
-        assert!(Cli::try_parse_from(["fission", "preview", "--target", "macos"]).is_err());
-        let help = Cli::command().render_help().to_string();
-        assert!(help.contains("preview"));
-        assert!(!help.contains("preview-build"));
-        assert!(!help.contains("preview-probe"));
+        for command in ["preview", "preview-build", "preview-probe"] {
+            assert!(Cli::try_parse_from(["fission", command]).is_err());
+        }
+        assert!(!Cli::command().render_help().to_string().contains("preview"));
+        assert!(
+            Cli::try_parse_from(["fission", "run", "--target", "web", "--json", "--detach"])
+                .is_err()
+        );
     }
 
     fn selected_variant(command: Command) -> Option<NativeVariant> {
