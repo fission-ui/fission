@@ -87,9 +87,13 @@ remove the transaction directory after checking the recovery. Do not run
 concurrent instruction editors/updaters; this is a recoverable local update,
 not a filesystem-wide atomic transaction or a hostile-writer security boundary.
 
-This bundle is based on main's existing static-site/Web commands. Its browser
-smoke readiness and semantic geometry coverage are partial. It does not claim
-pending preview/review or verified in-session resize commands are available.
+This bundle is based on main's existing static-site/Web commands. Serving uses
+`fission run --target web` and `fission site serve`; testing/review capabilities
+must be checked under the installed `fission test` interface. No standalone
+preview/review interface is taught. Browser smoke readiness and semantic geometry
+coverage are partial; verified in-session resize and generic test-control frame
+acknowledgment are not available on this base. The guidance JSON schema is a domain
+payload and does not prescribe a generic command execution/result architecture.
 
 See [validation evidence and limits](testing/agent-guidance.md) for package checks,
 fresh generated-app examples and the observed Web capture limitation.

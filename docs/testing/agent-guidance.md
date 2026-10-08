@@ -3,7 +3,8 @@
 Validated on 2026-10-08 against public main
 `9ba39c6554fd340127e52df2d40d4e0e1e2b50b8` with CLI/API version 0.15.1,
 guidance version 2 and manifest schema 1. This branch does not depend on pending
-preview/review or browser-resize work. Repository contributor `AGENTS.md` remains
+shared execution/results, test review or generic test-control work.
+Repository contributor `AGENTS.md` remains
 unchanged.
 
 ## Package checks
@@ -77,7 +78,7 @@ These are author self-review cases, not an independent assistant evaluation:
 | Build a simple informational website | Read setup/targets; choose static-site when no runtime state is needed; load design/testing as needed. |
 | Build a Web dashboard with interactive details and item URLs | Read setup/targets plus widgets/state/routing; choose web; use retained local state and a thin route handler; compile and exercise browser behavior. |
 | Change one screen in an existing app | Trace its entrypoint/component and dependency first; load relevant references; preserve existing instructions/configuration; do not reinitialize it. |
-| Use preview/review or verify state through an in-session resize | Check installed help/source; explain that these commands/guarantees are unavailable on this base; do not invent flags or treat separate sessions as preservation evidence. |
+| Request visual review or verify state through an in-session resize | Serve with run/site serve and inspect installed test help/source; this base provides smoke testing and no verified resize/frame acknowledgment; do not invent standalone preview/review flags or treat separate sessions as preservation evidence. |
 
 The small generated entrypoint links the local router without copying all
 references into every prompt. Filename/frontmatter/link checks establish

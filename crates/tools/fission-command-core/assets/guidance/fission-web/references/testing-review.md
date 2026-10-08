@@ -68,12 +68,18 @@ assertions pass; retrying capture does not establish paint readiness.
 For responsive UI launch separate real browser sessions at mobile
 and desktop viewports; inspect overflow, state, focus and routes.
 
-This main-based bundle has no `fission preview`, `fission review`, or verified
-same-session browser resize command. Raw Web `SimulateResize` is not proof of
+Serve through `fission run --target web` or `fission site serve`. Inspect
+`fission test --help` for the installed testing/review capabilities; this base
+provides smoke testing. Do not assume standalone `fission preview` or
+`fission review` interfaces.
+
+This base has no verified same-session browser resize command or generic
+test-control frame acknowledgment guarantee. Raw Web `SimulateResize` is not proof of
 an actual browser resize. Separate sessions do not prove preserved in-session
 state. Native HTTP `/cmd` examples do not automatically apply to Web's bridge.
 
 Inspect `fission <command> --help` before automating flags. General build/run
 failures here use human output; only `skills check|update --json` has the
-guidance schema. Its recovery argument arrays go directly to a process API;
+guidance schema. Those fields do not define a generic build/run/test result
+contract. Its recovery argument arrays go directly to a process API;
 do not concatenate them into shell strings.
