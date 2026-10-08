@@ -3455,8 +3455,17 @@ fn scaffold_web_bundle(
     Ok(())
 }
 
+/// Make relative caller paths absolute without resolving links or rewriting spelling.
+fn lexical_absolute(start: &Path) -> std::io::Result<PathBuf> {
+    if start.is_absolute() {
+        Ok(start.to_path_buf())
+    } else {
+        std::env::current_dir().map(|cwd| cwd.join(start))
+    }
+}
+
 fn find_git_root(start: &Path) -> Option<PathBuf> {
-    let mut current = fs::canonicalize(start).ok()?;
+    let mut current = lexical_absolute(start).ok()?;
     loop {
         if current.join(".git").exists() {
             return Some(current);

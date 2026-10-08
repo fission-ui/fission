@@ -24,6 +24,11 @@ directory outside Git). Generated entrypoints are `AGENTS.md`, or
 When both are customized, init reports a managed `.fission/AGENTS.md` fallback.
 All custom root and nested instructions remain intact; read them alongside the
 reported fallback. Init does not append links to customized instructions.
+Project paths become absolute by joining the current directory; links and caller
+spelling are preserved. Git discovery walks lexical ancestors, including a mapped
+or symlinked caller namespace. Applicable instruction paths include intermediate
+ancestors down to the app. Managed destination components are still checked for
+symlinks/collisions; explicitly supplying a linked project root is supported.
 The skill is `.fission/skills/fission-web/SKILL.md`; its relative references
 resolve entirely inside the generated tree.
 

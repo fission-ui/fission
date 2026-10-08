@@ -461,3 +461,73 @@ fn json_schema_round_trip_and_recovery_argv_preserve_project_path() {
     assert_eq!(parsed.coverage.domains.len(), 4);
     assert!(!json.contains("updateAvailable"));
 }
+
+#[test]
+fn relative_paths_are_absolute_without_canonicalizing_caller_spelling() {
+    let p = Project::new();
+    let cwd = std::env::current_dir().unwrap();
+    // Compute a relative path without changing the process-wide working directory.
+    let from = cwd.components().collect::<Vec<_>>();
+    let to = p.0.components().collect::<Vec<_>>();
+    let common = from.iter().zip(&to).take_while(|(a, b)| a == b).count();
+    let mut relative = PathBuf::new();
+    for _ in common..from.len() {
+        relative.push("..");
+    }
+    for part in &to[common..] {
+        relative.push(part.as_os_str());
+    }
+    let spelling = cwd.join(&relative);
+    let r = update(&relative);
+    assert_eq!(r.status, Status::Updated);
+    assert_eq!(r.project_dir.as_os_str(), spelling.as_os_str());
+    assert_eq!(r.guidance_root.as_os_str(), spelling.as_os_str());
+    assert!(r
+        .instruction_paths
+        .iter()
+        .any(|path| path.as_os_str() == spelling.join("AGENTS.md").as_os_str()));
+    assert_eq!(
+        check(&relative).project_dir.as_os_str(),
+        spelling.as_os_str()
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn mapped_symlink_paths_use_lexical_git_ancestors_and_keep_reported_spelling() {
+    use std::os::unix::fs::symlink;
+    let actual = Project::new();
+    let mapped = Project::new();
+    let app = actual.0.join("apps/nested/app");
+    fs::create_dir_all(&app).unwrap();
+    fs::copy(actual.0.join("Cargo.toml"), app.join("Cargo.toml")).unwrap();
+    fs::write(actual.0.join("apps/AGENTS.md"), "intermediate policy").unwrap();
+    fs::write(app.join("AGENTS.fission.md"), "nested policy").unwrap();
+    symlink(actual.0.join("apps"), mapped.0.join("apps")).unwrap();
+    let alias = mapped.0.join("apps/nested/app");
+    let r = update(&alias);
+    assert_eq!(r.status, Status::Updated);
+    assert_eq!(r.project_dir, alias);
+    assert_eq!(r.guidance_root, mapped.0);
+    assert!(r
+        .instruction_paths
+        .contains(&mapped.0.join("apps/AGENTS.md")));
+    assert!(r
+        .instruction_paths
+        .contains(&alias.join("AGENTS.fission.md")));
+    assert!(!actual.0.join("AGENTS.md").exists());
+    assert!(!actual.0.join(MANIFEST_PATH).exists());
+    assert_eq!(
+        fs::read_to_string(actual.0.join("apps/AGENTS.md")).unwrap(),
+        "intermediate policy"
+    );
+
+    // An explicitly supplied root alias is supported; symlinks *inside managed
+    // destinations* are still rejected by the existing unsafe-destination tests.
+    symlink(&actual.0, mapped.0.join("root alias")).unwrap();
+    let root_alias = mapped.0.join("root alias");
+    let r = update(&root_alias);
+    assert_eq!(r.status, Status::Updated);
+    assert_eq!(r.guidance_root, root_alias);
+    assert_eq!(check(&root_alias).project_dir, root_alias);
+}

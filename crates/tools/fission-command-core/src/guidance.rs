@@ -342,7 +342,11 @@ pub fn check(project: &Path) -> GuidanceResult {
 }
 
 fn inspect(project: &Path, operation: &str) -> GuidanceResult {
-    let project = fs::canonicalize(project).unwrap_or_else(|_| project.to_path_buf());
+    let absolute = super::lexical_absolute(project);
+    let project = absolute
+        .as_ref()
+        .cloned()
+        .unwrap_or_else(|_| project.to_path_buf());
     let root = super::find_git_root(&project).unwrap_or_else(|| project.clone());
     let mut r = GuidanceResult {
         schema_version: SCHEMA_VERSION, operation: operation.into(), status: Status::NeedsAttention,
@@ -357,6 +361,17 @@ fn inspect(project: &Path, operation: &str) -> GuidanceResult {
         files: vec![], findings: vec![], recovery: vec![], instruction_paths: vec![],
         installed_manifest_sha256: None,
     };
+    if let Err(error) = absolute {
+        finding(
+            &mut r,
+            FindingKind::Io,
+            project,
+            format!("resolve current directory: {error}"),
+            true,
+        );
+        r.status = Status::Error;
+        return r;
+    }
     if !project.is_dir() {
         finding(
             &mut r,
@@ -455,9 +470,9 @@ fn inspect(project: &Path, operation: &str) -> GuidanceResult {
     }
     r.instruction_paths.push(root.join(&entry));
     // Nested instructions are never managed by the Git-root bundle.
-    if project != root {
+    for ancestor in project.ancestors().take_while(|ancestor| *ancestor != root) {
         for name in ["AGENTS.md", "AGENTS.fission.md"] {
-            let path = project.join(name);
+            let path = ancestor.join(name);
             if fs::symlink_metadata(&path).is_ok() {
                 r.instruction_paths.push(path);
             }
