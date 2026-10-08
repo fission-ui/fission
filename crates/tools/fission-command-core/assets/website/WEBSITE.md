@@ -9,17 +9,50 @@ and [responsive page guide](https://fission.rs/docs/cookbook/responsive-static-s
 Edit Rust under `src/`, translations under `i18n/`, design tokens under `design/`,
 and source assets under `assets/`. Fission generates the HTML and WASM host: never
 edit generated output to change the UI. Keep `fission.toml` and the generated
-target/dependency organization. Use `fission add-target web --project-dir .` to add
-Web to a static starter. The shared source already includes its WASM entrypoint.
-The `--website web` starter configures both `static-site` and `web`.
+target/dependency organization. `fission init PATH --website-template` selects
+this source template and configures only `static-site`; it takes no target value.
+Plain `fission init` keeps its existing application scaffold and target defaults.
+Add Web through the normal target command:
+
+```sh
+fission add-target web --project-dir .
+```
+
+That command updates the manifest, dependency features and platform files while
+preserving the shared source, including its existing WASM entrypoint. Other
+`add-target` targets use the same CLI path; implement the corresponding thin shell
+entrypoint and inspect `platforms/<target>/README.md` before running them. This
+template supplies static and Web entrypoints, not native/mobile/SSR/backend ones.
+
+Generated source tree (platform files for Web appear only after adding Web):
+
+```text
+Cargo.toml, fission.toml, build.rs, README.md, WEBSITE.md
+src/main.rs       static shell entrypoint
+src/lib.rs        static route registration and Web shell entrypoint
+src/state.rs      shared state and Web route reducer
+src/page.rs       reusable home/about page composition
+src/navigation.rs, src/footer.rs
+src/design.rs    theme and embedded translation setup
+design/dsp.json, design/tokens.json
+i18n/en.json, i18n/es.json
+assets/app-icon.png
+platforms/site/README.md
+```
 
 `src/page.rs` contains the home/about pages; `src/navigation.rs` and `src/footer.rs`
 are reusable components. `design/dsp.json` inherits Fission's default component
 recipes and generates a typed theme from the checked-in `design/tokens.json`.
 English and Spanish bundles are embedded in `src/design.rs`; English is the
 initial locale. Check longer translated labels when changing content.
+For a new page, extend `Page` and the shared page component, register the static
+route in `build_site`, and add its route to the Web `Router` in `src/lib.rs`.
+Update navigation, translations and semantic identifiers together. Keep app
+behavior in shared modules and shell entrypoints thin. `site.routes = []` disables
+implicit Markdown discovery; opt into content mounts deliberately when adding
+Markdown pages. Do not regenerate the project to add pages or targets.
 
-## Check and preview
+## Build, serve, run and test
 
 From the project root:
 
@@ -29,6 +62,9 @@ fission site routes --project-dir .
 fission site check --project-dir .
 fission site build --project-dir .
 fission site serve --project-dir . --host 127.0.0.1 --port 8123
+# The normal run path also serves the configured Static site target:
+fission run --target static-site --project-dir . --host 127.0.0.1 --port 8123 --no-open
+fission test --target static-site --project-dir .
 ```
 
 Visit `/` and `/about/`. Click navigation and the page link, test keyboard focus
@@ -38,7 +74,8 @@ controls before calling the website finished. Stable controls are `nav-home`,
 `nav-about`, `page-next`, and `fission-attribution`. Responsive branches share
 identifiers; browser tests must select the visible branch.
 
-For Web, first install `wasm32-unknown-unknown` and `wasm-pack`, then use:
+After `add-target web`, first install `wasm32-unknown-unknown` and `wasm-pack`,
+then use the normal Web lifecycle:
 
 ```sh
 fission doctor web --project-dir .
@@ -46,6 +83,16 @@ fission build --target web --project-dir .
 fission run --target web --project-dir . --host 127.0.0.1 --port 8124 --no-open
 fission test --target web --project-dir .
 ```
+
+The target tests are smoke checks (build/render or browser launch and runtime
+health), not proof of every route or control. For this custom static entrypoint,
+the current `test --target static-site` path builds it and asks you to run
+project-specific browser coverage; it does not automatically exercise its routes.
+Add Rust tests for your state and
+reducers and browser/LiveTest coverage for the flows you implement. Run `cargo
+test` as appropriate for your source modules, and exercise navigation manually
+as described below. A missing toolchain/browser is a setup gap reported by
+`doctor`, not a successful test.
 
 Confirm `pkg/` JavaScript glue and WASM load, inspect the rendered app, and test
 home → about → back/forward. This starter uses Fission hash routing: `/#/about/`

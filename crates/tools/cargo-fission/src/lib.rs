@@ -52,9 +52,13 @@ where
             name,
             app_id,
             local_path,
-            website,
-        } => fission_command_core::init_project_with_website(
-            &path, name, app_id, local_path, website,
+            website_template,
+        } => fission_command_core::init_project_with_website_template(
+            &path,
+            name,
+            app_id,
+            local_path,
+            website_template,
         ),
         Command::AddTarget {
             targets,
@@ -932,9 +936,15 @@ mkdir -p "$(dirname "$artifact")"
     }
 
     #[test]
-    fn init_website_is_noninteractive_and_defaults_to_static_site() {
+    fn init_website_template_selects_static_source_scaffold() {
         let dir = unique_dir("website-default");
-        run(["fission", "init", dir.to_str().unwrap(), "--website"]).unwrap();
+        run([
+            "fission",
+            "init",
+            dir.to_str().unwrap(),
+            "--website-template",
+        ])
+        .unwrap();
         assert_eq!(
             read_project_config(&dir).unwrap().targets,
             std::collections::BTreeSet::from([Target::Site])
@@ -945,14 +955,44 @@ mkdir -p "$(dirname "$artifact")"
     }
 
     #[test]
-    fn init_website_web_uses_existing_web_scaffold() {
+    fn init_website_template_extends_through_normal_add_target() {
         let dir = unique_dir("website-web");
-        run(["fission", "init", dir.to_str().unwrap(), "--website", "web"]).unwrap();
+        run([
+            "fission",
+            "init",
+            dir.to_str().unwrap(),
+            "--website-template",
+        ])
+        .unwrap();
+        let source = fs::read_to_string(dir.join("src/lib.rs")).unwrap();
+        run([
+            "fission",
+            "add-target",
+            "web",
+            "--project-dir",
+            dir.to_str().unwrap(),
+        ])
+        .unwrap();
         assert_eq!(
             read_project_config(&dir).unwrap().targets,
             std::collections::BTreeSet::from([Target::Site, Target::Web])
         );
         assert!(dir.join("platforms/web/bootstrap.mjs").exists());
+        assert_eq!(fs::read_to_string(dir.join("src/lib.rs")).unwrap(), source);
+    }
+
+    #[test]
+    fn init_website_template_does_not_accept_a_target_value() {
+        let dir = unique_dir("website-value");
+        assert!(Cli::try_parse_from([
+            "fission",
+            "init",
+            dir.to_str().unwrap(),
+            "--website-template",
+            "web"
+        ])
+        .is_err());
+        assert!(!dir.join("fission.toml").exists());
     }
 
     #[test]

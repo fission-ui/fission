@@ -43,7 +43,6 @@ pub use macos_signing::{
 pub use native_variant::{ensure_native_variant_target, variant_output_path, NativeVariant};
 pub use splash::{SplashConfig, SplashResizeMode};
 pub use web_storage::prepare_web_target;
-pub use website::WebsiteTarget;
 pub use windows_native::{
     build_windows_native_modules, stage_windows_runtime_products, test_windows_native_modules,
     BuiltWindowsNativeProduct, NativeWindowsModuleConfig, NativeWindowsProductConfig,
@@ -399,24 +398,24 @@ pub fn init_project(
     app_id: Option<String>,
     local_path: Option<PathBuf>,
 ) -> Result<()> {
-    init_project_with_website(root, name, app_id, local_path, None)
+    init_project_with_website_template(root, name, app_id, local_path, false)
 }
 
 /// Initializes an application, optionally selecting the complete website starter.
-pub fn init_project_with_website(
+pub fn init_project_with_website_template(
     root: &Path,
     name: Option<String>,
     app_id: Option<String>,
     local_path: Option<PathBuf>,
-    website: Option<WebsiteTarget>,
+    website_template: bool,
 ) -> Result<()> {
-    if website.is_some()
+    if website_template
         && (root.join("Cargo.toml").exists()
             || root.join("fission.toml").exists()
             || root.join("src").exists())
     {
         bail!(
-            "--website requires a new source directory; use fission add-target on an existing app"
+            "--website-template requires a new source directory; use fission add-target on an existing app"
         );
     }
     let existing_project = root.exists() && root.read_dir()?.next().is_some();
@@ -428,8 +427,8 @@ pub fn init_project_with_website(
         WritePolicy::Overwrite
     };
     let mut project = initial_project_config(root, name, app_id)?;
-    if let Some(target) = website {
-        project.targets = target.targets();
+    if website_template {
+        project.targets = BTreeSet::from([Target::Site]);
     }
 
     write_file_with_policy(
@@ -437,7 +436,7 @@ pub fn init_project_with_website(
         &render_cargo_toml(&project, local_path.as_deref()),
         write_policy,
     )?;
-    if website.is_none() {
+    if !website_template {
         write_file_with_policy(
             &root.join("src/main.rs"),
             &render_app_main(project.app.name.as_str()),
@@ -451,7 +450,7 @@ pub fn init_project_with_website(
         DEFAULT_APP_ICON_PNG,
         write_policy,
     )?;
-    if website.is_none() {
+    if !website_template {
         write_file_with_policy(
             &root.join("README.md"),
             &render_project_readme(&project),
@@ -468,12 +467,12 @@ pub fn init_project_with_website(
 
     let targets = project.targets.iter().copied().collect::<Vec<_>>();
     for target in targets {
-        scaffold_target_with_policy(root, &project, target, write_policy, website.is_none())?;
+        scaffold_target_with_policy(root, &project, target, write_policy, !website_template)?;
     }
     sync_platform_config(root, &project)?;
     sync_cargo_fission_dependency(root, &project, local_path.as_deref())?;
 
-    if website.is_some() {
+    if website_template {
         website::scaffold(root, &project, local_path.as_deref(), write_policy)?;
     }
     println!("Immediately read generated AGENTS.md (or AGENTS.fission.md beside user instructions) and its linked guidance before editing. Keep fission.toml; change targets with fission add-target.");

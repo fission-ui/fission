@@ -1,25 +1,5 @@
 use super::*;
 
-/// Website starter selection, using the existing public target names.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
-pub enum WebsiteTarget {
-    /// A content website rendered to static HTML.
-    #[value(name = "static-site")]
-    StaticSite,
-    /// The same website with an additional client-side Web/WASM target.
-    Web,
-}
-
-impl WebsiteTarget {
-    pub(crate) fn targets(self) -> BTreeSet<Target> {
-        let mut targets = BTreeSet::from([Target::Site]);
-        if self == Self::Web {
-            targets.insert(Target::Web);
-        }
-        targets
-    }
-}
-
 pub(crate) fn scaffold(
     root: &Path,
     project: &FissionProject,
@@ -116,46 +96,47 @@ mod tests {
 
     #[test]
     fn website_uses_existing_target_wiring_and_preserves_user_guidance() {
-        for target in [WebsiteTarget::StaticSite, WebsiteTarget::Web] {
-            let root = directory("guidance");
-            fs::create_dir(root.join(".git")).unwrap();
-            fs::write(
-                root.join("AGENTS.md"),
-                "# Team instructions\nKeep my rules.\n",
-            )
+        let root = directory("guidance");
+        fs::create_dir(root.join(".git")).unwrap();
+        fs::write(
+            root.join("AGENTS.md"),
+            "# Team instructions\nKeep my rules.\n",
+        )
+        .unwrap();
+        init_project_with_website_template(&root, Some("website-test".into()), None, None, true)
             .unwrap();
-            init_project_with_website(&root, Some("website-test".into()), None, None, Some(target))
-                .unwrap();
-            assert_eq!(
-                read_project_config(&root).unwrap().targets,
-                target.targets()
-            );
-            assert_eq!(
-                fs::read_to_string(root.join("AGENTS.md")).unwrap(),
-                "# Team instructions\nKeep my rules.\n"
-            );
-            let guidance = fs::read_to_string(root.join("AGENTS.fission.md")).unwrap();
-            assert!(guidance.contains("WEBSITE.md"));
-            assert!(guidance.contains("never generated HTML"));
-            let readme = fs::read_to_string(root.join("README.md")).unwrap();
-            assert!(readme.contains("WEBSITE.md"));
-            assert!(!readme.contains("launch the desktop"));
-            assert!(!root.join("platforms/macos").exists());
-            assert!(!root.join("content/getting-started.md").exists());
-            let config: toml::Value =
-                toml::from_str(&fs::read_to_string(root.join("fission.toml")).unwrap()).unwrap();
-            assert_eq!(config["site"]["entry"].as_str(), Some("src/main.rs"));
-            assert_eq!(config["site"]["search"]["enabled"].as_bool(), Some(false));
-            assert!(root.join("design/tokens.json").exists());
-            if target == WebsiteTarget::Web {
-                assert!(root.join("platforms/web/build-wasm.sh").exists());
-                let host = fs::read_to_string(root.join("platforms/web/index.html")).unwrap();
-                assert!(host.contains("href=\"assets/app-icon.png\""));
-                assert!(host.contains("src=\"./bootstrap.mjs\""));
-                assert!(root.join("platforms/web/assets/app-icon.png").exists());
-            }
-            fs::remove_dir_all(root).unwrap();
-        }
+        assert_eq!(
+            read_project_config(&root).unwrap().targets,
+            BTreeSet::from([Target::Site])
+        );
+        assert_eq!(
+            fs::read_to_string(root.join("AGENTS.md")).unwrap(),
+            "# Team instructions\nKeep my rules.\n"
+        );
+        let guidance = fs::read_to_string(root.join("AGENTS.fission.md")).unwrap();
+        assert!(guidance.contains("WEBSITE.md"));
+        assert!(guidance.contains("never generated HTML"));
+        let readme = fs::read_to_string(root.join("README.md")).unwrap();
+        assert!(readme.contains("WEBSITE.md"));
+        assert!(!readme.contains("launch the desktop"));
+        assert!(!root.join("platforms/macos").exists());
+        assert!(!root.join("content/getting-started.md").exists());
+        let config: toml::Value =
+            toml::from_str(&fs::read_to_string(root.join("fission.toml")).unwrap()).unwrap();
+        assert_eq!(config["site"]["entry"].as_str(), Some("src/main.rs"));
+        assert_eq!(config["site"]["search"]["enabled"].as_bool(), Some(false));
+        assert!(root.join("design/tokens.json").exists());
+        add_targets(&root, &[Target::Web]).unwrap();
+        assert_eq!(
+            read_project_config(&root).unwrap().targets,
+            BTreeSet::from([Target::Site, Target::Web])
+        );
+        assert!(root.join("platforms/web/build-wasm.sh").exists());
+        let host = fs::read_to_string(root.join("platforms/web/index.html")).unwrap();
+        assert!(host.contains("href=\"assets/app-icon.png\""));
+        assert!(host.contains("src=\"./bootstrap.mjs\""));
+        assert!(root.join("platforms/web/assets/app-icon.png").exists());
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
@@ -168,8 +149,7 @@ mod tests {
             "User fallback instructions\n",
         )
         .unwrap();
-        init_project_with_website(&root, None, None, None, Some(WebsiteTarget::StaticSite))
-            .unwrap();
+        init_project_with_website_template(&root, None, None, None, true).unwrap();
         assert_eq!(
             fs::read_to_string(root.join("README.md")).unwrap(),
             "User readme\n"
@@ -179,9 +159,7 @@ mod tests {
             "User fallback instructions\n"
         );
         let before = fs::read_to_string(root.join("src/page.rs")).unwrap();
-        assert!(
-            init_project_with_website(&root, None, None, None, Some(WebsiteTarget::Web)).is_err()
-        );
+        assert!(init_project_with_website_template(&root, None, None, None, true).is_err());
         assert_eq!(
             fs::read_to_string(root.join("src/page.rs")).unwrap(),
             before
@@ -203,14 +181,7 @@ mod tests {
         let root = directory("config");
         let manifest = "[targets]\nweb = true\n";
         fs::write(root.join("fission.toml"), manifest).unwrap();
-        assert!(init_project_with_website(
-            &root,
-            None,
-            None,
-            None,
-            Some(WebsiteTarget::StaticSite)
-        )
-        .is_err());
+        assert!(init_project_with_website_template(&root, None, None, None, true).is_err());
         assert_eq!(
             fs::read_to_string(root.join("fission.toml")).unwrap(),
             manifest
@@ -230,12 +201,12 @@ mod tests {
             .join("../../..")
             .canonicalize()
             .unwrap();
-        init_project_with_website(
+        init_project_with_website_template(
             &root,
             Some("website-build-test".into()),
             None,
             Some(checkout.clone()),
-            Some(WebsiteTarget::StaticSite),
+            true,
         )
         .unwrap();
         let result = Command::new("cargo")
