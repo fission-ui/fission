@@ -6,6 +6,7 @@ use std::io::{self, BufRead, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::Command;
+pub mod website;
 
 pub fn build(project_dir: &Path, release: bool) -> Result<()> {
     if site_entry_configured(project_dir)? {

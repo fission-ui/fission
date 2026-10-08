@@ -14,6 +14,11 @@ This Cargo package installs the first-party `fission` command:
 
 ## Usage
 
+For the finite website workflow, opt in to `--json` on init, add-target,
+Web/static-site build, and site build/check/routes. See
+[the versioned website result contract](../../../docs/website-cli-results.md)
+for coverage, artifact paths, exit behavior and executable recovery steps.
+
 Create a new app:
 
 ```sh

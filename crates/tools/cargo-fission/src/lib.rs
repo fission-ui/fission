@@ -3,6 +3,7 @@ use clap::Parser;
 use std::{ffi::OsString, path::Path, thread};
 
 mod cli;
+mod website;
 
 #[cfg(test)]
 use fission_command_core::{read_project_config, Target};
@@ -47,6 +48,9 @@ where
     }
     let cli = Cli::parse_from(argv);
     warn_for_alpha_features(&cli.command);
+    if let Some(result) = website::dispatch(&cli.command) {
+        return result;
+    }
     match cli.command {
         Command::Features => {
             print_feature_catalog();
@@ -57,10 +61,12 @@ where
             name,
             app_id,
             local_path,
+            json: _,
         } => fission_command_core::init_project(&path, name, app_id, local_path),
         Command::AddTarget {
             targets,
             project_dir,
+            json: _,
         } => fission_command_core::add_targets(&project_dir, &targets),
         Command::AddCapability {
             capabilities,
@@ -112,6 +118,7 @@ where
             features,
             no_default_features,
             variant,
+            json: _,
         } => fission_command_run::build_app_with_web_cargo_options(
             fission_command_run::BuildOptions {
                 project_dir,
@@ -147,10 +154,12 @@ where
             SiteCommand::Build {
                 project_dir,
                 release,
+                json: _,
             } => fission_command_site::build(&project_dir, release),
             SiteCommand::Check {
                 project_dir,
                 release,
+                json: _,
             } => fission_command_site::check(&project_dir, release),
             SiteCommand::Serve {
                 project_dir,
@@ -159,7 +168,10 @@ where
                 release,
                 no_open,
             } => fission_command_site::serve(&project_dir, release, host, port, !no_open),
-            SiteCommand::Routes { project_dir } => fission_command_site::routes(&project_dir),
+            SiteCommand::Routes {
+                project_dir,
+                json: _,
+            } => fission_command_site::routes(&project_dir),
         },
         Command::Server { command } => match command {
             ServerCommand::Build {

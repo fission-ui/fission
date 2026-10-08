@@ -21,6 +21,7 @@ mod native_cargo;
 mod native_variant;
 mod splash;
 mod web_storage;
+pub mod website;
 mod windows_native;
 pub use desktop_features::{read_desktop_cargo_options, DesktopCargoOptions};
 pub use icons::{copy_icon_for_bundle, normalized_extension, resolve_app_icon, ResolvedIcon};
@@ -2349,10 +2350,8 @@ fn sync_fission_table(
         table["version"] = value(CURRENT_VERSION);
     }
     table["default-features"] = value(false);
-    let merged_features = merge_cargo_feature_array(
-        table.get("features").and_then(Item::as_value),
-        features,
-    );
+    let merged_features =
+        merge_cargo_feature_array(table.get("features").and_then(Item::as_value), features);
     table["features"] = Item::Value(merged_features);
     table.to_string() != before
 }

@@ -568,20 +568,32 @@ pub fn build_from_cli(site: FissionSite) -> Result<()> {
     match args.command.as_str() {
         "build" => {
             let report = build_site(&options, &site)?;
-            print_report("Built", &report);
+            emit_report(&args, "Built", &report)?;
         }
         "check" => {
             let report = check_site(&options, &site)?;
-            print_report("Checked", &report);
+            emit_report(&args, "Checked", &report)?;
         }
         "routes" => {
-            for route in list_site_routes(&options, &site)? {
-                println!(
-                    "{}  {}  {}",
-                    route.path,
-                    route.title,
-                    route.source.display()
-                );
+            let routes = list_site_routes(&options, &site)?;
+            if args.report_file.is_some() {
+                emit_report(
+                    &args,
+                    "Routes",
+                    &crate::build::SiteBuildReport {
+                        output_dir: options.output_dir.clone(),
+                        routes,
+                    },
+                )?;
+            } else {
+                for route in routes {
+                    println!(
+                        "{}  {}  {}",
+                        route.path,
+                        route.title,
+                        route.source.display()
+                    );
+                }
             }
         }
         "serve" => {
@@ -606,6 +618,7 @@ struct SiteCliArgs {
     host: String,
     port: u16,
     no_open: bool,
+    report_file: Option<PathBuf>,
 }
 
 impl SiteCliArgs {
@@ -618,6 +631,7 @@ impl SiteCliArgs {
         let mut host = "127.0.0.1".to_string();
         let mut port = 8123u16;
         let mut no_open = false;
+        let mut report_file = None;
         let mut args = args.into_iter();
         while let Some(arg) = args.next() {
             match arg.as_str() {
@@ -638,6 +652,11 @@ impl SiteCliArgs {
                         .context("--port must be an integer")?;
                 }
                 "--no-open" => no_open = true,
+                "--report-file" => {
+                    report_file = Some(PathBuf::from(
+                        args.next().context("--report-file requires a path")?,
+                    ))
+                }
                 "--release" => {}
                 value if value.starts_with('-') => bail!("unknown site flag `{value}`"),
                 value => command = Some(value.to_string()),
@@ -649,8 +668,22 @@ impl SiteCliArgs {
             host,
             port,
             no_open,
+            report_file,
         })
     }
+}
+
+fn emit_report(
+    args: &SiteCliArgs,
+    label: &str,
+    report: &crate::build::SiteBuildReport,
+) -> Result<()> {
+    if let Some(path) = &args.report_file {
+        std::fs::write(path, serde_json::to_vec(report)?)?;
+    } else {
+        print_report(label, report);
+    }
+    Ok(())
 }
 
 pub(crate) fn normalize_site_path(path: &str) -> String {

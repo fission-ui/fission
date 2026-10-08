@@ -13,6 +13,7 @@ use fission_command_core::{
 };
 use fission_command_process::run_status;
 use serde::{Deserialize, Serialize};
+pub mod website;
 use std::collections::hash_map::DefaultHasher;
 use std::env;
 use std::fs::{self, File, OpenOptions};

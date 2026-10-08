@@ -16,7 +16,9 @@ documentation = "https://fission.rs"
 readme = "README.md"
 [dependencies]
 anyhow = "1.0"
+fission-command-core = { path = "../fission-command-core", version = "0.15.1" }
 fission-command-process = { path = "../fission-command-process", version = "0.15.1" }
 fission-shell-site = { path = "../../shell/fission-shell-site", version = "0.15.1" }
 serde_json = "1"
 toml = "0.8"
+tempfile = "3"
