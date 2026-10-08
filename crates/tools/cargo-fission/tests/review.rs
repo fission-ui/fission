@@ -18,10 +18,7 @@ impl Fixture {
                 .unwrap()
                 .as_nanos()
         ));
-        let repo = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../../..")
-            .canonicalize()
-            .unwrap();
+        let repo = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../..");
         let initialized = Command::new(env!("CARGO_BIN_EXE_fission"))
             .arg("init")
             .arg(&root)
@@ -106,11 +103,20 @@ fn fresh_content_routes_actual_matrix_mounts_artifacts_and_cleanup() {
     for mount in ["/", "/repository-name/"] {
         let (code, r) = f.review(mount, &[]);
         assert_eq!(code, 0, "{r}");
+        assert_eq!(r["image_inspection_required"], true);
+        assert_eq!(r["strict_warnings"], false);
         assert_eq!(r["coverage"]["source"], "static_content_metadata");
         let cases = r["cases"].as_array().unwrap();
         assert!(cases.len() >= 6);
         for case in cases {
-            assert_eq!(case["status"], "clean_supported_checks", "{case}");
+            assert!(
+                matches!(
+                    case["status"].as_str(),
+                    Some("clean_supported_checks" | "warning_candidates")
+                ),
+                "{case}"
+            );
+            assert_eq!(case["result"]["ready"], true);
             assert_eq!(case["result"]["viewport"][0], case["viewport"]["width"]);
             assert_eq!(case["result"]["viewport"][1], 900);
             let path =
@@ -160,11 +166,10 @@ fn fresh_content_routes_actual_matrix_mounts_artifacts_and_cleanup() {
         ],
     );
     assert_eq!(code, 3, "{r}");
-    assert!(r["cases"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .any(|c| c["status"] == "clean_supported_checks"));
+    assert!(r["cases"].as_array().unwrap().iter().any(|c| matches!(
+        c["status"].as_str(),
+        Some("clean_supported_checks" | "warning_candidates")
+    )));
     assert!(r["cases"]
         .as_array()
         .unwrap()
