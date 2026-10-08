@@ -5,43 +5,24 @@
 These instructions apply when building or reviewing a Fission-based app in this
 tree.
 
-## Website CLI Workflow for Agents
+## Finite CLI Results for Agents
 
-- Immediately after `fission init`, read the generated `AGENTS.md` and any
-  referenced or sibling `AGENTS.fission.md` before editing source. In a nested
-  Git project these files can be at the Git root; JSON init lists their paths.
-- Preserve generated `fission.toml`. Use `fission add-target` to configure
-  targets instead of replacing generated target/dependency wiring.
-- For finite website operations, request `--json` and read exactly one
-  `fission.website-result.v1` result from stdout. Check both the process exit
-  and `outcome`. Progress and bounded compiler diagnostics go to stderr.
-- Supported calls are `fission init PATH --json`,
-  `fission add-target web|static-site --project-dir PATH --json`,
-  `fission build --target web|static-site --project-dir PATH --json`, and
-  `fission site build|check|routes --project-dir PATH --json`.
-  Use one or both website targets with add-target. Init retains the existing
-  platform defaults; it does not select a website target automatically.
-- Successful builds return the verified `data.artifact_dir` and files in
-  `data.artifacts`. Use that directory as the input to your existing static
-  hosting workflow. Check/routes return planned paths and do not assert files
-  exist. Public route paths do not imply a running preview or deployed URL.
-- On failure, inspect `error.code`, bounded `error.diagnostics`, and
-  `error.recovery`. Execute each invocation with its `cwd`, `program` and
-  separate `argv` entries; do not interpolate it into a shell string. Some
-  steps require a source/configuration edit or tool installation first.
-- Argument parsing errors retain stderr diagnostics and exit 2 with no JSON.
-  JSON flags for package/readiness/release/publish have their existing separate
-  contracts. Doctor is human-readable. Programmatic static sites use a matching
-  shell revision with `build_from_cli` report-file support.
-
-Example sequence after reading generated guidance:
-
-```sh
-fission add-target static-site --project-dir "my website" --json
-fission site routes --project-dir "my website" --json
-fission site check --project-dir "my website" --json
-fission build --target static-site --project-dir "my website" --json
-```
+- After `fission init`, read the paths in `data.instructions` before editing.
+  A nested Git project can report guidance at its Git root. Custom guidance
+  and generated configuration are preserved by the existing setup rules.
+  Use `add-target` to configure targets in generated `fission.toml`.
+- `init`, `add-target`, `build`, and `site build|check|routes` support `--json`.
+  Read one `fission.cli-result.v1` result from stdout and check both the process
+  exit and `outcome`. Generic commands support every existing target; build
+  retains the host default when no target is specified. Select targets according
+  to the user's intent with `add-target`.
+- Build facts are in `data.targets`: find the intended target's record.
+  Consume verified `artifacts` or `artifact_dir` when supplied. Check/routes
+  report planned paths without asserting output exists. Routes do not imply
+  running previews or deployed URLs.
+- Failures provide a code, bounded diagnostics and minimal recovery invocations
+  with `cwd`, `program`, `argv`. Execute argv directly after repairing indicated
+  prerequisites. Keep existing JSON protocols on other commands separate.
 
 ## Source-Grounded Work
 

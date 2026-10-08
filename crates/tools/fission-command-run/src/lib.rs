@@ -13,7 +13,8 @@ use fission_command_core::{
 };
 use fission_command_process::run_status;
 use serde::{Deserialize, Serialize};
-pub mod website;
+mod build;
+mod web_build;
 use std::collections::hash_map::DefaultHasher;
 use std::env;
 use std::fs::{self, File, OpenOptions};
@@ -194,98 +195,11 @@ pub fn run_app_with_web_cargo_options(
 
 pub fn build_app(options: BuildOptions) -> Result<()> {
     build_app_with_web_cargo_options(options, WebCargoOptions::default())
+        .map(|_| ())
+        .map_err(Into::into)
 }
 
-pub fn build_app_with_web_cargo_options(
-    options: BuildOptions,
-    web_cargo: WebCargoOptions,
-) -> Result<()> {
-    let project = read_project_config(&options.project_dir)?;
-    let target = options.target.unwrap_or_else(host_desktop_target);
-    ensure_native_variant_target(target, options.variant.as_ref())?;
-    ensure_web_cargo_feature_target(target, &web_cargo.features, web_cargo.no_default_features)?;
-    ensure_target_configured(&project, &options.project_dir, target)?;
-    sync_target_platform_config(&options.project_dir, &project, target)?;
-
-    match target {
-        Target::Linux => {
-            require_desktop_host(target)?;
-            build_desktop(
-                &options.project_dir,
-                options.release,
-                target,
-                options.variant.as_ref(),
-            )?;
-            build_linux_native_modules(
-                &options.project_dir,
-                &project,
-                options.variant.as_ref(),
-                options.release,
-            )?;
-            Ok(())
-        }
-        Target::Windows => {
-            require_desktop_host(target)?;
-            build_desktop(
-                &options.project_dir,
-                options.release,
-                target,
-                options.variant.as_ref(),
-            )?;
-            build_windows_native_modules(
-                &options.project_dir,
-                &project,
-                options.variant.as_ref(),
-                options.release,
-            )?;
-            Ok(())
-        }
-        Target::Macos => {
-            require_desktop_host(target)?;
-            build_desktop(
-                &options.project_dir,
-                options.release,
-                target,
-                options.variant.as_ref(),
-            )?;
-            build_macos_native_modules(
-                &options.project_dir,
-                &project,
-                options.variant.as_ref(),
-                options.release,
-            )
-        }
-        Target::Terminal => build_desktop(
-            &options.project_dir,
-            options.release,
-            target,
-            options.variant.as_ref(),
-        ),
-        Target::Web => build_web(
-            &options.project_dir,
-            options.release,
-            &web_cargo.features,
-            web_cargo.no_default_features,
-        ),
-        Target::Site => site_build(&options.project_dir, options.release),
-        Target::Server => fission_command_server::build(&options.project_dir, options.release),
-        Target::Ios => {
-            require_host(Target::Ios)?;
-            let script = options.project_dir.join("platforms/ios/package-sim.sh");
-            let mut command = command_for_script(&script)?;
-            command.current_dir(&options.project_dir);
-            if options.release {
-                command.env("IOS_SIM_PROFILE", "release");
-            }
-            run_status(&mut command, "iOS build")
-        }
-        Target::Android => {
-            let apk = package_android(&options.project_dir, options.release)?;
-            println!("{}", apk.display());
-            Ok(())
-        }
-    }
-}
+pub use build::{build_app_with_web_cargo_options, resolve_build_target};
 
 pub fn test_app(options: TestOptions) -> Result<()> {
     test_app_with_web_cargo_options(options, WebCargoOptions::default())
@@ -413,14 +327,20 @@ pub fn serve_web(options: ServeWebOptions) -> Result<()> {
 
 pub fn site_build(project_dir: &Path, release: bool) -> Result<()> {
     fission_command_site::build(project_dir, release)
+        .map(|_| ())
+        .map_err(Into::into)
 }
 
 pub fn site_check(project_dir: &Path, release: bool) -> Result<()> {
     fission_command_site::check(project_dir, release)
+        .map(|_| ())
+        .map_err(Into::into)
 }
 
 pub fn site_routes(project_dir: &Path) -> Result<()> {
     fission_command_site::routes(project_dir)
+        .map(|_| ())
+        .map_err(Into::into)
 }
 
 pub fn site_serve(
@@ -1284,22 +1204,19 @@ fn package_android(project_dir: &Path, release: bool) -> Result<PathBuf> {
     if release {
         command.env("ANDROID_PROFILE", "release");
     }
-    let output = command
-        .output()
-        .context("failed to run Android package script")?;
-    if !output.status.success() {
-        io::stderr().write_all(&output.stderr).ok();
-        bail!("Android package failed with {}", output.status);
-    }
-    io::stderr().write_all(&output.stderr).ok();
-    let stdout = String::from_utf8_lossy(&output.stdout);
+    let output = fission_command_process::diagnostic::capture(&mut command, 16 * 1024 * 1024)?;
+    let stdout = String::from_utf8_lossy(&output);
     let apk = stdout
         .lines()
         .rev()
         .find(|line| line.trim_end().ends_with(".apk"))
         .map(|line| PathBuf::from(line.trim()))
         .context("Android package script did not print an APK path")?;
-    Ok(apk)
+    Ok(if apk.is_absolute() {
+        apk
+    } else {
+        project_dir.join(apk)
+    })
 }
 
 fn run_child(mut command: Command, detach: bool, log_path: PathBuf) -> Result<()> {
@@ -1416,7 +1333,7 @@ fn build_desktop_binary(
             .arg("--features")
             .arg(cargo_options.features.join(","));
     }
-    run_status(&mut command, "desktop build")?;
+    fission_command_process::diagnostic::run(&mut command)?;
 
     let profile = if release { "release" } else { "debug" };
     let path = metadata
@@ -1467,19 +1384,13 @@ fn paths_refer_to_same_file(left: &Path, right: &Path) -> bool {
 }
 
 fn cargo_metadata(project_dir: &Path) -> Result<CargoMetadata> {
-    let output = Command::new("cargo")
-        .arg("metadata")
-        .arg("--no-deps")
-        .arg("--format-version")
-        .arg("1")
-        .current_dir(project_dir)
-        .output()
-        .context("failed to run cargo metadata")?;
-    if !output.status.success() {
-        io::stderr().write_all(&output.stderr).ok();
-        bail!("cargo metadata failed with {}", output.status);
-    }
-    serde_json::from_slice(&output.stdout).context("failed to parse cargo metadata")
+    let mut command = Command::new("cargo");
+    command
+        .args(["metadata", "--no-deps", "--format-version", "1"])
+        .current_dir(project_dir);
+    let output =
+        fission_command_process::diagnostic::capture_quiet(&mut command, 16 * 1024 * 1024)?;
+    serde_json::from_slice(&output).context("failed to parse cargo metadata")
 }
 
 fn package_macos_run_app(
@@ -1969,15 +1880,6 @@ fn escape_xml(value: &str) -> String {
         .replace('<', "&lt;")
         .replace('>', "&gt;")
         .replace('"', "&quot;")
-}
-
-fn build_desktop(
-    project_dir: &Path,
-    release: bool,
-    target: Target,
-    variant: Option<&NativeVariant>,
-) -> Result<()> {
-    build_desktop_binary(project_dir, release, target, variant).map(|_| ())
 }
 
 fn run_target_script<F>(project_dir: &Path, relative_script: &str, configure: F) -> Result<()>

@@ -2874,6 +2874,7 @@ version = "0.15.1"
 dependencies = [
  "anyhow",
  "clap",
+ "fission-command-process",
  "fission-store-sqlite",
  "plist",
  "serde",

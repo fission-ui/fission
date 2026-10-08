@@ -1,21 +1,25 @@
-//! Structured finite site operations, sharing the shell's build/report APIs.
+//! Finite site execution and typed reports shared by all callers.
 
-use fission_command_core::website::{self, Action, Data, ErrorCode, Failure, Result, Route};
+use fission_command_core::report::process_failure;
+use fission_command_core::report::{
+    self, Action, Data, ErrorCode, Failure, Result, Route, TargetData,
+};
 use fission_command_core::Target;
-use fission_command_process::diagnostic::{self, DiagnosticFailure, FailureKind};
+use fission_command_process::diagnostic;
 use fission_shell_site::{SiteBuildOptions, SiteBuildReport};
 use std::{fs, path::Path, process::Command};
 
 const PAYLOAD_LIMIT: usize = 16 * 1024 * 1024;
 
 pub fn execute(root: &Path, release: bool, action: Action) -> Result<Data> {
-    let project = website::load_project(root)?;
-    website::require_target(root, &project, Target::Site)?;
+    let root = report::absolute(root)?;
+    let root = root.as_path();
+    let project = report::load_project(root)?;
     let options = SiteBuildOptions::from_project_dir(root, &project.app.name).map_err(|_| {
         Failure::new(ErrorCode::InvalidConfiguration, "Cannot load [site] configuration or its referenced files; repair fission.toml and the referenced paths.")
     })?;
     let command = match action {
-        Action::Build | Action::SiteBuild => "build",
+        Action::SiteBuild => "build",
         Action::SiteCheck => "check",
         Action::SiteRoutes => "routes",
         _ => {
@@ -61,27 +65,30 @@ fn data_from_report(report: SiteBuildReport, built: bool) -> Result<Data> {
         ));
     }
     Ok(Data {
-        artifact_dir: built.then(|| report.output_dir.clone()),
-        planned_output_dir: Some(report.output_dir),
-        artifacts: if built {
-            report
+        targets: vec![TargetData {
+            target: Target::Site,
+            artifact_dir: built.then(|| report.output_dir.clone()),
+            planned_output_dir: Some(report.output_dir),
+            artifacts: if built {
+                report
+                    .routes
+                    .iter()
+                    .map(|route| route.output.clone())
+                    .collect()
+            } else {
+                Vec::new()
+            },
+            routes: report
                 .routes
-                .iter()
-                .map(|route| route.output.clone())
-                .collect()
-        } else {
-            Vec::new()
-        },
-        routes: report
-            .routes
-            .into_iter()
-            .map(|route| Route {
-                path: route.path,
-                title: route.title,
-                source: route.source,
-                output: route.output,
-            })
-            .collect(),
+                .into_iter()
+                .map(|route| Route {
+                    path: route.path,
+                    title: route.title,
+                    source: route.source,
+                    output: route.output,
+                })
+                .collect(),
+        }],
         ..Data::default()
     })
 }
@@ -198,37 +205,4 @@ fn builder_report(root: &Path, release: bool, command_name: &str) -> Result<Site
 
 fn report_unavailable() -> Failure {
     Failure::new(ErrorCode::ReportUnavailable, "Cannot read the bounded typed site report; use a matching Fission shell revision supporting --report-file and retry.")
-}
-
-pub fn process_failure(error: DiagnosticFailure, exit_code: ErrorCode, tool: &str) -> Failure {
-    let code = match error.kind {
-        FailureKind::MissingExecutable => ErrorCode::MissingToolchain,
-        FailureKind::Interrupted => ErrorCode::Interrupted,
-        FailureKind::Io => ErrorCode::IoFailed,
-        FailureKind::PayloadTooLarge => ErrorCode::ReportUnavailable,
-        FailureKind::Exit => exit_code,
-    };
-    let mut failure = Failure::new(
-        code,
-        match code {
-        ErrorCode::MissingToolchain => format!("Required toolchain command `{tool}` is unavailable or cannot run for this project."),
-            ErrorCode::Interrupted => "The operation was interrupted.".into(),
-            ErrorCode::CompileFailed => {
-                "Compilation failed; repair the Rust source or Cargo dependencies before retrying."
-                    .into()
-            }
-            ErrorCode::InvalidConfiguration => {
-                "Cargo could not load the project configuration.".into()
-            }
-            ErrorCode::SiteFailed => {
-                "The compiled site builder failed during route discovery, rendering or validation."
-                    .into()
-            }
-            _ => "The build process could not complete.".into(),
-        },
-    );
-    if code != ErrorCode::InvalidConfiguration {
-        failure.diagnostics = error.diagnostics;
-    }
-    failure
 }

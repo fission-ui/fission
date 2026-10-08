@@ -6,37 +6,15 @@ use std::io::{self, BufRead, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::Command;
-pub mod website;
+mod finite;
+use fission_command_core::report::{Action, Data, Result as ReportResult};
 
-pub fn build(project_dir: &Path, release: bool) -> Result<()> {
-    if site_entry_configured(project_dir)? {
-        return run_site_builder(project_dir, release, "build", &[]);
-    }
-    let options = site_build_options(project_dir)?;
-    let report = fission_shell_site::build_content_site(&options)?;
-    println!(
-        "Built {} static route(s) into {}",
-        report.routes.len(),
-        report.output_dir.display()
-    );
-    for route in report.routes {
-        println!("{} -> {}", route.path, route.output.display());
-    }
-    Ok(())
+pub fn build(project_dir: &Path, release: bool) -> ReportResult<Data> {
+    finite::execute(project_dir, release, Action::SiteBuild)
 }
 
-pub fn check(project_dir: &Path, release: bool) -> Result<()> {
-    if site_entry_configured(project_dir)? {
-        return run_site_builder(project_dir, release, "check", &[]);
-    }
-    let options = site_build_options(project_dir)?;
-    let report = fission_shell_site::check_content_site(&options)?;
-    println!(
-        "Checked {} static route(s); output would be {}",
-        report.routes.len(),
-        report.output_dir.display()
-    );
-    Ok(())
+pub fn check(project_dir: &Path, release: bool) -> ReportResult<Data> {
+    finite::execute(project_dir, release, Action::SiteCheck)
 }
 
 pub fn build_for_browser_test(project_dir: &Path, release: bool) -> Result<Option<PathBuf>> {
@@ -54,21 +32,8 @@ pub fn build_for_browser_test(project_dir: &Path, release: bool) -> Result<Optio
     Ok(Some(report.output_dir))
 }
 
-pub fn routes(project_dir: &Path) -> Result<()> {
-    if site_entry_configured(project_dir)? {
-        return run_site_builder(project_dir, false, "routes", &[]);
-    }
-    let options = site_build_options(project_dir)?;
-    let routes = fission_shell_site::list_content_routes(&options)?;
-    for route in routes {
-        println!(
-            "{}  {}  {}",
-            route.path,
-            route.title,
-            route.source.display()
-        );
-    }
-    Ok(())
+pub fn routes(project_dir: &Path) -> ReportResult<Data> {
+    finite::execute(project_dir, false, Action::SiteRoutes)
 }
 
 pub fn serve(project_dir: &Path, release: bool, host: String, port: u16, open: bool) -> Result<()> {

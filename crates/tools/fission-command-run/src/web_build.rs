@@ -1,41 +1,20 @@
-use super::{BuildOptions, WebCargoOptions};
+//! Web build facts; used by the common build authority.
+use super::WebCargoOptions;
+use fission_command_core::report::process_failure;
 use fission_command_core::{
-    website::{self, Action, Data, ErrorCode, Failure, Result},
+    report::{self, ErrorCode, Failure, Result, TargetData},
     Target,
 };
 use fission_command_process::diagnostic;
-use fission_command_site::website::process_failure;
-use std::{fs, process::Command};
+use std::{fs, path::Path, process::Command};
 
-/// The finite website build API; leaves human/native build APIs unchanged.
-pub fn build(options: BuildOptions, web: WebCargoOptions) -> Result<Data> {
-    let root = website::absolute(&options.project_dir)?;
-    let target = options.target.ok_or_else(|| {
-        Failure::new(
-            ErrorCode::InvalidTarget,
-            "Structured website build requires explicit --target web or --target static-site.",
-        )
-    })?;
-    website::require_website_target(target)?;
-    if options.variant.is_some()
-        || (target != Target::Web && (!web.features.is_empty() || web.no_default_features))
-    {
-        return Err(Failure::new(
-            ErrorCode::InvalidConfiguration,
-            "Website builds do not accept --variant; Cargo feature overrides require --target web.",
-        ));
-    }
-    let project = website::load_project(&root)?;
-    website::require_target(&root, &project, target)?;
-    if target == Target::Site {
-        return fission_command_site::website::execute(&root, options.release, Action::Build);
-    }
+pub(super) fn build(root: &Path, release: bool, web: &WebCargoOptions) -> Result<TargetData> {
     let mut cargo = Command::new("cargo");
-    cargo.current_dir(&root).arg("--version");
+    cargo.current_dir(root).arg("--version");
     diagnostic::run(&mut cargo)
         .map_err(|error| process_failure(error, ErrorCode::MissingToolchain, "cargo"))?;
     let mut rustc = Command::new(std::env::var_os("RUSTC").unwrap_or_else(|| "rustc".into()));
-    rustc.current_dir(&root).args([
+    rustc.current_dir(root).args([
         "--print",
         "target-libdir",
         "--target",
@@ -60,20 +39,17 @@ pub fn build(options: BuildOptions, web: WebCargoOptions) -> Result<Data> {
             ErrorCode::MissingToolchain,
             "The selected Rust compiler has no wasm32-unknown-unknown standard library.",
         );
-        error.recovery.push(website::Step {
+        error.recovery.push(report::Step {
             instruction: "Install the Web Rust target for the selected compiler. For a rustup-managed compiler, use this invocation.".into(),
-            invocation: website::Invocation { cwd: root.clone(), program: "rustup".into(), argv: vec!["target".into(), "add".into(), "wasm32-unknown-unknown".into()] },
+            invocation: report::Invocation { cwd: root.to_path_buf(), program: "rustup".into(), argv: vec!["target".into(), "add".into(), "wasm32-unknown-unknown".into()] },
         });
         return Err(error);
     }
-    super::sync_target_platform_config(&root, &project, target).map_err(|_| {
-        Failure::new(ErrorCode::InvalidConfiguration, "Cannot prepare the configured Web target; check Cargo.toml, dependencies and Web storage configuration.")
-    })?;
     let package_dir = root.join("platforms/web/pkg");
     let mut command = super::web_build_command(
-        &root,
+        root,
         &package_dir,
-        options.release,
+        release,
         &web.features,
         web.no_default_features,
     );
@@ -102,10 +78,12 @@ pub fn build(options: BuildOptions, web: WebCargoOptions) -> Result<Data> {
     if artifact_dir.join("bootstrap.mjs").is_file() {
         files.push(artifact_dir.join("bootstrap.mjs"));
     }
-    Ok(Data {
+    Ok(TargetData {
+        target: Target::Web,
         artifact_dir: Some(artifact_dir),
         artifacts: files,
-        ..Data::default()
+        planned_output_dir: None,
+        routes: Vec::new(),
     })
 }
 

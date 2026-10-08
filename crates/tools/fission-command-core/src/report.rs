@@ -1,10 +1,11 @@
-//! Versioned results for the finite website workflow. Other CLI protocols are independent.
+//! Common finite CLI command outcomes; serialization never selects execution.
 
+pub use crate::process_report::process_failure;
 use crate::{FissionProject, Target};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
-pub const SCHEMA: &str = "fission.website-result.v1";
+pub const SCHEMA: &str = "fission.cli-result.v1";
 pub type Result<T> = std::result::Result<T, Failure>;
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -46,16 +47,35 @@ pub struct ProjectState {
 
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct Data {
-    /// Only directories verified to exist after a successful build.
-    pub artifact_dir: Option<PathBuf>,
-    /// May be returned by check/routes without creating files.
-    pub planned_output_dir: Option<PathBuf>,
-    /// Only files verified to exist after this operation.
+    /// Setup files verified after the command completes.
     pub artifacts: Vec<PathBuf>,
-    pub routes: Vec<Route>,
+    pub targets: Vec<TargetData>,
     /// Read these immediately after init, before changing the project.
     pub instructions: Vec<PathBuf>,
     pub next_steps: Vec<Step>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct TargetData {
+    pub target: Target,
+    /// Verified build output directory, when the authority knows it.
+    pub artifact_dir: Option<PathBuf>,
+    /// Planned path; check/routes do not claim files exist.
+    pub planned_output_dir: Option<PathBuf>,
+    pub artifacts: Vec<PathBuf>,
+    pub routes: Vec<Route>,
+}
+
+impl TargetData {
+    pub fn completed(target: Target) -> Self {
+        Self {
+            target,
+            artifact_dir: None,
+            planned_output_dir: None,
+            artifacts: Vec::new(),
+            routes: Vec::new(),
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -161,8 +181,15 @@ pub fn absolute(root: &Path) -> Result<PathBuf> {
 
 pub fn load_project(root: &Path) -> Result<FissionProject> {
     if !root.join("fission.toml").exists() {
-        return Err(Failure::new(ErrorCode::ProjectNotFound, "The project has no fission.toml.")
-            .recover(step(root, "Register the project, then read generated AGENTS.md and any referenced AGENTS.fission.md.", &["init", ".", "--json"])));
+        return Err(Failure::new(
+            ErrorCode::ProjectNotFound,
+            "The project has no fission.toml.",
+        )
+        .recover(step(
+            root,
+            "Initialize the project and read its instruction files.",
+            &["init", ".", "--json"],
+        )));
     }
     crate::read_project_config(root).map_err(|_| {
         Failure::new(
@@ -181,121 +208,43 @@ pub fn state(root: &Path) -> Option<ProjectState> {
     })
 }
 
-pub fn require_website_target(target: Target) -> Result<()> {
-    if !matches!(target, Target::Web | Target::Site) {
-        return Err(Failure::new(
-            ErrorCode::InvalidTarget,
-            "Structured website operations support web and static-site targets.",
-        ));
-    }
-    Ok(())
-}
-
-pub fn require_target(root: &Path, project: &FissionProject, target: Target) -> Result<()> {
-    let repair = || {
-        step(
-            root,
-            "Use the supported target command to add or repair the scaffold, then retry.",
-            &["add-target", target.as_str(), "--json"],
-        )
-    };
-    if !project.targets.contains(&target) {
-        return Err(Failure::new(
-            ErrorCode::TargetNotConfigured,
-            "The selected target is not configured.",
-        )
-        .recover(repair()));
-    }
-    if !root.join(target.scaffold_relative_path()).is_file() {
-        return Err(Failure::new(
-            ErrorCode::ScaffoldMissing,
-            "The selected target scaffold is missing.",
-        )
-        .recover(repair()));
-    }
-    Ok(())
-}
-
-pub fn init(
-    root: &Path,
-    name: Option<String>,
-    app_id: Option<String>,
-    local_path: Option<PathBuf>,
-) -> Result<Data> {
-    if local_path
-        .as_ref()
-        .is_some_and(|path| path.to_str().is_none())
-    {
-        return Err(Failure::new(
-            ErrorCode::InvalidConfiguration,
-            "Structured init requires a UTF-8 --local-path.",
-        ));
-    }
-    if root.join("fission.toml").exists() {
-        load_project(root)?;
-    }
-    crate::init_project(root, name, app_id, local_path)
-        .map_err(|error| operation_failure(&error))?;
-    load_project(root)?;
-    let artifacts = verified_files(vec![root.join("fission.toml"), root.join("Cargo.toml")])?;
-    let instructions_root = crate::find_git_root(root).unwrap_or_else(|| root.to_path_buf());
-    let mut instructions = ["AGENTS.md", "AGENTS.fission.md"]
-        .into_iter()
-        .map(|name| instructions_root.join(name))
-        .filter(|path| path.is_file())
-        .collect::<Vec<_>>();
-    if root != instructions_root && root.join("AGENTS.md").is_file() {
-        instructions.push(root.join("AGENTS.md"));
-    }
-    Ok(Data { instructions, artifacts,
-        next_steps: vec![step(root, "Read the instructions immediately; retain fission.toml and add the intended website target.",
-            &["add-target", "static-site", "--json"])], ..Data::default() })
-}
-
-pub fn add_targets(root: &Path, targets: &[Target]) -> Result<Data> {
-    if targets.is_empty() {
-        return Err(Failure::new(
-            ErrorCode::InvalidTarget,
-            "Select at least one website target.",
-        ));
-    }
-    for target in targets {
-        require_website_target(*target)?;
-    }
-    load_project(root)?;
-    crate::add_targets(root, targets).map_err(|error| operation_failure(&error))?;
-    let mut data = Data {
-        artifacts: vec![root.join("fission.toml")],
-        ..Data::default()
-    };
-    for target in targets {
-        data.artifacts
-            .push(root.join(target.scaffold_relative_path()));
-        data.next_steps.push(step(
-            root,
-            "Build the configured website target.",
-            &["build", "--target", target.as_str(), "--json"],
-        ));
-    }
-    data.artifacts = verified_files(data.artifacts)?;
-    Ok(data)
-}
-
-fn verified_files(paths: Vec<PathBuf>) -> Result<Vec<PathBuf>> {
+pub(crate) fn verified_files(paths: Vec<PathBuf>) -> Result<Vec<PathBuf>> {
     if paths.iter().any(|path| !path.is_file()) {
-        return Err(Failure::new(ErrorCode::ArtifactMissing, "Project setup did not produce the expected configuration/scaffold files; check for directories or inaccessible paths where files are expected."));
+        return Err(Failure::new(
+            ErrorCode::ArtifactMissing,
+            "Project setup did not produce the expected configuration/scaffold files.",
+        ));
     }
     Ok(paths)
 }
 
-fn operation_failure(error: &anyhow::Error) -> Failure {
-    // Do not echo TOML source lines, dependency URLs, app identifiers or environment values.
+pub fn operation_failure(error: &anyhow::Error) -> Failure {
+    if let Some(error) =
+        error.downcast_ref::<fission_command_process::diagnostic::DiagnosticFailure>()
+    {
+        return process_failure(
+            fission_command_process::diagnostic::DiagnosticFailure {
+                kind: error.kind,
+                diagnostics: error.diagnostics.clone(),
+            },
+            ErrorCode::InvalidConfiguration,
+            "cargo",
+        );
+    }
+    if let Some(failure) = error.downcast_ref::<Failure>() {
+        return Failure {
+            code: failure.code,
+            message: failure.message.clone(),
+            diagnostics: failure.diagnostics.clone(),
+            recovery: Vec::new(),
+        };
+    }
     if error.downcast_ref::<std::io::Error>().is_some() {
         Failure::new(
             ErrorCode::IoFailed,
-            "Project files could not be created or updated; check file permissions and paths.",
+            "Project files could not be read or updated; check paths and permissions.",
         )
     } else {
-        Failure::new(ErrorCode::InvalidConfiguration, "Project configuration could not be updated; check Cargo.toml and fission.toml, including the package name and dependency paths.")
+        Failure::new(ErrorCode::InvalidConfiguration, "Project configuration could not be loaded or updated; check Cargo.toml, fission.toml and dependency paths.")
     }
 }

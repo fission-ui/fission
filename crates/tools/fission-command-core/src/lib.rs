@@ -19,9 +19,11 @@ mod macos_native;
 mod macos_signing;
 mod native_cargo;
 mod native_variant;
+mod process_report;
+pub mod report;
+mod setup;
 mod splash;
 mod web_storage;
-pub mod website;
 mod windows_native;
 pub use desktop_features::{read_desktop_cargo_options, DesktopCargoOptions};
 pub use icons::{copy_icon_for_bundle, normalized_extension, resolve_app_icon, ResolvedIcon};
@@ -398,7 +400,9 @@ enum WritePolicy {
     PreserveExisting,
 }
 
-pub fn init_project(
+pub use setup::{add_targets, init_project};
+
+fn init_project_files(
     root: &Path,
     name: Option<String>,
     app_id: Option<String>,
@@ -573,7 +577,7 @@ fn detect_project_targets(root: &Path) -> BTreeSet<Target> {
     targets
 }
 
-pub fn add_targets(project_dir: &Path, targets: &[Target]) -> Result<()> {
+fn add_target_files(project_dir: &Path, targets: &[Target]) -> Result<()> {
     if targets.is_empty() {
         bail!("no targets provided");
     }

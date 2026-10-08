@@ -32,7 +32,7 @@ pub(crate) enum Command {
         /// Optional local Fission checkout to use as a path dependency.
         #[arg(long)]
         local_path: Option<PathBuf>,
-        /// Emit one fission.website-result.v1 JSON result; retains init's platform defaults.
+        /// Emit one fission.cli-result.v1 JSON result; retains init's platform defaults.
         #[arg(long)]
         json: bool,
     },
@@ -43,7 +43,7 @@ pub(crate) enum Command {
         /// Project directory; defaults to the current working directory.
         #[arg(long, default_value = ".")]
         project_dir: PathBuf,
-        /// Emit one fission.website-result.v1 JSON result (website targets only).
+        /// Emit one fission.cli-result.v1 JSON result.
         #[arg(long)]
         json: bool,
     },
@@ -135,7 +135,7 @@ pub(crate) enum Command {
         /// Select native modules belonging to this desktop variant.
         #[arg(long)]
         variant: Option<NativeVariant>,
-        /// Emit one fission.website-result.v1 JSON result (website targets only).
+        /// Emit one fission.cli-result.v1 JSON result.
         #[arg(long)]
         json: bool,
     },
@@ -418,7 +418,7 @@ pub(crate) enum SiteCommand {
         /// Build in release mode.
         #[arg(long)]
         release: bool,
-        /// Emit one fission.website-result.v1 JSON result.
+        /// Emit one fission.cli-result.v1 JSON result.
         #[arg(long)]
         json: bool,
     },
@@ -430,7 +430,7 @@ pub(crate) enum SiteCommand {
         /// Build in release mode.
         #[arg(long)]
         release: bool,
-        /// Emit one fission.website-result.v1 JSON result.
+        /// Emit one fission.cli-result.v1 JSON result.
         #[arg(long)]
         json: bool,
     },
@@ -457,7 +457,7 @@ pub(crate) enum SiteCommand {
         /// Project directory; defaults to the current working directory.
         #[arg(long, default_value = ".")]
         project_dir: PathBuf,
-        /// Emit one fission.website-result.v1 JSON result.
+        /// Emit one fission.cli-result.v1 JSON result.
         #[arg(long)]
         json: bool,
     },

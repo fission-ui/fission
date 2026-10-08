@@ -635,14 +635,8 @@ fn optional_value(value: Option<&str>) -> Option<&str> {
     value.map(str::trim).filter(|value| !value.is_empty())
 }
 
-fn run_status(command: &mut Command, label: &str) -> Result<()> {
-    let status = command
-        .status()
-        .with_context(|| format!("failed to run {label}"))?;
-    if !status.success() {
-        bail!("{label} failed with {status}");
-    }
-    Ok(())
+fn run_status(command: &mut Command, _label: &str) -> Result<()> {
+    fission_command_process::diagnostic::run(command).map_err(Into::into)
 }
 
 #[cfg(test)]
