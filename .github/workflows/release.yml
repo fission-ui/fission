@@ -1,0 +1,172 @@
+name: Release Fission
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Release version without the v prefix
+        required: true
+        type: string
+
+permissions:
+  actions: write
+  contents: write
+
+concurrency:
+  group: fission-crates-io-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Publish and verify ${{ inputs.version }}
+    runs-on: ubuntu-latest
+    environment: crates-io
+    env:
+      CARGO_HTTP_TIMEOUT: '600'
+      CARGO_HTTP_LOW_SPEED_LIMIT: '1'
+      CARGO_NET_RETRY: '5'
+      CARGO_TARGET_DIR: ${{ runner.temp }}/fission-release-target
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_VERSION: ${{ inputs.version }}
+    steps:
+      - name: Check out main with release history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: main
+          submodules: recursive
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install release dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libfontconfig1-dev pkg-config ripgrep
+
+      - name: Validate release credentials
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: test -n "$CARGO_REGISTRY_TOKEN"
+
+      - name: Resolve immutable release source
+        id: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! "$RELEASE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.-]+)?$ ]]; then
+            echo "Invalid release version: $RELEASE_VERSION" >&2
+            exit 1
+          fi
+
+          tag="v$RELEASE_VERSION"
+          git fetch origin main --tags
+          if git rev-parse --verify --quiet "refs/tags/$tag" >/dev/null; then
+            commit=$(git rev-parse "$tag^{commit}")
+            if ! git merge-base --is-ancestor "$commit" origin/main; then
+              echo "$tag does not identify a commit on main" >&2
+              exit 1
+            fi
+            git checkout --detach "$commit"
+          else
+            commit=$(git rev-parse HEAD)
+            if [[ $commit != $(git rev-parse origin/main) ]]; then
+              echo "The first release run must tag the current origin/main commit" >&2
+              exit 1
+            fi
+            metadata=$(cargo metadata --locked --no-deps --format-version 1)
+            while read -r crate; do
+              actual=$(jq -r --arg crate "$crate" '.packages[] | select(.name == $crate) | .version' <<<"$metadata")
+              api_status=$(jq -r --arg crate "$crate" '.packages[] | select(.name == $crate) | .metadata.fission["api-status"] // "stable"' <<<"$metadata")
+              if [[ -z $actual ]]; then
+                echo "$crate is missing from workspace metadata" >&2
+                exit 1
+              fi
+              if [[ $actual != "$RELEASE_VERSION" && $api_status != "alpha" ]]; then
+                echo "$crate has version $actual, expected framework version $RELEASE_VERSION" >&2
+                exit 1
+              fi
+            done < <(./scripts/publish_release_crates.sh --list)
+            if ! rg -q "^## \\[$RELEASE_VERSION\\] - " CHANGELOG.md; then
+              echo "CHANGELOG.md has no dated $RELEASE_VERSION release section" >&2
+              exit 1
+            fi
+            git config user.name github-actions[bot]
+            git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+            git tag -a "$tag" -m "Fission $RELEASE_VERSION"
+            git push origin "$tag"
+          fi
+
+          test -z "$(git status --porcelain)"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "commit=$commit" >> "$GITHUB_OUTPUT"
+          echo "Release source: $tag at $commit" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Create or verify draft release
+        env:
+          RELEASE_TAG: ${{ steps.source.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if gh release view "$RELEASE_TAG" --json isDraft --jq '.isDraft' >"$RUNNER_TEMP/is-draft" 2>/dev/null; then
+            test "$(cat "$RUNNER_TEMP/is-draft")" = true
+          else
+            awk -v version="$RELEASE_VERSION" '
+              $0 ~ "^## \\[" version "\\] - " { capture=1 }
+              capture && /^## \[/ && $0 !~ "^## \\[" version "\\]" { exit }
+              capture { print }
+            ' CHANGELOG.md >"$RUNNER_TEMP/release-notes.md"
+            test -s "$RUNNER_TEMP/release-notes.md"
+            gh release create "$RELEASE_TAG" \
+              --verify-tag \
+              --draft \
+              --notes-file "$RUNNER_TEMP/release-notes.md" \
+              --title "Fission $RELEASE_VERSION"
+          fi
+
+      - name: Publish or resume crates.io packages
+        id: publish
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          RELEASE_COMMIT: ${{ steps.source.outputs.commit }}
+        shell: bash
+        run: |
+          set +e
+          ./scripts/publish_release_crates.sh "$RELEASE_VERSION"
+          status=$?
+          set -e
+          case "$status" in
+            0)
+              echo "state=complete" >> "$GITHUB_OUTPUT"
+              ;;
+            75)
+              echo "state=deferred" >> "$GITHUB_OUTPUT"
+              echo "crates.io deferred publication; the scheduled resumer will continue from the release tag." >> "$GITHUB_STEP_SUMMARY"
+              ;;
+            *)
+              exit "$status"
+              ;;
+          esac
+
+      - name: Enable scheduled resumption
+        if: steps.publish.outputs.state == 'deferred'
+        run: gh api --method PUT "repos/$GITHUB_REPOSITORY/actions/workflows/release-resume.yml/enable"
+
+      - name: Stop scheduled resumption
+        if: steps.publish.outputs.state == 'complete'
+        run: |
+          gh api --method PUT "repos/$GITHUB_REPOSITORY/actions/workflows/release-resume.yml/disable" || true
+
+      - name: Smoke published CLI and generated Web application
+        if: steps.publish.outputs.state == 'complete'
+        run: ./scripts/smoke_published_release.sh "$RELEASE_VERSION"
+
+      - name: Publish GitHub release
+        if: steps.publish.outputs.state == 'complete'
+        env:
+          RELEASE_TAG: ${{ steps.source.outputs.tag }}
+        run: gh release edit "$RELEASE_TAG" --draft=false --latest
+
+      - name: Stop automatic retries after a hard failure
+        if: failure()
+        run: |
+          gh api --method PUT "repos/$GITHUB_REPOSITORY/actions/workflows/release-resume.yml/disable" || true

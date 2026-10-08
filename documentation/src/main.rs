@@ -35,13 +35,14 @@ fn site_app() -> FissionSite {
         )
         .route_widget::<DocsState, _>(
             "/",
-            "Fission — One Rust application across every surface",
+            "Fission — Rust GUI Framework for Desktop, Mobile & Web",
             Some(
-                "Fission helps Rust teams turn one product model into native, mobile, web, terminal, and server experiences without rebuilding the organisation around every target."
+                "Build desktop, mobile and web apps in Rust with Fission, a cross-platform Rust application and GUI framework for macOS, Windows, Linux, Android, iOS and Web."
                     .to_string(),
             ),
             RoutedHomePage::new("/"),
         )
+        .with_route_structured_data("/", homepage_structured_data())
         .route_widget::<DocsState, _>(
             "/es/",
             "Fission",
@@ -135,6 +136,34 @@ fn site_app() -> FissionSite {
             site.route_widget::<DocsState, _>(path, title, description, CrateDetailPage::new(item));
     }
     site
+}
+
+fn homepage_structured_data() -> [String; 2] {
+    let organisation = serde_json::json!({
+        "@context": "https://schema.org",
+        "@type": "Organization",
+        "@id": "https://fission.rs/#organization",
+        "name": "Fission",
+        "url": "https://fission.rs/",
+        "logo": "https://fission.rs/img/fission-mark.svg",
+        "sameAs": ["https://github.com/fission-ui/fission"]
+    });
+    let application = serde_json::json!({
+        "@context": "https://schema.org",
+        "@type": "SoftwareApplication",
+        "@id": "https://fission.rs/#software",
+        "name": "Fission",
+        "applicationCategory": "DeveloperApplication",
+        "operatingSystem": "macOS, Windows, Linux, Android, iOS and Web",
+        "description": "A cross-platform Rust application and GUI framework for building desktop, mobile and web apps from one shared codebase.",
+        "softwareVersion": env!("CARGO_PKG_VERSION"),
+        "isAccessibleForFree": true,
+        "license": "https://www.apache.org/licenses/LICENSE-2.0",
+        "url": "https://fission.rs/",
+        "sameAs": ["https://github.com/fission-ui/fission"],
+        "publisher": { "@id": "https://fission.rs/#organization" }
+    });
+    [organisation.to_string(), application.to_string()]
 }
 
 fn atlas_theme(mode: DesignMode) -> Theme {

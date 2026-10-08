@@ -75,33 +75,23 @@ impl From<HeroCopy> for Widget {
         SemanticColumn::new(
             "site-landing-hero-copy",
             vec![
-                Text::new("ONE UI MODEL. EVERY SURFACE.")
+                Text::new("CROSS-PLATFORM RUST APP FRAMEWORK")
                     .size(tokens.typography.font_size_sm)
                     .weight(tokens.typography.font_weight_bold)
                     .color(tokens.colors.primary)
                     .into(),
-                RichText {
-                    runs: vec![
-                        RichTextRun::new("Build once.\n")
-                            .size(68.0)
-                            .line_height(70.0)
-                            .weight(tokens.typography.font_weight_bold)
-                            .color(tokens.colors.heading),
-                        RichTextRun::new("Deliver everywhere.")
-                            .size(68.0)
-                            .line_height(70.0)
-                            .weight(tokens.typography.font_weight_bold)
-                            .color(tokens.colors.heading),
-                    ],
-                    max_width: Some(620.0),
-                    semantics: Some(site_semantics("site-heading-1:top")),
-                    ..Default::default()
-                }
-                .into(),
+                Text::new("Build desktop, mobile and web apps in Rust")
+                    .size(68.0)
+                    .line_height(70.0)
+                    .weight(tokens.typography.font_weight_bold)
+                    .color(tokens.colors.heading)
+                    .max_width(620.0)
+                    .semantics_identifier("site-heading-1:top")
+                    .into(),
                 Text::new(
-                    "Fission gives Rust teams one coherent way to build polished applications for \
-                     desktop, web, mobile, terminal, static sites and server-rendered sites, from one \
-                     codebase and one widget model.",
+                    "Fission is a cross-platform Rust application and GUI framework. Build your \
+                     interface, state and application logic once, then run, test and package it for \
+                     macOS, Windows, Linux, Android, iOS and Web.",
                 )
                 .size(tokens.typography.body_large_size)
                 .line_height(tokens.typography.body_large_size * tokens.typography.line_height_relaxed)
@@ -110,8 +100,13 @@ impl From<HeroCopy> for Widget {
                 .into(),
                 Row {
                     children: vec![
-                        Cta::new("Get started  →", "/docs/learn/quickstart/", true).into(),
-                        Cta::new("See how it works", "/#how", false).into(),
+                        Cta::new(
+                            "Build your first Rust app  →",
+                            "/docs/learn/quickstart/",
+                            true,
+                        )
+                        .into(),
+                        Cta::new("Explore supported platforms", "/#how", false).into(),
                     ],
                     gap: Some(tokens.spacing.m),
                     wrap: FlexWrap::Wrap,
@@ -214,18 +209,18 @@ impl From<ProofPoints> for Widget {
             vec![
                 point(
                     material::action::code::regular(),
-                    "Plain Rust",
-                    "No DSL or bridge",
+                    "Rust application code",
+                    "One language and toolchain",
                 ),
                 point(
                     material::device::devices::regular(),
-                    "Nine targets",
-                    "One codebase",
+                    "Desktop, mobile and web",
+                    "One shared codebase",
                 ),
                 point(
                     material::action::verified::regular(),
-                    "Production ready",
-                    "Shipping today",
+                    "Built to ship",
+                    "Testing and packaging included",
                 ),
             ],
             Some(tokens.spacing.l),

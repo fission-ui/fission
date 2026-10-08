@@ -105,6 +105,7 @@ pub(super) fn heading_block(
             .color(tokens.colors.heading)
             .text_align(align)
             .max_width(760.0)
+            .semantics_identifier(format!("site-heading-2:{}", heading_anchor(title)))
             .into(),
     );
     if !lead.is_empty() {
@@ -131,6 +132,40 @@ pub(super) fn heading_block(
         ..Default::default()
     }
     .into()
+}
+
+fn heading_anchor(title: &str) -> String {
+    let mut anchor = String::with_capacity(title.len());
+    let mut pending_separator = false;
+    for character in title.chars() {
+        if character.is_ascii_alphanumeric() {
+            if pending_separator && !anchor.is_empty() {
+                anchor.push('-');
+            }
+            anchor.push(character.to_ascii_lowercase());
+            pending_separator = false;
+        } else {
+            pending_separator = true;
+        }
+    }
+    if anchor.is_empty() {
+        "section".to_string()
+    } else {
+        anchor
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::heading_anchor;
+
+    #[test]
+    fn heading_anchor_uses_readable_stable_words() {
+        assert_eq!(
+            heading_anchor("Build desktop, mobile and web apps in Rust."),
+            "build-desktop-mobile-and-web-apps-in-rust"
+        );
+    }
 }
 
 /// One open feature: icon, heading and a short explanation.
