@@ -7,7 +7,7 @@ mod cli;
 #[cfg(test)]
 use fission_command_core::{read_project_config, Target};
 
-use cli::{Cli, Command, ServerCommand, SiteCommand};
+use cli::{Cli, Command, ServerCommand, SiteCommand, SkillsCommand};
 
 const CLI_THREAD_STACK_BYTES: usize = 16 * 1024 * 1024;
 
@@ -45,11 +45,44 @@ where
             }
         }
     }
-    let cli = Cli::parse_from(argv);
+    let cli = match Cli::try_parse_from(&argv) {
+        Ok(cli) => cli,
+        Err(error) => {
+            if argv.get(1).is_some_and(|arg| arg == "skills")
+                && argv.iter().any(|arg| arg == "--json")
+                && !matches!(
+                    error.kind(),
+                    clap::error::ErrorKind::DisplayHelp | clap::error::ErrorKind::DisplayVersion
+                )
+            {
+                let result = fission_command_core::guidance::invalid_arguments(error.to_string());
+                fission_command_core::guidance::print_result(&result, true)?;
+            }
+            error.exit();
+        }
+    };
     warn_for_alpha_features(&cli.command);
     match cli.command {
         Command::Features => {
             print_feature_catalog();
+            Ok(())
+        }
+        Command::Skills { command } => {
+            let (result, json) = match command {
+                SkillsCommand::Check { project_dir, json } => {
+                    (fission_command_core::guidance::check(&project_dir), json)
+                }
+                SkillsCommand::Update { project_dir, json } => {
+                    (fission_command_core::guidance::update(&project_dir), json)
+                }
+            };
+            fission_command_core::guidance::print_result(&result, json)?;
+            if !result.success() {
+                bail!(
+                    "guidance {:?}; inspect findings and recovery",
+                    result.status
+                );
+            }
             Ok(())
         }
         Command::Init {
@@ -1021,10 +1054,13 @@ mkdir -p "$(dirname "$artifact")"
         let readme = std::fs::read_to_string(dir.join("README.md")).unwrap();
         let agents = std::fs::read_to_string(dir.join("AGENTS.md")).unwrap();
         assert!(agents.contains("# Fission App Guidelines"));
-        assert!(agents.contains("fission-cli-generated-agents:v1"));
-        assert!(agents.contains("#[fission_component]"));
-        assert!(agents.contains("Use Fission's native Router and RouterParams"));
-        assert!(agents.contains("Never block the UI thread"));
+        assert!(agents.contains("fission-cli-generated-agents:v2"));
+        let guidance = fission_command_core::guidance::check(&dir);
+        assert!(guidance
+            .files
+            .iter()
+            .all(|f| f.health == fission_command_core::guidance::FileHealth::Current));
+        assert!(dir.join(".fission/skills/fission-web/SKILL.md").is_file());
         assert!(readme.contains("fission devices --project-dir ."));
         assert!(readme.contains("fission run --project-dir ."));
         assert!(readme.contains("fission logs --target <target>"));
@@ -1091,12 +1127,12 @@ mkdir -p "$(dirname "$artifact")"
         );
         let fission_agents = fs::read_to_string(repo.join("AGENTS.fission.md")).unwrap();
         assert!(fission_agents.contains("# Fission App Guidelines"));
-        assert!(fission_agents.contains("fission-cli-generated-agents:v1"));
+        assert!(fission_agents.contains("fission-cli-generated-agents:v2"));
         assert!(!app.join("AGENTS.md").exists());
     }
 
     #[test]
-    fn init_updates_existing_fission_agents_at_git_root() {
+    fn init_preserves_unproven_legacy_instructions_at_git_root() {
         let repo = unique_dir("init-agents-update-existing");
         fs::create_dir_all(repo.join(".git")).unwrap();
         fs::write(
@@ -1109,9 +1145,9 @@ mkdir -p "$(dirname "$artifact")"
         run(["fission", "init", app.to_str().unwrap(), "--name", "todo"]).unwrap();
 
         let agents = fs::read_to_string(repo.join("AGENTS.md")).unwrap();
-        assert!(agents.contains("fission-cli-generated-agents:v1"));
-        assert!(agents.contains("Never block the UI thread"));
-        assert!(!repo.join("AGENTS.fission.md").exists());
+        assert!(agents.contains("old generated content"));
+        assert!(!agents.contains("fission-cli-generated-agents:v2"));
+        assert!(repo.join("AGENTS.fission.md").exists());
         assert!(!app.join("AGENTS.md").exists());
     }
 

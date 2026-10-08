@@ -10,6 +10,13 @@ Shared project model for the `fission` command.
 - Target and platform capability models shared by run, package, release, and site commands.
 - Generated support-file helpers for platform directories.
 - Common CLI argument types reused by command crates.
+- Bundled generated app guidance, a local web skill and offline hash/version
+  inspection with recoverable managed-file updates.
+
+The maintained Markdown assets are embedded by `guidance` and ship in this
+package. Init installs them at the existing instruction root. No repository
+checkout or assistant-specific skill directory is needed at runtime. See
+[offline guidance](../../../docs/agent-guidance.md) for ownership and compatibility.
 
 ## Developer workflow
 
