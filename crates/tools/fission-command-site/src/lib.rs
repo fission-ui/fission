@@ -71,6 +71,21 @@ pub fn routes(project_dir: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Discover content routes from the configured static route metadata. Custom
+/// Rust site builders have no shared discovery contract; callers must select
+/// their routes explicitly rather than infer coverage from DOM links.
+pub fn review_routes(project_dir: &Path) -> Result<Option<Vec<String>>> {
+    if site_entry_configured(project_dir)? {
+        return Ok(None);
+    }
+    Ok(Some(
+        fission_shell_site::list_content_routes(&site_build_options(project_dir)?)?
+            .into_iter()
+            .map(|route| route.path)
+            .collect(),
+    ))
+}
+
 pub fn serve(project_dir: &Path, release: bool, host: String, port: u16, open: bool) -> Result<()> {
     eprintln!("Building static site before starting local server...");
     if site_entry_configured(project_dir)? {

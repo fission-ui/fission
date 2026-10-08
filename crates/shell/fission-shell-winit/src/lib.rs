@@ -8920,6 +8920,18 @@ where
                                             total_ms,
                                             web_rendered_frames,
                                         );
+                                        // Acknowledges the layout of this submitted frame,
+                                        // only in an explicitly enabled development build.
+                                        if test_control_enabled {
+                                            set_web_global_json(
+                                                "__FISSION_REVIEW_FRAME",
+                                                &serde_json::json!({
+                                                    "width": target_viewport.width,
+                                                    "height": target_viewport.height,
+                                                    "frame": web_rendered_frames,
+                                                }),
+                                            );
+                                        }
                                         if let Some(input_at) = pending_web_input_at.take() {
                                             publish_web_input_latency(
                                                 &active_renderer,

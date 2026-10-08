@@ -51,7 +51,8 @@ impl Fixture {
                 "--project-dir",
             ])
             .arg(&self.0)
-            .env_remove("FISSION_WEB_TEST_CONTROL");
+            .env_remove("FISSION_WEB_TEST_CONTROL")
+            .env("CARGO_TARGET_DIR", self.0.join("target"));
         command
     }
 }
@@ -274,6 +275,7 @@ fn main() {
     assert!(Command::new("cargo")
         .args(["build", "--quiet", "--manifest-path"])
         .arg(fixture.0.join("Cargo.toml"))
+        .env("CARGO_TARGET_DIR", fixture.0.join("target"))
         .status()
         .unwrap()
         .success());

@@ -57,11 +57,15 @@ struct Events {
     stage: &'static str,
     url: Option<String>,
     live_test_ready: bool,
+    silent: bool,
 }
 
 impl Events {
     fn emit(&mut self, stage: &'static str, detail: serde_json::Value) -> Result<()> {
         self.stage = stage;
+        if self.silent {
+            return Ok(());
+        }
         if self.options.json {
             let event = Event {
                 schema: "fission.preview.v1",
@@ -111,6 +115,7 @@ pub fn run(options: PreviewOptions) -> Result<()> {
         stage: "validating",
         url: None,
         live_test_ready: false,
+        silent: false,
     };
     let mut cancelled = || {
         if session.interrupted() {
@@ -118,7 +123,13 @@ pub fn run(options: PreviewOptions) -> Result<()> {
         }
         stop.load(Ordering::Acquire)
     };
-    let result = lifecycle(&mut events, &mut cancelled);
+    let result = lifecycle(&mut events, &mut cancelled, |_, _, server, cancelled| {
+        while !cancelled() {
+            server.check_running()?;
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        Ok(())
+    });
     match result {
         Ok(()) => events.emit(
             "stopped",
@@ -152,7 +163,40 @@ pub fn run(options: PreviewOptions) -> Result<()> {
     }
 }
 
-fn lifecycle(events: &mut Events, cancelled: &mut impl FnMut() -> bool) -> Result<()> {
+/// Runs a finite operation using the same freshly built, verified, owned preview.
+/// The callback cannot retain the server; cleanup happens on every return path.
+pub(crate) fn with_preview(
+    options: PreviewOptions,
+    cancelled: &mut impl FnMut() -> bool,
+    operation: impl FnOnce(
+        &std::path::Path,
+        &Url,
+        &mut PreviewServer,
+        &mut dyn FnMut() -> bool,
+    ) -> Result<()>,
+) -> Result<()> {
+    let mut events = Events {
+        options,
+        session: String::new(),
+        stage: "validating",
+        url: None,
+        live_test_ready: false,
+        silent: true,
+    };
+    lifecycle(&mut events, cancelled, operation)
+        .with_context(|| format!("review preview stage {}", events.stage))
+}
+
+fn lifecycle(
+    events: &mut Events,
+    cancelled: &mut impl FnMut() -> bool,
+    operation: impl FnOnce(
+        &std::path::Path,
+        &Url,
+        &mut PreviewServer,
+        &mut dyn FnMut() -> bool,
+    ) -> Result<()>,
+) -> Result<()> {
     events.emit("validating", serde_json::json!({}))?;
     if !matches!(events.options.target, Target::Web | Target::Site) {
         bail!("preview supports only --target web or --target static-site");
@@ -274,7 +318,7 @@ fn lifecycle(events: &mut Events, cancelled: &mut impl FnMut() -> bool) -> Resul
             &mut *cancelled,
         )?;
         server.check_running()?;
-        if events.options.live_test {
+        if events.options.live_test && !events.silent {
             events.emit("verifying_live_test", serde_json::json!({}))?;
             let mut probe = Command::new(std::env::current_exe()?);
             probe
@@ -305,11 +349,7 @@ fn lifecycle(events: &mut Events, cancelled: &mut impl FnMut() -> bool) -> Resul
                 eprintln!("Preview is ready; could not open browser: {error}");
             }
         }
-        while !cancelled() {
-            server.check_running()?;
-            std::thread::sleep(Duration::from_millis(20));
-        }
-        Ok(())
+        operation(&root, &base, &mut server, cancelled)
     })();
     server
         .stop()

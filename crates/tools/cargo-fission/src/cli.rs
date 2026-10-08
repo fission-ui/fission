@@ -17,6 +17,27 @@ pub(crate) struct Cli {
 
 #[derive(Subcommand, Debug)]
 pub(crate) enum Command {
+    /// Build a website, review routes/viewports, and save screenshots + review.json.
+    Review(ReviewArgs),
+    #[command(hide = true)]
+    ReviewCase {
+        #[arg(long)]
+        url: String,
+        #[arg(long)]
+        mount_url: String,
+        #[arg(long, value_enum)]
+        target: Target,
+        #[arg(long)]
+        width: u32,
+        #[arg(long)]
+        height: u32,
+        #[arg(long)]
+        timeout_ms: u64,
+        #[arg(long)]
+        screenshot: PathBuf,
+        #[arg(long)]
+        report: PathBuf,
+    },
     /// Build and verify a browser preview, serving until stopped (Ctrl+C).
     Preview(PreviewArgs),
     #[command(hide = true)]
@@ -419,6 +440,41 @@ pub(crate) enum Command {
         #[arg(long)]
         open: bool,
     },
+}
+
+#[derive(clap::Args, Debug)]
+pub(crate) struct ReviewArgs {
+    #[arg(long, value_enum)]
+    pub target: PreviewTarget,
+    #[arg(long, default_value = ".")]
+    pub project_dir: PathBuf,
+    /// Directory for deterministic PNG files and the self-contained report.
+    #[arg(long)]
+    pub output_dir: PathBuf,
+    /// Repeatable app-relative route path. Content sites discover metadata routes.
+    #[arg(long = "route")]
+    pub routes: Vec<String>,
+    /// Repeatable WIDTHxHEIGHT CSS pixels. Defaults: 390x900,800x900,1280x900; scale 1.
+    #[arg(long = "viewport")]
+    pub viewports: Vec<fission_command_run::review::Viewport>,
+    #[arg(long, default_value = "/")]
+    pub mount: String,
+    #[arg(long, default_value_t = 0)]
+    pub port: u16,
+    #[arg(long)]
+    pub release: bool,
+    #[arg(long, value_delimiter = ',')]
+    pub features: Vec<String>,
+    #[arg(long)]
+    pub no_default_features: bool,
+    #[arg(long, default_value_t = 300)]
+    pub startup_timeout_seconds: u64,
+    #[arg(long, default_value_t = 60)]
+    pub case_timeout_seconds: u64,
+    /// One JSON report on stdout. Exit: 0 supported checks clean, 1 execution,
+    /// 2 incomplete/cancelled, 3 defects/candidates. Inspect partial limitations.
+    #[arg(long)]
+    pub json: bool,
 }
 
 #[derive(clap::Args, Debug)]
