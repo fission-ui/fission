@@ -209,7 +209,7 @@ fn inspect(
     let first = pixels.get_pixel(0, 0);
     anyhow::ensure!(
         pixels.pixels().any(|p| p != first),
-        "capture: uniform image has no verifiable content; repair rendering and rerun"
+        "capture: uniform image has no distinguishable content; verify the renderer and intended background before retrying"
     );
     let path = o
         .screenshot_path
@@ -263,7 +263,7 @@ fn dom_findings(c: &mut BrowserController) -> Result<Vec<Finding>> {
         }
         if(intentional || (b.left>=-1 && b.right<=document.documentElement.clientWidth+1)) continue;
         const id=e.id ? '#'+CSS.escape(e.id) : e.hasAttribute('data-fission-node') ? '[data-fission-node="'+CSS.escape(e.getAttribute('data-fission-node'))+'"]' : (()=>{const parts=[];for(let n=e;n&&n.parentElement;n=n.parentElement){parts.unshift(n.tagName.toLowerCase()+':nth-of-type('+([...n.parentElement.children].filter(x=>x.tagName===n.tagName).indexOf(n)+1)+')');}return parts.join(' > ');})();
-        result.push({kind:'horizontal_overflow',severity:'error',id,bounds:{x:b.x,y:b.y,width:b.width,height:b.height},evidence:'Browser border box exceeds horizontal viewport; no intentional overflow ancestor found.'});
+        result.push({kind:'horizontal_bounds_candidate',severity:'warning',id,bounds:{x:b.x,y:b.y,width:b.width,height:b.height},evidence:'Browser border box exceeds horizontal viewport; no intentional overflow ancestor found. Geometry does not prove clipping intent or visual failure; inspect screenshot.'});
         if(result.length>=128) return {truncated:true,findings:result};
       }
       return {truncated:false,findings:result};

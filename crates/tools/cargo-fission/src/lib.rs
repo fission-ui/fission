@@ -48,26 +48,7 @@ where
     let cli = Cli::parse_from(argv);
     warn_for_alpha_features(&cli.command);
     match cli.command {
-        Command::Review(args) => {
-            fission_command_run::review::run(fission_command_run::review::ReviewOptions {
-                project_dir: args.project_dir,
-                target: args.target.into(),
-                output_dir: args.output_dir,
-                routes: args.routes,
-                viewports: args.viewports,
-                mount: args.mount,
-                port: args.port,
-                release: args.release,
-                web_cargo: fission_command_run::WebCargoOptions {
-                    features: args.features,
-                    no_default_features: args.no_default_features,
-                },
-                startup_timeout: std::time::Duration::from_secs(args.startup_timeout_seconds),
-                case_timeout: std::time::Duration::from_secs(args.case_timeout_seconds),
-                json: args.json,
-            })
-        }
-        Command::ReviewCase {
+        Command::TestVisualCase {
             url,
             mount_url,
             target,
@@ -211,10 +192,41 @@ where
         Command::Test {
             target,
             project_dir,
+            headless: _,
+            features,
+            no_default_features,
+            variant: _,
+            visual,
+        } if visual.visual_review => {
+            fission_command_run::review::run(fission_command_run::review::ReviewOptions {
+                project_dir,
+                target: target.context("visual review requires --target web or static-site")?,
+                output_dir: visual
+                    .output_dir
+                    .context("visual review requires --output-dir")?,
+                routes: visual.routes,
+                viewports: visual.viewports,
+                mount: visual.mount,
+                port: visual.port,
+                release: visual.release,
+                web_cargo: fission_command_run::WebCargoOptions {
+                    features,
+                    no_default_features,
+                },
+                startup_timeout: std::time::Duration::from_secs(visual.startup_timeout_seconds),
+                case_timeout: std::time::Duration::from_secs(visual.case_timeout_seconds),
+                json: visual.json,
+                strict: visual.strict,
+            })
+        }
+        Command::Test {
+            target,
+            project_dir,
             headless,
             features,
             no_default_features,
             variant,
+            ..
         } => fission_command_run::test_app_with_web_cargo_options(
             fission_command_run::TestOptions {
                 project_dir,

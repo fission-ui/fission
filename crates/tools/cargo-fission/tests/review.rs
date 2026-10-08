@@ -68,13 +68,19 @@ impl Fixture {
     }
     fn review(&self, mount: &str, extra: &[&str]) -> (i32, Value) {
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_fission"));
-        cmd.args(["review", "--target", "static-site", "--project-dir"])
-            .arg(&self.0)
-            .args(["--output-dir"])
-            .arg(self.0.join("review"))
-            .args(["--mount", mount, "--json"])
-            .args(extra)
-            .env_remove("FISSION_WEB_TEST_CONTROL");
+        cmd.args([
+            "test",
+            "--visual-review",
+            "--target",
+            "static-site",
+            "--project-dir",
+        ])
+        .arg(&self.0)
+        .args(["--output-dir"])
+        .arg(self.0.join("review"))
+        .args(["--mount", mount, "--json"])
+        .args(extra)
+        .env_remove("FISSION_WEB_TEST_CONTROL");
         let out = cmd.output().unwrap();
         let value: Value =
             serde_json::from_slice(&out.stdout).expect("stdout must be exactly one JSON report");
@@ -176,6 +182,61 @@ fn invalid_mount_reports_execution_failure_and_preserves_unrelated_listener() {
 }
 #[cfg(unix)]
 #[test]
+fn project_and_output_symlink_spelling_is_preserved_lexically() {
+    let f = Fixture::new();
+    let alias = f.0.with_extension("mapped");
+    std::os::unix::fs::symlink(&f.0, &alias).unwrap();
+    let mapped = Fixture(alias.clone());
+    let (code, report) = mapped.review("/../escape/", &[]);
+    assert_eq!(code, 1);
+    assert_eq!(
+        PathBuf::from(report["output_dir"].as_str().unwrap()),
+        alias.join("review")
+    );
+    assert!(alias.join("review/review.json").is_file());
+}
+#[test]
+#[ignore = "requires installed Chromium and loopback sockets"]
+fn heuristic_geometry_is_warning_only_unless_strict() {
+    let f = Fixture::new();
+    let cfg = f.0.join("fission.toml");
+    fs::write(
+        &cfg,
+        format!(
+            "{}\n[site]\ncss_files = [\"review.css\"]\n",
+            fs::read_to_string(&cfg).unwrap()
+        ),
+    )
+    .unwrap();
+    fs::write(
+        f.0.join("review.css"),
+        ".fission-site-root { min-width: 1000px; }",
+    )
+    .unwrap();
+    for strict in [false, true] {
+        let mut args = vec!["--route", "/content/about/", "--viewport", "390x900"];
+        if strict {
+            args.push("--strict");
+        }
+        let (code, report) = f.review("/", &args);
+        assert_eq!(code, if strict { 3 } else { 0 }, "{report}");
+        assert_eq!(report["status"], "warning_candidates");
+        assert_eq!(report["strict_warnings"], strict);
+        assert_eq!(report["image_inspection_required"], true);
+        let case = &report["cases"][0];
+        assert_eq!(case["status"], "warning_candidates");
+        let findings = case["result"]["findings"].as_array().unwrap();
+        assert!(!findings.is_empty());
+        assert!(findings.iter().all(|f| f["severity"] == "warning"));
+        assert!(f
+            .0
+            .join("review")
+            .join(case["result"]["screenshot"].as_str().unwrap())
+            .is_file());
+    }
+}
+#[cfg(unix)]
+#[test]
 #[ignore = "requires installed Chromium and loopback sockets"]
 fn bounded_browser_timeout_and_cancel_release_owned_port() {
     let f = Fixture::new();
@@ -212,7 +273,13 @@ fn bounded_browser_timeout_and_cancel_release_owned_port() {
     assert!(TcpListener::bind(("127.0.0.1", port)).is_ok());
     // A readiness-failing browser is still active when termination arrives.
     let mut child = Command::new(env!("CARGO_BIN_EXE_fission"))
-        .args(["review", "--target", "static-site", "--project-dir"])
+        .args([
+            "test",
+            "--visual-review",
+            "--target",
+            "static-site",
+            "--project-dir",
+        ])
         .arg(&f.0)
         .arg("--output-dir")
         .arg(f.0.join("cancel"))
@@ -248,10 +315,9 @@ fn bounded_browser_timeout_and_cancel_release_owned_port() {
                 Some((pid, parent, fields.collect::<Vec<_>>().join(" ")))
             })
             .collect();
-        if let Some(worker) = rows
-            .iter()
-            .find(|r| r.2.contains("review-case") && r.2.contains(&format!("127.0.0.1:{port}")))
-        {
+        if let Some(worker) = rows.iter().find(|r| {
+            r.2.contains("test-visual-case") && r.2.contains(&format!("127.0.0.1:{port}"))
+        }) {
             if let Some(browser) = rows.iter().find(|r| {
                 r.1 == worker.0 && r.2.contains("--user-data-dir=") && r.2.contains("fission-cdp-")
             }) {

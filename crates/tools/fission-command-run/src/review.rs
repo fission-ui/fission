@@ -1,5 +1,6 @@
 //! Owned finite website review; stdout JSON is exactly one typed report.
 use crate::{
+    absolute_path,
     preview::{self, PreviewOptions},
     WebCargoOptions,
 };
@@ -56,6 +57,7 @@ pub struct ReviewOptions {
     pub startup_timeout: Duration,
     pub case_timeout: Duration,
     pub json: bool,
+    pub strict: bool,
 }
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Coverage {
@@ -95,6 +97,8 @@ pub struct ReviewReport {
     pub failure: Option<Failure>,
     pub limitations: Vec<String>,
     pub owned_resources_released: bool,
+    pub strict_warnings: bool,
+    pub image_inspection_required: bool,
 }
 #[derive(Debug)]
 pub struct ReviewExit(pub i32);
@@ -115,12 +119,13 @@ pub fn run(mut o: ReviewOptions) -> Result<()> {
         base_url:None,output_dir:o.output_dir.clone(),device_scale_factor:1,concurrency:1,
         coverage:Coverage {source:"unselected".into(), discovered:None,selected:Vec::new(),undiscovered_routes_reviewed:false},
         viewports:Vec::new(),cases:Vec::new(),status:"execution_failed".into(),exit_code:1,failure:None,
-        limitations:vec!["Screenshots and structural checks require inspection; this is not an accessibility, SEO or exhaustive clipping audit.".into()],owned_resources_released:true,
+        limitations:vec!["Screenshots require human/agent image inspection. Nonuniform pixels demonstrate capture content, not visual correctness. Structural checks are partial; this is not an accessibility, SEO or exhaustive clipping audit.".into()],owned_resources_released:true,
+        strict_warnings:o.strict,image_inspection_required:true,
     };
     let result = (|| {
-        fs::create_dir_all(&o.output_dir).context("output: cannot create review directory")?;
-        o.output_dir = o.output_dir.canonicalize()?;
+        o.output_dir = absolute_path(&o.output_dir)?;
         report.output_dir = o.output_dir.clone();
+        fs::create_dir_all(&o.output_dir).context("output: cannot create review directory")?;
         o.mount = normalize_mount(&o.mount)?;
         report.mount = o.mount.clone();
         if !matches!(o.target, Target::Web | Target::Site) {
@@ -129,7 +134,7 @@ pub fn run(mut o: ReviewOptions) -> Result<()> {
         if o.case_timeout.is_zero() || o.case_timeout > Duration::from_secs(300) {
             bail!("validation: case timeout must be 1..=300 seconds");
         }
-        o.project_dir = o.project_dir.canonicalize()?;
+        o.project_dir = absolute_path(&o.project_dir)?;
         let discovered = if o.target == Target::Site {
             fission_command_site::review_routes(&o.project_dir)?
         } else {
@@ -240,7 +245,7 @@ pub fn run(mut o: ReviewOptions) -> Result<()> {
                         }
                         server.check_running()?;
                         let mut cmd = Command::new(std::env::current_exe()?);
-                        cmd.arg("review-case")
+                        cmd.arg("test-visual-case")
                             .arg("--url")
                             .arg(url.as_str())
                             .arg("--mount-url")
@@ -313,7 +318,7 @@ pub fn run(mut o: ReviewOptions) -> Result<()> {
             return Ok(());
         }
         preview_result?;
-        let (status, code) = overall(&report.cases);
+        let (status, code) = overall(&report.cases, o.strict);
         report.status = status.into();
         report.exit_code = code;
         Ok(())
@@ -432,17 +437,23 @@ fn artifact_name(route_index: usize, v: Viewport) -> String {
 fn case_status(r: &BrowserReview) -> &'static str {
     if r.failure.is_some() || !r.ready || r.screenshot.is_none() {
         "incomplete"
-    } else if r.observations.iter().any(|o| !o.optional) || !r.findings.is_empty() {
+    } else if r.observations.iter().any(|o| !o.optional)
+        || r.findings.iter().any(|f| f.severity == "error")
+    {
         "defects_detected"
+    } else if !r.findings.is_empty() {
+        "warning_candidates"
     } else {
         "clean_supported_checks"
     }
 }
-fn overall(cases: &[ReviewCase]) -> (&'static str, i32) {
+fn overall(cases: &[ReviewCase], strict: bool) -> (&'static str, i32) {
     if cases.is_empty() || cases.iter().any(|c| c.status == "incomplete") {
         ("incomplete", 2)
     } else if cases.iter().any(|c| c.status == "defects_detected") {
         ("defects_detected", 3)
+    } else if cases.iter().any(|c| c.status == "warning_candidates") {
+        ("warning_candidates", if strict { 3 } else { 0 })
     } else {
         ("clean_supported_checks", 0)
     }
@@ -519,6 +530,93 @@ mod tests {
         assert_eq!(case_status(&r), "clean_supported_checks");
         r.failure = Some("timeout".into());
         assert_eq!(case_status(&r), "incomplete");
-        assert_eq!(overall(&[]), ("incomplete", 2));
+        assert_eq!(overall(&[], false), ("incomplete", 2));
+    }
+    fn complete_case() -> ReviewCase {
+        ReviewCase {
+            route: "/".into(),
+            requested_url: "http://localhost/".into(),
+            viewport: Viewport {
+                width: 390,
+                height: 900,
+            },
+            status: "clean_supported_checks".into(),
+            result: BrowserReview {
+                ready: true,
+                screenshot: Some("real.png".into()),
+                ..Default::default()
+            },
+        }
+    }
+    #[test]
+    fn warning_candidates_only_fail_an_explicit_strict_policy() {
+        let mut case = complete_case();
+        case.result
+            .findings
+            .push(fission_test_driver::browser::review::Finding {
+                kind: "horizontal_bounds_candidate".into(),
+                severity: "warning".into(),
+                id: Some("content".into()),
+                bounds: None,
+                evidence: "Inspect image; clipping intent is unknown".into(),
+            });
+        case.status = case_status(&case.result).into();
+        assert_eq!(case.status, "warning_candidates");
+        assert_eq!(
+            overall(std::slice::from_ref(&case), false),
+            ("warning_candidates", 0)
+        );
+        assert_eq!(
+            overall(std::slice::from_ref(&case), true),
+            ("warning_candidates", 3)
+        );
+        case.result.findings[0].severity = "error".into();
+        case.status = case_status(&case.result).into();
+        assert_eq!(
+            overall(std::slice::from_ref(&case), false),
+            ("defects_detected", 3)
+        );
+        case.result.failure = Some("observation_limit".into());
+        case.status = case_status(&case.result).into();
+        assert_eq!(
+            overall(std::slice::from_ref(&case), false),
+            ("incomplete", 2)
+        );
+        assert_eq!(overall(&[case], true), ("incomplete", 2));
+    }
+    #[test]
+    fn confirmed_resource_errors_block_even_without_strict_warnings() {
+        let mut case = complete_case();
+        case.result
+            .observations
+            .push(fission_test_driver::browser::review::Observation {
+                kind: "resource_failure".into(),
+                url: Some("http://localhost/bootstrap.mjs".into()),
+                optional: false,
+                evidence: "HTTP 404 Script".into(),
+            });
+        case.status = case_status(&case.result).into();
+        assert_eq!(overall(&[case], false), ("defects_detected", 3));
+    }
+    #[test]
+    fn lexical_paths_do_not_require_filesystem_resolution() {
+        let path = PathBuf::from("missing-mapped-project/../review-output");
+        assert_eq!(
+            absolute_path(&path).unwrap(),
+            std::env::current_dir().unwrap().join(path)
+        );
+        let absolute = std::env::temp_dir()
+            .join("fission-uncreated-mapped-path")
+            .join("../output");
+        assert_eq!(absolute_path(&absolute).unwrap(), absolute);
+    }
+    #[cfg(windows)]
+    #[test]
+    fn windows_mapped_and_unc_paths_keep_their_lexical_spelling() {
+        for path in [r"Z:\mapped\app\..\review", r"\\server\webdav\app\review"] {
+            let path = PathBuf::from(path);
+            assert!(path.is_absolute());
+            assert_eq!(absolute_path(&path).unwrap(), path);
+        }
     }
 }
