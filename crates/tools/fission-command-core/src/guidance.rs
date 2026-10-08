@@ -156,6 +156,14 @@ impl GuidanceResult {
     }
 }
 
+/// Installation facts only. The caller chooses the human or machine renderer.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GuidanceInstallation {
+    pub guidance: GuidanceResult,
+    pub shared_reference: Option<PathBuf>,
+    pub web_router: Option<PathBuf>,
+}
+
 fn hash(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
 }
@@ -752,64 +760,27 @@ fn write_transaction(
     Ok(())
 }
 
-pub fn print_result(result: &GuidanceResult, json: bool) -> Result<()> {
-    if json {
-        println!("{}", serde_json::to_string(result)?);
-    } else {
-        println!(
-            "Guidance {:?}: CLI {}, API {}, guidance {}, schema {}",
-            result.status,
-            result.bundled.cli_version,
-            result.bundled.framework_api_version,
-            result.bundled.guidance_version,
-            result.schema_version
-        );
-        println!(
-            "Framework: {:?}: {}",
-            result.framework_dependency.compatibility, result.framework_dependency.message
-        );
-        println!("Guidance root: {}", result.guidance_root.display());
-        for file in &result.files {
-            println!(
-                "{:?}: {}",
-                file.health,
-                result.guidance_root.join(&file.path).display()
-            );
-        }
-        for f in &result.findings {
-            println!("{}: {}", f.path.display(), f.message);
-        }
-        for recovery in &result.recovery {
-            println!("{}\nargv: {:?}", recovery.reason, recovery.argv);
-        }
-    }
-    Ok(())
-}
-
-/// Init prints every actual instruction path, including custom fallbacks, without
-/// replacing custom guidance. Existing projects must resolve conflicts explicitly.
-pub(crate) fn install_for_init(project: &Path) -> Result<()> {
+/// Install once and return every actual instruction path, including fallbacks.
+/// Existing projects must resolve conflicts explicitly; this authority is silent.
+pub(crate) fn install_for_init(project: &Path) -> Result<GuidanceInstallation> {
     let r = update(project);
-    println!("Fission guidance: {:?}", r.status);
-    for path in &r.instruction_paths {
-        println!("Read instructions: {}", path.display());
-    }
-    let router = r.guidance_root.join(SKILL_PATH);
-    if fs::symlink_metadata(&router).is_ok_and(|m| m.is_file() && !m.file_type().is_symlink()) {
-        println!("Web router: {}", router.display());
-    } else {
-        eprintln!("Web router unavailable; resolve guidance findings with fission skills check --project-dir {}", project.display());
-    }
-    for f in r.findings.iter().filter(|f| f.blocks_update) {
-        eprintln!("Guidance conflict at {}: {}", f.path.display(), f.message);
-    }
     if r.status == Status::Error {
         bail!(
             "guidance installation failed; run fission skills check --project-dir {}",
             project.display()
         );
     }
-    Ok(())
+    let existing_file = |relative: &str| {
+        let path = r.guidance_root.join(relative);
+        fs::symlink_metadata(&path)
+            .is_ok_and(|m| m.is_file() && !m.file_type().is_symlink())
+            .then_some(path)
+    };
+    Ok(GuidanceInstallation {
+        shared_reference: existing_file(SHARED_PATH),
+        web_router: existing_file(SKILL_PATH),
+        guidance: r,
+    })
 }
 
 #[cfg(test)]

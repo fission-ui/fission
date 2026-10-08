@@ -53,7 +53,8 @@ fn fresh_init_prints_actual_paths_and_installs_readable_router() {
     let invoked = f.0.join(".");
     assert!(stdout.contains(invoked.join("AGENTS.md").to_str().unwrap()));
     assert!(stdout.contains(
-        invoked.join(".fission/skills/fission-web/SKILL.md")
+        invoked
+            .join(".fission/skills/fission-web/SKILL.md")
             .to_str()
             .unwrap()
     ));

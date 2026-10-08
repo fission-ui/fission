@@ -401,7 +401,7 @@ pub fn init_project(
     name: Option<String>,
     app_id: Option<String>,
     local_path: Option<PathBuf>,
-) -> Result<()> {
+) -> Result<guidance::GuidanceInstallation> {
     let existing_project = root.exists() && root.read_dir()?.next().is_some();
     fs::create_dir_all(root.join("src"))?;
 
@@ -434,7 +434,7 @@ pub fn init_project(
         &render_project_readme(&project),
         write_policy,
     )?;
-    guidance::install_for_init(root)?;
+    let installation = guidance::install_for_init(root)?;
     write_file_with_policy(
         &root.join(".gitignore"),
         "target/\nplatforms/*/build/\nplatforms/web/pkg/\n",
@@ -449,7 +449,7 @@ pub fn init_project(
     sync_platform_config(root, &project)?;
     sync_cargo_fission_dependency(root, &project, local_path.as_deref())?;
 
-    Ok(())
+    Ok(installation)
 }
 
 fn initial_project_config(

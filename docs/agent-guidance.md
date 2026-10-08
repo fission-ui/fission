@@ -42,6 +42,12 @@ the bundled manifest/hashes, so no second hand-maintained copy can drift.
 The manifest itself is metadata and is excluded from its own content hash.
 Root repository contributor guidance is independent of generated app assets.
 
+Command-core installation is silent and returns `GuidanceInstallation` facts:
+the full guidance result, actual instruction/fallback paths, and optional paths
+to existing shared/Web assets. The CLI renders those facts. Init's authority
+returns them after scaffolding completes; a common CLI result integration should
+carry the returned paths rather than rediscovering only root instruction names.
+
 The CLI package version describes the installed assets. The app dependency is
 reported separately from `Cargo.toml` and available local `Cargo.lock`.
 Only an unambiguous crates.io lockfile version matching the bundle API version

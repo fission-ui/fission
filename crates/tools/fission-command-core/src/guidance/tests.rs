@@ -585,3 +585,37 @@ fn mapped_symlink_paths_use_lexical_git_ancestors_and_keep_reported_spelling() {
     assert_eq!(r.guidance_root, root_alias);
     assert_eq!(check(&root_alias).project_dir, root_alias);
 }
+
+#[test]
+fn init_returns_all_instruction_and_available_asset_facts_without_rendering() {
+    let p = Project::new();
+    fs::write(p.0.join("AGENTS.md"), "root policy").unwrap();
+    fs::write(p.0.join("AGENTS.fission.md"), "custom fallback").unwrap();
+    let app = p.0.join("apps/nested");
+    fs::create_dir_all(&app).unwrap();
+    fs::write(p.0.join("apps/AGENTS.md"), "intermediate policy").unwrap();
+    fs::write(app.join("AGENTS.md"), "nested policy").unwrap();
+    fs::write(app.join("AGENTS.fission.md"), "nested Fission policy").unwrap();
+    let facts = crate::init_project(&app, Some("typed_fixture".into()), None, None).unwrap();
+    assert_eq!(facts.guidance.status, Status::Updated);
+    assert_eq!(facts.shared_reference, Some(p.0.join(SHARED_PATH)));
+    assert_eq!(facts.web_router, Some(p.0.join(SKILL_PATH)));
+    for path in [
+        "AGENTS.md",
+        "AGENTS.fission.md",
+        ".fission/AGENTS.md",
+        "apps/AGENTS.md",
+        "apps/nested/AGENTS.md",
+        "apps/nested/AGENTS.fission.md",
+    ] {
+        assert!(
+            facts.guidance.instruction_paths.contains(&p.0.join(path)),
+            "missing {path}"
+        );
+    }
+    fs::write(p.0.join(".fission/AGENTS.md"), "edited managed fallback").unwrap();
+    let before = snapshot(&p.0);
+    let conflict = install_for_init(&app).unwrap();
+    assert_eq!(conflict.guidance.status, Status::Conflict);
+    assert_eq!(snapshot(&p.0), before);
+}

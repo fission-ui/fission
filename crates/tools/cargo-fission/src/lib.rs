@@ -3,6 +3,7 @@ use clap::Parser;
 use std::{ffi::OsString, path::Path, thread};
 
 mod cli;
+mod guidance;
 
 #[cfg(test)]
 use fission_command_core::{read_project_config, Target};
@@ -56,7 +57,7 @@ where
                 )
             {
                 let result = fission_command_core::guidance::invalid_arguments(error.to_string());
-                fission_command_core::guidance::print_result(&result, true)?;
+                guidance::print_result(&result, true)?;
             }
             error.exit();
         }
@@ -76,7 +77,7 @@ where
                     (fission_command_core::guidance::update(&project_dir), json)
                 }
             };
-            fission_command_core::guidance::print_result(&result, json)?;
+            guidance::print_result(&result, json)?;
             if !result.success() {
                 bail!(
                     "guidance {:?}; inspect findings and recovery",
@@ -90,7 +91,11 @@ where
             name,
             app_id,
             local_path,
-        } => fission_command_core::init_project(&path, name, app_id, local_path),
+        } => {
+            let installation = fission_command_core::init_project(&path, name, app_id, local_path)?;
+            guidance::print_installation(&installation);
+            Ok(())
+        }
         Command::AddTarget {
             targets,
             project_dir,
