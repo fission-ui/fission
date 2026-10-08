@@ -14,7 +14,7 @@ pub fn excerpt(text: &str) -> String {
     )
 }
 
-#[derive(Debug)]
+#[derive(Clone, Copy, Debug)]
 pub enum FailureKind {
     MissingExecutable,
     Exit,
@@ -28,6 +28,14 @@ pub struct DiagnosticFailure {
     pub kind: FailureKind,
     pub diagnostics: String,
 }
+
+impl std::fmt::Display for DiagnosticFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "subprocess failure: {:?}", self.kind)
+    }
+}
+
+impl std::error::Error for DiagnosticFailure {}
 
 /// Child stdout and stderr are drained concurrently, redacted, then sent to stderr.
 /// Retains at most 4 KiB from each stream. No command debug/environment dump is emitted.
