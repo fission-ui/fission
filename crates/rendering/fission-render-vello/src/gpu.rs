@@ -10,6 +10,11 @@ use vello_cpu::PaintType;
 
 use crate::{GpuImageCache, GpuPainter, GpuUploader, Painter, VelloRenderer, VelloTextMeasurer};
 
+/// External GPU textures referenced by retained `DrawSurface` operations.
+pub type ExternalTextureBindings = vello_gpu::TextureBindings;
+/// Stable identifier connecting a retained surface operation to its texture.
+pub use vello_gpu::TextureId as ExternalTextureId;
+
 /// Renders Fission scenes into wgpu textures.
 ///
 /// Owns the renderer and everything that must persist between frames for it to stay cheap: the
@@ -64,6 +69,35 @@ impl GpuSceneRenderer {
         width: u32,
         height: u32,
         background: Option<RenderColor>,
+    ) -> Result<()> {
+        self.render_with_external_textures(
+            device,
+            queue,
+            scene,
+            measurer,
+            scale_factor,
+            view,
+            width,
+            height,
+            background,
+            &ExternalTextureBindings::new(),
+        )
+    }
+
+    /// Render `scene`, resolving embedded surfaces from `external_textures`.
+    #[allow(clippy::too_many_arguments)]
+    pub fn render_with_external_textures(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        scene: &RenderScene,
+        measurer: Arc<VelloTextMeasurer>,
+        scale_factor: f64,
+        view: &wgpu::TextureView,
+        width: u32,
+        height: u32,
+        background: Option<RenderColor>,
+        external_textures: &ExternalTextureBindings,
     ) -> Result<()> {
         let width = target_dimension(width, "width")?;
         let height = target_dimension(height, "height")?;
@@ -122,7 +156,7 @@ impl GpuSceneRenderer {
                 &vello_gpu::RenderSize { width, height },
                 view,
                 None,
-                &vello_gpu::TextureBindings::new(),
+                external_textures,
                 target_init,
             )
             .map_err(|error| anyhow!("vello_gpu failed to render the scene: {error:?}"))?;

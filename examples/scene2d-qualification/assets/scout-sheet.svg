@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="64" viewBox="0 0 128 64">
+  <rect width="128" height="64" fill="none"/>
+  <g id="scout">
+    <circle cx="32" cy="32" r="25" fill="#2f6fed" stroke="#dce8ff" stroke-width="4"/>
+    <path d="M20 35 L32 16 L44 35 L38 35 L38 47 L26 47 L26 35 Z" fill="#ffffff"/>
+  </g>
+  <g id="beacon">
+    <circle cx="96" cy="32" r="25" fill="#ffca3a" stroke="#fff3c4" stroke-width="4"/>
+    <path d="M96 15 L101 26 L113 27 L104 35 L107 47 L96 40 L85 47 L88 35 L79 27 L91 26 Z" fill="#7a4d00"/>
+  </g>
+</svg>

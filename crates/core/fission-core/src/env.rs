@@ -353,6 +353,10 @@ pub struct HeroState {
 pub struct GestureState {
     pub start_point: Option<LayoutPoint>,
     pub last_point: Option<LayoutPoint>,
+    /// Monotonic millisecond timestamp for the active primary press.
+    pub press_started_at: Option<crate::time::CurrentTime>,
+    /// Prevents a completed long press from also becoming a tap or drag.
+    pub long_press_dispatched: bool,
     pub is_panning: bool,
     pub target_node: Option<WidgetId>,
     pub dragging_payload: Option<Vec<u8>>,

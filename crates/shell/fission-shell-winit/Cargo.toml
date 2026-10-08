@@ -18,7 +18,8 @@ platforms = ["android", "ios", "linux", "macos", "windows", "web"]
 default = []
 filesystem = []
 tray = ["dep:tray-icon", "dep:gtk"]
-three-d = ["dep:fission-3d"]
+scene3d = ["dep:fission-scene", "dep:fission-scene3d"]
+three-d = ["scene3d", "dep:fission-3d"]
 video = ["dep:gstreamer", "dep:gstreamer-video"]
 store = ["fission-core/store", "fission-shell/store", "dep:fission-store"]
 store-sql = ["store", "fission-core/store-sql", "fission-shell/store-sql"]
@@ -45,6 +46,8 @@ fission-ir = { path = "../../core/fission-ir", version = "0.15.1" }
 fission-semantics = { path = "../../core/fission-semantics", version = "0.15.1" }
 fission-theme = { path = "../../core/fission-theme", version = "0.15.1" }
 fission-3d = { path = "../../core/fission-3d", optional = true, version = "0.15.1" }
+fission-scene = { path = "../../core/fission-scene", optional = true, version = "=0.1.0-alpha.1" }
+fission-scene3d = { path = "../../core/fission-scene3d", optional = true, version = "=0.1.0-alpha.1" }
 fission-store = { path = "../../core/fission-store", optional = true, version = "0.15.1" }
 fission-store-sqlite = { path = "../../core/fission-store-sqlite", optional = true, version = "0.15.1", default-features = false }
 winit = { package = "fission-winit", version = "0.30.13-fission.3" }
@@ -65,6 +68,7 @@ base64 = "0.22"
 tray-icon = { version = "0.24", optional = true }
 futures-core = "0.3"
 log = "0.4"
+glam = "0.29"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 ureq = "2"

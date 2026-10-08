@@ -2048,6 +2048,10 @@ impl HtmlRenderer<'_> {
                     node.id
                 ))
             }
+            PaintOp::DrawImageBatch { .. } => anyhow::bail!(
+                "image batches require an interactive graphical renderer (node {})",
+                node.id
+            ),
             PaintOp::DrawPath {
                 path,
                 fill,
@@ -2745,7 +2749,14 @@ impl HtmlRenderer<'_> {
             attrs.push_str(&format!(" id=\"{}\"", escape_attr(anchor)));
         }
         attrs.push_str(&site_semantic_data_attrs(identifier));
-        let children = self.render_children(&node.children, &HashSet::new())?;
+        // Heading content must remain phrasing content in HTML. Widget lowering commonly places a
+        // transparent layout node between semantics and text; emitting that node would produce an
+        // invalid `<h1><div>...</div></h1>` structure and hide the heading from some crawlers.
+        let children = if is_site_heading_identifier(identifier) {
+            self.render_semantic_payload_children(node)?
+        } else {
+            self.render_children(&node.children, &HashSet::new())?
+        };
         Ok(format!(
             "<{tag} class=\"fission-site-node fission-site-semantics {class_name}\"{attrs} data-fission-node=\"{}\">{children}</{tag}>",
             node.id,
@@ -3581,6 +3592,19 @@ fn site_semantic_element(identifier: &str) -> (&'static str, Option<&str>) {
         }
     }
     ("div", None)
+}
+
+fn is_site_heading_identifier(identifier: &str) -> bool {
+    [
+        "site-heading-1:",
+        "site-heading-2:",
+        "site-heading-3:",
+        "site-heading-4:",
+        "site-heading-5:",
+        "site-heading-6:",
+    ]
+    .iter()
+    .any(|prefix| identifier.starts_with(prefix))
 }
 
 fn site_link_is_current_page(target: &str, current_route_path: &str) -> bool {
@@ -6769,6 +6793,7 @@ mod tests {
     #[test]
     fn site_semantics_emit_native_landmarks_headings_and_anchors() {
         let root = WidgetId::explicit("root");
+        let heading_layout = WidgetId::explicit("semantic-heading-layout");
         let heading_text = WidgetId::explicit("semantic-heading-text");
         let identifiers = [
             "site-header",
@@ -6808,10 +6833,22 @@ mod tests {
             }),
             Vec::new(),
         );
+        ir.add_node(
+            heading_layout,
+            Op::Layout(LayoutOp::StyledBox {
+                style: fission_ir::op::BoxStyle {
+                    alignment: fission_ir::op::BoxAlignment::Stretch,
+                    ..Default::default()
+                },
+                flex_grow: 0.0,
+                flex_shrink: 1.0,
+            }),
+            vec![heading_text],
+        );
         for (identifier, node_id) in identifiers.into_iter().zip(node_ids) {
             let id = WidgetId::explicit(node_id);
             let node_children = if identifier == "site-heading-2:page-title" {
-                vec![heading_text]
+                vec![heading_layout]
             } else {
                 Vec::new()
             };
@@ -6843,6 +6880,13 @@ mod tests {
         assert!(rendered.html.contains("<h2 "));
         assert!(rendered.html.contains("id=\"page-title\""));
         assert!(rendered.html.contains("Page heading"));
+        let heading_html = rendered
+            .html
+            .split_once("<h2 ")
+            .and_then(|(_, rest)| rest.split_once("</h2>"))
+            .map(|(heading, _)| heading)
+            .expect("rendered h2");
+        assert!(!heading_html.contains("<div"));
         assert!(rendered.html.contains("id=\"details\""));
         assert!(rendered.html.contains("<footer "));
         assert!(crate::site_base_css().contains("h2.fission-site-semantics"));

@@ -18,25 +18,25 @@ use std::sync::Arc;
 pub use op::{
     AlignItems, BackdropFilter, BlendMode, BorderSides, CompositeScalar, CompositeStyle,
     CornerRadii, EmbedKind, FlexDirection, FlexWrap, FlyoutAlignment, FlyoutOptions,
-    FlyoutPlacement, FlyoutWidth, GradientExtend, GridPlacement, GridTrack, JustifyContent,
-    LayoutDirection, LayoutOp, Op, PaintOp, StructuralOp, ViewportBoundary, ViewportClip,
-    ViewportMargin, ViewportPanAxis, ViewportTransform, ViewportZoomPolicy,
+    FlyoutPlacement, FlyoutWidth, GradientExtend, GridPlacement, GridTrack, ImageBatchInstance,
+    ImageSampling, JustifyContent, LayoutDirection, LayoutOp, Op, PaintOp, StructuralOp,
+    ViewportBoundary, ViewportClip, ViewportMargin, ViewportPanAxis, ViewportTransform,
+    ViewportZoomPolicy,
 };
 pub use semantics::{
     ActionEntry, ActionSet, ActionTrigger, CanvasNodeMoveTarget, CanvasSelectionPolicy,
     CanvasTarget, CanvasTargetKind, FocusPolicy, Hyperlink, InputFormatter, KeyAction, KeyBinding,
     KeyCode, LinkTarget, MaxLengthEnforcement, PopoverAction, PopoverTarget, PopupKind, Role,
-    SelectionRegionSemantics, SemanticOrientation, Semantics, TextCapitalization,
-    TextFieldValidationState, TextInputAction, TextInputType, TextWrapMode, MOD_ALT, MOD_CTRL,
-    MOD_SHIFT, MOD_SUPER,
+    SceneDimension, SceneTarget, SelectionRegionSemantics, SemanticOrientation, Semantics,
+    TextCapitalization, TextFieldValidationState, TextInputAction, TextInputType, TextWrapMode,
+    MOD_ALT, MOD_CTRL, MOD_SHIFT, MOD_SUPER,
 };
 pub use widget_id::WidgetId;
 
 /// Version of the serialized core IR schema.
 ///
-/// Version 2 adds composite-control semantics, logical layout direction,
-/// interaction-inert structure, and configurable flyout policy.
-pub const IR_VERSION: u32 = 2;
+/// Version 3 adds retained image batches and scene interaction targets.
+pub const IR_VERSION: u32 = 3;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CoreNode {

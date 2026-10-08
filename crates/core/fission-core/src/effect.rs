@@ -308,6 +308,8 @@ pub enum ActionInput {
     RangeSliderChanged(crate::input::range_slider::RangeSliderChanged),
     /// Runtime details accompanying an InfiniteCanvas action.
     CanvasInteraction(crate::input::canvas::CanvasInteraction),
+    /// Runtime details accompanying a retained 2D or 3D scene action.
+    SceneInteraction(crate::input::scene::SceneInteraction),
     /// External file drop (e.g. from the OS file manager).
     Drop {
         paths: Vec<String>,
@@ -448,6 +450,14 @@ impl ActionInput {
     pub fn canvas_interaction(&self) -> Option<&crate::input::canvas::CanvasInteraction> {
         match self.unscoped() {
             ActionInput::CanvasInteraction(interaction) => Some(interaction),
+            _ => None,
+        }
+    }
+
+    /// Returns retained-scene identity and coordinates for a scene action.
+    pub fn scene_interaction(&self) -> Option<&crate::input::scene::SceneInteraction> {
+        match self.unscoped() {
+            ActionInput::SceneInteraction(interaction) => Some(interaction),
             _ => None,
         }
     }
@@ -770,10 +780,11 @@ mod action_input_codec_tests {
     use crate::input::canvas::{
         CanvasInteraction, CanvasInteractionKind, CanvasInteractionPhase, CanvasNodeBoundsChange,
     };
+    use crate::input::scene::{SceneInteraction, SceneInteractionPhase};
     use crate::input::viewport::{
         ViewportInputKind, ViewportInteraction, ViewportInteractionPhase,
     };
-    use fission_ir::{CanvasSelectionPolicy, ViewportTransform};
+    use fission_ir::{CanvasSelectionPolicy, SceneDimension, ViewportTransform};
     use fission_layout::{LayoutPoint, LayoutRect};
 
     #[test]
@@ -840,6 +851,30 @@ mod action_input_codec_tests {
         let bytes = input.encode_opaque().expect("input should encode");
         let decoded = ActionInput::decode_opaque(&bytes).expect("input should decode");
         assert_eq!(decoded, input);
+    }
+
+    #[test]
+    fn opaque_codec_round_trips_scene_interactions() {
+        let input = ActionInput::SceneInteraction(SceneInteraction {
+            viewport_id: WidgetId::from_u128(20),
+            target_id: WidgetId::from_u128(21),
+            scene_id: 22,
+            node_id: Some(23),
+            instance: Some(4),
+            dimension: SceneDimension::Two,
+            phase: SceneInteractionPhase::Update,
+            input_kind: PointerKind::Touch,
+            modifiers: 1,
+            screen_point: LayoutPoint::new(40.0, 30.0),
+            viewport_point: LayoutPoint::new(20.0, 10.0),
+            screen_delta: LayoutPoint::new(4.0, 2.0),
+            viewport_delta: LayoutPoint::new(4.0, 2.0),
+            scene_point: Some(LayoutPoint::new(10.0, 5.0)),
+            scene_delta: Some(LayoutPoint::new(2.0, 1.0)),
+        });
+
+        let bytes = input.encode_opaque().expect("input should encode");
+        assert_eq!(ActionInput::decode_opaque(&bytes).unwrap(), input);
     }
 
     #[test]

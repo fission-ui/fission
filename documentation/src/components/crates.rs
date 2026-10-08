@@ -615,6 +615,27 @@ impl From<CrateCard> for Widget {
         } else {
             format!("v{}", item.version)
         };
+        let api_status = (item.api_status != "stable").then(|| {
+            let label = if view.env().locale.0 == "es-ES" {
+                format!("API {}", item.api_status)
+            } else {
+                format!("{} API", item.api_status)
+            };
+            Container::new(
+                Text::new(label)
+                    .size(tokens.typography.font_size_sm)
+                    .semantics_identifier(format!("crate-api-status:{}", item.api_status)),
+            )
+            .padding([
+                tokens.spacing.xs,
+                tokens.spacing.s,
+                tokens.spacing.xs,
+                tokens.spacing.s,
+            ])
+            .border_radius(tokens.radii.full)
+            .bg(tokens.colors.surface_sunken)
+            .into()
+        });
         let downloads = if view.env().locale.0 == "es-ES" {
             format!("{} descargas", item.downloads)
         } else {
@@ -629,19 +650,25 @@ impl From<CrateCard> for Widget {
             children: vec![
                 SemanticRow::new(
                     "crate-card-heading",
-                    vec![
-                        Text::new(item.name.clone())
-                            .size(tokens.typography.font_size_lg)
-                            .weight(tokens.typography.font_weight_bold)
-                            .color(tokens.colors.heading)
-                            .semantics_identifier(format!("site-route:{href}"))
-                            .into(),
-                        Text::new(version)
-                            .size(tokens.typography.font_size_sm)
-                            .family(tokens.typography.font_family_mono.clone())
-                            .color(tokens.colors.primary)
-                            .into(),
-                    ],
+                    {
+                        let mut children = vec![
+                            Text::new(item.name.clone())
+                                .size(tokens.typography.font_size_lg)
+                                .weight(tokens.typography.font_weight_bold)
+                                .color(tokens.colors.heading)
+                                .semantics_identifier(format!("site-route:{href}"))
+                                .into(),
+                            Text::new(version)
+                                .size(tokens.typography.font_size_sm)
+                                .family(tokens.typography.font_family_mono.clone())
+                                .color(tokens.colors.primary)
+                                .into(),
+                        ];
+                        if let Some(status) = api_status {
+                            children.push(status);
+                        }
+                        children
+                    },
                     Some(tokens.spacing.s),
                     FlexWrap::Wrap,
                     AlignItems::Center,

@@ -51,6 +51,8 @@ pub struct GestureDetector {
     pub on_drag_update: Option<ActionEnvelope>,
     /// Action dispatched when the drag gesture ends.
     pub on_drag_end: Option<ActionEnvelope>,
+    /// Action dispatched when an active drag is cancelled without committing.
+    pub on_drag_cancel: Option<ActionEnvelope>,
     /// Action dispatched when the pointer enters the child bounds.
     pub on_hover_enter: Option<ActionEnvelope>,
     /// Action dispatched when the pointer leaves the child bounds.
@@ -81,6 +83,7 @@ impl Default for GestureDetector {
             on_drag_start: None,
             on_drag_update: None,
             on_drag_end: None,
+            on_drag_cancel: None,
             on_hover_enter: None,
             on_hover_exit: None,
             on_drop: None,
@@ -132,6 +135,14 @@ impl Lower for GestureDetector {
             });
         }
 
+        if let Some(a) = &self.on_long_press {
+            semantics.actions.entries.push(ActionEntry {
+                trigger: ActionTrigger::LongPress,
+                action_id: a.id.as_u128(),
+                payload_data: Some(a.payload.clone()),
+            });
+        }
+
         if let Some(a) = &self.on_secondary_click {
             semantics.actions.entries.push(ActionEntry {
                 trigger: ActionTrigger::SecondaryClick,
@@ -159,6 +170,14 @@ impl Lower for GestureDetector {
         if let Some(a) = &self.on_drag_end {
             semantics.actions.entries.push(ActionEntry {
                 trigger: ActionTrigger::DragEnd,
+                action_id: a.id.as_u128(),
+                payload_data: Some(a.payload.clone()),
+            });
+        }
+
+        if let Some(a) = &self.on_drag_cancel {
+            semantics.actions.entries.push(ActionEntry {
+                trigger: ActionTrigger::DragCancel,
                 action_id: a.id.as_u128(),
                 payload_data: Some(a.payload.clone()),
             });

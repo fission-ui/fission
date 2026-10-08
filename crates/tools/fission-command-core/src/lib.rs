@@ -379,11 +379,17 @@ pub struct NativeIosSwiftPackageConfig {
 #[derive(Debug, Deserialize)]
 struct CargoManifest {
     package: Option<CargoPackage>,
+    lib: Option<CargoLibrary>,
 }
 
 #[derive(Debug, Deserialize)]
 struct CargoPackage {
     pub name: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct CargoLibrary {
+    pub name: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -460,7 +466,7 @@ pub fn init_project_with_website_template(
     write_generated_app_agents(root)?;
     write_file_with_policy(
         &root.join(".gitignore"),
-        "target/\nplatforms/*/build/\n",
+        "target/\nplatforms/*/build/\nplatforms/web/pkg/\n",
         write_policy,
     )?;
     write_project_config(root, &project)?;
@@ -546,6 +552,16 @@ pub fn cargo_package_name(root: &Path) -> Option<String> {
     let manifest = fs::read_to_string(root.join("Cargo.toml")).ok()?;
     let manifest: CargoManifest = toml::from_str(&manifest).ok()?;
     manifest.package.map(|package| package.name)
+}
+
+fn cargo_library_name(root: &Path) -> Option<String> {
+    let manifest = fs::read_to_string(root.join("Cargo.toml")).ok()?;
+    let manifest: CargoManifest = toml::from_str(&manifest).ok()?;
+    manifest.lib.and_then(|library| library.name).or_else(|| {
+        manifest
+            .package
+            .map(|package| package.name.replace('-', "_"))
+    })
 }
 
 pub fn cargo_package_version(root: &Path) -> Option<String> {
@@ -2332,7 +2348,8 @@ fn sync_fission_inline_table(
         table.insert("version", Value::from(CURRENT_VERSION));
     }
     table.insert("default-features", Value::from(false));
-    table.insert("features", cargo_feature_array_value(features));
+    let merged_features = merge_cargo_feature_array(table.get("features"), features);
+    table.insert("features", merged_features);
     table.to_string() != before
 }
 
@@ -2365,8 +2382,36 @@ fn sync_fission_table(
         table["version"] = value(CURRENT_VERSION);
     }
     table["default-features"] = value(false);
-    table["features"] = Item::Value(cargo_feature_array_value(features));
+    let merged_features = merge_cargo_feature_array(
+        table.get("features").and_then(Item::as_value),
+        features,
+    );
+    table["features"] = Item::Value(merged_features);
     table.to_string() != before
+}
+
+fn merge_cargo_feature_array(existing: Option<&Value>, required: &[&'static str]) -> Value {
+    let mut features = existing
+        .and_then(Value::as_array)
+        .map(|array| {
+            array
+                .iter()
+                .filter_map(Value::as_str)
+                .map(str::to_string)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    for feature in required {
+        if !features.iter().any(|existing| existing == feature) {
+            features.push((*feature).to_string());
+        }
+    }
+
+    let mut array = Array::new();
+    for feature in features {
+        array.push(feature);
+    }
+    Value::Array(array)
 }
 
 fn cargo_feature_array_value(features: &[&'static str]) -> Value {
@@ -3396,7 +3441,7 @@ fn scaffold_web_bundle(
     write_policy: WritePolicy,
 ) -> Result<()> {
     let index_html = render_web_index(project);
-    let bootstrap = render_web_bootstrap(project);
+    let bootstrap = render_web_bootstrap(root, project);
     let build_script = render_web_build_script();
     let run_script = render_web_run_script(project);
     let test_script = render_web_test_script(project);
@@ -5574,8 +5619,9 @@ fn render_web_index(project: &FissionProject) -> String {
     )
 }
 
-fn render_web_bootstrap(project: &FissionProject) -> String {
-    let module_name = project.app.name.replace('-', "_");
+fn render_web_bootstrap(root: &Path, project: &FissionProject) -> String {
+    let module_name =
+        cargo_library_name(root).unwrap_or_else(|| project.app.name.replace('-', "_"));
     if project.capabilities.contains(&PlatformCapability::Storage) {
         let app_id = serde_json::to_string(&project.app.app_id)
             .expect("a Fission application ID is always JSON-encodable");
@@ -6160,6 +6206,63 @@ mod tests {
         fs::remove_dir_all(&dir).ok();
         fs::create_dir_all(&dir).unwrap();
         dir
+    }
+
+    #[test]
+    fn web_bootstrap_imports_the_cargo_library_not_the_display_name() {
+        let dir = unique_dir("web-bootstrap-library-name");
+        fs::write(
+            dir.join("Cargo.toml"),
+            "[package]\nname = \"qualification-package\"\nversion = \"0.1.0\"\n\n[lib]\nname = \"qualification_runtime\"\n",
+        )
+        .unwrap();
+        let project = FissionProject {
+            app: AppConfig {
+                name: "Friendly Display Name".to_string(),
+                app_id: "com.example.qualification".to_string(),
+                splash: None,
+            },
+            targets: BTreeSet::from([Target::Web]),
+            capabilities: BTreeSet::new(),
+            native: NativeConfig::default(),
+        };
+
+        let bootstrap = render_web_bootstrap(&dir, &project);
+
+        assert!(bootstrap.contains("./pkg/qualification_runtime.js"));
+        assert!(!bootstrap.contains("Friendly Display Name"));
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn target_sync_preserves_features_not_owned_by_the_cli() {
+        let dir = unique_dir("target-sync-preserves-features");
+        fs::write(
+            dir.join("Cargo.toml"),
+            "[package]\nname = \"qualification\"\nversion = \"0.1.0\"\n\n[dependencies]\nfission = { version = \"0.15.1\", default-features = false, features = [\"desktop\", \"scene2d\", \"game\", \"physics-rapier2d\"] }\n",
+        )
+        .unwrap();
+        let project = FissionProject {
+            app: AppConfig {
+                name: "Qualification".to_string(),
+                app_id: "com.example.qualification".to_string(),
+                splash: None,
+            },
+            targets: BTreeSet::from([Target::Linux, Target::Web]),
+            capabilities: BTreeSet::new(),
+            native: NativeConfig::default(),
+        };
+
+        sync_cargo_fission_dependency(&dir, &project, None).unwrap();
+
+        let manifest = fs::read_to_string(dir.join("Cargo.toml")).unwrap();
+        for feature in ["desktop", "web", "scene2d", "game", "physics-rapier2d"] {
+            assert!(
+                manifest.contains(&format!("\"{feature}\"")),
+                "missing preserved feature {feature}: {manifest}"
+            );
+        }
+        fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

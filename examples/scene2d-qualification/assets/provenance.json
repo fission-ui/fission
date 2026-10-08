@@ -1,0 +1,19 @@
+{
+  "assets": [
+    {
+      "id": "beacon-run/scout-sheet",
+      "kind": "sprite",
+      "source": "examples/scene2d-qualification/assets/scout-sheet.svg",
+      "creator": "Fission contributors",
+      "acquired_on": "2026-10-06",
+      "source_sha256": "c8f7e002bc807665ca7f456a794be2a785a27f61d1244c0d23a7ab3d0bee1d6f",
+      "license": {
+        "id": "Apache-2.0",
+        "evidence": "examples/scene2d-qualification/assets/LICENSE.txt",
+        "attribution_required": false,
+        "redistribution": "permitted"
+      },
+      "modifications": []
+    }
+  ]
+}

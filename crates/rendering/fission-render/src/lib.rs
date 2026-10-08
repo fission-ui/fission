@@ -1,5 +1,6 @@
 use fission_ir::op::{
-    EmbedKind, ImageAlignment, ImageRequest, RichTextAnnotation, TextParagraphStyle,
+    EmbedKind, ImageAlignment, ImageBatchInstance, ImageRequest, ImageSampling, RichTextAnnotation,
+    TextParagraphStyle,
 };
 use fission_ir::WidgetId;
 pub use fission_layout::{
@@ -251,6 +252,17 @@ pub enum DisplayOp {
         request: ImageRequest,
         fit: ImageFit,
         alignment: ImageAlignment,
+        bounds: LayoutRect,
+        node_id: Option<WidgetId>,
+    },
+    /// One retained image batch. Instances remain grouped through lowering so
+    /// a renderer can resolve and bind the shared image once.
+    DrawImageBatch {
+        /// Batch-node layout rectangle. Instance coordinates are local to its origin.
+        rect: LayoutRect,
+        request: ImageRequest,
+        sampling: ImageSampling,
+        instances: Vec<ImageBatchInstance>,
         bounds: LayoutRect,
         node_id: Option<WidgetId>,
     },

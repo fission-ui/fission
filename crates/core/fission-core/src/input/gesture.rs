@@ -1,5 +1,5 @@
 use super::{ControllerContext, InputController};
-use crate::event::{ExternalDragEvent, InputEvent, PointerEvent};
+use crate::event::{ExternalDragEvent, GestureEvent, InputEvent, PointerEvent};
 use crate::scrollbar::{
     scrollbar_drag_offset, scrollbar_drag_offset_with_grab, scrollbar_geometry_for_node,
     scrollbar_hit_test, scrollbar_point_for_node, ScrollbarDragState, ScrollbarHitKind,
@@ -55,6 +55,8 @@ pub(crate) fn cancel_unavailable_pointer_sequence(
     if captured_target_unavailable || scrollbar_target_unavailable || drag_source_unavailable {
         gesture.start_point = None;
         gesture.last_point = None;
+        gesture.press_started_at = None;
+        gesture.long_press_dispatched = false;
         gesture.is_panning = false;
         gesture.target_node = None;
         gesture.dragging_payload = None;
@@ -103,7 +105,14 @@ pub(crate) fn cancel_active_drag_for_viewport(
                 .actions
                 .entries
                 .iter()
-                .find(|entry| entry.trigger == ActionTrigger::DragEnd)
+                .find(|entry| entry.trigger == ActionTrigger::DragCancel)
+                .or_else(|| {
+                    semantics
+                        .actions
+                        .entries
+                        .iter()
+                        .find(|entry| entry.trigger == ActionTrigger::DragEnd)
+                })
             {
                 let input = if let Some(target) = &semantics.canvas_target {
                     ActionInput::CanvasInteraction(crate::input::canvas::canvas_interaction(
@@ -116,6 +125,17 @@ pub(crate) fn cancel_active_drag_for_viewport(
                         gesture.start_point,
                         layout,
                         viewport,
+                        gesture.pointer_kind,
+                        gesture.modifiers,
+                    ))
+                } else if let Some(target) = &semantics.scene_target {
+                    ActionInput::SceneInteraction(crate::input::scene::scene_interaction(
+                        node_id,
+                        target,
+                        crate::input::scene::SceneInteractionPhase::Cancel,
+                        point,
+                        LayoutPoint::ZERO,
+                        layout,
                         gesture.pointer_kind,
                         gesture.modifiers,
                     ))
@@ -153,6 +173,26 @@ impl InputController for GestureController {
         }
 
         match event {
+            InputEvent::Gesture(GestureEvent::LongPress { point }) => {
+                let hit = ctx.gesture.target_node.or_else(|| {
+                    crate::hit_test::hit_test_with_viewports(
+                        ctx.ir,
+                        ctx.layout,
+                        ctx.scroll,
+                        ctx.viewport,
+                        *point,
+                    )
+                });
+                let Some(hit) = hit else {
+                    return false;
+                };
+                let handled =
+                    self.dispatch_trigger(ctx, hit, ActionTrigger::LongPress, *point, None);
+                if handled {
+                    ctx.gesture.long_press_dispatched = true;
+                }
+                return handled;
+            }
             InputEvent::Pointer(pe) => {
                 match pe {
                     PointerEvent::Down {
@@ -171,6 +211,8 @@ impl InputController for GestureController {
 
                         ctx.gesture.start_point = Some(*point);
                         ctx.gesture.last_point = Some(*point);
+                        ctx.gesture.press_started_at = Some(ctx.current_time);
+                        ctx.gesture.long_press_dispatched = false;
                         ctx.gesture.is_panning = false;
                         ctx.gesture.pressed_button = Some(button.clone());
                         ctx.gesture.pointer_kind = *kind;
@@ -275,7 +317,29 @@ impl InputController for GestureController {
                             let dist_sq = dx * dx + dy * dy;
                             let threshold = 5.0 * 5.0;
 
-                            if !ctx.gesture.is_panning && dist_sq > threshold {
+                            if !ctx.gesture.long_press_dispatched
+                                && !ctx.gesture.is_panning
+                                && dist_sq <= threshold
+                                && ctx.gesture.press_started_at.is_some_and(|started| {
+                                    ctx.current_time.saturating_sub(started) >= 500
+                                })
+                            {
+                                if let Some(target) = ctx.gesture.target_node {
+                                    let dispatched = self.dispatch_trigger(
+                                        ctx,
+                                        target,
+                                        ActionTrigger::LongPress,
+                                        *point,
+                                        None,
+                                    );
+                                    ctx.gesture.long_press_dispatched = dispatched;
+                                }
+                            }
+
+                            if !ctx.gesture.long_press_dispatched
+                                && !ctx.gesture.is_panning
+                                && dist_sq > threshold
+                            {
                                 ctx.gesture.is_panning = true;
                                 if let Some(payload) = ctx.gesture.dragging_payload.clone() {
                                     let target = ctx.gesture.target_node;
@@ -357,6 +421,10 @@ impl InputController for GestureController {
                             matches!(pressed_button, Some(crate::event::PointerButton::Primary));
                         let was_secondary =
                             matches!(pressed_button, Some(crate::event::PointerButton::Secondary));
+                        let held_long_enough = ctx
+                            .gesture
+                            .press_started_at
+                            .is_some_and(|started| ctx.current_time.saturating_sub(started) >= 500);
 
                         if pressed_button.is_some() && !buttons_match {
                             self.reset_pointer_sequence(ctx, *point);
@@ -443,6 +511,23 @@ impl InputController for GestureController {
                                     }
                                 }
                             }
+                        } else if buttons_match
+                            && was_primary
+                            && (ctx.gesture.long_press_dispatched || held_long_enough)
+                        {
+                            if !ctx.gesture.long_press_dispatched {
+                                if let Some(target) = ctx.gesture.target_node {
+                                    handled = self.dispatch_trigger(
+                                        ctx,
+                                        target,
+                                        ActionTrigger::LongPress,
+                                        *point,
+                                        None,
+                                    );
+                                }
+                            } else {
+                                handled = true;
+                            }
                         } else if buttons_match && was_primary {
                             // Tap (primary click)
                             if let Some(target) = ctx.gesture.target_node {
@@ -518,14 +603,27 @@ impl InputController for GestureController {
                         ctx.gesture.modifiers = *modifiers;
                         if ctx.gesture.is_panning {
                             if let Some(target) = ctx.gesture.target_node {
-                                self.dispatch_trigger_with_phase(
+                                let cancelled = self.dispatch_trigger_with_phase(
                                     ctx,
                                     target,
-                                    ActionTrigger::DragEnd,
+                                    ActionTrigger::DragCancel,
                                     *point,
                                     None,
                                     Some(crate::input::canvas::CanvasInteractionPhase::Cancel),
                                 );
+                                if !cancelled {
+                                    // Existing callers commonly model cancellation through
+                                    // DragEnd. Keep that fallback while giving new callers an
+                                    // explicit cancellation action.
+                                    self.dispatch_trigger_with_phase(
+                                        ctx,
+                                        target,
+                                        ActionTrigger::DragEnd,
+                                        *point,
+                                        None,
+                                        Some(crate::input::canvas::CanvasInteractionPhase::Cancel),
+                                    );
+                                }
                             }
                         }
                         ctx.gesture.scrollbar_drag = None;
@@ -656,6 +754,8 @@ impl GestureController {
 
     fn reset_pointer_sequence(&self, ctx: &mut ControllerContext, point: LayoutPoint) {
         ctx.gesture.start_point = None;
+        ctx.gesture.press_started_at = None;
+        ctx.gesture.long_press_dispatched = false;
         ctx.gesture.is_panning = false;
         ctx.gesture.dragging_payload = None;
         self.clear_drag_target(ctx, point);
@@ -1001,6 +1101,28 @@ impl GestureController {
                                         ctx.gesture.modifiers,
                                     ),
                                 )
+                            } else if let Some(target) = &sem.scene_target {
+                                ActionInput::SceneInteraction(
+                                    crate::input::scene::scene_interaction(
+                                        node_id,
+                                        target,
+                                    phase.map_or_else(
+                                        || scene_phase(trigger),
+                                        |phase| match phase {
+                                            crate::input::canvas::CanvasInteractionPhase::Start => crate::input::scene::SceneInteractionPhase::Start,
+                                            crate::input::canvas::CanvasInteractionPhase::Update => crate::input::scene::SceneInteractionPhase::Update,
+                                            crate::input::canvas::CanvasInteractionPhase::End => crate::input::scene::SceneInteractionPhase::End,
+                                            crate::input::canvas::CanvasInteractionPhase::Activate => crate::input::scene::SceneInteractionPhase::Activate,
+                                            crate::input::canvas::CanvasInteractionPhase::Cancel => crate::input::scene::SceneInteractionPhase::Cancel,
+                                        },
+                                    ),
+                                        point,
+                                        delta,
+                                        ctx.layout,
+                                        ctx.gesture.pointer_kind,
+                                        ctx.gesture.modifiers,
+                                    ),
+                                )
                             } else {
                                 ActionInput::Pointer {
                                     x: point.x,
@@ -1153,7 +1275,20 @@ fn canvas_phase(trigger: ActionTrigger) -> crate::input::canvas::CanvasInteracti
         ActionTrigger::DragStart => CanvasInteractionPhase::Start,
         ActionTrigger::DragUpdate => CanvasInteractionPhase::Update,
         ActionTrigger::DragEnd => CanvasInteractionPhase::End,
+        ActionTrigger::DragCancel => CanvasInteractionPhase::Cancel,
         _ => CanvasInteractionPhase::Activate,
+    }
+}
+
+fn scene_phase(trigger: ActionTrigger) -> crate::input::scene::SceneInteractionPhase {
+    use crate::input::scene::SceneInteractionPhase;
+    match trigger {
+        ActionTrigger::DragStart => SceneInteractionPhase::Start,
+        ActionTrigger::DragUpdate => SceneInteractionPhase::Update,
+        ActionTrigger::DragEnd => SceneInteractionPhase::End,
+        ActionTrigger::DragCancel => SceneInteractionPhase::Cancel,
+        ActionTrigger::LongPress => SceneInteractionPhase::LongPress,
+        _ => SceneInteractionPhase::Activate,
     }
 }
 

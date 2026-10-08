@@ -133,6 +133,8 @@ impl SiteBuildOptions {
 
     /// Loads `[site]` configuration from `project_dir/fission.toml`, resolving
     /// all relative paths against the project root.
+    /// Omitted `site.routes` mounts `content/`; an explicit empty list disables
+    /// content discovery for sites composed entirely of programmatic routes.
     pub fn from_project_dir(
         project_dir: impl Into<PathBuf>,
         fallback_title: impl Into<String>,
@@ -176,15 +178,14 @@ impl SiteBuildOptions {
                 .map(PathBuf::from)
                 .unwrap_or_else(|| PathBuf::from("target/fission/site")),
         );
-        let content_routes = if site.routes.is_empty() {
-            vec![SiteContentRouteConfig {
+        let content_routes = match site.routes {
+            None => vec![SiteContentRouteConfig {
                 path: "/content".to_string(),
                 source: project_dir.join("content"),
                 template: None,
                 sidebar: None,
-            }]
-        } else {
-            site.routes
+            }],
+            Some(routes) => routes
                 .into_iter()
                 .filter(|route| route.kind.as_deref().unwrap_or("content") == "content")
                 .map(|route| SiteContentRouteConfig {
@@ -195,7 +196,7 @@ impl SiteBuildOptions {
                         .sidebar
                         .map(|path| resolve_project_path(&project_dir, PathBuf::from(path))),
                 })
-                .collect()
+                .collect(),
         };
         let asset_dirs = site
             .asset_dirs
@@ -282,12 +283,7 @@ pub fn build_site(options: &SiteBuildOptions, site: &FissionSite) -> Result<Site
     eprintln!("Preparing output for {} static routes...", routes.len());
 
     if options.clean && options.output_dir.exists() {
-        fs::remove_dir_all(&options.output_dir).with_context(|| {
-            format!(
-                "failed to clean site output dir {}",
-                options.output_dir.display()
-            )
-        })?;
+        clean_output_dir(&options.output_dir)?;
     }
     prepare_output_dir(options)?;
     copy_asset_dirs(options)?;
@@ -331,6 +327,37 @@ pub fn build_site(options: &SiteBuildOptions, site: &FissionSite) -> Result<Site
         output_dir: options.output_dir.clone(),
         routes: report_routes,
     })
+}
+
+fn clean_output_dir(output_dir: &Path) -> Result<()> {
+    for entry in fs::read_dir(output_dir).with_context(|| {
+        format!(
+            "failed to read site output dir {} while cleaning",
+            output_dir.display()
+        )
+    })? {
+        let entry = entry.with_context(|| {
+            format!(
+                "failed to read an entry in site output dir {}",
+                output_dir.display()
+            )
+        })?;
+        let path = entry.path();
+        let file_type = entry
+            .file_type()
+            .with_context(|| format!("failed to inspect generated output {}", path.display()))?;
+        if file_type.is_dir() && !file_type.is_symlink() {
+            clean_output_dir(&path)?;
+        } else {
+            fs::remove_file(&path)
+                .with_context(|| format!("failed to remove generated output {}", path.display()))?;
+        }
+    }
+    // Retain directory nodes and clear their files. Some shared and WebDAV filesystems report an
+    // empty directory as non-empty when recursively deleting its final directory node. Reusing
+    // those empty directories provides the same clean output contract without depending on that
+    // unsupported operation.
+    Ok(())
 }
 
 fn report_route_progress(stage: &str, index: usize, total: usize, path: &str) {
@@ -1368,7 +1395,7 @@ struct ProjectSite {
     #[serde(default)]
     nav: Vec<ProjectSiteNavLink>,
     #[serde(default)]
-    routes: Vec<ProjectSiteRoute>,
+    routes: Option<Vec<ProjectSiteRoute>>,
     #[serde(default)]
     asset_dirs: Vec<String>,
     #[serde(default)]
@@ -1544,6 +1571,28 @@ mod tests {
     }
 
     #[test]
+    fn clean_output_dir_removes_stale_files_without_removing_directories() {
+        let temp = std::env::temp_dir().join(format!(
+            "fission-site-clean-output-test-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let nested = temp.join("old/route");
+        fs::create_dir_all(&nested).unwrap();
+        fs::write(temp.join("old-index.html"), "obsolete").unwrap();
+        fs::write(nested.join("index.html"), "obsolete").unwrap();
+
+        clean_output_dir(&temp).unwrap();
+
+        assert!(!temp.join("old-index.html").exists());
+        assert!(!nested.join("index.html").exists());
+        assert!(nested.is_dir());
+        let _ = fs::remove_dir_all(temp);
+    }
+
+    #[test]
     fn site_enhancement_positions_spotlight_regions() {
         let script = site_enhancement_js();
 
@@ -1680,6 +1729,79 @@ mod tests {
         let docs = fs::read_to_string(temp.join("target/fission/site/search/docs.json")).unwrap();
         assert!(docs.contains("Getting started"));
         let _ = fs::remove_dir_all(temp);
+    }
+
+    #[test]
+    fn omitted_and_nonempty_content_routes_keep_existing_mounts() {
+        let temp = std::env::temp_dir().join(format!(
+            "fission-site-route-defaults-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(temp.join("content")).unwrap();
+        fs::write(temp.join("content/start.md"), "# Start\n").unwrap();
+        fs::write(temp.join("fission.toml"), "[site]\n").unwrap();
+        let defaults = SiteBuildOptions::from_project_dir(&temp, "Test").unwrap();
+        assert_eq!(defaults.content_routes.len(), 1);
+        assert_eq!(defaults.content_routes[0].path, "/content");
+        assert_eq!(defaults.content_routes[0].source, temp.join("content"));
+        let site = FissionSite::new();
+        assert_eq!(check_site(&defaults, &site).unwrap().routes.len(), 1);
+
+        fs::write(
+            temp.join("fission.toml"),
+            "[site]\n[[site.routes]]\npath = \"/docs\"\nsource = \"content\"\n",
+        )
+        .unwrap();
+        let explicit = SiteBuildOptions::from_project_dir(&temp, "Test").unwrap();
+        assert_eq!(explicit.content_routes.len(), 1);
+        assert_eq!(explicit.content_routes[0].path, "/docs/");
+        assert_eq!(explicit.content_routes[0].source, temp.join("content"));
+        assert_eq!(build_site(&explicit, &site).unwrap().routes.len(), 1);
+        assert!(explicit.output_dir.join("docs/start/index.html").exists());
+        assert!(!explicit.output_dir.join("content").exists());
+        fs::remove_dir_all(temp).unwrap();
+    }
+
+    #[test]
+    fn explicit_empty_content_routes_build_custom_pages_without_content_directory() {
+        let temp = std::env::temp_dir().join(format!(
+            "fission-site-custom-only-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&temp).unwrap();
+        fs::write(
+            temp.join("fission.toml"),
+            "[app]\nname = \"test-site\"\n[site]\nroutes = []\n",
+        )
+        .unwrap();
+        let options = SiteBuildOptions::from_project_dir(&temp, "Test").unwrap();
+        let site = FissionSite::new()
+            .route_widget::<TestState, _>("/", "Home", None, Text::new("Home page"))
+            .route_widget::<TestState, _>("/about/", "About", None, Text::new("About page"));
+        assert_eq!(list_site_routes(&options, &site).unwrap().len(), 2);
+        assert_eq!(check_site(&options, &site).unwrap().routes.len(), 2);
+        assert_eq!(build_site(&options, &site).unwrap().routes.len(), 2);
+        assert!(
+            fs::read_to_string(options.output_dir.join("about/index.html"))
+                .unwrap()
+                .contains("About page")
+        );
+        assert!(!temp.join("content").exists());
+        fs::write(
+            temp.join("fission.toml"),
+            "[app]\nname = \"test-site\"\n[site]\n",
+        )
+        .unwrap();
+        let defaults = SiteBuildOptions::from_project_dir(&temp, "Test").unwrap();
+        assert_eq!(defaults.content_routes.len(), 1);
+        assert!(check_site(&defaults, &site).is_err());
+        fs::remove_dir_all(temp).unwrap();
     }
 
     #[test]

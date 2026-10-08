@@ -1537,6 +1537,51 @@ impl Runtime {
         changed
     }
 
+    /// Monotonic clock deadline for the active long press, when one is pending.
+    pub fn next_long_press_deadline(&self) -> Option<crate::time::CurrentTime> {
+        let gesture = &self.runtime_state.gesture;
+        if gesture.long_press_dispatched
+            || gesture.is_panning
+            || gesture.target_node.is_none()
+            || !matches!(
+                gesture.pressed_button,
+                Some(crate::event::PointerButton::Primary)
+            )
+        {
+            return None;
+        }
+        gesture
+            .press_started_at
+            .map(|started| started.saturating_add(500))
+    }
+
+    /// Dispatch a due long press without waiting for another pointer event.
+    ///
+    /// Shells call this after advancing the shared runtime clock. Returning
+    /// `true` means the semantic action was dispatched and the retained tree
+    /// may need rebuilding.
+    pub fn dispatch_due_long_press(
+        &mut self,
+        ir: &CoreIR,
+        layout: &LayoutSnapshot,
+    ) -> Result<bool> {
+        let Some(deadline) = self.next_long_press_deadline() else {
+            return Ok(false);
+        };
+        if self.clock().current_time() < deadline {
+            return Ok(false);
+        }
+        let Some(point) = self.runtime_state.gesture.last_point else {
+            return Ok(false);
+        };
+        self.handle_input(
+            InputEvent::Gesture(crate::event::GestureEvent::LongPress { point }),
+            ir,
+            layout,
+        )?;
+        Ok(self.runtime_state.gesture.long_press_dispatched)
+    }
+
     pub fn handle_input(
         &mut self,
         event: InputEvent,
@@ -2840,7 +2885,7 @@ impl Runtime {
         }
 
         self.clear_text_pending_on_blur(current, next);
-        self.dispatch_custom_blur_actions(ir, current)?;
+        self.dispatch_custom_blur_actions(ir, current, next)?;
         if let Some(old_id) = current {
             if source == crate::TextEditSource::Pointer {
                 self.dispatch_text_session_action(
@@ -2913,20 +2958,34 @@ impl Runtime {
         &mut self,
         ir: &CoreIR,
         old_focus: Option<WidgetId>,
+        new_focus: Option<WidgetId>,
     ) -> Result<()> {
-        if let Some(old_id) = old_focus {
-            if let Some(any_ro) = ir.custom_render_objects.get(&old_id) {
-                if let Some(render_obj) = crate::ui::custom_render::downcast_render_object(any_ro) {
-                    if render_obj.accepts_text_input() {
-                        if let Some(ime_handler) = &self.ime_handler {
-                            ime_handler.set_ime_allowed(false);
+        let mut retained_ancestors = std::collections::BTreeSet::new();
+        let mut current = new_focus;
+        while let Some(node_id) = current {
+            retained_ancestors.insert(node_id);
+            current = ir.nodes.get(&node_id).and_then(|node| node.parent);
+        }
+
+        let mut current = old_focus;
+        while let Some(old_id) = current {
+            if !retained_ancestors.contains(&old_id) {
+                if let Some(any_ro) = ir.custom_render_objects.get(&old_id) {
+                    if let Some(render_obj) =
+                        crate::ui::custom_render::downcast_render_object(any_ro)
+                    {
+                        if render_obj.accepts_text_input() {
+                            if let Some(ime_handler) = &self.ime_handler {
+                                ime_handler.set_ime_allowed(false);
+                            }
                         }
-                    }
-                    for (target, envelope) in render_obj.blur_actions(old_id) {
-                        self.dispatch_node(envelope, target)?;
+                        for (target, envelope) in render_obj.blur_actions(old_id) {
+                            self.dispatch_node(envelope, target)?;
+                        }
                     }
                 }
             }
+            current = ir.nodes.get(&old_id).and_then(|node| node.parent);
         }
         Ok(())
     }

@@ -1,9 +1,10 @@
 use crate::op::{
     decode_inline_widget_marker, decode_text_paragraph_style, encode_inline_widget_marker,
-    encode_text_paragraph_style, AlignItems, BoxAlignment, FlexDirection, FlexWrap, HttpHeader,
-    ImageCachePolicy, ImageRequest, ImageSource, InlineWidgetMarker, JustifyContent,
-    LayoutDirection, LayoutOp, TextAlign, TextDirection, TextHeightBehavior, TextOverflow,
-    TextParagraphStyle, TextWidthBasis, TEXT_PARAGRAPH_MAX_ENCODED_LINES,
+    encode_text_paragraph_style, AlignItems, BoxAlignment, Color, FlexDirection, FlexWrap,
+    HttpHeader, ImageBatchInstance, ImageCachePolicy, ImageRequest, ImageSampling, ImageSource,
+    InlineWidgetMarker, JustifyContent, LayoutDirection, LayoutOp, TextAlign, TextDirection,
+    TextHeightBehavior, TextOverflow, TextParagraphStyle, TextWidthBasis,
+    TEXT_PARAGRAPH_MAX_ENCODED_LINES,
 };
 use crate::{CoreIR, FlyoutAlignment};
 
@@ -91,6 +92,42 @@ fn image_source_helpers_report_path_and_network_sources() {
         .network_url(),
         Some("https://example.com/logo.png")
     );
+}
+
+#[test]
+fn image_batch_round_trips_as_one_serialized_paint_operation() {
+    let op = crate::PaintOp::DrawImageBatch {
+        request: ImageRequest {
+            source: ImageSource::Asset {
+                path: "sprites/world.png".into(),
+            },
+            ..Default::default()
+        },
+        sampling: ImageSampling::Nearest,
+        instances: vec![
+            ImageBatchInstance {
+                transform: [1.0, 0.0, 0.0, 1.0, 12.0, 8.0],
+                destination: [0.0, 0.0, 32.0, 32.0],
+                source: Some([32.0, 0.0, 16.0, 16.0]),
+                tint: Color::WHITE,
+                opacity: 1.0,
+            },
+            ImageBatchInstance {
+                destination: [48.0, 24.0, 64.0, 64.0],
+                opacity: 0.5,
+                ..Default::default()
+            },
+        ],
+    };
+
+    let encoded = serde_json::to_string(&op).expect("serialize image batch");
+    let decoded: crate::PaintOp = serde_json::from_str(&encoded).expect("deserialize image batch");
+
+    assert_eq!(decoded, op);
+    let crate::PaintOp::DrawImageBatch { instances, .. } = decoded else {
+        panic!("batch was expanded or changed variants during serialization");
+    };
+    assert_eq!(instances.len(), 2);
 }
 
 #[test]

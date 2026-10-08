@@ -78,6 +78,43 @@ fn test_renderer_consumes_display_list() {
 }
 
 #[test]
+fn image_batch_remains_one_display_op_through_serialization_and_flattening() {
+    let bounds = LayoutRect::new(0.0, 0.0, 320.0, 180.0);
+    let op = DisplayOp::DrawImageBatch {
+        rect: bounds,
+        request: fission_ir::op::ImageRequest {
+            source: fission_ir::op::ImageSource::Asset {
+                path: "sprites/world.png".into(),
+            },
+            ..Default::default()
+        },
+        sampling: fission_ir::ImageSampling::Nearest,
+        instances: vec![
+            fission_ir::ImageBatchInstance {
+                destination: [8.0, 12.0, 32.0, 32.0],
+                source: Some([0.0, 0.0, 16.0, 16.0]),
+                ..Default::default()
+            },
+            fission_ir::ImageBatchInstance {
+                destination: [48.0, 12.0, 32.0, 32.0],
+                source: Some([16.0, 0.0, 16.0, 16.0]),
+                ..Default::default()
+            },
+        ],
+        bounds,
+        node_id: None,
+    };
+    let mut list = DisplayList::new(bounds);
+    list.push(op.clone());
+
+    let encoded = serde_json::to_string(&list).expect("serialize image batch display list");
+    let decoded: DisplayList = serde_json::from_str(&encoded).expect("deserialize image batch");
+    let flattened = RenderScene::from_display_list(decoded).flatten();
+
+    assert_eq!(flattened.ops, vec![op]);
+}
+
+#[test]
 fn test_rich_text_display_ops_preserve_caret_metadata() {
     let bounds = LayoutRect::new(0.0, 0.0, 200.0, 48.0);
     let op = DisplayOp::DrawRichText {

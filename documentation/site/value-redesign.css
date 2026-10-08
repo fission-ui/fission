@@ -259,6 +259,10 @@ body::before {
   letter-spacing: -0.06em !important;
 }
 
+[data-fission-semantics^="site-heading-2:"] {
+  max-width: 47.5rem;
+}
+
 [data-fission-semantics^="site-anchor:"] .fission-site-text-run,
 [data-fission-semantics^="site-anchor:"] {
   font-family: "DM Mono", ui-monospace, monospace !important;
