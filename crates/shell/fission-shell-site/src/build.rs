@@ -1732,6 +1732,40 @@ mod tests {
     }
 
     #[test]
+    fn omitted_and_nonempty_content_routes_keep_existing_mounts() {
+        let temp = std::env::temp_dir().join(format!(
+            "fission-site-route-defaults-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(temp.join("content")).unwrap();
+        fs::write(temp.join("content/start.md"), "# Start\n").unwrap();
+        fs::write(temp.join("fission.toml"), "[site]\n").unwrap();
+        let defaults = SiteBuildOptions::from_project_dir(&temp, "Test").unwrap();
+        assert_eq!(defaults.content_routes.len(), 1);
+        assert_eq!(defaults.content_routes[0].path, "/content");
+        assert_eq!(defaults.content_routes[0].source, temp.join("content"));
+        let site = FissionSite::new();
+        assert_eq!(check_site(&defaults, &site).unwrap().routes.len(), 1);
+
+        fs::write(
+            temp.join("fission.toml"),
+            "[site]\n[[site.routes]]\npath = \"/docs\"\nsource = \"content\"\n",
+        )
+        .unwrap();
+        let explicit = SiteBuildOptions::from_project_dir(&temp, "Test").unwrap();
+        assert_eq!(explicit.content_routes.len(), 1);
+        assert_eq!(explicit.content_routes[0].path, "/docs/");
+        assert_eq!(explicit.content_routes[0].source, temp.join("content"));
+        assert_eq!(build_site(&explicit, &site).unwrap().routes.len(), 1);
+        assert!(explicit.output_dir.join("docs/start/index.html").exists());
+        assert!(!explicit.output_dir.join("content").exists());
+        fs::remove_dir_all(temp).unwrap();
+    }
+
+    #[test]
     fn explicit_empty_content_routes_build_custom_pages_without_content_directory() {
         let temp = std::env::temp_dir().join(format!(
             "fission-site-custom-only-{}",
