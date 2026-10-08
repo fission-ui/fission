@@ -1,13 +1,9 @@
 //! Owned finite website review; stdout JSON is exactly one typed report.
-use crate::{
-    absolute_path,
-    preview::{self, PreviewOptions},
-    WebCargoOptions,
-};
+use crate::{absolute_path, serving, BuildOptions, WebCargoOptions};
 use anyhow::{bail, Context, Result};
 use fission_command_core::Target;
-use fission_command_process::{in_owned_process_tree, run_captured, CleanupError, ProcessSession};
-use fission_command_site::preview::normalize_mount;
+use fission_command_process::{run_captured, Cancelled, CleanupError, StartupContext};
+use fission_command_site::serving::{normalize_mount, ServerOptions};
 use fission_test_driver::{
     browser::review::{review_case, BrowserReview},
     BrowserTestOptions,
@@ -18,6 +14,7 @@ use std::{
     io::{self, Write},
     path::PathBuf,
     process::Command,
+    sync::{atomic::AtomicBool, Arc},
     time::Duration,
 };
 use url::Url;
@@ -195,139 +192,157 @@ pub fn run(mut o: ReviewOptions) -> Result<()> {
         if report.coverage.discovered.is_none() {
             report.limitations.push("Route discovery unavailable for Web/custom site builders. Only selected routes were reviewed; use --route for every required route.".into());
         }
-        let session = ProcessSession::new()?;
-        let mut cancelled = || session.interrupted();
-        let preview_result = preview::with_preview(
-            PreviewOptions {
+        let startup = StartupContext::new(o.startup_timeout, Arc::new(AtomicBool::new(false)))?;
+        let mut serving = serving::build_and_serve(
+            BuildOptions {
                 project_dir: o.project_dir.clone(),
-                target: o.target,
+                target: Some(o.target),
                 release: o.release,
-                web_cargo: o.web_cargo.clone(),
+                variant: None,
+            },
+            o.web_cargo.clone(),
+            ServerOptions {
                 host: "127.0.0.1".into(),
                 port: o.port,
                 mount: o.mount.clone(),
-                entry: "index.html".into(),
-                startup_timeout: o.startup_timeout,
-                live_test: o.target == Target::Web,
-                json: true,
-                stdin_control: false,
-                open: false,
+                spa: o.target == Target::Web,
+                ..Default::default()
             },
-            &mut cancelled,
-            |_, base, server, cancelled| {
-                report.base_url = Some(base.to_string());
-                for (ri, route) in routes.iter().enumerate() {
-                    for viewport in &o.viewports {
-                        let url = route_url(base, route)?;
-                        let name = artifact_name(ri, *viewport);
-                        let screenshot = o.output_dir.join(&name);
-                        let worker_report = o.output_dir.join(format!(
-                            ".case-{ri}-{}x{}.json",
-                            viewport.width, viewport.height
-                        ));
-                        // A rerun must never accept an old result or stale screenshot.
-                        for file in [&screenshot, &worker_report] {
-                            if file.is_file() {
-                                fs::remove_file(file)?;
-                            }
+            &startup,
+            o.target == Target::Web,
+        )?;
+        let base = Url::parse(&serving.url)?;
+        let mut cancelled = || startup.cancelled();
+        let case_result: Result<()> = (|| {
+            report.base_url = Some(base.to_string());
+            for (ri, route) in routes.iter().enumerate() {
+                for viewport in &o.viewports {
+                    let url = route_url(&base, route)?;
+                    let name = artifact_name(ri, *viewport);
+                    let screenshot = o.output_dir.join(&name);
+                    let worker_report = o.output_dir.join(format!(
+                        ".case-{ri}-{}x{}.json",
+                        viewport.width, viewport.height
+                    ));
+                    // A rerun must never accept an old result or stale screenshot.
+                    for file in [&screenshot, &worker_report] {
+                        if file.is_file() {
+                            fs::remove_file(file)?;
                         }
-                        let mut case = ReviewCase {
-                            route: route.clone(),
-                            requested_url: url.to_string(),
-                            viewport: *viewport,
-                            status: "incomplete".into(),
-                            result: BrowserReview::default(),
-                        };
-                        if cancelled() {
-                            case.result.failure = Some("cancelled: rerun review when ready".into());
-                            report.cases.push(case);
-                            continue;
-                        }
-                        server.check_running()?;
-                        let mut cmd = Command::new(std::env::current_exe()?);
-                        cmd.arg("test-visual-case")
-                            .arg("--url")
-                            .arg(url.as_str())
-                            .arg("--mount-url")
-                            .arg(base.as_str())
-                            .arg("--target")
-                            .arg(o.target.as_str())
-                            .arg("--width")
-                            .arg(viewport.width.to_string())
-                            .arg("--height")
-                            .arg(viewport.height.to_string())
-                            .arg("--timeout-ms")
-                            .arg(o.case_timeout.as_millis().to_string())
-                            .arg("--screenshot")
-                            .arg(&screenshot)
-                            .arg("--report")
-                            .arg(&worker_report);
-                        match run_captured(
-                            &mut cmd,
-                            "review browser case",
-                            o.case_timeout,
-                            &mut *cancelled,
-                        ) {
-                            Ok(_) => {
-                                case.result = serde_json::from_slice(
-                                    &fs::read(&worker_report).context("worker report missing")?,
-                                )?;
-                                if case.result.screenshot.is_some() {
-                                    if !screenshot.is_file() {
-                                        case.result.failure =
-                                            Some("capture: claimed image is missing".into());
-                                        case.result.screenshot = None;
-                                    } else {
-                                        case.result.screenshot = Some(PathBuf::from(&name));
-                                    }
-                                }
-                                case.status = case_status(&case.result).into();
-                            }
-                            Err(error) => {
-                                if error.downcast_ref::<CleanupError>().is_some() {
-                                    report.owned_resources_released = false;
-                                    return Err(error);
-                                }
-                                case.result.failure=Some(format!("browser_worker: {}; retry after repairing browser/runtime or increase --case-timeout-seconds",bounded(&format!("{error:#}"))));
-                            }
-                        }
-                        if worker_report.is_file() {
-                            fs::remove_file(worker_report)?;
-                        }
-                        report.cases.push(case);
-                        // Persist completed cases before continuing the bounded matrix.
-                        write_report(&report)?;
                     }
+                    let mut case = ReviewCase {
+                        route: route.clone(),
+                        requested_url: url.to_string(),
+                        viewport: *viewport,
+                        status: "incomplete".into(),
+                        result: BrowserReview::default(),
+                    };
+                    if cancelled() {
+                        case.result.failure = Some("cancelled: rerun review when ready".into());
+                        report.cases.push(case);
+                        continue;
+                    }
+                    serving.server.check_running()?;
+                    let mut cmd = Command::new(std::env::current_exe()?);
+                    cmd.arg("test-visual-case")
+                        .arg("--url")
+                        .arg(url.as_str())
+                        .arg("--mount-url")
+                        .arg(base.as_str())
+                        .arg("--target")
+                        .arg(o.target.as_str())
+                        .arg("--width")
+                        .arg(viewport.width.to_string())
+                        .arg("--height")
+                        .arg(viewport.height.to_string())
+                        .arg("--timeout-ms")
+                        .arg(o.case_timeout.as_millis().to_string())
+                        .arg("--screenshot")
+                        .arg(&screenshot)
+                        .arg("--report")
+                        .arg(&worker_report);
+                    match run_captured(
+                        &mut cmd,
+                        "review browser case",
+                        o.case_timeout,
+                        &mut cancelled,
+                    ) {
+                        Ok(_) => {
+                            case.result = serde_json::from_slice(
+                                &fs::read(&worker_report).context("worker report missing")?,
+                            )?;
+                            if case.result.screenshot.is_some() {
+                                if !screenshot.is_file() {
+                                    case.result.failure =
+                                        Some("capture: claimed image is missing".into());
+                                    case.result.screenshot = None;
+                                } else {
+                                    case.result.screenshot = Some(PathBuf::from(&name));
+                                }
+                            }
+                            case.status = case_status(&case.result).into();
+                        }
+                        Err(error) => {
+                            if error.downcast_ref::<CleanupError>().is_some() {
+                                report.owned_resources_released = false;
+                                return Err(error);
+                            }
+                            case.result.failure=Some(format!("browser_worker: {}; retry after repairing browser/runtime or increase --case-timeout-seconds",bounded(&format!("{error:#}"))));
+                        }
+                    }
+                    if worker_report.is_file() {
+                        fs::remove_file(worker_report)?;
+                    }
+                    report.cases.push(case);
+                    // Persist completed cases before continuing the bounded matrix.
+                    write_report(&report)?;
                 }
-                server.check_running()?;
-                Ok(())
-            },
-        );
-        if session.interrupted()
-            && preview_result
+            }
+            serving.server.check_running()?;
+            Ok(())
+        })();
+        if let Err(error) = serving.server.stop() {
+            report.owned_resources_released = false;
+            return Err(error.context("owned serving cleanup failed"));
+        }
+        if startup.cancelled()
+            && case_result
                 .as_ref()
                 .err()
                 .is_none_or(|e| e.downcast_ref::<CleanupError>().is_none())
         {
             report.limitations.push(
-                "Review cancelled; coverage is incomplete. Rerun the same command when ready."
+                "Visual test cancelled; coverage is incomplete. Rerun the same command when ready."
                     .into(),
             );
             report.status = "incomplete".into();
             report.exit_code = 2;
             return Ok(());
         }
-        preview_result?;
+        case_result?;
         let (status, code) = overall(&report.cases, o.strict);
         report.status = status.into();
         report.exit_code = code;
         Ok(())
     })();
     if let Err(error) = result {
-        report.status = "execution_failed".into();
-        report.exit_code = 1;
-        report.owned_resources_released &= error.downcast_ref::<CleanupError>().is_none();
-        report.failure=Some(Failure {stage:"review_execution".into(),evidence:bounded(&format!("{error:#}")),recovery:if report.owned_resources_released { "Correct the reported build/configuration/asset error and rerun the same review command. For bind failures use --port 0. Owned resources are stopped; never kill unrelated listeners by port." } else { "Owned worker cleanup could not be confirmed. Inspect the reported OS failure and only this session's process tree before retrying; do not terminate unrelated listeners by port." }.into()});
+        if error.downcast_ref::<Cancelled>().is_some()
+            && error.downcast_ref::<CleanupError>().is_none()
+        {
+            report.status = "incomplete".into();
+            report.exit_code = 2;
+            report.failure = Some(Failure {
+                stage: "cancelled".into(),
+                evidence: bounded(&format!("{error:#}")),
+                recovery: "Rerun the visual test when ready. Owned startup processes were stopped."
+                    .into(),
+            });
+        } else {
+            report.status = "execution_failed".into();
+            report.exit_code = 1;
+            report.owned_resources_released &= error.downcast_ref::<CleanupError>().is_none();
+            report.failure=Some(Failure {stage:"review_execution".into(),evidence:bounded(&format!("{error:#}")),recovery:if report.owned_resources_released { "Correct the reported build/configuration/asset error and rerun the same review command. For bind failures use --port 0. Owned resources are stopped; never kill unrelated listeners by port." } else { "Owned worker cleanup could not be confirmed. Inspect the reported OS failure and only this session's process tree before retrying; do not terminate unrelated listeners by port." }.into()});
+        }
     }
     if let Err(error) = write_report(&report) {
         report.exit_code = 1;
@@ -477,18 +492,16 @@ pub fn worker(o: ReviewWorkerOptions) -> Result<()> {
         screenshot,
         report,
     } = o;
-    in_owned_process_tree(|| {
-        let mut options = BrowserTestOptions::new(url).screenshot(screenshot);
-        if target == Target::Web {
-            options = options.fission_canvas();
-        }
-        options.viewport_width = viewport.width;
-        options.viewport_height = viewport.height;
-        options.timeout_ms = timeout_ms.saturating_sub(1500).max(100);
-        let result = review_case(options, &mount)?;
-        fs::write(report, serde_json::to_vec(&result)?)?;
-        Ok(())
-    })
+    let mut options = BrowserTestOptions::new(url).screenshot(screenshot);
+    if target == Target::Web {
+        options = options.fission_canvas();
+    }
+    options.viewport_width = viewport.width;
+    options.viewport_height = viewport.height;
+    options.timeout_ms = timeout_ms.saturating_sub(1500).max(100);
+    let result = review_case(options, &mount)?;
+    fs::write(report, serde_json::to_vec(&result)?)?;
+    Ok(())
 }
 #[cfg(test)]
 mod tests {

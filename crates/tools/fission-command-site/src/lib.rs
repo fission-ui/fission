@@ -1,10 +1,10 @@
 use anyhow::{bail, Context, Result};
-pub mod preview;
+pub mod serving;
 use fission_command_process::run_status;
 use std::ffi::OsStr;
 use std::fs;
-use std::io::{self, BufRead, Write};
-use std::net::{TcpListener, TcpStream};
+use std::io::{self, BufRead, Read, Write};
+use std::net::TcpStream;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -14,13 +14,21 @@ pub fn build(project_dir: &Path, release: bool) -> Result<()> {
     }
     let options = site_build_options(project_dir)?;
     let report = fission_shell_site::build_content_site(&options)?;
-    println!(
-        "Built {} static route(s) into {}",
-        report.routes.len(),
-        report.output_dir.display()
-    );
-    for route in report.routes {
-        println!("{} -> {}", route.path, route.output.display());
+    if fission_command_process::capturing_commands() {
+        eprintln!(
+            "Built {} static route(s) into {}",
+            report.routes.len(),
+            report.output_dir.display()
+        );
+    } else {
+        println!(
+            "Built {} static route(s) into {}",
+            report.routes.len(),
+            report.output_dir.display()
+        );
+        for route in report.routes {
+            println!("{} -> {}", route.path, route.output.display());
+        }
     }
     Ok(())
 }
@@ -87,25 +95,43 @@ pub fn review_routes(project_dir: &Path) -> Result<Option<Vec<String>>> {
 }
 
 pub fn serve(project_dir: &Path, release: bool, host: String, port: u16, open: bool) -> Result<()> {
-    eprintln!("Building static site before starting local server...");
-    if site_entry_configured(project_dir)? {
-        let port = port.to_string();
-        let open_flag = if open { "" } else { "--no-open" };
-        let mut args = vec!["--host", host.as_str(), "--port", port.as_str()];
-        if !open {
-            args.push(open_flag);
-        }
-        return run_site_builder(project_dir, release, "serve", &args);
-    }
-    let options = site_build_options(project_dir)?;
-    let report = fission_shell_site::build_content_site(&options)?;
-    println!(
-        "Built {} static route(s) into {}",
-        report.routes.len(),
-        report.output_dir.display()
-    );
-    eprintln!("Static site build complete; starting local server...");
-    serve_static(options.output_dir, host, port, open)
+    serve_with_options(
+        project_dir,
+        release,
+        host,
+        port,
+        open,
+        serving::ServeOptions::default(),
+        serving::human_event,
+    )
+}
+
+pub fn serve_with_options(
+    project_dir: &Path,
+    release: bool,
+    host: String,
+    port: u16,
+    open: bool,
+    options: serving::ServeOptions,
+    notify: impl FnMut(serving::ServingEvent) -> Result<()>,
+) -> Result<()> {
+    let server = serving::ServerOptions {
+        host,
+        port,
+        mount: options.mount.clone(),
+        spa: false,
+        port_search: false,
+    };
+    serving::serve(
+        || {
+            build(project_dir, release)?;
+            output_dir(project_dir)
+        },
+        server,
+        options,
+        open,
+        notify,
+    )
 }
 
 pub fn serve_static(root: PathBuf, host: String, port: u16, open: bool) -> Result<()> {
@@ -131,29 +157,32 @@ fn serve_files(
     open: bool,
     spa_fallback: bool,
 ) -> Result<()> {
-    let listener = TcpListener::bind((host.as_str(), port))
-        .with_context(|| format!("failed to bind {}:{}", host, port))?;
+    let session = fission_command_process::ProcessSession::new()?;
+    let mut server = serving::OwnedServer::start(
+        root.clone(),
+        &serving::ServerOptions {
+            host,
+            port,
+            mount: "/".into(),
+            spa: spa_fallback,
+            port_search: false,
+        },
+    )?;
     let url = if root.join("index.html").exists() {
-        format!("http://{host}:{port}/")
+        server.base_url()
     } else {
-        format!("http://{host}:{port}/platforms/web/")
+        format!("{}platforms/web/", server.base_url())
     };
     println!("Serving {} at {}", root.display(), url);
     println!("Press Ctrl+C to stop.");
     if open {
         let _ = open_url(&url);
     }
-    for stream in listener.incoming() {
-        match stream {
-            Ok(stream) => {
-                if let Err(error) = handle_http_request(stream, &root, spa_fallback) {
-                    eprintln!("request failed: {error}");
-                }
-            }
-            Err(error) => eprintln!("accept failed: {error}"),
-        }
+    while !session.interrupted() {
+        server.check_running()?;
+        std::thread::sleep(std::time::Duration::from_millis(20));
     }
-    Ok(())
+    server.stop()
 }
 
 fn site_build_options(project_dir: &Path) -> Result<fission_shell_site::SiteBuildOptions> {
@@ -168,7 +197,7 @@ fn site_build_options(project_dir: &Path) -> Result<fission_shell_site::SiteBuil
     )
 }
 
-/// The configured static output directory, shared by build and preview.
+/// The configured static output directory, shared by build and serving.
 pub fn output_dir(project_dir: &Path) -> Result<PathBuf> {
     Ok(fission_shell_site::SiteBuildOptions::from_project_dir(
         project_dir,
@@ -238,10 +267,25 @@ fn run_site_builder(
     run_status(&mut command, "site builder")
 }
 
-fn handle_http_request(mut stream: TcpStream, root: &Path, spa_fallback: bool) -> Result<()> {
-    let mut reader = io::BufReader::new(stream.try_clone()?);
+fn handle_http_request(
+    stream: TcpStream,
+    root: &Path,
+    mount: &str,
+    spa_fallback: bool,
+) -> Result<()> {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_millis(250);
+    let mut reader = io::BufReader::new(DeadlineStream {
+        stream: stream.try_clone()?,
+        deadline,
+    });
+    let mut stream = DeadlineStream { stream, deadline };
     let mut request_line = String::new();
-    reader.read_line(&mut request_line)?;
+    Read::by_ref(&mut reader)
+        .take(8193)
+        .read_line(&mut request_line)?;
+    if request_line.len() > 8192 {
+        bail!("request line exceeds 8 KiB");
+    }
     let mut request_parts = request_line.split_whitespace();
     let method = request_parts.next().unwrap_or("GET");
     let path = request_parts
@@ -252,11 +296,17 @@ fn handle_http_request(mut stream: TcpStream, root: &Path, spa_fallback: bool) -
         .unwrap_or("/");
     if method == "POST" && path == "/__fission/renderer" {
         let body = read_http_body(&mut reader)?;
-        println!("{}", format_renderer_diagnostic(&body));
+        eprintln!("{}", format_renderer_diagnostic(&body));
         stream.write_all(&http_response(204, "text/plain", b"", spa_fallback))?;
         return Ok(());
     }
-    let response = static_response(root, path, spa_fallback)?;
+    let response = if method != "GET" {
+        http_response(404, "text/plain", b"not found", spa_fallback)
+    } else if let Some(relative) = path.strip_prefix(mount) {
+        static_response_at_mount(root, &format!("/{relative}"), spa_fallback, Some(mount))?
+    } else {
+        http_response(404, "text/plain", b"outside serving mount", spa_fallback)
+    };
     stream.write_all(&response)?;
     Ok(())
 }
@@ -300,11 +350,44 @@ fn format_renderer_diagnostic(body: &str) -> String {
     )
 }
 
-fn read_http_body(reader: &mut io::BufReader<TcpStream>) -> Result<String> {
+struct DeadlineStream {
+    stream: TcpStream,
+    deadline: std::time::Instant,
+}
+impl DeadlineStream {
+    fn remaining(&self) -> io::Result<std::time::Duration> {
+        self.deadline
+            .checked_duration_since(std::time::Instant::now())
+            .filter(|value| !value.is_zero())
+            .ok_or_else(|| io::Error::new(io::ErrorKind::TimedOut, "request deadline reached"))
+    }
+}
+impl Read for DeadlineStream {
+    fn read(&mut self, bytes: &mut [u8]) -> io::Result<usize> {
+        self.stream.set_read_timeout(Some(self.remaining()?))?;
+        self.stream.read(bytes)
+    }
+}
+impl Write for DeadlineStream {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        self.stream.set_write_timeout(Some(self.remaining()?))?;
+        self.stream.write(bytes)
+    }
+    fn flush(&mut self) -> io::Result<()> {
+        self.stream.flush()
+    }
+}
+
+fn read_http_body(reader: &mut impl BufRead) -> Result<String> {
     let mut content_length = 0usize;
+    let mut header_bytes = 0usize;
     loop {
         let mut line = String::new();
-        reader.read_line(&mut line)?;
+        Read::by_ref(reader).take(16385).read_line(&mut line)?;
+        header_bytes += line.len();
+        if header_bytes > 16384 {
+            bail!("request headers exceed 16 KiB");
+        }
         let trimmed = line.trim_end();
         if trimmed.is_empty() {
             break;
@@ -318,12 +401,12 @@ fn read_http_body(reader: &mut io::BufReader<TcpStream>) -> Result<String> {
     }
     let mut body = vec![0u8; content_length.min(1024 * 1024)];
     if !body.is_empty() {
-        use std::io::Read as _;
         reader.read_exact(&mut body)?;
     }
     Ok(String::from_utf8_lossy(&body).into_owned())
 }
 
+#[cfg(test)]
 fn static_response(root: &Path, request_path: &str, spa_fallback: bool) -> Result<Vec<u8>> {
     static_response_at_mount(
         root,
