@@ -621,17 +621,20 @@ impl From<CrateCard> for Widget {
             } else {
                 format!("{} API", item.api_status)
             };
-            Container::new(Text::new(label).size(tokens.typography.font_size_sm))
-                .padding([
-                    tokens.spacing.xs,
-                    tokens.spacing.s,
-                    tokens.spacing.xs,
-                    tokens.spacing.s,
-                ])
-                .border_radius(tokens.radii.full)
-                .bg(tokens.colors.surface_sunken)
-                .semantics_identifier(format!("crate-api-status:{}", item.api_status))
-                .into()
+            Container::new(
+                Text::new(label)
+                    .size(tokens.typography.font_size_sm)
+                    .semantics_identifier(format!("crate-api-status:{}", item.api_status)),
+            )
+            .padding([
+                tokens.spacing.xs,
+                tokens.spacing.s,
+                tokens.spacing.xs,
+                tokens.spacing.s,
+            ])
+            .border_radius(tokens.radii.full)
+            .bg(tokens.colors.surface_sunken)
+            .into()
         });
         let downloads = if view.env().locale.0 == "es-ES" {
             format!("{} descargas", item.downloads)
