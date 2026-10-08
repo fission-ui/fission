@@ -48,9 +48,26 @@ let client = LiveTestClient::launch_browser(
 )?;
 client.pump()?;
 client.assert_text_visible("Ready")?;
+client.simulate_resize(390, 844)?;
+let narrow_png = client.capture_screenshot_png()?;
+client.simulate_resize(1280, 900)?;
 ```
 
 Web screenshots are composited Chromium page captures. The initial driver does not claim Firefox/WebKit coverage or trusted browser clipboard, file, accessibility, and IME event coverage.
+
+Keep this client alive to resize the same page while retaining app state and
+route. `fission preview --target web --live-test` is the opt-in preview path.
+Resize uses CSS pixels at fixed device scale 1, validates dimensions, and waits
+for actual viewport/canvas/submitted-layout frame dimensions and paint within
+the options timeout (capped at 60 seconds). A changed size must advance the
+frame acknowledgment; repeating the same size verifies the current frame.
+Raw Web bridge `SimulateResize` explicitly fails because it lacks host control.
+On failure inspect observed state and retry after repair, or drop/relaunch a
+closed client. Static DOM can use `BrowserTestOptions::new(url)` without a
+bridge for host resize and screenshots; this does not enable semantic commands.
+See [SimulateResize](/reference/core/live-test-command-api/#simulateresize)
+for limits and recovery. Inspect narrow and wide PNG content after checking
+dimensions.
 
 ## Selector-driven actions
 

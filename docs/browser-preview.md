@@ -108,3 +108,95 @@ shutdown contract. The listener itself closes when the CLI process exits.
 
 This command does not provision SSR, backends, hosting, deployment, native apps,
 or an MCP service.
+
+## Resize one live browser session
+
+The preview readiness probe closes its temporary browser. To drive an existing
+agent session, retain the Rust client you launch against the ready event's URL:
+
+```rust,no_run
+use fission::test_driver::{BrowserTestOptions, LiveTestClient};
+# fn example(url: &str) -> anyhow::Result<()> {
+let mut options = BrowserTestOptions::new(url).fission_canvas();
+options.timeout_ms = 10_000;
+let client = LiveTestClient::launch_browser(options)?;
+// Interact and navigate through this client before resizing.
+client.simulate_resize(390, 844)?;
+let narrow_png = client.capture_screenshot_png()?;
+client.simulate_resize(1280, 900)?;
+let wide_png = client.capture_screenshot_png()?;
+# Ok(())
+# }
+```
+
+Web/WASM requires `preview --target web --live-test` and a matching shell.
+Static DOM uses `BrowserTestOptions::new(url)` without `.fission_canvas()`;
+no test hooks are injected into static HTML. DOM sessions support browser-host
+resize and screenshots, not every semantic LiveTest command. There is no CLI
+resize flag that attaches to another client's browser.
+
+`SimulateResize { width, height }` keeps its wire shape and `Ok` response. The
+Rust browser transport controls Chromium with CDP, retaining page identity,
+app state, history and route; it does not reload the page. Dimensions are whole
+CSS pixels, 1–8192 per axis and at most 16,777,216 pixels total. Invalid requests
+fail before changing host or runtime state. The driver fixes device scale to 1
+and desktop emulation (`mobile=false`); screenshot pixels equal CSS pixels.
+It does not expose another device scale, touch emulation or mobile user agent.
+Browser scopes do not add subtree dimensions to the requested viewport.
+
+Success verifies actual `innerWidth`/`innerHeight` and scale. Canvas mode also
+requires canvas CSS size, backing-store size, origin, and the opt-in shell's
+matching submitted-layout frame acknowledgment. A changed viewport must advance
+the frame counter, preventing an old frame at a previously visited size from
+passing. A repeated same-size request may verify the existing matching frame
+without forcing a redraw. The driver crosses two animation frames for paint
+and rechecks dimensions; this is the shell's submitted frame plus Chromium paint
+boundary, not a GPU readback or complete geometry audit. DOM requires metrics
+and paint without a Fission frame. Startup, review and capture share the same
+dimension verifier. Capture also checks the resulting PNG dimensions; inspect
+the image's content before counting a responsive layout as verified.
+
+The resize deadline is `BrowserTestOptions::timeout_ms`, clamped to 1–60,000 ms,
+including CDP calls and paint. A raw `__FISSION_TEST__` Web bridge cannot control
+Chromium: it returns `TestResponse::Error` with `unsupported_host` and the exact
+supported `LiveTestClient::launch_browser(...).simulate_resize(width, height)`
+path, and sends no runtime resize event. Production Web retains opt-in isolation;
+native resize behavior is unchanged.
+
+On timeout or runtime/host failure, the error includes requested dimensions,
+last observed viewport/canvas/frame state, and recovery instructions. Metrics
+may already have changed; failure does not promise rollback. `browser_report()`
+tracks the last observed size and is a snapshot, not an acknowledgment of a
+failed request. Repair runtime or layout errors and retry the supported resize;
+capture rejects mismatching or stale frames. For page closure or lost host
+control, drop the client and launch a fresh owned session. Dropping closes only
+that client's Chromium/profile; it does not stop the preview or other sessions.
+
+### Focused real-browser regression
+
+The driver includes ignored integration tests that use real previews supplied
+through `FISSION_RESIZE_WEB_URL` and `FISSION_RESIZE_DOM_URL`. Initialize a
+`resize-web` fixture with an **absolute** `--local-path` to the framework,
+read generated guidance, add `web`/`static-site` targets, and preserve its
+`fission.toml`. The Rust test fixtures in
+`crates/tools/fission-test-driver/tests/fixtures/` supply `src/app.rs` and the
+Web `src/lib.rs`; use the generated mount selector. For the declared icon,
+serve the scaffold's existing app icon at a mount-relative URL (including when
+testing `/repository-name/`). This is an asset reference, not a control hook.
+Set `RESIZE_BASE_PATH` to the mount **when compiling**. Start the preview with
+the target commands above and keep its owner alive, then run:
+
+```sh
+FISSION_RESIZE_WEB_URL=http://127.0.0.1:PORT/ FISSION_RESIZE_OUTPUT=resize-captures \
+  cargo test -p fission-test-driver --test browser_resize canvas_same_session -- --ignored --nocapture
+FISSION_RESIZE_DOM_URL=http://127.0.0.1:PORT/content/start/ FISSION_RESIZE_OUTPUT=resize-dom-captures \
+  cargo test -p fission-test-driver --test browser_resize static_dom_host -- --ignored --nocapture
+```
+
+Repeat at the repository mount. The Web test increments state and navigates,
+then resizes 1280 → 390 → 800 → 1280 in one session. It checks metrics,
+canvas/frame dimensions, route/page identity, active responsive semantics,
+PNG dimensions/content, raw-bridge rejection, invalid sizes, timeout without
+false success, recovery, missing capability and closure. DOM checks metrics,
+identity, scale and captures without a bridge. `FISSION_RESIZE_OUTPUT` saves
+captures for visual inspection. Stop each owned preview after the test.

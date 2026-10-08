@@ -32,6 +32,21 @@ tree.
   `--port 0` for an occupied port. Use `--startup-timeout-seconds` (1–3600) for
   a slow build. The supported stop path cleans up only this preview's owned
   build tree and listener.
+- For in-session responsive checks, keep one Rust
+  `LiveTestClient::launch_browser(BrowserTestOptions::new(url).fission_canvas())`
+  alive and call `client.simulate_resize(390, 844)` then
+  `client.simulate_resize(1280, 900)`. Web needs `preview --target web --live-test`;
+  static DOM uses `BrowserTestOptions::new(url)` without a bridge. Resize uses
+  CSS pixels (1–8192 per axis, at most 16,777,216 pixels), device scale 1, and
+  retains state/route. It waits for actual metrics, canvas/layout frame when
+  applicable, and paint, using the options timeout capped at 60 seconds.
+  Same-size requests verify the current frame. Capture with
+  `client.capture_screenshot_png()`, check PNG dimensions and inspect content.
+  Raw Web `SimulateResize` has no host control and returns an explicit error.
+  On timeout, metrics may have changed: inspect `browser_report()` and the
+  error's observed state, repair the cause, retry the supported call, or drop
+  the client to close its owned browser. DOM supports host resize/screenshots;
+  it does not gain all semantic LiveTest commands.
 
 ## Source-Grounded Work
 
