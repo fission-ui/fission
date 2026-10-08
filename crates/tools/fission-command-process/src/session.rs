@@ -5,7 +5,7 @@ use super::{
 };
 use anyhow::{bail, Context, Result};
 use std::{
-    cell::{Cell, RefCell},
+    cell::RefCell,
     collections::VecDeque,
     io::Read,
     process::{Command, Stdio},
@@ -27,7 +27,16 @@ impl std::fmt::Display for CleanupError {
     }
 }
 impl std::error::Error for CleanupError {}
-thread_local! { static INHERITED_GROUP: Cell<bool> = const { Cell::new(false) }; }
+/// Explicit cancellation, distinguished from a concurrent build or server error.
+#[derive(Debug)]
+pub struct Cancelled;
+impl std::fmt::Display for Cancelled {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("operation cancelled")
+    }
+}
+impl std::error::Error for Cancelled {}
+
 thread_local! { static STARTUP: RefCell<Option<(Instant, Arc<AtomicBool>)>> = const { RefCell::new(None) }; }
 
 /// Bounds the existing command execution path without another CLI worker.
@@ -78,7 +87,7 @@ impl StartupContext {
 
     fn check(&self) -> Result<()> {
         if self.cancelled() {
-            bail!("startup cancelled");
+            return Err(Cancelled.into());
         }
         if Instant::now() >= self.deadline {
             bail!("startup timed out");
@@ -109,24 +118,6 @@ pub(super) fn run_startup_command(command: &mut Command, label: &str) -> Option<
         }
         Ok(())
     })
-}
-
-/// Runs a CLI worker's nested commands in the process tree owned by its parent.
-/// The caller must already be a child of a supervising process group/Job Object.
-/// This prevents nested build commands from escaping that owner's cancellation.
-pub fn in_owned_process_tree<T>(action: impl FnOnce() -> Result<T>) -> Result<T> {
-    struct Reset(bool);
-    impl Drop for Reset {
-        fn drop(&mut self) {
-            INHERITED_GROUP.set(self.0);
-        }
-    }
-    let _reset = Reset(INHERITED_GROUP.replace(true));
-    action()
-}
-
-pub(super) fn inherits_group() -> bool {
-    INHERITED_GROUP.get()
 }
 
 /// One attached CLI session. Signals are installed before it starts any work.
@@ -163,7 +154,9 @@ pub fn run_captured(
     mut cancelled: impl FnMut() -> bool,
 ) -> Result<String> {
     if cancelled() {
-        bail!("{label} cancelled before starting");
+        return Err(
+            anyhow::Error::new(Cancelled).context(format!("{label} cancelled before starting"))
+        );
     }
     command
         .stdin(Stdio::null())
@@ -182,7 +175,7 @@ pub fn run_captured(
     let deadline = Instant::now() + timeout;
     let result = loop {
         if cancelled() {
-            break Err(anyhow::anyhow!("{label} cancelled"));
+            break Err(anyhow::Error::new(Cancelled).context(format!("{label} cancelled")));
         }
         if Instant::now() >= deadline {
             break Err(anyhow::anyhow!(
@@ -213,7 +206,10 @@ pub fn run_captured(
         .join()
         .map_err(|_| anyhow::anyhow!("stderr capture failed"))?;
     let output = format!("{}{}", tail(&out), tail(&err));
-    result.map_err(|error| anyhow::anyhow!("{error}\n{output}"))?;
+    result.map_err(|error| {
+        let detail = format!("{error}\n{output}");
+        error.context(detail)
+    })?;
     Ok(output)
 }
 

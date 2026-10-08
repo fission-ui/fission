@@ -2,8 +2,7 @@
 
 mod session;
 pub use session::{
-    capturing_commands, in_owned_process_tree, run_captured, CleanupError, ProcessSession,
-    StartupContext,
+    capturing_commands, run_captured, Cancelled, CleanupError, ProcessSession, StartupContext,
 };
 
 use anyhow::{bail, Context, Result};
@@ -96,15 +95,6 @@ impl Drop for SupervisedChild {
 pub fn run_status(command: &mut Command, label: &str) -> Result<()> {
     if let Some(result) = session::run_startup_command(command, label) {
         return result;
-    }
-    if session::inherits_group() {
-        let status = command
-            .status()
-            .with_context(|| format!("failed to run {label}"))?;
-        if !status.success() {
-            bail!("{label} failed with {status}");
-        }
-        return Ok(());
     }
     let _active = ACTIVE_SUPERVISOR
         .lock()
