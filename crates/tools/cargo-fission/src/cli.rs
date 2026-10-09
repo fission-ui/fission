@@ -32,6 +32,9 @@ pub(crate) enum Command {
         /// Optional local Fission checkout to use as a path dependency.
         #[arg(long)]
         local_path: Option<PathBuf>,
+        /// Use the complete static website source template; add other targets with add-target.
+        #[arg(long)]
+        website_template: bool,
     },
     /// Add one or more platform targets to an existing Fission app.
     AddTarget {

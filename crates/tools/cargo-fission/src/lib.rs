@@ -57,7 +57,21 @@ where
             name,
             app_id,
             local_path,
-        } => fission_command_core::init_project(&path, name, app_id, local_path),
+            website_template,
+        } => {
+            fission_command_core::init_project_with_website_template(
+                &path,
+                name,
+                app_id,
+                local_path,
+                website_template,
+            )?;
+            if website_template {
+                println!("Website ready. Read WEBSITE.md for checks, serving, routing, and GitHub Pages preparation. No website has been published.");
+            }
+            println!("Immediately read generated AGENTS.md (or AGENTS.fission.md beside user instructions) and its linked guidance before editing. Keep fission.toml; change targets with fission add-target.");
+            Ok(())
+        }
         Command::AddTarget {
             targets,
             project_dir,
@@ -979,6 +993,66 @@ mkdir -p "$(dirname "$artifact")"
     }
 
     #[test]
+    fn init_website_template_selects_static_source_scaffold() {
+        let dir = unique_dir("website-default");
+        run([
+            "fission",
+            "init",
+            dir.to_str().unwrap(),
+            "--website-template",
+        ])
+        .unwrap();
+        assert_eq!(
+            read_project_config(&dir).unwrap().targets,
+            std::collections::BTreeSet::from([Target::Site])
+        );
+        assert!(dir.join("src/page.rs").exists());
+        assert!(dir.join("WEBSITE.md").exists());
+        assert!(!dir.join("src/app.rs").exists());
+    }
+
+    #[test]
+    fn init_website_template_extends_through_normal_add_target() {
+        let dir = unique_dir("website-web");
+        run([
+            "fission",
+            "init",
+            dir.to_str().unwrap(),
+            "--website-template",
+        ])
+        .unwrap();
+        let source = fs::read_to_string(dir.join("src/lib.rs")).unwrap();
+        run([
+            "fission",
+            "add-target",
+            "web",
+            "--project-dir",
+            dir.to_str().unwrap(),
+        ])
+        .unwrap();
+        assert_eq!(
+            read_project_config(&dir).unwrap().targets,
+            std::collections::BTreeSet::from([Target::Site, Target::Web])
+        );
+        assert!(dir.join("platforms/web/bootstrap.mjs").exists());
+        assert_eq!(fs::read_to_string(dir.join("src/lib.rs")).unwrap(), source);
+    }
+
+    #[test]
+    fn init_website_template_does_not_accept_a_target_value() {
+        let dir = unique_dir("website-value");
+        assert!(Cli::try_parse_from([
+            "fission",
+            "init",
+            dir.to_str().unwrap(),
+            "--website-template",
+            "web"
+        ])
+        .is_err());
+        assert!(!dir.join("fission.toml").exists());
+    }
+
+    #[test]
     fn init_creates_project_files() {
         let dir = unique_dir("init");
         run([
@@ -1277,8 +1351,9 @@ mkdir -p "$(dirname "$artifact")"
         assert!(
             std::fs::read_to_string(dir.join("platforms/web/index.html"))
                 .unwrap()
-                .contains("../../assets/app-icon.png")
+                .contains("href=\"assets/app-icon.png\"")
         );
+        assert!(dir.join("platforms/web/assets/app-icon.png").is_file());
         let web_index = std::fs::read_to_string(dir.join("platforms/web/index.html")).unwrap();
         assert!(web_index.contains("id=\"fission-web-mount\""));
         assert!(web_index.contains("height: 100vh"));

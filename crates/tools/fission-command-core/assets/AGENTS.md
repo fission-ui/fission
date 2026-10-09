@@ -7,6 +7,21 @@ tree.
 
 ## Source-Grounded Work
 
+- Immediately after `fission init`, locate and read this file and its linked
+  guidance before editing. It is generated at the nearest enclosing Git root,
+  or the app root outside Git. If `AGENTS.md` contains user-authored instructions,
+  read those and the generated `AGENTS.fission.md` beside it; preserve both.
+- Keep generated `fission.toml` and the scaffold's target/feature organization.
+  Use `fission add-target` for target changes. Edit Rust source and source assets,
+  never generated HTML or WASM host output.
+- For a website starter, read the app's `WEBSITE.md`. Build and preview the chosen
+  target, exercise navigation, direct routes and refresh, and inspect narrow
+  (about 390px) and wide (about 1280px) screenshots. Verify links/assets at `/`
+  and a GitHub Pages `/repository-name/` mount, including Web WASM loading.
+  Pages hosts static files, not a backend. Web starters use hash routes for
+  refreshable secondary pages on Pages; local pathname fallbacks are not a
+  promise of support by a static host.
+
 - Start from the real app entrypoint, then trace into screens, reusable widgets,
   and lower-level render behavior before changing UI code.
 - For UI reviews, group findings by visible region. Do not stop at a screenshot
