@@ -27,6 +27,9 @@ jobs:
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Validate GitHub Actions workflows
+        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 -shellcheck= -pyflakes= .github/workflows/*.yml
+
       - name: Install Linux native build dependencies
         run: sudo apt-get update && sudo apt-get install -y libfontconfig1-dev pkg-config
 
