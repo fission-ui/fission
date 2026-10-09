@@ -1197,7 +1197,11 @@ fn create_native_main_renderer(
         return Ok(software(
             "native-software-upload",
             if auto_software_adapter {
-                "windows_software_adapter"
+                if cfg!(target_os = "windows") {
+                    "windows_software_adapter"
+                } else {
+                    "cpu_adapter"
+                }
             } else {
                 "forced_by_renderer_request"
             }
@@ -1265,13 +1269,16 @@ fn should_auto_select_native_software(
     device_type: wgpu::DeviceType,
     adapter_name: &str,
 ) -> bool {
-    if request != RendererRequest::Auto || !windows {
+    if request != RendererRequest::Auto {
         return false;
     }
     let adapter_name = adapter_name.trim().to_ascii_lowercase();
+    // Running GPU compute shaders through a CPU adapter is unnecessarily
+    // expensive for ordinary 2D rendering; use the native CPU rasterizer.
     device_type == wgpu::DeviceType::Cpu
-        || adapter_name.contains("warp")
-        || adapter_name.contains("microsoft basic render driver")
+        || (windows
+            && (adapter_name.contains("warp")
+                || adapter_name.contains("microsoft basic render driver")))
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -10911,15 +10918,42 @@ mod tests {
     }
 
     #[test]
-    fn native_software_auto_selection_preserves_platform_hardware_and_explicit_choices() {
-        use wgpu::DeviceType::{Cpu, IntegratedGpu};
+    fn linux_auto_uses_software_for_cpu_adapters() {
+        assert!(should_auto_select_native_software(
+            RendererRequest::Auto,
+            false,
+            wgpu::DeviceType::Cpu,
+            "llvmpipe (LLVM 15.0.6, 128 bits)"
+        ));
+    }
+
+    #[test]
+    fn native_software_auto_selection_preserves_hardware_and_explicit_choices() {
+        use wgpu::DeviceType::{Cpu, DiscreteGpu, IntegratedGpu};
 
         assert!(!should_auto_select_native_software(
             RendererRequest::Auto,
             false,
-            Cpu,
+            IntegratedGpu,
             "Microsoft Basic Render Driver"
         ));
+        for device_type in [IntegratedGpu, DiscreteGpu] {
+            assert!(!should_auto_select_native_software(
+                RendererRequest::Auto,
+                false,
+                device_type,
+                "Linux hardware adapter"
+            ));
+        }
+        for request in [
+            RendererRequest::NativeVelloGpu,
+            RendererRequest::NativeVelloCpu,
+            RendererRequest::NativeSoftware,
+        ] {
+            assert!(!should_auto_select_native_software(
+                request, false, Cpu, "llvmpipe"
+            ));
+        }
         assert!(!should_auto_select_native_software(
             RendererRequest::Auto,
             true,
