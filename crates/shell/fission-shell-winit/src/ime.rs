@@ -122,6 +122,10 @@ struct ImeHandlerState {
     ime_allowed_requested: bool,
     #[cfg(target_os = "macos")]
     mac_view_id: Option<usize>,
+    /// What the application asked the browser to keep, read from the window
+    /// before any text field took focus.
+    #[cfg(target_arch = "wasm32")]
+    app_browser_defaults: Option<winit::platform::web::BrowserDefaults>,
 }
 
 #[derive(Default)]
@@ -133,6 +137,10 @@ impl DesktopImeHandler {
     pub fn set_window(&self, window: Option<Arc<Window>>) {
         let mut state = self.state.lock().expect("ime handler lock poisoned");
         state.window = window;
+        #[cfg(target_arch = "wasm32")]
+        {
+            state.app_browser_defaults = None;
+        }
         sync_text_input_config(&mut state);
     }
 
@@ -214,7 +222,63 @@ impl ImeHandler for DesktopImeHandler {
     }
 }
 
+/// Keeps the keyboard with Fission while a text field is being edited.
+///
+/// An application can hand the keyboard to the browser, so that reload, find
+/// and the address bar keep their shortcuts. On the Web, text is edited
+/// through a hidden browser text area. With the keyboard handed over, the
+/// browser applies every key to that text area itself and reports the result,
+/// and Fission applies the same key from its key-down as well: a letter typed
+/// once arrived twice, one Backspace deleted two characters, and an arrow
+/// moved the caret two places.
+///
+/// So while a field is being edited, Fission keeps the keyboard and applies
+/// each key once. When editing ends, what the application asked for is
+/// restored.
+#[cfg(target_arch = "wasm32")]
+fn sync_browser_keyboard(state: &mut ImeHandlerState) {
+    use winit::platform::web::{BrowserDefaults, WindowExtWebSys};
+
+    let editing = effective_ime_allowed(
+        state.ime_allowed_requested,
+        state.text_input_config.as_ref(),
+    );
+    let Some(window) = state.window.as_ref() else {
+        return;
+    };
+    let app = *state
+        .app_browser_defaults
+        .get_or_insert_with(|| window.browser_defaults());
+    let wanted = match editing && app.contains(BrowserDefaults::KEYBOARD) {
+        true => without_keyboard(app),
+        false => app,
+    };
+    if window.browser_defaults() != wanted {
+        window.set_browser_defaults(wanted);
+    }
+}
+
+/// `defaults` with the keyboard taken back from the browser.
+#[cfg(target_arch = "wasm32")]
+fn without_keyboard(
+    defaults: winit::platform::web::BrowserDefaults,
+) -> winit::platform::web::BrowserDefaults {
+    use winit::platform::web::BrowserDefaults;
+    [
+        BrowserDefaults::POINTER,
+        BrowserDefaults::TOUCH,
+        BrowserDefaults::WHEEL,
+        BrowserDefaults::CONTEXT_MENU,
+        BrowserDefaults::CLIPBOARD,
+    ]
+    .into_iter()
+    .filter(|flag| defaults.contains(*flag))
+    .fold(BrowserDefaults::NONE, |kept, flag| kept | flag)
+}
+
 fn sync_text_input_config(state: &mut ImeHandlerState) {
+    #[cfg(target_arch = "wasm32")]
+    sync_browser_keyboard(state);
     if let Some(window) = state.window.as_ref() {
         window.set_ime_allowed(effective_ime_allowed(
             state.ime_allowed_requested,
