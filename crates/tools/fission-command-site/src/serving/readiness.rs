@@ -278,10 +278,10 @@ fn get_local_asset(
         bail!("asset HTTP headers exceed 16 KiB");
     }
     let headers = std::str::from_utf8(&response[..split])?;
-    if !headers
+    if headers
         .lines()
         .next()
-        .is_some_and(|line| line.split_whitespace().nth(1) == Some("200"))
+        .is_none_or(|line| line.split_whitespace().nth(1) != Some("200"))
     {
         bail!("required asset did not return HTTP 200");
     }
