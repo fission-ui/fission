@@ -570,7 +570,7 @@ fn serve_static_test_request(mut stream: TcpStream, root: &Path) -> Result<()> {
         .unwrap_or("/");
     if method == "POST" && path == "/__fission/renderer" {
         stream.write_all(
-            b"HTTP/1.1 204 No Content\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+            b"HTTP/1.1 204 No Content\r\nCross-Origin-Opener-Policy: same-origin\r\nCross-Origin-Embedder-Policy: require-corp\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
         )?;
         return Ok(());
     }
@@ -589,7 +589,7 @@ fn serve_static_test_request(mut stream: TcpStream, root: &Path) -> Result<()> {
         ("404 Not Found", "text/plain", b"not found".to_vec())
     };
     let header = format!(
-        "HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        "HTTP/1.1 {status}\r\nCross-Origin-Opener-Policy: same-origin\r\nCross-Origin-Embedder-Policy: require-corp\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
         body.len()
     );
     stream.write_all(header.as_bytes())?;
@@ -2395,6 +2395,14 @@ mod tests {
         let index = ureq::get(&format!("{}/", server.base_url()))
             .call()
             .expect("fetch index");
+        assert_eq!(
+            index.header("cross-origin-opener-policy"),
+            Some("same-origin")
+        );
+        assert_eq!(
+            index.header("cross-origin-embedder-policy"),
+            Some("require-corp")
+        );
         assert_eq!(index.into_string().expect("read index"), "ready");
         let module = ureq::get(&format!("{}/bootstrap.mjs", server.base_url()))
             .call()
@@ -2402,6 +2410,14 @@ mod tests {
         assert_eq!(
             module.header("content-type"),
             Some("text/javascript; charset=utf-8")
+        );
+        assert_eq!(
+            module.header("cross-origin-opener-policy"),
+            Some("same-origin")
+        );
+        assert_eq!(
+            module.header("cross-origin-embedder-policy"),
+            Some("require-corp")
         );
         assert_eq!(
             module.into_string().expect("read module"),
@@ -2429,6 +2445,14 @@ mod tests {
             .send_string(r#"{"active":"canvas2d-software"}"#)
             .expect("post renderer diagnostics");
         assert_eq!(response.status(), 204);
+        assert_eq!(
+            response.header("cross-origin-opener-policy"),
+            Some("same-origin")
+        );
+        assert_eq!(
+            response.header("cross-origin-embedder-policy"),
+            Some("require-corp")
+        );
 
         drop(server);
         fs::remove_dir_all(root).expect("remove test root");
