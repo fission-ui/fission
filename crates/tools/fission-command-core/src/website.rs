@@ -49,7 +49,6 @@ pub(crate) fn scaffold(
     doc["site"]["favicon"] = value("app-icon.png");
     doc["site"]["search"]["enabled"] = value(false);
     write_file(&path, &doc.to_string())?;
-    println!("Website ready. Read WEBSITE.md for checks, preview, routing, and GitHub Pages preparation. No website has been published.");
     Ok(())
 }
 

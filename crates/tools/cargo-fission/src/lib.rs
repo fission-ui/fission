@@ -58,13 +58,20 @@ where
             app_id,
             local_path,
             website_template,
-        } => fission_command_core::init_project_with_website_template(
-            &path,
-            name,
-            app_id,
-            local_path,
-            website_template,
-        ),
+        } => {
+            fission_command_core::init_project_with_website_template(
+                &path,
+                name,
+                app_id,
+                local_path,
+                website_template,
+            )?;
+            if website_template {
+                println!("Website ready. Read WEBSITE.md for checks, serving, routing, and GitHub Pages preparation. No website has been published.");
+            }
+            println!("Immediately read generated AGENTS.md (or AGENTS.fission.md beside user instructions) and its linked guidance before editing. Keep fission.toml; change targets with fission add-target.");
+            Ok(())
+        }
         Command::AddTarget {
             targets,
             project_dir,

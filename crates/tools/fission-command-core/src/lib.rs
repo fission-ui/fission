@@ -481,7 +481,6 @@ pub fn init_project_with_website_template(
     if website_template {
         website::scaffold(root, &project, local_path.as_deref(), write_policy)?;
     }
-    println!("Immediately read generated AGENTS.md (or AGENTS.fission.md beside user instructions) and its linked guidance before editing. Keep fission.toml; change targets with fission add-target.");
 
     Ok(())
 }
