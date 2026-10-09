@@ -1,5 +1,48 @@
 # Application guidance validation
 
+## Review corrections validated on 2026-10-09
+
+The main-based branch now bundles guidance version 3. Three additive commits
+address the review boundaries: `31e18bad` preserves lexical caller paths and Git
+ancestry, `6a0f1cef` restores target-neutral shared application rules with safe
+v2 migration, and `c20cf9c8` returns typed installation facts from silent core
+execution and renders only at the CLI boundary.
+
+The corrected packages pass **117 tests**: 86 command-core, 27 CLI library and
+four CLI integration tests. New coverage includes relative and mapped/symlinked
+paths, intermediate instruction ancestors, v2 migration and whole-bundle conflict
+preservation, shared-reference links, and typed installation/fallback facts.
+Mapped paths were exercised through Unix symlinks; native Windows/WebDAV execution
+was not performed.
+
+A disposable checkout combined this corrected head with #261 at
+`101f8a05800d98b6224bf078420a1b37dccf2c41`. The
+[process regression](fixtures/guidance-cli-integration.rs) passed for both human
+and JSON init. Parsing all stdout as one `fission.cli-result.v1` envelope rejects
+stray prose. The test verifies root, intermediate, nested and managed-fallback
+instruction paths, existing shared/Web references, preserved customized files
+and generated configuration.
+
+This combination required explicit merge resolutions; it is not a claim that the
+branches merge automatically. Keep both CLI modules, preserve #264's argument
+parsing plus #261's retry argv, select #261's init renderer dispatch, and return
+#264's installation from the setup authority. The tested integration adds an
+optional `Data.guidance: Option<GuidanceInstallation>` and copies
+`installation.guidance.instruction_paths` into `Data.instructions`. Only the
+human renderer calls `print_installation`; JSON serializes the returned facts.
+Keep the v3 generated assets and union dependency entries without duplicates.
+The typed installation unit test then unwraps `Data.guidance`. Copy the fixture
+into `cargo-fission/tests/guidance_combined.rs` after resolving this integration
+and run `cargo test -p cargo-fission --test guidance_combined --locked`.
+
+These integration adaptations and #261 itself are not imported into this focused
+PR. Standalone skills check/update retain their existing domain schema. No
+combined build/serving/visual-test result or full-stack merge is claimed here.
+The previous Web pixel limitation below remains; these corrections do not change
+the renderer or establish Web appearance correctness.
+
+## Original validation
+
 Validated on 2026-10-08 against public main
 `9ba39c6554fd340127e52df2d40d4e0e1e2b50b8` with CLI/API version 0.15.1,
 guidance version 2 and manifest schema 1. This branch does not depend on pending
