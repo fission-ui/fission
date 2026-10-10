@@ -225,7 +225,7 @@ with (out/'app.log').open('wb') as log:
             assert time.monotonic() < deadline, 'resized title-bar layout did not settle'
             time.sleep(.1)
         # Native resize configuration can precede the retained paint settling.
-        time.sleep(.5)
+        time.sleep(2)
         command('WaitForIdle', timeout_ms=5000, ignore_repeating_motion=True)
         command('Screenshot', path=str(out/'narrow.png'))
         report['narrow_controls'] = []

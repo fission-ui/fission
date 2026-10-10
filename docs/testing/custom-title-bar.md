@@ -72,7 +72,8 @@ Assertions:
 8. A native corner drag resizes the undecorated window.
 9. A native resize to 400px keeps the note value and all window buttons inside
    the window bounds. Wait for the resized layout before querying/capturing it;
-   the semantic visibility flag alone does not reject offscreen overflow.
+   the semantic visibility flag alone does not reject offscreen overflow. The
+   VM capture also allows two seconds for native resize presentation to settle.
 10. Minimize sets the compositor's minimized state; compositor restoration makes
    the window usable again.
 11. Close exits successfully within ten seconds.
