@@ -16,7 +16,8 @@ shutdown cancellation, default decorations, button capture across focus-ring
 changes, and native control keys carrying
 text. The focus-ring regression fails on the previous implementation: the press
 rebuild renumbers the text hit target, so release cancels the click. The ring now
-uses an explicit derived identity. Tab/Enter/Escape must keep their key identity even when a native backend
+uses an explicit derived identity and a pointer-transparent wrapper so a press
+on button padding also retains the underlying target. Tab/Enter/Escape must keep their key identity even when a native backend
 attaches control text; literal Space must activate an ordinary button while
 remapped, printable keyboard-layout output remains authoritative.
 
@@ -60,14 +61,15 @@ Assertions:
 2. Native typing updates the embedded note without moving the window.
 3. The ordinary Increment button updates app state.
 4. Shift+Tab reaches Maximize; Enter maximizes. The compositor state and app's
-   observed state/Restore label agree; a native Restore click leaves maximization.
+   observed state/Restore label agree; a native click on Restore button padding leaves maximization.
 5. Native Space toggles Maximize/Restore and a literal space appears in the note.
 6. A native title-area press/motion moves the window without resizing it.
 7. Native double-clicks maximize and restore.
 8. A native corner drag resizes the undecorated window.
-9. Minimize sets the compositor's minimized state; compositor restoration makes
+9. A native resize to 400px keeps the note value and all window buttons visible.
+10. Minimize sets the compositor's minimized state; compositor restoration makes
    the window usable again.
-10. Close exits successfully within ten seconds.
+11. Close exits successfully within ten seconds.
 
 ## Coverage boundary
 
@@ -82,12 +84,13 @@ from this feature's compositor-state assertions.
 ## Verified VM run
 
 Ubuntu 25.10, GNOME/Mutter 49, native Wayland, an ARM64 Linux VM and
-Mesa/llvmpipe. All ten assertions passed with real OS input. The initial native
+Mesa/llvmpipe. All eleven assertions passed with real OS input. The initial native
 window was 800×600 at (112, 100); keyboard maximization produced 1024×736
 at (0, 32). The title drag moved the restored window to (142, 110) without
-changing its size. Corner resize produced 840×620, and minimize was observed as
+changing its size. Corner resize produced 840×620, then the example wrapped its controls at 400×470 while retaining the note.
+Minimize was observed as
 `true` before compositor restoration. Native Close exited with status 0.
 
-Initial, typed, maximized and resized captures were inspected. The probe also
+Initial, typed, maximized, resized and 400px captures were inspected. The probe also
 exposed and rejected native Tab/Enter text routing and the focus-ring capture
 bug before their corrections. The checked-in tests preserve both regressions.

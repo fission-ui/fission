@@ -5,7 +5,7 @@ use fission_core::{
     ActionEnvelope, ActionId, Env, GlobalState, InputEvent, LayoutPoint, LayoutRect, LayoutSize,
     LayoutSnapshot, PointerButton, PointerEvent, Runtime, TextEditSource, Widget, WidgetId,
 };
-use fission_ir::CoreIR;
+use fission_ir::{CoreIR, Op, PaintOp};
 use fission_layout::LayoutNodeGeometry;
 
 #[derive(Debug, Default)]
@@ -25,11 +25,16 @@ fn scene(widget: &Widget, runtime: &Runtime) -> (CoreIR, LayoutSnapshot) {
     cx.set_root(root);
     let ir = cx.into_ir();
     let mut layout = LayoutSnapshot::new(LayoutSize::new(100.0, 40.0));
-    for id in ir.nodes.keys() {
+    for (id, node) in &ir.nodes {
+        let rect = if matches!(node.op, Op::Paint(PaintOp::DrawRichText { .. })) {
+            LayoutRect::new(30.0, 10.0, 40.0, 20.0)
+        } else {
+            LayoutRect::new(0.0, 0.0, 100.0, 40.0)
+        };
         layout.nodes.insert(
             *id,
             LayoutNodeGeometry {
-                rect: LayoutRect::new(0.0, 0.0, 100.0, 40.0),
+                rect,
                 content_size: LayoutSize::new(100.0, 40.0),
             },
         );
@@ -37,8 +42,7 @@ fn scene(widget: &Widget, runtime: &Runtime) -> (CoreIR, LayoutSnapshot) {
     (ir, layout)
 }
 
-#[test]
-fn clicking_a_keyboard_focused_button_dispatches_after_the_press_rebuild() -> anyhow::Result<()> {
+fn click_after_keyboard_focus(point: LayoutPoint) -> anyhow::Result<()> {
     let id = WidgetId::explicit("restore");
     let widget: Widget = Button {
         id: Some(id),
@@ -57,7 +61,6 @@ fn clicking_a_keyboard_focused_button_dispatches_after_the_press_rebuild() -> an
     runtime.set_focused_widget(&ir, Some(id), TextEditSource::Keyboard)?;
     assert!(runtime.runtime_state.interaction.is_focus_visible(id));
     let (ir, layout) = scene(&widget, &runtime);
-    let point = LayoutPoint::new(50.0, 20.0);
     runtime.handle_input(
         InputEvent::Pointer(PointerEvent::Down {
             pointer_id: Default::default(),
@@ -85,4 +88,14 @@ fn clicking_a_keyboard_focused_button_dispatches_after_the_press_rebuild() -> an
     )?;
     assert_eq!(runtime.get_app_state::<State>().unwrap().0, 1);
     Ok(())
+}
+
+#[test]
+fn clicking_a_keyboard_focused_button_dispatches_after_the_press_rebuild() -> anyhow::Result<()> {
+    click_after_keyboard_focus(LayoutPoint::new(50.0, 20.0))
+}
+
+#[test]
+fn clicking_button_padding_after_keyboard_focus_does_not_capture_the_ring() -> anyhow::Result<()> {
+    click_after_keyboard_focus(LayoutPoint::new(4.0, 20.0))
 }

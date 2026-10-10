@@ -107,13 +107,14 @@ def node(identifier):
     assert len(matches) == 1, (identifier, matches)
     return matches[0]
 
-def click_control(identifier):
+def click_control(identifier, padding=False):
     # Force a native enter/motion after a compositor move/resize as well as a
     # capability change; a stationary newly created virtual seat has no motion.
     move_pointer(20, 16)
     control = node(identifier)
     frame = window_state()
-    click(frame['x']+control['x']+control['width']/2, frame['y']+control['y']+control['height']/2)
+    click(frame['x']+control['x']+(4 if padding else control['width']/2),
+          frame['y']+control['y']+control['height']/2)
 
 def title_point():
     region = node('window.drag')
@@ -174,7 +175,7 @@ with (out/'app.log').open('wb') as log:
         command('WaitForText', text='Window maximized', timeout_ms=5000)
         assert node('window.maximize')['label'] == 'Restore'
         command('Screenshot', path=str(out/'maximized.png'))
-        click_control('window.maximize')
+        click_control('window.maximize', padding=True)
         restored = wait_state(lambda s: not s['maximized'])
         command('WaitForText', text='Window restored', timeout_ms=5000)
         report['checks'].append('keyboard maximize, observed state, and native restore button')
@@ -211,6 +212,15 @@ with (out/'app.log').open('wb') as log:
         report['states']['resized'] = resized
         command('Screenshot', path=str(out/'resized.png'))
         report['checks'].append('native borderless corner resize')
+
+        drag(resized['x']+resized['width']-2,
+             resized['y']+resized['height']-2, -440, -150)
+        report['states']['narrow'] = wait_state(lambda s: s['width'] == 400)
+        command('Screenshot', path=str(out/'narrow.png'))
+        for identifier in ['window.note', 'window.minimize', 'window.maximize', 'window.close']:
+            assert node(identifier)['visibility'] == 'FullyVisible', (identifier, node(identifier))
+        assert node('window.note')['value'] == 'hello world'
+        report['checks'].append('400px desktop keeps note and window buttons usable')
 
         click_control('window.minimize')
         report['states']['minimized'] = wait_state(lambda s: s['minimized'])

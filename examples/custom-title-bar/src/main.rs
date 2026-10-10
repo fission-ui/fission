@@ -5,6 +5,7 @@ mod app;
 mod state;
 mod title_bar;
 mod window_button;
+mod window_buttons;
 
 fn main() -> anyhow::Result<()> {
     let mut env = Env::default();

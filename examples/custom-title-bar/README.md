@@ -22,7 +22,9 @@ submitted; the window manager can apply its own policy.
 The Maximize/Restore label reads `view.env().window.maximized`, the state observed
 from the native window. Tab and Shift+Tab navigate controls; Enter or Space
 activates the focused button. The example uses built-in Fluent tokens and
-English/Spanish translation bundles.
+English/Spanish translation bundles. Set `env.locale = Locale::from("es-ES")`
+before `.with_env(env)` to select Spanish. The title bar wraps its button group
+at narrow window widths while retaining the note field and its value.
 
 Undecorated, resizable Linux and Windows windows request native edge/corner
 resize within a five-logical-pixel border. Keep controls padded inside that

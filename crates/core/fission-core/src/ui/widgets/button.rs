@@ -10,7 +10,7 @@ use crate::{ActionEnvelope, Env, InteractionStateMap};
 use fission_ir::{
     op::{BoxShadow, Color as IrColor, Fill, LayoutOp, Op, PaintOp, Stroke},
     ActionEntry, ActionSet, CompositeScalar, CompositeStyle, FocusPolicy, Role, Semantics,
-    TextFieldValidationState, WidgetId,
+    StructuralOp, TextFieldValidationState, WidgetId,
 };
 use fission_theme::{
     ButtonHierarchy, ComponentMotion, ComponentSize, ComponentState, ComponentStateStyles,
@@ -1709,7 +1709,13 @@ impl Lower for Button {
                     }),
                 )
                 .build(cx);
-                button_builder.add_child(focus_ring_id);
+                // Decorative paint must not capture a press on button padding.
+                let mut transparent = IrBuilder::new(
+                    WidgetId::derived(final_id.as_u128(), &[0xBC04]),
+                    Op::Structural(StructuralOp::PointerTransparent { stable_hash: 0 }),
+                );
+                transparent.add_child(focus_ring_id);
+                button_builder.add_child(transparent.build(cx));
             }
 
             let content_id = if let Some(content) = &self.icon_content {

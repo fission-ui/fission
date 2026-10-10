@@ -52,7 +52,18 @@ fn direct_rects(ir: &CoreIR, layout_id: WidgetId) -> Vec<RectPaint> {
     ir.nodes[&layout_id]
         .children
         .iter()
-        .filter_map(|id| match &ir.nodes[id].op {
+        .flat_map(|id| {
+            let node = &ir.nodes[id];
+            if matches!(
+                node.op,
+                Op::Structural(fission_ir::StructuralOp::PointerTransparent { .. })
+            ) {
+                node.children.clone()
+            } else {
+                vec![*id]
+            }
+        })
+        .filter_map(|id| match &ir.nodes[&id].op {
             Op::Paint(PaintOp::DrawRect {
                 fill,
                 stroke,
