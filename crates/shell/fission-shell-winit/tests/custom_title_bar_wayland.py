@@ -227,6 +227,7 @@ with (out/'app.log').open('wb') as log:
         # Native resize configuration can precede the retained paint settling.
         time.sleep(2)
         command('WaitForIdle', timeout_ms=5000, ignore_repeating_motion=True)
+        command('Pump')
         command('Screenshot', path=str(out/'narrow.png'))
         report['narrow_controls'] = []
         for identifier in ['window.note', 'window.minimize', 'window.maximize', 'window.close']:
