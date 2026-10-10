@@ -43,6 +43,10 @@ pub struct BrowserTestOptions {
     pub cdp_port: Option<u16>,
     pub viewport_width: u32,
     pub viewport_height: u32,
+    /// Browser device-pixel ratio used for input and rendering emulation.
+    pub device_scale_factor: f64,
+    /// Enables Chromium's mobile viewport and touch-device behavior.
+    pub mobile: bool,
     pub prefers_reduced_motion: bool,
     pub timeout_ms: u64,
     pub screenshot_path: Option<PathBuf>,
@@ -58,6 +62,8 @@ impl BrowserTestOptions {
             cdp_port: None,
             viewport_width: 1280,
             viewport_height: 900,
+            device_scale_factor: 1.0,
+            mobile: false,
             prefers_reduced_motion: false,
             timeout_ms: 60_000,
             screenshot_path: None,
@@ -77,6 +83,13 @@ impl BrowserTestOptions {
     /// Emulates the user's reduced-motion preference in the launched browser.
     pub fn reduced_motion(mut self) -> Self {
         self.prefers_reduced_motion = true;
+        self
+    }
+
+    /// Emulates a mobile browser viewport at the supplied device-pixel ratio.
+    pub fn mobile(mut self, device_scale_factor: f64) -> Self {
+        self.device_scale_factor = device_scale_factor;
+        self.mobile = true;
         self
     }
 }
@@ -178,8 +191,8 @@ impl BrowserController {
             json!({
                 "width": options.viewport_width,
                 "height": options.viewport_height,
-                "deviceScaleFactor": 1,
-                "mobile": false
+                "deviceScaleFactor": options.device_scale_factor,
+                "mobile": options.mobile
             }),
         )?;
         if options.prefers_reduced_motion {
@@ -254,6 +267,71 @@ impl BrowserController {
             .pointer("/result/value")
             .cloned()
             .context("browser evaluation returned no JSON value")
+    }
+
+    pub(crate) fn touch_selector(
+        &mut self,
+        query: SelectorQuery,
+        relative_x: f32,
+        relative_y: f32,
+    ) -> Result<TestResponse> {
+        ensure_response_ok(self.send_bridge_command(TestCommand::ScrollIntoView {
+            query: query.clone().include_hidden(),
+        })?)?;
+        ensure_response_ok(self.send_bridge_command(TestCommand::Pump {})?)?;
+        let response = self.send_bridge_command(TestCommand::ResolveSelector { query })?;
+        let TestResponse::SelectorResolved { node } = response else {
+            return Ok(response);
+        };
+        let bounds = node.visible_bounds.unwrap_or(node.logical_bounds);
+        let (offset_x, offset_y) = self.canvas_viewport_offset()?;
+        let x = offset_x + f64::from(bounds.x + bounds.width * relative_x);
+        let y = offset_y + f64::from(bounds.y + bounds.height * relative_y);
+        self.client.send(
+            "Emulation.setTouchEmulationEnabled",
+            json!({ "enabled": true, "maxTouchPoints": 1 }),
+        )?;
+        self.client.send(
+            "Input.dispatchTouchEvent",
+            json!({
+                "type": "touchStart",
+                "touchPoints": [{ "x": x, "y": y, "id": 1 }]
+            }),
+        )?;
+        self.client.send(
+            "Input.dispatchTouchEvent",
+            json!({ "type": "touchEnd", "touchPoints": [] }),
+        )?;
+        ensure_response_ok(self.send_bridge_command(TestCommand::Pump {})?)?;
+        Ok(TestResponse::Ok {})
+    }
+
+    pub(crate) fn wheel_selector(
+        &mut self,
+        query: SelectorQuery,
+        delta_x: f64,
+        delta_y: f64,
+    ) -> Result<TestResponse> {
+        let response = self.send_bridge_command(TestCommand::ResolveSelector { query })?;
+        let TestResponse::SelectorResolved { node } = response else {
+            return Ok(response);
+        };
+        let bounds = node.visible_bounds.unwrap_or(node.logical_bounds);
+        let (offset_x, offset_y) = self.canvas_viewport_offset()?;
+        let x = offset_x + f64::from(bounds.x + bounds.width * 0.5);
+        let y = offset_y + f64::from(bounds.y + bounds.height * 0.5);
+        self.client.send(
+            "Input.dispatchMouseEvent",
+            json!({
+                "type": "mouseWheel",
+                "x": x,
+                "y": y,
+                "deltaX": delta_x,
+                "deltaY": delta_y
+            }),
+        )?;
+        ensure_response_ok(self.send_bridge_command(TestCommand::Pump {})?)?;
+        Ok(TestResponse::Ok {})
     }
 
     pub(crate) fn send_test_command(&mut self, command: TestCommand) -> Result<TestResponse> {

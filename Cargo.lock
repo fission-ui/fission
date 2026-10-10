@@ -3616,9 +3616,9 @@ dependencies = [
 
 [[package]]
 name = "fission-winit"
-version = "0.30.13-fission.3"
+version = "0.30.13-fission.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3b8a28d630be05dfb16c51b24e5134f0a07142c5f6be07a529ffcb852e1b6b17"
+checksum = "6a190926b9870d28d221c6da25237ff3279a8b4fb2a3e7dcb2034102bfe406c1"
 dependencies = [
  "ahash",
  "android-activity",

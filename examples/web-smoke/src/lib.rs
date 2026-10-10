@@ -14,6 +14,9 @@ fn web_app() -> WebApp<CounterState, CounterApp> {
     WebApp::<CounterState, _>::new(CounterApp)
         .with_title("Fission Web Smoke")
         .mount("#fission-web-mount")
+        // Exercise the browser-owned keyboard-default path as well as
+        // Fission's default prevented-key path.
+        .with_browser_defaults(BrowserDefaults::KEYBOARD)
 }
 
 #[cfg(any(target_os = "android", target_os = "ios"))]

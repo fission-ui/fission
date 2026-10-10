@@ -275,3 +275,33 @@ fn hover_follows_layout_changes_beneath_a_stationary_pointer() -> Result<()> {
     assert_eq!(hover.outer_exit, 0);
     Ok(())
 }
+
+#[test]
+fn compositor_only_frame_skips_stationary_pointer_hit_testing() -> Result<()> {
+    let mut runtime = Runtime::default();
+    register_hover_reducers(&mut runtime)?;
+    let (ir, layout) = build_hover_ir();
+    let inner_id = WidgetId::explicit("inner");
+
+    move_pointer(&mut runtime, &ir, &layout, 20.0, 20.0);
+    let mut moved = layout.clone();
+    moved.nodes.insert(
+        inner_id,
+        LayoutNodeGeometry {
+            rect: LayoutRect::new(60.0, 60.0, 30.0, 30.0),
+            content_size: LayoutSize::new(30.0, 30.0),
+        },
+    );
+
+    runtime.post_layout_hook_after_frame(&ir, &moved, false);
+
+    assert!(runtime.runtime_state.interaction.is_hovered(inner_id));
+    assert_eq!(
+        runtime
+            .get_app_state::<HoverState>()
+            .expect("hover state")
+            .inner_exit,
+        0
+    );
+    Ok(())
+}
