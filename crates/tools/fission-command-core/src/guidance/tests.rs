@@ -235,7 +235,7 @@ fn custom_root_fallback_and_nested_instructions_are_preserved() {
     let before = snapshot(&p.0);
     let r = update(&app);
     assert_eq!(r.status, Status::Updated);
-    assert_eq!(r.guidance_root, p.0);
+    assert_eq!(r.guidance_root, app);
     assert!(r
         .bundled
         .files
@@ -245,9 +245,8 @@ fn custom_root_fallback_and_nested_instructions_are_preserved() {
         assert_eq!(fs::read(p.0.join(path)).unwrap(), bytes);
     }
     assert!(r.instruction_paths.contains(&app.join("AGENTS.md")));
-    let text = fs::read_to_string(p.0.join(".fission/AGENTS.md")).unwrap();
-    assert!(p
-        .0
+    let text = fs::read_to_string(app.join(".fission/AGENTS.md")).unwrap();
+    assert!(app
         .join(".fission")
         .join(text.split("](").nth(1).unwrap().split(')').next().unwrap())
         .is_file());
@@ -506,7 +505,7 @@ fn v2_bundle_adds_shared_rules_and_conflicts_preserve_the_entire_old_bundle() {
             assert!(!p.0.join(SHARED_PATH).exists());
         } else {
             assert_eq!(r.status, Status::Updated);
-            assert_eq!(r.bundled.guidance_version, 3);
+            assert_eq!(r.bundled.guidance_version, GUIDANCE_VERSION);
             assert!(p.0.join(SHARED_PATH).is_file());
         }
     }
@@ -570,7 +569,7 @@ fn mapped_symlink_paths_use_lexical_git_ancestors_and_keep_reported_spelling() {
     let r = update(&alias);
     assert_eq!(r.status, Status::Updated);
     assert_eq!(r.project_dir, alias);
-    assert_eq!(r.guidance_root, mapped.0);
+    assert_eq!(r.guidance_root, alias);
     assert!(r
         .instruction_paths
         .contains(&mapped.0.join("apps/AGENTS.md")));
@@ -606,12 +605,12 @@ fn init_returns_all_instruction_and_available_asset_facts_without_rendering() {
     fs::write(app.join("AGENTS.fission.md"), "nested Fission policy").unwrap();
     let facts = crate::init_project(&app, Some("typed_fixture".into()), None, None).unwrap();
     assert_eq!(facts.guidance.status, Status::Updated);
-    assert_eq!(facts.shared_reference, Some(p.0.join(SHARED_PATH)));
-    assert_eq!(facts.web_router, Some(p.0.join(SKILL_PATH)));
+    assert_eq!(facts.shared_reference, Some(app.join(SHARED_PATH)));
+    assert_eq!(facts.web_router, Some(app.join(SKILL_PATH)));
     for path in [
         "AGENTS.md",
         "AGENTS.fission.md",
-        ".fission/AGENTS.md",
+        "apps/nested/.fission/AGENTS.md",
         "apps/AGENTS.md",
         "apps/nested/AGENTS.md",
         "apps/nested/AGENTS.fission.md",
@@ -621,7 +620,7 @@ fn init_returns_all_instruction_and_available_asset_facts_without_rendering() {
             "missing {path}"
         );
     }
-    fs::write(p.0.join(".fission/AGENTS.md"), "edited managed fallback").unwrap();
+    fs::write(app.join(".fission/AGENTS.md"), "edited managed fallback").unwrap();
     let before = snapshot(&p.0);
     let conflict = install_for_init(&app).unwrap();
     assert_eq!(conflict.guidance.status, Status::Conflict);
@@ -683,4 +682,88 @@ fn concurrent_destination_is_preserved_with_recovery_originals() {
         b"original"
     );
     assert_eq!(check(&p.0).status, Status::Conflict);
+}
+
+#[test]
+fn two_app_monorepo_keeps_versioned_guidance_and_ancestor_bytes_independent() {
+    let p = Project::new();
+    p.install(); // Existing repository-wide bundle from an earlier installation.
+    fs::write(
+        p.0.join("Cargo.toml"),
+        "[workspace]\nmembers = ['apps/current', 'apps/old']\n",
+    )
+    .unwrap();
+    fs::write(p.0.join("Cargo.lock"), "version = 4\n[[package]]\nname = 'fission'\nversion = '0.15.1'\nsource = 'registry+https://github.com/rust-lang/crates.io-index'\n[[package]]\nname = 'fission'\nversion = '0.14.0'\nsource = 'registry+https://github.com/rust-lang/crates.io-index'\n").unwrap();
+    let current = p.0.join("apps/current");
+    let old = p.0.join("apps/old");
+    for (app, version) in [(&current, "0.15.1"), (&old, "0.14.0")] {
+        fs::create_dir_all(app).unwrap();
+        fs::write(app.join("Cargo.toml"), format!("[package]\nname='fixture'\nversion='0.1.0'\n[dependencies]\nfission='={version}'\n")).unwrap();
+    }
+    let mut old_files = bundle("AGENTS.md");
+    for bytes in old_files.values_mut() {
+        *bytes = b"Existing guidance for Fission 0.14.0; preserve this app's APIs.\n".to_vec();
+    }
+    let mut old_manifest = manifest(&old_files);
+    old_manifest.cli_version = "0.14.0".into();
+    old_manifest.framework_api_version = "0.14.0".into();
+    old_manifest.guidance_version = 3;
+    for (path, bytes) in old_files {
+        let destination = old.join(path);
+        fs::create_dir_all(destination.parent().unwrap()).unwrap();
+        fs::write(destination, bytes).unwrap();
+    }
+    write_manifest(&old, &old_manifest);
+    let before = snapshot(&p.0);
+    let r = update(&current);
+    assert_eq!(r.status, Status::Updated, "{r:?}");
+    assert_eq!(r.guidance_root, current);
+    assert_eq!(check(&current).status, Status::Healthy);
+    for (path, bytes) in &before {
+        assert_eq!(
+            fs::read(p.0.join(path)).unwrap(),
+            *bytes,
+            "changed unrelated {path:?}"
+        );
+    }
+    let installed = snapshot(&p.0);
+    let rejected = update(&old);
+    assert_eq!(rejected.status, Status::Conflict);
+    assert_eq!(
+        rejected.framework_dependency.compatibility,
+        Compatibility::VersionMismatch
+    );
+    assert!(rejected
+        .findings
+        .iter()
+        .any(|f| f.kind == FindingKind::FrameworkMismatch));
+    assert_eq!(snapshot(&p.0), installed);
+    assert_eq!(update(&current).status, Status::Updated);
+    assert_eq!(snapshot(&p.0), installed);
+}
+
+#[test]
+fn mismatched_pin_without_lockfile_cannot_install_wrong_api_guidance() {
+    let p = Project::new();
+    fs::write(
+        p.0.join("Cargo.toml"),
+        "[dependencies]\nfission='=0.14.0'\n",
+    )
+    .unwrap();
+    let before = snapshot(&p.0);
+    assert_eq!(update(&p.0).status, Status::Conflict);
+    assert_eq!(snapshot(&p.0), before);
+    assert!(!p.0.join(MANIFEST_PATH).exists());
+}
+
+#[test]
+fn exact_v3_app_router_migrates_without_claiming_parent_guidance() {
+    let p = Project::new();
+    fs::write(
+        p.0.join("AGENTS.md"),
+        render_version(LEGACY_V3, true, "AGENTS.md", 3),
+    )
+    .unwrap();
+    p.install();
+    assert_eq!(check(&p.0).bundled.guidance_version, 4);
 }

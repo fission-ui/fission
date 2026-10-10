@@ -11,7 +11,7 @@ mod version;
 pub use version::{Compatibility, FrameworkDependency};
 
 pub const SCHEMA_VERSION: u32 = 1;
-pub const GUIDANCE_VERSION: u32 = 3;
+pub const GUIDANCE_VERSION: u32 = 4;
 /// API revision reviewed for these maintained assets; independent of CLI packaging.
 pub const FRAMEWORK_API_VERSION: &str = "0.15.1";
 pub const MANIFEST_PATH: &str = ".fission/guidance-manifest.json";
@@ -20,6 +20,7 @@ const SKILL_PATH: &str = ".fission/skills/fission-web/SKILL.md";
 const SHARED_PATH: &str = ".fission/references/shared-app.md";
 const LEGACY: &str = include_str!("../assets/legacy/AGENTS-v1.md");
 const LEGACY_V2: &str = include_str!("../assets/legacy/AGENTS-v2.md");
+const LEGACY_V3: &str = include_str!("../assets/legacy/AGENTS-v3.md");
 const ROUTER: &str = include_str!("../assets/AGENTS.md");
 const ASSETS: &[(&str, &str)] = &[
     (
@@ -88,6 +89,8 @@ pub struct FileFinding {
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum FindingKind {
+    FrameworkMismatch,
+    RepositoryGuidance,
     ManifestMissing,
     ManifestStale,
     ManifestInvalid,
@@ -329,6 +332,7 @@ fn generated_candidate(bytes: &[u8]) -> bool {
 fn known_instruction(bytes: &[u8], path: &str) -> bool {
     bytes == LEGACY.as_bytes()
         || bytes == render_version(LEGACY_V2, true, path, 2).as_bytes()
+        || bytes == render_version(LEGACY_V3, true, path, 3).as_bytes()
         || bytes == render(ROUTER, true, path).as_bytes()
 }
 
@@ -379,7 +383,8 @@ fn inspect(project: &Path, operation: &str) -> GuidanceResult {
         .as_ref()
         .cloned()
         .unwrap_or_else(|_| project.to_path_buf());
-    let root = super::find_git_root(&project).unwrap_or_else(|| project.clone());
+    // Asset ownership follows the selected app, never a repository-wide last writer.
+    let root = project.clone();
     let mut r = GuidanceResult {
         schema_version: SCHEMA_VERSION, operation: operation.into(), status: Status::NeedsAttention,
         project_dir: project.clone(), guidance_root: root.clone(), bundled: bundled_manifest(), installed: None,
@@ -414,6 +419,26 @@ fn inspect(project: &Path, operation: &str) -> GuidanceResult {
         );
         r.status = Status::Error;
         return r;
+    }
+    let api = semver::Version::parse(FRAMEWORK_API_VERSION).expect("bundled API version");
+    let declared_mismatch = r
+        .framework_dependency
+        .requested_version
+        .as_deref()
+        .and_then(|v| semver::VersionReq::parse(v).ok())
+        .is_some_and(|v| !v.matches(&api));
+    let local_version_mismatch = r
+        .framework_dependency
+        .resolved_version
+        .as_deref()
+        .and_then(|v| semver::Version::parse(v).ok())
+        .is_some_and(|v| v != api);
+    if r.framework_dependency.compatibility == Compatibility::VersionMismatch
+        || declared_mismatch
+        || local_version_mismatch
+    {
+        finding(&mut r, FindingKind::FrameworkMismatch, project.join("Cargo.toml"),
+            format!("This app does not match bundled framework API {FRAMEWORK_API_VERSION}. Use a CLI with matching guidance; no app or repository guidance will be updated."), true);
     }
     if let Err(e) = safe_destination(&root, TRANSACTION_PATH, true) {
         finding(
@@ -501,14 +526,30 @@ fn inspect(project: &Path, operation: &str) -> GuidanceResult {
         }
     }
     r.instruction_paths.push(root.join(&entry));
-    // Nested instructions are never managed by the Git-root bundle.
-    for ancestor in project.ancestors().take_while(|ancestor| *ancestor != root) {
-        for name in ["AGENTS.md", "AGENTS.fission.md"] {
-            let path = ancestor.join(name);
-            if fs::symlink_metadata(&path).is_ok() {
-                r.instruction_paths.push(path);
+    // Ancestor policy is reported but never owned or rewritten by this app.
+    let boundary = super::find_git_root(&project).unwrap_or_else(|| project.clone());
+    if boundary != project {
+        let app_instructions = std::mem::take(&mut r.instruction_paths);
+        let mut ancestors = Vec::new();
+        for ancestor in project.ancestors().skip(1) {
+            ancestors.push(ancestor);
+            if ancestor == boundary {
+                break;
             }
         }
+        for ancestor in ancestors.into_iter().rev() {
+            for name in INSTRUCTIONS {
+                let path = ancestor.join(name);
+                if fs::symlink_metadata(&path).is_ok() {
+                    r.instruction_paths.push(path);
+                }
+            }
+            if ancestor.join(MANIFEST_PATH).is_file() {
+                finding(&mut r, FindingKind::RepositoryGuidance, ancestor.join(MANIFEST_PATH),
+                    "Existing ancestor guidance is outside this app's ownership and stays unchanged. This app's managed entrypoint and bundle take precedence for its Fission API guidance; contributor policies still apply.".into(), false);
+            }
+        }
+        r.instruction_paths.extend(app_instructions);
     }
     for (path, bytes) in desired {
         let expected = hash(&bytes);

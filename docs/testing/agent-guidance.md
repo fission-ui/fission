@@ -1,5 +1,21 @@
 # Application guidance validation
 
+## Follow-up review corrections on 2026-10-10
+
+Guidance version 4 moves managed ownership to each selected app. Ancestor
+instruction files and any old repository-root bundle remain unchanged. Declared
+or resolved API version mismatches block update before writes; shared lockfile
+inspection filters by that app's requirement. New regressions cover two apps
+with different Fission versions, mismatch without a lockfile, distinct init
+output paths, and exact v3 entrypoint migration.
+
+Existing destinations are displaced before create-new publication, with
+originals/journal retained for rollback. Tests cover stale-file updates, failure
+after vacating a destination, and a concurrent destination that survives while
+recovery originals remain. A Windows CI job runs guidance tests on the actual
+platform. Previous validation below is historical and uses the old ownership
+contract; the combined #261 fixture must use the app-local fallback paths.
+
 ## Review corrections validated on 2026-10-09
 
 The main-based branch now bundles guidance version 3. Three additive commits
@@ -30,7 +46,7 @@ parsing plus #261's retry argv, select #261's init renderer dispatch, and return
 optional `Data.guidance: Option<GuidanceInstallation>` and copies
 `installation.guidance.instruction_paths` into `Data.instructions`. Only the
 human renderer calls `print_installation`; JSON serializes the returned facts.
-Keep the v3 generated assets and union dependency entries without duplicates.
+Keep the current generated assets and union dependency entries without duplicates.
 The typed installation unit test then unwraps `Data.guidance`. Copy the fixture
 into `cargo-fission/tests/guidance_combined.rs` after resolving this integration
 and run `cargo test -p cargo-fission --test guidance_combined --locked`.

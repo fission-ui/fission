@@ -136,7 +136,7 @@ fn nested_init_preserves_all_custom_instruction_files_and_reports_fallback() {
     ]);
     assert!(output.status.success(), "{output:?}");
     let text = String::from_utf8(output.stdout).unwrap();
-    assert!(text.contains(f.0.join(".fission/AGENTS.md").to_str().unwrap()));
+    assert!(text.contains(nested.join(".fission/AGENTS.md").to_str().unwrap()));
     assert!(text.contains(nested.join("AGENTS.md").to_str().unwrap()));
     for (path, expected) in [
         (f.0.join("AGENTS.md"), "root contributor policy"),
@@ -168,4 +168,32 @@ fn init_reports_unavailable_router_when_legacy_customization_blocks_installation
         instructions
     );
     assert!(!f.0.join(".fission/skills/fission-web/SKILL.md").exists());
+}
+
+#[test]
+fn two_nested_apps_report_distinct_guidance_roots_and_preserve_root_policy() {
+    let f = Fixture::new();
+    fs::write(f.0.join("AGENTS.md"), "repository contributor policy").unwrap();
+    for name in ["first", "second"] {
+        let app = f.0.join("apps").join(name);
+        let output = f.cli(&["init", app.to_str().unwrap(), "--name", name]);
+        assert!(output.status.success(), "{output:?}");
+        assert!(app.join("AGENTS.md").is_file());
+        assert!(app.join(".fission/guidance-manifest.json").is_file());
+        let checked = f.cli(&[
+            "skills",
+            "check",
+            "--project-dir",
+            app.to_str().unwrap(),
+            "--json",
+        ]);
+        let result: GuidanceResult = serde_json::from_slice(&checked.stdout).unwrap();
+        assert_eq!(result.guidance_root, app);
+        assert!(result.instruction_paths.contains(&f.0.join("AGENTS.md")));
+    }
+    assert_eq!(
+        fs::read_to_string(f.0.join("AGENTS.md")).unwrap(),
+        "repository contributor policy"
+    );
+    assert!(!f.0.join(".fission/guidance-manifest.json").exists());
 }

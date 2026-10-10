@@ -133,6 +133,11 @@ pub(super) fn inspect(project: &Path) -> FrameworkDependency {
     {
         return result(Compatibility::Unresolved, "overridden", requested, None, "Cargo patch/replace may change dependency source; inspect source and lockfile explicitly.");
     }
+    let api = semver::Version::parse(super::FRAMEWORK_API_VERSION).expect("bundled API version");
+    if !requirement.matches(&api) {
+        return result(Compatibility::VersionMismatch, "registry", requested, None,
+            "The app's declared requirement excludes the bundled framework API. Use a matching CLI; updating guidance cannot change the app dependency.");
+    }
     let local_lock = project.join("Cargo.lock");
     let lock = if local_lock.is_file() {
         Some(local_lock)
@@ -146,10 +151,25 @@ pub(super) fn inspect(project: &Path) -> FrameworkDependency {
         .and_then(|s| s.parse::<toml::Value>().ok())
         .and_then(|d| d.get("package").and_then(|p| p.as_array()).cloned())
         .unwrap_or_default();
-    let matches = packages
+    let named = packages
         .iter()
         .filter(|p| p.get("name").and_then(|v| v.as_str()) == Some("fission"))
         .collect::<Vec<_>>();
+    let mut matches = named
+        .iter()
+        .copied()
+        .filter(|p| {
+            p.get("version")
+                .and_then(|v| v.as_str())
+                .and_then(|v| semver::Version::parse(v).ok())
+                .is_some_and(|version| requirement.matches(&version))
+        })
+        .collect::<Vec<_>>();
+    // Preserve useful mismatch evidence for a sole locked package. A monorepo's
+    // unrelated Fission versions must not make this app's exact pin ambiguous.
+    if matches.is_empty() && named.len() == 1 {
+        matches = named;
+    }
     if matches.len() != 1 {
         return result(Compatibility::Unresolved, "registry", requested, None, "No unambiguous locked Fission package; requested version alone is not resolved compatibility evidence.");
     }
@@ -181,7 +201,6 @@ pub(super) fn inspect(project: &Path) -> FrameworkDependency {
             "Locked source is not the default published registry; inspect its APIs manually.",
         );
     }
-    let api = semver::Version::parse(super::FRAMEWORK_API_VERSION).expect("bundled API version");
     let compatible = requirement.matches(&version) && version == api;
     result(
         if compatible {

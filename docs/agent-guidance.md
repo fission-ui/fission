@@ -21,21 +21,25 @@ instructions. A missing asset can be created. An existing asset can be refreshed
 only if its bytes match the manifest's recorded SHA-256 or a known exact bundled
 template. A marker alone is never proof that a file is unmodified.
 
-The bundle lives at the existing Git-root instruction location (the project
-directory outside Git). Generated entrypoints are `AGENTS.md`, or
-`AGENTS.fission.md` when the former contains user/contributor instructions.
-When both are customized, init reports a managed `.fission/AGENTS.md` fallback.
-All custom root and nested instructions remain intact; read them alongside the
-reported fallback. Init does not append links to customized instructions.
+Each selected app owns its bundle, manifest and transaction under its own project
+root, including when multiple apps share a Git repository. Generated entrypoints
+are app-local `AGENTS.md`, or `AGENTS.fission.md` when the former contains user
+instructions. When both are customized, init reports an app-local
+`.fission/AGENTS.md` fallback. Ancestor contributor instructions remain applicable
+and are reported first; the app's own guidance follows. Init never appends links
+to customized files or rewrites a shared repository bundle. Existing repository
+assets are preserved rather than implicitly copied or deleted; run update for
+each app with its matching CLI.
+
 Project paths become absolute by joining the current directory; links and caller
-spelling are preserved. Git discovery walks lexical ancestors, including a mapped
-or symlinked caller namespace. Applicable instruction paths include intermediate
-ancestors down to the app. Managed destination components are still checked for
-symlinks/collisions; explicitly supplying a linked project root is supported.
+spelling are preserved. Git discovery is used only to report applicable lexical
+ancestors, including mapped/symlinked caller namespaces. Managed destination
+components remain checked for symlinks/collisions; an explicitly linked app root
+is supported.
 The skill is `.fission/skills/fission-web/SKILL.md`; its relative references
 resolve entirely inside the generated tree.
 
-`.fission/guidance-manifest.json` schema 1 records guidance version 3, CLI asset
+`.fission/guidance-manifest.json` schema 1 records guidance version 4, CLI asset
 version, framework API version, and relative managed paths with exact SHA-256s.
 The included maintained Markdown assets and a single Rust asset table generate
 the bundled manifest/hashes, so no second hand-maintained copy can drift.
@@ -50,7 +54,10 @@ carry the returned paths rather than rediscovering only root instruction names.
 
 The CLI package version describes the installed assets. The app dependency is
 reported separately from `Cargo.toml` and available local `Cargo.lock`.
-Only an unambiguous crates.io lockfile version matching the bundle API version
+Declared/resolved version mismatches block updates before writes. Each app uses
+its own requirement when inspecting a shared workspace lockfile; another app's
+Fission version does not select or replace its guidance.
+Only an unambiguous crates.io lockfile version matching the app requirement and bundle API version
 and the declared requirement gives `resolved_version_match` evidence.
 This still does not prove an app compiles or behaves correctly. A missing lock,
 workspace inheritance, patches, alternate sources, malformed versions and
@@ -71,7 +78,7 @@ Exit codes:
 | --- | --- |
 | Check: assets current and resolved matching framework version | 0 |
 | Check: missing/stale/customized assets, unknown/mismatched dependency or error | 1 |
-| Update: safe asset installation, even if dependency compatibility is unresolved | 0 |
+| Update: safe asset installation; unresolved source compatibility is reported | 0 |
 | Update: conflict/validation/write failure | 1 |
 | Malformed arguments | 2 (Clap diagnostics on stderr) |
 | Help/version | 0 |
@@ -85,7 +92,7 @@ Conflicts preserve bytes and block all managed-file writes. Back up the indicate
 file, explicitly merge its instructions, or move it aside after preserving user
 content, then rerun check/update. Do not delete a customized instruction merely
 to clear a conflict. Unmodified legacy v1 instructions migrate only when they
-match a bundled v1/v2 historical entrypoint template byte-for-byte; unknown/edited legacy
+match a bundled v1/v2/v3 historical entrypoint template byte-for-byte; unknown/edited legacy
 markers remain conflicts. Unrelated local skills are never claimed or removed.
 The manifest cannot claim arbitrary paths: only bundled asset paths and one
 known instruction entrypoint are accepted. Traversal, duplicate paths,

@@ -24,7 +24,7 @@ fn combined_init_returns_one_envelope_with_every_instruction_path() {
         let expected = [
             "AGENTS.md",
             "AGENTS.fission.md",
-            ".fission/AGENTS.md",
+            "apps/nested/.fission/AGENTS.md",
             "apps/AGENTS.md",
             "apps/nested/AGENTS.md",
             "apps/nested/AGENTS.fission.md",
