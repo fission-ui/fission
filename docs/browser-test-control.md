@@ -26,8 +26,10 @@ let png = client.capture_screenshot_png()?;
 
 The owned Chromium transport changes the host viewport in CSS pixels without
 reloading the page, so runtime state, route and page identity survive. Device
-scale remains 1. Each dimension must be 1–8192, with at most 16,777,216 pixels
-total. Invalid dimensions fail before dispatch. Static DOM sessions use
+scale and mobile mode retain their configured values (scale 1 and desktop mode
+by default). Each CSS dimension must be 1–8192, with at most 16,777,216 CSS pixels
+total. PNG dimensions include the configured scale. Invalid dimensions fail
+before dispatch. Static DOM sessions use
 `BrowserTestOptions::new(url)` and need no test bridge; their semantic/input
 commands remain unsupported. Native `simulate_resize` retains its logical
 viewport behavior. Raw Web `SimulateResize` returns an `Error` containing
