@@ -61,6 +61,11 @@ impl<'a> LoweringContext<'a> {
         self.runtime_state
     }
 
+    /// Marks a scroll node whose authored children depend on its live offset.
+    pub(crate) fn mark_scroll_build_dependency(&mut self, node_id: WidgetId) {
+        self.ir.scroll_build_dependencies.insert(node_id);
+    }
+
     /// The text measurer, when the host supplies one, for widgets that size
     /// themselves around text.
     pub fn measurer(&self) -> Option<&'a Arc<dyn TextMeasurer>> {
