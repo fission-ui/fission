@@ -240,6 +240,10 @@ impl Pipeline {
         self.viewport_state = viewport_state.clone();
     }
 
+    pub fn scroll_offsets_changed(&self, scroll_map: &ScrollStateMap) -> bool {
+        scroll_offsets_changed(&self.last_scroll_offsets, scroll_map)
+    }
+
     pub fn take_video_surfaces(&mut self) -> Vec<VideoSurfaceFrame> {
         std::mem::take(&mut self.video_surfaces)
     }
@@ -2668,7 +2672,6 @@ fn resolve_scalar_value(
         .unwrap_or(scalar.base)
 }
 
-#[cfg(test)]
 fn scroll_offsets_changed(prev: &HashMap<WidgetId, u32>, scroll_map: &ScrollStateMap) -> bool {
     if prev.len() != scroll_map.offsets.len() {
         return true;

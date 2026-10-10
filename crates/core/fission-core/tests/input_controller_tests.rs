@@ -3,6 +3,49 @@ mod support;
 use support::*;
 
 #[test]
+fn complete_value_reconciliation_does_not_redispatch_an_identical_edit() {
+    let node_id = WidgetId::derived(39, &[0]);
+    let ir = create_text_node(node_id, "typed", false);
+    let layout = LayoutSnapshot::new(LayoutSize::new(300.0, 40.0));
+    let mut text_edit = TextEditStateMap::default();
+    let mut interaction = InteractionStateMap::default();
+    let mut scroll = ScrollStateMap::default();
+    let mut gesture = fission_core::env::GestureState::default();
+    let clipboard: Arc<dyn Clipboard> = Arc::new(MockClipboard::new());
+    let measurer: Arc<dyn TextMeasurer> = Arc::new(MockTextMeasurer);
+
+    interaction.set_focused(Some(node_id));
+    text_edit.sync_from_runtime(node_id, "typed", None, None, false);
+    text_edit.set_caret(node_id, "typed".len(), Some("typed".len()));
+    let value = fission_core::TextEditingValue::new(
+        "typed",
+        fission_core::TextSelection::collapsed(fission_core::TextPosition::at_end("typed")),
+        None,
+    )
+    .unwrap();
+    let mut ctx = setup_ctx(
+        &ir,
+        &layout,
+        &mut text_edit,
+        &mut interaction,
+        &mut scroll,
+        &mut gesture,
+        &clipboard,
+        Some(&measurer),
+    );
+
+    assert!(TextInputController.handle_event(
+        &mut ctx,
+        &InputEvent::TextEdit(fission_core::TextEditCommand::SetValue {
+            value,
+            source: fission_core::TextEditSource::Keyboard,
+            phase: fission_core::TextValuePhase::Committed,
+        }),
+    ));
+    assert!(ctx.dispatched_actions.is_empty());
+}
+
+#[test]
 fn test_ime_preedit_tracks_cursor_without_dispatching_change() {
     let node_id = WidgetId::derived(40, &[0]);
     let ir = create_text_node(node_id, "hello world", false);

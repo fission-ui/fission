@@ -7,7 +7,10 @@ use fission_core::{
     hit_test::{hit_test_with_min_target, HitTargetPolicy},
     LayoutPoint, LayoutRect, LayoutSize, LayoutSnapshot, Runtime,
 };
-use fission_ir::{CoreIR, LayoutOp, Op, Semantics, WidgetId};
+use fission_ir::{
+    op::{Color, Fill},
+    CoreIR, LayoutOp, Op, PaintOp, Semantics, WidgetId,
+};
 use fission_layout::LayoutNodeGeometry;
 
 fn control() -> Op {
@@ -39,6 +42,17 @@ fn plain_box() -> Op {
         flex_grow: 0.0,
         flex_shrink: 1.0,
         aspect_ratio: None,
+    })
+}
+
+fn painted_box() -> Op {
+    Op::Paint(PaintOp::DrawRect {
+        fill: Some(Fill::Solid(Color::BLACK)),
+        stroke: None,
+        corner_radius: 0.0,
+        shadow: None,
+        corner_radii: None,
+        border_sides: None,
     })
 }
 
@@ -141,6 +155,35 @@ fn a_control_under_the_pointer_beats_a_neighbours_grown_target() {
 
     // Inside the large control, within touch reach of the small one above it.
     assert_eq!(hit(&scene, 108.0, 142.0, 44.0), Some(scene.large));
+}
+
+#[test]
+fn an_exact_visual_descendant_avoids_a_second_grown_target_walk() {
+    let root = WidgetId::derived(9, &[1]);
+    let control_id = WidgetId::derived(9, &[2]);
+    let visual = WidgetId::derived(9, &[3]);
+    let mut ir = CoreIR::new();
+    ir.add_node(visual, painted_box(), vec![]);
+    ir.add_node(control_id, control(), vec![visual]);
+    ir.add_node(root, plain_box(), vec![control_id]);
+    ir.set_root(root);
+
+    let mut snapshot = LayoutSnapshot::new(LayoutSize::new(100.0, 100.0));
+    place(&mut snapshot, root, 0.0, 0.0, 100.0, 100.0);
+    place(&mut snapshot, control_id, 10.0, 10.0, 20.0, 20.0);
+    place(&mut snapshot, visual, 10.0, 10.0, 20.0, 20.0);
+
+    assert_eq!(
+        hit_test_with_min_target(
+            &ir,
+            &snapshot,
+            &Runtime::default().runtime_state.scroll,
+            &Runtime::default().runtime_state.viewport,
+            LayoutPoint::new(15.0, 15.0),
+            48.0,
+        ),
+        Some(visual)
+    );
 }
 
 #[test]

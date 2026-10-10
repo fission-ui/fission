@@ -1267,11 +1267,26 @@ impl Runtime {
     /// Returns `true` when the hook changed runtime state and the shell should
     /// schedule another frame.
     pub fn post_layout_hook(&mut self, ir: &CoreIR, layout: &LayoutSnapshot) -> bool {
+        self.post_layout_hook_after_frame(ir, layout, true)
+    }
+
+    /// Runs post-layout runtime work for a shell frame.
+    ///
+    /// Shells should refresh hover only after rebuilding the retained tree or
+    /// recomputing layout. Other post-layout work, including viewport inertia,
+    /// still advances on compositor-only frames.
+    #[doc(hidden)]
+    pub fn post_layout_hook_after_frame(
+        &mut self,
+        ir: &CoreIR,
+        layout: &LayoutSnapshot,
+        refresh_hover: bool,
+    ) -> bool {
         // Preserve correct behavior for direct Runtime embedders that have not
         // yet adopted the pre-layout reconciliation hook. Production shells
         // call `reconcile_ir` before layout, making this pass idempotent.
         self.reconcile_ir(ir);
-        let mut needs_follow_up_frame = self.refresh_hover_state(ir, layout);
+        let mut needs_follow_up_frame = refresh_hover && self.refresh_hover_state(ir, layout);
         needs_follow_up_frame |= self.apply_pending_scroll_into_view(ir, layout);
         needs_follow_up_frame |= self.reveal_new_active_descendants(ir, layout);
         needs_follow_up_frame |= self.apply_pending_selection_regions(ir);
@@ -2036,9 +2051,6 @@ impl Runtime {
                 measurer: self.measurer.as_ref(),
                 dispatched_actions: Vec::new(),
             };
-
-            let mut hover_controller = HoverController;
-            let _ = hover_controller.handle_event(&mut ctx, &event);
 
             let mut selectable_text_controller = SelectableTextController;
             let handled = if selectable_text_controller.handle_event(&mut ctx, &event) {
