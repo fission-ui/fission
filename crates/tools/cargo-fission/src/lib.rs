@@ -49,6 +49,26 @@ where
     let cli = Cli::parse_from(argv.clone());
     warn_for_alpha_features(&cli.command);
     match cli.command {
+        Command::TestVisualCase {
+            url,
+            mount_url,
+            target,
+            width,
+            height,
+            timeout_ms,
+            screenshot,
+            report,
+        } => {
+            fission_command_run::review::worker(fission_command_run::review::ReviewWorkerOptions {
+                url,
+                mount: mount_url,
+                target,
+                viewport: fission_command_run::review::Viewport { width, height },
+                timeout_ms,
+                screenshot,
+                report,
+            })
+        }
         Command::Features => {
             print_feature_catalog();
             Ok(())
@@ -143,10 +163,41 @@ where
         Command::Test {
             target,
             project_dir,
+            headless: _,
+            features,
+            no_default_features,
+            variant: _,
+            visual,
+        } if visual.visual_review => {
+            fission_command_run::review::run(fission_command_run::review::ReviewOptions {
+                project_dir,
+                target: target.context("visual review requires --target web or static-site")?,
+                output_dir: visual
+                    .output_dir
+                    .context("visual review requires --output-dir")?,
+                routes: visual.routes,
+                viewports: visual.viewports,
+                mount: visual.mount,
+                port: visual.port,
+                release: visual.release,
+                web_cargo: fission_command_run::WebCargoOptions {
+                    features,
+                    no_default_features,
+                },
+                startup_timeout: std::time::Duration::from_secs(visual.startup_timeout_seconds),
+                case_timeout: std::time::Duration::from_secs(visual.case_timeout_seconds),
+                json: visual.json,
+                strict: visual.strict,
+            })
+        }
+        Command::Test {
+            target,
+            project_dir,
             headless,
             features,
             no_default_features,
             variant,
+            ..
         } => fission_command_run::test_app_with_web_cargo_options(
             fission_command_run::TestOptions {
                 project_dir,

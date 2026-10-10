@@ -31,6 +31,9 @@ use crate::{
 mod viewport;
 
 #[cfg(not(target_arch = "wasm32"))]
+pub mod review;
+
+#[cfg(not(target_arch = "wasm32"))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BrowserSmokeMode {
     Dom,
@@ -1020,6 +1023,8 @@ struct CdpClient {
     backlog: VecDeque<Value>,
     errors: Vec<String>,
     operation_deadline: Option<Instant>,
+    review_events: Vec<Value>,
+    report_only: bool,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -1036,6 +1041,8 @@ impl CdpClient {
             backlog: VecDeque::new(),
             errors: Vec::new(),
             operation_deadline: None,
+            review_events: Vec::new(),
+            report_only: false,
         })
     }
 
@@ -1144,6 +1151,27 @@ impl CdpClient {
     }
 
     fn handle_event(&mut self, message: &Value) {
+        if self.review_events.len() < 512
+            && matches!(
+                message.get("method").and_then(Value::as_str),
+                Some(
+                    "Network.requestWillBeSent"
+                        | "Network.responseReceived"
+                        | "Network.loadingFailed"
+                        | "Runtime.exceptionThrown"
+                        | "Runtime.consoleAPICalled"
+                        | "Log.entryAdded"
+                )
+            )
+        {
+            self.review_events.push(message.clone());
+        }
+        // Review attributes all errors to its typed per-case observations.
+        // Optional resource timing must not abort semantic bridge operations.
+        if self.report_only {
+            return;
+        }
+
         match message.get("method").and_then(Value::as_str) {
             Some("Runtime.exceptionThrown") => self.errors.push(format!(
                 "runtime exception: {}",
