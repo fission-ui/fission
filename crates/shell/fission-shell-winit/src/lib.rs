@@ -315,11 +315,6 @@ fn register_builtin_operation_capabilities(async_registry: &mut AsyncRegistry) {
     {
         #[cfg(not(any(target_os = "android", target_os = "ios")))]
         file_picker::register_file_picker_capability(async_registry);
-        #[cfg(all(
-            feature = "filesystem",
-            not(any(target_os = "android", target_os = "ios"))
-        ))]
-        file_system::register_file_system_capabilities(async_registry);
         #[cfg(any(target_os = "android", target_os = "ios"))]
         register_unsupported_file_picker_capability(async_registry);
 
@@ -4668,6 +4663,12 @@ where
     frame_hook: Option<FrameHook<S>>,
     native_surface_handlers: NativeSurfaceRegistry,
     title: String,
+    #[cfg(all(
+        feature = "filesystem",
+        not(target_arch = "wasm32"),
+        not(any(target_os = "android", target_os = "ios"))
+    ))]
+    native_directory_persistence: file_system::NativeDirectoryPersistence,
     initial_maximized: bool,
     web_mount_selector: Option<String>,
     browser_defaults: BrowserDefaults,
@@ -4718,6 +4719,13 @@ where
         let (effect_result_tx, effect_result_rx) = mpsc::channel();
         let mut async_registry = AsyncRegistry::new();
         register_builtin_operation_capabilities(&mut async_registry);
+        #[cfg(all(
+            feature = "filesystem",
+            not(target_arch = "wasm32"),
+            not(any(target_os = "android", target_os = "ios"))
+        ))]
+        let native_directory_persistence =
+            file_system::register_file_system_capabilities(&mut async_registry, "Fission");
 
         Self {
             runtime,
@@ -4734,6 +4742,12 @@ where
             frame_hook: None,
             native_surface_handlers: NativeSurfaceRegistry::default(),
             title: "Fission".into(),
+            #[cfg(all(
+                feature = "filesystem",
+                not(target_arch = "wasm32"),
+                not(any(target_os = "android", target_os = "ios"))
+            ))]
+            native_directory_persistence,
             initial_maximized: false,
             web_mount_selector: None,
             browser_defaults: BrowserDefaults::NONE,
@@ -4780,6 +4794,13 @@ where
     pub fn with_title(mut self, title: impl Into<String>) -> Self {
         self.title = title.into();
         self.env.window.title = fission_core::WindowTitle::plain(self.title.clone());
+        #[cfg(all(
+            feature = "filesystem",
+            not(target_arch = "wasm32"),
+            not(any(target_os = "android", target_os = "ios"))
+        ))]
+        self.native_directory_persistence
+            .set_application_name(&self.title);
         self
     }
 
