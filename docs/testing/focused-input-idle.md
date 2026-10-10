@@ -2,6 +2,8 @@
 
 Issue [#256](https://github.com/fission-ui/fission/issues/256) reports high CPU on Ubuntu while a basic text input is focused. The regression tests separate caret paint invalidation from paragraph layout. This manual probe also checks native scheduling, renderer selection, typing, a button action, and an injected IME preedit/commit.
 
+The [reporter's setup](https://github.com/fission-ui/fission/issues/256#issuecomment-6094648150) is Fission 0.15.1 on Ubuntu 25.10/Wayland, with an Intel HD Graphics 520 hardware GPU using Vulkan and `native-vello requested=auto` at 800×600. He reports over 25% usage in debug and over 15% in release, with usage dropping after the input loses focus. The exact CPU/GPU metric still needs clarification. Automatic CPU-adapter fallback does not apply to that hardware GPU, and development-profile optimization does not affect his release build. The software-adapter measurements below do not verify a fix for his case; hardware-GPU caret redraw cost remains under investigation.
+
 ## Build the native fixture on Linux
 
 From the repository root, generate a standalone app:
@@ -128,4 +130,4 @@ The initial investigation used Debian 12 in an ARM64 Docker VM, Xvfb/X11, an 800
 
 The unfocused and button-focused phases had zero redraws and no measurable CPU delta. The committed native probe passed the counter and Unicode IME assertions. Visual inspection found matching content; the GPU/CPU screenshot comparison changed 1,076 of 480,000 pixels, with a maximum RGB-channel difference of 2/255 and unchanged alpha, consistent with small antialiasing differences.
 
-The package-profile change improves new project defaults. Existing projects retain their existing manifests and can adopt the setting above. The CPU-adapter selection and caret invalidation fixes apply through runtime updates. Confirmation on the reporter's version, Ubuntu hardware, renderer, and session remains outstanding; keep #256 open until that case is verified.
+The package-profile change improves new project defaults. Existing projects retain their existing manifests and can adopt the setting above. The CPU-adapter selection and caret invalidation fixes apply through runtime updates. The reporter has supplied his version, Ubuntu hardware, renderer, and session; verification of the hardware-GPU release-build case remains outstanding. Keep #256 open until that case is verified.
