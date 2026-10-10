@@ -296,6 +296,7 @@ impl Lower for LazyColumn {
             }),
         );
         scroll.add_child(content_id);
+        cx.mark_scroll_build_dependency(scroll_id);
         scroll.build(cx)
     }
 }

@@ -12,7 +12,7 @@ mod op_tests;
 
 use serde::{Deserialize, Serialize};
 use std::any::Any;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 pub use op::{
@@ -66,6 +66,13 @@ pub struct CoreIR {
     /// existing left-to-right serialized IR remains byte-for-byte compatible.
     #[serde(default, skip_serializing_if = "LayoutDirection::is_left_to_right")]
     pub layout_direction: LayoutDirection,
+    /// Scroll nodes whose authored subtree depends on the current offset.
+    ///
+    /// Ordinary scroll containers are composited without rebuilding the widget
+    /// tree. Virtualized containers register here so shells rebuild only when
+    /// their visible authored children may have changed.
+    #[serde(default, skip_serializing_if = "HashSet::is_empty")]
+    pub scroll_build_dependencies: HashSet<WidgetId>,
     /// Per-widget custom render objects. Keyed by the wrapper `WidgetId` created
     /// during lowering of an `InternalRenderNode`. Skipped by serde because the
     /// concrete trait objects are not serialisable.
@@ -79,6 +86,7 @@ impl std::fmt::Debug for CoreIR {
             .field("nodes", &self.nodes)
             .field("root", &self.root)
             .field("layout_direction", &self.layout_direction)
+            .field("scroll_build_dependencies", &self.scroll_build_dependencies)
             .field(
                 "custom_render_objects",
                 &format!("({} entries)", self.custom_render_objects.len()),
@@ -94,6 +102,7 @@ impl PartialEq for CoreIR {
         self.nodes == other.nodes
             && self.root == other.root
             && self.layout_direction == other.layout_direction
+            && self.scroll_build_dependencies == other.scroll_build_dependencies
     }
 }
 
@@ -103,6 +112,7 @@ impl Default for CoreIR {
             nodes: HashMap::new(),
             root: None,
             layout_direction: LayoutDirection::default(),
+            scroll_build_dependencies: HashSet::new(),
             custom_render_objects: HashMap::new(),
         }
     }

@@ -77,6 +77,8 @@ impl From<CounterApp> for Widget {
                 SecondaryField,
                 PasswordField,
                 VerificationCodeField,
+                PerformanceRows,
+                ScrolledCounterButton,
             ],
             ..Default::default()
         })
@@ -86,21 +88,65 @@ impl From<CounterApp> for Widget {
             Length::points(CONTENT_MAX_WIDTH),
         ));
 
-        Container::new(Column {
-            gap: Some(tokens.spacing.none),
-            children: widgets![
-                content,
-                Spacer {
-                    flex_grow: 1.0,
-                    ..Default::default()
-                },
-            ],
+        Container::new(Scroll {
+            id: Some(WidgetId::explicit("web-smoke.scroll")),
+            child: Some(content.into()),
+            direction: FlexDirection::Column,
+            show_scrollbar: true,
+            flex_grow: 1.0,
+            semantic_label: Some("Web smoke content".into()),
             ..Default::default()
         })
         .width_length(Length::vw(100.0))
         .height_length(Length::vh(100.0))
         .padding_lengths(Length::all(Length::points(tokens.spacing.l)))
         .bg(tokens.colors.background)
+        .into()
+    }
+}
+
+/// Keeps the browser smoke fixture large enough to expose widget-count and
+/// scrolling regressions without introducing application state or animation.
+struct PerformanceRows;
+
+impl From<PerformanceRows> for Widget {
+    fn from(_rows: PerformanceRows) -> Self {
+        let (_, view) = fission::build::current::<CounterState>();
+        let tokens = &view.env().theme.tokens;
+        Column {
+            gap: Some(tokens.spacing.xs),
+            children: (0..120)
+                .map(|index| {
+                    Text::new(format!("Scroll qualification row {}", index + 1))
+                        .size(tokens.typography.font_size_sm)
+                        .into()
+                })
+                .collect(),
+            ..Default::default()
+        }
+        .into()
+    }
+}
+
+/// A real control below the long fixture content. Coordinate-driven tests use
+/// this to qualify hit testing after a compositor-only scroll.
+struct ScrolledCounterButton;
+
+impl From<ScrolledCounterButton> for Widget {
+    fn from(_button: ScrolledCounterButton) -> Self {
+        let (ctx, view) = fission::build::current::<CounterState>();
+        Button {
+            on_press: Some(with_reducer!(ctx, Increment, on_increment)),
+            child: Some(
+                Text::new(format!(
+                    "Increment after scrolling (Count: {})",
+                    view.state().count
+                ))
+                .into(),
+            ),
+            ..Default::default()
+        }
+        .semantics_identifier("web-smoke.increment.scrolled")
         .into()
     }
 }

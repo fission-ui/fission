@@ -6,17 +6,21 @@
 
 use fission_core::authoring::LoweringContext;
 use fission_core::env::{Env, RuntimeState};
-use fission_core::ui::{Icon, Image, Scroll, Text, TextContent, Video};
+use fission_core::ui::{Icon, Image, LazyColumn, Scroll, Text, TextContent, Video};
 use fission_core::Widget;
-use fission_ir::{op::FlexDirection, Op, Role, Semantics};
+use fission_ir::{op::FlexDirection, CoreIR, Op, Role, Semantics, WidgetId};
 
-fn semantics_of(widget: Widget) -> Vec<Semantics> {
+fn lower(widget: Widget) -> CoreIR {
     let env = Env::default();
     let runtime = RuntimeState::default();
     let mut cx = LoweringContext::new(&env, &runtime, None, None);
     let root = fission_core::internal::lower_widget(&widget, &mut cx);
     cx.set_root(root);
     cx.into_ir()
+}
+
+fn semantics_of(widget: Widget) -> Vec<Semantics> {
+    lower(widget)
         .nodes
         .values()
         .filter_map(|node| match &node.op {
@@ -123,4 +127,32 @@ fn a_scroll_region_can_be_named() {
     .semantic_label("Search results");
     let semantics = find(scroll.into(), Role::Generic).expect("scroll semantics");
     assert_eq!(semantics.label.as_deref(), Some("Search results"));
+}
+
+#[test]
+fn only_virtualized_scrolls_request_authored_tree_rebuilds() {
+    let regular_id = WidgetId::explicit("regular-scroll");
+    let regular = lower(
+        Scroll {
+            id: Some(regular_id),
+            child: Some(Text::new("content").into()),
+            ..Default::default()
+        }
+        .into(),
+    );
+    assert!(regular.scroll_build_dependencies.is_empty());
+
+    let lazy_id = WidgetId::explicit("lazy-scroll");
+    let lazy = lower(
+        LazyColumn {
+            id: Some(lazy_id),
+            children: vec![Text::new("row").into()],
+            item_height: 24.0,
+        }
+        .into(),
+    );
+    assert_eq!(
+        lazy.scroll_build_dependencies,
+        [lazy_id].into_iter().collect()
+    );
 }
