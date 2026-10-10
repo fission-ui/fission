@@ -421,11 +421,6 @@ impl InputController for GestureController {
                             matches!(pressed_button, Some(crate::event::PointerButton::Primary));
                         let was_secondary =
                             matches!(pressed_button, Some(crate::event::PointerButton::Secondary));
-                        let held_long_enough = ctx
-                            .gesture
-                            .press_started_at
-                            .is_some_and(|started| ctx.current_time.saturating_sub(started) >= 500);
-
                         if pressed_button.is_some() && !buttons_match {
                             self.reset_pointer_sequence(ctx, *point);
                             return true;
@@ -511,23 +506,9 @@ impl InputController for GestureController {
                                     }
                                 }
                             }
-                        } else if buttons_match
-                            && was_primary
-                            && (ctx.gesture.long_press_dispatched || held_long_enough)
+                        } else if buttons_match && was_primary && ctx.gesture.long_press_dispatched
                         {
-                            if !ctx.gesture.long_press_dispatched {
-                                if let Some(target) = ctx.gesture.target_node {
-                                    handled = self.dispatch_trigger(
-                                        ctx,
-                                        target,
-                                        ActionTrigger::LongPress,
-                                        *point,
-                                        None,
-                                    );
-                                }
-                            } else {
-                                handled = true;
-                            }
+                            handled = true;
                         } else if buttons_match && was_primary {
                             // Tap (primary click)
                             if let Some(target) = ctx.gesture.target_node {

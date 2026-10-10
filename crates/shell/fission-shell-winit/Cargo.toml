@@ -50,7 +50,7 @@ fission-scene = { path = "../../core/fission-scene", optional = true, version = 
 fission-scene3d = { path = "../../core/fission-scene3d", optional = true, version = "=0.1.0-alpha.1" }
 fission-store = { path = "../../core/fission-store", optional = true, version = "0.15.1" }
 fission-store-sqlite = { path = "../../core/fission-store-sqlite", optional = true, version = "0.15.1", default-features = false }
-winit = { package = "fission-winit", version = "0.30.13-fission.4" }
+winit = { package = "fission-winit", version = "0.30.13-fission.6" }
 fission-diagnostics = { path = "../../tools/fission-diagnostics", version = "0.15.1" }
 fission-test-driver = { path = "../../tools/fission-test-driver", version = "0.15.1" }
 image = "0.25"
@@ -86,7 +86,7 @@ accesskit = "0.24.1"
 accesskit_winit = { package = "fission-accesskit-winit", version = "0.33.1-fission.1", default-features = false, features = ["accesskit_android", "rwh_06"] }
 jni = "0.21"
 ndk-context = "0.1"
-winit = { package = "fission-winit", version = "0.30.13-fission.4", features = ["android-game-activity"] }
+winit = { package = "fission-winit", version = "0.30.13-fission.6", features = ["android-game-activity"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 windows = { version = "0.58", features = [

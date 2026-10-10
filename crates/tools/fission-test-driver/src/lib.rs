@@ -874,13 +874,25 @@ impl LiveTestClient {
     /// Unlike [`Self::tap_selector`], this exercises the browser's Pointer
     /// Event-to-touch translation before the event reaches Fission.
     pub fn touch_selector(&self, query: SelectorQuery) -> Result<()> {
+        self.touch_selector_at(query, 0.5, 0.5)
+    }
+
+    /// Sends a real browser touch sequence to a point relative to a semantic
+    /// node's visible bounds. Values from `0.0` through `1.0` cover the painted
+    /// bounds; values outside that range are useful for negative hit tests.
+    pub fn touch_selector_at(
+        &self,
+        query: SelectorQuery,
+        relative_x: f32,
+        relative_y: f32,
+    ) -> Result<()> {
         let query = self.scoped_query(query);
         match &self.transport {
             LiveTestTransport::Browser(controller) => {
                 let response = controller
                     .lock()
                     .map_err(|_| anyhow!("browser test controller lock is poisoned"))?
-                    .touch_selector(query)?;
+                    .touch_selector(query, relative_x, relative_y)?;
                 match response {
                     TestResponse::Ok {} => Ok(()),
                     TestResponse::SelectorError { failure } => {
