@@ -194,13 +194,24 @@ pub fn hit_test_with_min_target(
     if min_target <= 0.0 {
         return exact;
     }
-    let exact_is_control = exact.is_some_and(|id| {
-        matches!(
-            ir.nodes.get(&id).map(|node| &node.op),
-            Some(Op::Semantics(_))
-        )
+    let exact_is_in_control = exact.is_some_and(|id| {
+        let mut current = Some(id);
+        while let Some(node_id) = current {
+            let Some(node) = ir.nodes.get(&node_id) else {
+                break;
+            };
+            if let Op::Semantics(semantics) = &node.op {
+                if !semantics.disabled
+                    && (!semantics.actions.entries.is_empty() || semantics.focusable)
+                {
+                    return true;
+                }
+            }
+            current = node.parent;
+        }
+        false
     });
-    if exact_is_control {
+    if exact_is_in_control {
         return exact;
     }
     let mut best = None;

@@ -714,6 +714,15 @@ impl TextInputController {
             );
             return true;
         }
+        // Browser text adapters can report the complete native value after a
+        // key event has already produced the same edit. Treat that
+        // reconciliation as acknowledgement, not a second application edit.
+        // Selection-only changes still flow through below so caret state stays
+        // synchronized with the native control.
+        if result.new_value == result.old_value {
+            return true;
+        }
+        let text_changed = result.new_value.text != result.old_value.text;
         let source = result.source;
         let mut caret = result.new_value.selection.extent.utf8_offset();
         let mut anchor = result.new_value.selection.base.utf8_offset();
@@ -743,7 +752,9 @@ impl TextInputController {
                 ctx.text_edit
                     .get_mut_or_default(focused_id)
                     .apply_editing_value(result.new_value.clone());
-                self.dispatch_edit_result(ctx, &semantics, focused_id, result);
+                if text_changed {
+                    self.dispatch_edit_result(ctx, &semantics, focused_id, result);
+                }
             }
         }
         Self::dispatch_cursor_change_from(ctx, &semantics, focused_id, caret, anchor, source);

@@ -107,6 +107,57 @@ fn apply_browser_edit(
 }
 
 #[test]
+fn canvas_buttons_accept_real_browser_touch_input() -> Result<()> {
+    let Some(url) = browser_url() else {
+        eprintln!("set FISSION_WEB_SMOKE_URL to run the browser touch conformance test");
+        return Ok(());
+    };
+    let mut options = BrowserTestOptions::new(url).fission_canvas();
+    options.viewport_width = 390;
+    options.viewport_height = 844;
+    let client = LiveTestClient::launch_browser(options)?;
+
+    client.touch_selector(SelectorQuery::semantic_identifier("web-smoke.increment"))?;
+    client.wait_for_text("Count: 1", 5_000)?;
+    Ok(())
+}
+
+#[test]
+fn physical_key_on_the_ime_bridge_is_applied_once() -> Result<()> {
+    let Some(url) = browser_url() else {
+        eprintln!("set FISSION_WEB_SMOKE_URL to run the browser keyboard conformance test");
+        return Ok(());
+    };
+    let client = LiveTestClient::launch_browser(BrowserTestOptions::new(url).fission_canvas())?;
+
+    client.focus_selector(SelectorQuery::semantic_identifier("web-smoke.text.primary"))?;
+    client.press_key("q", 0)?;
+    client.wait_for_text("Primary value: q (edits: 1)", 5_000)?;
+    Ok(())
+}
+
+#[test]
+fn ordinary_browser_scroll_uses_a_compositor_only_frame() -> Result<()> {
+    let Some(url) = browser_url() else {
+        eprintln!("set FISSION_WEB_SMOKE_URL to run the browser scroll conformance test");
+        return Ok(());
+    };
+    let client = LiveTestClient::launch_browser(BrowserTestOptions::new(url).fission_canvas())?;
+
+    client.wheel_selector(
+        SelectorQuery::semantic_identifier("web-smoke.increment"),
+        0.0,
+        360.0,
+    )?;
+    let perf =
+        client.browser_evaluate_json("globalThis.__FISSION_LAST_FRAME_STAGE_PERF ?? null")?;
+    eprintln!("browser scroll frame stages: {perf}");
+    assert_eq!(perf["rebuilt"].as_bool(), Some(false), "{perf}");
+    assert_eq!(perf["layoutUpdates"].as_u64(), Some(0), "{perf}");
+    Ok(())
+}
+
+#[test]
 fn canvas_text_adapter_reconciles_complete_browser_edits() -> Result<()> {
     let Some(url) = browser_url() else {
         eprintln!("set FISSION_WEB_SMOKE_URL to run the browser text-input conformance test");
@@ -121,6 +172,8 @@ fn canvas_text_adapter_reconciles_complete_browser_edits() -> Result<()> {
     assert_eq!(initial["ariaLabel"], "Primary field");
     assert_eq!(initial["ariaRequired"], "true");
 
+    apply_browser_edit(&client, "A🙂B", 3, 3, "insertText", Some("🙂"), true, false)?;
+    client.wait_for_text("Primary value: A🙂B (edits: 1)", 5_000)?;
     apply_browser_edit(&client, "A🙂B", 3, 3, "insertText", Some("🙂"), true, false)?;
     client.wait_for_text("Primary value: A🙂B (edits: 1)", 5_000)?;
     let unicode = active_control(&client)?;
