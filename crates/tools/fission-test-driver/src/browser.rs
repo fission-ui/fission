@@ -45,7 +45,7 @@ pub struct BrowserTestOptions {
     pub chrome_path: Option<PathBuf>,
     pub cdp_port: Option<u16>,
     /// CSS pixels, 1..=8192 per axis and at most 16,777,216 pixels total.
-    /// Chromium is emulated at device scale 1 with mobile=false.
+    /// Device scale and mobile emulation are preserved across in-session resizes.
     pub viewport_width: u32,
     pub viewport_height: u32,
     /// Browser device-pixel ratio used for input and rendering emulation.
@@ -716,10 +716,11 @@ impl BrowserController {
             .decode(data)
             .context("Chrome returned invalid screenshot base64")?;
         let decoded = image::load_from_memory(&bytes)?;
+        let (pixel_width, pixel_height) = viewport::pixel_dimensions(&self.options);
         anyhow::ensure!(
-            decoded.width() == self.options.viewport_width
-                && decoded.height() == self.options.viewport_height,
-            "capture_viewport: PNG dimensions differ from requested CSS viewport at device scale 1"
+            decoded.width() == pixel_width && decoded.height() == pixel_height,
+            "capture_viewport: PNG dimensions differ from requested CSS viewport at device scale {} (expected {pixel_width}x{pixel_height})",
+            self.options.device_scale_factor
         );
         Ok(bytes)
     }
