@@ -112,13 +112,38 @@ fn canvas_buttons_accept_real_browser_touch_input() -> Result<()> {
         eprintln!("set FISSION_WEB_SMOKE_URL to run the browser touch conformance test");
         return Ok(());
     };
-    let mut options = BrowserTestOptions::new(url).fission_canvas();
+    let mut options = BrowserTestOptions::new(url).fission_canvas().mobile(3.0);
     options.viewport_width = 390;
     options.viewport_height = 844;
     let client = LiveTestClient::launch_browser(options)?;
 
-    client.touch_selector(SelectorQuery::semantic_identifier("web-smoke.increment"))?;
-    client.wait_for_text("Count: 1", 5_000)?;
+    let increment = SelectorQuery::semantic_identifier("web-smoke.increment");
+    for (index, (x, y)) in [
+        (0.5, 0.5),
+        (0.15, 0.15),
+        (0.85, 0.15),
+        (0.15, 0.85),
+        (0.85, 0.85),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        client.touch_selector_at(increment.clone(), x, y)?;
+        client.wait_for_text(&format!("Count: {}", index + 1), 5_000)?;
+    }
+
+    // The same coordinate path must remain aligned after ScrollIntoView moves
+    // a control through the compositor-only scrolling path.
+    let scrolled_increment = SelectorQuery::semantic_identifier("web-smoke.increment.scrolled");
+    client.touch_selector_at(scrolled_increment.clone(), 0.5, 0.5)?;
+    client.wait_for_text("Count: 6", 10_000)?;
+
+    // A full control height above the painted button must not activate it.
+    client.touch_selector_at(increment, 0.5, -1.0)?;
+    client.pump()?;
+    client.scroll_into_view(scrolled_increment)?;
+    client.pump()?;
+    client.assert_text_visible("Count: 6")?;
     Ok(())
 }
 

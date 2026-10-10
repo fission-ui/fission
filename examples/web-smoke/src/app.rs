@@ -78,6 +78,7 @@ impl From<CounterApp> for Widget {
                 PasswordField,
                 VerificationCodeField,
                 PerformanceRows,
+                ScrolledCounterButton,
             ],
             ..Default::default()
         })
@@ -123,6 +124,29 @@ impl From<PerformanceRows> for Widget {
                 .collect(),
             ..Default::default()
         }
+        .into()
+    }
+}
+
+/// A real control below the long fixture content. Coordinate-driven tests use
+/// this to qualify hit testing after a compositor-only scroll.
+struct ScrolledCounterButton;
+
+impl From<ScrolledCounterButton> for Widget {
+    fn from(_button: ScrolledCounterButton) -> Self {
+        let (ctx, view) = fission::build::current::<CounterState>();
+        Button {
+            on_press: Some(with_reducer!(ctx, Increment, on_increment)),
+            child: Some(
+                Text::new(format!(
+                    "Increment after scrolling (Count: {})",
+                    view.state().count
+                ))
+                .into(),
+            ),
+            ..Default::default()
+        }
+        .semantics_identifier("web-smoke.increment.scrolled")
         .into()
     }
 }
