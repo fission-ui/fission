@@ -81,7 +81,7 @@ pub(super) fn verify(
     deadline: Instant,
     mut cancelled: impl FnMut() -> bool,
 ) -> Result<usize> {
-    let root = root.canonicalize()?;
+    let root = crate::paths::absolute_root(root)?;
     let entry_url = if entry == "index.html" {
         base.clone()
     } else {
@@ -116,17 +116,15 @@ pub(super) fn verify(
             .path()
             .strip_prefix(base.path())
             .context("required asset is outside the serving mount")?;
-        let path = root.join(relative);
-        let path = if url.path().ends_with('/') {
-            path.join("index.html")
+        let relative = if url.path().ends_with('/') {
+            format!("{relative}index.html")
         } else {
-            path
+            relative.to_owned()
         };
-        let path = path
-            .canonicalize()
-            .with_context(|| format!("required serving asset is missing: {url}"))?;
-        if !path.starts_with(&root) || !path.is_file() {
-            bail!("invalid required asset path: {url}");
+        let path = crate::paths::asset_path(&root, &relative)
+            .with_context(|| format!("invalid required asset path: {url}"))?;
+        if !path.is_file() {
+            bail!("required serving asset is missing: {url}");
         }
         if fs::metadata(&path)?.len() > MAX_ASSET_BYTES {
             bail!("required asset exceeds 64 MiB: {url}");
@@ -377,6 +375,119 @@ mod tests {
         fn drop(&mut self) {
             let _ = fs::remove_dir_all(&self.0);
         }
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn serving_and_readiness_work_when_canonicalization_is_unavailable() {
+        if std::env::var_os("FISSION_TEST_NO_CANONICALIZATION").is_some() {
+            assert!(
+                fs::canonicalize(std::env::current_dir().unwrap()).is_err(),
+                "fault injector must make actual canonicalization fail"
+            );
+            let fixture = Fixture::new("<html><script src='./bootstrap.mjs'></script></html>");
+            fs::write(
+                fixture.0.join("bootstrap.mjs"),
+                "const wasm = new URL('./app.wasm', import.meta.url);",
+            )
+            .unwrap();
+            fs::write(fixture.0.join("app.wasm"), b"\0asm\x01\0\0\0").unwrap();
+            assert_eq!(fixture.verify("/", true).unwrap(), 3);
+            assert_eq!(fixture.verify("/repository-name/", true).unwrap(), 3);
+            return;
+        }
+        let fixture = Fixture::new("<html>Fault injector</html>");
+        let library = fixture.0.join("no_canonicalization.so");
+        let built = std::process::Command::new("rustc")
+            .args(["--edition=2021", "--crate-type=cdylib"])
+            .arg(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/tests/fixtures/no_canonicalization.rs"
+            ))
+            .arg("-o")
+            .arg(&library)
+            .output()
+            .unwrap();
+        assert!(
+            built.status.success(),
+            "{}",
+            String::from_utf8_lossy(&built.stderr)
+        );
+        let child = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "serving::readiness::tests::serving_and_readiness_work_when_canonicalization_is_unavailable", "--nocapture"])
+            .env("LD_PRELOAD", library)
+            .env("FISSION_TEST_NO_CANONICALIZATION", "1")
+            .output().unwrap();
+        assert!(
+            child.status.success(),
+            "{}\n{}",
+            String::from_utf8_lossy(&child.stdout),
+            String::from_utf8_lossy(&child.stderr)
+        );
+    }
+
+    #[test]
+    fn lexical_roots_keep_the_selected_path_while_serving_and_checking_assets() {
+        let fixture = Fixture::new("<html><link rel='stylesheet' href='./app.css'></html>");
+        fs::write(fixture.0.join("app.css"), "body { color: black; }").unwrap();
+        // Keep a lexical component that filesystem canonicalization would remove.
+        let selected = fixture.0.join("pkg/..");
+        assert_eq!(crate::paths::absolute_root(&selected).unwrap(), selected);
+        let server = OwnedServer::start(selected.clone(), &Default::default()).unwrap();
+        let base = Url::parse(&server.base_url()).unwrap();
+        assert_eq!(
+            verify(
+                &selected,
+                "index.html",
+                &base,
+                false,
+                Instant::now() + Duration::from_secs(2),
+                || false
+            )
+            .unwrap(),
+            2
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn explicitly_selected_root_link_works_but_asset_links_are_rejected() {
+        use std::os::unix::fs::symlink;
+        let fixture = Fixture::new("<html><link rel='stylesheet' href='./app.css'></html>");
+        let outside = Fixture::new("<html>Outside</html>");
+        fs::write(fixture.0.join("app.css"), "body { color: black; }").unwrap();
+        let alias = fixture.0.with_extension("selected-link");
+        symlink(&fixture.0, &alias).unwrap();
+        assert_eq!(crate::paths::absolute_root(&alias).unwrap(), alias);
+        let server = OwnedServer::start(alias.clone(), &Default::default()).unwrap();
+        let base = Url::parse(&server.base_url()).unwrap();
+        assert_eq!(
+            verify(
+                &alias,
+                "index.html",
+                &base,
+                false,
+                Instant::now() + Duration::from_secs(2),
+                || false
+            )
+            .unwrap(),
+            2
+        );
+        symlink(&outside.0, fixture.0.join("escape")).unwrap();
+        assert!(crate::paths::asset_path(&alias, "escape/index.html").is_err());
+        fs::remove_file(fixture.0.join("app.css")).unwrap();
+        symlink(outside.0.join("index.html"), fixture.0.join("app.css")).unwrap();
+        assert!(verify(
+            &alias,
+            "index.html",
+            &base,
+            false,
+            Instant::now() + Duration::from_secs(2),
+            || false
+        )
+        .is_err());
+        drop(server);
+        fs::remove_file(alias).unwrap();
     }
 
     #[test]

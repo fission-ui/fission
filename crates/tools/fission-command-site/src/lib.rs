@@ -1,4 +1,5 @@
 use anyhow::{bail, Context, Result};
+mod paths;
 pub mod serving;
 use fission_command_process::run_status;
 use std::ffi::OsStr;
@@ -481,20 +482,7 @@ fn static_response_at_mount(
 }
 
 fn sanitize_static_path(root: &Path, relative: &str) -> Result<PathBuf> {
-    let mut path = PathBuf::from(root);
-    for part in relative.split('/') {
-        if part.is_empty() || part == "." {
-            continue;
-        }
-        if part == ".." || part.contains('\\') {
-            bail!("invalid static path `{relative}`");
-        }
-        path.push(part);
-    }
-    if path.exists() && !path.canonicalize()?.starts_with(root.canonicalize()?) {
-        bail!("static path escapes the output directory: `{relative}`");
-    }
-    Ok(path)
+    paths::asset_path(root, relative)
 }
 
 fn http_response(
