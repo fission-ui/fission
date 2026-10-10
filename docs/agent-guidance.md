@@ -92,10 +92,15 @@ known instruction entrypoint are accepted. Traversal, duplicate paths,
 file/directory collisions and symlink destinations are rejected before writes.
 
 Updates stage changed files under `.fission/guidance-transaction/`, storing
-original bytes and `journal.json`; replace files individually and commit the
-manifest last. Ordinary commit errors roll back replaced files. Interruption
+original bytes and `journal.json`. Existing destinations move to `displaced/`
+before replacements are created with create-new semantics; no rename must replace
+an existing file on Windows, and concurrent destinations are not overwritten.
+Files are written individually and the manifest is committed last. Ordinary
+commit errors roll back unchanged replacements. A changed/incomplete replacement
+keeps recovery data instead of erasing another writer's bytes. Interruption
 leaves the journal/originals available and blocks further updates. Inspect each
-journal entry (its array index names the backup): restore present originals;
+journal entry (its array index names the backup), including `displaced/`, while
+preserving concurrent edits: restore present originals;
 remove only managed destinations explicitly marked originally absent. Then
 remove the transaction directory after checking the recovery. Do not run
 concurrent instruction editors/updaters; this is a recoverable local update,

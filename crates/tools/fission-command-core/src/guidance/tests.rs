@@ -10,6 +10,9 @@ impl Project {
             std::process::id(),
             NEXT.fetch_add(1, Ordering::Relaxed)
         ));
+        Self::at(root)
+    }
+    fn at(root: PathBuf) -> Self {
         fs::create_dir_all(root.join(".git")).unwrap();
         fs::write(root.join("Cargo.toml"), "[package]\nname = \"fixture\"\nversion = \"0.1.0\"\n[dependencies]\nfission = \"0.15.1\"\n").unwrap();
         fs::write(
@@ -518,8 +521,13 @@ fn v2_bundle_adds_shared_rules_and_conflicts_preserve_the_entire_old_bundle() {
 
 #[test]
 fn relative_paths_are_absolute_without_canonicalizing_caller_spelling() {
-    let p = Project::new();
     let cwd = std::env::current_dir().unwrap();
+    // Keep this fixture on the working-directory drive on Windows.
+    let p = Project::at(cwd.join(format!(
+        ".guidance-relative-{}-{}",
+        std::process::id(),
+        NEXT.fetch_add(1, Ordering::Relaxed)
+    )));
     // Compute a relative path without changing the process-wide working directory.
     let from = cwd.components().collect::<Vec<_>>();
     let to = p.0.components().collect::<Vec<_>>();
@@ -618,4 +626,61 @@ fn init_returns_all_instruction_and_available_asset_facts_without_rendering() {
     let conflict = install_for_init(&app).unwrap();
     assert_eq!(conflict.guidance.status, Status::Conflict);
     assert_eq!(snapshot(&p.0), before);
+}
+
+#[test]
+fn replacement_of_existing_files_preserves_rollback_after_vacating_destination() {
+    let p = Project::new();
+    for path in ["AGENTS.md", SHARED_PATH] {
+        let destination = p.0.join(path);
+        fs::create_dir_all(destination.parent().unwrap()).unwrap();
+        fs::write(destination, "original bytes").unwrap();
+    }
+    let desired: BTreeMap<String, Vec<u8>> = BTreeMap::from([
+        ("AGENTS.md".into(), b"new instructions".to_vec()),
+        (SHARED_PATH.into(), b"new reference".to_vec()),
+    ]);
+    let expected = desired
+        .keys()
+        .map(|path| (path.clone(), Some(hash(b"original bytes"))))
+        .collect();
+    let before = snapshot(&p.0);
+    let result = write_transaction_with(&p.0, desired, &expected, |index, path| {
+        assert!(
+            !path.exists(),
+            "existing destination must be vacated before replacement"
+        );
+        if index == 1 {
+            bail!("injected failure after backup");
+        }
+        Ok(())
+    });
+    assert!(result.is_err());
+    assert_eq!(snapshot(&p.0), before);
+    assert!(!p.0.join(TRANSACTION_PATH).exists());
+}
+
+#[test]
+fn concurrent_destination_is_preserved_with_recovery_originals() {
+    let p = Project::new();
+    fs::write(p.0.join("AGENTS.md"), "original").unwrap();
+    let result = write_transaction_with(
+        &p.0,
+        BTreeMap::from([("AGENTS.md".into(), b"replacement".to_vec())]),
+        &BTreeMap::from([("AGENTS.md".into(), Some(hash(b"original")))]),
+        |_, path| {
+            fs::write(path, "concurrent edit")?;
+            Ok(())
+        },
+    );
+    assert!(result.is_err());
+    assert_eq!(
+        fs::read_to_string(p.0.join("AGENTS.md")).unwrap(),
+        "concurrent edit"
+    );
+    assert_eq!(
+        fs::read(p.0.join(TRANSACTION_PATH).join("displaced/0")).unwrap(),
+        b"original"
+    );
+    assert_eq!(check(&p.0).status, Status::Conflict);
 }

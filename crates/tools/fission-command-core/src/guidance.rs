@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
+use std::io::Write;
 use std::path::{Component, Path, PathBuf};
 
 mod version;
@@ -424,7 +425,7 @@ fn inspect(project: &Path, operation: &str) -> GuidanceResult {
         );
     } else if root.join(TRANSACTION_PATH).exists() {
         finding(&mut r, FindingKind::IncompleteTransaction, root.join(TRANSACTION_PATH),
-            "An interrupted/concurrent update is present. Inspect journal.json and originals/; restore listed originals (remove destinations marked absent) before explicitly removing this transaction directory. Do not run concurrent writers.".into(), true);
+            "An interrupted/concurrent update is present. Inspect journal.json, originals/ and displaced/; preserve concurrent edits, restore listed originals (remove owned destinations marked absent), then explicitly remove this transaction directory. Do not run concurrent writers.".into(), true);
     }
     match safe_destination(&root, MANIFEST_PATH, false).and_then(|p| optional_bytes(&p)) {
         Ok(None) => finding(
@@ -680,6 +681,15 @@ fn write_transaction(
     desired: BTreeMap<String, Vec<u8>>,
     expected: &BTreeMap<String, Option<String>>,
 ) -> Result<()> {
+    write_transaction_with(root, desired, expected, |_, _| Ok(()))
+}
+
+fn write_transaction_with(
+    root: &Path,
+    desired: BTreeMap<String, Vec<u8>>,
+    expected: &BTreeMap<String, Option<String>>,
+    mut before_publish: impl FnMut(usize, &Path) -> Result<()>,
+) -> Result<()> {
     let mut plan = Vec::new();
     for (relative, bytes) in desired {
         let path = safe_destination(root, &relative, false)?;
@@ -705,6 +715,7 @@ fn write_transaction(
     let stage = (|| -> Result<()> {
         fs::create_dir(tx.join("originals"))?;
         fs::create_dir(tx.join("new"))?;
+        fs::create_dir(tx.join("displaced"))?;
         for (i, (_, bytes, original)) in plan.iter().enumerate() {
             fs::write(tx.join("new").join(i.to_string()), bytes)?;
             if let Some(original) = original {
@@ -728,29 +739,74 @@ fn write_transaction(
         fs::remove_dir_all(&tx)?;
         return Err(e).context("stage guidance update");
     }
-    let mut committed = 0;
+    // Every original is backed up before its replacement is created. Publishing
+    // uses create_new, which fails rather than clobbering a concurrent destination
+    // on Unix or Windows and does not require hard-link support on mapped drives.
+    let mut applied = Vec::new();
     let commit = (|| -> Result<()> {
-        for (i, (relative, _, original)) in plan.iter().enumerate() {
+        for (i, (relative, bytes, original)) in plan.iter().enumerate() {
             let path = safe_destination(root, relative, false)?;
             if optional_bytes(&path)? != *original {
                 bail!("concurrent modification at {}", path.display());
             }
             fs::create_dir_all(path.parent().unwrap())?;
             safe_destination(root, relative, false)?;
-            fs::rename(tx.join("new").join(i.to_string()), &path)?;
-            committed += 1;
+            let displaced = tx.join("displaced").join(i.to_string());
+            if original.is_some() {
+                fs::rename(&path, &displaced)?; // destination is new, including on Windows
+            }
+            applied.push((i, false));
+            if original.is_some() && optional_bytes(&displaced)? != *original {
+                bail!(
+                    "concurrent modification while backing up {}",
+                    path.display()
+                );
+            }
+            before_publish(i, &path)?;
+            let mut file = fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&path)
+                .with_context(|| {
+                    format!("create replacement without overwriting {}", path.display())
+                })?;
+            applied.last_mut().unwrap().1 = true;
+            file.write_all(bytes)?;
+            file.sync_all()?;
         }
         Ok(())
     })();
     if let Err(error) = commit {
-        for (i, (relative, _, original)) in plan.iter().enumerate().take(committed).rev() {
-            let path = safe_destination(root, relative, false)
-                .with_context(|| format!("rollback blocked; recover from {}", tx.display()))?;
-            if original.is_some() {
-                fs::rename(tx.join("originals").join(i.to_string()), &path)?;
-            } else {
-                fs::remove_file(&path)?;
+        let mut blocked = Vec::new();
+        for (i, created) in applied.iter().rev().copied() {
+            let (relative, bytes, original) = &plan[i];
+            let rollback = (|| -> Result<()> {
+                let path = safe_destination(root, relative, false)?;
+                if created {
+                    if optional_bytes(&path)?.as_deref() != Some(bytes.as_slice()) {
+                        bail!("replacement changed or incomplete at {}", path.display());
+                    }
+                    fs::remove_file(&path)?;
+                }
+                if original.is_some() {
+                    // Never rename over a destination another writer created.
+                    if fs::symlink_metadata(&path).is_ok() {
+                        bail!("concurrent destination at {}", path.display());
+                    }
+                    fs::rename(tx.join("displaced").join(i.to_string()), &path)?;
+                }
+                Ok(())
+            })();
+            if let Err(error) = rollback {
+                blocked.push(format!("{error:#}"));
             }
+        }
+        if !blocked.is_empty() {
+            bail!(
+                "{error:#}; rollback needs explicit recovery from {}: {}",
+                tx.display(),
+                blocked.join("; ")
+            );
         }
         fs::remove_dir_all(&tx)?;
         return Err(error).context("guidance update rolled back");

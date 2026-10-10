@@ -63,6 +63,20 @@ jobs:
       - name: Test generated platform scripts
         run: cargo test -p cargo-fission
 
+  guidance-windows:
+    name: Windows guidance update transactions
+    if: >-
+      github.event_name != 'pull_request' ||
+      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR","CONTRIBUTOR"]'), github.event.pull_request.author_association)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Test guidance replacement, rollback and ownership
+        run: cargo test --locked -p fission-command-core "guidance::"
+
   web:
     name: Web / wasm
     if: >-
