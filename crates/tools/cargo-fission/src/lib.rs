@@ -1059,7 +1059,7 @@ mkdir -p "$(dirname "$artifact")"
         let readme = std::fs::read_to_string(dir.join("README.md")).unwrap();
         let agents = std::fs::read_to_string(dir.join("AGENTS.md")).unwrap();
         assert!(agents.contains("# Fission App Guidelines"));
-        assert!(agents.contains("fission-cli-generated-agents:v3"));
+        assert!(agents.contains("fission-cli-generated-agents:v4"));
         let guidance = fission_command_core::guidance::check(&dir);
         assert!(guidance
             .files
@@ -1106,23 +1106,31 @@ mkdir -p "$(dirname "$artifact")"
     }
 
     #[test]
-    fn init_writes_agents_to_git_root() {
+    fn init_writes_agents_to_app_root_inside_git_repository() {
         let repo = unique_dir("init-agents-root");
         fs::create_dir_all(repo.join(".git")).unwrap();
         let app = repo.join("apps/todo");
 
         run(["fission", "init", app.to_str().unwrap(), "--name", "todo"]).unwrap();
 
-        assert!(repo.join("AGENTS.md").exists());
-        assert!(!app.join("AGENTS.md").exists());
+        assert!(app.join("AGENTS.md").is_file());
+        assert!(app.join(".fission/guidance-manifest.json").is_file());
+        assert!(!repo.join("AGENTS.md").exists());
+        assert!(!repo.join(".fission/guidance-manifest.json").exists());
+        assert_eq!(
+            fission_command_core::guidance::check(&app).guidance_root,
+            app
+        );
     }
 
     #[test]
-    fn init_uses_fission_agents_name_when_repo_agents_exists() {
+    fn init_uses_app_fission_agents_name_and_preserves_ancestor_policy() {
         let repo = unique_dir("init-agents-existing");
         fs::create_dir_all(repo.join(".git")).unwrap();
         fs::write(repo.join("AGENTS.md"), "existing repo instructions").unwrap();
         let app = repo.join("apps/todo");
+        fs::create_dir_all(&app).unwrap();
+        fs::write(app.join("AGENTS.md"), "existing app instructions").unwrap();
 
         run(["fission", "init", app.to_str().unwrap(), "--name", "todo"]).unwrap();
 
@@ -1130,30 +1138,33 @@ mkdir -p "$(dirname "$artifact")"
             fs::read_to_string(repo.join("AGENTS.md")).unwrap(),
             "existing repo instructions"
         );
-        let fission_agents = fs::read_to_string(repo.join("AGENTS.fission.md")).unwrap();
+        assert_eq!(
+            fs::read_to_string(app.join("AGENTS.md")).unwrap(),
+            "existing app instructions"
+        );
+        let fission_agents = fs::read_to_string(app.join("AGENTS.fission.md")).unwrap();
         assert!(fission_agents.contains("# Fission App Guidelines"));
-        assert!(fission_agents.contains("fission-cli-generated-agents:v3"));
-        assert!(!app.join("AGENTS.md").exists());
+        assert!(fission_agents.contains("fission-cli-generated-agents:v4"));
+        assert!(!repo.join("AGENTS.fission.md").exists());
+        assert!(!repo.join(".fission/guidance-manifest.json").exists());
     }
 
     #[test]
     fn init_preserves_unproven_legacy_instructions_at_git_root() {
         let repo = unique_dir("init-agents-update-existing");
         fs::create_dir_all(repo.join(".git")).unwrap();
-        fs::write(
-            repo.join("AGENTS.md"),
-            "# Fission App Guidelines\n\nThese instructions apply when building or reviewing a Fission-based app in this tree.\n\n## Source-Grounded Work\n\nold generated content\n\n## Validation\n",
-        )
-        .unwrap();
+        let legacy = "# Fission App Guidelines\n\nThese instructions apply when building or reviewing a Fission-based app in this tree.\n\n## Source-Grounded Work\n\nold generated content\n\n## Validation\n";
+        fs::write(repo.join("AGENTS.md"), legacy).unwrap();
         let app = repo.join("apps/todo");
 
         run(["fission", "init", app.to_str().unwrap(), "--name", "todo"]).unwrap();
 
         let agents = fs::read_to_string(repo.join("AGENTS.md")).unwrap();
-        assert!(agents.contains("old generated content"));
-        assert!(!agents.contains("fission-cli-generated-agents:v3"));
-        assert!(repo.join("AGENTS.fission.md").exists());
-        assert!(!app.join("AGENTS.md").exists());
+        assert_eq!(agents, legacy);
+        assert!(!repo.join("AGENTS.fission.md").exists());
+        assert!(!repo.join(".fission/guidance-manifest.json").exists());
+        let app_agents = fs::read_to_string(app.join("AGENTS.md")).unwrap();
+        assert!(app_agents.contains("fission-cli-generated-agents:v4"));
     }
 
     #[test]

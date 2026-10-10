@@ -16,6 +16,14 @@ recovery originals remain. A Windows CI job runs guidance tests on the actual
 platform. Previous validation below is historical and uses the old ownership
 contract; the combined #261 fixture must use the app-local fallback paths.
 
+The CLI library's four legacy init regressions now verify the v4 entrypoint,
+app-local bundle/manifest ownership, app-local fallback beside customized app
+instructions, and byte-for-byte preservation of ancestor instructions without
+creating repository-level managed files. The complete CLI library suite (27
+tests) and guidance CLI integration suite (five tests) pass locally. This closes
+the stale v3/Git-root expectations reported by the Linux CLI job; final-head CI
+must still confirm the platform result.
+
 ## Review corrections validated on 2026-10-09
 
 The main-based branch now bundles guidance version 3. Three additive commits
