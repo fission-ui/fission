@@ -1,6 +1,6 @@
 use crate::state::AppState;
 use crate::window_button::WindowButton;
-use fission::op::JustifyContent;
+use fission::op::{FlexWrap, JustifyContent};
 use fission::prelude::*;
 
 pub struct WindowButtons;
@@ -11,6 +11,8 @@ impl From<WindowButtons> for Widget {
         let maximized = view.env().window.maximized.unwrap_or(false);
         Row {
             flex_grow: 1.0,
+            flex_shrink: 0.0,
+            wrap: FlexWrap::Wrap,
             justify_content: JustifyContent::End,
             gap: Some(view.env().theme.tokens.spacing.s),
             children: widgets![

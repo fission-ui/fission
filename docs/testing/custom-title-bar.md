@@ -51,6 +51,10 @@ an enter/motion event before any click. It clears background-test mode and X11's
 `DISPLAY`, uses an available loopback LiveTest port, disables caret blinking, and
 requests the existing software renderer.
 
+For Spanish qualification, configure the example's `Env.locale` as `es-ES`
+before building, then pass `--locale es-ES` to the same probe. The option selects
+expected translated text; the app supplies its normal translation bundles.
+
 A passing `results.json` records the executable SHA-256, OS, actual native bounds
 and the completed assertions. Exceptions record the failure and available tree/
 screenshot evidence, terminate the app, and stop the owned input session.
@@ -66,7 +70,9 @@ Assertions:
 6. A native title-area press/motion moves the window without resizing it.
 7. Native double-clicks maximize and restore.
 8. A native corner drag resizes the undecorated window.
-9. A native resize to 400px keeps the note value and all window buttons visible.
+9. A native resize to 400px keeps the note value and all window buttons inside
+   the window bounds. Wait for the resized layout before querying/capturing it;
+   the semantic visibility flag alone does not reject offscreen overflow.
 10. Minimize sets the compositor's minimized state; compositor restoration makes
    the window usable again.
 11. Close exits successfully within ten seconds.
@@ -91,6 +97,8 @@ changing its size. Corner resize produced 840×620, then the example wrapped its
 Minimize was observed as
 `true` before compositor restoration. Native Close exited with status 0.
 
+English and Spanish pass the same eleven native assertions. The controls retain
+their intrinsic width and can wrap when translated labels need more room.
 Initial, typed, maximized, resized and 400px captures were inspected. The probe also
 exposed and rejected native Tab/Enter text routing and the focus-ring capture
 bug before their corrections. The checked-in tests preserve both regressions.

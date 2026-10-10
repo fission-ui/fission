@@ -17,8 +17,12 @@ from gi.repository import Gio, GLib
 parser = argparse.ArgumentParser()
 parser.add_argument('--binary', required=True)
 parser.add_argument('--output', required=True)
+parser.add_argument('--locale', choices=['en-US', 'es-ES'], default='en-US')
 parser.add_argument('--session-bus-address-file')
 args = parser.parse_args()
+maximized_text, restored_text, restore_label = (
+    ('Window maximized', 'Window restored', 'Restore') if args.locale == 'en-US'
+    else ('Ventana maximizada', 'Ventana restaurada', 'Restaurar'))
 if args.session_bus_address_file:
     os.environ['DBUS_SESSION_BUS_ADDRESS'] = Path(args.session_bus_address_file).read_text()
 out = Path(args.output)
@@ -172,19 +176,19 @@ with (out/'app.log').open('wb') as log:
         key(0xffe1, False)
         tap_key(0xff0d)
         report['states']['maximized'] = wait_state(lambda s: s['maximized'])
-        command('WaitForText', text='Window maximized', timeout_ms=5000)
-        assert node('window.maximize')['label'] == 'Restore'
+        command('WaitForText', text=maximized_text, timeout_ms=5000)
+        assert node('window.maximize')['label'] == restore_label
         command('Screenshot', path=str(out/'maximized.png'))
         click_control('window.maximize', padding=True)
         restored = wait_state(lambda s: not s['maximized'])
-        command('WaitForText', text='Window restored', timeout_ms=5000)
+        command('WaitForText', text=restored_text, timeout_ms=5000)
         report['checks'].append('keyboard maximize, observed state, and native restore button')
         tap_key(0x20)
         wait_state(lambda s: s['maximized'])
-        command('WaitForText', text='Window maximized', timeout_ms=5000)
+        command('WaitForText', text=maximized_text, timeout_ms=5000)
         tap_key(0x20)
         restored = wait_state(lambda s: not s['maximized'])
-        command('WaitForText', text='Window restored', timeout_ms=5000)
+        command('WaitForText', text=restored_text, timeout_ms=5000)
         report['checks'].append('native Space activation and literal Space in text input')
 
         x, y = title_point()
@@ -216,9 +220,23 @@ with (out/'app.log').open('wb') as log:
         drag(resized['x']+resized['width']-2,
              resized['y']+resized['height']-2, -440, -150)
         report['states']['narrow'] = wait_state(lambda s: s['width'] == 400)
+        deadline = time.monotonic() + 5
+        while abs(node('window.drag')['width']-400) > 1:
+            assert time.monotonic() < deadline, 'resized title-bar layout did not settle'
+            time.sleep(.1)
+        # Native resize configuration can precede the retained paint settling.
+        time.sleep(.5)
+        command('WaitForIdle', timeout_ms=5000, ignore_repeating_motion=True)
         command('Screenshot', path=str(out/'narrow.png'))
+        report['narrow_controls'] = []
         for identifier in ['window.note', 'window.minimize', 'window.maximize', 'window.close']:
-            assert node(identifier)['visibility'] == 'FullyVisible', (identifier, node(identifier))
+            control = node(identifier)
+            report['narrow_controls'].append(control)
+            assert control['visibility'] == 'FullyVisible', (identifier, control)
+            frame = report['states']['narrow']
+            assert (0 <= control['x'] and 0 <= control['y']
+                    and control['x']+control['width'] <= frame['width']
+                    and control['y']+control['height'] <= frame['height']), (identifier, control, frame)
         assert node('window.note')['value'] == 'hello world'
         report['checks'].append('400px desktop keeps note and window buttons usable')
 
