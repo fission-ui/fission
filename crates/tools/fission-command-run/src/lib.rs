@@ -1,4 +1,5 @@
 pub mod doctor;
+pub mod serving;
 
 use anyhow::{bail, Context, Result};
 use fission_command_core::{
@@ -18,7 +19,7 @@ use std::env;
 use std::fs::{self, File, OpenOptions};
 use std::hash::{Hash, Hasher};
 use std::io::{self, IsTerminal, Read, Seek, Write};
-use std::net::{TcpListener, TcpStream};
+use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
@@ -153,12 +154,33 @@ pub fn run_app_with_web_cargo_options(
     options: RunOptions,
     web_cargo: WebCargoOptions,
 ) -> Result<()> {
+    run_app_with_serving_options(
+        options,
+        web_cargo,
+        serving::ServeOptions::default(),
+        fission_command_site::serving::human_event,
+    )
+}
+
+pub fn run_app_with_serving_options(
+    options: RunOptions,
+    web_cargo: WebCargoOptions,
+    serving: serving::ServeOptions,
+    notify: impl FnMut(serving::ServingEvent) -> Result<()>,
+) -> Result<()> {
     let project = read_project_config(&options.project_dir)?;
     let device = select_device(
         &options.project_dir,
         options.target,
         options.device.as_deref(),
     )?;
+    if !matches!(device.target, Target::Web | Target::Site)
+        && (serving.mount != "/"
+            || serving.stdin_control
+            || serving.startup_timeout != Duration::from_secs(300))
+    {
+        bail!("--mount, --stdin-control, and --startup-timeout-seconds apply to attached browser serving");
+    }
     ensure_native_variant_target(device.target, options.variant.as_ref())?;
     ensure_web_cargo_feature_target(
         device.target,
@@ -172,13 +194,44 @@ pub fn run_app_with_web_cargo_options(
         Target::Linux | Target::Macos | Target::Terminal | Target::Windows => {
             run_desktop(&project, &options, &device)
         }
-        Target::Web => run_web(&options, &device, &web_cargo),
-        Target::Site => site_serve(
+        Target::Web if options.detach => {
+            if options.port == 0 || serving.mount != "/" || serving.stdin_control {
+                bail!("detached Web serving requires a fixed port and root mount; use attached run for --port 0, --mount, or --stdin-control");
+            }
+            run_web(&options, &device, &web_cargo)
+        }
+        Target::Web => {
+            let server = fission_command_site::serving::ServerOptions {
+                host: options.host.clone(),
+                port: options.port,
+                mount: serving.mount.clone(),
+                spa: true,
+                port_search: true,
+            };
+            fission_command_site::serving::serve(
+                || {
+                    build_web(
+                        &options.project_dir,
+                        options.release,
+                        &web_cargo.features,
+                        web_cargo.no_default_features,
+                    )?;
+                    Ok(options.project_dir.join("platforms/web"))
+                },
+                server,
+                serving,
+                !options.no_open,
+                notify,
+            )
+        }
+        Target::Site => fission_command_site::serve_with_options(
             &options.project_dir,
             options.release,
             options.host,
             options.port,
             !options.no_open,
+            serving,
+            notify,
         ),
         Target::Server => fission_command_server::serve(
             &options.project_dir,
@@ -198,6 +251,14 @@ pub fn build_app(options: BuildOptions) -> Result<()> {
 pub fn build_app_with_web_cargo_options(
     options: BuildOptions,
     web_cargo: WebCargoOptions,
+) -> Result<()> {
+    build_app_internal(options, web_cargo, false)
+}
+
+fn build_app_internal(
+    options: BuildOptions,
+    web_cargo: WebCargoOptions,
+    test_control: bool,
 ) -> Result<()> {
     let project = read_project_config(&options.project_dir)?;
     let target = options.target.unwrap_or_else(host_desktop_target);
@@ -260,9 +321,10 @@ pub fn build_app_with_web_cargo_options(
             target,
             options.variant.as_ref(),
         ),
-        Target::Web => build_web(
+        Target::Web => build_web_with_test_control(
             &options.project_dir,
             options.release,
+            test_control,
             &web_cargo.features,
             web_cargo.no_default_features,
         ),
@@ -437,9 +499,26 @@ fn browser_test_web(
     cargo_features: &[String],
     cargo_no_default_features: bool,
 ) -> Result<()> {
-    build_web_for_test(project_dir, cargo_features, cargo_no_default_features)?;
-    let server = StaticTestServer::start(project_dir.to_path_buf())?;
-    let url = format!("{}/platforms/web/", server.base_url());
+    let startup = fission_command_process::StartupContext::new(
+        Duration::from_secs(300),
+        std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+    )?;
+    let session = serving::build_and_serve(
+        BuildOptions {
+            project_dir: project_dir.into(),
+            target: Some(Target::Web),
+            release: false,
+            variant: None,
+        },
+        WebCargoOptions {
+            features: cargo_features.to_vec(),
+            no_default_features: cargo_no_default_features,
+        },
+        Default::default(),
+        &startup,
+        true,
+    )?;
+    let url = session.url.clone();
     let client = fission_test_driver::LiveTestClient::launch_browser(
         fission_test_driver::BrowserTestOptions::new(url).fission_canvas(),
     )?;
@@ -459,23 +538,30 @@ fn browser_test_web(
 }
 
 fn browser_test_site(project_dir: &Path) -> Result<()> {
-    match fission_command_site::build_for_browser_test(project_dir, false)? {
-        Some(output_dir) => {
-            let server = StaticTestServer::start(output_dir)?;
-            let report = fission_test_driver::run_browser_smoke(
-                fission_test_driver::BrowserTestOptions::new(format!("{}/", server.base_url())),
-            )?;
-            println!(
-                "Static site browser smoke passed: title=\"{}\" body_text_len={}",
-                report.title, report.body_text_len
-            );
-            Ok(())
-        }
-        None => {
-            println!("Custom static site entry built; run its project-specific browser tests for route coverage.");
-            Ok(())
-        }
-    }
+    let startup = fission_command_process::StartupContext::new(
+        Duration::from_secs(300),
+        std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+    )?;
+    let session = serving::build_and_serve(
+        BuildOptions {
+            project_dir: project_dir.into(),
+            target: Some(Target::Site),
+            release: false,
+            variant: None,
+        },
+        Default::default(),
+        Default::default(),
+        &startup,
+        false,
+    )?;
+    let report = fission_test_driver::run_browser_smoke(
+        fission_test_driver::BrowserTestOptions::new(session.url.clone()),
+    )?;
+    println!(
+        "Static site browser smoke passed: title=\"{}\" body_text_len={}",
+        report.title, report.body_text_len
+    );
+    Ok(())
 }
 
 fn browser_test_server(project_dir: &Path) -> Result<()> {
@@ -495,127 +581,25 @@ fn browser_test_server(project_dir: &Path) -> Result<()> {
     Ok(())
 }
 
+#[cfg(test)]
 struct StaticTestServer {
+    _server: fission_command_site::serving::OwnedServer,
     base_url: String,
-    stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
-    handle: Option<std::thread::JoinHandle<()>>,
 }
-
+#[cfg(test)]
 impl StaticTestServer {
     fn start(root: PathBuf) -> Result<Self> {
-        let listener = TcpListener::bind(("127.0.0.1", 0))?;
-        listener.set_nonblocking(true)?;
-        let port = listener.local_addr()?.port();
-        let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let thread_stop = stop.clone();
-        let handle = std::thread::spawn(move || {
-            while !thread_stop.load(std::sync::atomic::Ordering::Relaxed) {
-                match listener.accept() {
-                    Ok((stream, _)) => {
-                        if let Err(error) = stream.set_nonblocking(false) {
-                            eprintln!("Web test server connection setup failed: {error}");
-                            continue;
-                        }
-                        if let Err(error) = serve_static_test_request(stream, &root) {
-                            eprintln!("Web test server request failed: {error}");
-                        }
-                    }
-                    Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
-                        std::thread::sleep(Duration::from_millis(20));
-                    }
-                    Err(error) => {
-                        eprintln!("Web test server accept failed: {error}");
-                        std::thread::sleep(Duration::from_millis(20));
-                    }
-                }
-            }
-        });
+        let server = fission_command_site::serving::OwnedServer::start(root, &Default::default())?;
+        let base_url = server.base_url().trim_end_matches('/').to_string();
         Ok(Self {
-            base_url: format!("http://127.0.0.1:{port}"),
-            stop,
-            handle: Some(handle),
+            _server: server,
+            base_url,
         })
     }
-
     fn base_url(&self) -> &str {
         &self.base_url
     }
 }
-
-impl Drop for StaticTestServer {
-    fn drop(&mut self) {
-        self.stop.store(true, std::sync::atomic::Ordering::Relaxed);
-        let _ = TcpStream::connect(self.base_url.trim_start_matches("http://"));
-        if let Some(handle) = self.handle.take() {
-            let _ = handle.join();
-        }
-    }
-}
-
-fn serve_static_test_request(mut stream: TcpStream, root: &Path) -> Result<()> {
-    let mut buffer = [0u8; 4096];
-    let n = stream.read(&mut buffer)?;
-    let request = String::from_utf8_lossy(&buffer[..n]);
-    let mut request_parts = request
-        .lines()
-        .next()
-        .unwrap_or_default()
-        .split_whitespace();
-    let method = request_parts.next().unwrap_or("GET");
-    let path = request_parts
-        .next()
-        .unwrap_or("/")
-        .split('?')
-        .next()
-        .unwrap_or("/");
-    if method == "POST" && path == "/__fission/renderer" {
-        stream.write_all(
-            b"HTTP/1.1 204 No Content\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
-        )?;
-        return Ok(());
-    }
-    let relative = path.trim_start_matches('/');
-    let mut candidate = root.join(relative);
-    if path.ends_with('/') || candidate.is_dir() {
-        candidate = candidate.join("index.html");
-    }
-    let (status, content_type, body) = if candidate.is_file() {
-        (
-            "200 OK",
-            static_content_type(&candidate),
-            fs::read(&candidate).unwrap_or_default(),
-        )
-    } else {
-        ("404 Not Found", "text/plain", b"not found".to_vec())
-    };
-    let header = format!(
-        "HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-        body.len()
-    );
-    stream.write_all(header.as_bytes())?;
-    stream.write_all(&body)?;
-    Ok(())
-}
-
-fn static_content_type(path: &Path) -> &'static str {
-    match path
-        .extension()
-        .and_then(|ext| ext.to_str())
-        .unwrap_or_default()
-    {
-        "html" => "text/html; charset=utf-8",
-        "css" => "text/css; charset=utf-8",
-        "js" | "mjs" => "text/javascript; charset=utf-8",
-        "wasm" => "application/wasm",
-        "json" => "application/json; charset=utf-8",
-        "svg" => "image/svg+xml",
-        "png" => "image/png",
-        "jpg" | "jpeg" => "image/jpeg",
-        "webp" => "image/webp",
-        _ => "application/octet-stream",
-    }
-}
-
 fn free_local_port() -> Result<u16> {
     Ok(TcpListener::bind(("127.0.0.1", 0))?.local_addr()?.port())
 }
@@ -1181,20 +1165,6 @@ fn build_web(
         project_dir,
         release,
         false,
-        cargo_features,
-        cargo_no_default_features,
-    )
-}
-
-fn build_web_for_test(
-    project_dir: &Path,
-    cargo_features: &[String],
-    cargo_no_default_features: bool,
-) -> Result<()> {
-    build_web_with_test_control(
-        project_dir,
-        false,
-        true,
         cargo_features,
         cargo_no_default_features,
     )
@@ -2367,14 +2337,6 @@ mod tests {
             capabilities: BTreeSet::new(),
             native: Default::default(),
         }
-    }
-
-    #[test]
-    fn browser_test_server_serves_javascript_modules() {
-        assert_eq!(
-            static_content_type(Path::new("platforms/web/bootstrap.mjs")),
-            "text/javascript; charset=utf-8"
-        );
     }
 
     #[test]

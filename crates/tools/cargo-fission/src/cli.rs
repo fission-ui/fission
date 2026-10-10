@@ -82,7 +82,7 @@ pub(crate) enum Command {
         #[arg(long, default_value = ".")]
         project_dir: PathBuf,
         /// Start the app and return instead of attaching logs/process output.
-        #[arg(long)]
+        #[arg(long, conflicts_with = "json")]
         detach: bool,
         /// Build in release mode.
         #[arg(long)]
@@ -108,6 +108,8 @@ pub(crate) enum Command {
         /// Prefer headless simulator/emulator execution where supported.
         #[arg(long)]
         headless: bool,
+        #[command(flatten)]
+        serving: ServingArgs,
     },
     /// Build a configured target without launching it.
     Build {
@@ -399,6 +401,32 @@ pub(crate) enum Command {
     },
 }
 
+#[derive(clap::Args, Debug)]
+pub(crate) struct ServingArgs {
+    /// Emit typed attached browser-serving events as JSON lines.
+    #[arg(long)]
+    pub json: bool,
+    /// Serve under this URL mount without changing project configuration.
+    #[arg(long, default_value = "/")]
+    pub mount: String,
+    /// Bound the complete build and local-asset readiness sequence.
+    #[arg(long, default_value_t = 300, value_parser = clap::value_parser!(u64).range(1..=3600))]
+    pub startup_timeout_seconds: u64,
+    /// Stop on stdin `stop` + newline or EOF, including during startup.
+    #[arg(long)]
+    pub stdin_control: bool,
+}
+
+impl ServingArgs {
+    pub fn options(&self) -> fission_command_run::serving::ServeOptions {
+        fission_command_run::serving::ServeOptions {
+            mount: self.mount.clone(),
+            startup_timeout: std::time::Duration::from_secs(self.startup_timeout_seconds),
+            stdin_control: self.stdin_control,
+        }
+    }
+}
+
 #[derive(Subcommand, Debug)]
 pub(crate) enum SiteCommand {
     /// Build the static site into its configured output directory.
@@ -436,6 +464,8 @@ pub(crate) enum SiteCommand {
         /// Do not open a browser.
         #[arg(long)]
         no_open: bool,
+        #[command(flatten)]
+        serving: ServingArgs,
     },
     /// List custom and content routes.
     Routes {
@@ -503,6 +533,46 @@ pub(crate) enum ServerCommand {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn serving_uses_existing_commands_and_preview_is_absent() {
+        use clap::CommandFactory;
+        for args in [
+            vec![
+                "fission",
+                "run",
+                "--target",
+                "web",
+                "--port",
+                "0",
+                "--json",
+                "--mount",
+                "/repo/",
+                "--stdin-control",
+            ],
+            vec![
+                "fission",
+                "site",
+                "serve",
+                "--port",
+                "0",
+                "--json",
+                "--mount",
+                "/repo/",
+                "--stdin-control",
+            ],
+        ] {
+            assert!(Cli::try_parse_from(args).is_ok());
+        }
+        for command in ["preview", "preview-build", "preview-probe"] {
+            assert!(Cli::try_parse_from(["fission", command]).is_err());
+        }
+        assert!(!Cli::command().render_help().to_string().contains("preview"));
+        assert!(
+            Cli::try_parse_from(["fission", "run", "--target", "web", "--json", "--detach"])
+                .is_err()
+        );
+    }
 
     fn selected_variant(command: Command) -> Option<NativeVariant> {
         match command {
