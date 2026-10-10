@@ -86,6 +86,9 @@ pub struct SemanticsRegion {
     /// pointer-only interaction layer such as an overlay dismissal scrim.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub focusable: Option<bool>,
+    /// Marks a native desktop drag surface; use [`super::WindowDragRegion`].
+    #[serde(default)]
+    pub window_drag_region: bool,
     /// Whether this region groups keyboard focus for its descendants.
     #[serde(default)]
     pub is_focus_scope: bool,
@@ -331,6 +334,7 @@ impl Default for SemanticsRegion {
             active_descendant: None,
             sequential_focusable: true,
             focusable: None,
+            window_drag_region: false,
             is_focus_scope: false,
             is_focus_barrier: false,
             actions: ActionSet::default(),
@@ -345,6 +349,7 @@ impl Lower for SemanticsRegion {
         let node_id = cx.with_scope(id, |cx| {
             let semantics = Semantics {
                 role: self.role,
+                window_drag_region: self.window_drag_region,
                 identifier: self.identifier.clone(),
                 label: self.label.clone(),
                 value: self.value.clone(),
@@ -455,6 +460,7 @@ mod tests {
     #[test]
     fn added_fields_default_when_deserializing_an_older_region() {
         let added_fields = [
+            "window_drag_region",
             "selected",
             "expanded",
             "has_popup",
@@ -477,6 +483,7 @@ mod tests {
         }
 
         let decoded: SemanticsRegion = serde_json::from_value(encoded).unwrap();
+        assert!(!decoded.window_drag_region);
         assert_eq!(decoded.selected, None);
         assert_eq!(decoded.expanded, None);
         assert_eq!(decoded.has_popup, None);

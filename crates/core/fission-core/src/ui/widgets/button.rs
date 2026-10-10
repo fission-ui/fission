@@ -10,7 +10,7 @@ use crate::{ActionEnvelope, Env, InteractionStateMap};
 use fission_ir::{
     op::{BoxShadow, Color as IrColor, Fill, LayoutOp, Op, PaintOp, Stroke},
     ActionEntry, ActionSet, CompositeScalar, CompositeStyle, FocusPolicy, Role, Semantics,
-    TextFieldValidationState, WidgetId,
+    StructuralOp, TextFieldValidationState, WidgetId,
 };
 use fission_theme::{
     ButtonHierarchy, ComponentMotion, ComponentSize, ComponentState, ComponentStateStyles,
@@ -1695,8 +1695,10 @@ impl Lower for Button {
             }
 
             if let Some(focus_ring) = resolved_style.focus_ring.clone() {
+                // Toggling the ring must not renumber content captured by a
+                // pointer press before the rebuild into pointer focus.
                 let focus_ring_id = IrBuilder::new(
-                    cx.next_node_id(),
+                    WidgetId::derived(final_id.as_u128(), &[0xBC03]),
                     Op::Paint(PaintOp::DrawRect {
                         fill: None,
                         stroke: Some(focus_ring),
@@ -1707,7 +1709,13 @@ impl Lower for Button {
                     }),
                 )
                 .build(cx);
-                button_builder.add_child(focus_ring_id);
+                // Decorative paint must not capture a press on button padding.
+                let mut transparent = IrBuilder::new(
+                    WidgetId::derived(final_id.as_u128(), &[0xBC04]),
+                    Op::Structural(StructuralOp::PointerTransparent { stable_hash: 0 }),
+                );
+                transparent.add_child(focus_ring_id);
+                button_builder.add_child(transparent.build(cx));
             }
 
             let content_id = if let Some(content) = &self.icon_content {
@@ -1845,6 +1853,7 @@ fn default_button_semantics() -> Semantics {
         scene_target: None,
         action_scope_id: None,
         focusable: true,
+        window_drag_region: false,
         sequential_focusable: true,
         focus_policy: FocusPolicy::FocusOnPointer,
         text_editable: false,

@@ -23,7 +23,7 @@ pub use widgets::{
     TextDecoration, TextDecorationLines, TextDecorationStyle, TextFontStyle, TextHyphenation,
     TextInput, TextLeadingDistribution, TextLineBreakPolicy, TextRunStyle, TextScaler, TextShadow,
     TextTypography, VectorPath, Video, VideoAudioActivation, VideoAudioOptions, VideoAudioPolicy,
-    VideoSource, ZStack,
+    VideoSource, WindowDragRegion, ZStack,
 };
 #[cfg(feature = "interactive-canvas")]
 pub use widgets::{

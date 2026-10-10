@@ -55,7 +55,6 @@ use fission::{InfiniteCanvas, InteractiveViewer};
 )]
 
 extern crate self as fission;
-
 // ── Sub-crate re-exports ─────────────────────────────────────────────────
 
 /// Core runtime, widgets, actions, reducers, effects.
@@ -283,7 +282,7 @@ pub use fission_core::ui::{
     TextDecorationStyle, TextFontStyle, TextHyphenation, TextInput, TextLeadingDistribution,
     TextLineBreakPolicy, TextRunStyle, TextScaler, TextShadow, TextTypography, VectorPath, Video,
     VideoAudioActivation, VideoAudioOptions, VideoAudioPolicy, VideoSource, Widget, WidgetIdExt,
-    ZStack,
+    WindowDragRegion, ZStack,
 };
 
 // Core action/state types
@@ -318,12 +317,12 @@ pub use fission_core::{
     TextInputType, TextPosition, TextRange, TextRegionPosition, TextRegionSelection,
     TextScrollCommand, TextScrollController, TextSelection, TextValuePhase, TextWrapMode,
     UnregisterPushNotificationsCapability, UpdateTextInput, ValueView, ViewHandle, WidgetId,
-    WriteNfcTagCapability, AUTHENTICATE_BIOMETRIC, CANCEL_ALL_NOTIFICATIONS,
-    CANCEL_BIOMETRIC_AUTHENTICATION, CANCEL_NFC_SESSION, CANCEL_NOTIFICATION, EMULATE_NFC_TAG,
-    GET_BIOMETRIC_AVAILABILITY, GET_NFC_AVAILABILITY, GET_NOTIFICATION_SETTINGS,
-    REGISTER_PUSH_NOTIFICATIONS, REQUEST_NOTIFICATION_PERMISSION, SCAN_NFC_TAG,
-    SCHEDULE_NOTIFICATION, SET_BADGE_COUNT, SHOW_NOTIFICATION, UNREGISTER_PUSH_NOTIFICATIONS,
-    WRITE_NFC_TAG,
+    WindowCommand, WindowControlCapability, WindowControlError, WriteNfcTagCapability,
+    AUTHENTICATE_BIOMETRIC, CANCEL_ALL_NOTIFICATIONS, CANCEL_BIOMETRIC_AUTHENTICATION,
+    CANCEL_NFC_SESSION, CANCEL_NOTIFICATION, EMULATE_NFC_TAG, GET_BIOMETRIC_AVAILABILITY,
+    GET_NFC_AVAILABILITY, GET_NOTIFICATION_SETTINGS, REGISTER_PUSH_NOTIFICATIONS,
+    REQUEST_NOTIFICATION_PERMISSION, SCAN_NFC_TAG, SCHEDULE_NOTIFICATION, SET_BADGE_COUNT,
+    SHOW_NOTIFICATION, UNREGISTER_PUSH_NOTIFICATIONS, WINDOW_CONTROL, WRITE_NFC_TAG,
 };
 pub use fission_core::{
     AdjustVolumeLevelCapability, GetVolumeLevelCapability, SetVolumeLevelCapability,
@@ -600,7 +599,8 @@ pub mod prelude {
         TextContent, TextDecoration, TextDecorationLines, TextDecorationStyle, TextFontStyle,
         TextHyphenation, TextInput, TextLeadingDistribution, TextLineBreakPolicy, TextRunStyle,
         TextScaler, TextShadow, TextTypography, VectorPath, Video, VideoAudioActivation,
-        VideoAudioOptions, VideoAudioPolicy, VideoSource, Widget, WidgetIdExt, ZStack,
+        VideoAudioOptions, VideoAudioPolicy, VideoSource, Widget, WidgetIdExt, WindowDragRegion,
+        ZStack,
     };
     pub use fission_widgets::*;
 

@@ -35,6 +35,7 @@ pub mod text;
 pub mod text_input;
 pub mod transform;
 pub mod video;
+pub mod window_drag_region;
 
 pub use action_scope::ActionScope;
 pub use align::Align;
@@ -96,6 +97,7 @@ pub use video::{
     IosVideoAudioOptions, Video, VideoAudioActivation, VideoAudioOptions, VideoAudioPolicy,
     VideoSource,
 };
+pub use window_drag_region::WindowDragRegion;
 
 pub mod gesture_detector;
 pub use gesture_detector::GestureDetector;

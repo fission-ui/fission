@@ -115,7 +115,16 @@ use accessibility::AccessibilityBridge;
 mod pipeline;
 mod platform_motion_preference;
 mod platform_text_scale;
+mod window_attributes;
+mod window_controls;
 pub use pipeline::{InvalidationSet, Pipeline};
+#[cfg(target_os = "android")]
+use window_attributes::build_window;
+#[cfg(test)]
+use window_attributes::build_window_attributes;
+#[cfg(not(target_os = "android"))]
+use window_attributes::build_window_before_run;
+use window_attributes::native_surface_host;
 #[cfg(not(target_arch = "wasm32"))]
 mod native_renderer_selection;
 mod renderer_diagnostics;
@@ -1902,117 +1911,6 @@ fn classify_web_text_value(
     (source, phase)
 }
 
-#[cfg(target_os = "android")]
-fn build_window(
-    title: &str,
-    initial_maximized: bool,
-    background_test_mode: bool,
-    target: &EventLoopWindowTarget,
-    _web_mount_selector: Option<&str>,
-    _browser_defaults: BrowserDefaults,
-) -> anyhow::Result<Arc<Window>> {
-    let reported_scale_factor = target
-        .primary_monitor()
-        .map(|monitor| monitor.scale_factor());
-    let window_attributes = build_window_attributes(
-        title,
-        initial_maximized,
-        background_test_mode,
-        false,
-        _web_mount_selector,
-        _browser_defaults,
-        reported_scale_factor,
-    )?;
-    Ok(Arc::new(target.create_window(window_attributes).map_err(
-        |e| anyhow::anyhow!("Window build error: {}", e),
-    )?))
-}
-
-#[cfg(not(target_os = "android"))]
-fn build_window_before_run(
-    title: &str,
-    initial_maximized: bool,
-    background_test_mode: bool,
-    tray_skip_taskbar: bool,
-    event_loop: &EventLoop<TestEvent>,
-    _web_mount_selector: Option<&str>,
-    _browser_defaults: BrowserDefaults,
-) -> anyhow::Result<Arc<Window>> {
-    let window_attributes = build_window_attributes(
-        title,
-        initial_maximized,
-        background_test_mode,
-        tray_skip_taskbar,
-        _web_mount_selector,
-        _browser_defaults,
-        None,
-    )?;
-    #[allow(deprecated)]
-    Ok(Arc::new(
-        event_loop
-            .create_window(window_attributes)
-            .map_err(|e| anyhow::anyhow!("Window build error: {}", e))?,
-    ))
-}
-
-fn native_surface_host(window: &Window) -> Option<NativeSurfaceHost<'_>> {
-    let handle = window.window_handle().ok()?;
-    Some(NativeSurfaceHost::from_window_handle(handle))
-}
-
-fn build_window_attributes(
-    title: &str,
-    initial_maximized: bool,
-    background_test_mode: bool,
-    tray_skip_taskbar: bool,
-    _web_mount_selector: Option<&str>,
-    _browser_defaults: BrowserDefaults,
-    _reported_scale_factor: Option<f64>,
-) -> anyhow::Result<WindowAttributes> {
-    let mut window_attributes = WindowAttributes::default()
-        .with_title(title)
-        .with_maximized(initial_maximized);
-    #[cfg(target_os = "ios")]
-    {
-        // Winit leaves UIView.contentScaleFactor at UIKit's default unless the
-        // app explicitly opts into the device scale. Without this, iOS presents
-        // a 1x render target scaled up by the simulator/device, which makes the
-        // shell look visibly soft compared with web and Android.
-        let reported_scale_factor = _reported_scale_factor.unwrap_or(1.0);
-        window_attributes = window_attributes.with_scale_factor(ios_effective_scale_factor(
-            normalize_scale_factor(reported_scale_factor),
-        ));
-    }
-    #[cfg(target_os = "windows")]
-    {
-        window_attributes = window_attributes.with_skip_taskbar(tray_skip_taskbar);
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        let _ = tray_skip_taskbar;
-    }
-    #[cfg(target_arch = "wasm32")]
-    {
-        window_attributes = window_attributes
-            .with_prevent_default(true)
-            .with_browser_defaults(web_input::to_winit(_browser_defaults));
-        window_attributes = if let Some(selector) = _web_mount_selector {
-            window_attributes.with_canvas(Some(canvas_for_mount_selector(selector)?))
-        } else {
-            window_attributes.with_append(true)
-        };
-    }
-    if background_test_mode {
-        window_attributes = window_attributes.with_active(false).with_visible(false);
-    } else if accessibility::window_must_start_hidden() {
-        // AccessKit's winit adapter has to be installed before the native
-        // window is ever shown. The Resumed handler creates the adapter and
-        // then makes the window visible.
-        window_attributes = window_attributes.with_visible(false);
-    }
-    Ok(window_attributes)
-}
-
 #[cfg(target_arch = "wasm32")]
 fn canvas_for_mount_selector(selector: &str) -> anyhow::Result<web_sys::HtmlCanvasElement> {
     use wasm_bindgen::JsCast;
@@ -3742,21 +3640,31 @@ fn report_frame_failure(stage: &str, error: &dyn std::fmt::Display) {
 }
 
 fn fission_key_down_event(code: KeyCode, modifiers: u8, produced_text: Option<&str>) -> InputEvent {
-    produced_text.filter(|text| !text.is_empty()).map_or_else(
-        || {
-            InputEvent::Keyboard(FissionKeyEvent::Down {
-                key_code: code.clone(),
-                modifiers,
-            })
-        },
-        |text| {
-            InputEvent::Keyboard(FissionKeyEvent::DownWithText {
-                key_code: code.clone(),
-                modifiers,
-                text: text.to_owned(),
-            })
-        },
-    )
+    // Native backends also attach control text to Tab/Enter/Escape. Preserve
+    // their key identity so ordinary focus traversal and activation still run.
+    // A literal Space follows the same path; layout-produced text (e.g. "t"
+    // from a remapped Space key) must keep its actual text.
+    produced_text
+        .filter(|text| {
+            !text.is_empty()
+                && !text.chars().all(char::is_control)
+                && !(code == KeyCode::Space && *text == " ")
+        })
+        .map_or_else(
+            || {
+                InputEvent::Keyboard(FissionKeyEvent::Down {
+                    key_code: code.clone(),
+                    modifiers,
+                })
+            },
+            |text| {
+                InputEvent::Keyboard(FissionKeyEvent::DownWithText {
+                    key_code: code.clone(),
+                    modifiers,
+                    text: text.to_owned(),
+                })
+            },
+        )
 }
 
 fn handle_key_down<S: GlobalState>(
@@ -4661,6 +4569,7 @@ where
     native_surface_handlers: NativeSurfaceRegistry,
     title: String,
     initial_maximized: bool,
+    decorations: bool,
     web_mount_selector: Option<String>,
     browser_defaults: BrowserDefaults,
     web_navigation: WebNavigationConfig,
@@ -4727,6 +4636,7 @@ where
             native_surface_handlers: NativeSurfaceRegistry::default(),
             title: "Fission".into(),
             initial_maximized: false,
+            decorations: true,
             web_mount_selector: None,
             browser_defaults: BrowserDefaults::NONE,
             web_navigation: WebNavigationConfig::default(),
@@ -4781,6 +4691,12 @@ where
     /// choose whether to honor the request.
     pub fn with_initial_maximized(mut self, maximized: bool) -> Self {
         self.initial_maximized = maximized;
+        self
+    }
+
+    /// Sets native window decorations. Desktop apps may provide a custom title bar.
+    pub fn with_decorations(mut self, decorations: bool) -> Self {
+        self.decorations = decorations;
         self
     }
 
@@ -5451,6 +5367,7 @@ where
         let tray_config = self.tray_config.clone();
         let window_title = self.title.clone();
         let initial_maximized = self.initial_maximized;
+        let decorations = self.decorations;
         let web_mount_selector = self.web_mount_selector;
         let browser_defaults = self.browser_defaults;
         let ime_handler = Arc::new(DesktopImeHandler::default());
@@ -5460,6 +5377,7 @@ where
         let platform_window = build_window_before_run(
             &window_title,
             initial_maximized,
+            decorations,
             background_test_mode,
             tray_skip_taskbar,
             &event_loop,
@@ -5550,7 +5468,14 @@ where
         let measurer = self.measurer;
         let effect_result_tx = self.effect_result_tx;
         let effect_result_rx = self.effect_result_rx;
-        let async_registry = self.async_registry;
+        let mut async_registry = self.async_registry;
+        #[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
+        let window_controls =
+            window_controls::WindowControls::new(&mut async_registry, event_proxy.clone());
+        #[cfg(any(target_arch = "wasm32", target_os = "android", target_os = "ios"))]
+        window_controls::register_unsupported(&mut async_registry);
+        #[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
+        let mut window_drag = window_controls::WindowDragState::default();
         let startup_action = self.startup_action;
         let mut startup_dispatched = false;
         let mut next_service_instance_id = 1_u64;
@@ -6922,6 +6847,26 @@ where
                     // Mapped to a redraw before dispatch.
                     TestEvent::HeadlessFrame => {}
                     TestEvent::Wake => {
+                        #[cfg(not(any(
+                            target_arch = "wasm32",
+                            target_os = "android",
+                            target_os = "ios"
+                        )))]
+                        if let Some(window) = platform_window.active_window() {
+                            let outcome = window_controls.apply_pending(window);
+                            if outcome.changed {
+                                invalidations.mark_build();
+                                window.request_redraw();
+                            }
+                            if outcome.close {
+                                window_controls::request_close(
+                                    window,
+                                    elwt,
+                                    #[cfg(feature = "tray")]
+                                    active_tray.as_ref(),
+                                );
+                            }
+                        }
                         #[cfg(target_arch = "wasm32")]
                         {
                             if web_motion_preference_changed.replace(false) {
@@ -7094,6 +7039,7 @@ where
                         match build_window(
                             &window_title,
                             initial_maximized,
+                            decorations,
                             background_test_mode,
                             elwt,
                             web_mount_selector.as_deref(),
@@ -8416,6 +8362,18 @@ where
                                     &env.theme.tokens.sizing,
                                 ),
                             );
+                            #[cfg(not(any(
+                                target_arch = "wasm32",
+                                target_os = "android",
+                                target_os = "ios"
+                            )))]
+                            {
+                                let maximized = Some(window.is_maximized());
+                                if env.window.maximized != maximized {
+                                    invalidations.mark_build();
+                                }
+                                env.window.maximized = maximized;
+                            }
                             let desired_window_title = env.window.title.plain_text();
                             if desired_window_title != applied_window_title {
                                 if let Some(window) = platform_window.active_window() {
@@ -9472,14 +9430,12 @@ where
                             }
                         }
                         WindowEvent::CloseRequested => {
-                            #[cfg(feature = "tray")]
-                            if let Some(tray) = active_tray.as_ref().filter(|tray| {
-                                tray.close_behavior() == tray::WindowCloseBehavior::HideToTray
-                            }) {
-                                tray::hide_window_to_tray(window, tray.app_switcher_policy());
-                                return;
-                            }
-                            elwt.exit();
+                            window_controls::request_close(
+                                window,
+                                elwt,
+                                #[cfg(feature = "tray")]
+                                active_tray.as_ref(),
+                            );
                         }
                         // Input Handling — delegates to the same extracted functions
                         // that TestEvent handlers use.
@@ -9614,6 +9570,20 @@ where
                                     window_physical_position_to_layout_point(window, position);
                                 if let Some(btn) = map_mouse_button(button) {
                                     let is_pressed = state.is_pressed();
+                                    #[cfg(not(any(
+                                        target_arch = "wasm32",
+                                        target_os = "android",
+                                        target_os = "ios"
+                                    )))]
+                                    if is_pressed
+                                        && btn == PointerButton::Primary
+                                        && window_drag
+                                            .handle_press(window, &runtime, &pipeline, point)
+                                    {
+                                        invalidations.mark_build();
+                                        window.request_redraw();
+                                        return;
+                                    }
                                     #[cfg(target_arch = "wasm32")]
                                     let is_secondary_release =
                                         !is_pressed && matches!(btn, PointerButton::Secondary);
@@ -10896,6 +10866,7 @@ mod tests {
         let default_attributes = build_window_attributes(
             "Fission",
             false,
+            true,
             false,
             false,
             None,
@@ -10905,6 +10876,7 @@ mod tests {
         .unwrap();
         let maximized_attributes = build_window_attributes(
             "Fission",
+            true,
             true,
             false,
             false,
