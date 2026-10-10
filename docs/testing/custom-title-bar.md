@@ -61,12 +61,13 @@ Assertions:
 3. The ordinary Increment button updates app state.
 4. Shift+Tab reaches Maximize; Enter maximizes. The compositor state and app's
    observed state/Restore label agree; a native Restore click leaves maximization.
-5. A native title-area press/motion moves the window without resizing it.
-6. Native double-clicks maximize and restore.
-7. A native corner drag resizes the undecorated window.
-8. Minimize sets the compositor's minimized state; compositor restoration makes
+5. Native Space toggles Maximize/Restore and a literal space appears in the note.
+6. A native title-area press/motion moves the window without resizing it.
+7. Native double-clicks maximize and restore.
+8. A native corner drag resizes the undecorated window.
+9. Minimize sets the compositor's minimized state; compositor restoration makes
    the window usable again.
-9. Close exits successfully within ten seconds.
+10. Close exits successfully within ten seconds.
 
 ## Coverage boundary
 
@@ -81,7 +82,7 @@ from this feature's compositor-state assertions.
 ## Verified VM run
 
 Ubuntu 25.10, GNOME/Mutter 49, native Wayland, an ARM64 Linux VM and
-Mesa/llvmpipe. All nine assertions passed with real OS input. The initial native
+Mesa/llvmpipe. All ten assertions passed with real OS input. The initial native
 window was 800×600 at (112, 100); keyboard maximization produced 1024×736
 at (0, 32). The title drag moved the restored window to (142, 110) without
 changing its size. Corner resize produced 840×620, and minimize was observed as

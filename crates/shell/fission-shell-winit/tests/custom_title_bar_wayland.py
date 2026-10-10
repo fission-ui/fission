@@ -125,8 +125,9 @@ report = {'binary_sha256': hashlib.sha256(Path(args.binary).read_bytes()).hexdig
           'os': Path('/etc/os-release').read_text(), 'states':{}, 'checks':[]}
 with (out/'app.log').open('wb') as log:
     remote_call('Start')
-    app = subprocess.Popen([args.binary], env=env, stdout=log, stderr=log)
+    app = None
     try:
+        app = subprocess.Popen([args.binary], env=env, stdout=log, stderr=log)
         shell_eval('1')
         deadline = time.monotonic() + 60
         while True:
@@ -152,11 +153,11 @@ with (out/'app.log').open('wb') as log:
         report['checks'].append('native decorations hidden')
 
         click_control('window.note')
-        for character in 'hello':
+        for character in 'hello world':
             tap_key(ord(character))
         command('Screenshot', path=str(out/'after-typing.png'))
-        command('WaitForText', text='hello', timeout_ms=5000)
-        assert node('window.note')['value'] == 'hello'
+        command('WaitForText', text='hello world', timeout_ms=5000)
+        assert node('window.note')['value'] == 'hello world'
         assert window_state() == initial, 'typing in the title bar moved the window'
         report['checks'].append('native title-bar typing without window dragging')
         click_control('window.increment')
@@ -177,6 +178,13 @@ with (out/'app.log').open('wb') as log:
         restored = wait_state(lambda s: not s['maximized'])
         command('WaitForText', text='Window restored', timeout_ms=5000)
         report['checks'].append('keyboard maximize, observed state, and native restore button')
+        tap_key(0x20)
+        wait_state(lambda s: s['maximized'])
+        command('WaitForText', text='Window maximized', timeout_ms=5000)
+        tap_key(0x20)
+        restored = wait_state(lambda s: not s['maximized'])
+        command('WaitForText', text='Window restored', timeout_ms=5000)
+        report['checks'].append('native Space activation and literal Space in text input')
 
         x, y = title_point()
         drag(x, y, 30, 10)
@@ -224,7 +232,7 @@ with (out/'app.log').open('wb') as log:
             pass
         raise
     finally:
-        if app.poll() is None:
+        if app is not None and app.poll() is None:
             app.kill()
             app.wait(timeout=5)
         try:
