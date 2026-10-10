@@ -303,16 +303,14 @@ fn prepare_xcode_project(
         let output_dir = project
             .parent()
             .context("macOS native Xcode project has no parent directory")?;
-        let status = Command::new("xcodegen")
+        let mut command = Command::new("xcodegen");
+        command
             .arg("--spec")
             .arg(&spec)
             .arg("--project")
-            .arg(output_dir)
-            .status()
-            .context("failed to run xcodegen; install XcodeGen or remove `xcodegen_spec`")?;
-        if !status.success() {
-            bail!("xcodegen failed for macOS native module `{module_name}` with {status}");
-        }
+            .arg(output_dir);
+        run_status(&mut command, "xcodegen")
+            .context("failed to generate the macOS native project; install XcodeGen or remove `xcodegen_spec`")?;
     }
     if !project.is_dir() {
         bail!(
@@ -588,14 +586,8 @@ fn sanitize_component(value: &str) -> String {
     }
 }
 
-fn run_status(command: &mut Command, label: &str) -> Result<()> {
-    let status = command
-        .status()
-        .with_context(|| format!("failed to run {label}"))?;
-    if !status.success() {
-        bail!("{label} failed with {status}");
-    }
-    Ok(())
+fn run_status(command: &mut Command, _label: &str) -> Result<()> {
+    fission_command_process::diagnostic::run(command).map_err(Into::into)
 }
 
 #[cfg(test)]

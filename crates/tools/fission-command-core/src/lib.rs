@@ -19,6 +19,9 @@ mod macos_native;
 mod macos_signing;
 mod native_cargo;
 mod native_variant;
+mod process_report;
+pub mod report;
+mod setup;
 mod splash;
 mod web_storage;
 mod windows_native;
@@ -397,7 +400,9 @@ enum WritePolicy {
     PreserveExisting,
 }
 
-pub fn init_project(
+pub use setup::{add_targets, init_project};
+
+fn init_project_files(
     root: &Path,
     name: Option<String>,
     app_id: Option<String>,
@@ -572,7 +577,7 @@ fn detect_project_targets(root: &Path) -> BTreeSet<Target> {
     targets
 }
 
-pub fn add_targets(project_dir: &Path, targets: &[Target]) -> Result<()> {
+fn add_target_files(project_dir: &Path, targets: &[Target]) -> Result<()> {
     if targets.is_empty() {
         bail!("no targets provided");
     }
@@ -2349,10 +2354,8 @@ fn sync_fission_table(
         table["version"] = value(CURRENT_VERSION);
     }
     table["default-features"] = value(false);
-    let merged_features = merge_cargo_feature_array(
-        table.get("features").and_then(Item::as_value),
-        features,
-    );
+    let merged_features =
+        merge_cargo_feature_array(table.get("features").and_then(Item::as_value), features);
     table["features"] = Item::Value(merged_features);
     table.to_string() != before
 }

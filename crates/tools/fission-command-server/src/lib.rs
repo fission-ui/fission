@@ -14,7 +14,8 @@ pub fn check(project_dir: &Path, release: bool) -> Result<()> {
 
 pub fn build(project_dir: &Path, release: bool) -> Result<()> {
     ensure_server_entry_configured(project_dir)?;
-    artifacts(project_dir, release, true).context("failed to build server browser artifacts")?;
+    artifacts_with_runner(project_dir, release, true, true)
+        .context("failed to build server browser artifacts")?;
     build_server_binary(project_dir, release)
 }
 
@@ -66,6 +67,15 @@ fn ensure_server_address_available(host: &str, port: u16) -> Result<()> {
 }
 
 pub fn artifacts(project_dir: &Path, release: bool, compile: bool) -> Result<()> {
+    artifacts_with_runner(project_dir, release, compile, false)
+}
+
+fn artifacts_with_runner(
+    project_dir: &Path,
+    release: bool,
+    compile: bool,
+    diagnostics: bool,
+) -> Result<()> {
     ensure_server_entry_configured(project_dir)?;
     let package = server_package(project_dir)?;
     let mut args = vec!["--package-name", package.name.as_str()];
@@ -77,7 +87,7 @@ pub fn artifacts(project_dir: &Path, release: bool, compile: bool) -> Result<()>
     if !compile {
         args.push("--no-compile");
     }
-    run_server_builder(project_dir, release, "artifacts", &args)
+    run_server_builder_with_runner(project_dir, release, "artifacts", &args, diagnostics)
 }
 
 fn ensure_server_entry_configured(project_dir: &Path) -> Result<()> {
@@ -125,24 +135,20 @@ fn server_package(project_dir: &Path) -> Result<ServerPackage> {
     let manifest_path = manifest_path
         .canonicalize()
         .with_context(|| format!("failed to resolve {}", manifest_path.display()))?;
-    let output = Command::new("cargo")
-        .arg("metadata")
-        .arg("--no-deps")
-        .arg("--format-version")
-        .arg("1")
-        .arg("--manifest-path")
+    let mut command = Command::new("cargo");
+    command
+        .args([
+            "metadata",
+            "--no-deps",
+            "--format-version",
+            "1",
+            "--manifest-path",
+        ])
         .arg(&manifest_path)
-        .current_dir(project_dir)
-        .output()
-        .context("failed to run cargo metadata for the server package")?;
-    if !output.status.success() {
-        bail!(
-            "cargo metadata failed for {}: {}",
-            manifest_path.display(),
-            String::from_utf8_lossy(&output.stderr).trim()
-        );
-    }
-    let metadata: Value = serde_json::from_slice(&output.stdout)
+        .current_dir(project_dir);
+    let output =
+        fission_command_process::diagnostic::capture_quiet(&mut command, 16 * 1024 * 1024)?;
+    let metadata: Value = serde_json::from_slice(&output)
         .context("failed to parse cargo metadata for the server package")?;
     select_server_package(
         &metadata,
@@ -248,6 +254,16 @@ fn run_server_builder(
     command_name: &str,
     extra_args: &[&str],
 ) -> Result<()> {
+    run_server_builder_with_runner(project_dir, release, command_name, extra_args, false)
+}
+
+fn run_server_builder_with_runner(
+    project_dir: &Path,
+    release: bool,
+    command_name: &str,
+    extra_args: &[&str],
+    diagnostics: bool,
+) -> Result<()> {
     let manifest_path = project_dir.join("Cargo.toml");
     if !manifest_path.exists() {
         bail!(
@@ -274,7 +290,11 @@ fn run_server_builder(
     for arg in extra_args {
         command.arg(arg);
     }
-    run_status(&mut command, "server app")
+    if diagnostics {
+        fission_command_process::diagnostic::run(&mut command).map_err(Into::into)
+    } else {
+        run_status(&mut command, "server app")
+    }
 }
 
 fn build_server_binary(project_dir: &Path, release: bool) -> Result<()> {
@@ -300,7 +320,7 @@ fn build_server_binary(project_dir: &Path, release: bool) -> Result<()> {
     if release {
         command.arg("--release");
     }
-    run_status(&mut command, "server app build")
+    fission_command_process::diagnostic::run(&mut command).map_err(Into::into)
 }
 
 #[cfg(test)]

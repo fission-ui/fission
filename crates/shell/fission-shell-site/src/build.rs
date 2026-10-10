@@ -232,7 +232,7 @@ impl SiteBuildOptions {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 /// One discovered/generated route returned by build and inspection APIs.
 pub struct SiteRouteReport {
     /// Public normalized route path.
@@ -245,7 +245,7 @@ pub struct SiteRouteReport {
     pub output: PathBuf,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 /// Result of a complete static-site build or validation pass.
 pub struct SiteBuildReport {
     /// Root output directory associated with the operation.

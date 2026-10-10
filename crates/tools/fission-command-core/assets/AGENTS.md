@@ -5,6 +5,25 @@
 These instructions apply when building or reviewing a Fission-based app in this
 tree.
 
+## Finite CLI Results for Agents
+
+- After `fission init`, read the paths in `data.instructions` before editing.
+  A nested Git project can report guidance at its Git root. Custom guidance
+  and generated configuration are preserved by the existing setup rules.
+  Use `add-target` to configure targets in generated `fission.toml`.
+- `init`, `add-target`, `build`, and `site build|check|routes` support `--json`.
+  Read one `fission.cli-result.v1` result from stdout and check both the process
+  exit and `outcome`. Generic commands support every existing target; build
+  retains the host default when no target is specified. Select targets according
+  to the user's intent with `add-target`.
+- Build facts are in `data.targets`: find the intended target's record.
+  Consume verified `artifacts` or `artifact_dir` when supplied. Check/routes
+  report planned paths without asserting output exists. Routes do not imply
+  running previews or deployed URLs.
+- Failures provide a code, bounded diagnostics and minimal recovery invocations
+  with `cwd`, `program`, `argv`. Execute argv directly after repairing indicated
+  prerequisites. Keep existing JSON protocols on other commands separate.
+
 ## Source-Grounded Work
 
 - Start from the real app entrypoint, then trace into screens, reusable widgets,

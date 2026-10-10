@@ -3,6 +3,7 @@ use clap::Parser;
 use std::{ffi::OsString, path::Path, thread};
 
 mod cli;
+mod report;
 
 #[cfg(test)]
 use fission_command_core::{read_project_config, Target};
@@ -45,6 +46,11 @@ where
             }
         }
     }
+    let retry = argv
+        .iter()
+        .skip(1)
+        .map(|arg| arg.to_string_lossy().into_owned())
+        .collect::<Vec<_>>();
     let cli = Cli::parse_from(argv);
     warn_for_alpha_features(&cli.command);
     match cli.command {
@@ -57,11 +63,27 @@ where
             name,
             app_id,
             local_path,
-        } => fission_command_core::init_project(&path, name, app_id, local_path),
+            json,
+        } => report::finish(
+            &path,
+            report::Action::Init,
+            vec![],
+            fission_command_core::init_project(&path, name, app_id, local_path),
+            json,
+            retry,
+        ),
         Command::AddTarget {
             targets,
             project_dir,
-        } => fission_command_core::add_targets(&project_dir, &targets),
+            json,
+        } => report::finish(
+            &project_dir,
+            report::Action::AddTarget,
+            targets.clone(),
+            fission_command_core::add_targets(&project_dir, &targets),
+            json,
+            retry,
+        ),
         Command::AddCapability {
             capabilities,
             project_dir,
@@ -112,17 +134,25 @@ where
             features,
             no_default_features,
             variant,
-        } => fission_command_run::build_app_with_web_cargo_options(
-            fission_command_run::BuildOptions {
-                project_dir,
-                target,
-                release,
-                variant,
-            },
-            fission_command_run::WebCargoOptions {
-                features,
-                no_default_features,
-            },
+            json,
+        } => report::finish(
+            &project_dir,
+            report::Action::Build,
+            vec![fission_command_run::resolve_build_target(target)],
+            fission_command_run::build_app_with_web_cargo_options(
+                fission_command_run::BuildOptions {
+                    project_dir: project_dir.clone(),
+                    target,
+                    release,
+                    variant,
+                },
+                fission_command_run::WebCargoOptions {
+                    features,
+                    no_default_features,
+                },
+            ),
+            json,
+            retry,
         ),
         Command::Test {
             target,
@@ -147,11 +177,27 @@ where
             SiteCommand::Build {
                 project_dir,
                 release,
-            } => fission_command_site::build(&project_dir, release),
+                json,
+            } => report::finish(
+                &project_dir,
+                report::Action::SiteBuild,
+                vec![fission_command_core::Target::Site],
+                fission_command_site::build(&project_dir, release),
+                json,
+                retry,
+            ),
             SiteCommand::Check {
                 project_dir,
                 release,
-            } => fission_command_site::check(&project_dir, release),
+                json,
+            } => report::finish(
+                &project_dir,
+                report::Action::SiteCheck,
+                vec![fission_command_core::Target::Site],
+                fission_command_site::check(&project_dir, release),
+                json,
+                retry,
+            ),
             SiteCommand::Serve {
                 project_dir,
                 host,
@@ -159,7 +205,14 @@ where
                 release,
                 no_open,
             } => fission_command_site::serve(&project_dir, release, host, port, !no_open),
-            SiteCommand::Routes { project_dir } => fission_command_site::routes(&project_dir),
+            SiteCommand::Routes { project_dir, json } => report::finish(
+                &project_dir,
+                report::Action::SiteRoutes,
+                vec![fission_command_core::Target::Site],
+                fission_command_site::routes(&project_dir),
+                json,
+                retry,
+            ),
         },
         Command::Server { command } => match command {
             ServerCommand::Build {

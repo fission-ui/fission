@@ -1,6 +1,5 @@
 use std::collections::{HashMap, HashSet};
 use std::fs;
-use std::io::Write;
 use std::path::Path;
 use std::process::Command;
 
@@ -170,15 +169,10 @@ fn validate_web_sqlite_assets(root: &Path) -> Result<()> {
 
 fn resolved_web_sqlite_enabled(root: &Path) -> Result<bool> {
     let manifest_path = root.join("Cargo.toml");
-    let output = cargo_metadata_command(&manifest_path)
-        .output()
-        .context("failed to inspect the Web Cargo dependency graph")?;
-    if !output.status.success() {
-        std::io::stderr().write_all(&output.stderr).ok();
-        bail!("cargo metadata failed with {}", output.status);
-    }
-
-    let metadata: CargoMetadata = serde_json::from_slice(&output.stdout)
+    let mut command = cargo_metadata_command(&manifest_path);
+    let output =
+        fission_command_process::diagnostic::capture_quiet(&mut command, 16 * 1024 * 1024)?;
+    let metadata: CargoMetadata = serde_json::from_slice(&output)
         .context("failed to parse the Web Cargo dependency graph")?;
     Ok(metadata.web_sqlite_enabled_for_root())
 }

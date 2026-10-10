@@ -7,6 +7,7 @@ use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 const POLL_INTERVAL: Duration = Duration::from_millis(20);
+pub mod diagnostic;
 const GRACEFUL_EXIT_TIMEOUT: Duration = Duration::from_secs(2);
 static ACTIVE_SUPERVISOR: Mutex<()> = Mutex::new(());
 

@@ -14,6 +14,11 @@ This Cargo package installs the first-party `fission` command:
 
 ## Usage
 
+Opt in to `--json` on init, add-target, build for any existing target, and
+site build/check/routes. Each command executes once for either renderer. See
+[the common versioned CLI result contract](../../../docs/website-cli-results.md)
+for coverage, artifact paths, exit behavior and executable recovery steps.
+
 Create a new app:
 
 ```sh

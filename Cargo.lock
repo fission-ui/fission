@@ -1643,6 +1643,8 @@ dependencies = [
  "fission-command-server",
  "fission-command-site",
  "fission-command-ui",
+ "serde_json",
+ "tempfile",
 ]
 
 [[package]]
@@ -2872,6 +2874,7 @@ version = "0.15.1"
 dependencies = [
  "anyhow",
  "clap",
+ "fission-command-process",
  "fission-store-sqlite",
  "plist",
  "serde",
@@ -2967,9 +2970,11 @@ name = "fission-command-site"
 version = "0.15.1"
 dependencies = [
  "anyhow",
+ "fission-command-core",
  "fission-command-process",
  "fission-shell-site",
  "serde_json",
+ "tempfile",
  "toml 0.8.2",
 ]
 
