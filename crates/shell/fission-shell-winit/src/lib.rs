@@ -1728,6 +1728,25 @@ struct WebFramePerf<'a> {
 
 #[cfg(target_arch = "wasm32")]
 #[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WebFrameStagePerf<'a> {
+    renderer: &'a str,
+    update_ms: f64,
+    build_ms: f64,
+    layout_ms: f64,
+    post_layout_ms: f64,
+    prepare_ms: f64,
+    render_present_ms: f64,
+    total_ms: f64,
+    rebuilt: bool,
+    nodes: u32,
+    layout_updates: u32,
+    paint_hits: u32,
+    paint_misses: u32,
+}
+
+#[cfg(target_arch = "wasm32")]
+#[derive(serde::Serialize)]
 struct WebInputLatency<'a> {
     renderer: &'a str,
     latency_ms: f64,
@@ -1747,6 +1766,30 @@ fn publish_web_frame_perf(renderer: &str, total_ms: f64, rendered_frames: u64) {
     );
     set_web_global_json("__FISSION_LAST_FRAME_PERF", &perf);
     set_web_global_json("__FISSION_RENDERED_FRAME_COUNT", &rendered_frames);
+}
+
+#[cfg(target_arch = "wasm32")]
+fn publish_web_frame_stage_perf(perf: &WebFrameStagePerf<'_>) {
+    diag::emit(
+        diag::DiagCategory::Frame,
+        diag::DiagLevel::Debug,
+        diag::DiagEventKind::FrameStagePerformance {
+            renderer: perf.renderer.to_string(),
+            update_ms: perf.update_ms,
+            build_ms: perf.build_ms,
+            layout_ms: perf.layout_ms,
+            post_layout_ms: perf.post_layout_ms,
+            prepare_ms: perf.prepare_ms,
+            render_present_ms: perf.render_present_ms,
+            total_ms: perf.total_ms,
+            rebuilt: perf.rebuilt,
+            nodes: perf.nodes,
+            layout_updates: perf.layout_updates,
+            paint_hits: perf.paint_hits,
+            paint_misses: perf.paint_misses,
+        },
+    );
+    set_web_global_json("__FISSION_LAST_FRAME_STAGE_PERF", perf);
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -3460,6 +3503,11 @@ fn handle_scroll(
     invalidations: &mut InvalidationSet,
 ) {
     if let (Some(ir), Some(layout)) = (&pipeline.prev_ir, &pipeline.last_snapshot) {
+        let build_dependency_offsets = ir
+            .scroll_build_dependencies
+            .iter()
+            .map(|id| (*id, runtime.runtime_state.scroll.get_offset(*id)))
+            .collect::<Vec<_>>();
         let point = LayoutPoint {
             x: point_x,
             y: point_y,
@@ -3479,10 +3527,16 @@ fn handle_scroll(
             eprintln!("Scroll error: {:?}", e);
         }
         sync_window_cursor(window, runtime);
-        // Scroll offsets can affect more than a compositor translation. Virtualized
-        // lists, scrollbars, and scroll-aware wrappers depend on the updated offset
-        // during build/lowering, so treat scroll as a build invalidation.
-        invalidations.mark_build();
+        let rebuild = build_dependency_offsets.iter().any(|(id, previous)| {
+            runtime.runtime_state.scroll.get_offset(*id).to_bits() != previous.to_bits()
+        });
+        if rebuild {
+            invalidations.mark_build();
+        } else {
+            // The retained scene owns ordinary scroll translation and scrollbar
+            // presentation, so scrolling it needs no authored-tree rebuild.
+            invalidations.mark_composite();
+        }
         if process_pending_effects(
             runtime,
             effect_result_tx,
@@ -8378,7 +8432,12 @@ where
                                 applied_window_title = desired_window_title.to_string();
                             }
 
-                            if invalidations.build || pipeline.prev_ir.is_none() {
+                            #[cfg(target_arch = "wasm32")]
+                            let update_ms = now.elapsed().as_secs_f64() * 1000.0;
+                            #[cfg(target_arch = "wasm32")]
+                            let build_started = Instant::now();
+                            let rebuilt = invalidations.build || pipeline.prev_ir.is_none();
+                            if rebuilt {
                                 let (
                                     node_tree,
                                     registry,
@@ -8555,12 +8614,16 @@ where
                                 invalidations.merge(pipeline_invalidations);
                                 last_built_viewport = Some(build_viewport);
                             }
+                            #[cfg(target_arch = "wasm32")]
+                            let build_ms = build_started.elapsed().as_secs_f64() * 1000.0;
 
                             if let Some(ir) = pipeline.prev_ir.as_ref() {
                                 runtime.reconcile_ir(ir);
                             }
 
-                            let _layout_updates = match pipeline.ensure_layout(
+                            #[cfg(target_arch = "wasm32")]
+                            let layout_started = Instant::now();
+                            let layout_updates = match pipeline.ensure_layout(
                                 LayoutRect::new(
                                     0.0,
                                     0.0,
@@ -8577,11 +8640,18 @@ where
                                     return;
                                 }
                             };
+                            #[cfg(target_arch = "wasm32")]
+                            let layout_ms = layout_started.elapsed().as_secs_f64() * 1000.0;
 
+                            #[cfg(target_arch = "wasm32")]
+                            let post_layout_started = Instant::now();
+                            let refresh_hover = invalidations.build
+                                || layout_updates > 0
+                                || pipeline.scroll_offsets_changed(&runtime.runtime_state.scroll);
                             if let (Some(ir), Some(layout)) =
                                 (pipeline.prev_ir.as_ref(), pipeline.last_snapshot.as_ref())
                             {
-                                if runtime.post_layout_hook(ir, layout) {
+                                if runtime.post_layout_hook_after_frame(ir, layout, refresh_hover) {
                                     // Runtime-owned viewport inertia can change the visible
                                     // world used by authored canvas grid/edge batches.
                                     invalidations.mark_build();
@@ -8598,7 +8668,12 @@ where
                                     scale_factor,
                                 );
                             }
+                            #[cfg(target_arch = "wasm32")]
+                            let post_layout_ms =
+                                post_layout_started.elapsed().as_secs_f64() * 1000.0;
 
+                            #[cfg(target_arch = "wasm32")]
+                            let prepare_started = Instant::now();
                             match pipeline.prepare_current(
                                 target_viewport,
                                 target_viewport,
@@ -8608,7 +8683,14 @@ where
                                 &runtime.runtime_state.video,
                                 &runtime.runtime_state.web,
                             ) {
-                                Ok(_stats) => {
+                                Ok(stats) => {
+                                    #[cfg(not(target_arch = "wasm32"))]
+                                    let _ = (&stats, layout_updates);
+                                    #[cfg(target_arch = "wasm32")]
+                                    let prepare_ms =
+                                        prepare_started.elapsed().as_secs_f64() * 1000.0;
+                                    #[cfg(target_arch = "wasm32")]
+                                    let render_started = Instant::now();
                                     #[cfg(target_arch = "wasm32")]
                                     {
                                         let Some(renderer) = web_renderer.as_mut() else {
@@ -8930,6 +9012,27 @@ where
                                                 web_rendered_frames,
                                             );
                                         }
+                                        publish_web_frame_stage_perf(&WebFrameStagePerf {
+                                            renderer: &active_renderer,
+                                            update_ms,
+                                            build_ms,
+                                            layout_ms,
+                                            post_layout_ms,
+                                            prepare_ms,
+                                            render_present_ms: render_started
+                                                .elapsed()
+                                                .as_secs_f64()
+                                                * 1000.0,
+                                            total_ms,
+                                            rebuilt,
+                                            nodes: pipeline
+                                                .prev_ir
+                                                .as_ref()
+                                                .map_or(0, |ir| ir.nodes.len() as u32),
+                                            layout_updates: layout_updates as u32,
+                                            paint_hits: stats.paint_hits as u32,
+                                            paint_misses: stats.paint_misses as u32,
+                                        });
                                         if let Some(input_at) = pending_web_input_at.take() {
                                             publish_web_input_latency(
                                                 &active_renderer,

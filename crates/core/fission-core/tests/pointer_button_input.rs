@@ -34,6 +34,41 @@ fn primary_click_dispatches_default_action_only() -> anyhow::Result<()> {
 }
 
 #[test]
+fn delayed_primary_release_without_dispatched_long_press_still_activates() -> anyhow::Result<()> {
+    let (mut runtime, ir, layout, _) = click_runtime(true)?;
+    let point = LayoutPoint::new(20.0, 20.0);
+
+    runtime.handle_input(
+        InputEvent::Pointer(PointerEvent::Down {
+            pointer_id: Default::default(),
+            kind: Default::default(),
+            point,
+            button: PointerButton::Primary,
+            modifiers: 0,
+        }),
+        &ir,
+        &layout,
+    )?;
+    runtime.tick(1_000)?;
+    runtime.handle_input(
+        InputEvent::Pointer(PointerEvent::Up {
+            pointer_id: Default::default(),
+            kind: Default::default(),
+            point,
+            button: PointerButton::Primary,
+            modifiers: 0,
+        }),
+        &ir,
+        &layout,
+    )?;
+
+    let state = runtime.get_app_state::<ClickState>().expect("click state");
+    assert_eq!(state.primary, 1);
+    assert_eq!(state.long_press, 0);
+    Ok(())
+}
+
+#[test]
 fn secondary_click_never_falls_through_to_default_action() -> anyhow::Result<()> {
     let (mut runtime, ir, layout, node_id) = click_runtime(true)?;
 
