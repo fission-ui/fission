@@ -42,6 +42,7 @@ pub const MISSING_WEB_SQLITE_BRIDGE_ERROR: &str = "Fission Web SQLite is enabled
 #[cfg(test)]
 mod tests {
     use super::{SQLITE_WEB_BRIDGE, SQLITE_WEB_OPFS_ASYNC_PROXY, SQLITE_WEB_WORKER};
+    use fission_store::{SqlMigration, SqlMigrations};
 
     #[test]
     fn web_host_uses_multitab_vfs_and_application_namespace() {
@@ -59,5 +60,20 @@ mod tests {
         assert!(worker.contains("navigator.storage.getDirectory"));
         assert!(!worker.contains("sqlite3.opfs.entryExists"));
         assert!(!SQLITE_WEB_OPFS_ASYNC_PROXY.is_empty());
+    }
+
+    #[test]
+    fn web_migration_reads_the_serialized_migration_map() {
+        let mut migrations = SqlMigrations::new();
+        migrations
+            .add(SqlMigration::new(1, "initial", "CREATE TABLE example(id INTEGER);"))
+            .expect("one migration");
+        let serialized = serde_json::to_value(migrations).expect("serialize migrations");
+        assert_eq!(
+            serialized["migrations"]["1"]["sql"],
+            "CREATE TABLE example(id INTEGER);"
+        );
+        let worker = std::str::from_utf8(SQLITE_WEB_WORKER).expect("worker is UTF-8");
+        assert!(worker.contains("Array.from(request.migrations.values())"));
     }
 }
