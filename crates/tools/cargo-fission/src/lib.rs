@@ -3,11 +3,12 @@ use clap::Parser;
 use std::{ffi::OsString, path::Path, thread};
 
 mod cli;
+mod guidance;
 
 #[cfg(test)]
 use fission_command_core::{read_project_config, Target};
 
-use cli::{Cli, Command, ServerCommand, SiteCommand};
+use cli::{Cli, Command, ServerCommand, SiteCommand, SkillsCommand};
 
 const CLI_THREAD_STACK_BYTES: usize = 16 * 1024 * 1024;
 
@@ -45,11 +46,44 @@ where
             }
         }
     }
-    let cli = Cli::parse_from(argv);
+    let cli = match Cli::try_parse_from(&argv) {
+        Ok(cli) => cli,
+        Err(error) => {
+            if argv.get(1).is_some_and(|arg| arg == "skills")
+                && argv.iter().any(|arg| arg == "--json")
+                && !matches!(
+                    error.kind(),
+                    clap::error::ErrorKind::DisplayHelp | clap::error::ErrorKind::DisplayVersion
+                )
+            {
+                let result = fission_command_core::guidance::invalid_arguments(error.to_string());
+                guidance::print_result(&result, true)?;
+            }
+            error.exit();
+        }
+    };
     warn_for_alpha_features(&cli.command);
     match cli.command {
         Command::Features => {
             print_feature_catalog();
+            Ok(())
+        }
+        Command::Skills { command } => {
+            let (result, json) = match command {
+                SkillsCommand::Check { project_dir, json } => {
+                    (fission_command_core::guidance::check(&project_dir), json)
+                }
+                SkillsCommand::Update { project_dir, json } => {
+                    (fission_command_core::guidance::update(&project_dir), json)
+                }
+            };
+            guidance::print_result(&result, json)?;
+            if !result.success() {
+                bail!(
+                    "guidance {:?}; inspect findings and recovery",
+                    result.status
+                );
+            }
             Ok(())
         }
         Command::Init {
@@ -57,7 +91,11 @@ where
             name,
             app_id,
             local_path,
-        } => fission_command_core::init_project(&path, name, app_id, local_path),
+        } => {
+            let installation = fission_command_core::init_project(&path, name, app_id, local_path)?;
+            guidance::print_installation(&installation);
+            Ok(())
+        }
         Command::AddTarget {
             targets,
             project_dir,
@@ -1021,10 +1059,13 @@ mkdir -p "$(dirname "$artifact")"
         let readme = std::fs::read_to_string(dir.join("README.md")).unwrap();
         let agents = std::fs::read_to_string(dir.join("AGENTS.md")).unwrap();
         assert!(agents.contains("# Fission App Guidelines"));
-        assert!(agents.contains("fission-cli-generated-agents:v1"));
-        assert!(agents.contains("#[fission_component]"));
-        assert!(agents.contains("Use Fission's native Router and RouterParams"));
-        assert!(agents.contains("Never block the UI thread"));
+        assert!(agents.contains("fission-cli-generated-agents:v4"));
+        let guidance = fission_command_core::guidance::check(&dir);
+        assert!(guidance
+            .files
+            .iter()
+            .all(|f| f.health == fission_command_core::guidance::FileHealth::Current));
+        assert!(dir.join(".fission/skills/fission-web/SKILL.md").is_file());
         assert!(readme.contains("fission devices --project-dir ."));
         assert!(readme.contains("fission run --project-dir ."));
         assert!(readme.contains("fission logs --target <target>"));
@@ -1065,23 +1106,31 @@ mkdir -p "$(dirname "$artifact")"
     }
 
     #[test]
-    fn init_writes_agents_to_git_root() {
+    fn init_writes_agents_to_app_root_inside_git_repository() {
         let repo = unique_dir("init-agents-root");
         fs::create_dir_all(repo.join(".git")).unwrap();
         let app = repo.join("apps/todo");
 
         run(["fission", "init", app.to_str().unwrap(), "--name", "todo"]).unwrap();
 
-        assert!(repo.join("AGENTS.md").exists());
-        assert!(!app.join("AGENTS.md").exists());
+        assert!(app.join("AGENTS.md").is_file());
+        assert!(app.join(".fission/guidance-manifest.json").is_file());
+        assert!(!repo.join("AGENTS.md").exists());
+        assert!(!repo.join(".fission/guidance-manifest.json").exists());
+        assert_eq!(
+            fission_command_core::guidance::check(&app).guidance_root,
+            app
+        );
     }
 
     #[test]
-    fn init_uses_fission_agents_name_when_repo_agents_exists() {
+    fn init_uses_app_fission_agents_name_and_preserves_ancestor_policy() {
         let repo = unique_dir("init-agents-existing");
         fs::create_dir_all(repo.join(".git")).unwrap();
         fs::write(repo.join("AGENTS.md"), "existing repo instructions").unwrap();
         let app = repo.join("apps/todo");
+        fs::create_dir_all(&app).unwrap();
+        fs::write(app.join("AGENTS.md"), "existing app instructions").unwrap();
 
         run(["fission", "init", app.to_str().unwrap(), "--name", "todo"]).unwrap();
 
@@ -1089,30 +1138,33 @@ mkdir -p "$(dirname "$artifact")"
             fs::read_to_string(repo.join("AGENTS.md")).unwrap(),
             "existing repo instructions"
         );
-        let fission_agents = fs::read_to_string(repo.join("AGENTS.fission.md")).unwrap();
+        assert_eq!(
+            fs::read_to_string(app.join("AGENTS.md")).unwrap(),
+            "existing app instructions"
+        );
+        let fission_agents = fs::read_to_string(app.join("AGENTS.fission.md")).unwrap();
         assert!(fission_agents.contains("# Fission App Guidelines"));
-        assert!(fission_agents.contains("fission-cli-generated-agents:v1"));
-        assert!(!app.join("AGENTS.md").exists());
+        assert!(fission_agents.contains("fission-cli-generated-agents:v4"));
+        assert!(!repo.join("AGENTS.fission.md").exists());
+        assert!(!repo.join(".fission/guidance-manifest.json").exists());
     }
 
     #[test]
-    fn init_updates_existing_fission_agents_at_git_root() {
+    fn init_preserves_unproven_legacy_instructions_at_git_root() {
         let repo = unique_dir("init-agents-update-existing");
         fs::create_dir_all(repo.join(".git")).unwrap();
-        fs::write(
-            repo.join("AGENTS.md"),
-            "# Fission App Guidelines\n\nThese instructions apply when building or reviewing a Fission-based app in this tree.\n\n## Source-Grounded Work\n\nold generated content\n\n## Validation\n",
-        )
-        .unwrap();
+        let legacy = "# Fission App Guidelines\n\nThese instructions apply when building or reviewing a Fission-based app in this tree.\n\n## Source-Grounded Work\n\nold generated content\n\n## Validation\n";
+        fs::write(repo.join("AGENTS.md"), legacy).unwrap();
         let app = repo.join("apps/todo");
 
         run(["fission", "init", app.to_str().unwrap(), "--name", "todo"]).unwrap();
 
         let agents = fs::read_to_string(repo.join("AGENTS.md")).unwrap();
-        assert!(agents.contains("fission-cli-generated-agents:v1"));
-        assert!(agents.contains("Never block the UI thread"));
+        assert_eq!(agents, legacy);
         assert!(!repo.join("AGENTS.fission.md").exists());
-        assert!(!app.join("AGENTS.md").exists());
+        assert!(!repo.join(".fission/guidance-manifest.json").exists());
+        let app_agents = fs::read_to_string(app.join("AGENTS.md")).unwrap();
+        assert!(app_agents.contains("fission-cli-generated-agents:v4"));
     }
 
     #[test]

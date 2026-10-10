@@ -27,6 +27,9 @@ jobs:
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Validate GitHub Actions workflows
+        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 -shellcheck= -pyflakes= .github/workflows/*.yml
+
       - name: Install Linux native build dependencies
         run: sudo apt-get update && sudo apt-get install -y libfontconfig1-dev pkg-config
 
@@ -59,6 +62,20 @@ jobs:
 
       - name: Test generated platform scripts
         run: cargo test -p cargo-fission
+
+  guidance-windows:
+    name: Windows guidance update transactions
+    if: >-
+      github.event_name != 'pull_request' ||
+      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR","CONTRIBUTOR"]'), github.event.pull_request.author_association)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Test guidance replacement, rollback and ownership
+        run: cargo test --locked -p fission-command-core "guidance::"
 
   web:
     name: Web / wasm

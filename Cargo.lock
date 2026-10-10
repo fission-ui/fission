@@ -1643,6 +1643,7 @@ dependencies = [
  "fission-command-server",
  "fission-command-site",
  "fission-command-ui",
+ "serde_json",
 ]
 
 [[package]]
@@ -2874,9 +2875,11 @@ dependencies = [
  "clap",
  "fission-store-sqlite",
  "plist",
+ "semver",
  "serde",
  "serde_json",
  "sha1 0.10.6",
+ "sha2 0.10.9",
  "toml 0.8.2",
  "toml_edit 0.23.10+spec-1.0.0",
 ]

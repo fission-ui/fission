@@ -36,3 +36,4 @@ fission-command-run = { path = "../fission-command-run", version = "0.15.1" }
 fission-command-server = { path = "../fission-command-server", version = "0.15.1" }
 fission-command-site = { path = "../fission-command-site", version = "0.15.1" }
 fission-command-ui = { path = "../fission-command-ui", version = "0.15.1" }
+serde_json = "1.0"

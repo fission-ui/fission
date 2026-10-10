@@ -3,6 +3,7 @@
 This Cargo package installs the first-party `fission` command:
 
 - `fission init`
+- `fission skills check|update`
 - `fission add-target`
 - `fission doctor`
 - `fission devices`
@@ -19,6 +20,20 @@ Create a new app:
 ```sh
 fission init my-app
 ```
+
+Read the instruction paths printed by init immediately. The generated router
+loads only the local web references relevant to the task. Inspect/update this
+CLI's offline guidance bundle with:
+
+```sh
+fission skills check --project-dir my-app --json
+fission skills update --project-dir my-app --json
+```
+
+Check reports content hashes and dependency-version evidence without writing.
+Update preserves custom instructions and blocks all managed updates on conflicts.
+It uses installed CLI assets and does not upgrade the framework. See
+[guidance versions, conflicts and recovery](../../../docs/agent-guidance.md).
 
 Register an existing app or example without overwriting existing files:
 

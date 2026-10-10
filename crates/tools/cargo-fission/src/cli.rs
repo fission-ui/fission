@@ -19,6 +19,11 @@ pub(crate) struct Cli {
 pub(crate) enum Command {
     /// List alpha scene, game, asset, and physics features.
     Features,
+    /// Inspect or update project-local guidance using offline bundled CLI assets.
+    Skills {
+        #[command(subcommand)]
+        command: SkillsCommand,
+    },
     /// Create a new Fission application.
     Init {
         /// Directory to create.
@@ -396,6 +401,24 @@ pub(crate) enum Command {
         port: u16,
         #[arg(long)]
         open: bool,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+pub(crate) enum SkillsCommand {
+    /// Read-only version, ownership, health and coverage check (offline).
+    Check {
+        #[arg(long, default_value = ".")]
+        project_dir: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Refresh unmodified managed assets; conflicts preserve all bytes.
+    Update {
+        #[arg(long, default_value = ".")]
+        project_dir: PathBuf,
+        #[arg(long)]
+        json: bool,
     },
 }
 

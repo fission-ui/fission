@@ -9,10 +9,9 @@ use toml_edit::{value, Array, DocumentMut, InlineTable, Item, Table, Value};
 const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 const ANDROID_GRADLE_PLUGIN_VERSION: &str = "8.13.2";
 const DEFAULT_APP_ICON_PNG: &[u8] = include_bytes!("../assets/fission_logo.png");
-const GENERATED_APP_AGENTS_MARKER: &str = "<!-- fission-cli-generated-agents:v1 -->";
-const GENERATED_APP_AGENTS_MD: &str = include_str!("../assets/AGENTS.md");
 
 mod desktop_features;
+pub mod guidance;
 mod icons;
 mod linux_native;
 mod macos_native;
@@ -402,7 +401,7 @@ pub fn init_project(
     name: Option<String>,
     app_id: Option<String>,
     local_path: Option<PathBuf>,
-) -> Result<()> {
+) -> Result<guidance::GuidanceInstallation> {
     let existing_project = root.exists() && root.read_dir()?.next().is_some();
     fs::create_dir_all(root.join("src"))?;
 
@@ -435,7 +434,7 @@ pub fn init_project(
         &render_project_readme(&project),
         write_policy,
     )?;
-    write_generated_app_agents(root)?;
+    let installation = guidance::install_for_init(root)?;
     write_file_with_policy(
         &root.join(".gitignore"),
         "target/\nplatforms/*/build/\nplatforms/web/pkg/\n",
@@ -450,7 +449,7 @@ pub fn init_project(
     sync_platform_config(root, &project)?;
     sync_cargo_fission_dependency(root, &project, local_path.as_deref())?;
 
-    Ok(())
+    Ok(installation)
 }
 
 fn initial_project_config(
@@ -2349,10 +2348,8 @@ fn sync_fission_table(
         table["version"] = value(CURRENT_VERSION);
     }
     table["default-features"] = value(false);
-    let merged_features = merge_cargo_feature_array(
-        table.get("features").and_then(Item::as_value),
-        features,
-    );
+    let merged_features =
+        merge_cargo_feature_array(table.get("features").and_then(Item::as_value), features);
     table["features"] = Item::Value(merged_features);
     table.to_string() != before
 }
@@ -3458,55 +3455,17 @@ fn scaffold_web_bundle(
     Ok(())
 }
 
-fn write_generated_app_agents(project_root: &Path) -> Result<()> {
-    let repo_root = find_git_root(project_root).unwrap_or_else(|| project_root.to_path_buf());
-    let root_agents = repo_root.join("AGENTS.md");
-    if let Some(existing) = read_optional_string(&root_agents)? {
-        if is_generated_app_agents(&existing) {
-            return write_file_with_policy(
-                &root_agents,
-                GENERATED_APP_AGENTS_MD,
-                WritePolicy::Overwrite,
-            );
-        }
-
-        let fission_agents = repo_root.join("AGENTS.fission.md");
-        let write_policy = read_optional_string(&fission_agents)?
-            .filter(|existing| is_generated_app_agents(existing))
-            .map(|_| WritePolicy::Overwrite)
-            .unwrap_or(WritePolicy::PreserveExisting);
-
-        return write_file_with_policy(&fission_agents, GENERATED_APP_AGENTS_MD, write_policy);
+/// Make relative caller paths absolute without resolving links or rewriting spelling.
+fn lexical_absolute(start: &Path) -> std::io::Result<PathBuf> {
+    if start.is_absolute() {
+        Ok(start.to_path_buf())
+    } else {
+        std::env::current_dir().map(|cwd| cwd.join(start))
     }
-
-    write_file_with_policy(
-        &root_agents,
-        GENERATED_APP_AGENTS_MD,
-        WritePolicy::Overwrite,
-    )
-}
-
-fn read_optional_string(path: &Path) -> Result<Option<String>> {
-    match fs::read_to_string(path) {
-        Ok(contents) => Ok(Some(contents)),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(error) => Err(error).with_context(|| format!("failed to read {}", path.display())),
-    }
-}
-
-fn is_generated_app_agents(contents: &str) -> bool {
-    contents.contains(GENERATED_APP_AGENTS_MARKER)
-        || contents == GENERATED_APP_AGENTS_MD
-        || (contents.contains("# Fission App Guidelines")
-            && contents.contains(
-                "These instructions apply when building or reviewing a Fission-based app",
-            )
-            && contents.contains("## Source-Grounded Work")
-            && contents.contains("## Validation"))
 }
 
 fn find_git_root(start: &Path) -> Option<PathBuf> {
-    let mut current = fs::canonicalize(start).ok()?;
+    let mut current = lexical_absolute(start).ok()?;
     loop {
         if current.join(".git").exists() {
             return Some(current);
