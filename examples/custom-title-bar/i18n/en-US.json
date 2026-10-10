@@ -1,0 +1,13 @@
+{
+  "window.title": "Custom title bar",
+  "window.note": "Note",
+  "window.minimize": "Minimize",
+  "window.maximize": "Maximize",
+  "window.restore": "Restore",
+  "window.close": "Close",
+  "window.instructions": "Drag the title area to move the window. Double-click it to maximize or restore.",
+  "window.maximized": "Window maximized",
+  "window.restored": "Window restored",
+  "window.increment": "Increment",
+  "window.error": "The window operation could not be completed."
+}

@@ -481,6 +481,7 @@ fn hit_test_recursive(
                 if !semantics.actions.entries.is_empty()
                     || semantics.focusable
                     || semantics.draggable
+                    || semantics.window_drag_region
                     || semantics.scrollable_x
                     || semantics.scrollable_y
                 {

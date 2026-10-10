@@ -1080,6 +1080,9 @@ pub struct Semantics {
     pub action_scope_id: Option<u128>,
     /// Whether this node can receive keyboard focus.
     pub focusable: bool,
+    /// Native desktop title-bar drag surface. Interactive descendants take precedence.
+    #[serde(default)]
+    pub window_drag_region: bool,
     /// Whether a focusable, enabled node opts into sequential focus traversal.
     ///
     /// Set this to `false` for controls that receive focus programmatically or
@@ -1259,6 +1262,7 @@ impl std::hash::Hash for Semantics {
         self.scene_target.hash(state);
         self.action_scope_id.hash(state);
         self.focusable.hash(state);
+        self.window_drag_region.hash(state);
         self.sequential_focusable.hash(state);
         self.focus_policy.hash(state);
         self.text_editable.hash(state);
@@ -1339,6 +1343,7 @@ impl Default for Semantics {
             scene_target: None,
             action_scope_id: None,
             focusable: false,
+            window_drag_region: false,
             sequential_focusable: true,
             focus_policy: FocusPolicy::FocusOnPointer,
             text_editable: false,

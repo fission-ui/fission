@@ -1695,8 +1695,10 @@ impl Lower for Button {
             }
 
             if let Some(focus_ring) = resolved_style.focus_ring.clone() {
+                // Toggling the ring must not renumber content captured by a
+                // pointer press before the rebuild into pointer focus.
                 let focus_ring_id = IrBuilder::new(
-                    cx.next_node_id(),
+                    WidgetId::derived(final_id.as_u128(), &[0xBC03]),
                     Op::Paint(PaintOp::DrawRect {
                         fill: None,
                         stroke: Some(focus_ring),
@@ -1845,6 +1847,7 @@ fn default_button_semantics() -> Semantics {
         scene_target: None,
         action_scope_id: None,
         focusable: true,
+        window_drag_region: false,
         sequential_focusable: true,
         focus_policy: FocusPolicy::FocusOnPointer,
         text_editable: false,
