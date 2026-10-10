@@ -92,7 +92,7 @@ Use `scope` to constrain a query to a resolved ancestor, `index` to disambiguate
 | `Quit` | none | `Ok` or `Error` | Requests app shutdown. |
 | `SimulateMouseMove` | `x`, `y` | `Ok` or `Error` | Sends a lower-level mouse move event. |
 | `SimulateRightClick` | `x`, `y` | `Ok` or `Error` | Sends a lower-level right click event. |
-| `SimulateResize` | `width`, `height` | `Ok` or `Error` | Resizes the logical viewport for responsive tests. |
+| `SimulateResize` | `width`, `height` | `Ok` or `Error` | Native logical resize; Rust Chromium host resize in CSS pixels preserving configured scale/mobile mode, with viewport/frame/paint verification. Raw Web bridge returns `unsupported_host`; use `LiveTestClient::simulate_resize`. |
 
 ## Semantic tree response
 

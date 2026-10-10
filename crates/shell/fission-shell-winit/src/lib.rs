@@ -9002,6 +9002,16 @@ where
                                             total_ms,
                                             web_rendered_frames,
                                         );
+                                        // The opt-in test bridge owns the submitted-layout
+                                        // acknowledgment; compositor paint is observed by
+                                        // the Chromium-owning test driver.
+                                        if test_control_enabled {
+                                            web_test_control::publish_frame(
+                                                target_viewport.width,
+                                                target_viewport.height,
+                                                web_rendered_frames,
+                                            );
+                                        }
                                         publish_web_frame_stage_perf(&WebFrameStagePerf {
                                             renderer: &active_renderer,
                                             update_ms,
