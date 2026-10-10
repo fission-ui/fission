@@ -29,14 +29,16 @@ pub(super) fn acknowledged(
     require_frame: bool,
     after: Option<u64>,
 ) -> bool {
+    let scale = o.device_scale_factor;
+    let (pixel_width, pixel_height) = pixel_dimensions(o);
     v["width"].as_u64() == Some(o.viewport_width as u64)
         && v["height"].as_u64() == Some(o.viewport_height as u64)
-        && v["scale"].as_f64() == Some(1.0)
+        && v["scale"].as_f64() == Some(scale)
         && (o.mode != BrowserSmokeMode::FissionCanvas
             || (v["canvas"]["width"].as_f64() == Some(o.viewport_width as f64)
                 && v["canvas"]["height"].as_f64() == Some(o.viewport_height as f64)
-                && v["canvas"]["pixel_width"].as_u64() == Some(o.viewport_width as u64)
-                && v["canvas"]["pixel_height"].as_u64() == Some(o.viewport_height as u64)
+                && v["canvas"]["pixel_width"].as_u64() == Some(pixel_width as u64)
+                && v["canvas"]["pixel_height"].as_u64() == Some(pixel_height as u64)
                 && v["canvas"]["x"].as_f64() == Some(0.0)
                 && v["canvas"]["y"].as_f64() == Some(0.0)
                 && (!require_frame
@@ -44,6 +46,13 @@ pub(super) fn acknowledged(
                         && v["frame"]["width"].as_f64() == Some(o.viewport_width as f64)
                         && v["frame"]["height"].as_f64() == Some(o.viewport_height as f64)
                         && v["frame"]["frame"].as_u64().unwrap_or(0) > after.unwrap_or(0)))))
+}
+
+pub(super) fn pixel_dimensions(o: &BrowserTestOptions) -> (u32, u32) {
+    (
+        (f64::from(o.viewport_width) * o.device_scale_factor).ceil() as u32,
+        (f64::from(o.viewport_height) * o.device_scale_factor).ceil() as u32,
+    )
 }
 
 impl BrowserController {
@@ -98,7 +107,9 @@ impl BrowserController {
             .send(
                 "Emulation.setDeviceMetricsOverride",
                 json!({
-                    "width":width, "height":height, "deviceScaleFactor":1, "mobile":false
+                    "width":width, "height":height,
+                    "deviceScaleFactor":self.options.device_scale_factor,
+                    "mobile":self.options.mobile
                 }),
             )
             .context("host_control: Chromium rejected or lost the metrics command")?;
@@ -191,6 +202,31 @@ mod tests {
         assert!(acknowledged(&v, &o, false, None));
         v["width"] = json!(390);
         assert!(!acknowledged(&v, &o, false, None));
+    }
+
+    #[test]
+    fn mobile_scale_keeps_css_layout_separate_from_backing_pixels() {
+        let mut o = BrowserTestOptions::new("http://localhost/")
+            .fission_canvas()
+            .mobile(3.0);
+        o.viewport_width = 390;
+        o.viewport_height = 844;
+        let mut v = json!({"width":390,"height":844,"scale":3,
+            "frame":{"width":390,"height":844,"frame":3,"phase":"submitted"},
+            "canvas":{"width":390,"height":844,"pixel_width":1170,"pixel_height":2532,"x":0,"y":0}});
+        assert!(acknowledged(&v, &o, true, Some(2)));
+        assert!(!acknowledged(&v, &o, true, Some(3)));
+        v["scale"] = json!(1);
+        assert!(!acknowledged(&v, &o, true, None));
+        v["scale"] = json!(3);
+        v["canvas"]["pixel_width"] = json!(390);
+        assert!(!acknowledged(&v, &o, true, None));
+        v["canvas"]["pixel_width"] = json!(1170);
+        v["frame"]["width"] = json!(1170);
+        assert!(!acknowledged(&v, &o, true, None));
+        o.mode = BrowserSmokeMode::Dom;
+        assert!(acknowledged(&v, &o, false, None));
+        assert_eq!(pixel_dimensions(&o), (1170, 2532));
     }
 
     #[test]

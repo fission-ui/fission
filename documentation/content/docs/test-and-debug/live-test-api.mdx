@@ -59,7 +59,8 @@ Keep this client alive to resize the same page while retaining app state and
 route. Enable Web test control on the compiling command, for example
 `FISSION_WEB_TEST_CONTROL=1 ./platforms/web/build-wasm.sh`, and serve the build
 through the existing `fission serve-web --project-dir .` helper or your test host.
-Resize uses CSS pixels at fixed device scale 1, validates dimensions, and waits
+Resize uses CSS pixels, preserves the configured device scale and mobile mode
+(scale 1 and desktop mode by default), validates dimensions, and waits
 for actual viewport/canvas/submitted-layout frame dimensions and paint within
 the options timeout (capped at 60 seconds). A changed size must advance the
 frame acknowledgment; repeating the same size verifies the current frame.
