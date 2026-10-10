@@ -123,9 +123,7 @@ impl OwnedServer {
 
     fn start_at(root: PathBuf, host: &str, port: u16, mount: &str, spa: bool) -> Result<Self> {
         let mount = normalize_mount(mount)?;
-        let root = root
-            .canonicalize()
-            .context("serving output directory is missing")?;
+        let root = super::paths::absolute_root(&root)?;
         let listener = TcpListener::bind((host, port))
             .with_context(|| format!("cannot bind serving to {host}:{port}; retry with --port 0 or a different port; the existing listener was left untouched"))?;
         let address = listener.local_addr()?;
