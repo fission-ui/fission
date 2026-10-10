@@ -13,6 +13,24 @@ use std::{
 };
 
 struct OwnedApp(Child);
+impl OwnedApp {
+    fn wait_for_exit(&mut self, timeout: Duration) -> Result<()> {
+        let deadline = Instant::now() + timeout;
+        loop {
+            if let Some(status) = self.0.try_wait()? {
+                anyhow::ensure!(status.success(), "native fixture failed: {status}");
+                return Ok(());
+            }
+            if Instant::now() >= deadline {
+                self.0.kill().context("stop unresponsive native fixture")?;
+                self.0.wait().context("reap native fixture")?;
+                anyhow::bail!("native fixture did not exit within {timeout:?}");
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+    }
+}
+
 impl Drop for OwnedApp {
     fn drop(&mut self) {
         let _ = self.0.kill();
@@ -122,13 +140,32 @@ fn run(binary: &str, output: &str, blink: &str) -> Result<()> {
     client.ime_commit("é")?;
     client.wait_for_text("helloé", 5_000)?;
     client.quit()?;
-    owner.0.wait()?;
+    owner.wait_for_exit(Duration::from_secs(10))?;
     let report = serde_json::json!({"platform":std::env::consts::OS,"blink_enabled":blink=="1","typing_verified":true,"counter_verified":true,"ime_commit_verified":true,"phases":phases});
     fs::write(
         dir.join(format!("idle-blink-{blink}.json")),
         serde_json::to_vec_pretty(&report)?,
     )?;
     println!("{report}");
+    Ok(())
+}
+
+#[test]
+fn unresponsive_fixture_is_killed_and_reaped() -> Result<()> {
+    let mut owner = OwnedApp(Command::new("sleep").arg("30").spawn()?);
+    let result = owner.wait_for_exit(Duration::ZERO);
+    anyhow::ensure!(result.is_err(), "unresponsive fixture must fail the probe");
+    anyhow::ensure!(owner.0.try_wait()?.is_some(), "fixture must be reaped");
+    Ok(())
+}
+
+#[test]
+fn unsuccessful_fixture_exit_is_reported() -> Result<()> {
+    let mut owner = OwnedApp(Command::new("sh").args(["-c", "exit 7"]).spawn()?);
+    let error = owner
+        .wait_for_exit(Duration::from_secs(5))
+        .expect_err("unsuccessful fixture exit must fail the probe");
+    anyhow::ensure!(error.to_string().contains("native fixture failed"));
     Ok(())
 }
 

@@ -96,7 +96,7 @@ cargo test --locked -p fission-shell-winit --test focused_input_idle -- --ignore
 
 The test owns and cleans up its application process. It warms each state for two seconds, then samples ten untouched seconds for: unfocused input, focused input, and button focus. No test-control requests are made during those sampling intervals. CPU time comes from the application's `/proc/<pid>/stat` user/system ticks, divided by actual elapsed time; 100% means one CPU core. A reported zero means less than the measurement resolution, rather than a guarantee of no instructions executed.
 
-The probe fixes the blink period at 530 ms, records frame-trace counts, and rejects sustained excess redraws. It then verifies typing, the counter action, and an injected IME commit. It writes CPU results, a renderer/frame log, and a focused screenshot into the output directory. Injected IME coverage does not replace testing the desktop's actual input-method integration.
+The probe fixes the blink period at 530 ms, records frame-trace counts, and rejects sustained excess redraws. It then verifies typing, the counter action, and an injected IME commit. After requesting quit, it allows ten seconds for a successful exit; a timeout kills and reaps the fixture and fails the probe. It writes CPU results, a renderer/frame log, and a focused screenshot into the output directory. Injected IME coverage does not replace testing the desktop's actual input-method integration.
 
 Repeat with distinct output directories and these additional environment settings:
 
