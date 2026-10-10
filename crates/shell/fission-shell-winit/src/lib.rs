@@ -125,7 +125,11 @@ use window_attributes::build_window_attributes;
 #[cfg(not(target_os = "android"))]
 use window_attributes::build_window_before_run;
 use window_attributes::native_surface_host;
+#[cfg(not(target_arch = "wasm32"))]
+mod native_renderer_selection;
 mod renderer_diagnostics;
+#[cfg(not(target_arch = "wasm32"))]
+use native_renderer_selection::should_auto_select_native_software;
 #[cfg(feature = "scene3d")]
 mod scene3d_renderer;
 #[cfg(target_arch = "wasm32")]
@@ -1206,7 +1210,11 @@ fn create_native_main_renderer(
         return Ok(software(
             "native-software-upload",
             if auto_software_adapter {
-                "windows_software_adapter"
+                if cfg!(target_os = "windows") {
+                    "windows_software_adapter"
+                } else {
+                    "cpu_adapter"
+                }
             } else {
                 "forced_by_renderer_request"
             }
@@ -1265,22 +1273,6 @@ fn create_vello_main_renderer(device_handle: &DeviceHandle) -> anyhow::Result<Ma
         renderer,
         texture_compositor,
     })
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-fn should_auto_select_native_software(
-    request: RendererRequest,
-    windows: bool,
-    device_type: wgpu::DeviceType,
-    adapter_name: &str,
-) -> bool {
-    if request != RendererRequest::Auto || !windows {
-        return false;
-    }
-    let adapter_name = adapter_name.trim().to_ascii_lowercase();
-    device_type == wgpu::DeviceType::Cpu
-        || adapter_name.contains("warp")
-        || adapter_name.contains("microsoft basic render driver")
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -10732,15 +10724,13 @@ mod tests {
         physical_size_to_layout_size, preferred_native_present_mode, preferred_surface_alpha_mode,
         preferred_web_surface_alpha_mode, present_frame_with_winit_coordination,
         rect_visible_in_scroll_ancestors, repeating_animation_redraw_interval, resize_is_unsettled,
-        resolve_build_viewport, resolve_selector_record, should_auto_select_native_software,
-        should_present_startup_clear_frame, surface_acquire_recovery,
-        sync_tracked_target_texture_size_to_surface, texture_plans_fit_device_limits,
-        visual_rect_for_node, web_effective_render_scale, window_insets_from_safe_area_frames,
-        windows_shell_execute_succeeded, windows_wide, BrowserDefaults, LiveResizeController,
-        SurfaceAcquireRecovery, WindowViewportState,
+        resolve_build_viewport, resolve_selector_record, should_present_startup_clear_frame,
+        surface_acquire_recovery, sync_tracked_target_texture_size_to_surface,
+        texture_plans_fit_device_limits, visual_rect_for_node, web_effective_render_scale,
+        window_insets_from_safe_area_frames, windows_shell_execute_succeeded, windows_wide,
+        BrowserDefaults, LiveResizeController, SurfaceAcquireRecovery, WindowViewportState,
     };
     use crate::pipeline::CompositorTexturePlan;
-    use crate::renderer_diagnostics::RendererRequest;
     use crate::InvalidationSet;
     use fission_core::event::{InputEvent, KeyCode, KeyEvent};
     use fission_core::{
@@ -10959,66 +10949,6 @@ mod tests {
         );
         assert_eq!(preferred_web_surface_alpha_mode(&[Inherit]), Inherit);
         assert_eq!(preferred_web_surface_alpha_mode(&[]), Opaque);
-    }
-
-    #[test]
-    fn windows_auto_uses_software_for_cpu_and_warp_adapters() {
-        use wgpu::DeviceType::{Cpu, IntegratedGpu};
-
-        assert!(should_auto_select_native_software(
-            RendererRequest::Auto,
-            true,
-            Cpu,
-            "Microsoft Basic Render Driver"
-        ));
-        assert!(should_auto_select_native_software(
-            RendererRequest::Auto,
-            true,
-            IntegratedGpu,
-            "Microsoft Direct3D12 (WARP)"
-        ));
-        assert!(should_auto_select_native_software(
-            RendererRequest::Auto,
-            true,
-            IntegratedGpu,
-            "Microsoft Basic Render Driver"
-        ));
-    }
-
-    #[test]
-    fn native_software_auto_selection_preserves_platform_hardware_and_explicit_choices() {
-        use wgpu::DeviceType::{Cpu, IntegratedGpu};
-
-        assert!(!should_auto_select_native_software(
-            RendererRequest::Auto,
-            false,
-            Cpu,
-            "Microsoft Basic Render Driver"
-        ));
-        assert!(!should_auto_select_native_software(
-            RendererRequest::Auto,
-            true,
-            IntegratedGpu,
-            "Qualcomm Adreno X1"
-        ));
-        assert!(!should_auto_select_native_software(
-            RendererRequest::NativeVelloGpu,
-            true,
-            Cpu,
-            "Microsoft Basic Render Driver"
-        ));
-        assert!(!should_auto_select_native_software(
-            RendererRequest::NativeVelloCpu,
-            true,
-            Cpu,
-            "Microsoft Basic Render Driver"
-        ));
-        assert!(!should_auto_select_native_software(
-            RendererRequest::NativeSoftware,
-            true,
-            Cpu,
-            "Microsoft Basic Render Driver"
-        ));
     }
 
     #[test]
