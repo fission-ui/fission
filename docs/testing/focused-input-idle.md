@@ -6,6 +6,8 @@ The [reporter's setup](https://github.com/fission-ui/fission/issues/256#issuecom
 
 ## Build the native fixture on Linux
 
+The reporter's subsequent [idle trace](https://github.com/fission-ui/fission/issues/256#issuecomment-6097817578) identifies repeated IME-triggered rebuilds without caret blinking. That feedback loop was reproduced on Ubuntu 25.10/GNOME/Wayland and corrected by suppressing unchanged Wayland cursor-area commits. See [the native Wayland regression](focused-input-wayland.md) for the reporter fixture, before/after measurements and real OS composition tests. The software-adapter probe below covers the earlier, separate rendering cost.
+
 From the repository root, generate a standalone app:
 
 ```sh

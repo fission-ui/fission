@@ -4,7 +4,9 @@ use fission_ir::semantics::{
 };
 use fission_ir::Semantics;
 use fission_render::LayoutRect;
+use raw_window_handle::{HasDisplayHandle, RawDisplayHandle};
 use std::sync::{Arc, Mutex};
+use winit::dpi::{PhysicalPosition, PhysicalSize};
 use winit::window::{ImePurpose, Window};
 
 pub(crate) fn text_edit_command_from_ime_state(
@@ -115,11 +117,47 @@ fn ime_purpose_for_semantics(semantics: &Semantics) -> ImePurpose {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct ImeCursorArea {
+    position: PhysicalPosition<f64>,
+    size: PhysicalSize<u32>,
+    scale_factor: f64,
+}
+
+impl ImeCursorArea {
+    fn new(rect: LayoutRect, scale_factor: f64) -> Self {
+        Self {
+            position: PhysicalPosition::new(rect.x() as f64, rect.y() as f64),
+            size: PhysicalSize::new(rect.width() as u32, rect.height() as u32),
+            scale_factor,
+        }
+    }
+}
+
+#[derive(Default)]
+struct ImeCursorAreaCache(Option<ImeCursorArea>);
+
+impl ImeCursorAreaCache {
+    fn update(&mut self, rect: LayoutRect, scale_factor: f64) -> Option<ImeCursorArea> {
+        let area = ImeCursorArea::new(rect, scale_factor);
+        if self.0 == Some(area) {
+            return None;
+        }
+        self.0 = Some(area);
+        Some(area)
+    }
+
+    fn clear(&mut self) {
+        self.0 = None;
+    }
+}
+
 #[derive(Default)]
 struct ImeHandlerState {
     window: Option<Arc<Window>>,
     text_input_config: Option<TextInputConfig>,
     ime_allowed_requested: bool,
+    cursor_area: ImeCursorAreaCache,
     #[cfg(target_os = "macos")]
     mac_view_id: Option<usize>,
 }
@@ -166,19 +204,30 @@ impl ImeHandler for DesktopImeHandler {
     }
 
     fn set_ime_cursor_area(&self, rect: LayoutRect) {
-        let state = self.state.lock().expect("ime handler lock poisoned");
+        let mut state = self.state.lock().expect("ime handler lock poisoned");
         if !effective_ime_allowed(
             state.ime_allowed_requested,
             state.text_input_config.as_ref(),
         ) {
             return;
         }
-        if let Some(window) = state.window.as_ref() {
-            // Position relative to window
-            window.set_ime_cursor_area(
-                winit::dpi::PhysicalPosition::new(rect.x() as f64, rect.y() as f64),
-                winit::dpi::PhysicalSize::new(rect.width() as u32, rect.height() as u32),
-            );
+        if let Some(window) = state.window.clone() {
+            // On Wayland, sending a cursor area commits text-input state. The
+            // compositor can acknowledge it with an empty preedit, which causes
+            // another runtime IME sync. Do not feed that acknowledgement back
+            // into another identical commit.
+            let area = if matches!(
+                window.display_handle().map(|handle| handle.as_raw()),
+                Ok(RawDisplayHandle::Wayland(_))
+            ) {
+                state.cursor_area.update(rect, window.scale_factor())
+            } else {
+                Some(ImeCursorArea::new(rect, window.scale_factor()))
+            };
+            let Some(area) = area else {
+                return;
+            };
+            window.set_ime_cursor_area(area.position, area.size);
             #[cfg(target_os = "android")]
             crate::android_text_input::update_cursor_area(rect, window.scale_factor() as f32);
         }
@@ -215,6 +264,9 @@ impl ImeHandler for DesktopImeHandler {
 }
 
 fn sync_text_input_config(state: &mut ImeHandlerState) {
+    // Re-enabling IME or changing input traits can reset platform state. The
+    // next cursor sync must publish even if the new field uses the same area.
+    state.cursor_area.clear();
     if let Some(window) = state.window.as_ref() {
         window.set_ime_allowed(effective_ime_allowed(
             state.ime_allowed_requested,
@@ -710,12 +762,71 @@ mod tests {
     use super::{
         active_platform_config, effective_ime_allowed, mobile_ime_configuration,
         text_edit_command_from_ime_state, web_autocomplete, web_smart_hint_needs_advisory,
-        TextInputConfig,
+        ImeCursorAreaCache, TextInputConfig,
     };
     use fission_core::{TextEditCommand, TextEditSource};
     use fission_ir::semantics::{TextInputAction, TextInputType};
     use fission_ir::Semantics;
     use winit::window::ImePurpose;
+
+    #[test]
+    fn identical_ime_cursor_areas_do_not_republish() {
+        let mut cache = ImeCursorAreaCache::default();
+        let rect = fission_render::LayoutRect::new(10.0, 20.0, 1.0, 24.0);
+        assert!(cache.update(rect, 1.0).is_some());
+        for _ in 0..100 {
+            assert!(cache.update(rect, 1.0).is_none());
+        }
+    }
+
+    #[test]
+    fn changed_ime_cursor_geometry_and_scale_are_published() {
+        let mut cache = ImeCursorAreaCache::default();
+        for (rect, scale) in [
+            (fission_render::LayoutRect::new(10.0, 20.0, 1.0, 24.0), 1.0),
+            (fission_render::LayoutRect::new(11.0, 20.0, 1.0, 24.0), 1.0),
+            (fission_render::LayoutRect::new(11.0, 21.0, 1.0, 24.0), 1.0),
+            (fission_render::LayoutRect::new(11.0, 21.0, 2.0, 24.0), 1.0),
+            (fission_render::LayoutRect::new(11.0, 21.0, 2.0, 25.0), 1.0),
+            (fission_render::LayoutRect::new(11.0, 21.0, 2.0, 25.0), 2.0),
+        ] {
+            assert!(cache.update(rect, scale).is_some());
+            assert!(cache.update(rect, scale).is_none());
+        }
+    }
+
+    #[test]
+    fn ime_cursor_cache_reset_republishes_same_geometry() {
+        let mut cache = ImeCursorAreaCache::default();
+        let rect = fission_render::LayoutRect::new(10.0, 20.0, 1.0, 24.0);
+        assert!(cache.update(rect, 1.0).is_some());
+        cache.clear();
+        assert!(cache.update(rect, 1.0).is_some());
+    }
+
+    #[test]
+    fn ime_configuration_changes_reset_cursor_cache() {
+        let handler = super::DesktopImeHandler::default();
+        let rect = fission_render::LayoutRect::new(10.0, 20.0, 1.0, 24.0);
+        let remember_area = || {
+            assert!(handler
+                .state
+                .lock()
+                .unwrap()
+                .cursor_area
+                .update(rect, 1.0)
+                .is_some());
+        };
+        remember_area();
+        handler.set_window(None);
+        remember_area();
+        handler.set_text_input_config(Some(TextInputConfig::default()));
+        remember_area();
+        fission_core::env::ImeHandler::set_ime_allowed(&handler, true);
+        remember_area();
+        fission_core::env::ImeHandler::set_ime_allowed(&handler, false);
+        remember_area();
+    }
 
     #[test]
     fn text_input_config_copies_runtime_semantics() {
