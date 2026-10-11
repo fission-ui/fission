@@ -52,7 +52,7 @@ Phases are `building`, `ready`, `stopped`, or `failed`. Failed events include a
 message, a resource-release fact, and the original retry argv. Correct the
 reported prerequisite before retrying. `ready` claims local assets, not browser
 rendering. `--json` on run currently requires an explicit Web or Static site
-target and attached execution; other run targets retain their human behavior.
+target and attached execution; other run targets retain their human behaviour.
 Malformed CLI arguments retain Clap's normal diagnostic and nonzero exit.
 
 Retain the attached process and stdin. With `--stdin-control`, send `stop` plus

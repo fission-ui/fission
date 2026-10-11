@@ -4,13 +4,13 @@ The [reporter's trace for #256](https://github.com/fission-ui/fission/issues/256
 
 Wayland cursor-area updates commit text-input state. GNOME acknowledges the commit, and the winit backend can translate that acknowledgement into an empty preedit event. Handling that event synchronizes the focused input back to the platform, sending the same cursor area again. This creates an idle feedback loop independent of caret blinking.
 
-`DesktopImeHandler` now suppresses identical cursor-area updates on Wayland. A changed position, size, or scale still publishes an update. Window changes, IME enable/disable transitions, and changed text-input configuration clear the cache. Other display backends retain their existing update behavior.
+`DesktopImeHandler` now suppresses identical cursor-area updates on Wayland. A changed position, size, or scale still publishes an update. Window changes, IME enable/disable transitions, and changed text-input configuration clear the cache. Other display backends retain their existing update behaviour.
 
 ## Run the regression
 
 Use an isolated Ubuntu GNOME/Wayland session with Python's `gi` module, IBus and GNOME's `org.gnome.Mutter.RemoteDesktop` interface available. Run only one GUI probe at a time; another window taking keyboard focus invalidates the sample. Keep compilation stopped while sampling CPU.
 
-The fixture preserves the reporter's app behavior, with formatting and a standalone entry point. Build it from the repository root:
+The fixture preserves the reporter's app behaviour, with formatting and a standalone entry point. Build it from the repository root:
 
 ```sh
 CARGO_TARGET_DIR=/tmp/fission-wayland-target cargo build --release \
@@ -31,7 +31,7 @@ Each phase warms for three seconds and takes two ten-second samples without cont
 
 ## Recorded VM evidence
 
-The release comparison used the reporter's app, an 800×600 visible window, Ubuntu 25.10, GNOME/Mutter 49, Vulkan and Mesa llvmpipe (LLVM 20.1.8). The before binary already included #270's earlier renderer and caret changes; the remaining difference is cursor-area synchronization.
+The release comparison used the reporter's app, an 800×600 visible window, Ubuntu 25.10, GNOME/Mutter 49, Vulkan and Mesa llvmpipe (LLVM 20.1.8). The before binary already included #270's earlier renderer and caret changes; the remaining difference is cursor-area synchronisation.
 
 | Configuration | Focused redraws / 10 s | Focused process CPU, one core |
 | --- | ---: | ---: |
@@ -41,4 +41,4 @@ The release comparison used the reporter's app, an 800×600 visible window, Ubun
 
 Both samples in the blink-disabled comparison agree. Unfocused and button-focused phases have zero sustained redraws. The fixed runtime passes native typing, both counter actions, Unicode composition, selection, composition cancellation and injected IME commit checks. The regression probe rejects the before binary and accepts the fixed binary.
 
-100% means one CPU core; multithreaded llvmpipe can exceed that. These traced VM readings are diagnostic evidence, not measurements of the reporter's physical Intel HD Graphics 520. They verify the feedback-loop fix through a real GNOME/Wayland input path. Keep #256 open until the fix is available and physical-device behavior is confirmed.
+100% means one CPU core; multithreaded llvmpipe can exceed that. These traced VM readings are diagnostic evidence, not measurements of the reporter's physical Intel HD Graphics 520. They verify the feedback-loop fix through a real GNOME/Wayland input path. Keep #256 open until the fix is available and physical-device behaviour is confirmed.

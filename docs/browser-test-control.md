@@ -32,11 +32,11 @@ total. PNG dimensions include the configured scale. Invalid dimensions fail
 before dispatch. Static DOM sessions use
 `BrowserTestOptions::new(url)` and need no test bridge; their semantic/input
 commands remain unsupported. Native `simulate_resize` retains its logical
-viewport behavior. Raw Web `SimulateResize` returns an `Error` containing
+viewport behaviour. Raw Web `SimulateResize` returns an `Error` containing
 `unsupported_host` and the supported Rust driver call, without mutating runtime
 dimensions: page JavaScript has no authority over Chromium's host viewport.
 
-## Generic frame acknowledgment
+## Generic frame acknowledgement
 
 An opt-in Web build exposes a read-only snapshot getter alongside the existing
 `submit` and `poll` methods: `globalThis.__FISSION_TEST__.frame`. It returns
@@ -49,15 +49,15 @@ An opt-in Web build exposes a read-only snapshot getter alongside the existing
 The shared Rust protocol is `WebTestFrame` / `WebTestFramePhase`. Width and
 height are the submitted frame's layout viewport in CSS pixels. The sequence
 advances after successful submission within this page. `submitted` identifies
-the shell's acknowledgment; it does not assert GPU readback or compositor
+the shell's acknowledgement; it does not assert GPU readback or compositor
 presentation. Mutating a returned snapshot does not modify the shell's state.
 Production builds expose neither the bridge nor this getter. No review-specific
 global is involved.
 
 The driver verifies actual browser metrics, canvas CSS/backing dimensions and
-the matching submitted-frame acknowledgment, crosses two browser animation
+the matching submitted-frame acknowledgement, crosses two browser animation
 frames for paint, and checks again before capture. A changed viewport requires
-a frame newer than the previous acknowledgment; a same-size request can verify
+a frame newer than the previous acknowledgement; a same-size request can verify
 the existing matching frame. After a timeout, a same-size retry or screenshot
 must still satisfy the outstanding newer-frame requirement. Capture validates
 PNG dimensions, but content still needs visual review.
@@ -84,7 +84,7 @@ cargo test -p fission-test-driver --test browser_resize -- --ignored --nocapture
 ```
 
 They preserve counter/route/page identity across desktop → narrow → tablet →
-desktop sizes, verify semantic bounds and captures, reject stale acknowledgments
+desktop sizes, verify semantic bounds and captures, reject stale acknowledgements
 and raw bridge resize, recover in the same session, and check owned resource
 cleanup. Set `FISSION_RESIZE_OUTPUT` to retain PNG evidence. Run the internal
 `production_canvas_has_no_test_control` test against a separately compiled

@@ -2,7 +2,7 @@
 
 Issue [#256](https://github.com/fission-ui/fission/issues/256) reports high CPU on Ubuntu while a basic text input is focused. The regression tests separate caret paint invalidation from paragraph layout. This manual probe also checks native scheduling, renderer selection, typing, a button action, and an injected IME preedit/commit.
 
-The [reporter's setup](https://github.com/fission-ui/fission/issues/256#issuecomment-6094648150) is Fission 0.15.1 on Ubuntu 25.10/Wayland, with an Intel HD Graphics 520 hardware GPU using Vulkan and `native-vello requested=auto` at 800×600. He reports over 25% usage in debug and over 15% in release, with usage dropping after the input loses focus. His [diagnostic reply](https://github.com/fission-ui/fission/issues/256#issuecomment-6097479490) confirms these are process CPU readings from Ubuntu's System Monitor. In separate release-mode comparisons, disabling blinking on native Vello gives 9% CPU, while forcing the software renderer with ordinary blinking gives 10%; debug usage remains over 25%. These are measurements of his reported setup, not of this PR. Blinking appears to contribute, but the CPU cost remaining with blinking disabled is unexplained. Automatic CPU-adapter fallback does not apply to that hardware GPU, and development-profile optimization does not affect his release build. The software-adapter measurements below do not verify a fix for his case; hardware-GPU rendering and focused idle work remain under investigation.
+The [reporter's setup](https://github.com/fission-ui/fission/issues/256#issuecomment-6094648150) is Fission 0.15.1 on Ubuntu 25.10/Wayland, with an Intel HD Graphics 520 hardware GPU using Vulkan and `native-vello requested=auto` at 800×600. He reports over 25% usage in debug and over 15% in release, with usage dropping after the input loses focus. His [diagnostic reply](https://github.com/fission-ui/fission/issues/256#issuecomment-6097479490) confirms these are process CPU readings from Ubuntu's System Monitor. In separate release-mode comparisons, disabling blinking on native Vello gives 9% CPU, while forcing the software renderer with ordinary blinking gives 10%; debug usage remains over 25%. These are measurements of his reported setup, not of this PR. Blinking appears to contribute, but the CPU cost remaining with blinking disabled is unexplained. Automatic CPU-adapter fallback does not apply to that hardware GPU, and development-profile optimisation does not affect his release build. The software-adapter measurements below do not verify a fix for his case; hardware-GPU rendering and focused idle work remain under investigation.
 
 ## Build the native fixture on Linux
 
@@ -73,14 +73,14 @@ impl From<CounterApp> for Widget {
 
 ```
 
-Retain the generated manifest, entry point, and `fission.toml`. New projects optimize dependencies for interactive debug builds. Existing apps can use the same setting in their `Cargo.toml`:
+Retain the generated manifest, entry point, and `fission.toml`. New projects optimise dependencies for interactive debug builds. Existing apps can use the same setting in their `Cargo.toml`:
 
 ```toml
 [profile.dev.package."*"]
 opt-level = 1
 ```
 
-Merge this with an existing package-profile table if present. The first dependency build can take longer; Cargo reuses those optimized dependencies during subsequent app edits. Application code retains its ordinary development profile. Release settings are unaffected.
+Merge this with an existing package-profile table if present. The first dependency build can take longer; Cargo reuses those optimised dependencies during subsequent app edits. Application code retains its ordinary development profile. Release settings are unaffected.
 
 Build the fixture:
 
@@ -114,9 +114,9 @@ For the default fixture, expect approximately 19 focused caret redraws in ten se
 
 ## Interpretation
 
-Record the Fission commit, build profile, Ubuntu/session type, CPU/GPU, startup `renderer:` line, and viewport alongside the results. Compare before and after using the same fixture and Cargo profile. Check screenshots and input behavior as well as CPU.
+Record the Fission commit, build profile, Ubuntu/session type, CPU/GPU, startup `renderer:` line, and viewport alongside the results. Compare before and after using the same fixture and Cargo profile. Check screenshots and input behaviour as well as CPU.
 
-A software GPU adapter such as llvmpipe executes GPU shaders on the CPU. In the isolated Linux/X11 investigation, that path dominated focused idle cost. Caret layout invalidation was independently reproduced and corrected, although its removal alone did not produce a measurable CPU reduction in this small fixture. Dependency optimization also affects debug-build costs. These measurements do not establish the reporter's adapter or the behavior of physical Ubuntu hardware and Wayland.
+A software GPU adapter such as llvmpipe executes GPU shaders on the CPU. In the isolated Linux/X11 investigation, that path dominated focused idle cost. Caret layout invalidation was independently reproduced and corrected, although its removal alone did not produce a measurable CPU reduction in this small fixture. Dependency optimisation also affects debug-build costs. These measurements do not establish the reporter's adapter or the behaviour of physical Ubuntu hardware and Wayland.
 
 ## Recorded investigation results
 
@@ -124,11 +124,11 @@ The initial investigation used Debian 12 in an ARM64 Docker VM, Xvfb/X11, an 800
 
 | Configuration | Focused CPU, one core | Redraws / 10 s |
 | --- | ---: | ---: |
-| Before: automatic GPU path, unoptimized dependencies | 36.7% | 19 |
-| Patched: automatic native CPU path, unoptimized dependencies | 17.7% | 19 |
-| Patched: explicit GPU path, unoptimized dependencies | 37.3% | 19 |
-| Patched: automatic CPU path, generated dependency optimization | 4.3–4.4% | 19 |
-| Patched: blinking disabled, unoptimized dependencies | Below tick resolution | 0 |
+| Before: automatic GPU path, unoptimised dependencies | 36.7% | 19 |
+| Patched: automatic native CPU path, unoptimised dependencies | 17.7% | 19 |
+| Patched: explicit GPU path, unoptimised dependencies | 37.3% | 19 |
+| Patched: automatic CPU path, generated dependency optimisation | 4.3–4.4% | 19 |
+| Patched: blinking disabled, unoptimised dependencies | Below tick resolution | 0 |
 
 The unfocused and button-focused phases had zero redraws and no measurable CPU delta. The committed native probe passed the counter and Unicode IME assertions. Visual inspection found matching content; the GPU/CPU screenshot comparison changed 1,076 of 480,000 pixels, with a maximum RGB-channel difference of 2/255 and unchanged alpha, consistent with small antialiasing differences.
 

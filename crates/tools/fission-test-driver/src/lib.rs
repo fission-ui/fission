@@ -45,7 +45,7 @@ pub fn unsupported_browser_resize_response() -> TestResponse {
 
 // --- Protocol types (shared between client and server) ---
 
-/// Test-only Web layout acknowledgment, exposed by the read-only
+/// Test-only Web layout acknowledgement, exposed by the read-only
 /// `globalThis.__FISSION_TEST__.frame` getter. Absent in production builds.
 /// The driver additionally observes browser/canvas dimensions and waits for
 /// browser paint before accepting a resize or screenshot.
@@ -1671,11 +1671,12 @@ impl LiveTestClient {
     }
 
     /// Resize an owned Chromium viewport in CSS pixels (1..=8192 per axis,
-    /// at most 16,777,216 pixels, device scale 1), retaining the page and route.
+    /// at most 16,777,216 pixels), retaining the configured device scale,
+    /// mobile emulation, page and route.
     /// Waits up to `BrowserTestOptions::timeout_ms` (capped at 60 seconds) for
-    /// viewport/layout/frame acknowledgment and paint. Same-size requests
+    /// viewport/layout/frame acknowledgement and paint. Same-size requests
     /// verify the current frame without requiring a new one. Raw Web bridge
-    /// calls cannot resize the host. Native logical test-space behavior is
+    /// calls cannot resize the host. Native logical test-space behaviour is
     /// unchanged; browser scopes do not change viewport dimensions.
     pub fn simulate_resize(&self, width: u32, height: u32) -> Result<()> {
         if matches!(&self.transport, LiveTestTransport::Browser(_)) {

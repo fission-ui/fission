@@ -3561,7 +3561,7 @@ fn render_cargo_toml(project: &FissionProject, local_path: Option<&Path>) -> Str
     let lib_name = project.app.name.replace('-', "_");
 
     format!(
-        "[package]\nname = \"{}\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[lib]\nname = \"{}\"\ncrate-type = [\"cdylib\", \"rlib\"]\n\n[dependencies]\nanyhow = \"1\"\nserde = {{ version = \"1\", features = [\"derive\"] }}\n{}\n[target.'cfg(target_arch = \"wasm32\")'.dependencies]\nconsole_error_panic_hook = \"0.1\"\nwasm-bindgen = \"0.2\"\n\n# Optimize renderer and runtime dependencies for interactive debug builds.\n[profile.dev.package.\"*\"]\nopt-level = 1\n",
+        "[package]\nname = \"{}\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[lib]\nname = \"{}\"\ncrate-type = [\"cdylib\", \"rlib\"]\n\n[dependencies]\nanyhow = \"1\"\nserde = {{ version = \"1\", features = [\"derive\"] }}\n{}\n[target.'cfg(target_arch = \"wasm32\")'.dependencies]\nconsole_error_panic_hook = \"0.1\"\nwasm-bindgen = \"0.2\"\n\n# Optimise renderer and runtime dependencies for interactive debug builds.\n[profile.dev.package.\"*\"]\nopt-level = 1\n",
         project.app.name, lib_name, deps
     )
 }

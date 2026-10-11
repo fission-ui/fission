@@ -126,7 +126,7 @@ impl BrowserController {
                 }
             }
             anyhow::ensure!(Instant::now() < deadline,
-                "readiness_viewport: deadline expired waiting for browser/canvas/layout frame acknowledgment");
+                "readiness_viewport: deadline expired waiting for browser/canvas/layout frame acknowledgement");
             std::thread::sleep(
                 deadline
                     .saturating_duration_since(Instant::now())

@@ -28,13 +28,13 @@ tree.
 ## Source-Grounded Work
 
 - Start from the real app entrypoint, then trace into screens, reusable widgets,
-  and lower-level render behavior before changing UI code.
+  and lower-level render behaviour before changing UI code.
 - For UI reviews, group findings by visible region. Do not stop at a screenshot
   description; trace the component and widget code that creates each issue.
 - When a visual problem looks small, keep looking for related spacing,
   alignment, overflow, typography, state, and target-specific issues before
   reporting completion.
-- Keep edits scoped to the component, widget, route, shell, or target behavior
+- Keep edits scoped to the component, widget, route, shell, or target behaviour
   being changed. Avoid broad cleanup unless it is required for the task.
 
 ## Product and UX Principles
@@ -100,7 +100,7 @@ tree.
 - For multi-platform apps, put the app state, reducers, routes, widgets,
   services, design system, and i18n setup in a shared core. Keep each
   feature-gated shell entrypoint thin: it should configure the shell and run the
-  shared core rather than duplicating app behavior per target.
+  shared core rather than duplicating app behaviour per target.
 - Prefer one reusable widget per file when introducing app UI.
 - Model widgets as concrete structs and implement `From<YourWidget> for Widget`.
 - Add semantics to every interactive widget and to semantic regions where they
@@ -224,7 +224,7 @@ Use these Fission defaults as the starting point for a custom design system:
 - Copy `tokens.json` from
   <https://github.com/fission-ui/fission/blob/main/crates/core/fission-theme/design/default/tokens.json>
   into the app, for example at `design/tokens.json`.
-- Customize the checked-in copies. Do not parse the upstream default files at
+- Customise the checked-in copies. Do not parse the upstream default files at
   runtime.
 - Follow the official design-system example:
   <https://github.com/fission-ui/fission/tree/main/examples/todo-design-system>.
@@ -316,7 +316,7 @@ impl From<App> for Widget {
 Do not guess token names. Inspect the generated Rust output or the copied DSP
 and tokens files before wiring new design values.
 
-## Theme and Locale Synchronization
+## Theme and Locale Synchronisation
 
 Theme and locale are app-wide presentation inputs. Keep user-controlled choices
 in `GlobalState`, then mirror them into `Env` with `.with_sync_env(...)`.
@@ -336,7 +336,7 @@ Use `.with_sync_env(...)` only for app-wide presentation inputs such as theme,
 locale, and similar environment values. Do not use it for network loading, file
 writes, job startup, or ordinary domain data.
 
-## Internationalization
+## Internationalisation
 
 Follow the Fission theming and i18n guide:
 <https://github.com/fission-ui/fission/blob/main/documentation/content/docs/guides/theming-and-i18n.mdx>.
@@ -455,7 +455,7 @@ widgets guess.
   on the Web build command, serve the bundle through the existing Web server,
   and retain `LiveTestClient::launch_browser(BrowserTestOptions::new(url).fission_canvas())`.
   Use `client.simulate_resize(width, height)` for owned Chromium CSS viewport
-  changes and `client.capture_screenshot_png()` after acknowledgment/paint.
+  changes and `client.capture_screenshot_png()` after acknowledgement/paint.
   The opt-in `__FISSION_TEST__.frame` getter describes a successful submitted
   layout frame; production builds omit test control. Raw Web bridge resize has
   no host authority and returns `unsupported_host`. Static DOM browser sessions
@@ -466,7 +466,7 @@ widgets guess.
 
 ## Browser website review loop
 
-After initialization, read this generated `AGENTS.md` and referenced
+After initialisation, read this generated `AGENTS.md` and referenced
 `AGENTS.fission.md` before editing. Retain generated `fission.toml` and use
 `fission add-target` for browser targets. Build/review the Rust/Fission website:
 

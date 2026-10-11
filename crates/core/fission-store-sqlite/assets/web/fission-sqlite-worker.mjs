@@ -258,7 +258,7 @@ function sqlMigrate(request) {
   const previousVersion = Number(db.selectValue("PRAGMA user_version"));
   let currentVersion = previousVersion;
   let applied = 0;
-  // serde_wasm_bindgen serializes SqlMigrations' BTreeMap as a JS Map.
+  // serde_wasm_bindgen serialises SqlMigrations' BTreeMap as a JS Map.
   const migrations = Array.from(request.migrations.values())
     .filter((migration) => migration.version > previousVersion)
     .sort((left, right) => left.version - right.version);

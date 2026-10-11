@@ -1,4 +1,4 @@
-//! Automatic native renderer selection; explicit requests keep their existing behavior.
+//! Automatic native renderer selection; explicit requests keep their existing behaviour.
 
 use crate::renderer_diagnostics::RendererRequest;
 

@@ -53,7 +53,7 @@ pub struct BrowserTestOptions {
     pub viewport_height: u32,
     /// Browser device-pixel ratio used for input and rendering emulation.
     pub device_scale_factor: f64,
-    /// Enables Chromium's mobile viewport and touch-device behavior.
+    /// Enables Chromium's mobile viewport and touch-device behaviour.
     pub mobile: bool,
     pub prefers_reduced_motion: bool,
     /// Startup budget; each in-session resize/capture clamps this to 1..=60,000 ms.

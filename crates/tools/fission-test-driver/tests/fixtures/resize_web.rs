@@ -1,4 +1,4 @@
-//! A Web entrypoint for the freshly initialized resize-web test fixture.
+//! A Web entrypoint for the freshly initialised resize-web test fixture.
 pub mod app;
 use app::{CounterApp, CounterState};
 use fission::prelude::*;

@@ -14,7 +14,7 @@ fission test --visual-review --target web --output-dir review-phone --route / \
 ```
 
 Without `--visual-review`, `fission test` retains its existing target smoke-test
-behavior. Visual mode requires an explicit Web or Static site target and an
+behaviour. Visual mode requires an explicit Web or Static site target and an
 output directory. Matrix/output/strict/JSON flags are limited to visual mode;
 native variant and headless simulator flags are not used for it.
 
@@ -92,11 +92,11 @@ terminated. Uncatchable OS termination and descendants deliberately escaping
 owned process groups are outside this lifecycle contract. A case failure gives
 a stage and recovery instruction; correct source/assets/tools and rerun.
 
-Web control and the frame acknowledgment exist only in the explicitly enabled
+Web control and the frame acknowledgement exist only in the explicitly enabled
 development test build. A normal Web build removes inherited control flags;
 static production output acquires no test hooks. This command does not
 publish, deploy, or change hosting/provider settings.
 
 Project/output paths are made absolute lexically, preserving symlink and
-mapped-drive spelling without filesystem canonicalization. The output directory
+mapped-drive spelling without filesystem canonicalisation. The output directory
 must still be writable. No public preview or separate review command is needed.

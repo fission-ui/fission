@@ -1,4 +1,4 @@
-//! Replace a freshly initialized scaffold's src/app.rs after reading its guidance.
+//! Replace a freshly initialised scaffold's src/app.rs after reading its guidance.
 use fission::prelude::*;
 use std::sync::Arc;
 

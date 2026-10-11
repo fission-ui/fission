@@ -1,4 +1,4 @@
-//! Public review binary: real freshly initialized content website and Chromium.
+//! Public review binary: real freshly initialised content website and Chromium.
 use serde_json::Value;
 use std::{
     fs,

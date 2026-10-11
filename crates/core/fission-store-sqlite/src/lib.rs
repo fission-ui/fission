@@ -66,7 +66,11 @@ mod tests {
     fn web_migration_reads_the_serialized_migration_map() {
         let mut migrations = SqlMigrations::new();
         migrations
-            .add(SqlMigration::new(1, "initial", "CREATE TABLE example(id INTEGER);"))
+            .add(SqlMigration::new(
+                1,
+                "initial",
+                "CREATE TABLE example(id INTEGER);",
+            ))
             .expect("one migration");
         let serialized = serde_json::to_value(migrations).expect("serialize migrations");
         assert_eq!(
