@@ -141,9 +141,32 @@ fn canvas_buttons_accept_real_browser_touch_input() -> Result<()> {
     // A full control height above the painted button must not activate it.
     client.touch_selector_at(increment, 0.5, -1.0)?;
     client.pump()?;
-    client.scroll_into_view(scrolled_increment)?;
+    client.scroll_into_view(scrolled_increment.clone())?;
     client.pump()?;
     client.assert_text_visible("Count: 6")?;
+
+    // Resize must preserve the mobile device metrics instead of resetting DPR
+    // to 1. Check both real input and captured physical pixels in this session.
+    client.simulate_resize(360, 844)?;
+    let metrics = client.browser_evaluate_json(
+        "({width:innerWidth,height:innerHeight,scale:devicePixelRatio,screenWidth:screen.width})",
+    )?;
+    assert_eq!(
+        metrics,
+        serde_json::json!({"width":360,"height":844,"scale":3,"screenWidth":360})
+    );
+    client.touch_selector_at(
+        SelectorQuery::semantic_identifier("web-smoke.increment"),
+        0.5,
+        0.5,
+    )?;
+    // The first button's ScrollIntoView can clip the count above it. Observe
+    // the state through the second button's visible label, as before resizing.
+    client.scroll_into_view(scrolled_increment)?;
+    client.wait_for_text("Count: 7", 5_000)?;
+    let png = client.capture_screenshot_png()?;
+    let image = image::load_from_memory(&png)?.to_rgba8();
+    assert_eq!(image.dimensions(), (1080, 2532));
     Ok(())
 }
 
