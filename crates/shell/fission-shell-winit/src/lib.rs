@@ -8995,7 +8995,7 @@ where
                                             web_rendered_frames,
                                         );
                                         // The opt-in test bridge owns the submitted-layout
-                                        // acknowledgment; compositor paint is observed by
+                                        // acknowledgement; compositor paint is observed by
                                         // the Chromium-owning test driver.
                                         if test_control_enabled {
                                             web_test_control::publish_frame(

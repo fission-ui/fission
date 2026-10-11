@@ -2,7 +2,7 @@
 
 The [reporter's trace for #256](https://github.com/fission-ui/fission/issues/256#issuecomment-6097817578) contains 1,081 redraws, mostly 16 ms apart, with repeated IME-triggered rebuilds and no caret-blink events. The regression was reproduced using his app on Ubuntu 25.10 with GNOME Shell/Mutter 49 and native Wayland text input in Docker Desktop's Linux VM.
 
-Wayland cursor-area updates commit text-input state. GNOME acknowledges the commit, and the winit backend can translate that acknowledgement into an empty preedit event. Handling that event synchronizes the focused input back to the platform, sending the same cursor area again. This creates an idle feedback loop independent of caret blinking.
+Wayland cursor-area updates commit text-input state. GNOME acknowledges the commit, and the winit backend can translate that acknowledgement into an empty preedit event. Handling that event synchronises the focused input back to the platform, sending the same cursor area again. This creates an idle feedback loop independent of caret blinking.
 
 `DesktopImeHandler` now suppresses identical cursor-area updates on Wayland. A changed position, size, or scale still publishes an update. Window changes, IME enable/disable transitions, and changed text-input configuration clear the cache. Other display backends retain their existing update behaviour.
 
