@@ -49,21 +49,26 @@ pub struct CanvasGeometry {
 /// Called in an owned, deadline-supervised review worker. No browser session
 /// or arbitrary evaluation API is exposed as part of the CLI contract.
 pub fn review_case(options: BrowserTestOptions, mount_url: &str) -> Result<BrowserReview> {
-    let mut launch = options.clone();
-    launch.url = "about:blank".into();
+    let deadline = Instant::now() + Duration::from_millis(options.timeout_ms.clamp(1, 300_000));
     let chrome = options
         .chrome_path
         .clone()
         .or_else(detect_chrome)
         .context("browser_launch: install Chromium or set FISSION_CHROME")?;
     let port = free_port();
+    let mut launch = options.clone();
+    launch.url = "about:blank".into();
     let session = ChromeSession::launch(&chrome, port, &launch)?;
     let ws = wait_for_target(
         port,
         "about:blank",
-        Duration::from_millis(options.timeout_ms),
+        deadline.saturating_duration_since(Instant::now()),
     )?;
     let mut client = CdpClient::connect(&ws)?;
+    // The parent worker already enforces the same bounded case deadline. Keep
+    // slow Chromium start-up and navigation inside that budget instead of
+    // imposing a smaller, unrelated per-command cap.
+    client.operation_deadline = Some(deadline);
     client.report_only = true;
     for domain in [
         "Page.enable",
@@ -101,7 +106,7 @@ pub fn review_case(options: BrowserTestOptions, mount_url: &str) -> Result<Brows
         },
     };
     let mut report = BrowserReview::default();
-    let result = inspect(&mut controller, &options, mount_url, &mut report);
+    let result = inspect(&mut controller, &options, mount_url, deadline, &mut report);
     if let Err(error) = result {
         report.failure = Some(bounded(&format!("{error:#}")));
     }
@@ -130,10 +135,10 @@ fn inspect(
     c: &mut BrowserController,
     o: &BrowserTestOptions,
     mount: &str,
+    deadline: Instant,
     r: &mut BrowserReview,
 ) -> Result<()> {
-    c.client.send("Page.navigate", json!({"url": o.url}))?;
-    let deadline = Instant::now() + Duration::from_millis(o.timeout_ms);
+    c.client.send("Page.navigate", json!({"url": &o.url}))?;
     loop {
         c.client.drain_events(Duration::from_millis(25))?;
         let status = read_runtime_status(&mut c.client)?;

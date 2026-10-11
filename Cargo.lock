@@ -3522,6 +3522,7 @@ version = "0.15.1"
 dependencies = [
  "anyhow",
  "base64",
+ "fission-command-process",
  "image 0.25.8",
  "serde",
  "serde_json",

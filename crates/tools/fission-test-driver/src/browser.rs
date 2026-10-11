@@ -3,6 +3,8 @@ use anyhow::{anyhow, Context, Result};
 #[cfg(not(target_arch = "wasm32"))]
 use base64::Engine;
 #[cfg(not(target_arch = "wasm32"))]
+use fission_command_process::SupervisedChild;
+#[cfg(not(target_arch = "wasm32"))]
 use serde::{Deserialize, Serialize};
 #[cfg(not(target_arch = "wasm32"))]
 use serde_json::{json, Value};
@@ -15,7 +17,7 @@ use std::net::TcpListener;
 #[cfg(not(target_arch = "wasm32"))]
 use std::path::PathBuf;
 #[cfg(not(target_arch = "wasm32"))]
-use std::process::{Child, Command, Stdio};
+use std::process::{Command, Stdio};
 #[cfg(not(target_arch = "wasm32"))]
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 #[cfg(not(target_arch = "wasm32"))]
@@ -962,7 +964,7 @@ fn free_port() -> u16 {
 
 #[cfg(not(target_arch = "wasm32"))]
 struct ChromeSession {
-    child: Option<Child>,
+    child: Option<SupervisedChild>,
     profile_dir: PathBuf,
 }
 
@@ -978,7 +980,8 @@ impl ChromeSession {
                 .as_nanos()
         ));
         fs::create_dir_all(&profile_dir)?;
-        let child = Command::new(chrome)
+        let mut command = Command::new(chrome);
+        command
             .arg("--headless=new")
             .arg("--enable-unsafe-webgpu")
             .arg("--no-first-run")
@@ -991,8 +994,8 @@ impl ChromeSession {
             ))
             .arg(&options.url)
             .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
+            .stderr(Stdio::null());
+        let child = SupervisedChild::spawn(&mut command)
             .with_context(|| format!("failed to start {}", chrome.display()))?;
         Ok(Self {
             child: Some(child),
@@ -1002,8 +1005,7 @@ impl ChromeSession {
 
     fn kill(&mut self) {
         if let Some(mut child) = self.child.take() {
-            let _ = child.kill();
-            let _ = child.wait();
+            let _ = child.terminate();
         }
     }
 }
@@ -1012,7 +1014,16 @@ impl ChromeSession {
 impl Drop for ChromeSession {
     fn drop(&mut self) {
         self.kill();
-        let _ = fs::remove_dir_all(&self.profile_dir);
+        // Chromium descendants may briefly retain and rewrite profile files as
+        // they leave the owned process group. Remove only this session's
+        // freshly created directory, retrying for that bounded shutdown race.
+        for _ in 0..20 {
+            match fs::remove_dir_all(&self.profile_dir) {
+                Ok(()) => break,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => break,
+                Err(_) => std::thread::sleep(Duration::from_millis(25)),
+            }
+        }
     }
 }
 
@@ -1049,7 +1060,6 @@ impl CdpClient {
     fn send(&mut self, method: &str, params: Value) -> Result<Value> {
         let deadline = self
             .operation_deadline
-            .map(|d| d.min(Instant::now() + Duration::from_secs(15)))
             .unwrap_or_else(|| Instant::now() + Duration::from_secs(15));
         self.set_socket_budget(deadline)?;
         let id = self.next_id;
