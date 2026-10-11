@@ -859,6 +859,7 @@ mod action_input_codec_tests {
             viewport_id: WidgetId::from_u128(20),
             target_id: WidgetId::from_u128(21),
             scene_id: 22,
+            presentation_id: 24,
             node_id: Some(23),
             instance: Some(4),
             dimension: SceneDimension::Two,

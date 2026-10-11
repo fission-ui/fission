@@ -72,8 +72,70 @@ fn node_requires_paint(prev: &CoreNode, next: &CoreNode) -> bool {
 
 fn paint_change_requires_layout(prev: &PaintOp, next: &PaintOp) -> bool {
     match (prev, next) {
-        (PaintOp::DrawText { .. }, PaintOp::DrawText { .. }) => prev != next,
-        (PaintOp::DrawRichText { .. }, PaintOp::DrawRichText { .. }) => prev != next,
+        (
+            PaintOp::DrawText {
+                text: prev_text,
+                size: prev_size,
+                color: prev_color,
+                underline: prev_underline,
+                locale: prev_locale,
+                wrap: prev_wrap,
+                paragraph_style: prev_paragraph,
+                caret_index: _,
+                caret_color: _,
+                caret_width: _,
+                caret_height: _,
+                caret_radius: _,
+            },
+            PaintOp::DrawText {
+                text,
+                size,
+                color,
+                underline,
+                locale,
+                wrap,
+                paragraph_style,
+                caret_index: _,
+                caret_color: _,
+                caret_width: _,
+                caret_height: _,
+                caret_radius: _,
+            },
+        ) => {
+            // The caret is painted over the retained paragraph; none of its
+            // fields participate in build_layout_tree's text measurement.
+            (
+                prev_text,
+                prev_size,
+                prev_color,
+                prev_underline,
+                prev_locale,
+                prev_wrap,
+                prev_paragraph,
+            ) != (text, size, color, underline, locale, wrap, paragraph_style)
+        }
+        (
+            PaintOp::DrawRichText {
+                runs: prev_runs,
+                wrap: prev_wrap,
+                paragraph_style: prev_paragraph,
+                caret_index: _,
+                caret_color: _,
+                caret_width: _,
+                caret_height: _,
+                caret_radius: _,
+            },
+            PaintOp::DrawRichText {
+                runs,
+                wrap,
+                paragraph_style,
+                caret_index: _,
+                caret_color: _,
+                caret_width: _,
+                caret_height: _,
+                caret_radius: _,
+            },
+        ) => (prev_runs, prev_wrap, prev_paragraph) != (runs, wrap, paragraph_style),
         (PaintOp::DrawText { .. }, _) | (_, PaintOp::DrawText { .. }) => true,
         (PaintOp::DrawRichText { .. }, _) | (_, PaintOp::DrawRichText { .. }) => true,
         _ => false,
