@@ -23,11 +23,11 @@ fission init my-app
 Create a complete website without prompts:
 
 ```sh
-fission init my-site --website-template
+fission init my-site --template website
 fission add-target web --project-dir my-site
 ```
 
-`--website-template` is a value-free source-template option. It creates a
+`--template website` selects the website source template. It creates a
 `static-site` project with Rust home/about pages, reusable navigation/footer
 widgets, design tokens, translations, target wiring, source assets, and
 `WEBSITE.md` with the normal build, serve, test, package and publish paths.
@@ -35,7 +35,7 @@ Use the existing `add-target` command to select additional targets. Adding `web`
 preserves the shared source and enables its existing WASM entrypoint; Web uses
 hash routes so secondary routes survive direct visits and refresh on GitHub
 Pages. No backend or website is provisioned or deployed.
-`--website-template` requires a new source directory; user instructions and other
+`--template website` requires a new source directory; user instructions and other
 pre-existing files are preserved. Existing apps should use `fission add-target`.
 
 Immediately read generated `AGENTS.md` and linked guidance after init. If the

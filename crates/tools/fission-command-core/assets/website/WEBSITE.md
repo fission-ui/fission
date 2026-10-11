@@ -9,7 +9,7 @@ and [responsive page guide](https://fission.rs/docs/cookbook/responsive-static-s
 Edit Rust under `src/`, translations under `i18n/`, design tokens under `design/`,
 and source assets under `assets/`. Fission generates the HTML and WASM host: never
 edit generated output to change the UI. Keep `fission.toml` and the generated
-target/dependency organization. `fission init PATH --website-template` selects
+target/dependency organisation. `fission init PATH --template website` selects
 this source template and configures only `static-site`; it takes no target value.
 Plain `fission init` keeps its existing application scaffold and target defaults.
 Add Web through the normal target command:
@@ -48,7 +48,7 @@ initial locale. Check longer translated labels when changing content.
 For a new page, extend `Page` and the shared page component, register the static
 route in `build_site`, and add its route to the Web `Router` in `src/lib.rs`.
 Update navigation, translations and semantic identifiers together. Keep app
-behavior in shared modules and shell entrypoints thin. `site.routes = []` disables
+behaviour in shared modules and shell entrypoints thin. `site.routes = []` disables
 implicit Markdown discovery; opt into content mounts deliberately when adding
 Markdown pages. Do not regenerate the project to add pages or targets.
 

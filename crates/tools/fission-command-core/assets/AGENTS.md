@@ -31,7 +31,7 @@ tree.
   guidance before editing. It is generated at the nearest enclosing Git root,
   or the app root outside Git. If `AGENTS.md` contains user-authored instructions,
   read those and the generated `AGENTS.fission.md` beside it; preserve both.
-- Keep generated `fission.toml` and the scaffold's target/feature organization.
+- Keep generated `fission.toml` and the scaffold's target/feature organisation.
   Use `fission add-target` for target changes. Edit Rust source and source assets,
   never generated HTML or WASM host output.
 - For a website starter, read the app's `WEBSITE.md`. Build and preview the chosen

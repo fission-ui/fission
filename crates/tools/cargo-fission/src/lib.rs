@@ -78,16 +78,12 @@ where
             name,
             app_id,
             local_path,
-            website_template,
+            template,
         } => {
-            fission_command_core::init_project_with_website_template(
-                &path,
-                name,
-                app_id,
-                local_path,
-                website_template,
+            fission_command_core::init_project_with_template(
+                &path, name, app_id, local_path, template,
             )?;
-            if website_template {
+            if template == Some(fission_command_core::ProjectTemplate::Website) {
                 println!("Website ready. Read WEBSITE.md for checks, serving, routing, and GitHub Pages preparation. No website has been published.");
             }
             println!("Immediately read generated AGENTS.md (or AGENTS.fission.md beside user instructions) and its linked guidance before editing. Keep fission.toml; change targets with fission add-target.");
@@ -1077,7 +1073,8 @@ mkdir -p "$(dirname "$artifact")"
             "fission",
             "init",
             dir.to_str().unwrap(),
-            "--website-template",
+            "--template",
+            "website",
         ])
         .unwrap();
         assert_eq!(
@@ -1096,7 +1093,8 @@ mkdir -p "$(dirname "$artifact")"
             "fission",
             "init",
             dir.to_str().unwrap(),
-            "--website-template",
+            "--template",
+            "website",
         ])
         .unwrap();
         let source = fs::read_to_string(dir.join("src/lib.rs")).unwrap();
@@ -1117,16 +1115,19 @@ mkdir -p "$(dirname "$artifact")"
     }
 
     #[test]
-    fn init_website_template_does_not_accept_a_target_value() {
+    fn init_template_requires_a_known_template_value() {
         let dir = unique_dir("website-value");
         assert!(Cli::try_parse_from([
             "fission",
             "init",
             dir.to_str().unwrap(),
-            "--website-template",
-            "web"
+            "--template",
+            "web",
         ])
         .is_err());
+        assert!(
+            Cli::try_parse_from(["fission", "init", dir.to_str().unwrap(), "--template",]).is_err()
+        );
         assert!(!dir.join("fission.toml").exists());
     }
 

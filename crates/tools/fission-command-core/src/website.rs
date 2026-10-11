@@ -110,8 +110,14 @@ mod tests {
             "# Team instructions\nKeep my rules.\n",
         )
         .unwrap();
-        init_project_with_website_template(&root, Some("website-test".into()), None, None, true)
-            .unwrap();
+        init_project_with_template(
+            &root,
+            Some("website-test".into()),
+            None,
+            None,
+            Some(ProjectTemplate::Website),
+        )
+        .unwrap();
         assert_eq!(
             read_project_config(&root).unwrap().targets,
             BTreeSet::from([Target::Site])
@@ -164,7 +170,8 @@ mod tests {
             "User fallback instructions\n",
         )
         .unwrap();
-        init_project_with_website_template(&root, None, None, None, true).unwrap();
+        init_project_with_template(&root, None, None, None, Some(ProjectTemplate::Website))
+            .unwrap();
         assert_eq!(
             fs::read_to_string(root.join("README.md")).unwrap(),
             "User readme\n"
@@ -174,7 +181,14 @@ mod tests {
             "User fallback instructions\n"
         );
         let before = fs::read_to_string(root.join("src/page.rs")).unwrap();
-        assert!(init_project_with_website_template(&root, None, None, None, true).is_err());
+        assert!(init_project_with_template(
+            &root,
+            None,
+            None,
+            None,
+            Some(ProjectTemplate::Website),
+        )
+        .is_err());
         assert_eq!(
             fs::read_to_string(root.join("src/page.rs")).unwrap(),
             before
@@ -196,7 +210,14 @@ mod tests {
         let root = directory("config");
         let manifest = "[targets]\nweb = true\n";
         fs::write(root.join("fission.toml"), manifest).unwrap();
-        assert!(init_project_with_website_template(&root, None, None, None, true).is_err());
+        assert!(init_project_with_template(
+            &root,
+            None,
+            None,
+            None,
+            Some(ProjectTemplate::Website),
+        )
+        .is_err());
         assert_eq!(
             fs::read_to_string(root.join("fission.toml")).unwrap(),
             manifest
@@ -216,12 +237,12 @@ mod tests {
             .join("../../..")
             .canonicalize()
             .unwrap();
-        init_project_with_website_template(
+        init_project_with_template(
             &root,
             Some("website-build-test".into()),
             None,
             Some(checkout.clone()),
-            true,
+            Some(ProjectTemplate::Website),
         )
         .unwrap();
         let result = Command::new("cargo")

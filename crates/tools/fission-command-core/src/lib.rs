@@ -88,6 +88,13 @@ pub enum PlatformCapability {
     Wifi,
 }
 
+/// Source template used when initialising a new Fission project.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
+pub enum ProjectTemplate {
+    /// A complete static website starter with typed design tokens and i18n.
+    Website,
+}
+
 impl PlatformCapability {
     pub fn as_str(self) -> &'static str {
         match self {
@@ -404,24 +411,25 @@ pub fn init_project(
     app_id: Option<String>,
     local_path: Option<PathBuf>,
 ) -> Result<()> {
-    init_project_with_website_template(root, name, app_id, local_path, false)
+    init_project_with_template(root, name, app_id, local_path, None)
 }
 
-/// Initializes an application, optionally selecting the complete website starter.
-pub fn init_project_with_website_template(
+/// Initialises an application using the selected source template, when supplied.
+pub fn init_project_with_template(
     root: &Path,
     name: Option<String>,
     app_id: Option<String>,
     local_path: Option<PathBuf>,
-    website_template: bool,
+    template: Option<ProjectTemplate>,
 ) -> Result<()> {
+    let website_template = template == Some(ProjectTemplate::Website);
     if website_template
         && (root.join("Cargo.toml").exists()
             || root.join("fission.toml").exists()
             || root.join("src").exists())
     {
         bail!(
-            "--website-template requires a new source directory; use fission add-target on an existing app"
+            "--template website requires a new source directory; use fission add-target on an existing app"
         );
     }
     let existing_project = root.exists() && root.read_dir()?.next().is_some();

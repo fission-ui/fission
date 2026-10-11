@@ -45,12 +45,12 @@ fn initialization_child() {
     let root = std::path::PathBuf::from(std::env::var_os("FISSION_INIT_OUTPUT_FIXTURE").unwrap());
     let template = std::env::var("FISSION_INIT_OUTPUT_TEMPLATE").unwrap() == "true";
     println!("AUTHORITY_START");
-    fission_command_core::init_project_with_website_template(
+    fission_command_core::init_project_with_template(
         &root,
         Some("silent_fixture".into()),
         None,
         None,
-        template,
+        template.then_some(fission_command_core::ProjectTemplate::Website),
     )
     .unwrap();
     println!("AUTHORITY_END");
