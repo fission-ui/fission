@@ -25,10 +25,12 @@ jobs:
       CARGO_HTTP_TIMEOUT: '600'
       CARGO_HTTP_LOW_SPEED_LIMIT: '1'
       CARGO_NET_RETRY: '5'
-      CARGO_TARGET_DIR: ${{ runner.temp }}/fission-release-target
       GH_TOKEN: ${{ github.token }}
       RELEASE_VERSION: ${{ inputs.version }}
     steps:
+      - name: Configure Cargo target directory
+        run: echo "CARGO_TARGET_DIR=$RUNNER_TEMP/fission-release-target" >> "$GITHUB_ENV"
+
       - name: Check out main with release history
         uses: actions/checkout@v4
         with:

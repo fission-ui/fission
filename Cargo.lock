@@ -1643,6 +1643,8 @@ dependencies = [
  "fission-command-server",
  "fission-command-site",
  "fission-command-ui",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -2950,6 +2952,7 @@ dependencies = [
  "serde",
  "serde_json",
  "ureq",
+ "url",
 ]
 
 [[package]]
@@ -2969,8 +2972,12 @@ dependencies = [
  "anyhow",
  "fission-command-process",
  "fission-shell-site",
+ "html5ever 0.27.0",
+ "regex",
+ "serde",
  "serde_json",
  "toml 0.8.2",
+ "url",
 ]
 
 [[package]]
@@ -3515,6 +3522,7 @@ version = "0.15.1"
 dependencies = [
  "anyhow",
  "base64",
+ "fission-command-process",
  "image 0.25.8",
  "serde",
  "serde_json",

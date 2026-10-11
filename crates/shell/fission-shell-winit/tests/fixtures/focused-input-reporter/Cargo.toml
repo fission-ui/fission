@@ -1,0 +1,18 @@
+[package]
+name = "fission-focused-input-reporter"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[[bin]]
+name = "fission-focused-input-reporter"
+path = "main.rs"
+
+[dependencies]
+anyhow = "1"
+fission = { path = "../../../../../authoring/fission", default-features = false, features = ["desktop"] }
+
+[profile.dev.package."*"]
+opt-level = 1

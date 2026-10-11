@@ -5,16 +5,51 @@
 These instructions apply when building or reviewing a Fission-based app in this
 tree.
 
+## Browser Project Setup and Testing
+
+- Immediately after `fission init`, read generated `AGENTS.md` and any referenced
+  `AGENTS.fission.md`. Preserve generated `fission.toml`; use `add-target` to add
+  the requested target.
+- Use `fission run --target web --project-dir . --port 0 --no-open` or
+  `fission site serve --project-dir . --port 0 --no-open`. An optional
+  `--mount /repository-name/` serves under that prefix without changing config.
+- Wrappers can use `--json --stdin-control`, retain the attached process/stdin,
+  and consume the ready event's actual URL. Send `stop` and a newline, close
+  stdin, or signal Ctrl+C/SIGTERM; wait for stopped and process exit. Never kill
+  listeners by port or trust saved PIDs.
+- Serving readiness verifies required local assets. Verify browser rendering and
+  development test control with `fission test --target web`; use
+  `fission test --target static-site` for static browser smoke tests. Ordinary
+  run/serve does not enable a test bridge.
+- Failures include bounded build diagnostics and retry arguments. Correct the
+  reported prerequisite before retrying. `--startup-timeout-seconds` (1–3600)
+  bounds build/readiness. Cleanup affects only the session's owned resources.
+
 ## Source-Grounded Work
 
+- Immediately after `fission init`, locate and read this file and its linked
+  guidance before editing. It is generated at the nearest enclosing Git root,
+  or the app root outside Git. If `AGENTS.md` contains user-authored instructions,
+  read those and the generated `AGENTS.fission.md` beside it; preserve both.
+- Keep generated `fission.toml` and the scaffold's target/feature organisation.
+  Use `fission add-target` for target changes. Edit Rust source and source assets,
+  never generated HTML or WASM host output.
+- For a website starter, read the app's `WEBSITE.md`. Build and preview the chosen
+  target, exercise navigation, direct routes and refresh, and inspect narrow
+  (about 390px) and wide (about 1280px) screenshots. Verify links/assets at `/`
+  and a GitHub Pages `/repository-name/` mount, including Web WASM loading.
+  Pages hosts static files, not a backend. Web starters use hash routes for
+  refreshable secondary pages on Pages; local pathname fallbacks are not a
+  promise of support by a static host.
+
 - Start from the real app entrypoint, then trace into screens, reusable widgets,
-  and lower-level render behavior before changing UI code.
+  and lower-level render behaviour before changing UI code.
 - For UI reviews, group findings by visible region. Do not stop at a screenshot
   description; trace the component and widget code that creates each issue.
 - When a visual problem looks small, keep looking for related spacing,
   alignment, overflow, typography, state, and target-specific issues before
   reporting completion.
-- Keep edits scoped to the component, widget, route, shell, or target behavior
+- Keep edits scoped to the component, widget, route, shell, or target behaviour
   being changed. Avoid broad cleanup unless it is required for the task.
 
 ## Product and UX Principles
@@ -80,7 +115,7 @@ tree.
 - For multi-platform apps, put the app state, reducers, routes, widgets,
   services, design system, and i18n setup in a shared core. Keep each
   feature-gated shell entrypoint thin: it should configure the shell and run the
-  shared core rather than duplicating app behavior per target.
+  shared core rather than duplicating app behaviour per target.
 - Prefer one reusable widget per file when introducing app UI.
 - Model widgets as concrete structs and implement `From<YourWidget> for Widget`.
 - Add semantics to every interactive widget and to semantic regions where they
@@ -204,7 +239,7 @@ Use these Fission defaults as the starting point for a custom design system:
 - Copy `tokens.json` from
   <https://github.com/fission-ui/fission/blob/main/crates/core/fission-theme/design/default/tokens.json>
   into the app, for example at `design/tokens.json`.
-- Customize the checked-in copies. Do not parse the upstream default files at
+- Customise the checked-in copies. Do not parse the upstream default files at
   runtime.
 - Follow the official design-system example:
   <https://github.com/fission-ui/fission/tree/main/examples/todo-design-system>.
@@ -296,7 +331,7 @@ impl From<App> for Widget {
 Do not guess token names. Inspect the generated Rust output or the copied DSP
 and tokens files before wiring new design values.
 
-## Theme and Locale Synchronization
+## Theme and Locale Synchronisation
 
 Theme and locale are app-wide presentation inputs. Keep user-controlled choices
 in `GlobalState`, then mirror them into `Env` with `.with_sync_env(...)`.
@@ -316,7 +351,7 @@ Use `.with_sync_env(...)` only for app-wide presentation inputs such as theme,
 locale, and similar environment values. Do not use it for network loading, file
 writes, job startup, or ordinary domain data.
 
-## Internationalization
+## Internationalisation
 
 Follow the Fission theming and i18n guide:
 <https://github.com/fission-ui/fission/blob/main/documentation/content/docs/guides/theming-and-i18n.mdx>.
@@ -431,6 +466,37 @@ widgets guess.
   inspect those screenshots before calling the UI production-ready.
 - For UI changes, verify a real rendered target when possible, and check mobile
   and desktop layouts when the screen is responsive.
+- For same-session Web viewport tests, compile with `FISSION_WEB_TEST_CONTROL=1`
+  on the Web build command, serve the bundle through the existing Web server,
+  and retain `LiveTestClient::launch_browser(BrowserTestOptions::new(url).fission_canvas())`.
+  Use `client.simulate_resize(width, height)` for owned Chromium CSS viewport
+  changes and `client.capture_screenshot_png()` after acknowledgement/paint.
+  The opt-in `__FISSION_TEST__.frame` getter describes a successful submitted
+  layout frame; production builds omit test control. Raw Web bridge resize has
+  no host authority and returns `unsupported_host`. Static DOM browser sessions
+  need no bridge; native resize retains logical viewport semantics.
 - If docs or configuration target names are changed, keep terminology consistent
   with Fission's public target names: `macOS`, `Windows`, `Linux`, `Web`,
   `Android`, `iOS`, `Terminal`, `Static site`, and `SSR`.
+
+## Browser website review loop
+
+After initialisation, read this generated `AGENTS.md` and referenced
+`AGENTS.fission.md` before editing. Retain generated `fission.toml` and use
+`fission add-target` for browser targets. Build/review the Rust/Fission website:
+
+```sh
+fission test --visual-review --target static-site --project-dir . --output-dir review --json
+fission test --visual-review --target web --project-dir . --route / --route /details/ --output-dir review --json
+```
+
+Inspect `review/review.json` and the real PNGs at 390, 800 and 1280 CSS pixels.
+Fix the responsible Rust/Fission widget/route or intended site CSS, then rerun.
+Select Web/custom-site routes explicitly; undiscovered routes are not reviewed.
+Use `--mount /repository-name/` when testing a matching app navigation base.
+Treat incomplete/unsupported cases and partial geometry limitations truthfully;
+geometry warnings do not prove visual failure and only cause failure with
+explicit `--strict`. Runtime/required-resource and incomplete capture failures
+remain blocking. Nonuniform pixels only prove capture content; even exit 0
+requires human/agent image inspection. Do not switch UI
+frameworks or reauthor configuration to bypass a review failure.

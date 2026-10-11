@@ -3,6 +3,7 @@ use clap::Parser;
 use std::{ffi::OsString, path::Path, thread};
 
 mod cli;
+mod serving;
 
 #[cfg(test)]
 use fission_command_core::{read_project_config, Target};
@@ -45,9 +46,29 @@ where
             }
         }
     }
-    let cli = Cli::parse_from(argv);
+    let cli = Cli::parse_from(argv.clone());
     warn_for_alpha_features(&cli.command);
     match cli.command {
+        Command::TestVisualCase {
+            url,
+            mount_url,
+            target,
+            width,
+            height,
+            timeout_ms,
+            screenshot,
+            report,
+        } => {
+            fission_command_run::review::worker(fission_command_run::review::ReviewWorkerOptions {
+                url,
+                mount: mount_url,
+                target,
+                viewport: fission_command_run::review::Viewport { width, height },
+                timeout_ms,
+                screenshot,
+                report,
+            })
+        }
         Command::Features => {
             print_feature_catalog();
             Ok(())
@@ -57,7 +78,17 @@ where
             name,
             app_id,
             local_path,
-        } => fission_command_core::init_project(&path, name, app_id, local_path),
+            template,
+        } => {
+            fission_command_core::init_project_with_template(
+                &path, name, app_id, local_path, template,
+            )?;
+            if template == Some(fission_command_core::ProjectTemplate::Website) {
+                println!("Website ready. Read WEBSITE.md for checks, serving, routing, and GitHub Pages preparation. No website has been published.");
+            }
+            println!("Immediately read generated AGENTS.md (or AGENTS.fission.md beside user instructions) and its linked guidance before editing. Keep fission.toml; change targets with fission add-target.");
+            Ok(())
+        }
         Command::AddTarget {
             targets,
             project_dir,
@@ -87,24 +118,39 @@ where
             port,
             no_open,
             headless,
-        } => fission_command_run::run_app_with_web_cargo_options(
-            fission_command_run::RunOptions {
-                project_dir,
-                target,
-                device,
-                detach,
-                release,
-                variant,
-                host,
-                port,
-                no_open,
-                headless,
-            },
-            fission_command_run::WebCargoOptions {
-                features,
-                no_default_features,
-            },
-        ),
+            serving,
+        } => serving::execute("run", &project_dir.clone(), serving.json, &argv, |notify| {
+            if serving.json
+                && !matches!(
+                    target,
+                    Some(fission_command_core::Target::Web | fission_command_core::Target::Site)
+                )
+            {
+                bail!(
+                    "attached serving JSON currently requires --target web or --target static-site"
+                );
+            }
+            fission_command_run::run_app_with_serving_options(
+                fission_command_run::RunOptions {
+                    project_dir,
+                    target,
+                    device,
+                    detach,
+                    release,
+                    variant,
+                    host,
+                    port,
+                    no_open,
+                    headless,
+                },
+                fission_command_run::WebCargoOptions {
+                    features,
+                    no_default_features,
+                },
+                serving.options(),
+                notify,
+            )
+        }),
         Command::Build {
             target,
             project_dir,
@@ -127,10 +173,41 @@ where
         Command::Test {
             target,
             project_dir,
+            headless: _,
+            features,
+            no_default_features,
+            variant: _,
+            visual,
+        } if visual.visual_review => {
+            fission_command_run::review::run(fission_command_run::review::ReviewOptions {
+                project_dir,
+                target: target.context("visual review requires --target web or static-site")?,
+                output_dir: visual
+                    .output_dir
+                    .context("visual review requires --output-dir")?,
+                routes: visual.routes,
+                viewports: visual.viewports,
+                mount: visual.mount,
+                port: visual.port,
+                release: visual.release,
+                web_cargo: fission_command_run::WebCargoOptions {
+                    features,
+                    no_default_features,
+                },
+                startup_timeout: std::time::Duration::from_secs(visual.startup_timeout_seconds),
+                case_timeout: std::time::Duration::from_secs(visual.case_timeout_seconds),
+                json: visual.json,
+                strict: visual.strict,
+            })
+        }
+        Command::Test {
+            target,
+            project_dir,
             headless,
             features,
             no_default_features,
             variant,
+            ..
         } => fission_command_run::test_app_with_web_cargo_options(
             fission_command_run::TestOptions {
                 project_dir,
@@ -158,7 +235,18 @@ where
                 port,
                 release,
                 no_open,
-            } => fission_command_site::serve(&project_dir, release, host, port, !no_open),
+                serving,
+            } => serving::execute("site serve", &project_dir, serving.json, &argv, |notify| {
+                fission_command_site::serve_with_options(
+                    &project_dir,
+                    release,
+                    host,
+                    port,
+                    !no_open,
+                    serving.options(),
+                    notify,
+                )
+            }),
             SiteCommand::Routes { project_dir } => fission_command_site::routes(&project_dir),
         },
         Command::Server { command } => match command {
@@ -979,6 +1067,71 @@ mkdir -p "$(dirname "$artifact")"
     }
 
     #[test]
+    fn init_website_template_selects_static_source_scaffold() {
+        let dir = unique_dir("website-default");
+        run([
+            "fission",
+            "init",
+            dir.to_str().unwrap(),
+            "--template",
+            "website",
+        ])
+        .unwrap();
+        assert_eq!(
+            read_project_config(&dir).unwrap().targets,
+            std::collections::BTreeSet::from([Target::Site])
+        );
+        assert!(dir.join("src/page.rs").exists());
+        assert!(dir.join("WEBSITE.md").exists());
+        assert!(!dir.join("src/app.rs").exists());
+    }
+
+    #[test]
+    fn init_website_template_extends_through_normal_add_target() {
+        let dir = unique_dir("website-web");
+        run([
+            "fission",
+            "init",
+            dir.to_str().unwrap(),
+            "--template",
+            "website",
+        ])
+        .unwrap();
+        let source = fs::read_to_string(dir.join("src/lib.rs")).unwrap();
+        run([
+            "fission",
+            "add-target",
+            "web",
+            "--project-dir",
+            dir.to_str().unwrap(),
+        ])
+        .unwrap();
+        assert_eq!(
+            read_project_config(&dir).unwrap().targets,
+            std::collections::BTreeSet::from([Target::Site, Target::Web])
+        );
+        assert!(dir.join("platforms/web/bootstrap.mjs").exists());
+        assert_eq!(fs::read_to_string(dir.join("src/lib.rs")).unwrap(), source);
+    }
+
+    #[test]
+    fn init_template_requires_a_known_template_value() {
+        let dir = unique_dir("website-value");
+        assert!(Cli::try_parse_from([
+            "fission",
+            "init",
+            dir.to_str().unwrap(),
+            "--template",
+            "web",
+        ])
+        .is_err());
+        assert!(
+            Cli::try_parse_from(["fission", "init", dir.to_str().unwrap(), "--template",]).is_err()
+        );
+        assert!(!dir.join("fission.toml").exists());
+    }
+
+    #[test]
     fn init_creates_project_files() {
         let dir = unique_dir("init");
         run([
@@ -1277,8 +1430,9 @@ mkdir -p "$(dirname "$artifact")"
         assert!(
             std::fs::read_to_string(dir.join("platforms/web/index.html"))
                 .unwrap()
-                .contains("../../assets/app-icon.png")
+                .contains("href=\"assets/app-icon.png\"")
         );
+        assert!(dir.join("platforms/web/assets/app-icon.png").is_file());
         let web_index = std::fs::read_to_string(dir.join("platforms/web/index.html")).unwrap();
         assert!(web_index.contains("id=\"fission-web-mount\""));
         assert!(web_index.contains("height: 100vh"));
