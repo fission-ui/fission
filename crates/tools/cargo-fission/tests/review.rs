@@ -5,8 +5,18 @@ use std::{
     net::TcpListener,
     path::PathBuf,
     process::Command,
+    sync::{Mutex, MutexGuard},
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
+
+static REAL_BROWSER: Mutex<()> = Mutex::new(());
+
+fn serial_browser() -> MutexGuard<'static, ()> {
+    REAL_BROWSER
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
 struct Fixture(PathBuf);
 impl Fixture {
     fn new() -> Self {
@@ -98,6 +108,7 @@ impl Drop for Fixture {
 #[test]
 #[ignore = "requires installed Chromium and loopback sockets"]
 fn fresh_content_routes_actual_matrix_mounts_artifacts_and_cleanup() {
+    let _serial = serial_browser();
     let f = Fixture::new();
     let config = fs::read(f.0.join("fission.toml")).unwrap();
     for mount in ["/", "/repository-name/"] {
@@ -203,6 +214,7 @@ fn project_and_output_symlink_spelling_is_preserved_lexically() {
 #[test]
 #[ignore = "requires installed Chromium and loopback sockets"]
 fn heuristic_geometry_is_warning_only_unless_strict() {
+    let _serial = serial_browser();
     let f = Fixture::new();
     let cfg = f.0.join("fission.toml");
     fs::write(
@@ -244,6 +256,7 @@ fn heuristic_geometry_is_warning_only_unless_strict() {
 #[test]
 #[ignore = "requires installed Chromium and loopback sockets"]
 fn bounded_browser_timeout_and_cancel_release_owned_port() {
+    let _serial = serial_browser();
     let f = Fixture::new();
     let unrelated = TcpListener::bind("127.0.0.1:0").unwrap();
     let cfg = f.0.join("fission.toml");
