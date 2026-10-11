@@ -3,6 +3,7 @@ use clap::Parser;
 use std::{ffi::OsString, path::Path, thread};
 
 mod cli;
+mod serving;
 
 #[cfg(test)]
 use fission_command_core::{read_project_config, Target};
@@ -45,7 +46,7 @@ where
             }
         }
     }
-    let cli = Cli::parse_from(argv);
+    let cli = Cli::parse_from(argv.clone());
     warn_for_alpha_features(&cli.command);
     match cli.command {
         Command::Features => {
@@ -87,24 +88,39 @@ where
             port,
             no_open,
             headless,
-        } => fission_command_run::run_app_with_web_cargo_options(
-            fission_command_run::RunOptions {
-                project_dir,
-                target,
-                device,
-                detach,
-                release,
-                variant,
-                host,
-                port,
-                no_open,
-                headless,
-            },
-            fission_command_run::WebCargoOptions {
-                features,
-                no_default_features,
-            },
-        ),
+            serving,
+        } => serving::execute("run", &project_dir.clone(), serving.json, &argv, |notify| {
+            if serving.json
+                && !matches!(
+                    target,
+                    Some(fission_command_core::Target::Web | fission_command_core::Target::Site)
+                )
+            {
+                bail!(
+                    "attached serving JSON currently requires --target web or --target static-site"
+                );
+            }
+            fission_command_run::run_app_with_serving_options(
+                fission_command_run::RunOptions {
+                    project_dir,
+                    target,
+                    device,
+                    detach,
+                    release,
+                    variant,
+                    host,
+                    port,
+                    no_open,
+                    headless,
+                },
+                fission_command_run::WebCargoOptions {
+                    features,
+                    no_default_features,
+                },
+                serving.options(),
+                notify,
+            )
+        }),
         Command::Build {
             target,
             project_dir,
@@ -158,7 +174,18 @@ where
                 port,
                 release,
                 no_open,
-            } => fission_command_site::serve(&project_dir, release, host, port, !no_open),
+                serving,
+            } => serving::execute("site serve", &project_dir, serving.json, &argv, |notify| {
+                fission_command_site::serve_with_options(
+                    &project_dir,
+                    release,
+                    host,
+                    port,
+                    !no_open,
+                    serving.options(),
+                    notify,
+                )
+            }),
             SiteCommand::Routes { project_dir } => fission_command_site::routes(&project_dir),
         },
         Command::Server { command } => match command {

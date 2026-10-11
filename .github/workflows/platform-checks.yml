@@ -60,8 +60,25 @@ jobs:
             -p fission-physics-rapier2d \
             -p fission-physics-rapier3d
 
+      - name: Test owned serving and readiness without canonicalization
+        run: cargo test --locked -p fission-command-site
+
       - name: Test generated platform scripts
         run: cargo test -p cargo-fission
+
+  serving-windows:
+    name: Windows owned serving paths
+    if: >-
+      github.event_name != 'pull_request' ||
+      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR","CONTRIBUTOR"]'), github.event.pull_request.author_association)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Test lexical serving and readiness paths
+        run: cargo test --locked -p fission-command-site
 
   web:
     name: Web / wasm
