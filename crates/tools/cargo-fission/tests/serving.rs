@@ -217,6 +217,26 @@ fn invalid_mount_and_occupied_port_fail_without_claiming_ready_or_touching_liste
 }
 
 #[test]
+fn native_run_failure_is_not_mislabelled_as_a_serving_failure() {
+    let missing = std::env::temp_dir().join(format!(
+        "fission-missing-native-project-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    let output = Command::new(env!("CARGO_BIN_EXE_fission"))
+        .args(["run", "--target", "linux", "--project-dir"])
+        .arg(missing)
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(!stderr.contains("Local server failed"), "{stderr}");
+}
+
+#[test]
 fn human_and_json_serving_build_the_same_output_and_stop_cleanly() {
     let fixture = Fixture::content();
     let config = fs::read(fixture.0.join("fission.toml")).unwrap();

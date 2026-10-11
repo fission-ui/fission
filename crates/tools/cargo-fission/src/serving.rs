@@ -53,7 +53,11 @@ pub(crate) fn execute(
     };
     let result = work(&mut render);
     if let Err(ref error) = result {
-        if !failed.get() {
+        // Attached serving reports its own human failure event. Only JSON mode
+        // needs a synthetic event when validation fails before serving starts;
+        // otherwise ordinary `fission run` failures would be mislabelled as
+        // local-server failures and then printed a second time by the CLI.
+        if json && !failed.get() {
             render(ServingEvent::Failed {
                 message: format!("{error:#}"),
                 owned_resources_released: true,
