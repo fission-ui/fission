@@ -17,6 +17,25 @@ pub(crate) struct Cli {
 
 #[derive(Subcommand, Debug)]
 pub(crate) enum Command {
+    #[command(hide = true)]
+    TestVisualCase {
+        #[arg(long)]
+        url: String,
+        #[arg(long)]
+        mount_url: String,
+        #[arg(long, value_enum)]
+        target: Target,
+        #[arg(long)]
+        width: u32,
+        #[arg(long)]
+        height: u32,
+        #[arg(long)]
+        timeout_ms: u64,
+        #[arg(long)]
+        screenshot: PathBuf,
+        #[arg(long)]
+        report: PathBuf,
+    },
     /// List alpha scene, game, asset, and physics features.
     Features,
     /// Create a new Fission application.
@@ -132,7 +151,7 @@ pub(crate) enum Command {
         #[arg(long)]
         variant: Option<NativeVariant>,
     },
-    /// Run the generated smoke test for a configured target.
+    /// Run target smoke tests, or qualify browser captures with --visual-review.
     Test {
         /// Target to test; defaults to the host desktop target.
         #[arg(long, value_enum)]
@@ -152,6 +171,8 @@ pub(crate) enum Command {
         /// Select native modules belonging to this desktop variant.
         #[arg(long)]
         variant: Option<NativeVariant>,
+        #[command(flatten)]
+        visual: VisualReviewArgs,
     },
     /// Build, check, serve, or list routes for a static Fission site.
     Site {
@@ -402,6 +423,39 @@ pub(crate) enum Command {
 }
 
 #[derive(clap::Args, Debug)]
+pub(crate) struct VisualReviewArgs {
+    /// Capture a browser route/viewport matrix for explicit image inspection.
+    #[arg(long, requires_all = ["target", "output_dir"], conflicts_with_all = ["headless", "variant"])]
+    pub visual_review: bool,
+    /// Directory for deterministic PNG files and the self-contained report.
+    #[arg(long, requires = "visual_review")]
+    pub output_dir: Option<PathBuf>,
+    /// Repeatable app-relative route path. Content sites discover metadata routes.
+    #[arg(long = "route", requires = "visual_review")]
+    pub routes: Vec<String>,
+    /// Repeatable WIDTHxHEIGHT CSS pixels. Defaults: 390x900,800x900,1280x900; scale 1.
+    #[arg(long = "viewport", requires = "visual_review")]
+    pub viewports: Vec<fission_command_run::review::Viewport>,
+    #[arg(long, default_value = "/", requires = "visual_review")]
+    pub mount: String,
+    #[arg(long, default_value_t = 0, requires = "visual_review")]
+    pub port: u16,
+    #[arg(long, requires = "visual_review")]
+    pub release: bool,
+    #[arg(long, default_value_t = 300, requires = "visual_review")]
+    pub startup_timeout_seconds: u64,
+    #[arg(long, default_value_t = 60, requires = "visual_review")]
+    pub case_timeout_seconds: u64,
+    /// Fail geometry warning candidates. Normal mode records warnings with exit 0.
+    #[arg(long, requires = "visual_review")]
+    pub strict: bool,
+    /// One JSON report on stdout. Exit: 0 supported checks passed (possibly warnings),
+    /// 1 execution, 2 incomplete/cancelled, 3 confirmed errors or strict warnings.
+    #[arg(long, requires = "visual_review")]
+    pub json: bool,
+}
+
+#[derive(clap::Args, Debug)]
 pub(crate) struct ServingArgs {
     /// Emit typed attached browser-serving events as JSON lines.
     #[arg(long)]
@@ -572,6 +626,84 @@ mod tests {
             Cli::try_parse_from(["fission", "run", "--target", "web", "--json", "--detach"])
                 .is_err()
         );
+    }
+
+    #[test]
+    fn visual_review_is_an_explicit_browser_test_mode() {
+        let cli = Cli::try_parse_from([
+            "fission",
+            "test",
+            "--visual-review",
+            "--target",
+            "web",
+            "--output-dir",
+            "review",
+            "--viewport",
+            "390x844",
+            "--strict",
+            "--json",
+        ])
+        .unwrap();
+        let Command::Test { visual, target, .. } = cli.command else {
+            panic!("wrong authority")
+        };
+        assert_eq!(target, Some(Target::Web));
+        assert!(visual.visual_review && visual.strict && visual.json);
+        assert_eq!(visual.viewports[0].height, 844);
+        assert!(Cli::try_parse_from([
+            "fission",
+            "review",
+            "--target",
+            "web",
+            "--output-dir",
+            "review"
+        ])
+        .is_err());
+        for args in [
+            vec![
+                "fission",
+                "test",
+                "--visual-review",
+                "--output-dir",
+                "review",
+            ],
+            vec!["fission", "test", "--visual-review", "--target", "web"],
+            vec!["fission", "test", "--strict"],
+            vec!["fission", "test", "--route", "/"],
+            vec!["fission", "test", "--viewport", "390x900"],
+            vec!["fission", "test", "--output-dir", "review"],
+            vec![
+                "fission",
+                "test",
+                "--visual-review",
+                "--target",
+                "web",
+                "--output-dir",
+                "review",
+                "--headless",
+            ],
+            vec![
+                "fission",
+                "test",
+                "--visual-review",
+                "--target",
+                "web",
+                "--output-dir",
+                "review",
+                "--variant",
+                "scanner",
+            ],
+        ] {
+            assert!(Cli::try_parse_from(args.clone()).is_err(), "{args:?}");
+        }
+        for target in ["web", "macos", "ios", "android"] {
+            let cli =
+                Cli::try_parse_from(["fission", "test", "--target", target, "--headless"]).unwrap();
+            let Command::Test { visual, .. } = cli.command else {
+                panic!("wrong authority")
+            };
+            assert!(!visual.visual_review);
+        }
     }
 
     fn selected_variant(command: Command) -> Option<NativeVariant> {

@@ -1,4 +1,5 @@
 pub mod doctor;
+pub mod review;
 pub mod serving;
 
 use anyhow::{bail, Context, Result};

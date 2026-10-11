@@ -463,3 +463,25 @@ widgets guess.
 - If docs or configuration target names are changed, keep terminology consistent
   with Fission's public target names: `macOS`, `Windows`, `Linux`, `Web`,
   `Android`, `iOS`, `Terminal`, `Static site`, and `SSR`.
+
+## Browser website review loop
+
+After initialization, read this generated `AGENTS.md` and referenced
+`AGENTS.fission.md` before editing. Retain generated `fission.toml` and use
+`fission add-target` for browser targets. Build/review the Rust/Fission website:
+
+```sh
+fission test --visual-review --target static-site --project-dir . --output-dir review --json
+fission test --visual-review --target web --project-dir . --route / --route /details/ --output-dir review --json
+```
+
+Inspect `review/review.json` and the real PNGs at 390, 800 and 1280 CSS pixels.
+Fix the responsible Rust/Fission widget/route or intended site CSS, then rerun.
+Select Web/custom-site routes explicitly; undiscovered routes are not reviewed.
+Use `--mount /repository-name/` when testing a matching app navigation base.
+Treat incomplete/unsupported cases and partial geometry limitations truthfully;
+geometry warnings do not prove visual failure and only cause failure with
+explicit `--strict`. Runtime/required-resource and incomplete capture failures
+remain blocking. Nonuniform pixels only prove capture content; even exit 0
+requires human/agent image inspection. Do not switch UI
+frameworks or reauthor configuration to bypass a review failure.
