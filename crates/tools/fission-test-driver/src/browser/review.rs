@@ -220,7 +220,7 @@ fn inspect(
 }
 
 fn url_parts(value: &str) -> Result<(String, String)> {
-    // URL parsing stays in the command layer; Chromium returns normalized URLs.
+    // URL parsing stays in the command layer; Chromium returns normalised URLs.
     let (origin, path) = value.split_once("://").context("invalid browser URL")?;
     let (authority, path) = path.split_once('/').unwrap_or((path, ""));
     Ok((format!("{origin}://{authority}"), format!("/{path}")))

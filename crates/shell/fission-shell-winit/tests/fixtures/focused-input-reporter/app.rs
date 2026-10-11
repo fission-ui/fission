@@ -51,9 +51,9 @@ impl From<CounterApp> for Widget {
         Center {
             child: Column {
                 gap: Some(16.0),
-                // 1. Centers elements horizontally inside the Column bounds (Cross-axis)
+                // 1. Centres elements horizontally inside the Column bounds (Cross-axis)
                 align_items: AlignItems::Center,
-                // 2. Centers elements vertically inside the Column bounds (Main-axis)
+                // 2. Centres elements vertically inside the Column bounds (Main-axis)
                 justify_content: JustifyContent::Center,
                 children: widgets![
                     Text::new(title.get()).size(28.0),

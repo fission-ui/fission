@@ -110,7 +110,7 @@ Repeat with distinct output directories and these additional environment setting
 | `FISSION_RENDERER=software` | Compare the existing native CPU rasterizer directly. |
 | `FISSION_IDLE_BLINK=0` | Verify that an untouched focused input stops redrawing without caret blinks. |
 
-For the default fixture, expect approximately 19 focused caret redraws in ten seconds and no sustained redraws after focus moves to the button. Hardware GPU adapters should retain GPU rendering in automatic mode. CPU graphics adapters should choose `native-software-upload`, with `fallback_reason=cpu_adapter` on Linux. Explicit renderer requests should be honored.
+For the default fixture, expect approximately 19 focused caret redraws in ten seconds and no sustained redraws after focus moves to the button. Hardware GPU adapters should retain GPU rendering in automatic mode. CPU graphics adapters should choose `native-software-upload`, with `fallback_reason=cpu_adapter` on Linux. Explicit renderer requests should be honoured.
 
 ## Interpretation
 
