@@ -112,7 +112,7 @@ fn canvas_same_session_state_route_frames_raw_bridge_timeout_and_recovery() -> a
     assert_eq!(after["canvas"], before["canvas"]);
     println!("{}", json!({"raw_bridge":raw,"unchanged":after}));
 
-    // Freeze only the acknowledgment in this disposable development page.
+    // Freeze only the acknowledgement in this disposable development page.
     // Actual Chromium/canvas resize still occurs, but cannot claim success.
     c.browser_evaluate_json("globalThis.__savedFrame=Object.getOwnPropertyDescriptor(__FISSION_TEST__,'frame');Object.defineProperty(__FISSION_TEST__,'frame',{value:{...__FISSION_TEST__.frame,width:390},writable:false,configurable:true});true")?;
     let start = Instant::now();

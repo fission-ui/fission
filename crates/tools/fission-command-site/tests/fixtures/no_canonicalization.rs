@@ -1,5 +1,5 @@
 //! Linux-only external fault injector, loaded into a child test process.
-//! Make Rust's filesystem canonicalization fail while normal file I/O works.
+//! Make Rust's filesystem canonicalisation fail while normal file I/O works.
 use std::ffi::{c_char, c_int};
 
 extern "C" {

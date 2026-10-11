@@ -383,7 +383,7 @@ mod tests {
         if std::env::var_os("FISSION_TEST_NO_CANONICALIZATION").is_some() {
             assert!(
                 fs::canonicalize(std::env::current_dir().unwrap()).is_err(),
-                "fault injector must make actual canonicalization fail"
+                "fault injector must make actual canonicalisation fail"
             );
             let fixture = Fixture::new("<html><script src='./bootstrap.mjs'></script></html>");
             fs::write(
@@ -430,7 +430,7 @@ mod tests {
     fn lexical_roots_keep_the_selected_path_while_serving_and_checking_assets() {
         let fixture = Fixture::new("<html><link rel='stylesheet' href='./app.css'></html>");
         fs::write(fixture.0.join("app.css"), "body { color: black; }").unwrap();
-        // Keep a lexical component that filesystem canonicalization would remove.
+        // Keep a lexical component that filesystem canonicalisation would remove.
         let selected = fixture.0.join("pkg/..");
         assert_eq!(crate::paths::absolute_root(&selected).unwrap(), selected);
         let server = OwnedServer::start(selected.clone(), &Default::default()).unwrap();

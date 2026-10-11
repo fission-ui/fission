@@ -60,7 +60,7 @@ jobs:
             -p fission-physics-rapier2d \
             -p fission-physics-rapier3d
 
-      - name: Test owned serving and readiness without canonicalization
+      - name: Test owned serving and readiness without canonicalisation
         run: cargo test --locked -p fission-command-site
 
       - name: Test generated platform scripts
