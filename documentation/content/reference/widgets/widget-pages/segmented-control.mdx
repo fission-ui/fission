@@ -26,7 +26,32 @@ on_change: Some(Arc::new(move |index| ActionEnvelope {
 .into();
 ```
 
-Each segment is just a button under the hood. The selected segment is derived from state on every build.
+Each segment retains radio semantics and keyboard navigation. The selected segment is derived from state on every build.
+
+## Design-system styling
+
+The track and selected segment use the component-specific recipe at
+`theme.components.segmented_control`. This lets an application brand a
+segmented control without changing shared surface colours used by Cards and
+other components.
+
+```rust
+let mut env = Env::default();
+let recipe = &mut env.theme.components_mut().segmented_control;
+
+recipe.active_bg = Color {
+    r: 37,
+    g: 99,
+    b: 235,
+    a: 255,
+};
+recipe.active_text = Color::WHITE;
+```
+
+Install that environment on the application shell in the same way as any other
+custom design system. The control continues to provide one radio group, one
+radio per segment, and arrow-key navigation; visual customisation does not
+require rebuilding it from lower-level widgets.
 
 ## Field table
 
@@ -59,4 +84,3 @@ If a screen starts repeating the same `SegmentedControl` setup, extract a named 
 ## Related
 
 [`Radio`](/reference/widgets/radio), [`Select`](/reference/widgets/select), [`Button`](/reference/widgets/button), and [`Tabs`](/reference/widgets/tabs).
-
