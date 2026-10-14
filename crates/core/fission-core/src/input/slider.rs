@@ -1,7 +1,7 @@
 use super::{ControllerContext, InputController};
 use crate::event::{InputEvent, PointerEvent};
-use crate::{ActionEnvelope, ActionId};
-use fission_ir::{op::Op, semantics::Role, WidgetId};
+use crate::{ActionEnvelope, ActionId, ActionInput};
+use fission_ir::{op::Op, semantics::ActionTrigger, semantics::Role, CoreIR, WidgetId};
 use serde_json;
 
 pub struct SliderController;
@@ -76,24 +76,50 @@ impl SliderController {
                         let t = (local_x / width).clamp(0.0, 1.0);
                         let new_val = min + t * (max - min);
 
-                        if let Some(entry) = sem.actions.entries.first() {
-                            let payload = slider_payload(entry.payload_data.as_deref(), new_val);
-                            let envelope = ActionEnvelope {
-                                id: ActionId::from_u128(entry.action_id),
-                                payload,
-                            };
-                            let input = crate::input::scoped_action_input(
-                                ctx.ir,
-                                node_id,
-                                crate::ActionInput::None,
-                            );
-                            ctx.dispatched_actions.push((node_id, envelope, input));
+                        if let Some(dispatch) = prepare_slider_change(ctx.ir, node_id, new_val) {
+                            ctx.dispatched_actions.push(dispatch);
                         }
                     }
                 }
             }
         }
     }
+}
+
+/// Builds the payload-preserving action dispatched for one slider value change.
+///
+/// Shells with a platform-native range control use this boundary so they apply
+/// the same validation, action shape and action-scope routing as retained input.
+#[doc(hidden)]
+pub fn prepare_slider_change(
+    ir: &CoreIR,
+    target: WidgetId,
+    proposed: f32,
+) -> Option<(WidgetId, ActionEnvelope, ActionInput)> {
+    if !proposed.is_finite() {
+        return None;
+    }
+    let node = ir.nodes.get(&target)?;
+    let Op::Semantics(semantics) = &node.op else {
+        return None;
+    };
+    if semantics.role != Role::Slider || semantics.disabled {
+        return None;
+    }
+    let action = semantics
+        .actions
+        .entries
+        .iter()
+        .find(|entry| entry.trigger == ActionTrigger::Change)?;
+    let min = semantics.min_value.unwrap_or(0.0);
+    let max = semantics.max_value.unwrap_or(1.0);
+    let value = proposed.clamp(min.min(max), min.max(max));
+    let envelope = ActionEnvelope {
+        id: ActionId::from_u128(action.action_id),
+        payload: slider_payload(action.payload_data.as_deref(), value),
+    };
+    let input = crate::input::scoped_action_input(ir, target, ActionInput::None);
+    Some((target, envelope, input))
 }
 
 fn slider_payload(template: Option<&[u8]>, new_value: f32) -> Vec<u8> {
