@@ -1179,6 +1179,10 @@ pub struct Semantics {
     pub max_value: Option<f32>,
     /// Current numeric value for range inputs (sliders).
     pub current_value: Option<f32>,
+    /// Positive increment used by discrete numeric controls. `None` means the
+    /// control accepts any value within its range.
+    #[serde(default)]
+    pub step_value: Option<f32>,
     /// When `true`, this node creates a new focus scope (like a dialog or panel).
     pub is_focus_scope: bool,
     /// When `true`, Tab traversal does not leave this subtree.
@@ -1291,6 +1295,7 @@ impl std::hash::Hash for Semantics {
         self.min_value.map(|f| f.to_bits()).hash(state);
         self.max_value.map(|f| f.to_bits()).hash(state);
         self.current_value.map(|f| f.to_bits()).hash(state);
+        self.step_value.map(|f| f.to_bits()).hash(state);
         self.is_focus_scope.hash(state);
         self.is_focus_barrier.hash(state);
         self.drag_payload.hash(state);
@@ -1372,6 +1377,7 @@ impl Default for Semantics {
             min_value: None,
             max_value: None,
             current_value: None,
+            step_value: None,
             is_focus_scope: false,
             is_focus_barrier: false,
             drag_payload: None,

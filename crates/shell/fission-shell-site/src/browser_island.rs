@@ -870,6 +870,7 @@ mod tests {
                         value: view.state().capacity,
                         min: 1.0,
                         max: 20.0,
+                        step: Some(1.0),
                         on_change: Some(ctx.bind(
                             SetCapacity {
                                 value: view.state().capacity,
@@ -1254,7 +1255,7 @@ mod tests {
         assert!(boot.contains("data-fission-browser-range-action"));
         assert!(boot.contains("capacity=10"));
 
-        let event = r#"{"type":"event","sequence":2,"binding":{"event":"input","message":{"fission_browser_range_action":true,"target_node":"910"}},"value":"11"}"#;
+        let event = r#"{"type":"event","sequence":2,"binding":{"event":"input","message":{"fission_browser_range_action":true,"target_node":"910"}},"value":"11.4"}"#;
         let update = run_browser_island(&id, event, || {
             BrowserIslandApp::new(&id, "slider-mount", SliderState::default(), SliderIsland)
         });

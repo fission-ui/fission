@@ -55,6 +55,10 @@ pub struct SemanticsRegion {
     /// Current position within the range.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub current_value: Option<f32>,
+    /// Positive increment for a discrete numeric range. Leave unset for a
+    /// continuous range.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub step_value: Option<f32>,
     /// Validation state for form-like composite controls.
     #[serde(default)]
     pub validation_state: TextFieldValidationState,
@@ -322,6 +326,7 @@ impl Default for SemanticsRegion {
             min_value: None,
             max_value: None,
             current_value: None,
+            step_value: None,
             validation_state: TextFieldValidationState::Unvalidated,
             validation_message: None,
             modal: false,
@@ -366,6 +371,9 @@ impl Lower for SemanticsRegion {
                 min_value: self.min_value,
                 max_value: self.max_value,
                 current_value: self.current_value,
+                step_value: self
+                    .step_value
+                    .filter(|step| step.is_finite() && *step > 0.0),
                 validation_state: self.validation_state,
                 validation_message: self.validation_message.clone(),
                 modal: self.modal,
