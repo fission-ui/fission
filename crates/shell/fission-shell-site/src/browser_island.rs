@@ -37,6 +37,7 @@ where
     runtime: Runtime,
     widget: W,
     env: Env,
+    current_route_path: String,
     sync_env: Option<Box<dyn Fn(&S, &mut Env)>>,
     _state: std::marker::PhantomData<fn() -> S>,
 }
@@ -60,6 +61,7 @@ where
             runtime,
             widget,
             env: Env::default(),
+            current_route_path: "/".to_string(),
             sync_env: None,
             _state: std::marker::PhantomData,
         }
@@ -107,6 +109,13 @@ where
 
     fn handle(&mut self, input: &str) -> Result<String> {
         let message = parse_bridge_message(input);
+        if let Some(route) = message
+            .get("route")
+            .and_then(Value::as_str)
+            .filter(|route| route.starts_with('/'))
+        {
+            self.current_route_path = route.to_string();
+        }
         if is_action_event(&message) {
             self.dispatch_browser_action(&message)?;
         }
@@ -252,6 +261,7 @@ where
                 root_class: "fission-browser-island-root".to_string(),
                 css_variables: CssVariableMap::from_theme(&output.env.theme),
                 browser_action_bindings: true,
+                current_route_path: self.current_route_path.clone(),
                 motion_declarations: output.motion_declarations,
                 video_registrations: output
                     .video_registrations
@@ -559,7 +569,7 @@ fn hex_value(byte: u8) -> Option<u8> {
 mod tests {
     use super::*;
     use fission_core::op::Color;
-    use fission_core::ui::TextInput;
+    use fission_core::ui::{SemanticsRegion, TextInput};
     use fission_core::{
         reduce, reduce_with, Action, ActionInput, ActionScope, ActionScopeId, Button,
         ReducerContext, StateField, Text,
@@ -615,6 +625,18 @@ mod tests {
         fn from(_component: LocaleIsland) -> Widget {
             let (_, view) = fission_core::build::current::<CounterState>();
             Text::new(format!("locale:{}", view.env().locale.0)).into()
+        }
+    }
+
+    #[derive(Clone)]
+    struct RouteLinkIsland;
+
+    impl From<RouteLinkIsland> for Widget {
+        fn from(_component: RouteLinkIsland) -> Widget {
+            SemanticsRegion::new(Text::new("Get started"))
+                .identifier("site-link:/get-started/")
+                .role(Role::Link)
+                .into()
         }
     }
 
@@ -886,6 +908,21 @@ mod tests {
         });
 
         assert!(boot.contains("locale:es-MX"));
+    }
+
+    #[test]
+    fn browser_island_resolves_links_from_the_boot_route() {
+        let id = format!("route-link-{}", std::process::id());
+        let boot = run_browser_island(&id, r#"{"type":"boot","route":"/indexing/json/"}"#, || {
+            BrowserIslandApp::new(
+                &id,
+                "route-link-mount",
+                CounterState::default(),
+                RouteLinkIsland,
+            )
+        });
+
+        assert!(boot.contains("href=\\\"../../get-started/\\\""));
     }
 
     #[test]
