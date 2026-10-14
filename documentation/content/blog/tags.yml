@@ -7,6 +7,10 @@ docs:
   label: Docs
   permalink: /docs
   description: Documentation and developer experience updates
+tutorial:
+  label: Tutorial
+  permalink: /tutorial
+  description: Complete, runnable guides for building with Fission
 release:
   label: Release
   permalink: /release
