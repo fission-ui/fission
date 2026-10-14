@@ -2305,7 +2305,13 @@ impl HtmlRenderer<'_> {
                 ));
             }
         }
-        let children = self.render_children(&node.children, &HashSet::new())?;
+        // The browser range input replaces the retained slider's painted track
+        // and thumb. Rendering both creates a second, non-interactive slider.
+        let children = if semantics.role == Role::Slider {
+            String::new()
+        } else {
+            self.render_children(&node.children, &HashSet::new())?
+        };
         match semantics.role {
             Role::Checkbox | Role::Switch => {
                 if semantics.role == Role::Switch {
