@@ -36,6 +36,10 @@ class MockControl {
   }
 
   matches(selector) {
+    if (selector === 'input[type="checkbox"],input[type="radio"]') {
+      const type = this.getAttribute('type');
+      return type === 'checkbox' || type === 'radio';
+    }
     return selector.includes('input[data-fission-node]');
   }
 
@@ -221,6 +225,30 @@ test('native range input sends its live numeric value through the range action',
   assert.deepEqual(payload.binding.message, {
     fission_browser_range_action: true,
     target_node: '910',
+  });
+  assert.equal(posted.length, 1);
+});
+
+test('native radio dispatches once after the browser updates its checked state', () => {
+  const control = new MockControl('911');
+  control.attributes.delete('data-fission-browser-text-action');
+  control.attributes.set('data-fission-browser-action', 'true');
+  control.attributes.set('data-fission-action-id', '73');
+  control.attributes.set('data-fission-action-payload', 'dead');
+  control.attributes.set('type', 'radio');
+  const { posted } = boundBridge(new MockRoot([control]), control);
+
+  let prevented = false;
+  control.emit('change', { preventDefault() { prevented = true; } });
+
+  const payload = postedPayload(posted);
+  assert.equal(prevented, false);
+  assert.equal(payload.binding.event, 'change');
+  assert.deepEqual(payload.binding.message, {
+    fission_browser_action: true,
+    action_id: '73',
+    target_node: '911',
+    payload_hex: 'dead',
   });
   assert.equal(posted.length, 1);
 });

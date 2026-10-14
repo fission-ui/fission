@@ -500,14 +500,15 @@
     root.querySelectorAll('[data-fission-browser-action="true"]').forEach(function(el){
       if(el.__fissionBrowserActionBound)return;
       el.__fissionBrowserActionBound=true;
+      var nativeCheckable=el.matches('input[type="checkbox"],input[type="radio"]');
       var handler=function(domEvent){
-        domEvent.preventDefault();
+        if(!nativeCheckable)domEvent.preventDefault();
         var payload={
           type:'event',
           artifact:{kind:bridge.kind,id:bridge.id},
           binding:{
             semantics:el.getAttribute('data-fission-semantics')||null,
-            event:'click',
+            event:nativeCheckable?'change':'click',
             message:{
               fission_browser_action:true,
               action_id:el.getAttribute('data-fission-action-id')||'',
@@ -521,12 +522,7 @@
         };
         try{dispatchBridgeEvent(bridge,payload);}catch(error){setTextBySemantics(bridge.statusSemantics,bridge.kind+' failed: '+error.message);}
       };
-      el.addEventListener('click',handler);
-      el.addEventListener('keydown',function(domEvent){
-        if(domEvent.key==='Enter'||domEvent.key===' '){
-          handler(domEvent);
-        }
-      });
+      el.addEventListener(nativeCheckable?'change':'click',handler);
     });
     root.querySelectorAll('[data-fission-browser-text-action="true"]').forEach(function(el){
       if(el.__fissionBrowserTextActionBound)return;

@@ -3591,6 +3591,8 @@ same_site = "none"
         let css = css.body_string();
         assert!(css.contains(".fission-site-root"));
         assert!(css.contains(".fission-site-positioned > .fission-site-semantics"));
+        assert!(css.contains("button.fission-site-semantics"));
+        assert!(css.contains(".fission-site-retained-control-input"));
         assert!(css.contains(
             ".fission-browser-action>.fission-site-box,.fission-server-action>.fission-site-box{display:flex;align-items:center;}"
         ));
@@ -3618,6 +3620,7 @@ same_site = "none"
         assert!(runtime.contains("fission_bridge_alloc"));
         assert!(runtime.contains("fission-site-text-run"));
         assert!(runtime.contains("data-fission-browser-text-action"));
+        assert!(runtime.contains("nativeCheckable?'change':'click'"));
         assert!(runtime.contains("selectionDirection"));
         assert!(runtime.contains("textEncoder.encode(value.slice(0,bounded)).length"));
         assert!(runtime.contains("compositionCommitValue"));

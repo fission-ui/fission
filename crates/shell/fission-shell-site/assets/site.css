@@ -121,6 +121,16 @@ h6.fission-site-semantics {
   text-align: inherit;
 }
 
+button.fission-site-semantics {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  padding: 0;
+  text-align: inherit;
+}
+
 .fission-site-control,
 .fission-site-form-field {
   display: flex;
@@ -227,6 +237,26 @@ textarea.fission-site-input,
   flex-direction: row;
   align-items: center;
   width: fit-content;
+}
+
+.fission-site-retained-control {
+  position: relative;
+  gap: 0;
+}
+
+.fission-site-retained-control-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+  opacity: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.fission-site-retained-control:has(> .fission-site-retained-control-input:focus-visible) {
+  outline: 3px solid color-mix(in srgb, var(--fs-color-focus-ring) 85%, transparent);
+  outline-offset: 3px;
 }
 
 .fission-site-range {
