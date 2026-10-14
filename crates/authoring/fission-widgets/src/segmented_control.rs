@@ -9,8 +9,9 @@ use std::sync::Arc;
 
 /// A horizontal row of toggle buttons where exactly one option is active.
 ///
-/// The selected segment is a raised surface pill; the others are quiet text. The segments sit inside a padded,
-/// bordered track, and their corners are concentric with the track's.
+/// The selected segment uses the active colours from the design system's
+/// segmented-control recipe; the others are quiet text. The segments sit inside
+/// a padded, bordered track, and their corners are concentric with the track's.
 ///
 /// # Fields
 ///
@@ -67,22 +68,22 @@ impl From<SegmentedControl> for Widget {
                 child: Some(
                     Text::new(opt.clone())
                         .size(tokens.typography.body_medium_size)
-                        .color(if is_selected {
-                            tokens.colors.text_primary
-                        } else {
-                            tokens.colors.text_secondary
-                        })
                         .into(),
                 ),
                 padding: Some([tokens.spacing.ms, tokens.spacing.ms, 0.0, 0.0]),
                 // Segments sit inside the padded track, so their corners are the
                 // track's corners less the inset. Mismatched curves on nested shapes
                 // read as misaligned even when nothing else is.
-                // The selected segment is a raised surface on the sunken track, the same
-                // treatment as a selected tab, so both one-of-many controls read alike.
+                // The component recipe owns the selected fill so applications can brand
+                // this control without changing shared surface or Card colours.
                 style: Some(ButtonStyleOverride {
                     corner_radius: Some(segment_radius),
-                    background_fill: is_selected.then(|| Fill::Solid(tokens.colors.surface_raised)),
+                    background_fill: is_selected.then(|| Fill::Solid(theme.active_bg)),
+                    text_color: Some(if is_selected {
+                        theme.active_text
+                    } else {
+                        tokens.colors.text_secondary
+                    }),
                     shadows: is_selected.then(|| tokens.elevations.level1.into_iter().collect()),
                     ..Default::default()
                 }),
@@ -103,7 +104,7 @@ impl From<SegmentedControl> for Widget {
             // The bordered track must not shrink below its segments, or a crowded row squeezes
             // the border box and clips its trailing edge.
             .flex_shrink(0.0)
-            .bg(tokens.colors.surface_sunken)
+            .bg(theme.bg_color)
             .border(theme.border_color, 1.0)
             .border_radius(theme.radius),
         )

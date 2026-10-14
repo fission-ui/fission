@@ -6,10 +6,10 @@ use fission_core::internal::build_layout_tree;
 use fission_core::ui::{Row, Spacer};
 use fission_core::{View, Widget};
 use fission_ir::op::Color;
-use fission_ir::{CoreIR, Op, PaintOp, WidgetId};
+use fission_ir::{CoreIR, Op, PaintOp, Role, WidgetId};
 use fission_layout::{LayoutEngine, LayoutSize, TextMeasurer};
 use fission_theme::{Theme, Tokens};
-use fission_widgets::{Badge, Code, Stepper};
+use fission_widgets::{Badge, Code, SegmentedControl, Stepper};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -171,6 +171,79 @@ fn code_uses_the_active_component_recipe_and_monospace_family() {
         }),
         _ => false,
     }));
+}
+
+#[test]
+fn segmented_control_uses_its_component_recipe_and_keeps_radio_semantics() {
+    let mut env = Env::default();
+    let track = Color {
+        r: 11,
+        g: 23,
+        b: 37,
+        a: 255,
+    };
+    let active = Color {
+        r: 43,
+        g: 79,
+        b: 211,
+        a: 255,
+    };
+    let active_text = Color {
+        r: 247,
+        g: 249,
+        b: 255,
+        a: 255,
+    };
+    let recipe = &mut env.theme.components_mut().segmented_control;
+    recipe.bg_color = track;
+    recipe.active_bg = active;
+    recipe.active_text = active_text;
+
+    let (ir, _) = build_widget_ir(
+        SegmentedControl {
+            options: vec!["Overview".into(), "Activity".into()],
+            selected_index: 1,
+            on_change: None,
+        },
+        &env,
+    );
+
+    for expected in [track, active] {
+        assert!(
+            ir.nodes.values().any(|node| matches!(
+                &node.op,
+                Op::Paint(PaintOp::DrawRect {
+                    fill: Some(fission_ir::op::Fill::Solid(color)),
+                    ..
+                }) if *color == expected
+            )),
+            "expected segmented-control recipe colour {expected:?}"
+        );
+    }
+
+    let selected_text = ir.nodes.values().find_map(|node| match &node.op {
+        Op::Paint(PaintOp::DrawText { text, color, .. }) if text == "Activity" => Some(*color),
+        Op::Paint(PaintOp::DrawRichText { runs, .. })
+            if runs.iter().map(|run| run.text.as_str()).collect::<String>() == "Activity" =>
+        {
+            runs.first().map(|run| run.style.color)
+        }
+        _ => None,
+    });
+    assert_eq!(selected_text, Some(active_text));
+
+    let radio_groups = ir
+        .nodes
+        .values()
+        .filter(|node| matches!(&node.op, Op::Semantics(value) if value.role == Role::RadioGroup))
+        .count();
+    let radios = ir
+        .nodes
+        .values()
+        .filter(|node| matches!(&node.op, Op::Semantics(value) if value.role == Role::Radio))
+        .count();
+    assert_eq!(radio_groups, 1);
+    assert_eq!(radios, 2);
 }
 
 #[test]
