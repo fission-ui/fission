@@ -2266,6 +2266,20 @@ impl HtmlRenderer<'_> {
                 node.id.as_u128()
             ));
         }
+        if self.options.browser_action_bindings
+            && semantics.role == Role::Slider
+            && !semantics.disabled
+            && semantics
+                .actions
+                .entries
+                .iter()
+                .any(|entry| entry.trigger == ActionTrigger::Change)
+        {
+            attrs.push_str(&format!(
+                " data-fission-browser-range-action=\"true\" data-fission-action-target=\"{}\"",
+                node.id.as_u128()
+            ));
+        }
         let label_text = semantics.label.as_deref().unwrap_or_default();
         let external_validation = self.external_validation_message_id(semantics);
         let validation = if external_validation.is_some() {

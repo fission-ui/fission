@@ -138,6 +138,9 @@ where
         if is_browser_text_action(message) {
             return self.dispatch_browser_text_action(message);
         }
+        if is_browser_range_action(message) {
+            return self.dispatch_browser_range_action(message);
+        }
         let action = message
             .get("binding")
             .and_then(|binding| binding.get("message"))
@@ -171,6 +174,41 @@ where
             WidgetId::from_u128(target),
         );
         dispatch?;
+        Ok(())
+    }
+
+    fn dispatch_browser_range_action(&mut self, message: &Value) -> Result<()> {
+        let action = message
+            .get("binding")
+            .and_then(|binding| binding.get("message"))
+            .ok_or_else(|| anyhow!("browser island range event is missing action metadata"))?;
+        let target = action
+            .get("target_node")
+            .and_then(Value::as_str)
+            .ok_or_else(|| anyhow!("browser island range event is missing target_node"))?
+            .parse::<u128>()
+            .context("browser island range target_node is not a u128")?;
+        let target = WidgetId::from_u128(target);
+        let proposed = message
+            .get("value")
+            .and_then(Value::as_str)
+            .ok_or_else(|| anyhow!("browser island range event is missing value"))?
+            .parse::<f32>()
+            .context("browser island range value is not numeric")?;
+
+        let output = self.build_widget();
+        let ir = lower_browser_island_widget(
+            output.node,
+            output.portals,
+            &output.env,
+            &self.runtime.runtime_state,
+        );
+        let (owner, envelope, input) = fission_core::input::slider::prepare_slider_change(
+            &ir, target, proposed,
+        )
+        .ok_or_else(|| anyhow!("browser island range target {target} is not dispatchable"))?;
+        self.install_registry(output.registry);
+        self.runtime.dispatch_with_input(envelope, owner, &input)?;
         Ok(())
     }
 
@@ -666,6 +704,10 @@ fn is_action_event(message: &Value) -> bool {
                         .get("fission_browser_text_action")
                         .and_then(Value::as_bool)
                         .unwrap_or(false)
+                    || action
+                        .get("fission_browser_range_action")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false)
             })
 }
 
@@ -681,6 +723,15 @@ fn is_browser_text_action(message: &Value) -> bool {
         .get("binding")
         .and_then(|binding| binding.get("message"))
         .and_then(|action| action.get("fission_browser_text_action"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+}
+
+fn is_browser_range_action(message: &Value) -> bool {
+    message
+        .get("binding")
+        .and_then(|binding| binding.get("message"))
+        .and_then(|action| action.get("fission_browser_range_action"))
         .and_then(Value::as_bool)
         .unwrap_or(false)
 }
@@ -728,10 +779,10 @@ fn hex_value(byte: u8) -> Option<u8> {
 mod tests {
     use super::*;
     use fission_core::op::Color;
-    use fission_core::ui::{SemanticsRegion, TextInput};
+    use fission_core::ui::{SemanticsRegion, Slider, TextInput};
     use fission_core::{
         reduce, reduce_with, Action, ActionInput, ActionScope, ActionScopeId, Button,
-        ClipboardWriteTextRequest, ReducerContext, StateField, Text,
+        ClipboardWriteTextRequest, Column, ReducerContext, StateField, Text,
     };
     use fission_ir::{semantics::TextInputType, Role};
 
@@ -771,6 +822,65 @@ mod tests {
                         .into(),
                 ),
                 on_press: Some(action),
+                ..Default::default()
+            }
+            .into()
+        }
+    }
+
+    #[derive(Debug, Clone)]
+    struct SliderState {
+        capacity: f32,
+    }
+    impl Default for SliderState {
+        fn default() -> Self {
+            Self { capacity: 10.0 }
+        }
+    }
+    impl GlobalState for SliderState {}
+
+    #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+    struct SetCapacity {
+        value: f32,
+    }
+    impl Action for SetCapacity {
+        fn static_id() -> ActionId {
+            ActionId::from_name("fission.site.browser-island.set-capacity")
+        }
+    }
+
+    fn set_capacity(
+        state: &mut SliderState,
+        action: SetCapacity,
+        _ctx: &mut ReducerContext<SliderState>,
+    ) {
+        state.capacity = action.value;
+    }
+
+    #[derive(Clone)]
+    struct SliderIsland;
+
+    impl From<SliderIsland> for Widget {
+        fn from(_component: SliderIsland) -> Widget {
+            let (ctx, view) = fission_core::build::current::<SliderState>();
+            Column {
+                children: vec![
+                    Slider {
+                        id: Some(WidgetId::from_u128(910)),
+                        value: view.state().capacity,
+                        min: 1.0,
+                        max: 20.0,
+                        on_change: Some(ctx.bind(
+                            SetCapacity {
+                                value: view.state().capacity,
+                            },
+                            reduce_with!(set_capacity),
+                        )),
+                        ..Default::default()
+                    }
+                    .into(),
+                    Text::new(format!("capacity={}", view.state().capacity)).into(),
+                ],
                 ..Default::default()
             }
             .into()
@@ -1133,6 +1243,40 @@ mod tests {
             BrowserIslandApp::new(&id, "counter-mount", CounterState::default(), CounterIsland)
         });
         assert!(update.contains("1 clicks"));
+    }
+
+    #[test]
+    fn browser_island_native_range_updates_typed_action_and_sibling_content() {
+        let id = format!("slider-{}", std::process::id());
+        let boot = run_browser_island(&id, r#"{"type":"boot"}"#, || {
+            BrowserIslandApp::new(&id, "slider-mount", SliderState::default(), SliderIsland)
+        });
+        assert!(boot.contains("data-fission-browser-range-action"));
+        assert!(boot.contains("capacity=10"));
+
+        let event = r#"{"type":"event","sequence":2,"binding":{"event":"input","message":{"fission_browser_range_action":true,"target_node":"910"}},"value":"11"}"#;
+        let update = run_browser_island(&id, event, || {
+            BrowserIslandApp::new(&id, "slider-mount", SliderState::default(), SliderIsland)
+        });
+        assert!(update.contains("capacity=11"));
+
+        BROWSER_ISLANDS.with(|instances| {
+            let instances = instances.borrow();
+            let island = instances
+                .get(&id)
+                .and_then(|entry| {
+                    entry.downcast_ref::<BrowserIslandApp<SliderState, SliderIsland>>()
+                })
+                .unwrap();
+            assert_eq!(
+                island
+                    .runtime
+                    .get_global_state::<SliderState>()
+                    .unwrap()
+                    .capacity,
+                11.0
+            );
+        });
     }
 
     #[test]

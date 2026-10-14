@@ -58,7 +58,15 @@ class MockRoot {
   }
 
   querySelectorAll(selector) {
-    if (selector === '[data-fission-browser-text-action="true"]') return this.controls;
+    if (selector === '[data-fission-browser-text-action="true"]') {
+      return this.controls.filter((control) => control.getAttribute('data-fission-browser-text-action') === 'true');
+    }
+    if (selector === '[data-fission-browser-range-action="true"]') {
+      return this.controls.filter((control) => control.getAttribute('data-fission-browser-range-action') === 'true');
+    }
+    if (selector === '[data-fission-browser-action="true"]') {
+      return this.controls.filter((control) => control.getAttribute('data-fission-browser-action') === 'true');
+    }
     if (selector.includes('input[data-fission-node]')) return this.controls;
     return [];
   }
@@ -196,6 +204,25 @@ test('number input falls back to the UTF-8 end when selection APIs are unavailab
   assert.equal(payload.value, '2525');
   assert.equal(payload.caret, 4);
   assert.equal(payload.anchor, 4);
+});
+
+test('native range input sends its live numeric value through the range action', () => {
+  const control = new MockControl('910', '10');
+  control.attributes.delete('data-fission-browser-text-action');
+  control.attributes.set('data-fission-browser-range-action', 'true');
+  const { posted } = boundBridge(new MockRoot([control]), control);
+
+  control.value = '11';
+  control.emit('input');
+
+  const payload = postedPayload(posted);
+  assert.equal(payload.value, '11');
+  assert.equal(payload.binding.event, 'input');
+  assert.deepEqual(payload.binding.message, {
+    fission_browser_range_action: true,
+    target_node: '910',
+  });
+  assert.equal(posted.length, 1);
 });
 
 test('IME commit dispatches once and does not swallow the next real edit', () => {

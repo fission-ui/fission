@@ -475,6 +475,28 @@
   function bindFissionBrowserActions(bridge){
     var root=browserActionRoot(bridge);
     if(!root)return;
+    root.querySelectorAll('[data-fission-browser-range-action="true"]').forEach(function(el){
+      if(el.__fissionBrowserRangeActionBound)return;
+      el.__fissionBrowserRangeActionBound=true;
+      el.addEventListener('input',function(){
+        var payload={
+          type:'event',
+          artifact:{kind:bridge.kind,id:bridge.id},
+          binding:{
+            semantics:el.getAttribute('data-fission-semantics')||null,
+            event:'input',
+            message:{
+              fission_browser_range_action:true,
+              target_node:el.getAttribute('data-fission-action-target')||''
+            }
+          },
+          value:String(el.value==null?'':el.value),
+          checked:null,
+          sequence:++bridge.sequence
+        };
+        try{dispatchBridgeEvent(bridge,payload);}catch(error){setTextBySemantics(bridge.statusSemantics,bridge.kind+' failed: '+error.message);}
+      });
+    });
     root.querySelectorAll('[data-fission-browser-action="true"]').forEach(function(el){
       if(el.__fissionBrowserActionBound)return;
       el.__fissionBrowserActionBound=true;

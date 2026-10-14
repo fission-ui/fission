@@ -12,8 +12,8 @@ use serde::{Deserialize, Serialize};
 /// thumb.
 ///
 /// The thumb position is determined by `value` within the `[min, max]` range.
-/// Dragging dispatches the `on_change` action with the new value carried as
-/// pointer input (see [`crate::ActionInput::as_pointer`]).
+/// Dragging dispatches the `on_change` action with its numeric payload updated
+/// to the new value while preserving a transparent, tuple or named action shape.
 ///
 /// # Example
 ///
