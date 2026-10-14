@@ -128,6 +128,10 @@
       console.error('[fission '+bridge.kind+' '+bridge.id+'] '+(message.message||'browser artifact error'));
       return;
     }
+    if(message.type==='request'){
+      handleBridgeRequest(bridge,message);
+      return;
+    }
     if(message.type==='navigate'){
       if(message.url&&safeUrl(message.url)){
         if(message.mode==='replace')window.history.replaceState({},'',message.url);
@@ -139,6 +143,51 @@
     if(message.type==='dom_batch'&&Array.isArray(message.ops)){
       message.ops.forEach(function(op){applyDomOp(bridge,op);});
     }
+  }
+
+  function completeBridgeRequest(bridge,requestId,ok,payload,error){
+    var response={
+      type:'response',
+      request_id:requestId,
+      ok:ok,
+      payload:payload==null?null:payload,
+      error:error==null?null:String(error)
+    };
+    try{dispatchBridgeEvent(bridge,response);}catch(dispatchError){
+      setTextBySemantics(bridge.statusSemantics,bridge.kind+' failed: '+dispatchError.message);
+    }
+  }
+
+  function handleBridgeRequest(bridge,request){
+    var requestId=request.request_id;
+    if(!Number.isSafeInteger(requestId)||requestId<0)return;
+    var clipboard=globalThis.navigator&&globalThis.navigator.clipboard;
+    if(request.kind==='clipboard_write_text'){
+      var text=request.payload&&typeof request.payload.text==='string'?request.payload.text:null;
+      if(text===null||!clipboard||typeof clipboard.writeText!=='function'){
+        completeBridgeRequest(bridge,requestId,false,null,'clipboard write is unavailable');
+        return;
+      }
+      clipboard.writeText(text).then(function(){
+        completeBridgeRequest(bridge,requestId,true,{},null);
+      }).catch(function(error){
+        completeBridgeRequest(bridge,requestId,false,null,error&&error.message||'clipboard write failed');
+      });
+      return;
+    }
+    if(request.kind==='clipboard_read_text'){
+      if(!clipboard||typeof clipboard.readText!=='function'){
+        completeBridgeRequest(bridge,requestId,false,null,'clipboard read is unavailable');
+        return;
+      }
+      clipboard.readText().then(function(text){
+        completeBridgeRequest(bridge,requestId,true,{text:text==null?null:String(text)},null);
+      }).catch(function(error){
+        completeBridgeRequest(bridge,requestId,false,null,error&&error.message||'clipboard read failed');
+      });
+      return;
+    }
+    completeBridgeRequest(bridge,requestId,false,null,'unsupported browser request '+String(request.kind||''));
   }
 
   function targetForOp(op){
@@ -165,9 +214,11 @@
       case'replace_children_html_by_semantics':
         if(el&&typeof op.html==='string'){
           var focused=captureFocusedTextControl(el);
+          var menuFocus=captureMenuFocus(el);
           el.innerHTML=op.html;
           bindFissionBrowserActions(bridge);
           restoreFocusedTextControl(el,focused);
+          restoreMenuFocus(bridge,el,menuFocus);
         }
         break;
       case'set_stylesheet': setStylesheet(op.id,op.css); break;
@@ -254,6 +305,98 @@
     if(focused.start!==null&&focused.end!==null&&typeof control.setSelectionRange==='function'){
       try{control.setSelectionRange(focused.start,focused.end,focused.direction);}catch(_error){}
     }
+  }
+
+  function controlledMenu(root,controls){
+    if(!controls)return null;
+    var menu=document.getElementById(controls);
+    return menu&&root.contains(menu)&&menu.getAttribute('role')==='menu'?menu:null;
+  }
+
+  function menuController(root,controls){
+    var candidates=root.querySelectorAll('[aria-haspopup="menu"][aria-controls]');
+    for(var index=0;index<candidates.length;index++){
+      if(candidates[index].getAttribute('aria-controls')===controls)return candidates[index];
+    }
+    return null;
+  }
+
+  function enabledMenuItems(menu){
+    return Array.prototype.filter.call(menu.querySelectorAll('[role="menuitem"]'),function(item){
+      return item.getAttribute('aria-disabled')!=='true'&&!item.disabled;
+    });
+  }
+
+  function captureMenuFocus(root){
+    var active=document.activeElement;
+    if(!active||!root.contains(active))return null;
+    if(active.matches('[aria-haspopup="menu"][aria-controls]')){
+      return{controls:active.getAttribute('aria-controls'),edge:'first',returnToTrigger:false};
+    }
+    var menu=active.closest('[role="menu"]');
+    if(menu&&menu.id)return{controls:menu.id,edge:'first',returnToTrigger:true};
+    return null;
+  }
+
+  function restoreMenuFocus(bridge,root,captured){
+    var state=bridge.pendingMenuFocus||captured;
+    bridge.pendingMenuFocus=null;
+    if(!state||!state.controls)return;
+    var trigger=menuController(root,state.controls);
+    var menu=controlledMenu(root,state.controls);
+    if(menu&&trigger&&trigger.getAttribute('aria-expanded')==='true'&&!state.returnToTrigger){
+      var items=enabledMenuItems(menu);
+      var item=state.edge==='last'?items[items.length-1]:items[0];
+      if(item)item.focus({preventScroll:true});
+    }else if(trigger&&state.returnToTrigger){
+      trigger.focus({preventScroll:true});
+    }
+  }
+
+  function bindMenuKeyboard(bridge,root){
+    root.querySelectorAll('[aria-haspopup="menu"][aria-controls]').forEach(function(trigger){
+      if(trigger.__fissionMenuTriggerBound)return;
+      trigger.__fissionMenuTriggerBound=true;
+      trigger.addEventListener('keydown',function(event){
+        if(event.key!=='ArrowDown'&&event.key!=='ArrowUp')return;
+        event.preventDefault();
+        var controls=trigger.getAttribute('aria-controls');
+        var edge=event.key==='ArrowUp'?'last':'first';
+        var menu=controlledMenu(root,controls);
+        if(menu&&trigger.getAttribute('aria-expanded')==='true'){
+          var items=enabledMenuItems(menu);
+          var item=edge==='last'?items[items.length-1]:items[0];
+          if(item)item.focus();
+          return;
+        }
+        bridge.pendingMenuFocus={controls:controls,edge:edge,returnToTrigger:false};
+        trigger.click();
+      });
+    });
+    root.querySelectorAll('[role="menu"]').forEach(function(menu){
+      if(menu.__fissionMenuKeyboardBound)return;
+      menu.__fissionMenuKeyboardBound=true;
+      menu.addEventListener('keydown',function(event){
+        var items=enabledMenuItems(menu);
+        if(!items.length)return;
+        var index=items.indexOf(document.activeElement);
+        var next=null;
+        if(event.key==='ArrowDown')next=items[(index+1+items.length)%items.length];
+        else if(event.key==='ArrowUp')next=items[(index-1+items.length)%items.length];
+        else if(event.key==='Home')next=items[0];
+        else if(event.key==='End')next=items[items.length-1];
+        else if(event.key==='Escape'){
+          event.preventDefault();
+          var trigger=menuController(root,menu.id);
+          if(trigger){
+            bridge.pendingMenuFocus={controls:menu.id,edge:'first',returnToTrigger:true};
+            trigger.click();
+          }
+          return;
+        }
+        if(next){event.preventDefault();next.focus();}
+      });
+    });
   }
 
   function utf8Offset(value,utf16Offset){
@@ -362,6 +505,7 @@
       });
       el.addEventListener('input',dispatchTextInput);
     });
+    bindMenuKeyboard(bridge,root);
   }
 
   if(globalThis.__FISSION_SERVER_RUNTIME_TEST_HOOK__){
@@ -369,6 +513,10 @@
       bindFissionBrowserActions:bindFissionBrowserActions,
       captureFocusedTextControl:captureFocusedTextControl,
       restoreFocusedTextControl:restoreFocusedTextControl,
+      captureMenuFocus:captureMenuFocus,
+      restoreMenuFocus:restoreMenuFocus,
+      bindMenuKeyboard:bindMenuKeyboard,
+      handleBridgeRequest:handleBridgeRequest,
       textControlSelection:textControlSelection,
       utf8Offset:utf8Offset
     };

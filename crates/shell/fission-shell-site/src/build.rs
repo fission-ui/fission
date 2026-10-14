@@ -1625,6 +1625,9 @@ mod tests {
         assert!(css.contains(".fission-site-route-link {\n  cursor: pointer;"));
         assert!(css.contains(".fission-site-route-link > .fission-site-node"));
         assert!(css.contains(".fission-site-positioned > .fission-site-semantics"));
+        assert!(css.contains(".fission-site-svg {\n  display: block;"));
+        assert!(css.contains(".fission-site-svg svg {\n  display: block;"));
+        assert!(css.contains("width: 100%;\n  height: 100%;"));
         assert!(css.contains(".fission-site-svg-colored svg *"));
         assert!(css.contains("fill: currentColor;"));
         assert!(css.contains(".fission-site-svg-colored svg [fill=\"none\"]"));
