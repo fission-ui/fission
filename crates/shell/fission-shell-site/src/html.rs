@@ -2266,24 +2266,28 @@ impl HtmlRenderer<'_> {
                 node.id.as_u128()
             ));
         }
-        let children = self.render_children(&node.children, &HashSet::new())?;
         let label_text = semantics.label.as_deref().unwrap_or_default();
-        let validation = semantics
-            .validation_message
-            .as_deref()
-            .map(|message| {
-                format!(
-                    "<span class=\"fission-site-control-validation\" id=\"{}\">{}</span>",
-                    text_validation_message_id(node.id),
-                    escape_text(message)
-                )
-            })
-            .unwrap_or_default();
+        let external_validation = self.external_validation_message_id(semantics);
+        let validation = if external_validation.is_some() {
+            String::new()
+        } else {
+            semantics
+                .validation_message
+                .as_deref()
+                .map(|message| {
+                    format!(
+                        "<span class=\"fission-site-control-validation\" id=\"{}\">{}</span>",
+                        text_validation_message_id(node.id),
+                        escape_text(message)
+                    )
+                })
+                .unwrap_or_default()
+        };
         if semantics.supports_text_editing() {
             if semantics.multiline {
                 let value = semantics.value.as_deref().unwrap_or_default();
                 return Ok(format!(
-                    "<label class=\"fission-site-node fission-site-control\" data-fission-node=\"{}\"><span class=\"fission-site-control-label\">{}</span><textarea class=\"fission-site-input\"{attrs}>{}</textarea>{validation}{children}</label>",
+                    "<label class=\"fission-site-node fission-site-control\" data-fission-node=\"{}\"><span class=\"fission-site-control-label\">{}</span><textarea class=\"fission-site-input\"{attrs}>{}</textarea>{validation}</label>",
                     node.id,
                     escape_text(label_text),
                     escape_text(value)
@@ -2295,12 +2299,13 @@ impl HtmlRenderer<'_> {
                     escape_attr(semantics.value.as_deref().unwrap_or_default())
                 ));
                 return Ok(format!(
-                    "<label class=\"fission-site-node fission-site-control\" data-fission-node=\"{}\"><span class=\"fission-site-control-label\">{}</span><input class=\"fission-site-input\"{attrs}>{validation}{children}</label>",
+                    "<label class=\"fission-site-node fission-site-control\" data-fission-node=\"{}\"><span class=\"fission-site-control-label\">{}</span><input class=\"fission-site-input\"{attrs}>{validation}</label>",
                     node.id,
                     escape_text(label_text)
                 ));
             }
         }
+        let children = self.render_children(&node.children, &HashSet::new())?;
         match semantics.role {
             Role::Checkbox | Role::Switch => {
                 if semantics.role == Role::Switch {
@@ -2392,10 +2397,10 @@ impl HtmlRenderer<'_> {
                 fission_ir::semantics::TextFieldValidationState::Invalid => {}
             }
             if semantics.validation_message.is_some() {
-                attrs.push_str(&format!(
-                    " aria-errormessage=\"{}\"",
-                    text_validation_message_id(node.id)
-                ));
+                let validation_id = self
+                    .external_validation_message_id(semantics)
+                    .unwrap_or_else(|| text_validation_message_id(node.id));
+                attrs.push_str(&format!(" aria-errormessage=\"{}\"", validation_id));
             }
             attrs.push_str(&format!(
                 " inputmode=\"{}\" enterkeyhint=\"{}\" autocapitalize=\"{}\" autocorrect=\"{}\" spellcheck=\"{}\"",
@@ -2427,6 +2432,17 @@ impl HtmlRenderer<'_> {
             }
         }
         attrs
+    }
+
+    fn external_validation_message_id(&self, semantics: &Semantics) -> Option<String> {
+        let message = semantics.validation_message.as_deref()?;
+        semantics.described_by.iter().rev().find_map(|id| {
+            let node = self.ir.nodes.get(id)?;
+            let Op::Semantics(description) = &node.op else {
+                return None;
+            };
+            (description.label.as_deref() == Some(message)).then(|| semantic_dom_id(self.ir, *id))
+        })
     }
 
     fn render_server_action_semantics(
@@ -4748,14 +4764,16 @@ mod tests {
     use fission_core::authoring::BuildCtx;
     use fission_core::ui::widgets::text::{RichTextChild, RichTextSpan, WidgetSpan};
     use fission_core::ui::{
-        Checkbox, Column, Grid, Radio, RichText, SemanticsRegion, Switch, Text, Widget,
+        Checkbox, Column, Grid, Radio, RichText, SemanticsRegion, Switch, Text, TextInput, Widget,
     };
     use fission_core::{build, Env, RuntimeState, View};
     use fission_ir::{
         ActionEntry, ActionSet, CompositeScalar, CompositeStyle, CoreIR, CoreNode, LayoutDirection,
         Op, Semantics, WidgetId,
     };
-    use fission_widgets::MarkdownContent;
+    use fission_widgets::{
+        FormControlLayout, FormDescription, FormError, FormLabel, MarkdownContent,
+    };
 
     static TEST_FONT: [PackagedFont; 1] = [PackagedFont {
         family: "Test Sans",
@@ -5384,6 +5402,79 @@ mod tests {
             assert!(rendered.html.contains(attribute), "missing {attribute}");
         }
         assert!(rendered.html.contains("Enter a valid email"));
+    }
+
+    #[test]
+    fn native_text_controls_replace_their_painted_editor_but_keep_form_messages() {
+        let rendered = render_test_component(|| {
+            FormControlLayout::new(
+                WidgetId::explicit("account-email-field"),
+                TextInput::default()
+                    .semantics_identifier("account-email")
+                    .required(true),
+            )
+            .label(FormLabel::new("Email"))
+            .description(FormDescription::new("Used for account recovery"))
+            .into()
+        });
+
+        assert_eq!(rendered.html.matches("<input ").count(), 1);
+        assert!(rendered.html.contains("Used for account recovery"));
+        assert!(!rendered.html.contains("aria-invalid=\"true\""));
+
+        let invalid = render_test_component(|| {
+            FormControlLayout::new(
+                WidgetId::explicit("invalid-email-field"),
+                TextInput::default().semantics_identifier("invalid-email"),
+            )
+            .label(FormLabel::new("Email"))
+            .error(FormError::new("Enter a valid email"))
+            .into()
+        });
+
+        assert_eq!(invalid.html.matches("<input ").count(), 1);
+        assert!(invalid.html.contains("Enter a valid email"));
+        assert!(invalid.html.contains("aria-invalid=\"true\""));
+        assert!(!invalid.html.contains("fission-site-control-validation"));
+    }
+
+    #[test]
+    fn native_text_controls_do_not_render_the_retained_editor_subtree() {
+        let input = WidgetId::explicit("native-input");
+        let painted_editor = WidgetId::explicit("painted-editor");
+        let mut ir = CoreIR::new();
+        ir.add_node(
+            painted_editor,
+            Op::Paint(PaintOp::DrawText {
+                text: "retained editor duplicate".into(),
+                size: 14.0,
+                color: Color::BLACK,
+                underline: false,
+                locale: None,
+                wrap: true,
+                caret_index: None,
+                caret_color: None,
+                caret_width: None,
+                caret_height: None,
+                caret_radius: None,
+                paragraph_style: None,
+            }),
+            Vec::new(),
+        );
+        ir.add_node(
+            input,
+            Op::Semantics(Semantics {
+                role: Role::TextInput,
+                value: Some("browser value".into()),
+                ..Default::default()
+            }),
+            vec![painted_editor],
+        );
+        ir.set_root(input);
+
+        let rendered = render_ir_to_html(&ir, &HtmlRenderOptions::default()).unwrap();
+        assert!(rendered.html.contains("value=\"browser value\""));
+        assert!(!rendered.html.contains("retained editor duplicate"));
     }
 
     #[test]
