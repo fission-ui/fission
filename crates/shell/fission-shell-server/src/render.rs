@@ -827,7 +827,7 @@ impl ServerRenderer {
         let mut css = String::new();
         css.push_str(site_base_css());
         css.push_str(
-            "\n.fission-browser-action{appearance:none;border:0;background:transparent;color:inherit;cursor:pointer;font:inherit;padding:0;text-align:inherit;user-select:none;display:inline-flex;align-items:center;justify-content:center;}\n.fission-browser-action:focus-visible{outline:3px solid rgba(96,165,250,.85);outline-offset:3px;}\n",
+            "\n.fission-browser-action{appearance:none;border:0;background:transparent;color:inherit;cursor:pointer;font:inherit;padding:0;text-align:inherit;user-select:none;display:inline-flex;align-items:center;justify-content:center;}\n.fission-browser-action>.fission-site-box,.fission-server-action>.fission-site-box{display:flex;align-items:center;}\n.fission-browser-action:focus-visible{outline:3px solid rgba(96,165,250,.85);outline-offset:3px;}\n",
         );
         css.push('\n');
         if self.app.document.theme_switching() {
@@ -3591,6 +3591,9 @@ same_site = "none"
         let css = css.body_string();
         assert!(css.contains(".fission-site-root"));
         assert!(css.contains(".fission-site-positioned > .fission-site-semantics"));
+        assert!(css.contains(
+            ".fission-browser-action>.fission-site-box,.fission-server-action>.fission-site-box{display:flex;align-items:center;}"
+        ));
         assert!(css.contains(":root"));
 
         let js = renderer
