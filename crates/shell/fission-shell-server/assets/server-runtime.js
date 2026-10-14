@@ -113,6 +113,59 @@
     normalizeMessages(output).forEach(function(message){applyMessage(bridge,message);});
     normalizeBindings(output).forEach(function(binding){bindEvent(bridge,binding);});
     bindFissionBrowserActions(bridge);
+    positionFissionFlyouts(browserActionRoot(bridge)||document);
+  }
+
+  function flyoutNode(root,nodeId){
+    if(!nodeId)return null;
+    var selector='[data-fission-node="'+cssEscape(nodeId)+'"]';
+    if(root&&typeof root.querySelector==='function'){
+      var local=root.querySelector(selector);
+      if(local)return local;
+    }
+    return document.querySelector(selector);
+  }
+
+  function positionFlyout(flyout,root){
+    if(!flyout||!flyout.style||typeof flyout.getBoundingClientRect!=='function')return;
+    var anchor=flyoutNode(root,flyout.getAttribute('data-fission-flyout-anchor'));
+    var content=flyoutNode(flyout,flyout.getAttribute('data-fission-flyout-content'))||flyout;
+    if(!anchor||typeof anchor.getBoundingClientRect!=='function'||typeof content.getBoundingClientRect!=='function')return;
+    var anchorRect=anchor.getBoundingClientRect();
+    var widthPolicy=flyout.getAttribute('data-fission-flyout-width')||'Content';
+    flyout.style.position='fixed';
+    flyout.style.width='max-content';
+    flyout.style.minWidth='0px';
+    if(widthPolicy==='MatchAnchor')flyout.style.width=anchorRect.width+'px';
+    else if(widthPolicy==='AtLeastAnchor')flyout.style.minWidth=anchorRect.width+'px';
+    var contentRect=content.getBoundingClientRect();
+    var viewportWidth=Math.max(0,document.documentElement.clientWidth||window.innerWidth||0);
+    var viewportHeight=Math.max(0,document.documentElement.clientHeight||window.innerHeight||0);
+    var gap=Number(flyout.getAttribute('data-fission-flyout-gap'))||0;
+    var margin=8;
+    var alignment=flyout.getAttribute('data-fission-flyout-alignment')||'Start';
+    var left=alignment==='End'?anchorRect.right-contentRect.width:anchorRect.left;
+    var below=anchorRect.bottom+gap;
+    var above=anchorRect.top-gap-contentRect.height;
+    var placement=flyout.getAttribute('data-fission-flyout-placement')||'Auto';
+    var top=below;
+    if(placement==='Above')top=above;
+    else if(placement==='Auto'&&below+contentRect.height>viewportHeight-margin&&above>=margin)top=above;
+    var alignmentTarget=flyoutNode(flyout,flyout.getAttribute('data-fission-flyout-alignment-target'));
+    if(alignmentTarget&&typeof alignmentTarget.getBoundingClientRect==='function'){
+      var targetRect=alignmentTarget.getBoundingClientRect();
+      var targetCentre=(targetRect.top-contentRect.top)+targetRect.height/2;
+      top=anchorRect.top+anchorRect.height/2-targetCentre;
+    }
+    flyout.style.left=Math.max(margin,Math.min(left,viewportWidth-contentRect.width-margin))+'px';
+    flyout.style.top=Math.max(margin,Math.min(top,viewportHeight-contentRect.height-margin))+'px';
+  }
+
+  function positionFissionFlyouts(root){
+    if(!root||typeof root.querySelectorAll!=='function')return;
+    root.querySelectorAll('[data-fission-flyout-anchor]').forEach(function(flyout){
+      positionFlyout(flyout,root);
+    });
   }
 
   function applyMessage(bridge,message){
@@ -516,6 +569,8 @@
       captureMenuFocus:captureMenuFocus,
       restoreMenuFocus:restoreMenuFocus,
       bindMenuKeyboard:bindMenuKeyboard,
+      positionFlyout:positionFlyout,
+      positionFissionFlyouts:positionFissionFlyouts,
       handleBridgeRequest:handleBridgeRequest,
       textControlSelection:textControlSelection,
       utf8Offset:utf8Offset
@@ -682,6 +737,7 @@ self.onmessage=function(event){
 
   var currentManifest={};
   document.addEventListener('DOMContentLoaded',function(){
+    positionFissionFlyouts(document);
     var manifestEl=document.getElementById('fission-route-manifest');
     if(!manifestEl)return;
     try{currentManifest=JSON.parse(manifestEl.textContent||'{}');}catch(error){return;}
@@ -692,4 +748,6 @@ self.onmessage=function(event){
       instantiateArtifact(island,'island').catch(function(error){setTextBySemantics('island-status:'+island.id,'Island failed: '+error.message);});
     });
   });
+  window.addEventListener('resize',function(){positionFissionFlyouts(document);});
+  window.addEventListener('scroll',function(){positionFissionFlyouts(document);},true);
 }());

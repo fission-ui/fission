@@ -1537,69 +1537,7 @@ impl HtmlRenderer<'_> {
                 )
             }
             LayoutOp::Responsive { query, cases } => {
-                let root_class = format!("fission-responsive-{:x}", node.id.as_u128());
-                let child_class = format!("{root_class}-branch");
-                let fallback_index = cases.len();
-                let children = node
-                    .children
-                    .iter()
-                    .enumerate()
-                    .map(|(index, child)| {
-                        self.render_node(*child).map(|html| {
-                            format!(
-                                "<div class=\"{} {}-{}\">{html}</div>",
-                                escape_attr(&child_class),
-                                escape_attr(&root_class),
-                                index
-                            )
-                        })
-                    })
-                    .collect::<Result<Vec<_>>>()?
-                    .join("");
-                let mut css = format!(
-                    ".{child_class}{{display:none}}.{root_class}-{fallback_index}{{display:block}}"
-                );
-                // Emit earlier cases later so equal-specificity CSS preserves
-                // Fission's documented first-match precedence.
-                for (index, condition) in cases.iter().enumerate().rev() {
-                    let mut terms = Vec::new();
-                    if let Some(minimum) = condition.min_width {
-                        terms.push(format!("(min-width:{}px)", px(minimum)));
-                    }
-                    if let Some(maximum) = condition.max_width {
-                        terms.push(format!("(max-width:{}px)", px(maximum - 0.01)));
-                    }
-                    let expression = if terms.is_empty() {
-                        "(min-width:0px)".to_string()
-                    } else {
-                        terms.join(" and ")
-                    };
-                    let selector = (0..=fallback_index)
-                        .map(|branch| format!(".{root_class}-{branch}"))
-                        .collect::<Vec<_>>()
-                        .join(",");
-                    let body =
-                        format!("{selector}{{display:none}}.{root_class}-{index}{{display:block}}");
-                    match query {
-                        fission_ir::op::ResponsiveQuery::Viewport => {
-                            css.push_str(&format!("@media {expression}{{{body}}}"));
-                        }
-                        fission_ir::op::ResponsiveQuery::Container => {
-                            css.push_str(&format!("@container {expression}{{{body}}}"));
-                        }
-                    }
-                }
-                self.styles.raw_rule(root_class.clone(), css);
-                let container_style = match query {
-                    fission_ir::op::ResponsiveQuery::Viewport => "",
-                    fission_ir::op::ResponsiveQuery::Container => {
-                        " style=\"container-type:inline-size\""
-                    }
-                };
-                Ok(format!(
-                    "<div class=\"fission-site-node fission-site-responsive {root_class}\"{container_style} data-fission-node=\"{}\">{children}</div>",
-                    node.id
-                ))
+                self.render_responsive(node, *query, cases, "div")
             }
             LayoutOp::Scroll {
                 direction,
@@ -2764,6 +2702,13 @@ impl HtmlRenderer<'_> {
     }
 
     fn render_semantic_payload_children(&mut self, node: &CoreNode) -> Result<String> {
+        if let [child_id] = node.children.as_slice() {
+            if let Some(child) = self.ir.nodes.get(child_id) {
+                if let Op::Layout(LayoutOp::Responsive { query, cases }) = &child.op {
+                    return self.render_responsive(child, *query, cases, "span");
+                }
+            }
+        }
         let children = self.semantic_payload_children(node);
         self.render_children(&children, &HashSet::new())
     }
@@ -2772,12 +2717,80 @@ impl HtmlRenderer<'_> {
         if node.children.len() == 1 {
             if let Some(child) = self.ir.nodes.get(&node.children[0]) {
                 match child.op {
+                    Op::Layout(LayoutOp::Responsive { .. }) => {}
                     Op::Layout(_) | Op::Structural(_) => return child.children.clone(),
                     _ => {}
                 }
             }
         }
         node.children.clone()
+    }
+
+    fn render_responsive(
+        &mut self,
+        node: &CoreNode,
+        query: fission_ir::op::ResponsiveQuery,
+        cases: &[fission_ir::op::ResponsiveCondition],
+        tag: &str,
+    ) -> Result<String> {
+        let root_class = format!("fission-responsive-{:x}", node.id.as_u128());
+        let child_class = format!("{root_class}-branch");
+        let fallback_index = cases.len();
+        let children = node
+            .children
+            .iter()
+            .enumerate()
+            .map(|(index, child)| {
+                self.render_node(*child).map(|html| {
+                    format!(
+                        "<{tag} class=\"{} {}-{}\">{html}</{tag}>",
+                        escape_attr(&child_class),
+                        escape_attr(&root_class),
+                        index
+                    )
+                })
+            })
+            .collect::<Result<Vec<_>>>()?
+            .join("");
+        let mut css = format!(
+            ".{child_class}{{display:none}}.{root_class}-{fallback_index}{{display:block}}"
+        );
+        for (index, condition) in cases.iter().enumerate().rev() {
+            let mut terms = Vec::new();
+            if let Some(minimum) = condition.min_width {
+                terms.push(format!("(min-width:{}px)", px(minimum)));
+            }
+            if let Some(maximum) = condition.max_width {
+                terms.push(format!("(max-width:{}px)", px(maximum - 0.01)));
+            }
+            let expression = if terms.is_empty() {
+                "(min-width:0px)".to_string()
+            } else {
+                terms.join(" and ")
+            };
+            let selector = (0..=fallback_index)
+                .map(|branch| format!(".{root_class}-{branch}"))
+                .collect::<Vec<_>>()
+                .join(",");
+            let body = format!("{selector}{{display:none}}.{root_class}-{index}{{display:block}}");
+            match query {
+                fission_ir::op::ResponsiveQuery::Viewport => {
+                    css.push_str(&format!("@media {expression}{{{body}}}"));
+                }
+                fission_ir::op::ResponsiveQuery::Container => {
+                    css.push_str(&format!("@container {expression}{{{body}}}"));
+                }
+            }
+        }
+        self.styles.raw_rule(root_class.clone(), css);
+        let container_style = match query {
+            fission_ir::op::ResponsiveQuery::Viewport => "",
+            fission_ir::op::ResponsiveQuery::Container => " style=\"container-type:inline-size\"",
+        };
+        Ok(format!(
+            "<{tag} class=\"fission-site-node fission-site-responsive {root_class}\"{container_style} data-fission-node=\"{}\">{children}</{tag}>",
+            node.id
+        ))
     }
 
     fn semantic_identifier(&self, node_id: WidgetId) -> Option<&str> {
@@ -6583,6 +6596,53 @@ mod tests {
             later_case < first_case,
             "the first case must be emitted last so equal-specificity CSS wins"
         );
+    }
+
+    #[test]
+    fn responsive_heading_keeps_only_the_selected_branch_visible() {
+        let heading = WidgetId::explicit("responsive-heading");
+        let responsive = WidgetId::explicit("responsive-heading-layout");
+        let compact = WidgetId::explicit("compact-heading");
+        let wide = WidgetId::explicit("wide-heading");
+        let mut ir = CoreIR::new();
+        for child in [compact, wide] {
+            ir.add_node(
+                child,
+                Op::Structural(fission_ir::StructuralOp::Group { stable_hash: 1 }),
+                Vec::new(),
+            );
+        }
+        ir.add_node(
+            responsive,
+            Op::Layout(LayoutOp::Responsive {
+                query: fission_ir::op::ResponsiveQuery::Viewport,
+                cases: vec![fission_ir::op::ResponsiveCondition {
+                    min_width: Some(700.0),
+                    max_width: None,
+                }],
+            }),
+            vec![wide, compact],
+        );
+        ir.add_node(
+            heading,
+            Op::Semantics(Semantics {
+                identifier: Some("site-heading-1:responsive".into()),
+                ..Default::default()
+            }),
+            vec![responsive],
+        );
+        ir.set_root(heading);
+
+        let rendered = render_ir_to_html(&ir, &HtmlRenderOptions::default()).unwrap();
+
+        assert!(rendered.html.contains("<h1"));
+        assert!(rendered
+            .html
+            .contains("<span class=\"fission-site-node fission-site-responsive"));
+        assert!(!rendered.html.contains(
+            "<h1 class=\"fission-site-node fission-site-semantics site-heading-1-responsive\"><div"
+        ));
+        assert!(rendered.css.contains("display:none"));
     }
 
     #[test]

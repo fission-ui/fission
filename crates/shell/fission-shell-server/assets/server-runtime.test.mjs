@@ -125,6 +125,9 @@ globalThis.window = {
   CSS: { escape(value) { return String(value); } },
   history: { pushState() {}, replaceState() {} },
   location: { href: 'https://example.test/', pathname: '/' },
+  innerWidth: 1200,
+  innerHeight: 800,
+  addEventListener() {},
 };
 globalThis.__FISSION_SERVER_RUNTIME_TEST_HOOK__ = true;
 
@@ -337,4 +340,42 @@ test('menu keyboard navigation enters, wraps and dismisses the menu', () => {
     edge: 'first',
     returnToTrigger: true,
   });
+});
+
+test('flyout placement follows its anchor and avoids the viewport edge', () => {
+  const anchor = {
+    getBoundingClientRect() {
+      return { left: 900, right: 1000, top: 730, bottom: 770, width: 100, height: 40 };
+    },
+  };
+  const content = {
+    getBoundingClientRect() {
+      return { left: 0, right: 180, top: 0, bottom: 120, width: 180, height: 120 };
+    },
+  };
+  const attributes = new Map([
+    ['data-fission-flyout-anchor', 'anchor'],
+    ['data-fission-flyout-content', 'content'],
+    ['data-fission-flyout-alignment', 'End'],
+    ['data-fission-flyout-placement', 'Auto'],
+    ['data-fission-flyout-width', 'Content'],
+    ['data-fission-flyout-gap', '4'],
+  ]);
+  const flyout = {
+    style: {},
+    getAttribute(name) { return attributes.get(name) ?? ''; },
+    getBoundingClientRect: content.getBoundingClientRect,
+    querySelector(selector) { return selector.includes('content') ? content : null; },
+  };
+  const root = {
+    querySelector(selector) { return selector.includes('anchor') ? anchor : null; },
+  };
+  document.documentElement.clientWidth = 1024;
+  document.documentElement.clientHeight = 800;
+
+  hooks.positionFlyout(flyout, root);
+
+  assert.equal(flyout.style.position, 'fixed');
+  assert.equal(flyout.style.left, '820px');
+  assert.equal(flyout.style.top, '606px');
 });
