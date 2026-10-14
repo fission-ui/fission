@@ -2251,6 +2251,11 @@ impl HtmlRenderer<'_> {
         semantics: &Semantics,
     ) -> Result<String> {
         let mut attrs = self.native_control_attrs(node, semantics);
+        if matches!(semantics.role, Role::Checkbox | Role::Radio | Role::Switch)
+            && !semantics.disabled
+        {
+            self.push_browser_default_action_attrs(node, semantics, &mut attrs);
+        }
         if self.options.browser_action_bindings
             && semantics.supports_text_editing()
             && !semantics.disabled
@@ -2281,6 +2286,11 @@ impl HtmlRenderer<'_> {
             ));
         }
         let label_text = semantics.label.as_deref().unwrap_or_default();
+        let native_control_layout = if semantics.supports_text_editing() {
+            self.native_text_control_layout_style(node)
+        } else {
+            String::new()
+        };
         let external_validation = self.external_validation_message_id(semantics);
         let validation = if external_validation.is_some() {
             String::new()
@@ -2301,7 +2311,7 @@ impl HtmlRenderer<'_> {
             if semantics.multiline {
                 let value = semantics.value.as_deref().unwrap_or_default();
                 return Ok(format!(
-                    "<label class=\"fission-site-node fission-site-control\" data-fission-node=\"{}\"><span class=\"fission-site-control-label\">{}</span><textarea class=\"fission-site-input\"{attrs}>{}</textarea>{validation}</label>",
+                    "<label class=\"fission-site-node fission-site-control\"{native_control_layout} data-fission-node=\"{}\"><span class=\"fission-site-control-label\">{}</span><textarea class=\"fission-site-input\"{attrs}>{}</textarea>{validation}</label>",
                     node.id,
                     escape_text(label_text),
                     escape_text(value)
@@ -2313,7 +2323,7 @@ impl HtmlRenderer<'_> {
                     escape_attr(semantics.value.as_deref().unwrap_or_default())
                 ));
                 return Ok(format!(
-                    "<label class=\"fission-site-node fission-site-control\" data-fission-node=\"{}\"><span class=\"fission-site-control-label\">{}</span><input class=\"fission-site-input\"{attrs}>{validation}</label>",
+                    "<label class=\"fission-site-node fission-site-control\"{native_control_layout} data-fission-node=\"{}\"><span class=\"fission-site-control-label\">{}</span><input class=\"fission-site-input\"{attrs}>{validation}</label>",
                     node.id,
                     escape_text(label_text)
                 ));
@@ -2326,6 +2336,27 @@ impl HtmlRenderer<'_> {
         } else {
             self.render_children(&node.children, &HashSet::new())?
         };
+        let retained_checkable =
+            matches!(semantics.role, Role::Checkbox | Role::Radio | Role::Switch)
+                && !node.children.is_empty();
+        let control_class = if retained_checkable {
+            "fission-site-node fission-site-control fission-site-retained-control"
+        } else {
+            "fission-site-node fission-site-control"
+        };
+        let visible_label = (!retained_checkable)
+            .then(|| {
+                format!(
+                    "<span class=\"fission-site-control-label\">{}</span>",
+                    escape_text(label_text)
+                )
+            })
+            .unwrap_or_default();
+        let retained_input_class = if retained_checkable {
+            " fission-site-retained-control-input"
+        } else {
+            ""
+        };
         match semantics.role {
             Role::Checkbox | Role::Switch => {
                 if semantics.role == Role::Switch {
@@ -2335,20 +2366,18 @@ impl HtmlRenderer<'_> {
                     attrs.push_str(" checked");
                 }
                 Ok(format!(
-                    "<label class=\"fission-site-node fission-site-control\" data-fission-node=\"{}\"><input class=\"fission-site-checkbox\" type=\"checkbox\"{attrs}><span class=\"fission-site-control-label\">{}</span>{children}</label>",
+                    "<label class=\"{control_class}\" data-fission-node=\"{}\"><input class=\"fission-site-checkbox{retained_input_class}\" type=\"checkbox\"{attrs}>{visible_label}{children}</label>",
                     node.id,
-                    escape_text(label_text)
                 ))
             }
             Role::Radio => {
-                if semantics.checked.unwrap_or(false) {
+                if semantics.checked.or(semantics.selected).unwrap_or(false) {
                     attrs.push_str(" checked");
                 }
 
                 Ok(format!(
-                    "<label class=\"fission-site-node fission-site-control\" data-fission-node=\"{}\"><input class=\"fission-site-radio\" type=\"radio\"{attrs}><span class=\"fission-site-control-label\">{}</span>{children}</label>",
+                    "<label class=\"{control_class}\" data-fission-node=\"{}\"><input class=\"fission-site-radio{retained_input_class}\" type=\"radio\"{attrs}>{visible_label}{children}</label>",
                     node.id,
-                    escape_text(label_text)
                 ))
             }
             Role::Slider => {
@@ -2454,6 +2483,36 @@ impl HtmlRenderer<'_> {
         attrs
     }
 
+    fn native_text_control_layout_style(&self, node: &CoreNode) -> String {
+        let mut pending = node.children.clone();
+        let mut visited = HashSet::new();
+        while let Some(node_id) = pending.pop() {
+            if !visited.insert(node_id) {
+                continue;
+            }
+            let Some(descendant) = self.ir.nodes.get(&node_id) else {
+                continue;
+            };
+            if let Op::Layout(LayoutOp::Box {
+                width,
+                min_width,
+                max_width,
+                ..
+            }) = &descendant.op
+            {
+                let mut style = Vec::new();
+                push_optional_px(&mut style, "width", *width);
+                push_optional_px(&mut style, "min-width", *min_width);
+                push_optional_px(&mut style, "max-width", *max_width);
+                if !style.is_empty() {
+                    return format!(" style=\"{}\"", escape_attr(&style.join(";")));
+                }
+            }
+            pending.extend(descendant.children.iter().copied().rev());
+        }
+        String::new()
+    }
+
     fn external_validation_message_id(&self, semantics: &Semantics) -> Option<String> {
         let message = semantics.validation_message.as_deref()?;
         semantics.described_by.iter().rev().find_map(|id| {
@@ -2515,32 +2574,47 @@ impl HtmlRenderer<'_> {
         if !self.options.browser_action_bindings {
             return Ok(None);
         }
+        let mut attrs = semantic_html_attrs(self.ir, node.id, semantics);
+        attrs.push_str(&format!(" data-fission-node=\"{}\"", node.id));
+        if let Some(role) = semantic_html_role(semantics.role) {
+            attrs.push_str(&format!(" role=\"{role}\""));
+        }
+        if !self.push_browser_default_action_attrs(node, semantics, &mut attrs) {
+            return Ok(None);
+        }
+        let children = self.render_children(&node.children, &HashSet::new())?;
+        Ok(Some(format!(
+            "<button class=\"fission-site-node fission-site-semantics fission-browser-action\" type=\"button\"{attrs}>{children}</button>"
+        )))
+    }
+
+    fn push_browser_default_action_attrs(
+        &self,
+        node: &CoreNode,
+        semantics: &Semantics,
+        attrs: &mut String,
+    ) -> bool {
+        if !self.options.browser_action_bindings {
+            return false;
+        }
         let Some(action) = semantics
             .actions
             .entries
             .iter()
             .find(|entry| entry.trigger == ActionTrigger::Default)
         else {
-            return Ok(None);
+            return false;
         };
         let Some(payload) = action.payload_data.as_ref() else {
-            return Ok(None);
+            return false;
         };
-        let children = self.render_children(&node.children, &HashSet::new())?;
-        let mut attrs = semantic_html_attrs(self.ir, node.id, semantics);
-        attrs.push_str(&format!(" data-fission-node=\"{}\"", node.id));
-        if let Some(role) = semantic_html_role(semantics.role) {
-            attrs.push_str(&format!(" role=\"{role}\""));
-        }
         attrs.push_str(&format!(
             " data-fission-browser-action=\"true\" data-fission-action-id=\"{}\" data-fission-action-target=\"{}\" data-fission-action-payload=\"{}\"",
             action.action_id,
             node.id.as_u128(),
             hex_encode(payload)
         ));
-        Ok(Some(format!(
-            "<button class=\"fission-site-node fission-site-semantics fission-browser-action\" type=\"button\"{attrs}>{children}</button>"
-        )))
+        true
     }
 
     fn render_markdown_table(&mut self, node: &CoreNode) -> Result<String> {
@@ -4786,7 +4860,7 @@ mod tests {
     use fission_core::ui::{
         Checkbox, Column, Grid, Radio, RichText, SemanticsRegion, Switch, Text, TextInput, Widget,
     };
-    use fission_core::{build, Env, RuntimeState, View};
+    use fission_core::{build, ActionEnvelope, ActionId, Env, RuntimeState, View};
     use fission_ir::{
         ActionEntry, ActionSet, CompositeScalar, CompositeStyle, CoreIR, CoreNode, LayoutDirection,
         Op, Semantics, WidgetId,
@@ -5524,6 +5598,52 @@ mod tests {
             .html
             .contains("data-fission-semantics=\"shipping.express\""));
         assert!(!rendered.html.contains("type=\"checkbox\""));
+    }
+
+    #[test]
+    fn retained_radio_uses_one_visual_and_binds_its_default_action() {
+        let env = Env::default();
+        let runtime = RuntimeState::default();
+        let state = ();
+        let view = View::new(&state, &runtime, &env, None);
+        let mut ctx = BuildCtx::<()>::new();
+        let widget = build::enter(&mut ctx, &view, || {
+            Radio {
+                label: Some("Express shipping".into()),
+                on_select: Some(ActionEnvelope {
+                    id: ActionId::from_name("site-radio-test::select"),
+                    payload: vec![0xde, 0xad],
+                }),
+                ..Default::default()
+            }
+            .into()
+        });
+        let mut lowering = fission_core::internal::LoweringContext::new(&env, &runtime, None, None);
+        let root = fission_core::internal::lower_widget(&widget, &mut lowering);
+        lowering.set_root(root);
+
+        let rendered = render_ir_to_html(
+            lowering.ir(),
+            &HtmlRenderOptions {
+                browser_action_bindings: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        assert!(!rendered
+            .html
+            .contains("fission-site-control-label\">Express shipping"));
+        assert!(rendered.html.contains("fission-site-retained-control"));
+        assert!(rendered
+            .html
+            .contains("fission-site-retained-control-input"));
+        assert!(rendered
+            .html
+            .contains("data-fission-browser-action=\"true\""));
+        assert!(rendered
+            .html
+            .contains("data-fission-action-payload=\"dead\""));
     }
 
     #[test]

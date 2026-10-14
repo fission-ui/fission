@@ -3,7 +3,10 @@ use fission_core::ui::{Slider, Widget};
 use fission_core::{build, ActionEnvelope, ActionId, Env, RuntimeState, View};
 use fission_ir::{semantics::ActionTrigger, CoreIR, Op, Role};
 use fission_shell_site::{render_ir_to_html, HtmlRenderOptions};
-use fission_widgets::{FormControlLayout, FormDescription, FormError, FormLabel, NumberInput};
+use fission_widgets::{
+    FormControlLayout, FormDescription, FormError, FormLabel, NumberInput, SegmentedControl,
+};
+use std::sync::Arc;
 
 fn lower_component(component: impl FnOnce() -> Widget) -> CoreIR {
     let env = Env::default();
@@ -137,6 +140,7 @@ fn number_input_retains_one_editable_field_and_both_step_buttons() {
     let ir = lower_component(|| {
         NumberInput {
             value: 3.0,
+            field_width: Some(52.0),
             min: Some(1.0),
             max: Some(20.0),
             label: Some("Copies".into()),
@@ -163,6 +167,9 @@ fn number_input_retains_one_editable_field_and_both_step_buttons() {
     assert_eq!(rendered.html.matches("<input ").count(), 1);
     assert_eq!(rendered.html.matches("<button ").count(), 2);
     assert!(rendered.html.contains("role=\"spinbutton\""));
+    assert!(rendered
+        .html
+        .contains("class=\"fission-site-node fission-site-control\" style=\"width:52px\""));
     for attribute in [
         "aria-label=\"Copies\"",
         "aria-label=\"Decrease\"",
@@ -173,4 +180,43 @@ fn number_input_retains_one_editable_field_and_both_step_buttons() {
     ] {
         assert!(rendered.html.contains(attribute), "missing {attribute}");
     }
+}
+
+#[test]
+fn segmented_control_renders_bound_native_radios_without_duplicate_labels() {
+    let ir = lower_component(|| {
+        SegmentedControl {
+            options: vec!["Monthly".into(), "Yearly".into()],
+            selected_index: 1,
+            on_change: Some(Arc::new(|index| ActionEnvelope {
+                id: ActionId::from_name("native-segmented-control-test::change"),
+                payload: vec![index as u8],
+            })),
+        }
+        .into()
+    });
+    let rendered = render_ir_to_html(
+        &ir,
+        &HtmlRenderOptions {
+            browser_action_bindings: true,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+
+    assert_eq!(rendered.html.matches("type=\"radio\"").count(), 2);
+    assert_eq!(
+        rendered
+            .html
+            .matches("data-fission-browser-action=\"true\"")
+            .count(),
+        2
+    );
+    assert_eq!(rendered.html.matches(" checked").count(), 1);
+    assert!(!rendered
+        .html
+        .contains("fission-site-control-label\">Monthly"));
+    assert!(!rendered
+        .html
+        .contains("fission-site-control-label\">Yearly"));
 }
