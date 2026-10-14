@@ -68,6 +68,49 @@ class MockRoot {
   }
 }
 
+class MockMenuNode {
+  constructor(attributes = {}) {
+    this.attributes = new Map(Object.entries(attributes));
+    this.listeners = new Map();
+    this.children = [];
+    this.parent = null;
+    this.disabled = false;
+    this.clicks = 0;
+    this.id = attributes.id || '';
+  }
+
+  addEventListener(kind, listener) {
+    const listeners = this.listeners.get(kind) || [];
+    listeners.push(listener);
+    this.listeners.set(kind, listeners);
+  }
+
+  emit(kind, event = {}) {
+    for (const listener of this.listeners.get(kind) || []) {
+      listener({ key: '', shiftKey: false, preventDefault() {}, ...event });
+    }
+  }
+
+  getAttribute(name) { return this.attributes.get(name) ?? null; }
+  matches(selector) {
+    return selector === '[aria-haspopup="menu"][aria-controls]'
+      ? this.getAttribute('aria-haspopup') === 'menu' && this.getAttribute('aria-controls') !== null
+      : selector === '[role="menuitem"]' && this.getAttribute('role') === 'menuitem';
+  }
+  closest(selector) {
+    return selector === '[role="menu"]' && this.parent?.getAttribute('role') === 'menu'
+      ? this.parent
+      : null;
+  }
+  querySelectorAll(selector) {
+    return selector === '[role="menuitem"]'
+      ? this.children.filter((child) => child.getAttribute('role') === 'menuitem')
+      : [];
+  }
+  focus() { document.activeElement = this; }
+  click() { this.clicks += 1; this.emit('click'); }
+}
+
 const roots = new Map();
 globalThis.document = {
   activeElement: null,
@@ -202,4 +245,96 @@ test('UTF-16 DOM offsets convert to UTF-8 byte offsets', () => {
   assert.equal(hooks.utf8Offset('a😀b', 2), 1);
   assert.equal(hooks.utf8Offset('a😀b', 3), 5);
   assert.equal(hooks.utf8Offset('a😀b', 4), 6);
+});
+
+test('clipboard bridge requests complete through the worker event channel', async () => {
+  let written = null;
+  Object.defineProperty(globalThis, 'navigator', {
+    configurable: true,
+    value: {
+      clipboard: {
+        async writeText(value) { written = value; },
+        async readText() { return 'copied value'; },
+      },
+    },
+  });
+  const posted = [];
+  const bridge = {
+    kind: 'island',
+    id: 'clipboard',
+    worker: { postMessage(message) { posted.push(message); } },
+  };
+
+  hooks.handleBridgeRequest(bridge, {
+    type: 'request',
+    request_id: 7,
+    kind: 'clipboard_write_text',
+    payload: { text: 'new value' },
+  });
+  await Promise.resolve();
+  hooks.handleBridgeRequest(bridge, {
+    type: 'request',
+    request_id: 8,
+    kind: 'clipboard_read_text',
+    payload: null,
+  });
+  await Promise.resolve();
+
+  assert.equal(written, 'new value');
+  assert.deepEqual(posted[0], {
+    kind: 'event',
+    payload: {
+      type: 'response',
+      request_id: 7,
+      ok: true,
+      payload: {},
+      error: null,
+    },
+  });
+  assert.deepEqual(posted[1].payload, {
+    type: 'response',
+    request_id: 8,
+    ok: true,
+    payload: { text: 'copied value' },
+    error: null,
+  });
+});
+
+test('menu keyboard navigation enters, wraps and dismisses the menu', () => {
+  const trigger = new MockMenuNode({
+    'aria-haspopup': 'menu',
+    'aria-controls': 'account-menu',
+    'aria-expanded': 'true',
+  });
+  const menu = new MockMenuNode({ id: 'account-menu', role: 'menu' });
+  const first = new MockMenuNode({ role: 'menuitem' });
+  const disabled = new MockMenuNode({ role: 'menuitem', 'aria-disabled': 'true' });
+  const last = new MockMenuNode({ role: 'menuitem' });
+  for (const item of [first, disabled, last]) item.parent = menu;
+  menu.children = [first, disabled, last];
+  roots.set('account-menu', menu);
+  const root = {
+    contains(element) { return [trigger, menu, first, disabled, last].includes(element); },
+    querySelectorAll(selector) {
+      if (selector === '[aria-haspopup="menu"][aria-controls]') return [trigger];
+      if (selector === '[role="menu"]') return [menu];
+      return [];
+    },
+  };
+  const bridge = {};
+  hooks.bindMenuKeyboard(bridge, root);
+
+  trigger.emit('keydown', { key: 'ArrowDown' });
+  assert.equal(document.activeElement, first);
+  menu.emit('keydown', { key: 'ArrowUp' });
+  assert.equal(document.activeElement, last);
+  menu.emit('keydown', { key: 'Home' });
+  assert.equal(document.activeElement, first);
+  menu.emit('keydown', { key: 'Escape' });
+  assert.equal(trigger.clicks, 1);
+  assert.deepEqual(bridge.pendingMenuFocus, {
+    controls: 'account-menu',
+    edge: 'first',
+    returnToTrigger: true,
+  });
 });

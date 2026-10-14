@@ -1068,7 +1068,7 @@ where
             &resources,
             &mut build_ctx,
             &mut state,
-            ctx.jobs,
+            ctx,
             &mut executed_jobs,
         )?;
         final_node = Some(node);
@@ -1140,7 +1140,8 @@ fn drain_action_effects<S: GlobalState>(
                 effect.req_id,
                 format!("action-effect:{}", payload.job_name),
                 ctx.jobs.data_streams(),
-            ),
+            )
+            .with_session(ctx.session.clone()),
         );
         match result {
             Ok(result_payload) => {
@@ -1346,7 +1347,7 @@ fn drain_server_jobs<S: GlobalState>(
     resources: &[RuntimeResourceDeclaration],
     build_ctx: &mut BuildCtx<S>,
     state: &mut S,
-    jobs: &ServerJobRegistry,
+    ctx: &ServerRenderContext<'_>,
     executed_jobs: &mut BTreeSet<String>,
 ) -> Result<bool> {
     let mut dispatched = false;
@@ -1370,15 +1371,16 @@ fn drain_server_jobs<S: GlobalState>(
         if !executed_jobs.insert(execution_key) {
             continue;
         }
-        jobs.require_job(&payload.job_name)?;
-        let result = jobs.run(
+        ctx.jobs.require_job(&payload.job_name)?;
+        let result = ctx.jobs.run(
             &payload.job_name,
             payload.payload.clone(),
             crate::ServerJobCtx::new_runtime(
                 job.effect.req_id,
                 resource.key.clone(),
-                jobs.data_streams(),
-            ),
+                ctx.jobs.data_streams(),
+            )
+            .with_session(ctx.session.clone()),
         );
         match result {
             Ok(result_payload) => {

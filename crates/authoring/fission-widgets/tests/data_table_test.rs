@@ -2,7 +2,7 @@ use fission_core::authoring::{lower_widget_to_ir_in, BuildCtx};
 use fission_core::{build, Env, GlobalState, View, Widget};
 use fission_ir::op::{LayoutOp, Length};
 use fission_ir::{CoreIR, Op, Role, Semantics};
-use fission_widgets::{DataTable, TableColumn, TableRow};
+use fission_widgets::{DataTable, DataTableSelectionMode, TableColumn, TableRow};
 
 #[derive(Default, Debug)]
 struct TestState;
@@ -133,4 +133,18 @@ fn header_surface_fills_the_available_table_width() {
         )),
         "the header background must fill space beyond its fixed-width columns"
     );
+}
+
+#[test]
+fn read_only_table_omits_selection_controls_and_selected_state() {
+    let mut component = table();
+    component.selection_mode = DataTableSelectionMode::None;
+    component.selected_ids = vec!["2".into()];
+
+    let ir = lower(&Env::default(), || component.into());
+
+    assert!(roles(&ir, Role::Checkbox).is_empty());
+    assert!(roles(&ir, Role::TableRow)
+        .iter()
+        .all(|row| row.selected.is_none()));
 }

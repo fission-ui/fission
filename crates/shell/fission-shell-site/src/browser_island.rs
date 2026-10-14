@@ -5,9 +5,9 @@ use fission_core::authoring::LoweringContext;
 use fission_core::registry::{VideoRegistration, WebRegistration};
 use fission_core::ui::{Overlay, ZStack};
 use fission_core::{
-    ActionEnvelope, ActionId, Env, GlobalState, Runtime, RuntimeState, TextAffinity,
-    TextEditCommand, TextEditSource, TextEditingValue, TextSelection, TextValuePhase, View, Widget,
-    WidgetId,
+    ActionEnvelope, ActionId, Env, GlobalState, LinkTarget, NavigationCommand, Runtime,
+    RuntimeState, TextAffinity, TextEditCommand, TextEditSource, TextEditingValue, TextSelection,
+    TextValuePhase, View, Widget, WidgetId,
 };
 use fission_ir::{semantics::ActionTrigger, CoreIR, Op, Semantics};
 use fission_theme::{DesignMode, DesignSystem, Theme};
@@ -110,7 +110,11 @@ where
         if is_action_event(&message) {
             self.dispatch_browser_action(&message)?;
         }
-        self.render_bridge_output(message.get("sequence").and_then(Value::as_u64).unwrap_or(1))
+        let navigation = self.runtime.take_pending_navigation();
+        self.render_bridge_output(
+            message.get("sequence").and_then(Value::as_u64).unwrap_or(1),
+            navigation,
+        )
     }
 
     fn dispatch_browser_action(&mut self, message: &Value) -> Result<()> {
@@ -227,7 +231,11 @@ where
         Ok(())
     }
 
-    fn render_bridge_output(&mut self, sequence: u64) -> Result<String> {
+    fn render_bridge_output(
+        &mut self,
+        sequence: u64,
+        navigation: Vec<NavigationCommand>,
+    ) -> Result<String> {
         let output = self.build_widget();
         let ir = lower_browser_island_widget(
             output.node,
@@ -259,32 +267,34 @@ where
             },
             &mut styles,
         )?;
-        Ok(json!({
-            "messages": [
+        let mut messages = vec![json!({
+            "type": "dom_batch",
+            "sequence": sequence,
+            "transaction_id": self.id,
+            "ops": [
                 {
-                    "type": "dom_batch",
-                    "sequence": sequence,
-                    "transaction_id": self.id,
-                    "ops": [
-                        {
-                            "op": "set_stylesheet",
-                            "id": format!("fission-island-{}", self.id),
-                            "css": rendered.css
-                        },
-                        {
-                            "op": "replace_children_html_by_semantics",
-                            "semantics": self.mount_id,
-                            "html": rendered.body_html
-                        },
-                        {
-                            "op": "set_attr_by_semantics",
-                            "semantics": self.mount_id,
-                            "name": "data-fission-island-loaded",
-                            "value": "true"
-                        }
-                    ]
+                    "op": "set_stylesheet",
+                    "id": format!("fission-island-{}", self.id),
+                    "css": rendered.css
+                },
+                {
+                    "op": "replace_children_html_by_semantics",
+                    "semantics": self.mount_id,
+                    "html": rendered.body_html
+                },
+                {
+                    "op": "set_attr_by_semantics",
+                    "semantics": self.mount_id,
+                    "name": "data-fission-island-loaded",
+                    "value": "true"
                 }
-            ],
+            ]
+        })];
+        for command in navigation {
+            messages.extend(browser_navigation_messages(command));
+        }
+        Ok(json!({
+            "messages": messages,
             "bindings": []
         })
         .to_string())
@@ -333,6 +343,32 @@ where
             );
         }
         Ok(())
+    }
+}
+
+fn browser_navigation_messages(command: NavigationCommand) -> Vec<Value> {
+    match command {
+        NavigationCommand::Push(url) => vec![json!({
+            "type": "navigate",
+            "url": url,
+            "mode": "full_document"
+        })],
+        NavigationCommand::Replace(url) => vec![
+            json!({ "type": "navigate", "url": url, "mode": "replace" }),
+            json!({ "type": "navigate", "url": url, "mode": "full_document" }),
+        ],
+        NavigationCommand::Open(link) if matches!(link.target, LinkTarget::Current) => {
+            vec![json!({
+                "type": "navigate",
+                "url": link.href,
+                "mode": "full_document"
+            })]
+        }
+        NavigationCommand::Open(_) => Vec::new(),
+        NavigationCommand::Back
+        | NavigationCommand::Forward
+        | NavigationCommand::Go(_)
+        | NavigationCommand::Reload => Vec::new(),
     }
 }
 
@@ -1187,6 +1223,33 @@ mod tests {
         let second = island.handle(&event).unwrap_err().to_string();
         assert!(second.contains("discarded 2 effect envelope(s) and completion callback(s)"));
         assert_eq!(island.runtime.discard_pending_effects(), 0);
+    }
+
+    #[test]
+    fn browser_island_navigation_requests_reload_the_server_route() {
+        assert_eq!(
+            browser_navigation_messages(NavigationCommand::Push("/account".into())),
+            vec![json!({
+                "type": "navigate",
+                "url": "/account",
+                "mode": "full_document"
+            })]
+        );
+        assert_eq!(
+            browser_navigation_messages(NavigationCommand::Replace("/signed-in".into())),
+            vec![
+                json!({
+                    "type": "navigate",
+                    "url": "/signed-in",
+                    "mode": "replace"
+                }),
+                json!({
+                    "type": "navigate",
+                    "url": "/signed-in",
+                    "mode": "full_document"
+                }),
+            ]
+        );
     }
 
     fn test_hex_encode(bytes: &[u8]) -> String {

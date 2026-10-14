@@ -83,7 +83,19 @@ h6.fission-site-semantics {
 .fission-site-rich-text { overflow-wrap: break-word; }
 .fission-site-rich-text span { white-space: pre-wrap; }
 .fission-site-img { display: block; height: auto; }
-.fission-site-svg svg { display: inline-block; max-width: 100%; }
+.fission-site-svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  line-height: 0;
+}
+.fission-site-svg svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  max-width: 100%;
+  max-height: 100%;
+}
 .fission-site-svg-colored svg,
 .fission-site-svg-colored svg * {
   fill: currentColor;
@@ -107,6 +119,142 @@ h6.fission-site-semantics {
   font: inherit;
   padding: 0;
   text-align: inherit;
+}
+
+.fission-site-control,
+.fission-site-form-field {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.4rem;
+  width: 100%;
+  min-width: 0;
+  color: var(--fs-color-text-primary);
+  font: inherit;
+}
+
+.fission-site-form {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 1rem;
+  min-width: 0;
+}
+
+.fission-site-control-label,
+.fission-site-form-label {
+  color: var(--fs-color-text-secondary);
+  font-size: 0.875rem;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.fission-site-input,
+.fission-site-form-input {
+  appearance: none;
+  display: block;
+  width: 100%;
+  min-width: 0;
+  min-height: 2.625rem;
+  padding: 0.625rem 0.75rem;
+  border: 1px solid var(--fs-color-border);
+  border-radius: 0.5rem;
+  outline: none;
+  background: var(--fs-color-surface);
+  color: var(--fs-color-text-primary);
+  font: inherit;
+  line-height: 1.4;
+}
+
+.fission-site-input::placeholder,
+.fission-site-form-input::placeholder {
+  color: var(--fs-color-text-muted);
+  opacity: 1;
+}
+
+.fission-site-input:hover:not(:disabled):not([readonly]),
+.fission-site-form-input:hover:not(:disabled):not([readonly]) {
+  border-color: var(--fs-color-border-strong);
+}
+
+.fission-site-input:focus-visible,
+.fission-site-form-input:focus-visible {
+  border-color: var(--fs-color-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--fs-color-focus-ring) 36%, transparent);
+}
+
+.fission-site-input[aria-invalid="true"],
+.fission-site-form-input[aria-invalid="true"],
+.fission-site-form-input:invalid:not(:placeholder-shown) {
+  border-color: var(--fs-color-error);
+}
+
+.fission-site-input:disabled,
+.fission-site-form-input:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
+.fission-site-input[readonly],
+.fission-site-form-input[readonly] {
+  background: var(--fs-color-surface-sunken);
+}
+
+textarea.fission-site-input,
+.fission-site-form-textarea {
+  min-height: 7rem;
+  resize: vertical;
+}
+
+.fission-site-control-validation {
+  color: var(--fs-color-error);
+  font-size: 0.8125rem;
+  line-height: 1.35;
+}
+
+.fission-site-checkbox,
+.fission-site-radio,
+.fission-site-form-checkbox {
+  width: 1rem;
+  height: 1rem;
+  margin: 0;
+  accent-color: var(--fs-color-primary);
+}
+
+.fission-site-control:has(> .fission-site-checkbox),
+.fission-site-control:has(> .fission-site-radio),
+.fission-site-form-field:has(> .fission-site-form-checkbox) {
+  flex-direction: row;
+  align-items: center;
+  width: fit-content;
+}
+
+.fission-site-range {
+  width: 100%;
+  accent-color: var(--fs-color-primary);
+}
+
+.fission-site-form-submit {
+  appearance: none;
+  align-self: flex-start;
+  min-height: 2.625rem;
+  padding: 0.625rem 1rem;
+  border: 1px solid var(--fs-color-primary);
+  border-radius: 0.5rem;
+  background: var(--fs-color-primary);
+  color: var(--fs-color-on-primary);
+  cursor: pointer;
+  font: inherit;
+  font-weight: 650;
+}
+
+.fission-site-form-submit:hover {
+  filter: brightness(0.94);
+}
+
+.fission-site-form-submit:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--fs-color-focus-ring) 36%, transparent);
 }
 
 .fission-site-theme-toggle,
