@@ -651,8 +651,8 @@ fn compose_browser_island_portals(
 /// Runs or initializes a named browser island instance.
 ///
 /// Call this from the island entry function compiled into the route-local WASM
-/// artifact. Boot messages reset the named island instance; event messages reuse
-/// the existing instance so reducer state is retained across browser events.
+/// artifact. Boot messages reset the named island instance; event and response
+/// messages reuse it so reducer state and pending effect completions are retained.
 pub fn run_browser_island<S, W, F>(id: &str, input: &str, create: F) -> String
 where
     S: GlobalState + 'static,
@@ -660,10 +660,10 @@ where
     F: FnOnce() -> BrowserIslandApp<S, W>,
 {
     let message = parse_bridge_message(input);
-    let reset = !message
-        .get("type")
-        .and_then(Value::as_str)
-        .is_some_and(|kind| kind == "event");
+    let reset = !matches!(
+        message.get("type").and_then(Value::as_str),
+        Some("event" | "response")
+    );
 
     let result = BROWSER_ISLANDS.with(|instances| {
         let mut instances = instances.borrow_mut();
@@ -1680,6 +1680,56 @@ mod tests {
             .unwrap();
         assert!(completion.contains("Copied"));
         assert!(island.pending_capabilities.is_empty());
+    }
+
+    #[test]
+    fn run_browser_island_preserves_clipboard_completion_across_response() {
+        let id = format!("clipboard-wrapper-{}", std::process::id());
+        let create = || {
+            BrowserIslandApp::new(
+                &id,
+                "clipboard-mount",
+                ClipboardState::default(),
+                ClipboardIsland,
+            )
+        };
+        let boot = run_browser_island(&id, r#"{"type":"boot"}"#, create);
+        assert!(boot.contains("data-fission-browser-action"));
+
+        let action_id = CopyText::static_id().as_u128();
+        let payload_hex = test_hex_encode(&CopyText.encode());
+        let event = format!(
+            r#"{{"type":"event","sequence":4,"binding":{{"message":{{"fission_browser_action":true,"action_id":"{action_id}","target_node":"906","payload_hex":"{payload_hex}"}}}}}}"#
+        );
+        let request = run_browser_island(&id, &event, create);
+        assert!(request.contains("clipboard_write_text"));
+        assert!(request.contains("Copying"));
+
+        let completion = run_browser_island(
+            &id,
+            r#"{"type":"response","request_id":0,"ok":true,"payload":{}}"#,
+            create,
+        );
+        assert!(completion.contains("Copied"));
+
+        BROWSER_ISLANDS.with(|instances| {
+            let instances = instances.borrow();
+            let island = instances
+                .get(&id)
+                .and_then(|entry| {
+                    entry.downcast_ref::<BrowserIslandApp<ClipboardState, ClipboardIsland>>()
+                })
+                .unwrap();
+            assert_eq!(
+                island
+                    .runtime
+                    .get_global_state::<ClipboardState>()
+                    .unwrap()
+                    .status,
+                "Copied"
+            );
+            assert!(island.pending_capabilities.is_empty());
+        });
     }
 
     #[test]
