@@ -2390,6 +2390,11 @@ impl HtmlRenderer<'_> {
                 if let Some(value) = semantics.current_value {
                     attrs.push_str(&format!(" value=\"{}\"", px(value)));
                 }
+                if let Some(step) = semantics.step_value {
+                    attrs.push_str(&format!(" step=\"{}\"", px(step)));
+                } else {
+                    attrs.push_str(" step=\"any\"");
+                }
                 Ok(format!(
                     "<label class=\"fission-site-node fission-site-control\" data-fission-node=\"{}\"><span class=\"fission-site-control-label\">{}</span><input class=\"fission-site-range\" type=\"range\"{attrs}>{children}</label>",
                     node.id,

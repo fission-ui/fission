@@ -814,6 +814,9 @@ mod imp {
             if let Some(current) = semantics.current_value {
                 node.set_numeric_value(current as f64);
             }
+            if let Some(step) = semantics.step_value {
+                node.set_numeric_value_step(step as f64);
+            }
             if semantics.current_value.is_some() {
                 node.add_action(Action::Increment);
                 node.add_action(Action::Decrement);
@@ -1417,6 +1420,11 @@ mod imp {
         {
             return runtime.dispatch_with_input(action, owner, &input).is_ok();
         }
+        if let Some((owner, action, input)) =
+            fission_core::input::slider::prepare_slider_adjustment(ir, target, direction)
+        {
+            return runtime.dispatch_with_input(action, owner, &input).is_ok();
+        }
         let Some(current) = semantics.current_value else {
             return false;
         };
@@ -1446,6 +1454,11 @@ mod imp {
         }
         if semantics.current_value.is_none() {
             return false;
+        }
+        if let Some((owner, action, input)) =
+            fission_core::input::slider::prepare_slider_change(ir, target, value)
+        {
+            return runtime.dispatch_with_input(action, owner, &input).is_ok();
         }
         let Ok(payload) = serde_json::to_vec(&value) else {
             return false;

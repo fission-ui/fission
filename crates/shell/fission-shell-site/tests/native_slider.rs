@@ -82,6 +82,7 @@ fn native_slider_replaces_painted_track_and_retains_bounds_value_and_change_targ
         "min=\"-10\"",
         "max=\"100\"",
         "value=\"25.500\"",
+        "step=\"any\"",
         "aria-valuemin=\"-10\"",
         "aria-valuemax=\"100\"",
         "aria-valuenow=\"25.5\"",
@@ -105,6 +106,26 @@ fn native_slider_replaces_painted_track_and_retains_bounds_value_and_change_targ
         semantics.actions.entries[0].payload_data.as_deref(),
         Some(action.payload.as_slice())
     );
+}
+
+#[test]
+fn native_slider_emits_an_explicit_discrete_step() {
+    let ir = lower_component(|| {
+        Slider {
+            min: 1.0,
+            max: 250.0,
+            value: 25.4,
+            step: Some(1.0),
+            ..Default::default()
+        }
+        .into()
+    });
+    let rendered = render_ir_to_html(&ir, &HtmlRenderOptions::default()).unwrap();
+
+    assert_single_native_slider(&ir, &rendered.html);
+    assert!(rendered.html.contains("step=\"1\""));
+    assert!(rendered.html.contains("value=\"25\""));
+    assert!(!rendered.html.contains("step=\"any\""));
 }
 
 #[test]

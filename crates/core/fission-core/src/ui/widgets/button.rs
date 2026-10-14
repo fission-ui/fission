@@ -1878,6 +1878,7 @@ fn default_button_semantics() -> Semantics {
         min_value: None,
         max_value: None,
         current_value: None,
+        step_value: None,
         is_focus_scope: false,
         is_focus_barrier: false,
         drag_payload: None,
