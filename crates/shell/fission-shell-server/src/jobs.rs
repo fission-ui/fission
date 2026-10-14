@@ -10,6 +10,8 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll, RawWaker, RawWakerVTable, Waker};
 
+use crate::ServerSession;
+
 #[derive(Clone, Debug)]
 /// Request-local information and data-stream access supplied to a server job.
 pub struct ServerJobCtx {
@@ -18,6 +20,7 @@ pub struct ServerJobCtx {
     /// Stable resource key that requested the job.
     pub resource_key: String,
     data_streams: DataStreamRegistry,
+    session: Option<ServerSession>,
 }
 
 impl PartialEq for ServerJobCtx {
@@ -39,7 +42,20 @@ impl ServerJobCtx {
             req_id,
             resource_key: resource_key.into(),
             data_streams,
+            session: None,
         }
+    }
+
+    pub(crate) fn with_session(mut self, session: ServerSession) -> Self {
+        self.session = Some(session);
+        self
+    }
+
+    /// Returns the request session when this job belongs to an SSR request.
+    ///
+    /// Standalone registry invocations have no HTTP request and return `None`.
+    pub fn session(&self) -> Option<&ServerSession> {
+        self.session.as_ref()
     }
 
     /// Opens a runtime-owned data stream for this server job.
