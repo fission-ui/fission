@@ -22,6 +22,11 @@ const DEVELOPER_LINKS: &[(&str, &str)] = &[
 
 const RESOURCE_LINKS: &[(&str, &str)] = &[
     ("Blog", "/blog/"),
+    ("Tutorials", "/blog/categories/tutorials/"),
+    (
+        "Website dropdown navigation",
+        "/blog/build-a-rust-website-with-dropdown-navigation/",
+    ),
     ("Widget catalog", "/reference/widgets/catalog/"),
     ("Design systems", "/product/design-systems/"),
     ("Production lifecycle", "/product/production-lifecycle/"),

@@ -62,6 +62,10 @@ title = "Reference"
 href = "/reference/overview/overview/"
 
 [[site.nav]]
+title = "Tutorials"
+href = "/blog/categories/tutorials/"
+
+[[site.nav]]
 title = "Crates"
 href = "/crates/"
 

@@ -23,6 +23,11 @@ const NAV_ITEMS: &[NavItem] = &[
         children: &[],
     },
     NavItem {
+        label: "Tutorials",
+        href: "/blog/categories/tutorials/",
+        children: &[],
+    },
+    NavItem {
         label: "Crates",
         href: "/crates/",
         children: &[],
@@ -48,6 +53,11 @@ const MOBILE_MENU_CHILDREN: &[NavItem] = &[
     NavItem {
         label: "Documentation",
         href: "/docs/",
+        children: &[],
+    },
+    NavItem {
+        label: "Tutorials",
+        href: "/blog/categories/tutorials/",
         children: &[],
     },
     NavItem {
@@ -77,6 +87,11 @@ const DOCS_NAV_ITEMS: &[NavItem] = &[
     NavItem {
         label: "Reference",
         href: "/reference/overview/overview/",
+        children: &[],
+    },
+    NavItem {
+        label: "Tutorials",
+        href: "/blog/categories/tutorials/",
         children: &[],
     },
     NavItem {

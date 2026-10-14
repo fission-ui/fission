@@ -3,8 +3,8 @@
 use crate::state::GalleryState;
 use fission::prelude::*;
 use fission::widgets::{
-    DataTable, DataTableSelectionMode, HStack, Popover, RefreshIndicator,
-    RefreshIndicatorStatus, SplitDirection, SplitView, TableColumn, TableRow, VStack,
+    DataTable, DataTableSelectionMode, HStack, Popover, RefreshIndicator, RefreshIndicatorStatus,
+    SplitDirection, SplitView, TableColumn, TableRow, VStack,
 };
 use std::sync::Arc;
 
