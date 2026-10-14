@@ -4,7 +4,7 @@ use fission_core::ui::{Container, Widget};
 use fission_core::{GlobalState, ReducerContext, WidgetId};
 use fission_ir::op::Op;
 use fission_test::{TestDriver, TestHarness};
-use fission_widgets::{DataTable, TableColumn, TableRow};
+use fission_widgets::{DataTable, DataTableSelectionMode, TableColumn, TableRow};
 use std::sync::Arc;
 
 #[derive(Debug, Default, Clone)]
@@ -30,6 +30,7 @@ impl From<Page> for Widget {
         let row_action = action.clone();
         Container::new(DataTable {
             id: WidgetId::explicit("table"),
+            selection_mode: DataTableSelectionMode::Multiple,
             columns: vec![
                 TableColumn {
                     id: "name".into(),

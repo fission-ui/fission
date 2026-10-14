@@ -3,8 +3,8 @@
 use crate::state::GalleryState;
 use fission::prelude::*;
 use fission::widgets::{
-    DataTable, HStack, Popover, RefreshIndicator, RefreshIndicatorStatus, SplitDirection,
-    SplitView, TableColumn, TableRow, VStack,
+    DataTable, DataTableSelectionMode, HStack, Popover, RefreshIndicator,
+    RefreshIndicatorStatus, SplitDirection, SplitView, TableColumn, TableRow, VStack,
 };
 use std::sync::Arc;
 
@@ -137,6 +137,7 @@ pub(crate) fn data_table() -> Vec<Widget> {
     vec![
         DataTable {
             id: WidgetId::explicit("gallery.data_table"),
+            selection_mode: DataTableSelectionMode::Multiple,
             columns: vec![
                 TableColumn {
                     id: "name".into(),
