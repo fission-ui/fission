@@ -85,17 +85,27 @@ where
     S: GlobalState,
 {
     BUILD_SCOPES.with(|scopes| {
+        // Derive every stored field pointer from one raw pointer. Creating
+        // `&mut` references to the fields here would retag parts of `ctx` and
+        // invalidate the raw pointer retained for typed BuildCtxHandle access.
+        let ctx_ptr = ctx as *mut BuildCtx<S>;
+        let resources = unsafe { std::ptr::addr_of_mut!((*ctx_ptr).resources) };
+        let motion_declarations = unsafe { std::ptr::addr_of_mut!((*ctx_ptr).motion_declarations) };
+        let video_nodes = unsafe { std::ptr::addr_of_mut!((*ctx_ptr).video_nodes) };
+        let web_nodes = unsafe { std::ptr::addr_of_mut!((*ctx_ptr).web_nodes) };
+        let portals = unsafe { std::ptr::addr_of_mut!((*ctx_ptr).portals) };
+        let route_outcome = unsafe { std::ptr::addr_of_mut!((*ctx_ptr).route_outcome) };
         scopes.borrow_mut().push(BuildScope {
             state_type: TypeId::of::<S>(),
             state_name: type_name::<S>(),
-            ctx: (ctx as *mut BuildCtx<S>).cast::<()>(),
+            ctx: ctx_ptr.cast::<()>(),
             view: (view as *const View<'_, S>).cast::<()>(),
-            resources: &mut ctx.resources,
-            motion_declarations: &mut ctx.motion_declarations,
-            video_nodes: &mut ctx.video_nodes,
-            web_nodes: &mut ctx.web_nodes,
-            portals: &mut ctx.portals,
-            route_outcome: &mut ctx.route_outcome,
+            resources,
+            motion_declarations,
+            video_nodes,
+            web_nodes,
+            portals,
+            route_outcome,
             next_portal_seq: next_portal_seq::<S>,
             register_runtime_reducer: register_runtime_reducer::<S>,
             runtime: view.runtime(),

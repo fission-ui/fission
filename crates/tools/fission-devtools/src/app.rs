@@ -294,11 +294,32 @@ where
         .and_then(|value| value.parse().ok())
         .unwrap_or_default();
     let mut worker = AppWorker::new(config, generation)?;
-    let stdin = std::io::stdin();
-    let mut stdout = std::io::stdout().lock();
-    use std::io::{BufRead, Write};
+    if let Ok(address) = std::env::var("FISSION_WORKER_BRIDGE_ADDR") {
+        let stream = std::net::TcpStream::connect(&address)
+            .with_context(|| format!("failed to connect to Fission Developer at {address}"))?;
+        let reader = stream
+            .try_clone()
+            .context("failed to clone the Fission Developer connection")?;
+        return run_protocol(&mut worker, std::io::BufReader::new(reader), stream);
+    }
 
-    for line in stdin.lock().lines() {
+    run_protocol(
+        &mut worker,
+        std::io::BufReader::new(std::io::stdin().lock()),
+        std::io::stdout().lock(),
+    )
+}
+
+fn run_protocol<S, W>(
+    worker: &mut AppWorker<S, W>,
+    input: impl std::io::BufRead,
+    mut output: impl std::io::Write,
+) -> Result<()>
+where
+    S: GlobalState + Serialize + DeserializeOwned + 'static,
+    W: Clone + Into<Widget> + 'static,
+{
+    for line in input.lines() {
         let line = line.context("failed to read Fission Developer request")?;
         let request = match crate::decode_line::<crate::WorkerRequest>(&line) {
             Ok(request) => request,
@@ -312,8 +333,8 @@ where
             request_id: request.request_id,
             result: worker.handle(request.command),
         };
-        stdout.write_all(crate::encode_line(&response)?.as_bytes())?;
-        stdout.flush()?;
+        output.write_all(crate::encode_line(&response)?.as_bytes())?;
+        output.flush()?;
         if should_stop {
             break;
         }
