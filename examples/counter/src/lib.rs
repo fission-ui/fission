@@ -62,3 +62,14 @@ impl From<CounterApp> for Widget {
         .into()
     }
 }
+
+#[cfg(feature = "devtools")]
+pub fn devtools() -> fission_devtools::DevtoolsApp<(), CounterApp> {
+    fission_devtools::DevtoolsApp::new(
+        "fission.examples.counter",
+        "Fission Counter",
+        "counter-state/v1",
+        (),
+        CounterApp {},
+    )
+}

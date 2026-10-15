@@ -6,7 +6,24 @@ license = "Apache-2.0"
 
 [dependencies]
 fission = { path = "../../crates/authoring/fission", default-features = false, features = ["desktop"] }
+fission-devtools = { path = "../../crates/tools/fission-devtools", optional = true }
+fission-jit-host-bridge = { path = "../fission-jit-host-bridge", optional = true }
 anyhow = "1.0"
+
+[features]
+default = ["desktop"]
+desktop = []
+devtools = ["dep:fission-devtools", "dep:fission-jit-host-bridge"]
+
+[[bin]]
+name = "counter"
+path = "src/main.rs"
+required-features = ["desktop"]
+
+[[bin]]
+name = "fission-devtools"
+path = "src/devtools.rs"
+required-features = ["devtools"]
 
 [dev-dependencies]
 fission-test-driver = { path = "../../crates/tools/fission-test-driver" }

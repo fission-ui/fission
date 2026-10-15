@@ -2014,6 +2014,8 @@ version = "0.15.1"
 dependencies = [
  "anyhow",
  "fission",
+ "fission-devtools",
+ "fission-jit-host-bridge",
  "fission-test-driver",
  "image 0.25.8",
 ]
@@ -3139,6 +3141,16 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 1.0.69",
+]
+
+[[package]]
+name = "fission-jit-host-bridge"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "fission",
+ "fission-devtools",
+ "serde",
 ]
 
 [[package]]
@@ -5151,6 +5163,7 @@ dependencies = [
  "fission",
  "fission-devtools",
  "fission-ir",
+ "fission-jit-host-bridge",
  "fission-test",
  "fission-test-driver",
  "image 0.25.8",
