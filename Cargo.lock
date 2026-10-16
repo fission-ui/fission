@@ -2622,8 +2622,6 @@ dependencies = [
  "anyhow",
  "chart-gallery",
  "console_error_panic_hook",
- "counter",
- "embed-3d",
  "fission",
  "fission-core",
  "fission-design-system-codegen",
@@ -2632,14 +2630,11 @@ dependencies = [
  "icons_gallery",
  "image 0.25.8",
  "inbox",
- "mobile-smoke",
- "motion-memory-repro",
  "serde",
  "serde_yaml",
  "text-lab",
  "todo-design-system",
  "wasm-bindgen",
- "web-smoke",
  "widget-gallery",
 ]
 

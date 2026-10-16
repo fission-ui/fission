@@ -616,9 +616,10 @@ impl From<Sidebar> for Widget {
         .padding_all(tokens.spacing.m)
         .into();
         let scroll: Widget = Scroll {
+            id: Some(WidgetId::explicit("gallery.components.scroll")),
             direction: FlexDirection::Column,
             child: Some(list),
-            show_scrollbar: false,
+            show_scrollbar: true,
             flex_grow: 1.0,
             flex_shrink: 1.0,
             ..Default::default()

@@ -1,28 +1,18 @@
+use serde::{Deserialize, Serialize};
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ExampleCategory {
-    Start,
     Apps,
     Galleries,
-    Platform,
-    Diagnostics,
 }
 
 impl ExampleCategory {
-    pub(crate) const ALL: [Self; 5] = [
-        Self::Start,
-        Self::Apps,
-        Self::Galleries,
-        Self::Platform,
-        Self::Diagnostics,
-    ];
+    pub(crate) const ALL: [Self; 2] = [Self::Apps, Self::Galleries];
 
     pub(crate) const fn translation_key(self) -> &'static str {
         match self {
-            Self::Start => "showcase.category.start",
             Self::Apps => "showcase.category.apps",
             Self::Galleries => "showcase.category.galleries",
-            Self::Platform => "showcase.category.platform",
-            Self::Diagnostics => "showcase.category.diagnostics",
         }
     }
 }
@@ -33,8 +23,6 @@ pub(crate) enum Target {
     Windows,
     Linux,
     Web,
-    Android,
-    Ios,
 }
 
 impl Target {
@@ -44,8 +32,6 @@ impl Target {
             Self::Windows => "Windows",
             Self::Linux => "Linux",
             Self::Web => "Web",
-            Self::Android => "Android",
-            Self::Ios => "iOS",
         }
     }
 
@@ -53,7 +39,6 @@ impl Target {
         match self {
             Self::MacOS | Self::Windows | Self::Linux => TargetFilter::Desktop,
             Self::Web => TargetFilter::Web,
-            Self::Android | Self::Ios => TargetFilter::Mobile,
         }
     }
 }
@@ -64,18 +49,16 @@ pub(crate) enum TargetFilter {
     All,
     Desktop,
     Web,
-    Mobile,
 }
 
 impl TargetFilter {
-    pub(crate) const ALL: [Self; 4] = [Self::All, Self::Desktop, Self::Web, Self::Mobile];
+    pub(crate) const ALL: [Self; 3] = [Self::All, Self::Desktop, Self::Web];
 
     pub(crate) const fn translation_key(self) -> &'static str {
         match self {
             Self::All => "showcase.catalog.filter.all",
             Self::Desktop => "showcase.catalog.filter.desktop",
             Self::Web => "showcase.catalog.filter.web",
-            Self::Mobile => "showcase.catalog.filter.mobile",
         }
     }
 }
@@ -104,26 +87,8 @@ impl ExampleDefinition {
     }
 }
 
-const DESKTOP: &[Target] = &[Target::MacOS, Target::Windows, Target::Linux];
-const CROSS_PLATFORM: &[Target] = &[
-    Target::MacOS,
-    Target::Windows,
-    Target::Linux,
-    Target::Web,
-    Target::Android,
-    Target::Ios,
-];
-
+const DESKTOP_WEB: &[Target] = &[Target::MacOS, Target::Windows, Target::Linux, Target::Web];
 pub(crate) static EXAMPLES: &[ExampleDefinition] = &[
-    ExampleDefinition {
-        slug: "counter",
-        package: "counter",
-        title_key: "showcase.example.counter.title",
-        summary_key: "showcase.example.counter.summary",
-        category: ExampleCategory::Start,
-        command: "cargo run -p counter",
-        targets: DESKTOP,
-    },
     ExampleDefinition {
         slug: "inbox",
         package: "inbox",
@@ -131,7 +96,7 @@ pub(crate) static EXAMPLES: &[ExampleDefinition] = &[
         summary_key: "showcase.example.inbox.summary",
         category: ExampleCategory::Apps,
         command: "cargo run -p inbox",
-        targets: DESKTOP,
+        targets: DESKTOP_WEB,
     },
     ExampleDefinition {
         slug: "todo-design-system",
@@ -140,7 +105,7 @@ pub(crate) static EXAMPLES: &[ExampleDefinition] = &[
         summary_key: "showcase.example.todo_design.summary",
         category: ExampleCategory::Apps,
         command: "cargo run -p todo-design-system",
-        targets: DESKTOP,
+        targets: DESKTOP_WEB,
     },
     ExampleDefinition {
         slug: "widget-gallery",
@@ -149,7 +114,7 @@ pub(crate) static EXAMPLES: &[ExampleDefinition] = &[
         summary_key: "showcase.example.widget_gallery.summary",
         category: ExampleCategory::Galleries,
         command: "cargo run -p widget-gallery",
-        targets: DESKTOP,
+        targets: DESKTOP_WEB,
     },
     ExampleDefinition {
         slug: "animation-gallery",
@@ -158,7 +123,7 @@ pub(crate) static EXAMPLES: &[ExampleDefinition] = &[
         summary_key: "showcase.example.animation_gallery.summary",
         category: ExampleCategory::Galleries,
         command: "cargo run -p animation-gallery",
-        targets: DESKTOP,
+        targets: DESKTOP_WEB,
     },
     ExampleDefinition {
         slug: "chart-gallery",
@@ -167,7 +132,7 @@ pub(crate) static EXAMPLES: &[ExampleDefinition] = &[
         summary_key: "showcase.example.chart_gallery.summary",
         category: ExampleCategory::Galleries,
         command: "cargo run -p chart-gallery",
-        targets: DESKTOP,
+        targets: DESKTOP_WEB,
     },
     ExampleDefinition {
         slug: "icons_gallery",
@@ -176,52 +141,16 @@ pub(crate) static EXAMPLES: &[ExampleDefinition] = &[
         summary_key: "showcase.example.icons.summary",
         category: ExampleCategory::Galleries,
         command: "cargo run -p icons_gallery",
-        targets: DESKTOP,
+        targets: DESKTOP_WEB,
     },
     ExampleDefinition {
         slug: "text-lab",
         package: "text-lab",
         title_key: "showcase.example.text_lab.title",
         summary_key: "showcase.example.text_lab.summary",
-        category: ExampleCategory::Galleries,
+        category: ExampleCategory::Apps,
         command: "cargo run -p text-lab",
-        targets: DESKTOP,
-    },
-    ExampleDefinition {
-        slug: "web-smoke",
-        package: "web-smoke",
-        title_key: "showcase.example.web_smoke.title",
-        summary_key: "showcase.example.web_smoke.summary",
-        category: ExampleCategory::Platform,
-        command: "fission run --target web --project-dir examples/web-smoke",
-        targets: CROSS_PLATFORM,
-    },
-    ExampleDefinition {
-        slug: "mobile-smoke",
-        package: "mobile-smoke",
-        title_key: "showcase.example.mobile_smoke.title",
-        summary_key: "showcase.example.mobile_smoke.summary",
-        category: ExampleCategory::Platform,
-        command: "fission run --target android --project-dir examples/mobile-smoke",
-        targets: &[Target::Android, Target::Ios],
-    },
-    ExampleDefinition {
-        slug: "embed-3d",
-        package: "embed-3d",
-        title_key: "showcase.example.embed_3d.title",
-        summary_key: "showcase.example.embed_3d.summary",
-        category: ExampleCategory::Platform,
-        command: "cargo run -p embed-3d",
-        targets: DESKTOP,
-    },
-    ExampleDefinition {
-        slug: "motion-memory-repro",
-        package: "motion-memory-repro",
-        title_key: "showcase.example.motion_memory.title",
-        summary_key: "showcase.example.motion_memory.summary",
-        category: ExampleCategory::Diagnostics,
-        command: "cargo run -p motion-memory-repro",
-        targets: DESKTOP,
+        targets: DESKTOP_WEB,
     },
 ];
 
@@ -253,5 +182,21 @@ mod tests {
             .iter()
             .all(|example| !EXCLUDED.contains(&example.slug)));
     }
+
+    #[test]
+    fn deployed_catalogue_contains_only_product_examples() {
+        assert_eq!(
+            ExampleCategory::ALL,
+            [ExampleCategory::Apps, ExampleCategory::Galleries]
+        );
+        assert!(EXAMPLES.iter().all(|example| matches!(
+            example.category,
+            ExampleCategory::Apps | ExampleCategory::Galleries
+        )));
+        assert_eq!(example_by_slug("text-lab").category, ExampleCategory::Apps);
+        assert!(!EXAMPLES.iter().any(|example| example.slug == "counter"));
+        assert!(EXAMPLES
+            .iter()
+            .all(|example| example.targets.contains(&Target::Web)));
+    }
 }
-use serde::{Deserialize, Serialize};

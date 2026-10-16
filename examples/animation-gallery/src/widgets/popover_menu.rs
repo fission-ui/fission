@@ -24,7 +24,8 @@ impl From<PopoverMenu> for Widget {
                     child: Some(Text::new("Close popover").into()),
                     on_press: Some(menu.close),
                     ..Default::default()
-                },
+                }
+                .semantics_identifier("gallery.real.popover.close"),
             ],
             ..Default::default()
         })

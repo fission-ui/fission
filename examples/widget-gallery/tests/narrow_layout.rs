@@ -2,6 +2,9 @@
 //! stays inside the window; an embedded gallery leaves theming to its host.
 
 use fission::layout::LayoutSize;
+use fission::op::LayoutOp;
+use fission::prelude::WidgetId;
+use fission::Op;
 use fission_test::{TestDriver, TestHarness};
 use widget_gallery::{embedded_state, GalleryApp, GalleryPage, GalleryState};
 
@@ -119,6 +122,28 @@ fn a_wide_window_keeps_the_sidebar() {
     assert!(driver
         .find_semantics_identifier("gallery.page_picker")
         .is_none());
+}
+
+#[test]
+fn a_short_wide_window_keeps_the_component_list_scrollbar() {
+    let driver = driver(on_page(GalleryPage::Button), LayoutSize::new(1280.0, 420.0));
+    let ir = driver
+        .harness
+        .last_ir
+        .as_ref()
+        .expect("gallery should lower");
+    let scroll = ir
+        .nodes
+        .get(&WidgetId::explicit("gallery.components.scroll"))
+        .expect("the component list should have its own scroll viewport");
+
+    assert!(matches!(
+        scroll.op,
+        Op::Layout(LayoutOp::Scroll {
+            show_scrollbar: true,
+            ..
+        })
+    ));
 }
 
 #[test]

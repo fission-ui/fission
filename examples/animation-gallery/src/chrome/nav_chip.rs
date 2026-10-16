@@ -29,6 +29,10 @@ impl From<NavChip<'_>> for Widget {
             )),
             ..Default::default()
         }
+        .semantics_identifier(format!(
+            "animation-gallery.nav{}",
+            chip.path.replace('/', ".")
+        ))
         .into()
     }
 }

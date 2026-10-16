@@ -2,6 +2,8 @@ mod app;
 mod catalog;
 mod components;
 mod i18n;
+#[cfg(test)]
+mod interaction_tests;
 mod mounted_example;
 mod pages;
 #[cfg(test)]

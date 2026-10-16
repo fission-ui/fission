@@ -1,8 +1,8 @@
 use super::common::{policy_allows_motion, preview_active, PreviewShell};
 use super::popover_menu::PopoverMenu;
 use crate::state::{
-    current_composition_atoms, reset_timeline, AnimationGalleryState, MotionAtom, MotionChoice,
-    MotionPolicy, ResetTimeline,
+    current_composition_atoms, reset_timeline, toggle_play, AnimationGalleryState, MotionAtom,
+    MotionChoice, MotionPolicy, ResetTimeline, TogglePlay,
 };
 use crate::style;
 use fission::build::BuildCtxHandle;
@@ -21,6 +21,7 @@ impl From<PopoverPreview<'_>> for Widget {
         let close = preview
             .ctx
             .bind(ResetTimeline, reduce_with!(reset_timeline));
+        let toggle = preview.ctx.bind(TogglePlay, reduce_with!(toggle_play));
 
         PreviewShell {
             child: Column {
@@ -36,8 +37,10 @@ impl From<PopoverPreview<'_>> for Widget {
                         trigger: Button {
                             variant: ButtonVariant::Outline,
                             child: Some(Text::new("Profile actions").into()),
+                            on_press: Some(toggle),
                             ..Default::default()
                         }
+                        .semantics_identifier("gallery.real.popover.trigger")
                         .into(),
                         content: PopoverMenu {
                             close: close.clone(),
