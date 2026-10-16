@@ -1792,13 +1792,8 @@ impl HtmlRenderer<'_> {
             }
             EmbedKind::Web => {
                 if let Some(web) = self.options.web_registrations.get(&widget_id) {
-                    let title = node
-                        .parent
-                        .and_then(|parent| self.ir.nodes.get(&parent))
-                        .and_then(|parent| match &parent.op {
-                            Op::Semantics(semantics) => semantics.label.as_deref(),
-                            _ => None,
-                        })
+                    let title = self
+                        .nearest_ancestor_semantic_label(node)
                         .unwrap_or("Embedded web content");
                     Ok(format!(
                         "<iframe class=\"{}\" src=\"{}\" title=\"{}\" loading=\"lazy\" referrerpolicy=\"strict-origin-when-cross-origin\" data-fission-web-view=\"{}\" data-fission-node=\"{}\"></iframe>",
@@ -1824,6 +1819,20 @@ impl HtmlRenderer<'_> {
                 "Custom embedded surface is not available in static HTML",
             )),
         }
+    }
+
+    fn nearest_ancestor_semantic_label<'a>(&'a self, node: &'a CoreNode) -> Option<&'a str> {
+        let mut parent_id = node.parent;
+        while let Some(id) = parent_id {
+            let parent = self.ir.nodes.get(&id)?;
+            if let Op::Semantics(semantics) = &parent.op {
+                if let Some(label) = semantics.label.as_deref() {
+                    return Some(label);
+                }
+            }
+            parent_id = parent.parent;
+        }
+        None
     }
 
     fn render_embed_fallback(
@@ -5457,6 +5466,7 @@ mod tests {
     fn web_embed_uses_its_semantic_label_as_the_iframe_title() {
         let web_widget = WidgetId::explicit("web-widget");
         let web_node = WidgetId::explicit("web-node");
+        let wrapper = WidgetId::explicit("web-wrapper");
         let semantics = WidgetId::explicit("web-semantics");
         let mut ir = CoreIR::new();
         ir.add_node(
@@ -5470,13 +5480,18 @@ mod tests {
             Vec::new(),
         );
         ir.add_node(
+            wrapper,
+            Op::Structural(fission_ir::StructuralOp::Group { stable_hash: 1 }),
+            vec![web_node],
+        );
+        ir.add_node(
             semantics,
             Op::Semantics(Semantics {
                 role: Role::Group,
                 label: Some("Interactive Rust GUI example".into()),
                 ..Default::default()
             }),
-            vec![web_node],
+            vec![wrapper],
         );
         ir.set_root(semantics);
 
