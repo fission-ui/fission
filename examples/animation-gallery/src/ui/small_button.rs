@@ -29,6 +29,10 @@ where
             on_press: Some(button.ctx.bind(button.action, button.reducer)),
             ..Default::default()
         }
+        .semantics_identifier(format!(
+            "animation-gallery.action.{}",
+            button.label.to_ascii_lowercase().replace(' ', "-")
+        ))
         .into()
     }
 }

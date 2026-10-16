@@ -15,6 +15,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 type MountedRuntimes = HashMap<String, RuntimeSlot>;
 
 static MOUNTED_RUNTIMES: OnceLock<Mutex<MountedRuntimes>> = OnceLock::new();
+const MOUNTED_PREVIEW_SCOPE: &str = "showcase.mounted-preview";
 
 struct RuntimeSlot {
     generation: u64,
@@ -64,7 +65,10 @@ where
 {
     fn from(component: MountedExample<S, W>) -> Self {
         let (outer_ctx, outer_view) = fission::build::current::<crate::state::ShowcaseState>();
-        let scope = ActionScopeId::from_name(component.key);
+        // There is only one mounted preview. Reusing one scope means rebuilding or
+        // navigating replaces the active handlers instead of leaving every preview
+        // visited during this process registered forever.
+        let scope = ActionScopeId::from_name(MOUNTED_PREVIEW_SCOPE);
         let runtime_key = runtime_key::<S>(component.key);
         let runtime =
             mounted_runtime::<S>(component.key, component.generation, component.initial_state);
@@ -86,6 +90,10 @@ where
             let mut runtime_guard = runtime
                 .lock()
                 .expect("mounted example runtime mutex poisoned");
+            // The outer shell owns input, focus, gestures, text editing and motion for
+            // the combined IR. Retained component-local values still belong to the
+            // mounted runtime because its scoped reducers update that store. Compose
+            // those two authorities rather than replacing either runtime wholesale.
             let mut child_runtime_state = outer_view.runtime().clone();
             child_runtime_state.local_widget_state =
                 runtime_guard.runtime_state.local_widget_state.clone();
@@ -126,6 +134,7 @@ where
             &mut child_ctx,
             scope,
             &child_env,
+            outer_view.viewport_size(),
             &runtime_key,
             component.generation,
         );
@@ -137,6 +146,29 @@ where
 
 fn runtime_key<S: GlobalState>(key: &str) -> String {
     format!("{key}:{}", std::any::type_name::<S>())
+}
+
+#[cfg(test)]
+pub(crate) fn mounted_state<S>(key: &str) -> S
+where
+    S: GlobalState + Clone,
+{
+    let runtime = MOUNTED_RUNTIMES
+        .get()
+        .expect("mounted runtime registry")
+        .lock()
+        .expect("mounted runtime registry mutex")
+        .get(&runtime_key::<S>(key))
+        .expect("mounted runtime")
+        .runtime
+        .clone();
+    let state = runtime
+        .lock()
+        .expect("mounted runtime mutex")
+        .get_global_state::<S>()
+        .expect("mounted state")
+        .clone();
+    state
 }
 
 fn mounted_runtime<S>(key: &str, generation: u64, initial_state: fn() -> S) -> Arc<Mutex<Runtime>>
@@ -215,7 +247,7 @@ fn install_action_handlers(
                     .lock()
                     .expect("mounted example runtime mutex poisoned");
                 runtime.dispatch_with_input(action.clone(), target, input.unscoped())?;
-                runtime.pending_effects.clear();
+                runtime.discard_pending_effects();
                 Ok(ScopedActionResolution::Handled)
             }),
         )
@@ -228,6 +260,7 @@ fn forward_build_registrations(
     child_ctx: &mut BuildCtx<impl GlobalState>,
     scope: ActionScopeId,
     env: &Arc<Env>,
+    host_viewport: LayoutSize,
     runtime_key: &str,
     generation: u64,
 ) {
@@ -241,11 +274,19 @@ fn forward_build_registrations(
         outer_ctx.register_web_view(registration);
     }
     for portal in child_ctx.portals.drain(..) {
+        // Keep the positioned portal root directly beneath the sized container.
+        // EnvScope and ActionScope are layout-transparent in intent, but their
+        // retained wrapper nodes would otherwise sit between the container and
+        // the absolute root, leaving that root with zero containing-block bounds.
+        let portal_root = Container::new(portal.node)
+            .width(host_viewport.width)
+            .height(host_viewport.height);
+        let scoped_portal = EnvScope::new(env.clone(), portal_root);
         outer_ctx.register_portal_with_layer(
             portal.layer,
             portal.id,
             // Popups such as a select's menu belong to the preview's look as well.
-            ActionScope::new(scope, EnvScope::new(env.clone(), portal.node)).into(),
+            ActionScope::new(scope, scoped_portal).into(),
         );
     }
     let resources = child_ctx.take_resources();
@@ -360,5 +401,5 @@ fn on_mounted_resource_callback(
         WidgetId::from_u128(0),
         ctx.input.unscoped(),
     );
-    runtime.pending_effects.clear();
+    runtime.discard_pending_effects();
 }

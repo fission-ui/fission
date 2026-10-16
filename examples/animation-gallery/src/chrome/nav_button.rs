@@ -27,6 +27,10 @@ impl From<NavButton<'_>> for Widget {
             )),
             ..Default::default()
         }
+        .semantics_identifier(format!(
+            "animation-gallery.nav{}",
+            button.item.path.replace('/', ".")
+        ))
         .into()
     }
 }

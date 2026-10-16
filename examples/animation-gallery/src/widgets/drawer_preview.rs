@@ -56,7 +56,8 @@ impl From<DrawerPreview<'_>> for Widget {
                                     child: Some(Text::new("Close drawer").into()),
                                     on_press: Some(close),
                                     ..Default::default()
-                                },
+                                }
+                                .semantics_identifier("gallery.real.drawer.close"),
                             ],
                             ..Default::default()
                         }
