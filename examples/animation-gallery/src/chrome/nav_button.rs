@@ -31,6 +31,7 @@ impl From<NavButton<'_>> for Widget {
             "animation-gallery.nav{}",
             button.item.path.replace('/', ".")
         ))
+        .width_length(Length::percent(100.0))
         .into()
     }
 }

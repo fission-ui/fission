@@ -175,6 +175,15 @@ fn mounted_examples_keep_focus_dispatch_actions_and_forward_portals() {
         "catalogue navigation must dispatch after a visible pressed frame"
     );
 
+    let catalogue_row = driver
+        .find_semantics_identifier("showcase.example.text-lab")
+        .expect("text lab catalogue row");
+    assert!(
+        catalogue_row.bounds.width() > 300.0,
+        "catalogue row interaction bounds must fill the catalogue width, got {:?}",
+        catalogue_row.bounds
+    );
+
     // A control must be actionable across its painted body, not only at one
     // fortunate centre coordinate. Alternate previews so every press causes an
     // observable route change.

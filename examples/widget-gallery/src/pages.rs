@@ -603,6 +603,7 @@ impl From<Sidebar> for Widget {
                         ..Default::default()
                     }
                     .semantics_identifier(format!("gallery.nav.{}", page.slug()))
+                    .width_length(Length::percent(100.0))
                     .into(),
                 );
             }

@@ -69,6 +69,7 @@ impl From<Sidebar> for Widget {
                                 ),
                                 ..Default::default()
                             }
+                            .width_length(fission::core::Length::percent(100.0))
                             .into(),
                             TreeView {
                                 selected_id: Some(state.selected_folder.to_string().to_lowercase()),
@@ -164,6 +165,7 @@ impl From<NavLink> for Widget {
             on_press: Some(link.on_press),
             ..Default::default()
         }
+        .width_length(fission::core::Length::percent(100.0))
         .into()
     }
 }

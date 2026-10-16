@@ -6,7 +6,7 @@ use crate::motion::{
     MotionPropertyId, MotionStartValue, MotionTrack, MotionTransition, MotionValue, RippleFx,
 };
 use crate::ui::{Icon, Text, TextContent, Widget};
-use crate::{ActionEnvelope, Env, InteractionStateMap};
+use crate::{ActionEnvelope, BoxStyle, Env, InteractionStateMap, Length};
 use fission_ir::{
     op::{BoxShadow, Color as IrColor, Fill, LayoutOp, Op, PaintOp, Stroke},
     ActionEntry, ActionSet, CompositeScalar, CompositeStyle, FocusPolicy, Role, Semantics,
@@ -344,6 +344,10 @@ pub struct Button {
     pub focus_policy: FocusPolicy,
     /// Fixed width in layout points.
     pub width: Option<f32>,
+    /// Responsive or intrinsic width. When set, this takes precedence over
+    /// [`Button::width`] and the design-system recipe width.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub width_length: Option<Length>,
     /// Fixed height in layout points.
     pub height: Option<f32>,
     /// Minimum width constraint.
@@ -438,6 +442,15 @@ impl Button {
         self
     }
 
+    /// Sets a responsive or intrinsic preferred width.
+    ///
+    /// `Length::percent(100.0)` is useful for navigation rows whose painted
+    /// and interactive surface should fill the available width.
+    pub fn width_length(mut self, width: Length) -> Self {
+        self.width_length = Some(width);
+        self
+    }
+
     pub fn max_width(mut self, width: f32) -> Self {
         self.max_width = Some(width);
         self
@@ -455,6 +468,7 @@ impl Default for Button {
             semantics: None,
             focus_policy: FocusPolicy::FocusOnPointer,
             width: None,
+            width_length: None,
             height: None,
             min_width: None,
             max_width: None,
@@ -1605,6 +1619,7 @@ impl Lower for Button {
         // An icon-only button is a square as tall as its size, with the icon centred.
         let square = self.icon_content.is_some()
             && self.width.is_none()
+            && self.width_length.is_none()
             && resolved_style.width.is_none()
             && self.height.is_none();
         let layout_padding = self.padding.unwrap_or_else(|| {
@@ -1619,34 +1634,53 @@ impl Lower for Button {
         });
 
         cx.with_scope(layout_node_id, |cx| {
-            let mut button_builder = IrBuilder::new(
-                layout_node_id,
-                Op::Layout(LayoutOp::Box {
-                    width: self
-                        .width
-                        .or(resolved_style.width)
-                        .or(square.then_some(resolved_style.height)),
+            let resolved_width = self
+                .width
+                .or(resolved_style.width)
+                .or(square.then_some(resolved_style.height));
+            let resolved_min_height = if self.height.is_some() {
+                None
+            } else {
+                Some(
+                    resolved_style
+                        .min_height
+                        .unwrap_or(0.0)
+                        .max(resolved_style.height),
+                )
+            };
+            let layout_op = if let Some(width) = self.width_length.clone() {
+                LayoutOp::StyledBox {
+                    style: BoxStyle {
+                        width: Some(width),
+                        height: self.height.map(Length::points),
+                        min_width: self.min_width.map(Length::points),
+                        max_width: self
+                            .max_width
+                            .or(resolved_style.max_width)
+                            .map(Length::points),
+                        min_height: resolved_min_height.map(Length::points),
+                        padding: Some(layout_padding.map(Length::points)),
+                        ..BoxStyle::default()
+                    },
+                    flex_grow: self.flex_grow,
+                    flex_shrink: self.flex_shrink,
+                }
+            } else {
+                LayoutOp::Box {
+                    width: resolved_width,
                     height: self.height,
                     min_width: self.min_width,
                     max_width: self.max_width.or(resolved_style.max_width),
-                    min_height: if self.height.is_some() {
-                        None
-                    } else {
-                        Some(
-                            resolved_style
-                                .min_height
-                                .unwrap_or(0.0)
-                                .max(resolved_style.height),
-                        )
-                    },
+                    min_height: resolved_min_height,
                     max_height: None,
                     padding: layout_padding,
                     flex_grow: self.flex_grow,
                     flex_shrink: self.flex_shrink,
                     aspect_ratio: None,
-                }),
-            )
-            .composite(self.motion_composite_style(cx.env, final_id, &resolved_style));
+                }
+            };
+            let mut button_builder = IrBuilder::new(layout_node_id, Op::Layout(layout_op))
+                .composite(self.motion_composite_style(cx.env, final_id, &resolved_style));
 
             for shadow in &resolved_style.outer_shadows {
                 let shadow_id = IrBuilder::new(

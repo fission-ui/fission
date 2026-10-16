@@ -220,6 +220,39 @@ fn recipe_button_height_is_a_minimum_for_taller_custom_content() {
     );
 }
 
+#[test]
+fn percentage_width_button_owns_the_full_painted_and_interactive_row() {
+    let button_id = WidgetId::explicit("alignment.button.full-row");
+    let button = Button {
+        id: Some(button_id),
+        child: Some(Text::new("Inbox").into()),
+        semantics: Some(fission_ir::Semantics {
+            role: Role::Button,
+            focusable: true,
+            ..Default::default()
+        }),
+        variant: ButtonVariant::Ghost,
+        content_align: fission_core::ui::ButtonContentAlign::Start,
+        ..Default::default()
+    }
+    .width_length(Length::percent(100.0));
+
+    let (_ir, snapshot) = layout_from_widget_at_size(
+        button.into(),
+        Arc::new(SimpleMeasurer),
+        LayoutSize::new(320.0, 100.0),
+    );
+    let rect = snapshot
+        .get_node_geometry(button_id)
+        .expect("button semantic geometry")
+        .rect;
+
+    assert!(
+        approx_eq(rect.width(), 320.0),
+        "a 100% button must paint and hit across its available row: {rect:?}"
+    );
+}
+
 /// Checkbox and radio indicators are sized by the design system's medium icon
 /// token, so these tests follow the token rather than a fixed pixel size.
 fn indicator_size() -> f32 {
