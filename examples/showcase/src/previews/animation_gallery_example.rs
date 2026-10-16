@@ -14,6 +14,8 @@ impl From<AnimationGalleryExample> for Widget {
             view.state().preview_generation,
             AnimationGalleryApp,
         )
+        // The showcase header already names the example, so the gallery drops its brand.
+        .with_state(animation_gallery_example::embedded_state)
         .into()
     }
 }

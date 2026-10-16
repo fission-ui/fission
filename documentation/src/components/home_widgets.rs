@@ -3,6 +3,17 @@ use fission::op::{AlignItems, Fill, FlexWrap, JustifyContent};
 use fission::prelude::*;
 use fission::{Role, Semantics};
 
+pub(super) const SHOWCASE_LINK_ACCESSIBLE_LABEL: &str =
+    "Open the interactive Fission Rust GUI and WebAssembly example showcase";
+
+pub(super) fn label_site_link(mut text: Text, href: &str) -> Text {
+    text = text.semantics_identifier(format!("site-route:{href}"));
+    if href == "/showcase/" {
+        text = text.semantics_label(SHOWCASE_LINK_ACCESSIBLE_LABEL);
+    }
+    text
+}
+
 pub(super) fn site_semantics(identifier: impl Into<String>) -> Semantics {
     let identifier = identifier.into();
     let identifier = if identifier.starts_with("value-home-") {
@@ -139,11 +150,10 @@ impl From<NavLink> for Widget {
     fn from(component: NavLink) -> Self {
         let (_ctx, view) = fission::build::current::<DocsState>();
         let tokens = &view.env().theme.tokens;
-        Text::new(component.label)
+        label_site_link(Text::new(component.label), component.href)
             .size(tokens.typography.label_large_size)
             .weight(tokens.typography.font_weight_semibold)
             .color(tokens.colors.text_link)
-            .semantics_identifier(format!("site-route:{}", component.href))
             .into()
     }
 }
@@ -262,11 +272,10 @@ impl From<Cta> for Widget {
             (tokens.colors.surface_sunken, tokens.colors.text_primary)
         };
         Container::new(
-            Text::new(component.label)
+            label_site_link(Text::new(component.label), component.href)
                 .size(tokens.typography.label_large_size)
                 .weight(tokens.typography.font_weight_bold)
-                .color(foreground)
-                .semantics_identifier(format!("site-route:{}", component.href)),
+                .color(foreground),
         )
         .padding([
             tokens.spacing.l,

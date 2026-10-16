@@ -160,6 +160,10 @@ struct ImeHandlerState {
     cursor_area: ImeCursorAreaCache,
     #[cfg(target_os = "macos")]
     mac_view_id: Option<usize>,
+    /// What the application asked the browser to keep, read from the window
+    /// before any text field took focus.
+    #[cfg(target_arch = "wasm32")]
+    app_browser_defaults: Option<winit::platform::web::BrowserDefaults>,
 }
 
 #[derive(Default)]
@@ -171,6 +175,10 @@ impl DesktopImeHandler {
     pub fn set_window(&self, window: Option<Arc<Window>>) {
         let mut state = self.state.lock().expect("ime handler lock poisoned");
         state.window = window;
+        #[cfg(target_arch = "wasm32")]
+        {
+            state.app_browser_defaults = None;
+        }
         sync_text_input_config(&mut state);
     }
 
@@ -263,10 +271,60 @@ impl ImeHandler for DesktopImeHandler {
     }
 }
 
+/// Prevent browser DOM editing while a Fission field has focus, while retaining
+/// the browser-level command shortcuts the application opted into.
+#[cfg(target_arch = "wasm32")]
+fn sync_browser_keyboard(state: &mut ImeHandlerState) {
+    use winit::platform::web::{BrowserDefaults, WindowExtWebSys};
+
+    let editing = effective_ime_allowed(
+        state.ime_allowed_requested,
+        state.text_input_config.as_ref(),
+    );
+    let Some(window) = state.window.as_ref() else {
+        return;
+    };
+    let app = *state
+        .app_browser_defaults
+        .get_or_insert_with(|| window.browser_defaults());
+    let wanted = match editing && app.contains(BrowserDefaults::KEYBOARD) {
+        true => without_keyboard_editing(app),
+        false => app,
+    };
+    if window.browser_defaults() != wanted {
+        window.set_browser_defaults(wanted);
+    }
+}
+
+/// `defaults` with browser text editing and focus traversal disabled, but its
+/// browser command shortcuts retained.
+#[cfg(target_arch = "wasm32")]
+fn without_keyboard_editing(
+    defaults: winit::platform::web::BrowserDefaults,
+) -> winit::platform::web::BrowserDefaults {
+    use winit::platform::web::BrowserDefaults;
+    let mut kept = [
+        BrowserDefaults::POINTER,
+        BrowserDefaults::TOUCH,
+        BrowserDefaults::WHEEL,
+        BrowserDefaults::CONTEXT_MENU,
+        BrowserDefaults::CLIPBOARD,
+    ]
+    .into_iter()
+    .filter(|flag| defaults.contains(*flag))
+    .fold(BrowserDefaults::NONE, |kept, flag| kept | flag);
+    if defaults.contains(BrowserDefaults::KEYBOARD) {
+        kept |= BrowserDefaults::KEYBOARD_SHORTCUTS;
+    }
+    kept
+}
+
 fn sync_text_input_config(state: &mut ImeHandlerState) {
     // Re-enabling IME or changing input traits can reset platform state. The
     // next cursor sync must publish even if the new field uses the same area.
     state.cursor_area.clear();
+    #[cfg(target_arch = "wasm32")]
+    sync_browser_keyboard(state);
     if let Some(window) = state.window.as_ref() {
         window.set_ime_allowed(effective_ime_allowed(
             state.ime_allowed_requested,

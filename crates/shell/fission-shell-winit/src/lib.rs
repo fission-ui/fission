@@ -591,13 +591,16 @@ fn render_scene3d_external_surfaces(
             .payload
             .starts_with(fission_scene3d::SCENE3D_EMBED_MAGIC);
         #[cfg(feature = "three-d")]
-        let legacy = !modern
-            && fission_3d::decode_legacy_render_packet(
+        let legacy = if modern {
+            None
+        } else {
+            fission_3d::decode_legacy_render_packet(
                 &surface.payload,
                 surface.rect.size.width,
                 surface.rect.size.height,
             )
-            .ok();
+            .ok()
+        };
         #[cfg(not(feature = "three-d"))]
         let legacy: Option<()> = None;
         if !modern && legacy.is_none() {
@@ -8650,6 +8653,20 @@ where
                                 }
                             }
                             pipeline.set_viewport_state(&runtime.runtime_state.viewport);
+                            // An overlay scrollbar only comes forward for the
+                            // pane the pointer is in, or the thumb being dragged.
+                            let active_bars = pipeline
+                                .prev_ir
+                                .as_ref()
+                                .map(|ir| {
+                                    fission_core::scrollbar::active_scrollbar_nodes(
+                                        ir,
+                                        runtime.runtime_state.interaction.hovered_path(),
+                                        runtime.runtime_state.gesture.scrollbar_drag,
+                                    )
+                                })
+                                .unwrap_or_default();
+                            pipeline.set_active_scrollbars(active_bars);
                             if let (Some(ir), Some(layout)) =
                                 (pipeline.prev_ir.as_ref(), pipeline.last_snapshot.as_ref())
                             {

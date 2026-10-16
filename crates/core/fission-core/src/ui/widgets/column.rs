@@ -11,6 +11,11 @@ use serde::{Deserialize, Serialize};
 /// cross-axis (horizontal) alignment and `justify_content` for main-axis
 /// (vertical) distribution.
 ///
+/// When vertical space is tight, children stop shrinking at the height their
+/// content needs. A child intended to own its overflow can be a [`Scroll`](super::Scroll)
+/// directly, or can be wrapped in a [`Container`](super::Container) with an
+/// explicit minimum height of zero.
+///
 /// # Example
 ///
 /// ```rust,ignore

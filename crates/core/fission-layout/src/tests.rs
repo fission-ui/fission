@@ -1018,3 +1018,211 @@ fn flyout_placement_prefers_below_when_full_content_fits() {
 
     assert_eq!(position, LayoutPoint::new(100.0, 172.0));
 }
+
+fn fixed_height_child(id: WidgetId, parent: WidgetId, height: f32) -> LayoutInputNode {
+    node(
+        id,
+        Some(parent),
+        vec![],
+        LayoutOp::Box {
+            width: Some(80.0),
+            height: Some(height),
+            min_width: None,
+            max_width: None,
+            min_height: None,
+            max_height: None,
+            padding: [0.0; 4],
+            flex_grow: 0.0,
+            flex_shrink: 1.0,
+            aspect_ratio: None,
+        },
+    )
+}
+
+/// A column taller than its container spills past the bottom edge, as it does on
+/// the web, instead of squeezing every child until the text inside overlaps.
+#[test]
+fn an_overflowing_column_keeps_each_child_at_its_content_height() {
+    let root = WidgetId::from_u128(900);
+    let first = WidgetId::from_u128(901);
+    let second = WidgetId::from_u128(902);
+    let nodes = vec![
+        node(
+            root,
+            None,
+            vec![first, second],
+            LayoutOp::Flex {
+                direction: fission_ir::op::FlexDirection::Column,
+                wrap: fission_ir::op::FlexWrap::NoWrap,
+                flex_grow: 0.0,
+                flex_shrink: 1.0,
+                padding: [0.0; 4],
+                gap: None,
+                line_gap: None,
+                align_items: fission_ir::op::AlignItems::Start,
+                justify_content: fission_ir::op::JustifyContent::Start,
+            },
+        ),
+        fixed_height_child(first, root, 60.0),
+        fixed_height_child(second, root, 60.0),
+    ];
+
+    let mut engine = LayoutEngine::new();
+    let snapshot = engine
+        .compute_layout(&nodes, root, LayoutSize::new(200.0, 100.0), &|_| 0.0)
+        .expect("column layout");
+
+    let first_rect = snapshot.nodes[&first].rect;
+    let second_rect = snapshot.nodes[&second].rect;
+    assert_eq!(
+        first_rect.height(),
+        60.0,
+        "the first child keeps its height"
+    );
+    assert_eq!(
+        second_rect.height(),
+        60.0,
+        "the second child keeps its height"
+    );
+    assert!(
+        second_rect.y() >= first_rect.y() + first_rect.height(),
+        "the second child starts below the first, at {} against {}",
+        second_rect.y(),
+        first_rect.y() + first_rect.height()
+    );
+}
+
+#[test]
+fn an_explicit_zero_minimum_lets_a_scroll_wrapper_shrink() {
+    let root = WidgetId::from_u128(910);
+    let wrapper = WidgetId::from_u128(911);
+    let scroll = WidgetId::from_u128(912);
+    let content = WidgetId::from_u128(913);
+    let footer = WidgetId::from_u128(914);
+    let nodes = vec![
+        node(
+            root,
+            None,
+            vec![wrapper, footer],
+            LayoutOp::Flex {
+                direction: fission_ir::op::FlexDirection::Column,
+                wrap: fission_ir::op::FlexWrap::NoWrap,
+                flex_grow: 0.0,
+                flex_shrink: 1.0,
+                padding: [0.0; 4],
+                gap: None,
+                line_gap: None,
+                align_items: fission_ir::op::AlignItems::Start,
+                justify_content: fission_ir::op::JustifyContent::Start,
+            },
+        ),
+        node(
+            wrapper,
+            Some(root),
+            vec![scroll],
+            LayoutOp::Box {
+                width: Some(100.0),
+                height: None,
+                min_width: None,
+                max_width: None,
+                min_height: Some(0.0),
+                max_height: None,
+                padding: [0.0; 4],
+                flex_grow: 0.0,
+                flex_shrink: 1.0,
+                aspect_ratio: None,
+            },
+        ),
+        node(
+            scroll,
+            Some(wrapper),
+            vec![content],
+            LayoutOp::Scroll {
+                direction: fission_ir::op::FlexDirection::Column,
+                show_scrollbar: true,
+                width: None,
+                height: None,
+                min_width: None,
+                max_width: None,
+                min_height: None,
+                max_height: None,
+                padding: [0.0; 4],
+                flex_grow: 1.0,
+                flex_shrink: 1.0,
+            },
+        ),
+        fixed_height_child(content, scroll, 100.0),
+        fixed_height_child(footer, root, 60.0),
+    ];
+
+    let mut engine = LayoutEngine::new();
+    let snapshot = engine
+        .compute_layout(&nodes, root, LayoutSize::new(200.0, 100.0), &|_| 0.0)
+        .expect("column with wrapped scroll layout");
+
+    let wrapper_rect = snapshot.nodes[&wrapper].rect;
+    let footer_rect = snapshot.nodes[&footer].rect;
+    assert_eq!(
+        wrapper_rect.height(),
+        40.0,
+        "the scroll wrapper must absorb shrink left over when the footer reaches its floor"
+    );
+    assert_eq!(footer_rect.height(), 60.0);
+    assert_eq!(footer_rect.y(), wrapper_rect.y() + wrapper_rect.height());
+    assert_eq!(footer_rect.y() + footer_rect.height(), 100.0);
+}
+
+#[test]
+fn a_scroll_child_keeps_its_explicit_minimum_while_shrinking() {
+    let root = WidgetId::from_u128(920);
+    let scroll = WidgetId::from_u128(921);
+    let content = WidgetId::from_u128(922);
+    let footer = WidgetId::from_u128(923);
+    let nodes = vec![
+        node(
+            root,
+            None,
+            vec![scroll, footer],
+            LayoutOp::Flex {
+                direction: fission_ir::op::FlexDirection::Column,
+                wrap: fission_ir::op::FlexWrap::NoWrap,
+                flex_grow: 0.0,
+                flex_shrink: 1.0,
+                padding: [0.0; 4],
+                gap: None,
+                line_gap: None,
+                align_items: fission_ir::op::AlignItems::Start,
+                justify_content: fission_ir::op::JustifyContent::Start,
+            },
+        ),
+        node(
+            scroll,
+            Some(root),
+            vec![content],
+            LayoutOp::Scroll {
+                direction: fission_ir::op::FlexDirection::Column,
+                show_scrollbar: true,
+                width: None,
+                height: None,
+                min_width: None,
+                max_width: None,
+                min_height: Some(70.0),
+                max_height: None,
+                padding: [0.0; 4],
+                flex_grow: 0.0,
+                flex_shrink: 1.0,
+            },
+        ),
+        fixed_height_child(content, scroll, 100.0),
+        fixed_height_child(footer, root, 60.0),
+    ];
+
+    let mut engine = LayoutEngine::new();
+    let snapshot = engine
+        .compute_layout(&nodes, root, LayoutSize::new(200.0, 100.0), &|_| 0.0)
+        .expect("column with a minimum-sized scroll child");
+
+    assert_eq!(snapshot.nodes[&scroll].rect.height(), 70.0);
+    assert_eq!(snapshot.nodes[&footer].rect.height(), 60.0);
+    assert_eq!(snapshot.nodes[&footer].rect.y(), 70.0);
+}

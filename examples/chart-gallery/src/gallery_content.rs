@@ -2,7 +2,6 @@ use crate::charts::SelectedChart;
 use crate::gallery_controls::GalleryControls;
 use crate::state::{GalleryState, SHOWCASE_CATEGORY};
 use fission::prelude::*;
-use fission::widgets::Spacer;
 
 pub(crate) struct GalleryContent {
     pub(crate) chart: SelectedChart,
@@ -14,47 +13,33 @@ impl From<GalleryContent> for Widget {
     fn from(content: GalleryContent) -> Self {
         let (_, view) = fission::build::current::<GalleryState>();
         let tokens = &view.env().theme.tokens;
+        // The page is titled after the tab that opens it, not with a second app name.
         let title = if view.state().selected_category == SHOWCASE_CATEGORY {
-            "Chart Showcase"
+            "Showcase overview"
         } else {
             "Interactive Demo"
         };
 
+        // The layout scrolls this whole column as the page, so the controls sit
+        // under the title where they stay easy to find above the charts.
         Container::new(Column {
             id: Some(WidgetId::explicit(&format!(
                 "chart-gallery.content.{}",
                 content.instance
             ))),
             children: widgets![
-                Row {
-                    children: widgets![
-                        Text::new(title)
-                            .size(tokens.typography.heading_size)
-                            .color(tokens.colors.heading),
-                        Spacer {
-                            flex_grow: 1.0,
-                            ..Default::default()
-                        },
-                    ],
-                    ..Default::default()
-                },
-                Spacer {
-                    height: Some(tokens.spacing.l),
-                    ..Default::default()
-                },
-                content.chart,
-                Spacer {
-                    height: Some(tokens.spacing.l),
-                    ..Default::default()
-                },
+                Text::new(title)
+                    .size(tokens.typography.heading_size)
+                    .color(tokens.colors.heading),
                 content.controls,
+                content.chart,
             ],
-            flex_grow: 1.0,
+            gap: Some(tokens.spacing.l),
             ..Default::default()
         })
+        .width_length(Length::percent(100.0))
         .padding_all(tokens.spacing.xl)
         .bg(tokens.colors.background)
-        .flex_grow(1.0)
         .into()
     }
 }

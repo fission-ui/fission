@@ -1,25 +1,27 @@
 use super::brand::Brand;
 use crate::state::{
-    on_open_source, on_search_changed, on_set_locale, on_toggle_locale_menu, OpenSource,
-    SearchChanged, SetLocale, ShowcaseState, ToggleLocaleMenu,
+    on_open_source, on_set_locale, on_toggle_locale_menu, OpenSource, SetLocale, ShowcaseState,
+    ToggleLocaleMenu,
 };
 use fission::icons::material;
 use fission::op::AlignItems;
 use fission::prelude::*;
-use fission::widgets::{Select, SelectItem};
+use fission::widgets::{Select, SelectItem, Tooltip};
 
-const COMPACT_HEADER_BREAKPOINT: f32 = 720.0;
-const SEARCH_WIDTH: f32 = 280.0;
 /// Wide enough for the longest language name, since the menu matches its trigger.
 const LOCALE_PICKER_WIDTH: f32 = 128.0;
 
 /// Locale codes and their names, written in their own language so they are not translated.
 const LOCALES: [(&str, &str); 2] = [("en-US", "English"), ("es-ES", "Español")];
 
-/// The app bar: where you are, finding an example, language, and the source code.
+/// The repository host, named on the button so the destination is not a guess.
+const GITHUB_LABEL: &str = "GitHub";
+
+/// The app bar: where you are, language, and the source code.
 ///
 /// Language changes the whole showcase, so it sits with the app rather than in
-/// the toolbar above the preview, which keeps that toolbar to one row.
+/// the toolbar above the preview, which keeps that toolbar to one row. Search
+/// lives at the top of the catalog it filters.
 #[derive(Clone, Debug)]
 pub(crate) struct AppHeader;
 
@@ -27,66 +29,49 @@ impl From<AppHeader> for Widget {
     fn from(_component: AppHeader) -> Self {
         let (ctx, view) = fission::build::current::<ShowcaseState>();
         let tokens = &view.env().theme.tokens;
-        let compact = view.viewport_size().width < COMPACT_HEADER_BREAKPOINT;
-        let search = with_reducer!(ctx, SearchChanged, on_search_changed);
         let open_github = with_reducer!(
             ctx,
             OpenSource("https://github.com/fission-ui/fission".into()),
             on_open_source
         );
 
-        let search_field: Widget = TextInput {
-            id: Some(WidgetId::explicit("showcase.search")),
-            semantics_identifier: Some("showcase.search".into()),
-            value: view.state().search.clone(),
-            placeholder: Some(TextContent::Key("showcase.nav.search".into())),
-            on_input: Some(search),
-            width: (!compact).then_some(SEARCH_WIDTH),
-            ..Default::default()
+        // A bare `<>` glyph is guesswork: nothing about it says the repository,
+        // and the icon set ships no GitHub mark to use instead. The destination
+        // is named on the button, with the tooltip saying what pressing it does.
+        let github: Widget = Tooltip {
+            id: WidgetId::explicit("showcase.github.tooltip"),
+            child: Button {
+                variant: ButtonVariant::Ghost,
+                size: ComponentSize::Sm,
+                content: Some(
+                    // A product name, so it reads the same in every language.
+                    ButtonContent::new(TextContent::Literal(GITHUB_LABEL.into()))
+                        .leading_icon(Icon::svg(material::action::code::round())),
+                ),
+                on_press: Some(open_github),
+                ..Default::default()
+            }
+            .semantics_identifier("showcase.github")
+            .into(),
+            text: view.tr("showcase.github.hint"),
+            is_visible: false,
+            motion: None,
         }
-        .into();
-        let github: Widget = Button {
-            variant: ButtonVariant::Ghost,
-            size: ComponentSize::Sm,
-            icon_content: Some(ButtonIconContent::new(
-                Icon::svg(material::action::code::round()),
-                "GitHub",
-            )),
-            on_press: Some(open_github),
-            ..Default::default()
-        }
-        .semantics_identifier("showcase.github")
         .into();
 
-        let spacer = || Spacer {
-            flex_grow: 1.0,
+        let content = Row {
+            children: widgets![
+                Brand,
+                Spacer {
+                    flex_grow: 1.0,
+                    ..Default::default()
+                },
+                LocalePicker,
+                github
+            ],
+            gap: Some(tokens.spacing.m),
+            align_items: AlignItems::Center,
             ..Default::default()
-        };
-        // A narrow bar has no room for search beside the brand and language, so
-        // search takes a full-width row of its own underneath.
-        let content: Widget = if compact {
-            Column {
-                gap: Some(tokens.spacing.s),
-                children: widgets![
-                    Row {
-                        children: widgets![Brand, spacer(), LocalePicker, github],
-                        gap: Some(tokens.spacing.m),
-                        align_items: AlignItems::Center,
-                        ..Default::default()
-                    },
-                    Container::new(search_field).width_length(Length::percent(100.0)),
-                ],
-                ..Default::default()
-            }
-            .into()
-        } else {
-            Row {
-                children: widgets![Brand, spacer(), search_field, LocalePicker, github],
-                gap: Some(tokens.spacing.m),
-                align_items: AlignItems::Center,
-                ..Default::default()
-            }
-            .into()
         };
 
         Container::new(content)

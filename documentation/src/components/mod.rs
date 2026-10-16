@@ -9,6 +9,7 @@ mod landing_sections;
 mod localized;
 mod marketing;
 mod page_kit;
+mod showcase;
 mod state;
 
 pub(crate) use crates::{CrateDetailPage, CrateDirectoryPage};
@@ -17,4 +18,5 @@ pub(crate) use home::RoutedHomePage;
 pub(crate) use home_nav::ContentPageNav;
 pub(crate) use localized::LocalizedLandingPage;
 pub(crate) use marketing::{MarketingPageKind, ProductMarketingPage};
+pub(crate) use showcase::ShowcasePage;
 pub(crate) use state::DocsState;

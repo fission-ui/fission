@@ -1,5 +1,7 @@
 use super::brand_logo::BrandLogo;
-use super::home_widgets::{nav_inset, Cta, ExternalNavLink, SearchPill, ThemeToggle};
+use super::home_widgets::{
+    label_site_link, nav_inset, Cta, ExternalNavLink, SearchPill, ThemeToggle,
+};
 use super::state::DocsState;
 use fission::op::{AlignItems, Fill, FlexWrap, JustifyContent};
 use fission::prelude::*;
@@ -37,6 +39,11 @@ const NAV_ITEMS: &[NavItem] = &[
         href: "/blog/",
         children: &[],
     },
+    NavItem {
+        label: "Try Fission in the browser",
+        href: "/showcase/",
+        children: &[],
+    },
 ];
 
 const MOBILE_MENU_CHILDREN: &[NavItem] = &[
@@ -68,6 +75,11 @@ const MOBILE_MENU_CHILDREN: &[NavItem] = &[
     NavItem {
         label: "Blog",
         href: "/blog/",
+        children: &[],
+    },
+    NavItem {
+        label: "Try Fission in the browser",
+        href: "/showcase/",
         children: &[],
     },
 ];
@@ -102,6 +114,11 @@ const DOCS_NAV_ITEMS: &[NavItem] = &[
     NavItem {
         label: "Blog",
         href: "/blog/",
+        children: &[],
+    },
+    NavItem {
+        label: "Try Fission in the browser",
+        href: "/showcase/",
         children: &[],
     },
 ];
@@ -288,12 +305,14 @@ impl From<HomeNavItem> for Widget {
         let (_ctx, view) = fission::build::current::<DocsState>();
         let tokens = &view.env().theme.tokens;
         let has_children = !component.item.children.is_empty();
-        let mut label_children = vec![Text::new(component.item.label)
-            .size(tokens.typography.label_large_size)
-            .weight(tokens.typography.font_weight_semibold)
-            .color(tokens.colors.text_link)
-            .semantics_identifier(format!("site-route:{}", component.item.href))
-            .into()];
+        let mut label_children =
+            vec![
+                label_site_link(Text::new(component.item.label), component.item.href)
+                    .size(tokens.typography.label_large_size)
+                    .weight(tokens.typography.font_weight_semibold)
+                    .color(tokens.colors.text_link)
+                    .into(),
+            ];
         if has_children {
             label_children.push(
                 Icon::svg(if component.depth == 0 {

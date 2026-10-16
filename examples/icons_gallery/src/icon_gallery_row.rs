@@ -14,6 +14,9 @@ impl From<IconGalleryRow> for Widget {
     fn from(item: IconGalleryRow) -> Self {
         let (_, view) = fission::build::current::<State>();
         let tokens = &view.env().theme.tokens;
+        // Filtering changes positions, so identity follows the reflected icon
+        // key rather than the row's current index.
+        let row_id = WidgetId::explicit(&format!("icons-gallery.icon.{}", item.label));
         let row = Row {
             gap: Some(tokens.spacing.m),
             align_items: AlignItems::Center,
@@ -37,6 +40,7 @@ impl From<IconGalleryRow> for Widget {
                 tokens.colors.surface_sunken
             })
             .border(tokens.colors.divider, ROW_BORDER_WIDTH)
+            .id(row_id)
             .into()
     }
 }

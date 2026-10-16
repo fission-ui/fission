@@ -1792,11 +1792,19 @@ impl HtmlRenderer<'_> {
             }
             EmbedKind::Web => {
                 if let Some(web) = self.options.web_registrations.get(&widget_id) {
+                    let title = node
+                        .parent
+                        .and_then(|parent| self.ir.nodes.get(&parent))
+                        .and_then(|parent| match &parent.op {
+                            Op::Semantics(semantics) => semantics.label.as_deref(),
+                            _ => None,
+                        })
+                        .unwrap_or("Embedded web content");
                     Ok(format!(
                         "<iframe class=\"{}\" src=\"{}\" title=\"{}\" loading=\"lazy\" referrerpolicy=\"strict-origin-when-cross-origin\" data-fission-web-view=\"{}\" data-fission-node=\"{}\"></iframe>",
                         escape_attr(&class_name),
                         escape_attr(&web.url),
-                        "Embedded web content",
+                        escape_attr(title),
                         widget_id,
                         node.id
                     ))
@@ -5443,6 +5451,49 @@ mod tests {
         assert!(rendered.html.contains("loop"));
         assert!(rendered.html.contains("<input"));
         assert!(rendered.html.contains("value=\"fission\""));
+    }
+
+    #[test]
+    fn web_embed_uses_its_semantic_label_as_the_iframe_title() {
+        let web_widget = WidgetId::explicit("web-widget");
+        let web_node = WidgetId::explicit("web-node");
+        let semantics = WidgetId::explicit("web-semantics");
+        let mut ir = CoreIR::new();
+        ir.add_node(
+            web_node,
+            Op::Layout(LayoutOp::Embed {
+                kind: EmbedKind::Web,
+                widget_id: web_widget,
+                width: None,
+                height: Some(640.0),
+            }),
+            Vec::new(),
+        );
+        ir.add_node(
+            semantics,
+            Op::Semantics(Semantics {
+                role: Role::Group,
+                label: Some("Interactive Rust GUI example".into()),
+                ..Default::default()
+            }),
+            vec![web_node],
+        );
+        ir.set_root(semantics);
+
+        let mut options = HtmlRenderOptions::default();
+        options.web_registrations.insert(
+            web_widget,
+            WebRegistration {
+                node_id: web_widget,
+                url: "/showcase-app/".into(),
+                user_agent: None,
+            },
+        );
+
+        let rendered = render_ir_to_html(&ir, &options).unwrap();
+        assert!(rendered
+            .html
+            .contains("title=\"Interactive Rust GUI example\""));
     }
 
     #[test]

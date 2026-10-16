@@ -8,6 +8,7 @@ pub mod column;
 pub mod composite;
 pub mod container;
 pub mod context_menu;
+pub mod env_scope;
 pub mod grid;
 pub mod icon;
 pub mod ignore_pointer;
@@ -52,6 +53,7 @@ pub use context_menu::{
     ContextMenu, ContextMenuEntry, ContextMenuItem, ContextMenuRegion, TextContextMenuAction,
     TextContextMenuConfig,
 };
+pub use env_scope::EnvScope;
 pub use fission_ir::op::ResponsiveQuery;
 pub use fission_theme::{BadgeTone, ButtonHierarchy, CardPattern, ComponentSize, ComponentState};
 pub use grid::{Grid, GridItem};

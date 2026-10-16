@@ -5,7 +5,7 @@ mod registry;
 use anyhow::Result;
 use components::{
     ContentPageNav, CrateDetailPage, CrateDirectoryPage, DocsFooter, DocsState,
-    LocalizedLandingPage, MarketingPageKind, ProductMarketingPage, RoutedHomePage,
+    LocalizedLandingPage, MarketingPageKind, ProductMarketingPage, RoutedHomePage, ShowcasePage,
 };
 use fission::prelude::*;
 use fission::site::{build_from_cli, FissionSite};
@@ -43,6 +43,16 @@ fn site_app() -> FissionSite {
             RoutedHomePage::new("/"),
         )
         .with_route_structured_data("/", homepage_structured_data())
+        .route_widget::<DocsState, _>(
+            "/showcase/",
+            "Fission Rust GUI WASM example apps",
+            Some(
+                "Try interactive Fission Rust GUI and WASM example apps in your browser. Explore responsive interfaces, widgets and complete applications compiled from Rust to WebAssembly."
+                    .to_string(),
+            ),
+            ShowcasePage,
+        )
+        .with_route_structured_data("/showcase/", showcase_structured_data())
         .route_widget::<DocsState, _>(
             "/es/",
             "Fission",
@@ -164,6 +174,24 @@ fn homepage_structured_data() -> [String; 2] {
         "publisher": { "@id": "https://fission.rs/#organization" }
     });
     [organisation.to_string(), application.to_string()]
+}
+
+fn showcase_structured_data() -> [String; 1] {
+    [serde_json::json!({
+        "@context": "https://schema.org",
+        "@type": "WebApplication",
+        "name": "Fission Rust GUI WASM example apps",
+        "url": "https://fission.rs/showcase/",
+        "applicationCategory": "DeveloperApplication",
+        "operatingSystem": "Web",
+        "browserRequirements": "A modern browser with WebAssembly and WebGPU support",
+        "description": "Interactive Rust GUI example apps built with Fission and compiled to WebAssembly.",
+        "isAccessibleForFree": true,
+        "inLanguage": "en-GB",
+        "publisher": { "@id": "https://fission.rs/#organization" },
+        "isPartOf": { "@id": "https://fission.rs/#software" }
+    })
+    .to_string()]
 }
 
 fn atlas_theme(mode: DesignMode) -> Theme {

@@ -639,3 +639,26 @@
   padding-block: 3rem !important;
   background: var(--fs-color-surface-sunken);
 }
+
+/* The live app is the page's main content rather than a thumbnail. Keep the embedded canvas roomy
+   on desktop and let it fill the available width at every breakpoint. */
+.fission-site-showcase-frame,
+.fission-site-showcase-frame > .fission-site-column,
+.fission-site-showcase-frame .fission-site-embed {
+  width: 100% !important;
+}
+
+.fission-site-showcase-frame .fission-site-embed {
+  display: block;
+  min-height: 42rem;
+  border: 1px solid var(--fs-color-border);
+  border-radius: 1rem;
+  background: var(--fs-color-surface);
+}
+
+@media (max-width: 720px) {
+  .fission-site-showcase-frame .fission-site-embed {
+    min-height: 46rem;
+    border-radius: 0.75rem;
+  }
+}

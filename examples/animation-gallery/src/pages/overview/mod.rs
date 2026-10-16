@@ -26,7 +26,7 @@ impl From<OverviewPage<'_>> for Widget {
             gap: Some(spacing.m),
             children: widgets![
                 ui::PageHeader {
-                    title: "Animation Gallery",
+                    title: "Overview",
                     subtitle: "A calm workbench for real widget motion, property inspection, composition, policy, and tests.",
                 },
                 HeroPanel,

@@ -38,82 +38,93 @@ impl From<BrandRail<'_>> for Widget {
             child: Some(
                 Container::new(Column {
                     gap: Some(tokens.spacing.l),
-                    children: vec![
-                        Row {
-                            gap: Some(tokens.spacing.m),
-                            children: vec![
-                                Container::new(
-                                    Text::new("F")
-                                        .size(typography.heading_size)
-                                        .color(style::on_primary()),
-                                )
-                                .width(BRAND_MARK_SIZE)
-                                .height(BRAND_MARK_SIZE)
-                                .padding_all(tokens.spacing.m)
-                                .border_radius(tokens.radii.xl)
-                                .bg(style::primary())
-                                .into(),
-                                Column {
-                                    gap: Some(tokens.spacing.xs),
+                    // Embedded, the host header names the example, so the brand goes.
+                    children: (!rail.state.embedded)
+                        .then(|| {
+                            vec![
+                                Row {
+                                    gap: Some(tokens.spacing.m),
                                     children: vec![
-                                        Text::new("Fission")
-                                            .size(typography.heading_size)
-                                            .color(style::text_primary())
-                                            .into(),
-                                        Text::new("Animation Gallery")
-                                            .size(typography.font_size_lg)
-                                            .color(style::primary())
-                                            .into(),
+                                        Container::new(
+                                            Text::new("F")
+                                                .size(typography.heading_size)
+                                                .color(style::on_primary()),
+                                        )
+                                        .width(BRAND_MARK_SIZE)
+                                        .height(BRAND_MARK_SIZE)
+                                        .padding_all(tokens.spacing.m)
+                                        .border_radius(tokens.radii.xl)
+                                        .bg(style::primary())
+                                        .into(),
+                                        Column {
+                                            gap: Some(tokens.spacing.xs),
+                                            children: vec![
+                                                Text::new("Fission")
+                                                    .size(typography.heading_size)
+                                                    .color(style::text_primary())
+                                                    .into(),
+                                                Text::new("Animation Gallery")
+                                                    .size(typography.font_size_lg)
+                                                    .color(style::primary())
+                                                    .into(),
+                                            ],
+                                            ..Default::default()
+                                        }
+                                        .into(),
                                     ],
                                     ..Default::default()
                                 }
                                 .into(),
-                            ],
-                            ..Default::default()
-                        }
-                        .into(),
-                        Text::new("Explore, compose, and ship deterministic motion for your UI.")
-                            .size(typography.body_large_size)
-                            .color(style::text_primary())
-                            .into(),
-                        Container::new(Column {
-                            gap: Some(tokens.spacing.s),
-                            children: vec![
-                                Text::new("Motion principles")
-                                    .size(typography.font_size_base)
-                                    .color(style::text_primary())
+                                Text::new(
+                                    "Explore, compose, and ship deterministic motion for your UI.",
+                                )
+                                .size(typography.body_large_size)
+                                .color(style::text_primary())
+                                .into(),
+                            ]
+                        })
+                        .into_iter()
+                        .flatten()
+                        .chain([
+                            Container::new(Column {
+                                gap: Some(tokens.spacing.s),
+                                children: vec![
+                                    Text::new("Motion principles")
+                                        .size(typography.font_size_base)
+                                        .color(style::text_primary())
+                                        .into(),
+                                    PrincipleCard {
+                                        title: "Explicit",
+                                        body: "No hidden animation.",
+                                        mark: "*",
+                                    }
                                     .into(),
-                                PrincipleCard {
-                                    title: "Explicit",
-                                    body: "No hidden animation.",
-                                    mark: "*",
-                                }
-                                .into(),
-                                PrincipleCard {
-                                    title: "Inspectable",
-                                    body: "Everything lowers to MotionExpr.",
-                                    mark: "</>",
-                                }
-                                .into(),
-                            ],
-                            ..Default::default()
-                        })
-                        .padding_all(tokens.spacing.m)
-                        .border(style::border(), 1.0)
-                        .border_radius(tokens.radii.xl)
-                        .bg(style::surface())
-                        .into(),
-                        Container::new(Column {
-                            gap: Some(tokens.spacing.m),
-                            children: nav_children,
-                            ..Default::default()
-                        })
-                        .padding_all(tokens.spacing.m)
-                        .border(style::border(), 1.0)
-                        .border_radius(tokens.radii.xl)
-                        .bg(style::surface())
-                        .into(),
-                    ],
+                                    PrincipleCard {
+                                        title: "Inspectable",
+                                        body: "Everything lowers to MotionExpr.",
+                                        mark: "</>",
+                                    }
+                                    .into(),
+                                ],
+                                ..Default::default()
+                            })
+                            .padding_all(tokens.spacing.m)
+                            .border(style::border(), 1.0)
+                            .border_radius(tokens.radii.xl)
+                            .bg(style::surface())
+                            .into(),
+                            Container::new(Column {
+                                gap: Some(tokens.spacing.m),
+                                children: nav_children,
+                                ..Default::default()
+                            })
+                            .padding_all(tokens.spacing.m)
+                            .border(style::border(), 1.0)
+                            .border_radius(tokens.radii.xl)
+                            .bg(style::surface())
+                            .into(),
+                        ])
+                        .collect(),
                     ..Default::default()
                 })
                 .padding_all(tokens.spacing.l)

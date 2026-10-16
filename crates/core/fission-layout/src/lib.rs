@@ -3078,9 +3078,15 @@ impl LayoutEngine {
 
                     if main_bounded && final_children_main + gap_total > max_main {
                         // SHRINK logic
-                        let mut total_shrink_scaled = 0.0f32;
+                        let mut shrink_targets = Vec::with_capacity(measured.len());
                         for entry in &measured {
                             let Some(child) = self.graph_state.node(entry.id) else {
+                                let main_size = if is_row {
+                                    entry.size.width
+                                } else {
+                                    entry.size.height
+                                };
+                                shrink_targets.push((main_size, 0.0, main_size));
                                 continue;
                             };
                             let main_size = if is_row {
@@ -3088,72 +3094,136 @@ impl LayoutEngine {
                             } else {
                                 entry.size.height
                             };
-                            total_shrink_scaled += main_size * child.flex_shrink;
+                            let shrink = child.flex_shrink;
+                            let explicit_min = match &child.op {
+                                LayoutOp::Box {
+                                    min_width,
+                                    min_height,
+                                    height,
+                                    width,
+                                    ..
+                                } => {
+                                    if is_row {
+                                        min_width.or(*width)
+                                    } else {
+                                        min_height.or(*height)
+                                    }
+                                }
+                                LayoutOp::Scroll {
+                                    min_width,
+                                    min_height,
+                                    width,
+                                    height,
+                                    ..
+                                } => {
+                                    if is_row {
+                                        min_width.or(*width)
+                                    } else {
+                                        min_height.or(*height)
+                                    }
+                                }
+                                _ => None,
+                            };
+                            // A child that scrolls or clips shows less of itself rather than
+                            // taking less room, so it may shrink to its explicit minimum.
+                            let handles_own_overflow = matches!(
+                                &child.op,
+                                LayoutOp::Scroll { .. } | LayoutOp::Clip { .. }
+                            );
+                            let floor = if shrink > 0.0 {
+                                // Down a column an item also stops at the height its content
+                                // needs, the way a browser floors a flex item at its content
+                                // size: an overflowing column spills instead of crushing text
+                                // into the section below it. Across a row content can still
+                                // reflow, so only an explicit minimum holds an item open.
+                                let content_min = if is_row || handles_own_overflow {
+                                    0.0
+                                } else {
+                                    let mut natural = entry.constraints;
+                                    natural.min_h = 0.0;
+                                    natural.max_h = f32::INFINITY;
+                                    self.layout_node_constraints(
+                                        entry.id,
+                                        natural,
+                                        LayoutPoint::ZERO,
+                                        out,
+                                        constraints_out,
+                                        measure_cache,
+                                        scroll_source,
+                                        false,
+                                        depth + 1,
+                                    )?
+                                    .height
+                                };
+                                // An explicit minimum, including zero, is
+                                // the caller's opt-out from the automatic
+                                // content floor. This is what lets a
+                                // decorated container around a Scroll be a
+                                // shrinkable flex item.
+                                explicit_min.unwrap_or(content_min).min(main_size)
+                            } else {
+                                main_size // flex_shrink == 0 means don't shrink at all
+                            };
+                            shrink_targets.push((main_size, main_size * shrink, floor));
                         }
 
-                        if total_shrink_scaled > 0.0 {
-                            let overflow = (final_children_main + gap_total) - max_main;
-                            for entry in &mut measured {
-                                let Some(child) = self.graph_state.node(entry.id) else {
-                                    continue;
-                                };
-                                let main_size = if is_row {
-                                    entry.size.width
-                                } else {
-                                    entry.size.height
-                                };
-                                let shrink_amount = (main_size * child.flex_shrink
-                                    / total_shrink_scaled)
-                                    * overflow;
-                                // Don't shrink below a reasonable minimum. Items with
-                                // flex_shrink > 0 can shrink but not to zero - preserve at
-                                // least a small fraction of their natural size.
-                                let floor = if child.flex_shrink > 0.0 {
-                                    // Check for explicit min/fixed dimension
-                                    let explicit_min = match &child.op {
-                                        LayoutOp::Box {
-                                            min_width,
-                                            min_height,
-                                            height,
-                                            width,
-                                            ..
-                                        } => {
-                                            if is_row {
-                                                min_width.or(*width).unwrap_or(0.0)
-                                            } else {
-                                                min_height.or(*height).unwrap_or(0.0)
-                                            }
-                                        }
-                                        _ => 0.0,
-                                    };
-                                    explicit_min
-                                } else {
-                                    main_size // flex_shrink == 0 means don't shrink at all
-                                };
-                                let new_main = (main_size - shrink_amount).max(floor);
-
-                                let mut child_constraints = entry.constraints;
-                                if is_row {
-                                    child_constraints.min_w = new_main;
-                                    child_constraints.max_w = new_main;
-                                } else {
-                                    child_constraints.min_h = new_main;
-                                    child_constraints.max_h = new_main;
-                                }
-                                let new_size = self.layout_node_constraints(
-                                    entry.id,
-                                    child_constraints,
-                                    LayoutPoint::ZERO,
-                                    out,
-                                    constraints_out,
-                                    measure_cache,
-                                    scroll_source,
-                                    false,
-                                    depth + 1,
-                                )?;
-                                entry.size = new_size;
-                                entry.constraints = child_constraints;
+                        let mut remaining_overflow = (final_children_main + gap_total) - max_main;
+                        while remaining_overflow > f32::EPSILON {
+                            let total_weight: f32 = shrink_targets
+                                .iter()
+                                .filter(|(target, weight, floor)| *weight > 0.0 && *target > *floor)
+                                .map(|(_, weight, _)| *weight)
+                                .sum();
+                            if total_weight <= f32::EPSILON {
+                                break;
                             }
+
+                            let mut reduced = 0.0;
+                            for (target, weight, floor) in &mut shrink_targets {
+                                if *weight <= 0.0 || *target <= *floor {
+                                    continue;
+                                }
+                                let share = remaining_overflow * *weight / total_weight;
+                                let amount = share.min(*target - *floor);
+                                *target -= amount;
+                                reduced += amount;
+                            }
+                            if reduced <= f32::EPSILON {
+                                break;
+                            }
+                            remaining_overflow = (remaining_overflow - reduced).max(0.0);
+                        }
+
+                        for (entry, (new_main, _, _)) in measured.iter_mut().zip(shrink_targets) {
+                            let current_main = if is_row {
+                                entry.size.width
+                            } else {
+                                entry.size.height
+                            };
+                            if (new_main - current_main).abs() <= f32::EPSILON {
+                                continue;
+                            }
+                            let mut child_constraints = entry.constraints;
+                            if is_row {
+                                child_constraints.min_w = new_main;
+                                child_constraints.max_w = new_main;
+                            } else {
+                                child_constraints.min_h = new_main;
+                                child_constraints.max_h = new_main;
+                            }
+                            let new_size = self.layout_node_constraints(
+                                entry.id,
+                                child_constraints,
+                                LayoutPoint::ZERO,
+                                out,
+                                constraints_out,
+                                measure_cache,
+                                scroll_source,
+                                false,
+                                depth + 1,
+                            )?;
+                            entry.size = new_size;
+                            entry.constraints = child_constraints;
                         }
                     }
 

@@ -35,8 +35,6 @@ pub(crate) enum Target {
     Web,
     Android,
     Ios,
-    Terminal,
-    Ssr,
 }
 
 impl Target {
@@ -48,17 +46,14 @@ impl Target {
             Self::Web => "Web",
             Self::Android => "Android",
             Self::Ios => "iOS",
-            Self::Terminal => "Terminal",
-            Self::Ssr => "SSR",
         }
     }
 
     pub(crate) const fn group(self) -> TargetFilter {
         match self {
             Self::MacOS | Self::Windows | Self::Linux => TargetFilter::Desktop,
-            Self::Web | Self::Ssr => TargetFilter::Web,
+            Self::Web => TargetFilter::Web,
             Self::Android | Self::Ios => TargetFilter::Mobile,
-            Self::Terminal => TargetFilter::Terminal,
         }
     }
 }
@@ -70,17 +65,10 @@ pub(crate) enum TargetFilter {
     Desktop,
     Web,
     Mobile,
-    Terminal,
 }
 
 impl TargetFilter {
-    pub(crate) const ALL: [Self; 5] = [
-        Self::All,
-        Self::Desktop,
-        Self::Web,
-        Self::Mobile,
-        Self::Terminal,
-    ];
+    pub(crate) const ALL: [Self; 4] = [Self::All, Self::Desktop, Self::Web, Self::Mobile];
 
     pub(crate) const fn translation_key(self) -> &'static str {
         match self {
@@ -88,7 +76,6 @@ impl TargetFilter {
             Self::Desktop => "showcase.catalog.filter.desktop",
             Self::Web => "showcase.catalog.filter.web",
             Self::Mobile => "showcase.catalog.filter.mobile",
-            Self::Terminal => "showcase.catalog.filter.terminal",
         }
     }
 }
@@ -147,33 +134,6 @@ pub(crate) static EXAMPLES: &[ExampleDefinition] = &[
         targets: DESKTOP,
     },
     ExampleDefinition {
-        slug: "editor",
-        package: "fission-editor",
-        title_key: "showcase.example.editor.title",
-        summary_key: "showcase.example.editor.summary",
-        category: ExampleCategory::Apps,
-        command: "cargo run -p fission-editor",
-        targets: DESKTOP,
-    },
-    ExampleDefinition {
-        slug: "product-browser",
-        package: "product-browser",
-        title_key: "showcase.example.product_browser.title",
-        summary_key: "showcase.example.product_browser.summary",
-        category: ExampleCategory::Apps,
-        command: "cargo run -p product-browser",
-        targets: DESKTOP,
-    },
-    ExampleDefinition {
-        slug: "pokemon-card-store",
-        package: "pokemon-card-store",
-        title_key: "showcase.example.pokemon_store.title",
-        summary_key: "showcase.example.pokemon_store.summary",
-        category: ExampleCategory::Apps,
-        command: "fission server serve --project-dir examples/pokemon-card-store",
-        targets: &[Target::Ssr],
-    },
-    ExampleDefinition {
         slug: "todo-design-system",
         package: "todo-design-system",
         title_key: "showcase.example.todo_design.title",
@@ -228,15 +188,6 @@ pub(crate) static EXAMPLES: &[ExampleDefinition] = &[
         targets: DESKTOP,
     },
     ExampleDefinition {
-        slug: "field-inspector",
-        package: "field-inspector",
-        title_key: "showcase.example.field_inspector.title",
-        summary_key: "showcase.example.field_inspector.summary",
-        category: ExampleCategory::Platform,
-        command: "fission run --project-dir examples/field-inspector",
-        targets: CROSS_PLATFORM,
-    },
-    ExampleDefinition {
         slug: "web-smoke",
         package: "web-smoke",
         title_key: "showcase.example.web_smoke.title",
@@ -255,39 +206,12 @@ pub(crate) static EXAMPLES: &[ExampleDefinition] = &[
         targets: &[Target::Android, Target::Ios],
     },
     ExampleDefinition {
-        slug: "terminal",
-        package: "terminal",
-        title_key: "showcase.example.terminal.title",
-        summary_key: "showcase.example.terminal.summary",
-        category: ExampleCategory::Platform,
-        command: "cargo run -p terminal",
-        targets: &[Target::Terminal],
-    },
-    ExampleDefinition {
         slug: "embed-3d",
         package: "embed-3d",
         title_key: "showcase.example.embed_3d.title",
         summary_key: "showcase.example.embed_3d.summary",
         category: ExampleCategory::Platform,
         command: "cargo run -p embed-3d",
-        targets: DESKTOP,
-    },
-    ExampleDefinition {
-        slug: "embed-video",
-        package: "embed-video",
-        title_key: "showcase.example.embed_video.title",
-        summary_key: "showcase.example.embed_video.summary",
-        category: ExampleCategory::Platform,
-        command: "cargo run -p embed-video",
-        targets: DESKTOP,
-    },
-    ExampleDefinition {
-        slug: "embed-webview",
-        package: "embed-webview",
-        title_key: "showcase.example.embed_webview.title",
-        summary_key: "showcase.example.embed_webview.summary",
-        category: ExampleCategory::Platform,
-        command: "cargo run -p embed-webview",
         targets: DESKTOP,
     },
     ExampleDefinition {
@@ -307,5 +231,27 @@ pub(crate) fn example_by_slug(slug: &str) -> ExampleDefinition {
         .copied()
         .find(|example| example.slug == slug)
         .unwrap_or(EXAMPLES[0])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn deployed_catalogue_contains_only_self_contained_browser_previews() {
+        const EXCLUDED: &[&str] = &[
+            "editor",
+            "embed-video",
+            "embed-webview",
+            "field-inspector",
+            "pokemon-card-store",
+            "product-browser",
+            "terminal",
+        ];
+
+        assert!(EXAMPLES
+            .iter()
+            .all(|example| !EXCLUDED.contains(&example.slug)));
+    }
 }
 use serde::{Deserialize, Serialize};
