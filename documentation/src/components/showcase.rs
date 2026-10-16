@@ -20,9 +20,9 @@ impl From<ShowcasePage> for Widget {
             "site-showcase-introduction",
             vec![
                 Text::new("Fission Rust GUI and WASM example apps")
-                    .size(tokens.typography.display_small_size)
+                    .size(tokens.typography.display_sm_size)
                     .line_height(
-                        tokens.typography.display_small_size * tokens.typography.line_height_tight,
+                        tokens.typography.display_sm_size * tokens.typography.line_height_snug,
                     )
                     .weight(tokens.typography.font_weight_bold)
                     .color(tokens.colors.heading)
