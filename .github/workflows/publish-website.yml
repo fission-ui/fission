@@ -124,6 +124,22 @@ jobs:
           scripts/check_homepage_seo.sh documentation/target/fission/release/static-site/static
           scripts/check_showcase_page.sh documentation/target/fission/release/static-site/static
 
+      - name: Verify rendered showcase layout
+        run: |
+          python3 -m http.server 8123 \
+            --bind 127.0.0.1 \
+            --directory documentation/target/fission/release/static-site/static \
+            >/tmp/fission-showcase-site.log 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          for attempt in {1..20}; do
+            curl --fail --silent http://127.0.0.1:8123/showcase/ >/dev/null && break
+            sleep 0.25
+          done
+          curl --fail --silent http://127.0.0.1:8123/showcase/ >/dev/null
+          FISSION_SHOWCASE_PAGE_URL=http://127.0.0.1:8123/showcase/ \
+            cargo test -p fission-documentation --test showcase_layout -- --ignored --nocapture
+
       - name: Replace accumulated crate index asset
         env:
           GH_TOKEN: ${{ github.token }}

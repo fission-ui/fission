@@ -655,8 +655,7 @@
 }
 
 .fission-site-showcase-frame,
-.fission-site-showcase-frame > .fission-site-column,
-.fission-site-showcase-frame .fission-site-embed {
+.fission-site-showcase-frame .fission-site-node {
   width: 100% !important;
   min-height: 0;
   height: 100% !important;

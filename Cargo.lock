@@ -3054,6 +3054,7 @@ dependencies = [
  "chrono",
  "comrak",
  "fission",
+ "fission-test-driver",
  "flate2",
  "html2md",
  "reqwest",
