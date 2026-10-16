@@ -2624,13 +2624,9 @@ dependencies = [
  "console_error_panic_hook",
  "counter",
  "embed-3d",
- "embed-video",
- "embed-webview",
- "field-inspector",
  "fission",
  "fission-core",
  "fission-design-system-codegen",
- "fission-editor",
  "fission-test",
  "fission-test-driver",
  "icons_gallery",
@@ -2638,11 +2634,8 @@ dependencies = [
  "inbox",
  "mobile-smoke",
  "motion-memory-repro",
- "pokemon-card-store",
- "product-browser",
  "serde",
  "serde_yaml",
- "terminal",
  "text-lab",
  "todo-design-system",
  "wasm-bindgen",
@@ -3629,8 +3622,7 @@ dependencies = [
 [[package]]
 name = "fission-winit"
 version = "0.30.13-fission.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6a190926b9870d28d221c6da25237ff3279a8b4fb2a3e7dcb2034102bfe406c1"
+source = "git+https://github.com/worka-ai/winit?rev=1e99d748234f11a0dd49a00a1ffc3cca1bb0b203#1e99d748234f11a0dd49a00a1ffc3cca1bb0b203"
 dependencies = [
  "ahash",
  "android-activity",
@@ -6349,7 +6341,7 @@ version = "0.7.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "680998035259dcfcafe653688bf2aa6d3e2dc05e98be6ab46afb089dc84f1df8"
 dependencies = [
- "proc-macro-crate 3.5.0",
+ "proc-macro-crate 2.0.2",
  "proc-macro2",
  "quote",
  "syn 2.0.118",

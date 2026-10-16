@@ -591,13 +591,16 @@ fn render_scene3d_external_surfaces(
             .payload
             .starts_with(fission_scene3d::SCENE3D_EMBED_MAGIC);
         #[cfg(feature = "three-d")]
-        let legacy = !modern
-            && fission_3d::decode_legacy_render_packet(
+        let legacy = if modern {
+            None
+        } else {
+            fission_3d::decode_legacy_render_packet(
                 &surface.payload,
                 surface.rect.size.width,
                 surface.rect.size.height,
             )
-            .ok();
+            .ok()
+        };
         #[cfg(not(feature = "three-d"))]
         let legacy: Option<()> = None;
         if !modern && legacy.is_none() {

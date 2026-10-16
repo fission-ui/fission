@@ -1,5 +1,5 @@
 use super::brand_logo::BrandLogo;
-use super::home_widgets::site_semantics;
+use super::home_widgets::{label_site_link, site_semantics};
 use super::state::DocsState;
 use fission::op::{AlignItems, Fill, FlexWrap, JustifyContent};
 use fission::prelude::*;
@@ -13,6 +13,7 @@ const PRODUCT_LINKS: &[(&str, &str)] = &[
 ];
 
 const DEVELOPER_LINKS: &[(&str, &str)] = &[
+    ("Try Fission in the browser", "/showcase/"),
     ("Quickstart", "/docs/learn/quickstart/"),
     ("Documentation", "/docs/"),
     ("Guides", "/docs/guides/layout-and-widgets/"),
@@ -207,10 +208,13 @@ impl From<FooterLink> for Widget {
             } else {
                 format!("site-route:{}", component.href)
             };
-        Text::new(component.label)
+        let text = Text::new(component.label)
             .size(tokens.typography.font_size_sm)
-            .color(tokens.colors.text_secondary)
-            .semantics_identifier(identifier)
-            .into()
+            .color(tokens.colors.text_secondary);
+        if component.href.starts_with("http://") || component.href.starts_with("https://") {
+            text.semantics_identifier(identifier).into()
+        } else {
+            label_site_link(text, component.href).into()
+        }
     }
 }

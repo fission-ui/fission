@@ -55,7 +55,6 @@ impl From<RecipientField> for Widget {
                 value,
                 placeholder: Some(view.tr("compose.to_label").into()),
                 items: suggestions,
-                placeholder: None,
                 is_open: !query.is_empty() && !exact_match,
                 width: Some(field.width),
                 max_popup_height: Some(180.0),

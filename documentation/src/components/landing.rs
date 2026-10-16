@@ -106,6 +106,7 @@ impl From<HeroCopy> for Widget {
                             true,
                         )
                         .into(),
+                        Cta::new("See it in action", "/showcase/", false).into(),
                         Cta::new("Explore supported platforms", "/#how", false).into(),
                     ],
                     gap: Some(tokens.spacing.m),

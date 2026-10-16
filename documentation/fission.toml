@@ -73,6 +73,10 @@ href = "/crates/"
 title = "Blog"
 href = "/blog/"
 
+[[site.nav]]
+title = "Try Fission in the browser"
+href = "/showcase/"
+
 [[site.routes]]
 kind = "content"
 path = "/docs"

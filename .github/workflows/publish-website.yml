@@ -9,7 +9,7 @@ on:
     paths:
       - 'documentation/**'
       - 'crates/**'
-      - 'examples/chart-gallery/**'
+      - 'examples/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
       - '.github/workflows/publish-website.yml'
@@ -27,6 +27,8 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      CARGO_BUILD_JOBS: 2
     environment:
       name: github-pages
     steps:
@@ -37,12 +39,17 @@ jobs:
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
 
       - name: Cache Rust build output
         uses: Swatinem/rust-cache@v2
 
       - name: Install Linux native build dependencies
         run: sudo apt-get update && sudo apt-get install -y libfontconfig1-dev pkg-config
+
+      - name: Install wasm-pack
+        run: cargo install wasm-pack --version 0.13.1 --locked
 
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5
@@ -71,6 +78,29 @@ jobs:
       - name: Check static site routes
         run: cargo run -p cargo-fission --bin fission -- site check --project-dir documentation --release
 
+      - name: Verify showcase static deployment boundary
+        run: |
+          tree=$(cargo tree -p example-showcase --target wasm32-unknown-unknown --locked)
+          for package in fission-shell-server pokemon-card-store product-browser field-inspector fission-editor embed-video embed-webview terminal; do
+            if grep -Eq "[[:space:]]${package} v" <<<"$tree"; then
+              echo "The GitHub Pages showcase must not depend on ${package}." >&2
+              exit 1
+            fi
+          done
+
+      - name: Build interactive Fission showcase
+        env:
+          FISSION_WEB_PROFILE: release
+        run: ./examples/showcase/platforms/web/build-wasm.sh
+
+      - name: Stage interactive showcase with website assets
+        run: |
+          mkdir -p documentation/static/showcase-app/pkg
+          cp examples/showcase/platforms/web/index.html documentation/static/showcase-app/index.html
+          cp examples/showcase/platforms/web/bootstrap.mjs documentation/static/showcase-app/bootstrap.mjs
+          cp examples/showcase/platforms/web/app-icon.png documentation/static/showcase-app/app-icon.png
+          cp -R examples/showcase/platforms/web/pkg/. documentation/static/showcase-app/pkg/
+
       - name: Package static site
         run: cargo run -p cargo-fission --bin fission -- package --project-dir documentation --target site --format static --release
 
@@ -87,7 +117,12 @@ jobs:
           test -f documentation/target/fission/release/static-site/static/img/charts/line-gradient-area.png
           test -f documentation/target/fission/release/static-site/static/artifact-manifest.json
           test -f documentation/target/fission/release/static-site/static/crates/index.html
+          test -f documentation/target/fission/release/static-site/static/showcase/index.html
+          test -f documentation/target/fission/release/static-site/static/showcase-app/index.html
+          test -f documentation/target/fission/release/static-site/static/showcase-app/pkg/example_showcase.js
+          find documentation/target/fission/release/static-site/static/showcase-app/pkg -maxdepth 1 -name '*_bg.wasm' -print -quit | grep -q .
           scripts/check_homepage_seo.sh documentation/target/fission/release/static-site/static
+          scripts/check_showcase_page.sh documentation/target/fission/release/static-site/static
 
       - name: Replace accumulated crate index asset
         env:

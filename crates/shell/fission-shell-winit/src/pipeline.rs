@@ -4075,7 +4075,9 @@ mod tests {
                     fission_render::RenderNode::Paint(list) => list.ops.iter().find_map(|op| {
                         if let fission_render::DisplayOp::DrawRect { rect, node_id, .. } = op {
                             if *node_id == Some(scroll)
-                                && (rect.width() - 6.0).abs() <= 0.01
+                                && (rect.width() - fission_core::scrollbar::SCROLLBAR_THICKNESS)
+                                    .abs()
+                                    <= 0.01
                                 && rect.height() < 200.0
                             {
                                 return Some(rect.origin.y);
@@ -4093,7 +4095,7 @@ mod tests {
     }
 
     #[test]
-    fn overflowing_scroll_nodes_emit_visible_scroll_rails() {
+    fn active_overflowing_scroll_nodes_emit_visible_scroll_rails() {
         let mut ir = CoreIR::new();
         let fill = WidgetId::derived(16, &[0]);
         let content = WidgetId::derived(16, &[1]);
@@ -4205,7 +4207,9 @@ mod tests {
                     .filter(|op| match op {
                         fission_render::DisplayOp::DrawRect { rect, node_id, .. } => {
                             *node_id == Some(scroll)
-                                && (rect.width() - 6.0).abs() <= 0.01
+                                && (rect.width() - fission_core::scrollbar::SCROLLBAR_THICKNESS)
+                                    .abs()
+                                    <= 0.01
                                 && rect.height() >= 200.0
                         }
                         _ => false,
@@ -4219,7 +4223,28 @@ mod tests {
             }
         }
 
-        let rail_count: usize = pipeline
+        let resting_rail_count: usize = pipeline
+            .retained_scene()
+            .expect("retained scene")
+            .roots
+            .iter()
+            .map(|node| count_scroll_rails(node, scroll))
+            .sum();
+        assert_eq!(resting_rail_count, 0, "a resting bar has no rail");
+
+        pipeline.set_active_scrollbars(std::collections::HashSet::from([scroll]));
+        pipeline
+            .prepare_current(
+                LayoutSize::new(320.0, 240.0),
+                LayoutSize::new(320.0, 240.0),
+                false,
+                &scroll_map,
+                &Default::default(),
+                &Default::default(),
+                &Default::default(),
+            )
+            .unwrap();
+        let active_rail_count: usize = pipeline
             .retained_scene()
             .expect("retained scene")
             .roots
@@ -4227,7 +4252,7 @@ mod tests {
             .map(|node| count_scroll_rails(node, scroll))
             .sum();
         assert!(
-            rail_count > 0,
+            active_rail_count > 0,
             "expected an overflow rail for the scroll node"
         );
     }

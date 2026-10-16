@@ -271,19 +271,8 @@ impl ImeHandler for DesktopImeHandler {
     }
 }
 
-/// Keeps the keyboard with Fission while a text field is being edited.
-///
-/// An application can hand the keyboard to the browser, so that reload, find
-/// and the address bar keep their shortcuts. On the Web, text is edited
-/// through a hidden browser text area. With the keyboard handed over, the
-/// browser applies every key to that text area itself and reports the result,
-/// and Fission applies the same key from its key-down as well: a letter typed
-/// once arrived twice, one Backspace deleted two characters, and an arrow
-/// moved the caret two places.
-///
-/// So while a field is being edited, Fission keeps the keyboard and applies
-/// each key once. When editing ends, what the application asked for is
-/// restored.
+/// Prevent browser DOM editing while a Fission field has focus, while retaining
+/// the browser-level command shortcuts the application opted into.
 #[cfg(target_arch = "wasm32")]
 fn sync_browser_keyboard(state: &mut ImeHandlerState) {
     use winit::platform::web::{BrowserDefaults, WindowExtWebSys};
@@ -299,7 +288,7 @@ fn sync_browser_keyboard(state: &mut ImeHandlerState) {
         .app_browser_defaults
         .get_or_insert_with(|| window.browser_defaults());
     let wanted = match editing && app.contains(BrowserDefaults::KEYBOARD) {
-        true => without_keyboard(app),
+        true => without_keyboard_editing(app),
         false => app,
     };
     if window.browser_defaults() != wanted {
@@ -307,13 +296,14 @@ fn sync_browser_keyboard(state: &mut ImeHandlerState) {
     }
 }
 
-/// `defaults` with the keyboard taken back from the browser.
+/// `defaults` with browser text editing and focus traversal disabled, but its
+/// browser command shortcuts retained.
 #[cfg(target_arch = "wasm32")]
-fn without_keyboard(
+fn without_keyboard_editing(
     defaults: winit::platform::web::BrowserDefaults,
 ) -> winit::platform::web::BrowserDefaults {
     use winit::platform::web::BrowserDefaults;
-    [
+    let mut kept = [
         BrowserDefaults::POINTER,
         BrowserDefaults::TOUCH,
         BrowserDefaults::WHEEL,
@@ -322,7 +312,11 @@ fn without_keyboard(
     ]
     .into_iter()
     .filter(|flag| defaults.contains(*flag))
-    .fold(BrowserDefaults::NONE, |kept, flag| kept | flag)
+    .fold(BrowserDefaults::NONE, |kept, flag| kept | flag);
+    if defaults.contains(BrowserDefaults::KEYBOARD) {
+        kept |= BrowserDefaults::KEYBOARD_SHORTCUTS;
+    }
+    kept
 }
 
 fn sync_text_input_config(state: &mut ImeHandlerState) {
