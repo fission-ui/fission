@@ -39,5 +39,6 @@ if grep -Fq -- 'site-showcase-introduction' "$showcase_page"; then
 fi
 
 require "$site_root/site.css" '.fission-site-showcase-frame'
+require "$site_root/site.css" '.fission-site-showcase-frame .fission-site-node'
 require "$site_root/site.css" 'grid-template-rows: auto minmax(0, 1fr);'
 require "$site_root/site.css" 'min-height: 100svh;'
