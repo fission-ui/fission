@@ -123,7 +123,6 @@ fn closed_combobox_exposes_editable_popup_semantics_and_opens_on_focus() {
             value: "Av".into(),
             placeholder: None,
             items: vec!["Avery".into(), "Ava".into()],
-            placeholder: None,
             is_open: false,
             width: Some(260.0),
             max_popup_height: Some(160.0),
@@ -264,7 +263,11 @@ fn empty_combobox_shows_its_placeholder_in_the_muted_colour_and_announces_it() {
 
     let empty = build_with_value("");
     let runs = placeholder_runs(&empty);
-    assert_eq!(runs.len(), 1, "an empty combobox must paint its placeholder");
+    assert_eq!(
+        runs.len(),
+        1,
+        "an empty combobox must paint its placeholder"
+    );
     let theme = &Env::default().theme.components.text_input;
     let muted = theme
         .placeholder_style
@@ -351,7 +354,6 @@ fn open_combobox_uses_a_bounded_listbox_with_stable_options() {
             value: "Avery".into(),
             placeholder: None,
             items: vec!["Ava".into(), "Avery".into(), "Avril".into()],
-            placeholder: None,
             is_open: true,
             width: Some(260.0),
             max_popup_height: Some(72.0),
@@ -449,7 +451,6 @@ fn combobox_keeps_side_placement_when_a_matching_label_is_ambiguous() {
             value: "Avery".into(),
             placeholder: None,
             items: vec!["Avery".into(), "Avery".into()],
-            placeholder: None,
             is_open: true,
             width: Some(260.0),
             max_popup_height: None,
@@ -475,7 +476,6 @@ fn empty_combobox_never_claims_an_open_popup() {
             value: String::new(),
             placeholder: None,
             items: Vec::new(),
-            placeholder: None,
             is_open: true,
             width: None,
             max_popup_height: None,

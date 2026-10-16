@@ -5,10 +5,10 @@
 //! now carries its own design-system tone: destructive for Critical, warning
 //! for High, neutral for Medium.
 
+use field_inspector::{FieldInspectorApp, FieldInspectorState};
 use fission::op::{Fill, Op, PaintOp};
 use fission::prelude::{BadgeTone, ComponentSize, WidgetId};
 use fission_test::{op_text, TestHarness};
-use field_inspector::{FieldInspectorApp, FieldInspectorState};
 
 const WIDTH: f32 = 1_280.0;
 const HEIGHT: f32 = 860.0;

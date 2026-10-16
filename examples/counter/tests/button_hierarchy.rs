@@ -32,10 +32,13 @@ fn button_background(harness: &TestHarness<()>, label: &str) -> Option<Fill> {
     let mut current = text.parent;
     while let Some(id) = current {
         let node = &ir.nodes[&id];
-        let painted = node.children.iter().find_map(|child| match &ir.nodes[child].op {
-            Op::Paint(PaintOp::DrawRect { fill, .. }) => fill.clone(),
-            _ => None,
-        });
+        let painted = node
+            .children
+            .iter()
+            .find_map(|child| match &ir.nodes[child].op {
+                Op::Paint(PaintOp::DrawRect { fill, .. }) => fill.clone(),
+                _ => None,
+            });
         if painted.is_some() {
             return painted;
         }

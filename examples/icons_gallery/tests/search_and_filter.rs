@@ -52,10 +52,16 @@ fn a_query_narrows_the_list_and_the_count_says_by_how_much() {
     );
 
     let harness = pump(searching("battery"), WIDE);
-    assert_eq!(count_line(&harness), format!("{matching} of {total} icon variants"));
+    assert_eq!(
+        count_line(&harness),
+        format!("{matching} of {total} icon variants")
+    );
 
     let labels = visible_labels(&harness);
-    assert!(!labels.is_empty(), "a matching query should still show rows");
+    assert!(
+        !labels.is_empty(),
+        "a matching query should still show rows"
+    );
     for label in labels {
         assert!(
             label.to_lowercase().contains("battery"),
@@ -70,6 +76,14 @@ fn the_query_ignores_case() {
     assert_eq!(
         filter_icons(&searching("BaTTeRy")).visible.len(),
         filter_icons(&searching("battery")).visible.len()
+    );
+}
+
+#[test]
+fn whitespace_only_queries_match_every_icon() {
+    assert_eq!(
+        filter_icons(&searching("  \t  ")).visible.len(),
+        filter_icons(&State::default()).total
     );
 }
 
@@ -95,9 +109,15 @@ fn the_unfiltered_gallery_shows_rows_and_no_empty_state() {
     let harness = pump(State::default(), WIDE);
     let total = filter_icons(&State::default()).total;
 
-    assert_eq!(count_line(&harness), format!("{total} of {total} icon variants"));
+    assert_eq!(
+        count_line(&harness),
+        format!("{total} of {total} icon variants")
+    );
     assert!(!visible_labels(&harness).is_empty());
-    assert!(!ir_has_text(harness.last_ir.as_ref().expect("ir"), EMPTY_STATE_TITLE));
+    assert!(!ir_has_text(
+        harness.last_ir.as_ref().expect("ir"),
+        EMPTY_STATE_TITLE
+    ));
 }
 
 #[test]

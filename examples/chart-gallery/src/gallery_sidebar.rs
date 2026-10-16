@@ -36,26 +36,33 @@ impl From<GallerySidebar> for Widget {
                     .color(tokens.colors.heading),
             )
         });
-        let showcase_button: Widget = GallerySidebarButton {
-            action_id: sidebar.select_chart_id,
-            selection: SelectChart(SHOWCASE_CATEGORY, 0),
-            label: SHOWCASE_LABEL,
-            selected: state.selected_category == SHOWCASE_CATEGORY,
-            instance: sidebar.instance,
-        }
-        .into();
+        let expanded = matches!(sidebar.layout, GallerySidebarLayout::Expanded);
         // The narrow layout lists only the chosen category's charts, so the chips
         // wrap in full instead of hiding hundreds of charts in one scrolling row.
         let mut compact_items = Vec::new();
-        let mut items: Vec<Widget> = title.clone().into_iter().collect();
-        items.push(showcase_button);
-        items.push(
-            Spacer {
-                height: Some(tokens.spacing.m),
-                ..Default::default()
-            }
-            .into(),
-        );
+        let mut items: Vec<Widget> = if expanded {
+            let mut items: Vec<Widget> = title.clone().into_iter().collect();
+            items.push(
+                GallerySidebarButton {
+                    action_id: sidebar.select_chart_id,
+                    selection: SelectChart(SHOWCASE_CATEGORY, 0),
+                    label: SHOWCASE_LABEL,
+                    selected: state.selected_category == SHOWCASE_CATEGORY,
+                    instance: sidebar.instance,
+                }
+                .into(),
+            );
+            items.push(
+                Spacer {
+                    height: Some(tokens.spacing.m),
+                    ..Default::default()
+                }
+                .into(),
+            );
+            items
+        } else {
+            Vec::new()
+        };
 
         let categories = CATEGORIES
             .iter()
@@ -77,14 +84,19 @@ impl From<GallerySidebar> for Widget {
 
         for (category_index, name, charts) in categories {
             category_options.push((category_index, name));
-            items.push(
-                Text::new(name)
-                    .size(tokens.typography.label_large_size)
-                    .color(tokens.colors.text_secondary)
-                    .into(),
-            );
+            if expanded {
+                items.push(
+                    Text::new(name)
+                        .size(tokens.typography.label_large_size)
+                        .color(tokens.colors.text_secondary)
+                        .into(),
+                );
+            }
 
             for (chart_index, chart_name) in charts.into_iter().enumerate() {
+                if !expanded && state.selected_category != category_index {
+                    continue;
+                }
                 let button: Widget = GallerySidebarButton {
                     action_id: sidebar.select_chart_id,
                     selection: SelectChart(category_index, chart_index),
@@ -94,19 +106,22 @@ impl From<GallerySidebar> for Widget {
                     instance: sidebar.instance,
                 }
                 .into();
-                if state.selected_category == category_index {
-                    compact_items.push(button.clone());
+                if expanded {
+                    items.push(button);
+                } else {
+                    compact_items.push(button);
                 }
-                items.push(button);
             }
 
-            items.push(
-                Spacer {
-                    height: Some(tokens.spacing.s),
-                    ..Default::default()
-                }
-                .into(),
-            );
+            if expanded {
+                items.push(
+                    Spacer {
+                        height: Some(tokens.spacing.s),
+                        ..Default::default()
+                    }
+                    .into(),
+                );
+            }
         }
 
         match sidebar.layout {

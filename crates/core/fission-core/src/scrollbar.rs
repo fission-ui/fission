@@ -15,7 +15,8 @@ pub const SCROLLBAR_MIN_THUMB: f32 = 24.0;
 ///
 /// Scrollbar chrome stays visually compact while remaining practical to grab
 /// on high-density displays: the thumb paints 4pt wide but answers the pointer
-/// across 10pt, which clears the usual minimum for a drag target.
+/// across 10pt. Touch scrolling continues to use the viewport gesture rather
+/// than requiring someone to grab this narrow desktop affordance.
 pub const SCROLLBAR_HIT_SLOP: f32 = 6.0;
 
 /// The colours a shell paints one scroll view's bar with.

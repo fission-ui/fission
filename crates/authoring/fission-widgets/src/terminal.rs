@@ -1346,15 +1346,33 @@ fn plain_line_text(line: &Line, cols: usize) -> String {
 /// for by number stay as the palette defines them.
 fn themed_palette(palette: &mut ColorPalette, theme: &fission_theme::Theme) {
     let colors = &theme.tokens.colors;
+    let defaults = ColorPalette::default();
     let srgba =
         |color: Color| wezterm_term::color::SrgbaTuple::from((color.r, color.g, color.b, color.a));
-    palette.background = srgba(colors.surface_sunken);
-    palette.foreground = srgba(colors.text_primary);
-    palette.cursor_bg = srgba(colors.text_primary);
-    palette.cursor_border = srgba(colors.text_primary);
-    palette.cursor_fg = srgba(colors.surface_sunken);
-    palette.selection_bg = srgba(colors.primary_subtle);
-    palette.selection_fg = srgba(colors.text_primary);
+    // The theme supplies terminal defaults, but an application running in the
+    // terminal may change these palette entries (for example with OSC 10/11/12).
+    // Do not overwrite a value the session has made explicit.
+    if palette.background == defaults.background {
+        palette.background = srgba(colors.surface_sunken);
+    }
+    if palette.foreground == defaults.foreground {
+        palette.foreground = srgba(colors.text_primary);
+    }
+    if palette.cursor_bg == defaults.cursor_bg {
+        palette.cursor_bg = srgba(colors.text_primary);
+    }
+    if palette.cursor_border == defaults.cursor_border {
+        palette.cursor_border = srgba(colors.text_primary);
+    }
+    if palette.cursor_fg == defaults.cursor_fg {
+        palette.cursor_fg = srgba(colors.surface_sunken);
+    }
+    if palette.selection_bg == defaults.selection_bg {
+        palette.selection_bg = srgba(colors.primary_subtle);
+    }
+    if palette.selection_fg == defaults.selection_fg {
+        palette.selection_fg = srgba(colors.text_primary);
+    }
 }
 
 fn to_ir_color(color: wezterm_term::color::SrgbaTuple) -> Color {
@@ -1443,6 +1461,25 @@ mod tests {
         assert_ne!(light.background, dark.background);
         // ANSI colours requested by number keep the terminal palette.
         assert_eq!(light.colors, ColorPalette::default().colors);
+    }
+
+    #[test]
+    fn terminal_theme_does_not_replace_session_palette_changes() {
+        use fission_theme::{DesignMode, DesignSystem, FissionDefaultDesignSystem};
+        let explicit = wezterm_term::color::SrgbaTuple::from((12, 34, 56, 255));
+        let mut palette = ColorPalette {
+            background: explicit,
+            cursor_bg: explicit,
+            ..ColorPalette::default()
+        };
+
+        themed_palette(
+            &mut palette,
+            &FissionDefaultDesignSystem::theme(DesignMode::Light),
+        );
+
+        assert_eq!(palette.background, explicit);
+        assert_eq!(palette.cursor_bg, explicit);
     }
 
     #[test]

@@ -24,7 +24,9 @@ fn empty_combobox_shows_its_placeholder() {
 fn status_line_appears_only_with_a_value() {
     let idle = texts(TextLabState::default());
     assert!(
-        !idle.iter().any(|text| text.trim_start().starts_with("Status:")),
+        !idle
+            .iter()
+            .any(|text| text.trim_start().starts_with("Status:")),
         "idle harness shows a status line: {idle:?}"
     );
 

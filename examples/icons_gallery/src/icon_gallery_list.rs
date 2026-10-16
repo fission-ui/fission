@@ -17,9 +17,7 @@ impl From<IconGalleryList> for Widget {
             return EmptyState {
                 icon: None,
                 title: "No icons match".to_string(),
-                description: Some(
-                    "Try a shorter name, or pick a different category.".to_string(),
-                ),
+                description: Some("Try a shorter name, or pick a different category.".to_string()),
                 action: None,
             }
             .into();

@@ -7,6 +7,49 @@ use fission_ir::{Role, Semantics};
 use fission_theme::ColorRole;
 use serde::{Deserialize, Serialize};
 
+fn relative_luminance(color: fission_theme::Color) -> f64 {
+    let channel = |value: u8| {
+        let value = f64::from(value) / 255.0;
+        if value <= 0.04045 {
+            value / 12.92
+        } else {
+            ((value + 0.055) / 1.055).powf(2.4)
+        }
+    };
+    0.2126 * channel(color.r) + 0.7152 * channel(color.g) + 0.0722 * channel(color.b)
+}
+
+fn contrast_ratio(a: fission_theme::Color, b: fission_theme::Color) -> f64 {
+    let (a, b) = (relative_luminance(a), relative_luminance(b));
+    (a.max(b) + 0.05) / (a.min(b) + 0.05)
+}
+
+fn readable_selected_foreground(
+    background: fission_theme::Color,
+    preferred: fission_theme::Color,
+) -> fission_theme::Color {
+    if contrast_ratio(background, preferred) >= 4.5 {
+        return preferred;
+    }
+    let black = fission_theme::Color {
+        r: 0,
+        g: 0,
+        b: 0,
+        a: 255,
+    };
+    let white = fission_theme::Color {
+        r: 255,
+        g: 255,
+        b: 255,
+        a: 255,
+    };
+    if contrast_ratio(background, black) >= contrast_ratio(background, white) {
+        black
+    } else {
+        white
+    }
+}
+
 /// A pill-shaped label with an optional close button.
 ///
 /// Tags are typically used for removable filters, categories, or selections.
@@ -34,15 +77,18 @@ impl From<Tag> for Widget {
         let recipe = view.env().theme.recipe(fission_theme::recipes::Tag);
         // A selected tag is filled, not ringed. A ring alone reads as a border
         // treatment and disappears next to an unselected pill, so the on state
-        // takes the whole primary pair: its fill, and the foreground the design
-        // system guarantees is readable on that fill.
+        // takes the primary fill. Prefer the design system's paired foreground,
+        // but do not use it for this small label unless it clears body-text
+        // contrast.
         let selected_pair = tokens.colors.pair(ColorRole::Primary);
+        let selected_foreground =
+            readable_selected_foreground(selected_pair.fill, selected_pair.on);
 
         let text: Widget = Text {
             content: TextContent::Literal(this.label.clone()),
             font_size: Some(13.0),
             color: Some(if this.selected {
-                selected_pair.on
+                selected_foreground
             } else {
                 tokens.colors.text_primary
             }),
@@ -82,7 +128,7 @@ impl From<Tag> for Widget {
                             content: TextContent::Literal("×".into()),
                             font_size: Some(14.0),
                             color: Some(if this.selected {
-                                selected_pair.on
+                                selected_foreground
                             } else {
                                 tokens.colors.text_secondary
                             }),

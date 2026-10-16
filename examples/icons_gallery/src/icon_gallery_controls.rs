@@ -1,4 +1,6 @@
-use crate::model::{on_category_selected, on_search_changed, CategorySelected, SearchChanged, State};
+use crate::model::{
+    on_category_selected, on_search_changed, CategorySelected, SearchChanged, State,
+};
 use fission::prelude::*;
 
 /// Below this width the category chips scroll sideways instead of wrapping, so

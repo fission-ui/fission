@@ -124,13 +124,18 @@ impl<'a> LoweringContext<'a> {
     /// scopes, form-field context, runtime state, the measurer and the previous
     /// layout. A subtree built with its own theme, density or locale (a preview
     /// shown in another design system, say) lowers here so the recipe values read
-    /// during lowering match the ones it was built with. Widgets use
+    /// during lowering match the ones it was built with. Layout direction remains
+    /// an IR-wide property and must match the surrounding environment. Widgets use
     /// [`EnvScope`](crate::ui::EnvScope).
     pub fn with_env<R>(
         &mut self,
         env: &Env,
         lower: impl FnOnce(&mut LoweringContext<'_>) -> R,
     ) -> R {
+        assert_eq!(
+            env.layout_direction, self.env.layout_direction,
+            "a scoped environment cannot change the IR-wide layout direction"
+        );
         let mut scoped = LoweringContext {
             env,
             runtime_state: self.runtime_state,
@@ -141,12 +146,18 @@ impl<'a> LoweringContext<'a> {
             form_field_stack: std::mem::take(&mut self.form_field_stack),
             global_seq: self.global_seq,
         };
-        let result = lower(&mut scoped);
+        // `lower` is application/widget code and can panic. Restore the parent
+        // context before carrying that panic on; otherwise a caller that catches
+        // it would keep an empty IR and lose both identity stacks.
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| lower(&mut scoped)));
         self.ir = scoped.ir;
         self.id_stack = scoped.id_stack;
         self.form_field_stack = scoped.form_field_stack;
         self.global_seq = scoped.global_seq;
-        result
+        match result {
+            Ok(result) => result,
+            Err(payload) => std::panic::resume_unwind(payload),
+        }
     }
 
     pub fn next_node_id(&mut self) -> WidgetId {

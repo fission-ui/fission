@@ -23,7 +23,6 @@ fn test_combobox_build() {
         value: "abc".into(),
         placeholder: None,
         items: vec!["abcd".into(), "abce".into()],
-        placeholder: None,
         is_open: true,
         width: Some(320.0),
         max_popup_height: Some(200.0),

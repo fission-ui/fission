@@ -280,7 +280,6 @@ pub(crate) fn combobox() -> Vec<Widget> {
         value: state.combobox_value.clone(),
         placeholder: Some("Search options".into()),
         items,
-        placeholder: None,
         is_open: state.combobox_open,
         width: Some(COMBOBOX_WIDTH),
         max_popup_height: None,

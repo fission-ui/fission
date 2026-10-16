@@ -31,6 +31,10 @@ impl GlobalState for State {}
 impl State {
     /// Whether an icon survives the current query and category filter.
     pub fn matches(&self, entry: &IconEntry) -> bool {
+        self.matches_query(entry, self.query.trim())
+    }
+
+    fn matches_query(&self, entry: &IconEntry, query: &str) -> bool {
         let (category, name, _, _) = entry;
         if self
             .category
@@ -39,9 +43,17 @@ impl State {
         {
             return false;
         }
-        let query = self.query.trim().to_lowercase();
-        query.is_empty() || name.to_lowercase().contains(&query)
+        query.is_empty() || contains_ignore_ascii_case(name, query)
     }
+}
+
+/// Material icon identifiers are ASCII. Compare them without allocating a
+/// lowercase `String` for every one of the 10,000+ entries on each keystroke.
+fn contains_ignore_ascii_case(value: &str, query: &str) -> bool {
+    value
+        .as_bytes()
+        .windows(query.len())
+        .any(|candidate| candidate.eq_ignore_ascii_case(query.as_bytes()))
 }
 
 /// Reads the icon set once and applies the filters in a single pass.
@@ -53,12 +65,13 @@ pub fn filter_icons(state: &State) -> IconResults {
     let total = all.len();
     let mut categories: Vec<&'static str> = Vec::new();
     let mut visible = Vec::new();
+    let query = state.query.trim();
 
     for entry in all {
         if !categories.contains(&entry.0) {
             categories.push(entry.0);
         }
-        if state.matches(&entry) {
+        if state.matches_query(&entry, query) {
             visible.push(entry);
         }
     }

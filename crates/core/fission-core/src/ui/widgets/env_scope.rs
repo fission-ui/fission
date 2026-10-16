@@ -16,6 +16,12 @@ use std::sync::Arc;
 /// environment the subtree was built with, so its controls, spacing and text
 /// agree with each other.
 ///
+/// `EnvScope` does not rebuild `child`; callers that need build-time theme,
+/// locale or viewport behaviour must build the child against this environment
+/// before wrapping it. Layout direction is currently an IR-wide property, so a
+/// scoped environment must use the same `layout_direction` as its host.
+/// Runtime state and capabilities are not scoped.
+///
 /// The scope adds no layout or paint of its own.
 #[derive(Clone)]
 pub struct EnvScope {

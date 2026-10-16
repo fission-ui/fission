@@ -3,7 +3,8 @@
 //! The on state used to be a thin ring in the primary colour over a pale
 //! tint, which next to an unselected pill read as nothing at all. It now takes
 //! the whole primary colour pair, so this checks the fill is really painted
-//! and that the pair clears WCAG AA in every design system and both modes.
+//! and that its rendered foreground clears WCAG AA in every design system and
+//! both modes.
 
 use fission_core::action::{ActionEnvelope, ActionId, GlobalState};
 use fission_core::authoring::BuildCtx;
@@ -107,7 +108,12 @@ fn a_selected_tag_paints_a_fill_not_only_a_ring() {
         Some(Fill::Solid(pair.fill)),
         "a selected tag paints the primary fill"
     );
-    assert_eq!(label_color(selected_pill), Some(pair.on));
+    assert!(
+        contrast(
+            pair.fill,
+            label_color(selected_pill).expect("selected label colour")
+        ) >= 4.5
+    );
 
     let unselected = build_tag(&env, false);
     let unselected_pill = pill(&unselected);
@@ -123,13 +129,11 @@ fn a_selected_tag_paints_a_fill_not_only_a_ring() {
 
 #[test]
 fn a_selected_tag_stays_readable_in_every_preset_and_mode() {
-    // The pair is the design system's, never one the tag picks: every preset
-    // guarantees its own `on_primary` is legible on `primary`, and taking both
-    // halves from one role is what makes that guarantee apply here. Six of the
-    // seven presets clear AA for body text outright; Cupertino's system blue
-    // with white sits at 4.0:1, which is Apple's own filled-control pairing and
-    // the same one this framework's primary button already uses, so the floor
-    // checked here is the 3:1 WCAG holds interface elements to.
+    // A tag uses 13px normal text, so the foreground must clear the 4.5:1 body
+    // text threshold. Most presets can use `on_primary`; if a design system's
+    // preferred pair does not clear that threshold the widget chooses the more
+    // legible black/white foreground rather than silently applying the 3:1
+    // large-text/control threshold to small text.
     for (name, theme) in PRESETS {
         for mode in [DesignMode::Light, DesignMode::Dark] {
             let mut env = Env::default();
@@ -144,13 +148,9 @@ fn a_selected_tag_stays_readable_in_every_preset_and_mode() {
                 "{name} {mode:?}: the selected fill is the preset's primary"
             );
             let label = label_color(container).expect("tag label colour");
-            assert_eq!(
-                label, pair.on,
-                "{name} {mode:?}: the label is the foreground of that same role"
-            );
             let ratio = contrast(pair.fill, label);
             assert!(
-                ratio >= 3.0,
+                ratio >= 4.5,
                 "{name} {mode:?}: selected tag label contrast is {ratio:.2}:1"
             );
         }
