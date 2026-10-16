@@ -17,7 +17,7 @@ require() {
   fi
 }
 
-require "$home_page" 'href="/showcase/"'
+require "$home_page" 'href="showcase/"'
 require "$home_page" 'See it in action'
 require "$home_page" 'Try Fission in the browser'
 require "$home_page" 'aria-label="Open the interactive Fission Rust GUI and WebAssembly example showcase"'
@@ -28,7 +28,7 @@ require "$showcase_page" 'rel="canonical" href="https://fission.rs/showcase/"'
 require "$showcase_page" 'property="og:title" content="Fission Rust GUI WASM example apps"'
 require "$showcase_page" 'name="twitter:title" content="Fission Rust GUI WASM example apps"'
 require "$showcase_page" 'Fission Rust GUI and WASM example apps'
-require "$showcase_page" 'src="/showcase-app/"'
+require "$showcase_page" 'src="../showcase-app/"'
 require "$showcase_page" 'aria-label="Interactive Fission Rust GUI and WebAssembly example application showcase"'
 require "$showcase_page" 'title="Interactive Fission Rust GUI and WebAssembly example application showcase"'
 require "$showcase_page" '"@type":"WebApplication"'
