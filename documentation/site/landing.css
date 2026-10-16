@@ -640,25 +640,31 @@
   background: var(--fs-color-surface-sunken);
 }
 
-/* The live app is the page's main content rather than a thumbnail. Keep the embedded canvas roomy
-   on desktop and let it fill the available width at every breakpoint. */
+/* The live app is the showcase page body. The first grid row takes the header's rendered height;
+   the second takes the exact remainder of the viewport, leaving the footer below the fold. */
+.fission-site-showcase-page,
+.fission-site-showcase-page > .fission-site-column {
+  width: 100% !important;
+  min-height: 100vh;
+  min-height: 100svh;
+}
+
+.fission-site-showcase-page > .fission-site-column {
+  display: grid !important;
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
 .fission-site-showcase-frame,
 .fission-site-showcase-frame > .fission-site-column,
 .fission-site-showcase-frame .fission-site-embed {
   width: 100% !important;
+  min-height: 0;
+  height: 100% !important;
 }
 
 .fission-site-showcase-frame .fission-site-embed {
   display: block;
-  min-height: 42rem;
-  border: 1px solid var(--fs-color-border);
-  border-radius: 1rem;
+  border: 0;
+  border-radius: 0;
   background: var(--fs-color-surface);
-}
-
-@media (max-width: 720px) {
-  .fission-site-showcase-frame .fission-site-embed {
-    min-height: 46rem;
-    border-radius: 0.75rem;
-  }
 }

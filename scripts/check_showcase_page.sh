@@ -32,3 +32,12 @@ require "$showcase_page" 'src="/showcase-app/"'
 require "$showcase_page" 'aria-label="Interactive Fission Rust GUI and WebAssembly example application showcase"'
 require "$showcase_page" 'title="Interactive Fission Rust GUI and WebAssembly example application showcase"'
 require "$showcase_page" '"@type":"WebApplication"'
+
+if grep -Fq -- 'site-showcase-introduction' "$showcase_page"; then
+  echo "showcase page must not render a visible introduction above the app" >&2
+  exit 1
+fi
+
+require "$site_root/site.css" '.fission-site-showcase-frame'
+require "$site_root/site.css" 'grid-template-rows: auto minmax(0, 1fr);'
+require "$site_root/site.css" 'min-height: 100svh;'
