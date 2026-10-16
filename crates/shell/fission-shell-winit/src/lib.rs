@@ -1711,7 +1711,6 @@ fn publish_web_renderer_report(report: &RendererReport) {
         "fission-shell-winit: {line}"
     )));
     set_web_global_json("__FISSION_RENDERER_INFO", report);
-    post_web_runtime_event("/__fission/renderer", report);
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -1845,27 +1844,6 @@ fn append_web_perf_sample(name: &str, value: f64) {
     while samples.length() > 240 {
         samples.shift();
     }
-}
-
-#[cfg(target_arch = "wasm32")]
-fn post_web_runtime_event<T: serde::Serialize>(path: &str, value: &T) {
-    let Some(window) = web_sys::window() else {
-        return;
-    };
-    let Ok(body) = serde_json::to_string(value) else {
-        return;
-    };
-    let init = web_sys::RequestInit::new();
-    init.set_method("POST");
-    init.set_mode(web_sys::RequestMode::SameOrigin);
-    init.set_body(&wasm_bindgen::JsValue::from_str(&body));
-    let Ok(request) = web_sys::Request::new_with_str_and_init(path, &init) else {
-        return;
-    };
-    let _ = request.headers().set("content-type", "application/json");
-    wasm_bindgen_futures::spawn_local(async move {
-        let _ = wasm_bindgen_futures::JsFuture::from(window.fetch_with_request(&request)).await;
-    });
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -3745,21 +3723,24 @@ fn report_frame_failure(stage: &str, error: &dyn std::fmt::Display) {
 }
 
 fn fission_key_down_event(code: KeyCode, modifiers: u8, produced_text: Option<&str>) -> InputEvent {
-    produced_text.filter(|text| !text.is_empty()).map_or_else(
-        || {
-            InputEvent::Keyboard(FissionKeyEvent::Down {
-                key_code: code.clone(),
-                modifiers,
-            })
-        },
-        |text| {
-            InputEvent::Keyboard(FissionKeyEvent::DownWithText {
-                key_code: code.clone(),
-                modifiers,
-                text: text.to_owned(),
-            })
-        },
-    )
+    let accepts_produced_text = matches!(code, KeyCode::Char(_) | KeyCode::Space);
+    produced_text
+        .filter(|text| accepts_produced_text && !text.is_empty())
+        .map_or_else(
+            || {
+                InputEvent::Keyboard(FissionKeyEvent::Down {
+                    key_code: code.clone(),
+                    modifiers,
+                })
+            },
+            |text| {
+                InputEvent::Keyboard(FissionKeyEvent::DownWithText {
+                    key_code: code.clone(),
+                    modifiers,
+                    text: text.to_owned(),
+                })
+            },
+        )
 }
 
 fn handle_key_down<S: GlobalState>(
@@ -10828,6 +10809,23 @@ mod tests {
                 text: "e\u{301}".to_owned(),
             })
         );
+    }
+
+    #[test]
+    fn key_down_keeps_framework_navigation_keys_out_of_the_text_path() {
+        for (key_code, produced_text) in [
+            (KeyCode::Tab, "\t"),
+            (KeyCode::Enter, "\r"),
+            (KeyCode::Left, "ignored"),
+        ] {
+            assert_eq!(
+                fission_key_down_event(key_code.clone(), 0, Some(produced_text)),
+                InputEvent::Keyboard(KeyEvent::Down {
+                    key_code,
+                    modifiers: 0,
+                })
+            );
+        }
     }
     use serde::{Deserialize, Serialize};
     use std::cell::RefCell;
