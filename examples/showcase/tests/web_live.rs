@@ -206,11 +206,23 @@ fn showcase_browser_interactions_remain_live_across_every_preview() {
     client.pump().expect("paint closed Text Lab modal");
 
     open_example(&client, "animation-gallery");
-    client
-        .touch_selector(SelectorQuery::semantic_identifier(
+    let modal_navigation = client
+        .resolve_selector(SelectorQuery::semantic_identifier(
             "animation-gallery.nav.widgets.modal",
         ))
-        .expect("open animation Modal page");
+        .expect("animation Modal navigation row");
+    assert!(
+        modal_navigation.logical_bounds.width > 180.0,
+        "animation navigation must expose a full-row hit surface, got {:?}",
+        modal_navigation.logical_bounds
+    );
+    client
+        .touch_selector_at(
+            SelectorQuery::semantic_identifier("animation-gallery.nav.widgets.modal"),
+            0.85,
+            0.5,
+        )
+        .expect("open animation Modal page from the row edge");
     client
         .wait_for_text("Open real modal", ACTION_TIMEOUT_MS)
         .expect("animation Modal page becomes ready");
