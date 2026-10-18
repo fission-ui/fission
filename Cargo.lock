@@ -1897,6 +1897,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "compose-example"
+version = "0.15.1"
+dependencies = [
+ "anyhow",
+ "fission",
+ "fission-core",
+ "fission-test",
+ "fission-test-driver",
+ "serde_json",
+]
+
+[[package]]
 name = "comrak"
 version = "0.53.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
