@@ -7,61 +7,33 @@ use crate::components::ui::{Metric, PanelCard, ResponsiveGrid, SoftPanel};
 use crate::components::weather_card::WeatherCard;
 use crate::model::FieldInspectorState;
 use fission::prelude::*;
-
 const OVERVIEW_EXPANDED_BREAKPOINT: f32 = 760.0;
 const METRIC_MIN_WIDTH: f32 = 160.0;
-
-pub struct OverviewPanel;
-
-impl From<OverviewPanel> for Widget {
-    fn from(_panel: OverviewPanel) -> Self {
-        let (_ctx, view) = fission::build::current::<FieldInspectorState>();
-        let order = view.state().selected_order();
-        let weather_snapshot = view.state().weather.clone();
-        let spacing = &view.env().theme.tokens.spacing;
-
-        let (complete, total) = view.state().checklist_progress();
-        let hero: Widget = PanelCard::new(Column {
-            gap: Some(spacing.l),
-            children: widgets![
-                Responsive::new(OverviewHeadingCompact)
-                    .id(WidgetId::explicit("field-inspector.overview.heading"))
-                    .case(ResponsiveCase::min_width(
-                        OVERVIEW_EXPANDED_BREAKPOINT,
-                        OverviewHeadingExpanded,
-                    )),
-                ResponsiveGrid::new(widgets![
-                    Metric::new("Site", order.site),
-                    Metric::new("Asset", order.asset.id),
-                    Metric::new("Checklist", format!("{complete}/{total}")),
-                ])
-                .item_min_width(METRIC_MIN_WIDTH),
-                SoftPanel::new(
-                    Responsive::new(OverviewAssetCompact)
-                        .id(WidgetId::explicit("field-inspector.overview.asset"))
-                        .case(ResponsiveCase::min_width(
-                            OVERVIEW_EXPANDED_BREAKPOINT,
-                            OverviewAssetExpanded,
-                        )),
-                ),
+fission_component! {
+    pub OverviewPanel<FieldInspectorState> {}
+    |_panel, state, cx| {
+        let order = state.selected_order();
+        let weather_snapshot = state.weather.clone();
+        let spacing = &cx.view.env().theme.tokens.spacing;
+        let (complete, total) = state.checklist_progress();
+    } =>
+        Column(
+            gap: spacing.l,
+            children: [
+                PanelCard(Column(
+                    gap: spacing.l,
+                    children: [
+                        Responsive::new(OverviewHeadingCompact::new()).id(WidgetId::explicit("field-inspector.overview.heading")).case(ResponsiveCase::min_width(OVERVIEW_EXPANDED_BREAKPOINT, OverviewHeadingExpanded::new())),
+                        ResponsiveGrid(vec![
+                            Metric::new("Site".to_string(), order.site.to_string()).into(),
+                            Metric::new("Asset".to_string(), order.asset.id.to_string()).into(),
+                            Metric::new("Checklist".to_string(), format!("{complete}/{total}")).into(),
+                        ], METRIC_MIN_WIDTH),
+                        SoftPanel(Responsive::new(OverviewAssetCompact::new()).id(WidgetId::explicit("field-inspector.overview.asset")).case(ResponsiveCase::min_width(OVERVIEW_EXPANDED_BREAKPOINT, OverviewAssetExpanded::new())).into()),
+                    ],
+                )),
+                WeatherCard(weather_snapshot),
+                SemanticsRegion::new(CapabilityOverview::new()).identifier("field-inspector.capability-readiness").label("Capability readiness"),
             ],
-            ..Default::default()
-        })
-        .into();
-
-        Column {
-            gap: Some(spacing.l),
-            children: widgets![
-                hero,
-                WeatherCard {
-                    snapshot: weather_snapshot,
-                },
-                SemanticsRegion::new(CapabilityOverview)
-                    .identifier("field-inspector.capability-readiness")
-                    .label("Capability readiness"),
-            ],
-            ..Default::default()
-        }
-        .into()
-    }
+        )
 }

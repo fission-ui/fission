@@ -6,117 +6,83 @@ use crate::model::{
     SelectPanel, StartInspection,
 };
 use fission::prelude::*;
-
-#[derive(Clone, Copy)]
-pub struct InspectorHero {
-    pub compact: bool,
+fission_component! {
+    #[derive(Clone, Copy)] pub InspectorHero<FieldInspectorState> { compact: bool }
+    |hero, _state, cx| {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+        PanelCard(
+            if hero.compact {
+                Column(
+                    gap: tokens.spacing.m,
+                    children: [HeroSummary(true), HeroActions(true)],
+                )
+            } else {
+                Row(
+                    gap: tokens.spacing.l,
+                    align_items: ir_op::AlignItems::Start,
+                    children: [HeroSummary(false), HeroActions(false)],
+                )
+            }
+        )
 }
 
-impl From<InspectorHero> for Widget {
-    fn from(hero: InspectorHero) -> Self {
-        let (ctx, view) = fission::build::current::<FieldInspectorState>();
-        let tokens = &view.env().theme.tokens;
-        let order = view.state().selected_order();
-        let start = with_reducer!(ctx, StartInspection, on_start_inspection);
-        let review = with_reducer!(ctx, SelectPanel(InspectorPanel::Review), on_select_panel);
-        let (complete, total) = view.state().checklist_progress();
-
-        let summary: Widget = Column {
-            gap: Some(tokens.spacing.s),
-            flex_grow: 1.0,
-            children: widgets![
-                Row {
-                    gap: Some(tokens.spacing.s),
+fission_component! {
+    HeroSummary<FieldInspectorState> { compact: bool }
+    |summary, state, cx| {
+        let tokens = &cx.view.env().theme.tokens;
+        let order = state.selected_order();
+    } =>
+        Column(
+            gap: tokens.spacing.s,
+            flex_grow: 1.0_f32,
+            children: [
+                Row(
+                    gap: tokens.spacing.s,
                     wrap: ir_op::FlexWrap::Wrap,
-                    children: widgets![
-                        StatusPill::new("Field Inspector", CapabilityState::Ready),
-                        StatusPill::new(
-                            view.state().provider_mode.label(),
-                            view.state().provider_mode.state(),
-                        ),
+                    children: [
+                        StatusPill("Field Inspector".to_string(), CapabilityState::Ready),
+                        StatusPill(state.provider_mode.label().to_string(), state.provider_mode.state()),
                     ],
-                    ..Default::default()
-                },
-                TitleText::new(
-                    "Capability-driven field service",
-                    if hero.compact {
-                        TitleScale::Page
-                    } else {
-                        TitleScale::Display
-                    },
                 ),
-                MutedText::new(format!(
-                    "{} - {} - assigned to {}",
-                    order.id, order.site, order.assigned_to
-                )),
-                MutedText::new(view.state().provider_mode.detail()),
+                TitleText(
+                    "Capability-driven field service".to_string(),
+                    if summary.compact { TitleScale::Page } else { TitleScale::Display },
+                ),
+                MutedText(format!("{} - {} - assigned to {}", order.id, order.site, order.assigned_to)),
+                MutedText(state.provider_mode.detail().to_string()),
             ],
-            ..Default::default()
-        }
-        .into();
+        )
+}
 
-        let mut action_children = widgets![StatusPill::new(
-            format!("Checklist {complete}/{total}"),
-            if complete == total {
-                CapabilityState::Complete
-            } else {
-                CapabilityState::Pending
-            },
-        )];
-        if hero.compact {
-            action_children.push(
-                ActionButton::new(
-                    "field-inspector.action.start",
-                    if view.state().started {
-                        "Refresh checks"
-                    } else {
-                        "Start inspection"
-                    },
-                    start,
-                    ButtonVariant::Primary,
-                )
-                .into(),
-            );
-        }
-        action_children.push(
-            ActionButton::new(
-                "field-inspector.action.review",
-                "Review report",
-                review,
-                ButtonVariant::SecondaryColor,
-            )
-            .into(),
-        );
-
-        let actions: Widget = Column {
-            gap: Some(tokens.spacing.s),
-            align_items: if hero.compact {
-                ir_op::AlignItems::Start
-            } else {
-                ir_op::AlignItems::End
-            },
-            children: action_children,
-            ..Default::default()
-        }
-        .into();
-
-        let content: Widget = if hero.compact {
-            Column {
-                gap: Some(tokens.spacing.m),
-                children: widgets![summary, actions],
-                ..Default::default()
-            }
-            .into()
-        } else {
-            Row {
-                gap: Some(tokens.spacing.l),
-                align_items: ir_op::AlignItems::Start,
-                children: widgets![summary, actions],
-                ..Default::default()
-            }
-            .into()
-        };
-
-        PanelCard::new(content).into()
-    }
+fission_component! {
+    HeroActions<FieldInspectorState> { compact: bool }
+    |actions, state, cx| {
+        let tokens = &cx.view.env().theme.tokens;
+        let (complete, total) = state.checklist_progress();
+    } =>
+        Column(
+            gap: tokens.spacing.s,
+            align_items: if actions.compact { ir_op::AlignItems::Start } else { ir_op::AlignItems::End },
+            children: [
+                StatusPill(
+                    format!("Checklist {complete}/{total}"),
+                    if complete == total { CapabilityState::Complete } else { CapabilityState::Pending },
+                ),
+                if actions.compact {
+                    ActionButton(
+                        "field-inspector.action.start".to_string(),
+                        if state.started { "Refresh checks" } else { "Start inspection" }.to_string(),
+                        with_reducer!(cx.build, StartInspection, on_start_inspection),
+                        ButtonVariant::Primary,
+                    )
+                },
+                ActionButton(
+                    "field-inspector.action.review".to_string(),
+                    "Review report".to_string(),
+                    with_reducer!(cx.build, SelectPanel(InspectorPanel::Review), on_select_panel),
+                    ButtonVariant::SecondaryColor,
+                ),
+            ],
+        )
 }

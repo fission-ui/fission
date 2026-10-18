@@ -2,37 +2,23 @@ use crate::components::activity_log_row::ActivityLogRow;
 use crate::components::ui::{BodyText, PanelCard, TitleScale, TitleText};
 use crate::model::FieldInspectorState;
 use fission::prelude::*;
-
-pub struct ActivityLog;
-
-impl From<ActivityLog> for Widget {
-    fn from(_component: ActivityLog) -> Self {
-        let (_ctx, view) = fission::build::current::<FieldInspectorState>();
-        let rows: Vec<Widget> = if view.state().logs.is_empty() {
-            widgets![BodyText::new(
-                "Run the inspection to see capability requests and host results here."
-            )]
-        } else {
-            view.state()
-                .logs
-                .iter()
-                .cloned()
-                .map(|log| ActivityLogRow { log }.into())
-                .collect()
-        };
-
-        PanelCard::new(Column {
-            gap: Some(view.env().theme.tokens.spacing.s),
-            children: widgets![
-                TitleText::new("Capability activity", TitleScale::Section),
-                Column {
-                    gap: Some(view.env().theme.tokens.spacing.s),
-                    children: rows,
-                    ..Default::default()
-                },
-            ],
-            ..Default::default()
-        })
-        .into()
-    }
+fission_component! {
+    pub ActivityLog<FieldInspectorState> {}
+    |_log, state, cx| {} =>
+        PanelCard(
+            Column(
+                gap: cx.view.env().theme.tokens.spacing.s,
+                children: [
+                    TitleText("Capability activity".to_string(), TitleScale::Section),
+                    Column(gap: cx.view.env().theme.tokens.spacing.s, children: [
+                        if state.logs.is_empty() {
+                            BodyText("Run the inspection to see capability requests and host results here.".to_string())
+                        }
+                        for (index, log) in state.logs.iter().cloned().enumerate() {
+                            ActivityLogRow(log, key: index)
+                        }
+                    ]),
+                ],
+            ),
+        )
 }
