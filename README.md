@@ -19,6 +19,7 @@
 
 <p align="center">
   <a href="https://fission.rs/docs/learn/quickstart/">Quickstart</a> ·
+  <a href="https://fission.rs/compose/">Compose</a> ·
   <a href="https://fission.rs">Documentation</a> ·
   <a href="#examples">Examples</a> ·
   <a href="https://fission.rs/crates/">Crates</a>
@@ -37,8 +38,9 @@ that to ship user interfaces, instead of maintaining a separate app per platform
 
 - **One codebase, nine targets.** macOS, Windows, Linux, Web, Android, iOS, Terminal, Static site
   and SSR share the same state, actions and widgets. No JavaScript bridge, no second UI stack.
-- **Plain Rust, no DSL.** Widgets are ordinary structs, state is an ordinary type, and updates are
-  typed reducers. Your editor, the compiler and `cargo test` understand all of it.
+- **Concise composition, ordinary Rust underneath.** Compose removes UI wiring while using the
+  same imported widget structs, typed state, reducers and effects as the lower-level API. There is
+  no second widget catalogue or runtime.
 - **Production ready.** Teams already ship products on Fission, and so do we. Accessibility,
   keyboard navigation, text editing, right-to-left layout and focus handling are built in, not
   bolted on.
@@ -61,51 +63,48 @@ cd my-app
 fission run
 ```
 
-A window opens with a working counter. Here is all of the code behind it:
+A window opens with a working counter. Here is the complete application:
 
 ```rust
 use fission::prelude::*;
 
-#[derive(Default, Debug, Clone, PartialEq)]
-pub struct CounterState {
-    pub count: i32,
-}
-
-impl GlobalState for CounterState {}
-
-#[fission_reducer(Increment)]
-fn on_increment(state: &mut CounterState) {
-    state.count += 1;
-}
-
-#[derive(Clone)]
-pub struct CounterApp;
-
-impl From<CounterApp> for Widget {
-    fn from(_: CounterApp) -> Self {
-        let (ctx, view) = fission::build::current::<CounterState>();
-        let increment = with_reducer!(ctx, Increment, on_increment);
-
-        Column {
-            gap: Some(16.0),
-            children: vec![
-                Text::new(format!("Count: {}", view.state().count)).size(28.0).into(),
-                Button {
-                    on_press: Some(increment),
-                    child: Some(Text::new("Increment").into()),
-                    ..Default::default()
-                }
-                .into(),
+fission_component! {
+    pub CounterApp<()> {
+        #[local_state(default = 0)]
+        count: i32,
+    } |counter, _state, cx| {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Container(
+        Column(
+            gap: tokens.spacing.l,
+            children: [
+                Text("Counter").size(tokens.typography.heading1_size),
+                Text(counter.count.to_string())
+                    .size(tokens.typography.display_md_size),
+                Button(
+                    child: Text("Increment"),
+                    key: "increment",
+                    on_press: |counter, _state, _cx| counter.count += 1,
+                ),
             ],
-            ..Default::default()
-        }
-        .into()
-    }
+        ),
+    )
+    .padding_all(tokens.spacing.xl)
+    .bg(tokens.colors.background)
+}
+
+fn main() -> anyhow::Result<()> {
+    DesktopApp::<(), _>::new(CounterApp).run()
 }
 ```
 
-State is a plain struct, `Increment` is a typed action handled by a plain function, and the UI is a
-value built from it. When the state changes, Fission rebuilds the view and updates only what changed.
+The count is retained local state owned by this component. The inline handler is lowered to the same
+typed reducer machinery used by reusable actions; application state, jobs and effects remain normal
+Rust. Imported built-in, application and third-party widgets all use the same Compose syntax.
+
+Read [Compose](https://fission.rs/compose/) for global and scoped state, bindings, reusable reducers,
+routes, repeated children, internationalisation and the lower-level escape hatch.
 
 The same app runs on other targets once you add them:
 
@@ -171,6 +170,7 @@ source is in [`documentation`](documentation).
 ## Learn more
 
 - [Quickstart](https://fission.rs/docs/learn/quickstart/)
+- [Compose](https://fission.rs/compose/)
 - [App structure](https://fission.rs/docs/guides/app-structure/)
 - [Widgets and layout](https://fission.rs/docs/guides/layout-and-widgets/)
 - [Design systems](https://fission.rs/docs/guides/design-system/)
