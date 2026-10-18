@@ -607,6 +607,25 @@ impl<S: GlobalState> BuildCtxHandle<S> {
         self.with_exact_ctx(|ctx| ctx.bind(action, handler))
     }
 
+    /// Binds an action to one semantic control instance.
+    ///
+    /// Unlike [`Self::bind`], handlers with the same action payload type are
+    /// isolated by the owning widget and semantic name. The framework derives
+    /// the effective action ID and always includes the action type.
+    pub fn bind_scoped<A, H>(
+        &self,
+        owner: crate::WidgetId,
+        name: &str,
+        action: A,
+        handler: H,
+    ) -> crate::ActionEnvelope
+    where
+        A: crate::Action,
+        H: crate::registry::IntoHandler<S, A> + Send + Sync + 'static,
+    {
+        self.with_exact_ctx(|ctx| ctx.bind_scoped(owner, name, action, handler))
+    }
+
     pub fn register<A, H>(&self, handler: H)
     where
         A: crate::Action,
