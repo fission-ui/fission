@@ -1,6 +1,7 @@
 use syn::{
     parse::{Parse, ParseStream},
-    Attribute, Expr, Ident, Pat, Path, Token, Type, Visibility,
+    punctuated::Punctuated,
+    Attribute, Block, Expr, Ident, Pat, Path, Token, Type, Visibility,
 };
 mod kw {
     syn::custom_keyword!(using);
@@ -22,6 +23,7 @@ pub struct Component {
     pub editor: Ident,
     pub state: Ident,
     pub cx: Ident,
+    pub setup: Option<Block>,
     pub body: Value,
 }
 impl Parse for Component {
@@ -101,6 +103,11 @@ impl Parse for Component {
         input.parse::<Token![,]>()?;
         let cx = input.parse()?;
         input.parse::<Token![|]>()?;
+        let setup = if input.peek(syn::token::Brace) {
+            Some(input.parse()?)
+        } else {
+            None
+        };
         input.parse::<Token![=>]>()?;
         let body = input.parse()?;
         if input.peek(Token![,]) {
@@ -127,6 +134,7 @@ impl Parse for Component {
             editor,
             state,
             cx,
+            setup,
             body,
         })
     }
@@ -146,6 +154,12 @@ pub struct Binding {
 pub struct Call {
     pub path: Path,
     pub args: Vec<Arg>,
+    pub modifiers: Vec<Modifier>,
+}
+#[derive(Clone)]
+pub struct Modifier {
+    pub name: Ident,
+    pub args: Punctuated<Expr, Token![,]>,
 }
 impl Call {
     pub fn named(&self, name: &str) -> Option<&Value> {
@@ -190,6 +204,32 @@ impl Value {
             _ => None,
         }
     }
+
+    pub fn is_plain_rust(&self) -> bool {
+        match self {
+            Self::Rust(expr) => !is_bare_component(expr),
+            Self::ExplicitRust(_) | Self::Read(_) | Self::Source(_) | Self::To(_) => true,
+            Self::If { yes, no, .. } => {
+                yes.is_plain_rust() && no.as_deref().is_none_or(Self::is_plain_rust)
+            }
+            Self::Match { arms, .. } => arms.iter().all(|(_, _, body)| body.is_plain_rust()),
+            Self::Call(_) | Self::Array(_) | Self::For { .. } => false,
+        }
+    }
+}
+
+fn is_bare_component(expr: &Expr) -> bool {
+    let Expr::Path(path) = expr else {
+        return false;
+    };
+    if path.qself.is_some() || path.path.segments.len() != 1 {
+        return false;
+    }
+    path.path
+        .segments
+        .first()
+        .and_then(|segment| segment.ident.to_string().chars().next())
+        .is_some_and(char::is_uppercase)
 }
 fn branch(input: ParseStream<'_>) -> syn::Result<Value> {
     let body;
@@ -213,6 +253,12 @@ fn starts_constructor(input: ParseStream<'_>) -> bool {
     let Some(last) = path.segments.last() else {
         return false;
     };
+    // Qualified constructors are ordinary Rust values. Compose widgets are
+    // brought into scope with `use`, which also keeps third-party integration
+    // independent of macro registration or cross-crate inspection.
+    if path.segments.len() > 1 {
+        return false;
+    }
     let name = last.ident.to_string();
     if matches!(name.as_str(), "Some" | "Ok" | "Err") {
         return false;
@@ -358,9 +404,21 @@ impl Parse for Value {
                 }
                 args.parse::<Token![,]>()?;
             }
+            let mut modifiers = Vec::new();
+            while input.peek(Token![.]) {
+                input.parse::<Token![.]>()?;
+                let name = input.parse()?;
+                let arguments;
+                syn::parenthesized!(arguments in input);
+                modifiers.push(Modifier {
+                    name,
+                    args: arguments.parse_terminated(Expr::parse, Token![,])?,
+                });
+            }
             return Ok(Self::Call(Call {
                 path,
                 args: entries,
+                modifiers,
             }));
         }
         let expr: Expr = input.parse()?;

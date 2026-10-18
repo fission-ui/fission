@@ -125,7 +125,7 @@ pub fn current_id() -> WidgetId {
 }
 pub fn in_slot<R>(name: &str, f: impl FnOnce() -> R) -> R {
     let id = child_id(current_id(), "slot", name);
-    core::build::with_widget_id(id, f)
+    core::build::with_implicit_widget_id(id, f)
 }
 
 /// Lexically scoped node metadata, used by typed property adapters and diagnostics.
@@ -142,7 +142,7 @@ pub fn with_node<R, K: UiKey>(name: &str, key: &K, f: impl FnOnce() -> R) -> R {
         label: key.encode_ui_key(),
     };
     // Generated components add their own type/owner scope during their normal conversion.
-    core::build::provide(node, || core::build::with_widget_id(id, f))
+    core::build::provide(node, || core::build::with_implicit_widget_id(id, f))
 }
 pub fn node() -> NodeContext {
     core::build::try_read().unwrap_or_else(|| NodeContext {

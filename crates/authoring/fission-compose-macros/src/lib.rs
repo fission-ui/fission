@@ -88,6 +88,39 @@ mod tests {
         assert!(!output.contains(". enabled ("), "{output}");
     }
     #[test]
+    fn setup_statements_and_explicit_widget_modifiers_remain_ordinary_rust() {
+        let output = expand(quote! {
+            pub Screen<State> |screen, state, cx| {
+                let padding = cx.view.env().theme.tokens.spacing.l;
+            } => Container(
+                Column(children: [Text("Ready")]),
+            )
+            .padding_all(padding)
+            .width_length(Length::percent(100.0))
+        })
+        .unwrap();
+        syn::parse2::<syn::File>(output.clone()).unwrap();
+        let output = output.to_string();
+
+        assert!(output.contains("let padding ="), "{output}");
+        assert!(output.contains(". padding_all (padding)"), "{output}");
+        assert!(output.contains(". width_length"), "{output}");
+    }
+
+    #[test]
+    fn components_default_to_their_root_state_without_scope_boilerplate() {
+        let expanded = expand(quote! {
+            pub App<AppState> |app, state, cx| => Text(state.title.clone())
+        })
+        .unwrap()
+        .to_string();
+
+        assert!(expanded.contains("struct __AppRootScope"));
+        assert!(expanded.contains("type Root = AppState"));
+        assert!(expanded.contains("type Target = AppState"));
+        assert!(!expanded.contains("DefaultScope"));
+    }
+    #[test]
     fn rust_prelude_tuple_constructors_remain_rust_expressions() {
         let output = expand(quote! {
             pub Screen<State> |screen, state, cx| => ThirdPartyWidget(
@@ -108,6 +141,69 @@ mod tests {
         assert!(!output.contains("Some {"), "{output}");
         assert!(!output.contains("Ok {"), "{output}");
         assert!(!output.contains("Err {"), "{output}");
+    }
+
+    #[test]
+    fn qualified_enum_constructors_remain_rust_expressions() {
+        let output = expand(quote! {
+            pub Screen<State> |screen, state, cx| =>
+                Text(TextContent::Key("screen.title".into()))
+        })
+        .unwrap()
+        .to_string();
+
+        assert!(output.contains("TextContent :: Key"), "{output}");
+        assert!(!output.contains("TextContent :: Key {"), "{output}");
+    }
+
+    #[test]
+    fn positional_imported_widgets_receive_a_distinct_stable_scope() {
+        let first = expand(quote! {
+            pub Screen<State> |screen, state, cx| =>
+                Container(ThirdPartyWidget { title: "Imported".into() })
+        })
+        .unwrap()
+        .to_string();
+        let second = expand(quote! {
+            pub Screen<State> |screen, state, cx| =>
+                Container(ThirdPartyWidget { title: "Imported".into() })
+        })
+        .unwrap()
+        .to_string();
+
+        assert!(first.contains("in_slot (\"argument:"), "{first}");
+        assert_eq!(first, second, "positional scopes must be deterministic");
+    }
+
+    #[test]
+    fn conditional_component_branches_can_have_different_concrete_types() {
+        let output = expand(quote! {
+            pub Screen<State> |screen, state, cx| => if state.expanded {
+                ExpandedView
+            } else {
+                CompactView
+            }
+        })
+        .unwrap();
+        let parsed = syn::parse2::<syn::File>(output.clone());
+        assert!(parsed.is_ok(), "{}", output);
+        assert!(output.to_string().contains("let __branch"));
+    }
+    #[test]
+    fn conditional_property_values_remain_ordinary_rust() {
+        let output = expand(quote! {
+            pub Screen<State> |screen, state, cx| => Button(
+                child: Text(if state.ready { "Ready".to_owned() } else { "Waiting".to_owned() }),
+                variant: if state.ready {
+                    ButtonVariant::Primary
+                } else {
+                    ButtonVariant::Ghost
+                },
+            )
+        })
+        .unwrap();
+        syn::parse2::<syn::File>(output.clone()).unwrap();
+        assert!(!output.to_string().contains("let __branch"));
     }
     #[test]
     fn duplicate_fields_are_an_error() {

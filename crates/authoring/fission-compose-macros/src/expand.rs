@@ -15,11 +15,33 @@ pub fn component(input: Component) -> syn::Result<Tokens> {
         editor,
         state,
         cx,
+        setup,
         body,
     } = input;
-    let scope_ty = match &scope {
-        Some((p, _)) => quote!(#p),
-        None => quote!(<#target as #rt::DefaultScope>::Scope),
+    let setup = setup.map(|block| block.stmts).unwrap_or_default();
+    let root_scope_ty = format_ident!("__{}RootScope", name);
+    let (scope_ty, root_scope_item) = match &scope {
+        Some((p, _)) => (quote!(#p), None),
+        None => (
+            quote!(#root_scope_ty),
+            Some(quote! {
+                #[doc(hidden)]
+                struct #root_scope_ty;
+                impl #rt::Scope for #root_scope_ty {
+                    type Root = #target;
+                    type Target = #target;
+                    type Key = ();
+
+                    fn get<'__a>(root: &'__a #target, _key: &()) -> Option<&'__a #target> {
+                        Some(root)
+                    }
+
+                    fn get_mut<'__a>(root: &'__a mut #target, _key: &()) -> Option<&'__a mut #target> {
+                        Some(root)
+                    }
+                }
+            }),
+        ),
     };
     let key = scope
         .as_ref()
@@ -56,9 +78,24 @@ pub fn component(input: Component) -> syn::Result<Tokens> {
         quote!(#id:#ty)
     });
     let prop_init = props.iter().map(|f| &f.name);
+    let component_definition = if props.is_empty() {
+        quote!(#[derive(Clone)] #vis struct #name;)
+    } else {
+        quote!(
+            #[derive(Clone)]
+            #vis struct #name {
+                #(#prop_fields,)*
+            }
+        )
+    };
+    let constructor_body = if props.is_empty() {
+        quote!(Self)
+    } else {
+        quote!(Self{#(#prop_init,)*})
+    };
     let default_impl = props.is_empty().then(|| {
         quote!(
-            impl ::std::default::Default for #name{fn default()->Self{Self{}}}
+            impl ::std::default::Default for #name{fn default()->Self{Self}}
         )
     });
     let mut emit = Emitter {
@@ -78,19 +115,18 @@ pub fn component(input: Component) -> syn::Result<Tokens> {
     let extra_items = emit.items;
     let methods = emit.methods;
     Ok(quote! {
-        #vis struct #name {
-            #(#prop_fields,)*
-        }
+        #component_definition
         #[doc(hidden)]
         struct #view_ty<'__a>{__props:&'__a #name,#(#local_defs,)*}
         impl ::std::ops::Deref for #view_ty<'_>{
             type Target=#name;fn deref(&self)->&Self::Target{self.__props}
         }
         impl #name {
-            pub fn new(#(#prop_args),*)->Self{Self{#(#prop_init,)*}}
+            pub fn new(#(#prop_args),*)->Self{#constructor_body}
             #(#methods)*
         }
         #default_impl
+        #root_scope_item
         #(#extra_items)*
         impl From<#name> for #rt::core::Widget {
             #[allow(unused_variables)]
@@ -109,12 +145,13 @@ pub fn component(input: Component) -> syn::Result<Tokens> {
                     let __base=#rt::identity::current_id();
                     let __owner=#rt::identity::child_id(__base,#name_string,&__scope_key);
                     #rt::identity::BuildSession::claim(__owner,#name_string);
-                    #rt::core::build::with_widget_id(__owner,||{
+                    #rt::core::build::with_implicit_widget_id(__owner,||{
                         let __mount=#rt::Mount::new(#name_string,__view);
                         #(#local_handles)*
                         let #editor=#view_ty{__props:&__component,#(#local_values,)*};
                         let #cx=#rt::view_cx::ViewCx{build:__build,view:__view};
                         let _=(&#editor,&#state,&#cx);
+                        #(#setup)*
                         let __tree:#rt::core::Widget=(#tree).into();
                         __tree
                     })
@@ -167,9 +204,22 @@ impl Emitter<'_> {
                 let yes = self.bare(yes, path)?;
                 if let Some(no) = no {
                     let no = self.bare(no, path)?;
-                    Ok(quote!(if #cond{#yes}else{#no}))
+                    if v.is_plain_rust() {
+                        Ok(quote!(if #cond { #yes } else { #no }))
+                    } else {
+                        Ok(quote!(if #cond{
+                            let __branch:#rt::core::Widget=(#yes).into();
+                            __branch
+                        }else{
+                            let __branch:#rt::core::Widget=(#no).into();
+                            __branch
+                        }))
+                    }
                 } else {
-                    Ok(quote!(if #cond{Some(#yes)}else{None}))
+                    Ok(quote!(if #cond{
+                        let __branch:#rt::core::Widget=(#yes).into();
+                        Some(__branch)
+                    }else{None}))
                 }
             }
             Value::For { .. } => {
@@ -178,10 +228,18 @@ impl Emitter<'_> {
             }
             Value::Match { expr, arms } => {
                 let mut out = Vec::new();
+                let plain_rust = v.is_plain_rust();
                 for (pat, guard, value) in arms {
                     let guard = guard.as_ref().map(|g| quote!(if #g));
                     let body = self.bare(value, path)?;
-                    out.push(quote!(#pat #guard=>{#body}));
+                    if plain_rust {
+                        out.push(quote!(#pat #guard => #body));
+                    } else {
+                        out.push(quote!(#pat #guard=>{
+                            let __branch:#rt::core::Widget=(#body).into();
+                            __branch
+                        }));
+                    }
                 }
                 Ok(quote!(match #expr{#(#out,)*}))
             }
@@ -323,7 +381,17 @@ impl Emitter<'_> {
                 (id.clone(), id.to_string())
             } else {
                 let argument_path = format!("{path}/arg{}", positional.len());
-                positional.push(self.value(&arg.value, &argument_path)?);
+                let value = self.value(&arg.value, &argument_path)?;
+                // A positional value may be an ordinary imported widget rather than
+                // another Compose call. Give its conversion a stable identity scope
+                // distinct from the widget whose constructor receives it. The scope
+                // is derived from authored shape rather than argument order, so
+                // inserting an unrelated constructor argument cannot renumber it.
+                let slot = LitStr::new(
+                    &format!("argument:{:016x}", stable_hash(&value_shape(&arg.value))),
+                    Span::call_site(),
+                );
+                positional.push(quote!(#rt::identity::in_slot(#slot, || #value)));
                 continue;
             };
             let argument_path = format!("{path}/{property}");
@@ -367,10 +435,16 @@ impl Emitter<'_> {
         } else {
             quote!(#widget::new(#(#positional),*))
         };
+        let modifiers = c.modifiers.iter().map(|modifier| {
+            let name = &modifier.name;
+            let args = &modifier.args;
+            quote!(let __widget=__widget.#name(#args);)
+        });
         Ok(quote!({
             let __key=#key;
             #rt::identity::with_node(stringify!(#widget),&__key,||{
                 let __widget=#widget{#(#fields,)*..#base};
+                #(#modifiers)*
                 #(#bindings)*
                 let __widget:#rt::core::Widget=__widget.into();
                 #rt::core::ui::WidgetIdExt::id(__widget,#rt::identity::node().id)
@@ -564,6 +638,21 @@ fn call_shape(call: &Call) -> String {
         }
         shape.push_str(&value_shape(&argument.value));
         shape.push(',');
+    }
+    for modifier in &call.modifiers {
+        shape.push('.');
+        shape.push_str(&modifier.name.to_string());
+        shape.push('(');
+        shape.push_str(
+            &modifier
+                .args
+                .iter()
+                .map(ToTokens::to_token_stream)
+                .map(|tokens| tokens.to_string())
+                .collect::<Vec<_>>()
+                .join(","),
+        );
+        shape.push(')');
     }
     shape.push(')');
     shape
