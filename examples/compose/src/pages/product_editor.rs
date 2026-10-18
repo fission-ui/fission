@@ -16,7 +16,7 @@ Component! {
             Navigation(),
             Column(gap: 12.0, children: [
             TextInput(
-                label: rust { Some(cx.tr("editor.name").into()) },
+                label: Some(cx.tr("editor.name").into()),
                 value: product.name,
                 bind(on_input): to(product.name),
                 required: true,
@@ -24,7 +24,7 @@ Component! {
                 semantics_identifier: "compose.editor.name".to_string(),
             ),
             TextInput(
-                label: rust { Some(cx.tr("editor.price").into()) },
+                label: Some(cx.tr("editor.price").into()),
                 value: product.price,
                 bind(on_input): to(product.price),
             ),
@@ -45,7 +45,7 @@ Component! {
             ]),
             if editor.show_notes {
                 TextInput(
-                    label: rust { Some(cx.tr("editor.internal_notes").into()) },
+                    label: Some(cx.tr("editor.internal_notes").into()),
                     value: product.notes,
                     bind(on_input): to(product.notes),
                     multiline: true,

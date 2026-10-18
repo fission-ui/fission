@@ -213,12 +213,11 @@ fn starts_constructor(input: ParseStream<'_>) -> bool {
     let Some(last) = path.segments.last() else {
         return false;
     };
-    last.ident
-        .to_string()
-        .chars()
-        .next()
-        .is_some_and(char::is_uppercase)
-        && fork.peek(syn::token::Paren)
+    let name = last.ident.to_string();
+    if matches!(name.as_str(), "Some" | "Ok" | "Err") {
+        return false;
+    }
+    name.chars().next().is_some_and(char::is_uppercase) && fork.peek(syn::token::Paren)
 }
 impl Parse for Value {
     fn parse(input: ParseStream<'_>) -> syn::Result<Self> {

@@ -13,9 +13,9 @@ Component! {
             rust { Text::new(cx.tr("products.title")).size(28.0) },
             Navigation(),
             TextInput(
-                label: rust { Some(cx.tr("products.filter").into()) },
+                label: Some(cx.tr("products.filter").into()),
                 bind: list.query,
-                placeholder: rust { Some(cx.tr("products.filter_placeholder").into()) },
+                placeholder: Some(cx.tr("products.filter_placeholder").into()),
                 semantics_identifier: "compose.products.filter".to_string(),
             ),
             if state.products.values().any(|product|

@@ -61,7 +61,7 @@ mod tests {
         let output = expand(quote! {
             pub Editor<State> { session: u64, #[local_state(default = false)] open: bool }
             |editor, state, cx| => Column(children: [
-                TextInput(label: rust { Some("Name".into()) }, bind: state.name),
+                TextInput(label: Some("Name".into()), bind: state.name),
                 Switch(checked: editor.open, bind(on_toggle): to(editor.open)),
                 Button(child: Text("Save"), key: "save", on_press: |editor, state, cx| {
                     state.name = format!("{}", editor.session);
@@ -87,6 +87,28 @@ mod tests {
         assert!(output.contains("Default :: default"), "{output}");
         assert!(!output.contains(". title ("), "{output}");
         assert!(!output.contains(". enabled ("), "{output}");
+    }
+    #[test]
+    fn rust_prelude_tuple_constructors_remain_rust_expressions() {
+        let output = expand(quote! {
+            pub Screen<State> |screen, state, cx| => ThirdPartyWidget(
+                optional: Some("value".to_owned()),
+                success: Ok(3),
+                failure: Err("no"),
+            )
+        })
+        .unwrap()
+        .to_string();
+
+        assert!(
+            output.contains("Some (\"value\" . to_owned ())"),
+            "{output}"
+        );
+        assert!(output.contains("Ok (3)"), "{output}");
+        assert!(output.contains("Err (\"no\")"), "{output}");
+        assert!(!output.contains("Some {"), "{output}");
+        assert!(!output.contains("Ok {"), "{output}");
+        assert!(!output.contains("Err {"), "{output}");
     }
     #[test]
     fn duplicate_fields_are_an_error() {
