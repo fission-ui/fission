@@ -7,15 +7,13 @@ Component! {
     Column(
         gap: 20.0,
         children: [
-            rust { Text::new(cx.tr("dashboard.title")).size(28.0) },
+            Text::new(cx.tr("dashboard.title")).size(28.0),
             Navigation(),
             Text(cx.tr("dashboard.summary")),
-            rust {
-                Text::new(
+            Text::new(
                     cx.tr("dashboard.product_count")
                         .replace("{count}", &state.products.len().to_string()),
-                ).size(22.0)
-            },
+            ).size(22.0),
             Text(
                 cx.tr("dashboard.available_count").replace(
                     "{count}",

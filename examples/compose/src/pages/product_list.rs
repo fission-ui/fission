@@ -10,7 +10,7 @@ Component! {
     Column(
         gap: 20.0,
         children: [
-            rust { Text::new(cx.tr("products.title")).size(28.0) },
+            Text::new(cx.tr("products.title")).size(28.0),
             Navigation(),
             TextInput(
                 label: Some(cx.tr("products.filter").into()),

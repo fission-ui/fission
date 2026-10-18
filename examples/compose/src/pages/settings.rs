@@ -8,7 +8,7 @@ Component! {
     Column(
         gap: 20.0,
         children: [
-            rust { Text::new(cx.tr("settings.title")).size(28.0) },
+            Text::new(cx.tr("settings.title")).size(28.0),
             Navigation(),
             Row(children: [
                 Text(cx.tr("settings.notifications")),

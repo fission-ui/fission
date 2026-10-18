@@ -7,7 +7,7 @@ Component! {
     Column(
         gap: 20.0,
         children: [
-            rust { Text::new(cx.tr("not_found.title")).size(28.0) },
+            Text::new(cx.tr("not_found.title")).size(28.0),
             Text(cx.tr("not_found.message").replace("{path}", &state.current_path)),
             Row(children: [
                 Button(

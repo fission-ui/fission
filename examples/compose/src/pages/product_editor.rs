@@ -12,7 +12,7 @@ Component! {
     Column(
         gap: 20.0,
         children: [
-            rust { Text::new(cx.tr("editor.title")).size(28.0) },
+            Text::new(cx.tr("editor.title")).size(28.0),
             Navigation(),
             Column(gap: 12.0, children: [
             TextInput(
