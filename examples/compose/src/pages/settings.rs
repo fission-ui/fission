@@ -5,20 +5,25 @@ use fission::prelude::*;
 
 Component! {
     pub SettingsPage<AppState> |settings, state, cx| =>
-    Page(
-        cx.tr("settings.title"),
-        navigation: Navigation(),
-        content: Form(children: [
-            ToggleField(
-                cx.tr("settings.notifications"),
-                bind: state.settings.notifications,
-                semantics_identifier: "compose.settings.notifications".to_string(),
-            ),
-            ToggleField(
-                cx.tr("settings.compact"),
-                bind: state.settings.compact_rows,
-                semantics_identifier: "compose.settings.compact".to_string(),
-            ),
+    Column(
+        gap: 20.0,
+        children: [
+            rust { Text::new(cx.tr("settings.title")).size(28.0) },
+            Navigation(),
+            Row(children: [
+                Text(cx.tr("settings.notifications")),
+                Switch(
+                    bind: state.settings.notifications,
+                    semantics_identifier: "compose.settings.notifications".to_string(),
+                ),
+            ]),
+            Row(children: [
+                Text(cx.tr("settings.compact")),
+                Switch(
+                    bind: state.settings.compact_rows,
+                    semantics_identifier: "compose.settings.compact".to_string(),
+                ),
+            ]),
             Row(children: [
                 Button(
                     child: Text(cx.tr("settings.english")),
@@ -33,6 +38,6 @@ Component! {
                     on_press: |_, state, _| { state.locale = Locale::from("es-ES"); },
                 ),
             ]),
-        ]),
+        ],
     )
 }

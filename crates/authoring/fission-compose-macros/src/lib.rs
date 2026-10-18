@@ -60,14 +60,14 @@ mod tests {
     fn generated_items_are_valid_rust_syntax() {
         let output = expand(quote! {
             pub Editor<State> { session: u64, #[local_state(default = false)] open: bool }
-            |editor, state, cx| => Page("Edit", content: Column(children: [
-                TextField("Name", bind: state.name),
-                ToggleField("Open", bind: editor.open),
+            |editor, state, cx| => Column(children: [
+                TextInput(label: rust { Some("Name".into()) }, bind: state.name),
+                Switch(checked: editor.open, bind(on_toggle): to(editor.open)),
                 Button(child: Text("Save"), key: "save", on_press: |editor, state, cx| {
                     state.name = format!("{}", editor.session);
                     editor.open = !editor.open;
                 }),
-            ]))
+            ])
         })
         .unwrap();
         syn::parse2::<syn::File>(output).unwrap();

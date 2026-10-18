@@ -4,10 +4,11 @@ use fission::prelude::*;
 
 Component! {
     pub Dashboard<AppState> |dashboard, state, cx| =>
-    Page(
-        cx.tr("dashboard.title"),
-        navigation: Navigation(),
-        content: Column(children: [
+    Column(
+        gap: 20.0,
+        children: [
+            rust { Text::new(cx.tr("dashboard.title")).size(28.0) },
+            Navigation(),
             Text(cx.tr("dashboard.summary")),
             rust {
                 Text::new(
@@ -26,7 +27,7 @@ Component! {
             } else {
                 Text(cx.tr("dashboard.none_saved"))
             },
-        ]),
-        footer: Text(cx.tr("dashboard.footer")),
+            Text(cx.tr("dashboard.footer")),
+        ],
     )
 }

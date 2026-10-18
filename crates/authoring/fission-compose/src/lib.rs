@@ -9,7 +9,6 @@ pub mod binding;
 pub mod events;
 pub mod identity;
 pub mod scope;
-pub mod ui;
 
 pub use binding::{read, Control, ControlSource, LocalSource, Read, ReadOnly, Source, StateSource};
 pub use events::{Event, Press, TextChanged, Toggle};
@@ -25,11 +24,10 @@ pub trait ComposeBind<S>: Sized {
 }
 
 pub mod prelude {
-    pub use crate::core::ui::ButtonVariant::{Primary, SecondaryGray};
-    pub use crate::core::ui::{Button, Column, Row, Switch, Text};
-    pub use crate::core::{GlobalState, ReducerContext, Widget};
-    pub use crate::ui::{Form, Page, TextField, ToggleField};
-    pub use crate::{state_scope, Component, DefaultScope, Scope, UiKey};
+    pub use crate::{
+        read, state_scope, Component, ComposeBind, Control, ControlSource, DefaultScope, Event,
+        ManySource, Press, Scope, Source, TextChanged, Toggle, UiKey,
+    };
 }
 
 /// Child-list contract. Ordinary Rust iterators remain usable without a runtime

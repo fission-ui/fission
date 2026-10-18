@@ -1,8 +1,9 @@
 use crate::{
     core,
-    events::{EditEvent, Event, FieldAction, HandlerFn},
+    events::{EditEvent, Event, FieldAction, HandlerFn, TextChanged, Toggle},
     identity::{self, Mount},
     scope::Scope,
+    ComposeBind,
 };
 use core::{BuildCtxHandle, GlobalState, ReducerContext, StateField};
 
@@ -36,6 +37,36 @@ pub struct Read<T>(pub T);
 pub struct ReadOnly<T>(pub T);
 pub fn read<T>(value: T) -> ReadOnly<T> {
     ReadOnly(value)
+}
+
+// These are semantic adapters for core editable controls, not a Compose widget
+// catalogue. Third-party controls can implement the same contract when they
+// want the short `bind:` spelling, while `bind(event): to(...)` works without
+// an adapter for any public event field.
+impl<S> ComposeBind<S> for core::ui::TextInput
+where
+    S: ControlSource<String>,
+{
+    fn compose_bind(mut self, source: S) -> Self {
+        let control = control_for::<String, TextChanged, _>("bind", source);
+        self.value = control.value;
+        self.read_only = control.on_change.is_none();
+        self.on_input = control.on_change.map(Event::into_envelope);
+        self
+    }
+}
+
+impl<S> ComposeBind<S> for core::ui::Switch
+where
+    S: ControlSource<bool>,
+{
+    fn compose_bind(mut self, source: S) -> Self {
+        let control = control_for::<bool, Toggle, _>("bind", source);
+        self.checked = control.value;
+        self.disabled |= control.on_change.is_none();
+        self.on_toggle = control.on_change.map(Event::into_envelope);
+        self
+    }
 }
 impl<U, T> Source<T> for Read<U>
 where
