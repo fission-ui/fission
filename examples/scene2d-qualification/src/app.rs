@@ -114,23 +114,6 @@ fission_component! {
                 ),
         );
         let game = state.runtime.state();
-        let status: Widget = if let Some(error) = &game.last_error {
-            Text::new(error.clone())
-                .size(tokens.typography.body_medium_size)
-                .color(tokens.colors.error)
-                .into()
-        } else if game.beacon_collected {
-            Text::new(TextContent::Key("game.success".into()))
-                .size(tokens.typography.body_medium_size)
-                .color(tokens.colors.success)
-                .into()
-        } else {
-            Text::new(TextContent::Key("game.ready".into()))
-                .size(tokens.typography.body_medium_size)
-                .color(tokens.colors.text_secondary)
-                .into()
-        };
-
         let scene = Scene2D::new(state.scene.clone())
             .width(VIEWPORT_SIZE.x)
             .height(VIEWPORT_SIZE.y);
@@ -143,7 +126,13 @@ fission_component! {
                     Text(TextContent::Key("game.title".into()))
                         .size(tokens.typography.heading1_size)
                         .color(tokens.colors.text_primary),
-                    status,
+                    if let Some(error) = &game.last_error {
+                        Text(error.clone()).size(tokens.typography.body_medium_size).color(tokens.colors.error)
+                    } else if game.beacon_collected {
+                        Text(TextContent::Key("game.success".into())).size(tokens.typography.body_medium_size).color(tokens.colors.success)
+                    } else {
+                        Text(TextContent::Key("game.ready".into())).size(tokens.typography.body_medium_size).color(tokens.colors.text_secondary)
+                    },
                     SemanticsRegion(
                         Container(scene)
                             .width(VIEWPORT_SIZE.x)
@@ -155,10 +144,10 @@ fission_component! {
                     Row(
                         gap: tokens.spacing.s,
                         children: [
-                            direction_button("←", Direction::Left, &move_action),
-                            direction_button("↑", Direction::Up, &move_action),
-                            direction_button("↓", Direction::Down, &move_action),
-                            direction_button("→", Direction::Right, &move_action),
+                            DirectionButton("←", Direction::Left, move_action.clone()),
+                            DirectionButton("↑", Direction::Up, move_action.clone()),
+                            DirectionButton("↓", Direction::Down, move_action.clone()),
+                            DirectionButton("→", Direction::Right, move_action.clone()),
                             Button(
                                 child: Text(TextContent::Key("game.restart".into())),
                                 on_press: reset,
@@ -178,26 +167,13 @@ fission_component! {
     )
 }
 
-struct QualificationGameRegion {
-    child: Widget,
-    action: ActionEnvelope,
-}
-
-impl QualificationGameRegion {
-    fn new(child: impl Into<Widget>, action: ActionEnvelope) -> Self {
-        Self {
-            child: child.into(),
-            action,
-        }
-    }
-}
-
-impl From<QualificationGameRegion> for Widget {
-    fn from(region: QualificationGameRegion) -> Self {
-        GameInputRegion::for_game::<QualificationGame>(region.child, region.action)
+fission_component! {
+    QualificationGameRegion<QualificationState> {
+        child: Widget,
+        action: ActionEnvelope,
+    } |region, _state, _cx| {} =>
+        GameInputRegion::for_game::<QualificationGame>(region.child.clone(), region.action.clone())
             .semantics_identifier("beacon-run.game-input")
-            .into()
-    }
 }
 
 pub(crate) fn create_env() -> anyhow::Result<Env> {
@@ -215,12 +191,15 @@ pub(crate) fn create_env() -> anyhow::Result<Env> {
     Ok(env)
 }
 
-fn direction_button(label: &str, direction: Direction, action: &ActionEnvelope) -> Widget {
-    Button {
-        on_press: Some(action.with_action(&MovePlayer(direction))),
-        child: Some(Text::new(label).size(20.0).into()),
-        ..Default::default()
-    }
-    .semantics_identifier(format!("beacon-run.move-{direction:?}").to_lowercase())
-    .into()
+fission_component! {
+    DirectionButton<()> {
+        label: &'static str,
+        direction: Direction,
+        action: ActionEnvelope,
+    } |button, _state, _cx| {} =>
+    Button(
+        on_press: button.action.with_action(&MovePlayer(button.direction)),
+        child: Text(button.label).size(20.0_f32),
+    )
+    .semantics_identifier(format!("beacon-run.move-{:?}", button.direction).to_lowercase())
 }

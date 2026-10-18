@@ -167,30 +167,6 @@ fission_component! {
         } else {
             "game.ready"
         };
-        let controls = Row {
-            gap: Some(8.0),
-            children: vec![
-                ControlButton::new("game.left", "move-left", left).into(),
-                ControlButton::new("game.forward", "move-forward", forward).into(),
-                ControlButton::new("game.back", "move-back", back).into(),
-                ControlButton::new("game.right", "move-right", right).into(),
-            ],
-            ..Default::default()
-        };
-        let actions = Row {
-            gap: Some(8.0),
-            children: vec![
-                ControlButton::new("game.select", "select-beacon", select).into(),
-                ControlButton::new("game.restart", "restart-run", restart).into(),
-            ],
-            ..Default::default()
-        };
-        let viewport: Widget = Scene3D::new(state.scene.clone())
-            .height(540.0)
-            .on_pick(pick)
-            .semantic_label("Interactive Beacon Run viewport")
-            .into();
-
     } =>
     QualificationGameRegion(
         Container(
@@ -200,9 +176,28 @@ fission_component! {
                     Text(TextContent::Key("game.title".into())).size(30.0),
                     Text(TextContent::Key("game.instructions".into())).size(15.0),
                     Text(TextContent::Key(status_key.into())).size(18.0),
-                    Container(viewport).height(540.0),
-                    controls,
-                    actions,
+                    Container(
+                        Scene3D::new(state.scene.clone())
+                            .height(540.0)
+                            .on_pick(pick)
+                            .semantic_label("Interactive Beacon Run viewport")
+                    ).height(540.0),
+                    Row(
+                        gap: 8.0,
+                        children: [
+                            ControlButton("game.left", "move-left", left),
+                            ControlButton("game.forward", "move-forward", forward),
+                            ControlButton("game.back", "move-back", back),
+                            ControlButton("game.right", "move-right", right),
+                        ],
+                    ),
+                    Row(
+                        gap: 8.0,
+                        children: [
+                            ControlButton("game.select", "select-beacon", select),
+                            ControlButton("game.restart", "restart-run", restart),
+                        ],
+                    ),
                 ],
             ),
         )
@@ -211,54 +206,26 @@ fission_component! {
     )
 }
 
-struct QualificationGameRegion {
-    child: Widget,
-    action: ActionEnvelope,
-}
-
-impl QualificationGameRegion {
-    fn new(child: impl Into<Widget>, action: ActionEnvelope) -> Self {
-        Self {
-            child: child.into(),
-            action,
-        }
-    }
-}
-
-impl From<QualificationGameRegion> for Widget {
-    fn from(region: QualificationGameRegion) -> Self {
-        GameInputRegion::for_game::<HarborGame>(region.child, region.action)
+fission_component! {
+    QualificationGameRegion<QualificationState> {
+        child: Widget,
+        action: ActionEnvelope,
+    } |region, _state, _cx| {} =>
+        GameInputRegion::for_game::<HarborGame>(region.child.clone(), region.action.clone())
             .semantics_identifier("scene3d-qualification.game-input")
-            .into()
-    }
 }
 
-struct ControlButton {
-    label: &'static str,
-    identifier: &'static str,
-    action: ActionEnvelope,
-}
-
-impl ControlButton {
-    fn new(label: &'static str, identifier: &'static str, action: ActionEnvelope) -> Self {
-        Self {
-            label,
-            identifier,
-            action,
-        }
-    }
-}
-
-impl From<ControlButton> for Widget {
-    fn from(control: ControlButton) -> Self {
-        Button {
-            child: Some(Text::new(TextContent::Key(control.label.into())).into()),
-            on_press: Some(control.action),
-            ..Default::default()
-        }
+fission_component! {
+    ControlButton<QualificationState> {
+        label: &'static str,
+        identifier: &'static str,
+        action: ActionEnvelope,
+    } |control, _state, _cx| {} =>
+        Button(
+            child: Text(TextContent::Key(control.label.into())),
+            on_press: control.action.clone(),
+        )
         .semantics_identifier(control.identifier)
-        .into()
-    }
 }
 
 pub(crate) fn create_env() -> anyhow::Result<Env> {

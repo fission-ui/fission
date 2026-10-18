@@ -74,14 +74,14 @@ fission_component! {
                 Column(
                     gap: tokens.spacing.m,
                     children: [
-                        SmokeHeader,
-                        CounterSection,
-                        PrimaryField,
-                        SecondaryField,
-                        PasswordField,
-                        VerificationCodeField,
-                        PerformanceRows,
-                        ScrolledCounterButton,
+                        SmokeHeader(),
+                        CounterSection(),
+                        PrimaryField(),
+                        SecondaryField(),
+                        PasswordField(),
+                        VerificationCodeField(),
+                        PerformanceRows(),
+                        ScrolledCounterButton(),
                     ],
                 ),
             )
@@ -102,115 +102,81 @@ fission_component! {
     .bg(tokens.colors.background)
 }
 
+fission_component! {
 /// Keeps the browser smoke fixture large enough to expose widget-count and
 /// scrolling regressions without introducing application state or animation.
-struct PerformanceRows;
-
-impl From<PerformanceRows> for Widget {
-    fn from(_rows: PerformanceRows) -> Self {
-        let (_, view) = fission::build::current::<CounterState>();
-        let tokens = &view.env().theme.tokens;
-        Column {
-            gap: Some(tokens.spacing.xs),
-            children: (0..120)
-                .map(|index| {
-                    Text::new(format!("Scroll qualification row {}", index + 1))
+    PerformanceRows<CounterState> |_rows, _state, cx| {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+        Column(
+            gap: tokens.spacing.xs,
+            children: [
+                for index in 0..120 {
+                    Text(format!("Scroll qualification row {}", index + 1), key: index)
                         .size(tokens.typography.font_size_sm)
-                        .into()
-                })
-                .collect(),
-            ..Default::default()
-        }
-        .into()
-    }
+                },
+            ],
+        )
 }
 
+fission_component! {
 /// A real control below the long fixture content. Coordinate-driven tests use
 /// this to qualify hit testing after a compositor-only scroll.
-struct ScrolledCounterButton;
-
-impl From<ScrolledCounterButton> for Widget {
-    fn from(_button: ScrolledCounterButton) -> Self {
-        let (ctx, view) = fission::build::current::<CounterState>();
-        Button {
-            on_press: Some(with_reducer!(ctx, Increment, on_increment)),
-            child: Some(
-                Text::new(format!(
-                    "Increment after scrolling (Count: {})",
-                    view.state().count
-                ))
-                .into(),
-            ),
-            ..Default::default()
-        }
+    ScrolledCounterButton<CounterState> |_button, state, cx| {} =>
+        Button(
+            on_press: with_reducer!(cx.build, Increment, on_increment),
+            child: Text(format!(
+                "Increment after scrolling (Count: {})",
+                state.count,
+            )),
+        )
         .semantics_identifier("web-smoke.increment.scrolled")
-        .into()
-    }
 }
 
-struct SmokeHeader;
-
-impl From<SmokeHeader> for Widget {
-    fn from(_header: SmokeHeader) -> Self {
-        let (_, view) = fission::build::current::<CounterState>();
-        let tokens = &view.env().theme.tokens;
-        Column {
-            gap: Some(tokens.spacing.m),
-            children: widgets![
-                Text::new("Fission web smoke")
+fission_component! {
+    SmokeHeader<CounterState> |_header, _state, cx| {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+        Column(
+            gap: tokens.spacing.m,
+            children: [
+                Text("Fission web smoke")
                     .size(tokens.typography.heading_size)
                     .color(tokens.colors.text_primary),
-                Text::new("This exercises the shared Fission runtime through the browser shell.")
+                Text("This exercises the shared Fission runtime through the browser shell.")
                     .size(tokens.typography.body_large_size)
                     .color(tokens.colors.text_secondary),
             ],
-            ..Default::default()
-        }
-        .into()
-    }
+        )
 }
 
-struct CounterSection;
-
-impl From<CounterSection> for Widget {
-    fn from(_section: CounterSection) -> Self {
-        let (ctx, view) = fission::build::current::<CounterState>();
-        let tokens = &view.env().theme.tokens;
-        Column {
-            gap: Some(tokens.spacing.m),
-            children: widgets![
-                Text::new(format!("Count: {}", view.state().count))
+fission_component! {
+    CounterSection<CounterState> |_section, state, cx| {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+        Column(
+            gap: tokens.spacing.m,
+            children: [
+                Text(format!("Count: {}", state.count))
                     .size(tokens.typography.font_size_xl)
                     .color(tokens.colors.primary),
-                Button {
-                    on_press: Some(with_reducer!(ctx, Increment, on_increment)),
-                    child: Some(Text::new("Increment").into()),
-                    ..Default::default()
-                }
+                Button(
+                    on_press: with_reducer!(cx.build, Increment, on_increment),
+                    child: Text("Increment"),
+                )
                 .semantics_identifier("web-smoke.increment"),
             ],
-            ..Default::default()
-        }
-        .into()
-    }
+        )
 }
 
+fission_component! {
 /// A field followed by a line echoing its value, which the browser test reads.
-struct EchoedField {
-    field: Widget,
-    echo: String,
-}
-
-impl From<EchoedField> for Widget {
-    fn from(echoed: EchoedField) -> Self {
-        let (_, view) = fission::build::current::<CounterState>();
-        Column {
-            gap: Some(view.env().theme.tokens.spacing.m),
-            children: widgets![echoed.field, Text::new(echoed.echo)],
-            ..Default::default()
-        }
-        .into()
-    }
+    EchoedField<CounterState> { field: Widget, echo: String }
+    |echoed, _state, cx| {} =>
+        Column(
+            gap: cx.view.env().theme.tokens.spacing.m,
+            children: [echoed.field, Text(echoed.echo)],
+        )
 }
 
 /// Echo text for a value, reading "(empty)" rather than leaving a bare label.
@@ -222,130 +188,113 @@ fn shown(value: &str) -> &str {
     }
 }
 
+fission_component! {
 /// Exercises spell checking, suggestions and a required field.
-struct PrimaryField;
-
-impl From<PrimaryField> for Widget {
-    fn from(_field: PrimaryField) -> Self {
-        let (ctx, view) = fission::build::current::<CounterState>();
-        let state = view.state();
-        EchoedField {
-            field: TextInput {
-                id: Some(WidgetId::explicit("web-smoke.text.primary")),
-                semantics_identifier: Some("web-smoke.text.primary".into()),
-                name: Some("primary".into()),
+    PrimaryField<CounterState> |_field, state, cx| {} =>
+        EchoedField(
+            TextInput(
+                id: WidgetId::explicit("web-smoke.text.primary"),
+                semantics_identifier: "web-smoke.text.primary".to_string(),
+                name: "primary".to_string(),
                 label: Some("Primary field".into()),
                 placeholder: Some("Type to test spell checking".into()),
                 value: state.primary_text.clone(),
-                on_input: Some(with_reducer!(ctx, EditPrimary, edit_primary)),
+                on_input: with_reducer!(cx.build, EditPrimary, edit_primary),
                 required: true,
                 autocorrect: true,
                 enable_suggestions: true,
                 spell_check: true,
-                ..Default::default()
-            }
-            .into(),
-            echo: format!(
+            ),
+            format!(
                 "Primary value: {} (edits: {})",
                 shown(&state.primary_text),
-                state.primary_edits
+                state.primary_edits,
             ),
-        }
-        .into()
-    }
+        )
 }
 
-struct SecondaryField;
-
-impl From<SecondaryField> for Widget {
-    fn from(_field: SecondaryField) -> Self {
-        let (ctx, view) = fission::build::current::<CounterState>();
-        let state = view.state();
-        EchoedField {
-            field: TextInput {
-                id: Some(WidgetId::explicit("web-smoke.text.secondary")),
-                semantics_identifier: Some("web-smoke.text.secondary".into()),
-                name: Some("secondary".into()),
+fission_component! {
+    SecondaryField<CounterState> |_field, state, cx| {} =>
+        EchoedField(
+            TextInput(
+                id: WidgetId::explicit("web-smoke.text.secondary"),
+                semantics_identifier: "web-smoke.text.secondary".to_string(),
+                name: "secondary".to_string(),
                 label: Some("Secondary field".into()),
                 placeholder: Some("Type anything".into()),
                 value: state.secondary_text.clone(),
-                on_input: Some(with_reducer!(ctx, EditSecondary, edit_secondary)),
-                ..Default::default()
-            }
-            .into(),
-            echo: format!(
+                on_input: with_reducer!(cx.build, EditSecondary, edit_secondary),
+            ),
+            format!(
                 "Secondary value: {} (edits: {})",
                 shown(&state.secondary_text),
-                state.secondary_edits
+                state.secondary_edits,
             ),
-        }
-        .into()
-    }
+        )
 }
 
+fission_component! {
 /// Exercises obscured input and password autofill.
-struct PasswordField;
-
-impl From<PasswordField> for Widget {
-    fn from(_field: PasswordField) -> Self {
-        let (ctx, view) = fission::build::current::<CounterState>();
-        TextInput {
-            id: Some(WidgetId::explicit("web-smoke.text.password")),
-            semantics_identifier: Some("web-smoke.text.password".into()),
-            name: Some("password".into()),
+    PasswordField<CounterState> |_field, state, cx| {} =>
+        TextInput(
+            id: WidgetId::explicit("web-smoke.text.password"),
+            semantics_identifier: "web-smoke.text.password".to_string(),
+            name: "password".to_string(),
             label: Some("Password field".into()),
             placeholder: Some("Enter a password".into()),
-            value: view.state().password.clone(),
-            on_input: Some(with_reducer!(ctx, EditPassword, edit_password)),
+            value: state.password.clone(),
+            on_input: with_reducer!(cx.build, EditPassword, edit_password),
             obscure_text: true,
             autofill_hints: vec!["current-password".into()],
-            ..Default::default()
-        }
-        .into()
-    }
+        )
 }
 
+fission_component! {
 /// Exercises a borderless, digits-only one-time-code field drawn over its own tile.
 ///
 /// The field has no built-in label (one would shift it off the tile), so a
 /// caption sits above the tile and the same text names the field semantically.
-struct VerificationCodeField;
-
-impl From<VerificationCodeField> for Widget {
-    fn from(_field: VerificationCodeField) -> Self {
-        let (ctx, view) = fission::build::current::<CounterState>();
-        let tokens = &view.env().theme.tokens;
-        let code = view.state().verification_code.clone();
-        let tile = ZStack {
-            children: widgets![
-                Container::new(Spacer::default())
-                    .width(CODE_FIELD_WIDTH)
-                    .height(CODE_FIELD_HEIGHT)
-                    .bg(Color::WHITE),
-                TextInput {
-                    id: Some(WidgetId::explicit("web-smoke.text.verification")),
-                    semantics_identifier: Some("web-smoke.text.verification".into()),
-                    semantics: Some(Semantics {
+    VerificationCodeField<CounterState> |_field, state, cx| {
+        let tokens = &cx.view.env().theme.tokens;
+        let code = state.verification_code.clone();
+    } =>
+        EchoedField(
+            Column(
+                gap: tokens.spacing.xs,
+                children: [
+                    Text(VERIFICATION_LABEL)
+                        .size(tokens.typography.label_large_size)
+                        .color(tokens.colors.text_primary),
+                    ZStack(
+                        children: [
+                            Container(Spacer())
+                                .width(CODE_FIELD_WIDTH)
+                                .height(CODE_FIELD_HEIGHT)
+                                .bg(Color::WHITE),
+                            TextInput(
+                    id: WidgetId::explicit("web-smoke.text.verification"),
+                    semantics_identifier: "web-smoke.text.verification".to_string(),
+                    semantics: Semantics {
                         label: Some(VERIFICATION_LABEL.into()),
                         ..Default::default()
-                    }),
+                    },
                     // Words, not sample digits, so the hint can't pass for a typed code.
                     placeholder: Some("6-digit code".into()),
                     value: code.clone(),
-                    on_input: Some(with_reducer!(
-                        ctx,
+                    on_input: with_reducer!(
+                        cx.build,
                         EditVerificationCode,
                         edit_verification_code
-                    )),
-                    width: Some(CODE_FIELD_WIDTH),
-                    height: Some(CODE_FIELD_HEIGHT),
-                    padding: Some(CODE_PADDING),
+                    ),
+                    width: CODE_FIELD_WIDTH,
+                    height: CODE_FIELD_HEIGHT,
+                    padding: CODE_PADDING,
                     borderless: true,
-                    font_family: Some("Unavailable Verification Font".into()),
-                    font_size: Some(CODE_FONT_SIZE),
-                    line_height: Some(CODE_LINE_HEIGHT),
-                    letter_spacing: Some(CODE_LETTER_SPACING),
-                    text_color: Some(Color::BLACK),
+                    font_family: "Unavailable Verification Font".to_string(),
+                    font_size: CODE_FONT_SIZE,
+                    line_height: CODE_LINE_HEIGHT,
+                    letter_spacing: CODE_LETTER_SPACING,
+                    text_color: Color::BLACK,
                     show_cursor: false,
                     keyboard_type: TextInputType::Number,
                     input_formatters: vec![InputFormatter::DigitsOnly, InputFormatter::SingleLine],
@@ -355,25 +304,11 @@ impl From<VerificationCodeField> for Widget {
                     smart_dashes: false,
                     smart_quotes: false,
                     autofill_hints: vec!["one-time-code".into()],
-                    ..Default::default()
-                },
-            ],
-            ..Default::default()
-        };
-        EchoedField {
-            field: Column {
-                gap: Some(tokens.spacing.xs),
-                children: widgets![
-                    Text::new(VERIFICATION_LABEL)
-                        .size(tokens.typography.label_large_size)
-                        .color(tokens.colors.text_primary),
-                    tile,
+                            ),
+                        ],
+                    ),
                 ],
-                ..Default::default()
-            }
-            .into(),
-            echo: format!("Verification value: {}", shown(&code)),
-        }
-        .into()
-    }
+            ),
+            format!("Verification value: {}", shown(&code)),
+        )
 }

@@ -10,9 +10,9 @@ use crate::layout::{
 use crate::window_dot::WindowDot;
 use fission::core::ui::{Container, Text, Widget};
 use fission::core::{Action, ActionId, GlobalState, ReducerContext, ResourceKey, TimerResource};
-use fission::prelude::fission_component;
 #[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
 use fission::prelude::DesktopApp;
+use fission::prelude::*;
 use fission::widgets::{HStack, Spacer, VStack};
 #[cfg(not(target_arch = "wasm32"))]
 use fission::widgets::{TerminalLaunchConfig, TerminalSession, TerminalView};
@@ -164,54 +164,7 @@ fission_component! {
             .filter(|title| !title.trim().is_empty())
             .unwrap_or_else(|| "Shell".into());
 
-        let chrome: Widget = Container::new(HStack {
-            spacing: Some(tokens.spacing.s),
-            children: vec![
-                WindowDot {
-                    color: tokens.colors.error,
-                }
-                .into(),
-                WindowDot {
-                    color: tokens.colors.warning,
-                }
-                .into(),
-                WindowDot {
-                    color: tokens.colors.success,
-                }
-                .into(),
-                Spacer {
-                    width: Some(tokens.spacing.m),
-                    ..Default::default()
-                }
-                .into(),
-                VStack {
-                    spacing: Some(tokens.spacing.xs),
-                    children: vec![
-                        Text::new(title)
-                            .size(tokens.typography.font_size_sm)
-                            .color(tokens.colors.text_primary)
-                            .into(),
-                        Text::new(state.cwd.display().to_string())
-                            .size(tokens.typography.font_size_xs)
-                            .color(tokens.colors.text_muted)
-                            .into(),
-                    ],
-                }
-                .into(),
-                Spacer {
-                    flex_grow: 1.0,
-                    ..Default::default()
-                }
-                .into(),
-                Text::new("Fission Terminal")
-                    .size(tokens.typography.font_size_xs)
-                    .color(tokens.colors.text_muted)
-                    .into(),
-            ],
-        })
-        .bg(tokens.colors.surface_raised)
-        .padding_all(tokens.spacing.m)
-        .into();
+        let chrome = TerminalChrome::new(title, state.cwd.display().to_string());
 
         #[cfg(not(target_arch = "wasm32"))]
         let terminal_height =
@@ -226,24 +179,12 @@ fission_component! {
                 .padding(tokens.spacing.m, tokens.spacing.m)
                 .into()
         } else {
-            Container::new(
-                Text::new("Failed to start shell")
-                    .size(tokens.typography.body_medium_size)
-                    .color(tokens.colors.text_primary),
-            )
-            .padding_all(tokens.spacing.l)
-            .bg(tokens.colors.surface_sunken)
-            .into()
+            TerminalUnavailable::new("Failed to start shell".to_string()).into()
         };
         #[cfg(target_arch = "wasm32")]
-        let body: Widget = Container::new(
-            Text::new("The terminal example requires native process access.")
-                .size(tokens.typography.body_medium_size)
-                .color(tokens.colors.text_primary),
-        )
-        .padding_all(tokens.spacing.l)
-        .bg(tokens.colors.surface_sunken)
-        .into();
+        let body: Widget = TerminalUnavailable::new(
+            "The terminal example requires native process access.".to_string(),
+        ).into();
 
     } =>
     Container(
@@ -252,6 +193,45 @@ fission_component! {
             children: [chrome, body],
         ),
     )
+    .bg(tokens.colors.surface_sunken)
+}
+
+fission_component! {
+    TerminalChrome<()> { title: String, cwd: String } |chrome, _state, cx| {
+        let tokens = &cx.view.env().theme.tokens;
+    } => Container(
+        HStack(spacing: tokens.spacing.s, children: [
+            WindowDot(tokens.colors.error),
+            WindowDot(tokens.colors.warning),
+            WindowDot(tokens.colors.success),
+            Spacer(width: tokens.spacing.m),
+            VStack(spacing: tokens.spacing.xs, children: [
+                Text(chrome.title.clone())
+                    .size(tokens.typography.font_size_sm)
+                    .color(tokens.colors.text_primary),
+                Text(chrome.cwd.clone())
+                    .size(tokens.typography.font_size_xs)
+                    .color(tokens.colors.text_muted),
+            ]),
+            Spacer(flex_grow: 1.0_f32),
+            Text("Fission Terminal")
+                .size(tokens.typography.font_size_xs)
+                .color(tokens.colors.text_muted),
+        ])
+    )
+    .bg(tokens.colors.surface_raised)
+    .padding_all(tokens.spacing.m)
+}
+
+fission_component! {
+    TerminalUnavailable<()> { message: String } |message, _state, cx| {
+        let tokens = &cx.view.env().theme.tokens;
+    } => Container(
+        Text(message.message.clone())
+            .size(tokens.typography.body_medium_size)
+            .color(tokens.colors.text_primary)
+    )
+    .padding_all(tokens.spacing.l)
     .bg(tokens.colors.surface_sunken)
 }
 

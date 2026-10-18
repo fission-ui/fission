@@ -13,21 +13,6 @@ fission_component! {
         let canvas_camera =
             with_reducer!(cx.build, TrackViewport("canvas".into()), track_viewport);
 
-        let content = Responsive::new(WideExampleLayout {
-            edit_canvas: edit_canvas.clone(),
-            viewer_camera: viewer_camera.clone(),
-            canvas_camera: canvas_camera.clone(),
-        })
-        .id(WidgetId::explicit("interactive-canvas.layout"))
-        .case(ResponsiveCase::max_width(
-            860.0,
-            CompactExampleLayout {
-                edit_canvas,
-                viewer_camera,
-                canvas_camera,
-            },
-        ));
-
     } =>
     Container(
         Scroll(
@@ -36,8 +21,21 @@ fission_component! {
                 Column(
                     gap: tokens.spacing.l,
                     children: [
-                        ExampleHeader,
-                        content,
+                        ExampleHeader(),
+                        Responsive::new(WideExampleLayout::new(
+                            edit_canvas.clone(),
+                            viewer_camera.clone(),
+                            canvas_camera.clone(),
+                        ))
+                        .id(WidgetId::explicit("interactive-canvas.layout"))
+                        .case(ResponsiveCase::max_width(
+                            860.0,
+                            CompactExampleLayout::new(
+                                edit_canvas,
+                                viewer_camera,
+                                canvas_camera,
+                            ),
+                        )),
                         Text(state.status.clone())
                             .size(tokens.typography.font_size_sm)
                             .color(tokens.colors.text_secondary),

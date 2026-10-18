@@ -14,45 +14,45 @@ pub MotionMemoryReproApp<()> {
     image_paths: Vec<String>,
     cache_images: bool,
 } |app, _state, _cx| {
-    let body: Widget = ReproScreen {
-        scenario: app.scenario,
-        rows: app.rows,
-        row_height: app.row_height,
-        image_paths: app.image_paths.clone(),
-        cache_images: app.cache_images,
-    }
-    .into();
-
-    let surface = Container::new(body)
-            .width(REPRO_SURFACE_WIDTH)
-            .height(REPRO_SURFACE_HEIGHT)
-            .bg(REPRO_BACKGROUND);
-
-    let result: Widget = if app.scenario.uses_motion() {
-        let tracks = match app.scenario {
+} => if app.scenario.uses_motion() {
+        Motion(
+            id: WidgetId::explicit("repro_route_motion"),
+            tracks: match app.scenario {
                 ReproScenario::MotionOpacity => route_tracks(true, false),
                 ReproScenario::MotionTranslate => route_tracks(false, true),
                 _ => route_tracks(true, true),
-            };
-        Motion {
-                id: WidgetId::explicit("repro_route_motion"),
-                tracks,
-                child: surface.into(),
-                ..Default::default()
-            }
-            .into()
+            },
+            child: ReproSurface(app.scenario, app.rows, app.row_height, app.image_paths.clone(), app.cache_images),
+        )
+    } else if app.scenario == ReproScenario::StaticOpacity {
+        Composite::new(
+                ReproSurface::new(app.scenario, app.rows, app.row_height, app.image_paths.clone(), app.cache_images)
+            ).opacity(1.0)
     } else {
-        match app.scenario {
-            ReproScenario::Plain => surface.into(),
-            ReproScenario::PlainImages => surface.into(),
-            ReproScenario::StaticOpacity => Composite::new(surface).opacity(1.0).into(),
-            ReproScenario::Motion
-            | ReproScenario::MotionImages
-            | ReproScenario::MotionOpacity
-            | ReproScenario::MotionTranslate => unreachable!("motion scenarios return above"),
-        }
-    };
-} => result
+        ReproSurface(app.scenario, app.rows, app.row_height, app.image_paths.clone(), app.cache_images)
+    }
+}
+
+fission_component! {
+    ReproSurface<()> {
+        scenario: ReproScenario,
+        rows: usize,
+        row_height: f32,
+        image_paths: Vec<String>,
+        cache_images: bool,
+    } |surface, _state, _cx| {} =>
+    Container(
+        ReproScreen(
+            surface.scenario,
+            surface.rows,
+            surface.row_height,
+            surface.image_paths.clone(),
+            surface.cache_images,
+        )
+    )
+    .width(REPRO_SURFACE_WIDTH)
+    .height(REPRO_SURFACE_HEIGHT)
+    .bg(REPRO_BACKGROUND)
 }
 
 impl MotionMemoryReproApp {

@@ -22,7 +22,7 @@ cargo run -p cargo-fission --bin fission -- site serve \
 ```
 
 The production workflow also builds the Web showcase and stages its generated
-JavaScript and WASM under `documentation/static/showcase-app`. Those outputs are
+JavaScript and WASM under `documentation/static/showcase`. Those outputs are
 generated deployment inputs and should not be hand-edited or committed.
 
 ## Content conventions

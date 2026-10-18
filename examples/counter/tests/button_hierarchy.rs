@@ -11,7 +11,7 @@ const WIDTH: f32 = 600.0;
 const HEIGHT: f32 = 400.0;
 
 fn pump() -> TestHarness<()> {
-    let mut harness = TestHarness::new(()).with_root_widget(counter::CounterApp {});
+    let mut harness = TestHarness::new(()).with_root_widget(counter::CounterApp::new());
     harness.env.viewport_size = fission::layout::LayoutSize::new(WIDTH, HEIGHT);
     harness.pump().expect("pump counter");
     harness
