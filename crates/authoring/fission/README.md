@@ -60,7 +60,7 @@ Portable widgets and core APIs are available from the facade without making appl
 ```rust
 use fission::prelude::*;
 
-#[fission_component]
+#[with_local_state]
 struct CounterApp {
     #[local_state(default = 0)]
     count: i32,

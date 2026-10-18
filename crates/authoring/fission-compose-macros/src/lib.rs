@@ -26,9 +26,8 @@ fn support() -> Tokens {
         },
     }
 }
-#[allow(non_snake_case)]
 #[proc_macro]
-pub fn Component(input: TokenStream) -> TokenStream {
+pub fn fission_component(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as ast::Component);
     expand::component(input)
         .unwrap_or_else(syn::Error::into_compile_error)

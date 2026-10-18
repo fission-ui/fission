@@ -4,7 +4,7 @@ use fission_core::{
     GlobalState, Provider, ReducerContext, Runtime, RuntimeState, Text, View, Widget, WidgetId,
     WidgetIdExt,
 };
-use fission_macros::{fission_component, fission_reducer, FissionGlobalState, FissionStateView};
+use fission_macros::{fission_reducer, with_local_state, FissionGlobalState, FissionStateView};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -52,7 +52,7 @@ impl From<ReadsGlobalState> for Widget {
     }
 }
 
-#[fission_component]
+#[with_local_state]
 struct LocalCounter {
     title: String,
 
@@ -294,7 +294,7 @@ fn generated_global_state_views_read_nested_fields() {
 }
 
 #[test]
-fn fission_component_local_state_authoring_shape_compiles() {
+fn with_local_state_authoring_shape_compiles() {
     let runtime = RuntimeState::default();
     let env = Env::default();
     let view = View::new(&(), &runtime, &env, None);

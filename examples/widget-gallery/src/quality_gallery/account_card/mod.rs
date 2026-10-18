@@ -13,7 +13,7 @@ use profile_footer::ProfileFooter;
 use recovery_email_field::RecoveryEmailField;
 use role_field::RoleField;
 
-#[fission_component]
+#[with_local_state]
 #[derive(Clone)]
 pub(super) struct AccountDetailsCard {
     pub compact: bool,

@@ -18,7 +18,7 @@ This page builds one todo app in layers. Each layer has React and Fission tabs f
 
 Start with this rule before mapping React APIs:
 
-- Use `#[fission_component]` and `#[local_state]` for retained UI memory owned by one widget identity. This is the closest Fission match for many `useState` cases.
+- Use `#[with_local_state]` and `#[local_state]` for retained UI memory owned by one widget identity. This is the closest Fission match for many `useState` cases.
 - Use `GlobalState` for product truth: todos, routing, persisted preferences, sync state, shared filters, loaded data, and values read by distant screens.
 - Use reducers for explicit state transitions.
 - Use component conversion to read state and environment, wire actions, and return widgets.
@@ -158,7 +158,7 @@ export function TodoComposer({ onAdd }: { onAdd: (title: string) => void }) {
 ```rust title="src/widgets/todo_composer.rs"
 use fission::prelude::*;
 
-#[fission_component]
+#[with_local_state]
 pub struct TodoComposer {
     #[local_state(default_with = String::new)]
     draft: String,
@@ -786,7 +786,7 @@ This map comes after the todo app because the names are easier once you have see
 | --- | --- | --- |
 | Function component | Rust struct plus `impl From<MyComponent> for Widget` | Conversion returns a widget tree. It is not a hook body. |
 | Props | Struct fields | Pass configuration with typed Rust fields. |
-| `useState` for local interaction state | `#[fission_component]` plus `#[local_state]` | Retained by component identity and updated through `ctx.bind_local(...)`. |
+| `useState` for local interaction state | `#[with_local_state]` plus `#[local_state]` | Retained by component identity and updated through `ctx.bind_local(...)`. |
 | `useState` for product data | `GlobalState` plus reducers | Product meaning is explicit app state, not hidden component memory. |
 | `useReducer` | `#[fission_reducer]` | Reducers are the standard state-update path. |
 | Callback prop | `ActionEnvelope` bound with `with_reducer!`, `ctx.bind(...)`, or `ctx.bind_local(...)` | User intent has an action type and payload. |
@@ -806,7 +806,7 @@ Do not use `Env` as a replacement for arbitrary React context. Use it for enviro
 
 Do not rely on browser-only layout and CSS assumptions. Fission apps can target native windows, mobile shells, browser canvas, terminal cells, static HTML, and SSR.
 
-Do not skip local state. If a value is truly retained UI memory for one component identity, `#[fission_component]` and `#[local_state]` are the right tools.
+Do not skip local state. If a value is truly retained UI memory for one component identity, `#[with_local_state]` and `#[local_state]` are the right tools.
 
 ## What to read next
 

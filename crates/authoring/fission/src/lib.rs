@@ -252,7 +252,7 @@ pub mod sqlite {
 }
 
 pub use fission_compose::{
-    read, state_scope, Component, ComposeBind, Control, ControlSource, DefaultScope, Event,
+    fission_component, read, state_scope, ComposeBind, Control, ControlSource, DefaultScope, Event,
     ManySource, Press, Scope, Source, TextChanged, Toggle, UiKey,
 };
 pub use fission_core::Bytes;
@@ -540,7 +540,7 @@ pub use fission_shell_web::{
 // Macros
 pub use fission_core::{video_asset, video_file, video_network};
 pub use fission_macros::{
-    fission_action, fission_component, fission_reducer, Action as ActionDerive, FissionGlobalState,
+    fission_action, fission_reducer, with_local_state, Action as ActionDerive, FissionGlobalState,
     FissionStateView,
 };
 
@@ -782,7 +782,7 @@ pub mod prelude {
 
     // Macros
     pub use fission_macros::{
-        fission_action, fission_component, fission_reducer, Action, FissionGlobalState,
+        fission_action, fission_reducer, with_local_state, Action, FissionGlobalState,
         FissionStateView,
     };
 

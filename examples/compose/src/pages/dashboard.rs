@@ -2,7 +2,7 @@ use crate::components::Navigation;
 use crate::state::AppState;
 use fission::prelude::*;
 
-Component! {
+fission_component! {
     pub Dashboard<AppState> |dashboard, state, cx| =>
     Column(
         gap: 20.0,

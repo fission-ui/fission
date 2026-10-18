@@ -120,7 +120,7 @@ tree.
 - Model widgets as concrete structs and implement `From<YourWidget> for Widget`.
 - Add semantics to every interactive widget and to semantic regions where they
   improve navigation, testing, or accessibility.
-- Use `#[fission_component]` for components that own retained local widget
+- Use `#[with_local_state]` for components that own retained local widget
   state. Do not model retained UI state as ordinary mutable struct fields.
 - Keep screen modules focused on app state, routing, effects, and composition.
   Move reusable presentation pieces into widget modules.
@@ -138,7 +138,7 @@ Local-state component shape:
 ```rust
 use fission::prelude::*;
 
-#[fission_component]
+#[with_local_state]
 pub struct DisclosureSection {
     pub title: String,
 

@@ -110,10 +110,10 @@ The handles are valid only during the active build pass. Do not store them for l
 
 ## Local widget state
 
-If a component owns retained UI-local state, mark it with `#[fission_component]` and annotate local fields:
+If a component owns retained UI-local state, mark it with `#[with_local_state]` and annotate local fields:
 
 ```rust
-#[fission_component]
+#[with_local_state]
 pub struct ToggleChip {
     pub label: String,
 

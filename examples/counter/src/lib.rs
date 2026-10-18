@@ -1,6 +1,6 @@
 use fission::prelude::*;
 
-#[fission_component]
+#[with_local_state]
 #[derive(Clone)]
 pub struct CounterApp {
     #[local_state(default = 0)]

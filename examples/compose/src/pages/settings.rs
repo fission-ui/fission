@@ -3,7 +3,7 @@ use crate::state::AppState;
 use fission::i18n::Locale;
 use fission::prelude::*;
 
-Component! {
+fission_component! {
     pub SettingsPage<AppState> |settings, state, cx| =>
     Column(
         gap: 20.0,

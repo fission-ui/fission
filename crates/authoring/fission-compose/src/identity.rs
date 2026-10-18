@@ -121,7 +121,7 @@ pub fn child_id<K: UiKey + ?Sized>(parent: WidgetId, namespace: &str, key: &K) -
     WidgetId::from_u128(ActionId::from_name(&encoded).as_u128())
 }
 pub fn current_id() -> WidgetId {
-    core::build::current_identity().expect("Component! must run in an active Fission build")
+    core::build::current_identity().expect("fission_component! must run in an active Fission build")
 }
 pub fn in_slot<R>(name: &str, f: impl FnOnce() -> R) -> R {
     let id = child_id(current_id(), "slot", name);

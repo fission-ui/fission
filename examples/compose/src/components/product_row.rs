@@ -3,7 +3,7 @@ use crate::components::StatusPill;
 use crate::state::{Product, Products};
 use fission::prelude::*;
 
-Component! {
+fission_component! {
     pub ProductRow<Product> using Products(row.product_id) {
         product_id: u64,
     } |row, product, cx| =>

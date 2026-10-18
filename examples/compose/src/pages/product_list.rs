@@ -2,7 +2,7 @@ use crate::components::{Navigation, ProductRow};
 use crate::state::{AppState, Product};
 use fission::prelude::*;
 
-Component! {
+fission_component! {
     pub ProductList<AppState> {
         #[local_state(default = String::new())]
         query: String,

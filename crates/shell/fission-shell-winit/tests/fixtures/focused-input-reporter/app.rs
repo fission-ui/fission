@@ -33,7 +33,7 @@ fn on_set_title(title: &mut String, ctx: &mut ReducerContext<String>) {
     *title = change.new_text.clone();
 }
 
-#[fission_component]
+#[with_local_state]
 #[derive(Clone)]
 pub struct CounterApp {
     #[local_state(default = "Counter App".to_string())]

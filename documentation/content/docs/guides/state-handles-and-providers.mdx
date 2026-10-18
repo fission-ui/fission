@@ -184,10 +184,10 @@ Use reducers, jobs, services, capabilities, and resources for work that happens 
 
 ## Local widget state is retained by widget identity
 
-Local widget state is for state that belongs to one widget identity rather than to the whole app. The public API is the `#[fission_component]` macro plus `#[local_state(default = ...)]` fields.
+Local widget state is for state that belongs to one widget identity rather than to the whole app. The public API is the `#[with_local_state]` macro plus `#[local_state(default = ...)]` fields.
 
 ```rust
-#[fission_component]
+#[with_local_state]
 pub struct DisclosureSection {
     pub title: String,
 

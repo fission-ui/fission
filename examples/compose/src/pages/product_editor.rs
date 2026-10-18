@@ -3,7 +3,7 @@ use crate::components::Navigation;
 use crate::state::{Product, Products};
 use fission::prelude::*;
 
-Component! {
+fission_component! {
     pub ProductEditor<Product> using Products(editor.product_id) {
         product_id: u64,
         #[local_state(default = false)]

@@ -2,7 +2,7 @@ use crate::actions::{navigate, Navigate};
 use crate::state::AppState;
 use fission::prelude::*;
 
-Component! {
+fission_component! {
     pub Navigation<AppState> |navigation, state, cx| =>
     Row(children: [
         Button(

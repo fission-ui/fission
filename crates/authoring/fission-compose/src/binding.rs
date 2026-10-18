@@ -31,7 +31,7 @@ pub trait ControlSource<T: Clone + Send + Sync + 'static>: Source<T> {
     fn control<E: EditEvent<T>>(self) -> Control<T, E>;
 }
 
-/// Explicit one-way source. In Component!, `read(expression)` also disables
+/// Explicit one-way source. In fission_component!, `read(expression)` also disables
 /// automatic field detection. A control with no update event is read-only.
 pub struct Read<T>(pub T);
 pub struct ReadOnly<T>(pub T);

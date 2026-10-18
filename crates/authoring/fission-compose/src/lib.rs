@@ -2,7 +2,7 @@
 #![forbid(unsafe_code)]
 pub extern crate fission_core as core;
 extern crate self as fission_compose;
-pub use fission_compose_macros::{state_scope, Component};
+pub use fission_compose_macros::{fission_component, state_scope};
 pub use serde;
 
 pub mod binding;
@@ -25,8 +25,8 @@ pub trait ComposeBind<S>: Sized {
 
 pub mod prelude {
     pub use crate::{
-        read, state_scope, Component, ComposeBind, Control, ControlSource, DefaultScope, Event,
-        ManySource, Press, Scope, Source, TextChanged, Toggle, UiKey,
+        fission_component, read, state_scope, ComposeBind, Control, ControlSource, DefaultScope,
+        Event, ManySource, Press, Scope, Source, TextChanged, Toggle, UiKey,
     };
 }
 

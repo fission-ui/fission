@@ -13,7 +13,7 @@ The count is local UI state owned by this widget identity, so it disappears when
 ```rust
 use fission::prelude::*;
 
-#[fission_component]
+#[with_local_state]
 struct CounterApp {
     #[local_state(default = 0)]
     count: i32,
@@ -55,7 +55,7 @@ fn main() -> anyhow::Result<()> {
 
 ## What matters
 
-- `#[fission_component]` marks `CounterApp` as a component that can own retained local fields.
+- `#[with_local_state]` gives `CounterApp` typed access to its retained local fields.
 - `#[local_state(default = 0)]` makes `count` local widget state rather than app-wide `GlobalState`.
 - `build::current::<()>()` asks for the build handles without requiring an app state type.
 - `ctx.bind_local(...)` wires the generated `Increment` action to the local `count` field.

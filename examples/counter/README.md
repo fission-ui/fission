@@ -13,7 +13,7 @@ cargo run -p counter
 ## What to look at
 
 - [`src/main.rs`](src/main.rs) contains the whole app in one file so the core pattern is visible without jumping between modules.
-- `CounterApp` shows `#[fission_component]` and `#[local_state]` for retained widget-local state.
+- `CounterApp` shows `#[with_local_state]` and `#[local_state]` for retained widget-local state.
 - `increment` and `decrement` show `#[fission_reducer]` on simple local state mutations.
 - `impl From<CounterApp> for Widget` is the public component boundary.
 - The widget tree shows `widgets!`, `Text`, `Button`, `Row`, `Column`, and `Container` without app-wide state.
