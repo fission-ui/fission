@@ -134,7 +134,13 @@ impl Parse for Component {
 #[derive(Clone)]
 pub struct Arg {
     pub name: Option<Ident>,
+    pub binding: Option<Binding>,
     pub value: Value,
+}
+#[derive(Clone)]
+pub struct Binding {
+    pub port: Ident,
+    pub event: Option<Path>,
 }
 #[derive(Clone)]
 pub struct Call {
@@ -171,11 +177,16 @@ pub enum Value {
     ExplicitRust(Expr),
     Read(Expr),
     Source(Expr),
+    To(Expr),
 }
 impl Value {
     pub fn rust(&self) -> Option<&Expr> {
         match self {
-            Self::Rust(e) | Self::ExplicitRust(e) | Self::Read(e) | Self::Source(e) => Some(e),
+            Self::Rust(e)
+            | Self::ExplicitRust(e)
+            | Self::Read(e)
+            | Self::Source(e)
+            | Self::To(e) => Some(e),
             _ => None,
         }
     }
@@ -286,9 +297,44 @@ impl Parse for Value {
             syn::parenthesized!(args in input);
             let mut entries = Vec::new();
             let mut named = std::collections::HashSet::new();
+            let mut bindings = std::collections::HashSet::new();
             let mut saw_named = false;
             while !args.is_empty() {
-                let name = if args.peek(Ident) && args.peek2(Token![:]) && !args.peek2(Token![::]) {
+                let binding = {
+                    let fork = args.fork();
+                    let is_binding = fork.parse::<Ident>().is_ok_and(|ident| ident == "bind")
+                        && fork.peek(syn::token::Paren);
+                    if is_binding {
+                        args.parse::<Ident>()?;
+                        let binding;
+                        syn::parenthesized!(binding in args);
+                        let port: Ident = binding.parse()?;
+                        let event = if binding.peek(Token![as]) {
+                            binding.parse::<Token![as]>()?;
+                            Some(binding.parse()?)
+                        } else {
+                            None
+                        };
+                        if !binding.is_empty() {
+                            return Err(binding
+                                .error("binding takes an event property and optional event type"));
+                        }
+                        args.parse::<Token![:]>()?;
+                        if !bindings.insert(port.to_string()) {
+                            return Err(syn::Error::new(
+                                port.span(),
+                                "duplicate binding for event property",
+                            ));
+                        }
+                        saw_named = true;
+                        Some(Binding { port, event })
+                    } else {
+                        None
+                    }
+                };
+                let name = if binding.is_some() {
+                    None
+                } else if args.peek(Ident) && args.peek2(Token![:]) && !args.peek2(Token![::]) {
                     let id: Ident = args.parse()?;
                     args.parse::<Token![:]>()?;
                     if !named.insert(id.to_string()) {
@@ -303,7 +349,11 @@ impl Parse for Value {
                     None
                 };
                 let value = args.parse()?;
-                entries.push(Arg { name, value });
+                entries.push(Arg {
+                    name,
+                    binding,
+                    value,
+                });
                 if args.is_empty() {
                     break;
                 }
@@ -327,6 +377,15 @@ impl Parse for Value {
                     return Err(syn::Error::new_spanned(expr, "read takes one expression"));
                 }
                 return Ok(Self::Read(c.args[0].clone()));
+            }
+            if matches!(c.func.as_ref(),Expr::Path(p) if p.path.is_ident("to")) {
+                if c.args.len() != 1 {
+                    return Err(syn::Error::new_spanned(
+                        expr,
+                        "to takes one writable state or local field",
+                    ));
+                }
+                return Ok(Self::To(c.args[0].clone()));
             }
         }
         Ok(Self::Rust(expr))

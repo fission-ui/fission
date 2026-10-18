@@ -293,6 +293,22 @@ where
 {
     core::build::provide(PropertyName(name), || source.control::<E>())
 }
+
+/// Bind one concrete widget event property to a writable state/local place.
+///
+/// Unlike `ComposeBind`, this does not choose a widget's value/event pair. The
+/// component supplies its ordinary value field and names the event field in
+/// `bind(event): to(place)`, so a widget may expose any number of bindings.
+pub fn update_for<T, E, S>(name: &'static str, source: S) -> Option<core::ActionEnvelope>
+where
+    T: Clone + Send + Sync + 'static,
+    E: EditEvent<T>,
+    S: ControlSource<T>,
+{
+    control_for::<T, E, S>(name, source)
+        .on_change
+        .map(Event::into_envelope)
+}
 fn property_id() -> core::WidgetId {
     let property = core::build::try_read::<PropertyName>().map_or("value", |p| p.0);
     identity::child_id(identity::node().id, "property", property)

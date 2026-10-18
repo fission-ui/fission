@@ -103,6 +103,37 @@ mod tests {
         );
     }
     #[test]
+    fn repeated_event_bindings_target_distinct_widget_properties() {
+        let output = expand(quote! {
+            pub RangeEditor<State> |editor,state,cx| => RangeControl(
+                lower: state.lower,
+                bind(on_lower_change as LowerChanged): to(state.lower),
+                upper: state.upper,
+                bind(on_upper_change as UpperChanged): to(state.upper),
+            )
+        })
+        .unwrap();
+        syn::parse2::<syn::File>(output.clone()).unwrap();
+        let output = output.to_string();
+
+        assert!(output.contains("on_lower_change :"), "{output}");
+        assert!(output.contains("on_upper_change :"), "{output}");
+        assert!(output.contains("LowerChanged"), "{output}");
+        assert!(output.contains("UpperChanged"), "{output}");
+    }
+    #[test]
+    fn duplicate_event_binding_is_an_error() {
+        rejects(
+            quote! {
+                X<S> |e,s,c| => TextInput(
+                    bind(on_input): to(s.first),
+                    bind(on_input): to(s.second),
+                )
+            },
+            "duplicate binding for event property",
+        );
+    }
+    #[test]
     fn unkeyed_dynamic_children_are_an_error() {
         rejects(
             quote! { X<S> |e,s,c| => Column(children:[ for item in &s.items { Text(item.name.clone()) } ]) },

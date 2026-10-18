@@ -148,6 +148,10 @@ impl Emitter<'_> {
             Value::Rust(e) | Value::ExplicitRust(e) | Value::Read(e) | Value::Source(e) => {
                 Ok(quote!(#e))
             }
+            Value::To(e) => Err(syn::Error::new_spanned(
+                e,
+                "to(...) is only valid on the right-hand side of bind(event):",
+            )),
             Value::Array(vs) => {
                 let mut pieces = Vec::new();
                 for v in vs {
@@ -291,6 +295,27 @@ impl Emitter<'_> {
         let mut bindings = Vec::new();
         let mut positional = Vec::new();
         for arg in &c.args {
+            if let Some(binding) = &arg.binding {
+                let Value::To(target) = &arg.value else {
+                    return Err(syn::Error::new_spanned(
+                        &binding.port,
+                        "an event binding must use to(state.field) or to(editor.local)",
+                    ));
+                };
+                let port = &binding.port;
+                let property = port.to_string();
+                let event = match &binding.event {
+                    Some(event) => quote!(#event),
+                    None => default_edit_event(port)?,
+                };
+                let source = self.binding(&Value::Rust(target.clone()))?;
+                fields.push(quote!(
+                    #port:#rt::identity::in_slot(#property,||
+                        #rt::binding::update_for::<_,#event,_>(#property,#source)
+                    )
+                ));
+                continue;
+            }
             let (method, property) = if let Some(id) = &arg.name {
                 if id == "key" || id == "handler" {
                     continue;
@@ -521,6 +546,15 @@ fn call_shape(call: &Call) -> String {
     let mut shape = call.path.to_token_stream().to_string();
     shape.push('(');
     for argument in &call.args {
+        if let Some(binding) = &argument.binding {
+            shape.push_str("bind(");
+            shape.push_str(&binding.port.to_string());
+            if let Some(event) = &binding.event {
+                shape.push_str(" as ");
+                shape.push_str(&event.to_token_stream().to_string());
+            }
+            shape.push_str("):");
+        }
         if argument.name.as_ref().is_some_and(|name| name == "key") {
             continue;
         }
@@ -538,9 +572,11 @@ fn call_shape(call: &Call) -> String {
 fn value_shape(value: &Value) -> String {
     match value {
         Value::Call(call) => call_shape(call),
-        Value::Rust(expr) | Value::ExplicitRust(expr) | Value::Read(expr) | Value::Source(expr) => {
-            expr.to_token_stream().to_string()
-        }
+        Value::Rust(expr)
+        | Value::ExplicitRust(expr)
+        | Value::Read(expr)
+        | Value::Source(expr)
+        | Value::To(expr) => expr.to_token_stream().to_string(),
         Value::Array(values) => format!(
             "[{}]",
             values.iter().map(value_shape).collect::<Vec<_>>().join(",")
@@ -575,6 +611,18 @@ fn value_shape(value: &Value) -> String {
                 .join(",");
             format!("match:{}:{{{arms}}}", expr.to_token_stream())
         }
+    }
+}
+
+fn default_edit_event(port: &Ident) -> syn::Result<Tokens> {
+    let rt = crate::support();
+    match port.to_string().as_str() {
+        "on_input" => Ok(quote!(#rt::events::TextChanged)),
+        "on_toggle" => Ok(quote!(#rt::events::Toggle)),
+        _ => Err(syn::Error::new_spanned(
+            port,
+            "custom event bindings must name their edit event type, for example bind(on_update as MyUpdate): to(state.value)",
+        )),
     }
 }
 

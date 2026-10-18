@@ -15,22 +15,33 @@ Component! {
         content: Form(children: [
             TextField(
                 cx.tr("editor.name"),
-                bind: product.name,
+                value: product.name,
+                bind(on_input): to(product.name),
                 required: true,
                 autofocus: true,
                 semantics_identifier: "compose.editor.name".to_string(),
             ),
-            TextField(cx.tr("editor.price"), bind: product.price),
+            TextField(
+                cx.tr("editor.price"),
+                value: product.price,
+                bind(on_input): to(product.price),
+            ),
             ToggleField(
                 cx.tr("editor.active"),
-                bind: product.active,
+                checked: product.active,
+                bind(on_toggle): to(product.active),
                 semantics_identifier: "compose.editor.active".to_string(),
             ),
-            ToggleField(cx.tr("editor.notes"), bind: editor.show_notes),
+            ToggleField(
+                cx.tr("editor.notes"),
+                checked: editor.show_notes,
+                bind(on_toggle): to(editor.show_notes),
+            ),
             if editor.show_notes {
                 TextField(
                     cx.tr("editor.internal_notes"),
-                    bind: product.notes,
+                    value: product.notes,
+                    bind(on_input): to(product.notes),
                     multiline: true,
                     semantics_identifier: "compose.editor.notes".to_string(),
                 )
