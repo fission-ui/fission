@@ -162,6 +162,11 @@ pub mod macros {
     pub use fission_macros::*;
 }
 
+/// Declarative component composition, typed controls, scopes, and events.
+pub mod compose {
+    pub use fission_compose::*;
+}
+
 /// Material Design icons.
 pub mod icons {
     pub use fission_icons::*;
@@ -246,6 +251,11 @@ pub mod sqlite {
     pub use fission_store_sqlite::*;
 }
 
+pub use fission_compose::ui::{Form, Page, TextField, ToggleField};
+pub use fission_compose::{
+    read, state_scope, Component, ComposeBind, Control, ControlSource, DefaultScope, Event,
+    ManySource, Press, Scope, Source, TextChanged, Toggle, UiKey,
+};
 pub use fission_core::Bytes;
 /// Serialization traits and derives used by Fission action macros.
 pub use serde;

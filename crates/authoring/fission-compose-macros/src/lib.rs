@@ -1,0 +1,165 @@
+//! Declarative component and state-scope macros; application control flow
+//! remains ordinary Rust.
+use proc_macro::TokenStream;
+use proc_macro2::TokenStream as Tokens;
+use proc_macro_crate::{crate_name, FoundCrate};
+use quote::{format_ident, quote};
+use syn::parse_macro_input;
+mod ast;
+mod expand;
+mod scope;
+
+fn support() -> Tokens {
+    match crate_name("fission-compose") {
+        Ok(FoundCrate::Itself) => quote!(::fission_compose),
+        Ok(FoundCrate::Name(name)) => {
+            let id = format_ident!("{}", name);
+            quote!(::#id)
+        }
+        Err(_) => match crate_name("fission") {
+            Ok(FoundCrate::Itself) => quote!(::fission::compose),
+            Ok(FoundCrate::Name(name)) => {
+                let id = format_ident!("{}", name);
+                quote!(::#id::compose)
+            }
+            Err(_) => quote!(::fission_compose),
+        },
+    }
+}
+#[allow(non_snake_case)]
+#[proc_macro]
+pub fn Component(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as ast::Component);
+    expand::component(input)
+        .unwrap_or_else(syn::Error::into_compile_error)
+        .into()
+}
+#[proc_macro]
+pub fn state_scope(input: TokenStream) -> TokenStream {
+    scope::expand(input.into())
+        .unwrap_or_else(syn::Error::into_compile_error)
+        .into()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use quote::quote;
+
+    fn expand(input: Tokens) -> syn::Result<Tokens> {
+        expand::component(syn::parse2(input)?)
+    }
+    fn rejects(input: Tokens, message: &str) {
+        let error = match expand(input) {
+            Ok(_) => panic!("expected rejection"),
+            Err(e) => e,
+        };
+        assert!(error.to_string().contains(message), "{error}");
+    }
+    #[test]
+    fn generated_items_are_valid_rust_syntax() {
+        let output = expand(quote! {
+            pub Editor<State> { session: u64, #[local_state(default = false)] open: bool }
+            |editor, state, cx| => Page("Edit", content: Column(children: [
+                TextField("Name", bind: state.name),
+                ToggleField("Open", bind: editor.open),
+                Button(child: Text("Save"), key: "save", on_press: |editor, state, cx| {
+                    state.name = format!("{}", editor.session);
+                    editor.open = !editor.open;
+                }),
+            ]))
+        })
+        .unwrap();
+        syn::parse2::<syn::File>(output).unwrap();
+    }
+    #[test]
+    fn named_arguments_lower_to_struct_fields_without_generated_builders() {
+        let output = expand(quote! {
+            pub Screen<State> |screen, state, cx| =>
+                ThirdPartyWidget(title: "Imported", enabled: true)
+        })
+        .unwrap()
+        .to_string();
+
+        assert!(output.contains("ThirdPartyWidget {"), "{output}");
+        assert!(output.contains("title :"), "{output}");
+        assert!(output.contains("enabled :"), "{output}");
+        assert!(output.contains("Default :: default"), "{output}");
+        assert!(!output.contains(". title ("), "{output}");
+        assert!(!output.contains(". enabled ("), "{output}");
+    }
+    #[test]
+    fn duplicate_fields_are_an_error() {
+        rejects(
+            quote! { X<S> { x: bool, x: bool } |e,s,c| => Text("x") },
+            "duplicate component field",
+        );
+    }
+    #[test]
+    fn duplicate_props_are_an_error() {
+        rejects(
+            quote! { X<S> |e,s,c| => Text("x", size: 12.0, size: 14.0) },
+            "duplicate",
+        );
+    }
+    #[test]
+    fn unkeyed_dynamic_children_are_an_error() {
+        rejects(
+            quote! { X<S> |e,s,c| => Column(children:[ for item in &s.items { Text(item.name.clone()) } ]) },
+            "explicit key",
+        );
+    }
+    #[test]
+    fn anonymous_inline_handlers_need_a_semantic_name() {
+        rejects(
+            quote! { X<S> |e,s,c| => Button(child: Text("Save"), on_press: |_,s,_| s.save()) },
+            "literal key",
+        );
+    }
+    #[test]
+    fn handler_capture_and_async_are_rejected() {
+        rejects(
+            quote! { X<S> |e,s,c| => Button(child: Text("Save"), key:"save", on_press: move |_,s,_| s.save()) },
+            "no move",
+        );
+        rejects(
+            quote! { X<S> |e,s,c| => Button(child: Text("Save"), key:"save", on_press: |_,s,_| s.save().await) },
+            "synchronous",
+        );
+    }
+    #[test]
+    fn local_declaration_reorder_keeps_handler_symbols() {
+        fn events(tokens: Tokens) -> Vec<String> {
+            let f: syn::File = syn::parse2(expand(tokens).unwrap()).unwrap();
+            f.items
+                .into_iter()
+                .filter_map(|item| match item {
+                    syn::Item::Struct(s) if s.ident.to_string().contains("_Event_") => {
+                        Some(s.ident.to_string())
+                    }
+                    _ => None,
+                })
+                .collect()
+        }
+        let a = events(
+            quote! { X<S> { #[local_state(default=false)] a:bool, #[local_state(default=false)] b:bool }
+            |e,s,c| => Button(child:Text("Save"),key:"save",on_press:|_,s,_|s.save()) },
+        );
+        let b = events(
+            quote! { X<S> { #[local_state(default=false)] b:bool, #[local_state(default=false)] a:bool }
+            |e,s,c| => Button(child:Text("Save"),key:"save",on_press:|_,s,_|s.save()) },
+        );
+        assert_eq!(a, b);
+        assert_eq!(a.len(), 1);
+    }
+    #[test]
+    fn scope_and_props_expansions_are_rust_items() {
+        for input in [
+            quote!(pub Root => Root),
+            quote!(pub Root.products => Products),
+            quote!(pub Editors(Root,u64=>Product){get:|s,k|s.rows.get(k),get_mut:|s,k|s.rows.get_mut(k)}),
+        ] {
+            syn::parse2::<syn::File>(scope::expand(input).unwrap()).unwrap();
+        }
+    }
+}

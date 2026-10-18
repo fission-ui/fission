@@ -2778,6 +2778,7 @@ dependencies = [
  "fission-3d",
  "fission-assets",
  "fission-charts",
+ "fission-compose",
  "fission-core",
  "fission-diagnostics",
  "fission-game",
@@ -2985,6 +2986,25 @@ dependencies = [
  "rfd",
  "serde",
  "toml_edit 0.23.10+spec-1.0.0",
+]
+
+[[package]]
+name = "fission-compose"
+version = "0.15.1"
+dependencies = [
+ "fission-compose-macros",
+ "fission-core",
+ "serde",
+]
+
+[[package]]
+name = "fission-compose-macros"
+version = "0.15.1"
+dependencies = [
+ "proc-macro-crate 3.5.0",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.118",
 ]
 
 [[package]]
