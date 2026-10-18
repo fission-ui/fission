@@ -1,11 +1,15 @@
-use crate::state::{toggle_todo, TodoItem, TodoState, ToggleTodo};
+use crate::state::TodoState;
 use fission::prelude::*;
 
 fission_component! {
 /// One task. The whole label toggles it, and finished tasks sink into the card.
-    pub(super) TodoRow<TodoState> { item: TodoItem } |row, _state, cx| {
+    pub(super) TodoRow<TodoState> {
+        id: usize,
+        title: String,
+        done: bool,
+    } |row, _state, cx| {
         let tokens = &cx.view.env().theme.tokens;
-        let background = if row.item.done {
+        let background = if row.done {
             tokens.colors.surface_sunken
         } else {
             tokens.colors.surface
@@ -13,13 +17,12 @@ fission_component! {
     } =>
         Container(
             Checkbox(
-                semantics_identifier: format!("todo.item.{}", row.item.id),
-                checked: row.item.done,
-                on_toggle: cx.bind(
-                    ToggleTodo(row.item.id),
-                    reduce_with!(toggle_todo),
-                ),
-                label: row.item.title.clone(),
+                key: row.id,
+                handler: "toggle",
+                semantics_identifier: format!("todo.item.{}", row.id),
+                checked: row.done,
+                on_toggle: |row, state, _cx| state.toggle(row.id),
+                label: row.title.clone(),
             ),
         )
         .padding_all(tokens.spacing.m)

@@ -17,7 +17,7 @@ fission_component! {
                     gap: tokens.spacing.s,
                     children: [
                         for item in state.items.iter().cloned() {
-                            TodoRow(item.clone(), key: item.id)
+                            TodoRow(item.id, item.title.clone(), item.done, key: item.id)
                         },
                     ],
                 ),

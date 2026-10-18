@@ -1,4 +1,4 @@
-use crate::state::{add_todo, update_draft, AddTodo, TodoState, UpdateDraft};
+use crate::state::TodoState;
 use fission::op::AlignItems;
 use fission::prelude::*;
 
@@ -38,21 +38,22 @@ fission_component! {
 fission_component! {
     ComposerInput<TodoState> |_input, state, cx| {} =>
         TextInput(
+            key: "draft",
             semantics_identifier: "todo.composer.input".to_string(),
-            value: state.draft.clone(),
             label: Some(cx.view.tr("todo.composer.label").into()),
             placeholder: Some(cx.view.tr("todo.composer.placeholder").into()),
-            on_input: cx.bind(UpdateDraft, reduce_with!(update_draft)),
-            on_submit: cx.bind(AddTodo, reduce_with!(add_todo)),
+            bind: state.draft,
+            on_submit: |_input, state, _cx| state.add_draft(),
         )
 }
 
 fission_component! {
     ComposerAddButton<TodoState> |_button, state, cx| {} =>
         Button(
+            key: "add",
             variant: ButtonVariant::Primary,
             child: Text(cx.view.tr("todo.composer.add")),
-            on_press: cx.bind(AddTodo, reduce_with!(add_todo)),
+            on_press: |_button, state, _cx| state.add_draft(),
             disabled: state.draft.trim().is_empty(),
         ).semantics_identifier("todo.composer.add")
 }

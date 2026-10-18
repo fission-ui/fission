@@ -1,4 +1,4 @@
-use crate::state::{clear_completed, ClearCompleted, TodoState};
+use crate::state::TodoState;
 use fission::op::AlignItems;
 use fission::prelude::*;
 
@@ -18,9 +18,10 @@ fission_component! {
                 ),
                 Spacer(flex_grow: 1.0),
                 Button(
+                    key: "clear-completed",
                     variant: ButtonVariant::TertiaryGray,
                     child: Text(cx.view.tr("todo.clear_completed")),
-                    on_press: cx.bind(ClearCompleted, reduce_with!(clear_completed)),
+                    on_press: |_footer, state, _cx| state.clear_completed(),
                     disabled: done == 0,
                 )
                 .semantics_identifier("todo.clear_completed"),
