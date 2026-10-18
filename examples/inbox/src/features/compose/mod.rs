@@ -5,75 +5,59 @@ mod fields;
 use crate::model::compose::{add_dropped_files, discard_compose, send_compose, set_compose_open};
 use crate::model::{DiscardCompose, FileSelected, InboxState, SendCompose, SetComposeOpen};
 use fields::{AttachmentField, MessageField, RecipientField, ScheduleFields, SubjectField};
-use fission::core::ui::Widget;
-use fission::core::{reduce_with, WidgetId};
-use fission::widgets::{Dropzone, FocusScope, Modal, ModalAction, ModalMotion, VStack};
+use fission::prelude::*;
 
-#[derive(Clone)]
-pub struct ComposeModal;
-
-impl From<ComposeModal> for Widget {
-    fn from(_component: ComposeModal) -> Self {
-        let (ctx, view) = fission::build::current::<InboxState>();
-        let tokens = &view.env().theme.tokens;
+fission_component! {
+    pub ComposeModal<InboxState> |_modal, _state, cx| {
+        let tokens = &cx.view.env().theme.tokens;
         let modal_width =
-            (view.viewport_size().width.max(0.0) - tokens.spacing.xxl).clamp(320.0, 760.0);
+            (cx.view.viewport_size().width.max(0.0) - tokens.spacing.xxl).clamp(320.0, 760.0);
         let field_width = (modal_width - tokens.spacing.xxxl + tokens.spacing.s).max(240.0);
-        let close = || ctx.bind(SetComposeOpen(false), reduce_with!(set_compose_open));
-
-        Modal {
+        let close = || cx.bind(SetComposeOpen(false), reduce_with!(set_compose_open));
+    } =>
+        Modal(
             id: WidgetId::explicit("compose_modal"),
-            title: view.tr("compose.title"),
+            title: cx.tr("compose.title"),
             is_open: true,
-            on_dismiss: Some(close()),
+            on_dismiss: close(),
             backdrop_semantics_identifier: Some("inbox.compose.backdrop".into()),
             close_semantics_identifier: Some("inbox.compose.close".into()),
             surface_semantics_identifier: Some("inbox.compose.surface".into()),
-            width: Some(modal_width),
-            content: FocusScope {
-                id: None,
+            width: modal_width,
+            content: FocusScope(
                 is_barrier: true,
-                children: vec![Dropzone {
-                    id: None,
-                    semantics_identifier: None,
-                    child: VStack {
-                        spacing: Some(tokens.spacing.s),
-                        children: vec![
-                            RecipientField { width: field_width }.into(),
-                            SubjectField.into(),
-                            ScheduleFields.into(),
-                            AttachmentField.into(),
-                            MessageField.into(),
+                children: [
+                    Dropzone(
+                    child: VStack(
+                        spacing: tokens.spacing.s,
+                        children: [
+                            RecipientField(field_width),
+                            SubjectField(),
+                            ScheduleFields(),
+                            AttachmentField(),
+                            MessageField(),
                         ],
-                    }
-                    .into(),
-                    active_child: None,
-                    hover_child: None,
-                    on_drop: Some(ctx.bind(FileSelected, reduce_with!(add_dropped_files))),
-                    on_drag_enter: None,
-                    on_drag_leave: None,
-                }
-                .into()],
-            }
-            .into(),
+                    ),
+                    on_drop: cx.bind(FileSelected, reduce_with!(add_dropped_files)),
+                    ),
+                ],
+            ),
             actions: vec![
                 ModalAction {
-                    label: view.tr("compose.cancel"),
+                    label: cx.tr("compose.cancel"),
                     is_primary: false,
-                    on_press: Some(ctx.bind(DiscardCompose, reduce_with!(discard_compose))),
+                    on_press: Some(cx.bind(DiscardCompose, reduce_with!(discard_compose))),
                     semantics_identifier: Some("inbox.compose.cancel".into()),
                 },
                 ModalAction {
-                    label: view.tr("compose.send"),
+                    label: cx.tr("compose.send"),
                     is_primary: true,
-                    on_press: Some(ctx.bind(SendCompose, reduce_with!(send_compose))),
+                    on_press: Some(cx.bind(SendCompose, reduce_with!(send_compose))),
                     semantics_identifier: Some("inbox.compose.send".into()),
                 },
             ],
-            motion: Some(ModalMotion::Default),
-        }
-        .into()
-    }
+            motion: ModalMotion::Default,
+        )
 }
 
 #[cfg(test)]

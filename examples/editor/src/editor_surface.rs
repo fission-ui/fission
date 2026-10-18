@@ -7,142 +7,107 @@ use crate::layout::{
     TAB_BAR_HEIGHT, TERMINAL_HEIGHT_FRACTION,
 };
 use crate::minimap::Minimap;
-use crate::model::{on_update_cursor_position, on_update_editor_document};
-use crate::model::{EditorState, UpdateCursorPosition, UpdateEditorDocument};
+use crate::model::{
+    on_update_cursor_position, on_update_editor_document, EditorState, UpdateCursorPosition,
+    UpdateEditorDocument,
+};
 use crate::palette::EditorPalette;
-use fission::core::reduce_with;
-use fission::core::ui::{Container, Row, TextInput, Widget};
-use fission::widgets::{Spacer, VStack};
-use fission::WidgetId;
+use fission::prelude::*;
 
-pub struct EditorSurface;
-
-impl From<EditorSurface> for Widget {
-    fn from(_component: EditorSurface) -> Self {
-        let (ctx, view) = fission::build::current::<EditorState>();
-        let palette = EditorPalette::from_theme(&view.env().theme);
-        let tokens = &view.env().theme.tokens;
-
-        let sidebar_width = view.state().sidebar_width.min(
-            (view.viewport_size().width - EDITOR_HORIZONTAL_RESERVE)
+fission_component! {
+    pub EditorSurface<EditorState> |_surface, state, cx| {
+        let palette = EditorPalette::from_theme(&cx.view.env().theme);
+        let tokens = &cx.view.env().theme.tokens;
+        let sidebar_width = state.sidebar_width.min(
+            (cx.view.viewport_size().width - EDITOR_HORIZONTAL_RESERVE)
                 .clamp(SIDEBAR_MIN_WIDTH, SIDEBAR_MAX_WIDTH),
         );
-        let terminal_height = if view.state().terminal_visible {
-            view.state().terminal_height.min(
-                (view.viewport_size().height * TERMINAL_HEIGHT_FRACTION).max(MIN_TERMINAL_HEIGHT),
+        let terminal_height = if state.terminal_visible {
+            state.terminal_height.min(
+                (cx.view.viewport_size().height * TERMINAL_HEIGHT_FRACTION)
+                    .max(MIN_TERMINAL_HEIGHT),
             )
         } else {
             0.0
         };
-        let editor_viewport_height = (view.viewport_size().height
+        let height = (cx.view.viewport_size().height
             - MENU_BAR_HEIGHT
             - STATUS_BAR_HEIGHT
             - TAB_BAR_HEIGHT
             - BREADCRUMB_HEIGHT
-            - if view.state().show_find_replace {
-                FIND_REPLACE_REGION_HEIGHT
-            } else {
-                0.0
-            }
-            - if view.state().terminal_visible {
-                terminal_height + DIVIDER_THICKNESS
-            } else {
-                0.0
-            })
-        .max(MIN_EDITOR_HEIGHT);
-        let editor_viewport_width = (view.viewport_size().width
+            - if state.show_find_replace { FIND_REPLACE_REGION_HEIGHT } else { 0.0 }
+            - if state.terminal_visible { terminal_height + DIVIDER_THICKNESS } else { 0.0 })
+            .max(MIN_EDITOR_HEIGHT);
+        let width = (cx.view.viewport_size().width
             - ACTIVITY_BAR_WIDTH
-            - if view.state().sidebar_visible {
-                sidebar_width + DIVIDER_THICKNESS
-            } else {
-                tokens.spacing.none
-            }
+            - if state.sidebar_visible { sidebar_width + DIVIDER_THICKNESS } else { 0.0 }
             - MINIMAP_WIDTH
             - tokens.spacing.l)
             .max(MIN_EDITOR_WIDTH);
-
-        let Some((tab, buffer)) = view.state().active_buffer() else {
-            return EditorWelcomeScreen.into();
-        };
-        let path = tab.path.clone();
-
-        let update_document = ctx.bind(
-            UpdateEditorDocument,
-            reduce_with!(on_update_editor_document),
-        );
-
-        let update_cursor = ctx.bind(
-            UpdateCursorPosition {
-                caret: 0,
-                anchor: 0,
-            },
-            reduce_with!(on_update_cursor_position),
-        );
-
-        let value = buffer.display_content();
-        let font_size = tokens.typography.font_size_sm;
-        let line_height = font_size * tokens.typography.line_height_normal;
-        let styled_runs =
-            highlight::highlighted_runs(&value, buffer.language, &palette, font_size, line_height);
-
-        let editor_input: Widget = TextInput {
-            id: Some(WidgetId::explicit(&format!("editor_input_{}", path))),
-            value,
-            styled_runs,
-            on_input: Some(update_document),
-            on_cursor_change: Some(update_cursor),
-            width: Some(editor_viewport_width),
-            height: Some(editor_viewport_height),
-            multiline: true,
-            borderless: true,
-            capture_tab: true,
-            auto_indent: true,
-            read_only: !buffer.is_editable(),
-            font_size: Some(font_size),
-            line_height: Some(line_height),
-            text_color: Some(palette.bright_text),
-            cursor_color: Some(palette.bright_text),
-            selection_color: Some(palette.editor_selection),
-            spell_check: false,
-            smart_dashes: false,
-            smart_quotes: false,
-            ..Default::default()
-        }
-        .into();
-
-        let editor_area = Container::new(editor_input)
-            .height(editor_viewport_height)
-            .min_height(editor_viewport_height)
-            .flex_grow(1.0)
-            .flex_shrink(1.0)
-            .into();
-
-        let minimap_separator = Container::new(Spacer::default())
-            .width(DIVIDER_THICKNESS)
-            .bg(palette.border_color)
-            .flex_shrink(0.0)
-            .into();
-
-        let minimap_node = Minimap.into();
-
-        let editor_row = Row {
-            children: vec![editor_area, minimap_separator, minimap_node],
-            align_items: fission::op::AlignItems::Stretch,
-            flex_grow: 1.0,
-            ..Default::default()
-        }
-        .into();
-
-        let editor_column: Widget = VStack {
-            spacing: Some(tokens.spacing.none),
-            children: vec![editor_row],
-        }
-        .into();
-
-        Container::new(editor_column)
-            .bg(palette.welcome_bg)
-            .flex_grow(1.0)
-            .flex_shrink(1.0)
-            .into()
+        let active = state.active_buffer();
+    } =>
+    if let Some((tab, buffer)) = active {
+        Container(
+            VStack(
+                spacing: tokens.spacing.none,
+                children: [
+                    Row(
+                        align_items: ir_op::AlignItems::Stretch,
+                        flex_grow: 1.0,
+                        children: [
+                            Container(
+                                TextInput(
+                                    id: Some(WidgetId::explicit(&format!("editor_input_{}", tab.path))),
+                                    value: buffer.display_content(),
+                                    styled_runs: highlight::highlighted_runs(
+                                        &buffer.display_content(),
+                                        buffer.language,
+                                        &palette,
+                                        tokens.typography.font_size_sm,
+                                        tokens.typography.font_size_sm
+                                            * tokens.typography.line_height_normal,
+                                    ),
+                                    on_input: cx.bind(
+                                        UpdateEditorDocument,
+                                        reduce_with!(on_update_editor_document),
+                                    ),
+                                    on_cursor_change: cx.bind(
+                                        UpdateCursorPosition { caret: 0, anchor: 0 },
+                                        reduce_with!(on_update_cursor_position),
+                                    ),
+                                    width: width,
+                                    height: height,
+                                    multiline: true,
+                                    borderless: true,
+                                    capture_tab: true,
+                                    auto_indent: true,
+                                    read_only: !buffer.is_editable(),
+                                    font_size: tokens.typography.font_size_sm,
+                                    line_height: tokens.typography.font_size_sm
+                                        * tokens.typography.line_height_normal,
+                                    text_color: palette.bright_text,
+                                    cursor_color: palette.bright_text,
+                                    selection_color: palette.editor_selection,
+                                ),
+                            )
+                            .height(height)
+                            .min_height(height)
+                            .flex_grow(1.0)
+                            .flex_shrink(1.0),
+                            Container(Spacer())
+                                .width(DIVIDER_THICKNESS)
+                                .bg(palette.border_color)
+                                .flex_shrink(0.0),
+                            Minimap(),
+                        ],
+                    ),
+                ],
+            ),
+        )
+        .bg(palette.welcome_bg)
+        .flex_grow(1.0)
+        .flex_shrink(1.0)
+    } else {
+        EditorWelcomeScreen()
     }
 }

@@ -1,10 +1,8 @@
 use super::section::SectionHeading;
 use crate::model::settings::{set_inbox_type, set_inbox_type_select_open, set_locale};
 use crate::model::{InboxState, SetInboxType, SetInboxTypeSelectOpen, SetLocale};
-use fission::core::ui::Widget;
-use fission::core::{reduce_with, WidgetId};
 use fission::i18n::Locale;
-use fission::widgets::{FormControl, SegmentedControl, Select, SelectItem, VStack};
+use fission::prelude::*;
 use std::sync::Arc;
 
 /// Locale codes and the translation key for each one's label.
@@ -24,16 +22,12 @@ const INBOX_TYPES: [(&str, &str, &str); 2] = [
     ),
 ];
 
+fission_component! {
 /// Language and inbox type.
-pub(super) struct GeneralSettings;
-
-impl From<GeneralSettings> for Widget {
-    fn from(_: GeneralSettings) -> Self {
-        let (ctx, view) = fission::build::current::<InboxState>();
-        let state = view.state();
-        let locale_actions: Vec<_> = LOCALES
+    pub(super) GeneralSettings<InboxState> |_settings, state, cx| {
+        let locale_actions: Vec<ActionEnvelope> = LOCALES
             .iter()
-            .map(|(code, _)| ctx.bind(SetLocale(Locale::from(*code)), reduce_with!(set_locale)))
+            .map(|(code, _)| cx.bind(SetLocale(Locale::from(*code)), reduce_with!(set_locale)))
             .collect();
         let selected_locale = LOCALES
             .iter()
@@ -44,53 +38,43 @@ impl From<GeneralSettings> for Widget {
             .find(|(value, ..)| state.inbox_type == *value)
             .unwrap_or(&INBOX_TYPES[0]);
 
-        VStack {
-            spacing: Some(view.env().theme.tokens.spacing.m),
-            children: vec![
-                SectionHeading {
-                    key: "settings.general",
-                }
-                .into(),
-                SegmentedControl {
-                    options: LOCALES.iter().map(|(_, key)| view.tr(key)).collect(),
+    } =>
+        VStack(
+            spacing: cx.view.env().theme.tokens.spacing.m,
+            children: [
+                SectionHeading("settings.general"),
+                SegmentedControl(
+                    options: LOCALES.iter().map(|(_, key)| cx.tr(key)).collect::<Vec<_>>(),
                     selected_index: selected_locale,
-                    on_change: Some(Arc::new(move |index| locale_actions[index].clone())),
-                }
-                .into(),
-                FormControl {
-                    id: None,
-                    label: Some(view.tr("settings.inbox_type.label")),
-                    required: false,
-                    error: None,
-                    helper: Some(view.tr("settings.inbox_type.helper")),
-                    child: Select {
+                    on_change: Arc::new(move |index: usize| locale_actions[index].clone())
+                        as Arc<dyn Fn(usize) -> ActionEnvelope + Send + Sync>,
+                ),
+                FormControl(
+                    label: Some(cx.tr("settings.inbox_type.label")),
+                    helper: Some(cx.tr("settings.inbox_type.helper")),
+                    child: Select(
                         id: WidgetId::explicit("inbox_type_select"),
-                        selected_label: Some(view.tr(selected_inbox_type.1)),
-                        placeholder: view.tr("settings.inbox_type.placeholder"),
+                        selected_label: Some(cx.tr(selected_inbox_type.1)),
+                        placeholder: cx.tr("settings.inbox_type.placeholder"),
                         is_open: state.show_inbox_type_select,
-                        on_toggle: Some(ctx.bind(
+                        on_toggle: cx.bind(
                             SetInboxTypeSelectOpen(!state.show_inbox_type_select),
                             reduce_with!(set_inbox_type_select_open),
-                        )),
+                        ),
                         items: INBOX_TYPES
                             .iter()
                             .map(|(value, key, identifier)| SelectItem {
-                                label: view.tr(key),
+                                label: cx.tr(key),
                                 icon: None,
-                                on_select: ctx.bind(
+                                on_select: cx.bind(
                                     SetInboxType((*value).into()),
                                     reduce_with!(set_inbox_type),
                                 ),
                                 semantics_identifier: Some((*identifier).into()),
                             })
-                            .collect(),
-                        ..Default::default()
-                    }
-                    .into(),
-                }
-                .into(),
+                            .collect::<Vec<_>>(),
+                    ),
+                ),
             ],
-        }
-        .into()
-    }
+        )
 }

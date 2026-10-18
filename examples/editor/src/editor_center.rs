@@ -6,43 +6,33 @@ use crate::model::EditorState;
 use crate::palette::EditorPalette;
 use crate::tab_bar::TabBar;
 use crate::terminal_panel::TerminalPanel;
-use fission::core::ui::{Column, Container, Widget};
-use fission::widgets::Spacer;
+use fission::prelude::*;
 
-pub(crate) struct EditorCenter;
-
-impl From<EditorCenter> for Widget {
-    fn from(_center: EditorCenter) -> Self {
-        let (_, view) = fission::build::current::<EditorState>();
-        let palette = EditorPalette::from_theme(&view.env().theme);
-        let editor = Column {
-            children: vec![
-                TabBar.into(),
-                Breadcrumb.into(),
-                FindReplaceBar.into(),
-                EditorSurface.into(),
-            ],
+fission_component! {
+    pub(crate) EditorCenter<EditorState> |_center, state, cx| {
+        let palette = EditorPalette::from_theme(&cx.view.env().theme);
+    } =>
+        Column(
             flex_grow: 1.0,
-            ..Default::default()
-        };
-
-        let mut children = vec![Container::new(editor).flex_grow(1.0).min_height(0.0).into()];
-        if view.state().terminal_visible {
-            children.push(
-                Container::new(Spacer::default())
+            children: [
+                Container(
+                    Column(
+                        flex_grow: 1.0,
+                        children: [
+                            TabBar(),
+                            Breadcrumb(),
+                            FindReplaceBar(),
+                            EditorSurface(),
+                        ],
+                    ),
+                ).flex_grow(1.0).min_height(0.0),
+                if state.terminal_visible {
+                    Container(Spacer())
                     .height(DIVIDER_THICKNESS)
                     .bg(palette.border_color)
                     .flex_shrink(0.0)
-                    .into(),
-            );
-            children.push(TerminalPanel.into());
-        }
-
-        Column {
-            children,
-            flex_grow: 1.0,
-            ..Default::default()
-        }
-        .into()
-    }
+                },
+                if state.terminal_visible { TerminalPanel() },
+            ],
+        )
 }

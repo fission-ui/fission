@@ -2,19 +2,15 @@ use crate::layout::{ACTIVE_INDICATOR_THICKNESS, TAB_BAR_HEIGHT, TAB_CLOSE_SIZE};
 use crate::model::{on_close_tab, on_select_tab, CloseTab, EditorState, SelectTab, TabInfo};
 use crate::palette::EditorPalette;
 use fission::prelude::*;
-use fission::widgets::{HStack, Spacer};
 
-pub(crate) struct EditorTab {
-    pub index: usize,
-    pub tab: TabInfo,
-    pub active: bool,
-}
-
-impl From<EditorTab> for Widget {
-    fn from(tab: EditorTab) -> Self {
-        let (ctx, view) = fission::build::current::<EditorState>();
-        let palette = EditorPalette::from_theme(&view.env().theme);
-        let tokens = &view.env().theme.tokens;
+fission_component! {
+    pub(crate) EditorTab<EditorState> {
+        index: usize,
+        tab: TabInfo,
+        active: bool,
+    } |tab, _state, cx| {
+        let palette = EditorPalette::from_theme(&cx.view.env().theme);
+        let tokens = &cx.view.env().theme.tokens;
         let background = if tab.active {
             palette.tab_active_bg
         } else {
@@ -28,61 +24,51 @@ impl From<EditorTab> for Widget {
         let title = if tab.tab.is_dirty {
             format!("* {}", tab.tab.title)
         } else {
-            tab.tab.title
+            tab.tab.title.clone()
         };
-
-        let accent = Container::new(Spacer::default())
-            .height(ACTIVE_INDICATOR_THICKNESS)
-            .bg(if tab.active {
-                palette.tab_accent
-            } else {
-                palette.transparent
-            });
-
-        let content = HStack {
-            spacing: Some(tokens.spacing.s),
-            children: widgets![
-                Text::new(title)
-                    .size(tokens.typography.font_size_sm)
-                    .color(text_color),
-                Button {
-                    variant: ButtonVariant::Ghost,
-                    child: Some(
-                        Text::new("x")
-                            .size(tokens.typography.body_medium_size)
-                            .color(palette.tab_inactive_text)
-                            .into(),
-                    ),
-                    on_press: Some(ctx.bind(CloseTab(tab.index), reduce_with!(on_close_tab))),
-                    width: Some(TAB_CLOSE_SIZE),
-                    height: Some(TAB_CLOSE_SIZE),
-                    padding: Some([tokens.spacing.none; 4]),
-                    ..Default::default()
-                },
-            ],
-        };
-
-        Button {
+    } =>
+        Button(
             variant: ButtonVariant::Ghost,
             content_align: ButtonContentAlign::Start,
-            child: Some(
-                Column {
-                    children: widgets![
-                        accent,
-                        Container::new(content)
-                            .bg(background)
-                            .padding_all(tokens.spacing.s)
-                            .flex_grow(1.0),
-                    ],
-                    ..Default::default()
-                }
-                .into(),
+            on_press: cx.bind(SelectTab(tab.index), reduce_with!(on_select_tab)),
+            height: TAB_BAR_HEIGHT,
+            padding: [tokens.spacing.none, tokens.spacing.none, tokens.spacing.none, tokens.spacing.none],
+            child: Column(
+                children: [
+                    Container(Spacer())
+                        .height(ACTIVE_INDICATOR_THICKNESS)
+                        .bg(if tab.active { palette.tab_accent } else { palette.transparent }),
+                    Container(
+                        HStack(
+                            spacing: tokens.spacing.s,
+                            children: [
+                                Text(title)
+                                    .size(tokens.typography.font_size_sm)
+                                    .color(text_color),
+                                Button(
+                                    variant: ButtonVariant::Ghost,
+                                    child: Text("×")
+                                        .size(tokens.typography.body_medium_size)
+                                        .color(palette.tab_inactive_text),
+                                    on_press: cx.bind(
+                                        CloseTab(tab.index),
+                                        reduce_with!(on_close_tab),
+                                    ),
+                                    width: TAB_CLOSE_SIZE,
+                                    height: TAB_CLOSE_SIZE,
+                                    padding: [tokens.spacing.none, tokens.spacing.none, tokens.spacing.none, tokens.spacing.none],
+                                    semantics: Semantics {
+                                        label: Some(format!("Close {}", tab.tab.title)),
+                                        ..Default::default()
+                                    },
+                                ),
+                            ],
+                        ),
+                    )
+                    .bg(background)
+                    .padding_all(tokens.spacing.s)
+                    .flex_grow(1.0),
+                ],
             ),
-            on_press: Some(ctx.bind(SelectTab(tab.index), reduce_with!(on_select_tab))),
-            height: Some(TAB_BAR_HEIGHT),
-            padding: Some([tokens.spacing.none; 4]),
-            ..Default::default()
-        }
-        .into()
-    }
+        )
 }

@@ -1,11 +1,8 @@
 use super::filters::AdvancedFilters;
 use crate::model::list::{set_filter_mode, set_sort_menu_open, set_sort_option, update_search};
 use crate::model::{InboxState, SetFilterMode, SetSortMenuOpen, SetSortOption, UpdateSearch};
-use fission::core::ui::widgets::Spacer;
-use fission::core::ui::{Row, TextContent, Widget};
-use fission::core::{reduce_with, WidgetId};
 use fission::op::FlexWrap;
-use fission::widgets::{SegmentedControl, Select, SelectItem, TextInput, VStack};
+use fission::prelude::*;
 use std::sync::Arc;
 
 /// Filter modes with the translation key for each one's label.
@@ -18,60 +15,46 @@ const SORT_OPTIONS: [(&str, &str); 3] = [
     ("Unread", "sort.unread"),
 ];
 
+fission_component! {
 /// Search, filter mode, sort order and the advanced filters.
-pub(super) struct ListToolbar;
-
-impl From<ListToolbar> for Widget {
-    fn from(_: ListToolbar) -> Self {
-        let (ctx, view) = fission::build::current::<InboxState>();
-        let state = view.state();
-        let tokens = &view.env().theme.tokens;
+    pub(super) ListToolbar<InboxState> |_toolbar, state, cx| {
+        let tokens = &cx.view.env().theme.tokens;
         let filter_actions: Vec<_> = (0..FILTER_MODES.len())
-            .map(|mode| ctx.bind(SetFilterMode(mode), reduce_with!(set_filter_mode)))
+            .map(|mode| cx.bind(SetFilterMode(mode), reduce_with!(set_filter_mode)))
             .collect();
         let sort_label = SORT_OPTIONS
             .iter()
             .find(|(value, _)| state.sort_option == *value)
-            .map_or_else(|| state.sort_option.clone(), |(_, key)| view.tr(key));
-
-        VStack {
-            spacing: Some(tokens.spacing.xs),
-            children: vec![
-                TextInput {
+            .map_or_else(|| state.sort_option.clone(), |(_, key)| cx.tr(key));
+    } =>
+        VStack(
+            spacing: tokens.spacing.xs,
+            children: [
+                TextInput(
                     value: state.search_query.clone(),
-                    placeholder: Some(TextContent::Key("search.placeholder".into())),
-                    on_input: Some(
-                        ctx.bind(UpdateSearch(String::new()), reduce_with!(update_search)),
-                    ),
-                    ..Default::default()
-                }
-                .into(),
-                // Wraps so the sort select and filters button drop below the chips when the
-                // list is too narrow for one line, instead of running over them.
-                Row {
-                    gap: Some(tokens.spacing.s),
+                    placeholder: TextContent::Key("search.placeholder".into()),
+                    on_input: cx.bind(UpdateSearch(String::new()), reduce_with!(update_search)),
+                ),
+                Row(
+                    gap: tokens.spacing.s,
                     wrap: FlexWrap::Wrap,
-                    children: vec![
-                        SegmentedControl {
-                            options: FILTER_MODES.iter().map(|key| view.tr(key)).collect(),
+                    children: [
+                        SegmentedControl(
+                            options: FILTER_MODES.iter().map(|key| cx.tr(key)).collect::<Vec<_>>(),
                             selected_index: state.filter_mode,
-                            on_change: Some(Arc::new(move |mode| filter_actions[mode].clone())),
-                        }
-                        .into(),
-                        Spacer {
-                            flex_grow: 1.0,
-                            ..Default::default()
-                        }
-                        .into(),
-                        Select {
+                            on_change: Arc::new(move |mode: usize| filter_actions[mode].clone())
+                                as Arc<dyn Fn(usize) -> ActionEnvelope + Send + Sync>,
+                        ),
+                        Spacer(flex_grow: 1.0),
+                        Select(
                             id: WidgetId::explicit("inbox.sort"),
                             selected_label: Some(sort_label),
                             items: SORT_OPTIONS
                                 .iter()
                                 .map(|(value, key)| SelectItem {
-                                    label: view.tr(key),
+                                    label: cx.tr(key),
                                     icon: None,
-                                    on_select: ctx.bind(
+                                    on_select: cx.bind(
                                         SetSortOption((*value).into()),
                                         reduce_with!(set_sort_option),
                                     ),
@@ -80,24 +63,18 @@ impl From<ListToolbar> for Widget {
                                         value.to_lowercase()
                                     )),
                                 })
-                                .collect(),
+                                .collect::<Vec<_>>(),
                             is_open: state.show_sort_menu,
-                            on_toggle: Some(ctx.bind(
+                            on_toggle: cx.bind(
                                 SetSortMenuOpen(!state.show_sort_menu),
                                 reduce_with!(set_sort_menu_open),
-                            )),
+                            ),
                             trigger_semantics_identifier: Some("inbox.sort".into()),
-                            width: Some(140.0),
-                            ..Default::default()
-                        }
-                        .into(),
-                        AdvancedFilters.into(),
+                            width: 140.0,
+                        ),
+                        AdvancedFilters(),
                     ],
-                    ..Default::default()
-                }
-                .into(),
+                ),
             ],
-        }
-        .into()
-    }
+        )
 }

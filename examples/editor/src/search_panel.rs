@@ -5,107 +5,87 @@ use crate::model::{
 use crate::palette::EditorPalette;
 use crate::search_result_item::SearchResultItem;
 use fission::prelude::*;
-use fission::widgets::{HStack, VStack};
 
-pub struct SearchPanel;
-
-impl From<SearchPanel> for Widget {
-    fn from(_component: SearchPanel) -> Self {
-        let (ctx, view) = fission::build::current::<EditorState>();
-        let palette = EditorPalette::from_theme(&view.env().theme);
-        let tokens = &view.env().theme.tokens;
-
-        let update_query = ctx.bind(UpdateSearchQuery, reduce_with!(on_update_search_query));
-
-        let execute = ctx.bind(ExecuteSearch, reduce_with!(on_execute_search));
-
-        let search_row = Container::new(HStack {
-            spacing: Some(tokens.spacing.none),
-            children: widgets![
-                TextInput {
-                    id: Some(fission::WidgetId::explicit("editor_search_query_input")),
-                    value: view.state().search_query.clone(),
-                    placeholder: Some("Search...".into()),
-                    on_input: Some(update_query),
-                    borderless: true,
-                    ..Default::default()
-                },
-                Button {
-                    variant: ButtonVariant::Ghost,
-                    child: Some(
-                        Text::new("Go")
+fission_component! {
+    pub SearchPanel<EditorState> |_panel, state, cx| {
+        let palette = EditorPalette::from_theme(&cx.view.env().theme);
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+        Container(
+            Column(
+                gap: tokens.spacing.s,
+                flex_grow: 1.0,
+                justify_content: ir_op::JustifyContent::Start,
+                children: [
+                    Container(
+                        HStack(
+                            spacing: tokens.spacing.none,
+                            children: [
+                                TextInput(
+                                    id: WidgetId::explicit("editor_search_query_input"),
+                                    value: state.search_query.clone(),
+                                    placeholder: Some("Search...".into()),
+                                    on_input: cx.bind(
+                                        UpdateSearchQuery,
+                                        reduce_with!(on_update_search_query),
+                                    ),
+                                    borderless: true,
+                                ),
+                                Button(
+                                    variant: ButtonVariant::Ghost,
+                                    child: Text("Go")
+                                        .size(tokens.typography.font_size_xs)
+                                        .color(palette.panel_text),
+                                    on_press: cx.bind(
+                                        ExecuteSearch,
+                                        reduce_with!(on_execute_search),
+                                    ),
+                                    width: SEARCH_ACTION_WIDTH,
+                                    height: SEARCH_ACTION_HEIGHT,
+                                    padding: [tokens.spacing.none, tokens.spacing.none, tokens.spacing.none, tokens.spacing.none],
+                                ),
+                            ],
+                        ),
+                    )
+                    .bg(palette.input_bg)
+                    .border(palette.input_border, 1.0)
+                    .border_radius(tokens.radii.small)
+                    .height(INPUT_HEIGHT),
+                    if !state.search_results.is_empty() {
+                        Text(format!("{} results", state.search_results.len()))
                             .size(tokens.typography.font_size_xs)
-                            .color(palette.panel_text)
-                            .into(),
-                    ),
-                    on_press: Some(execute),
-                    width: Some(SEARCH_ACTION_WIDTH),
-                    height: Some(SEARCH_ACTION_HEIGHT),
-                    padding: Some([tokens.spacing.none; 4]),
-                    ..Default::default()
-                },
-            ],
-        })
-        .bg(palette.input_bg)
-        .border(palette.input_border, 1.0)
-        .border_radius(tokens.radii.small)
-        .height(INPUT_HEIGHT)
-        .into();
-
-        let mut children = vec![search_row];
-
-        if !view.state().search_results.is_empty() {
-            children.push(
-                Text::new(format!("{} results", view.state().search_results.len()))
-                    .size(tokens.typography.font_size_xs)
-                    .color(palette.dim_text)
-                    .into(),
-            );
-
-            let result_nodes = view
-                .state()
-                .search_results
-                .iter()
-                .take(SEARCH_RESULT_LIMIT)
-                .cloned()
-                .map(|result| SearchResultItem { result }.into())
-                .collect();
-
-            children.push(
-                Scroll {
-                    direction: FlexDirection::Column,
-                    child: Some(
-                        VStack {
-                            spacing: Some(tokens.spacing.xs),
-                            children: result_nodes,
-                        }
-                        .into(),
-                    ),
-                    show_scrollbar: true,
-                    flex_grow: 1.0,
-                    flex_shrink: 1.0,
-                    ..Default::default()
-                }
-                .into(),
-            );
-        } else if !view.state().search_query.is_empty() {
-            children.push(
-                Text::new("No results found")
-                    .size(tokens.typography.font_size_sm)
-                    .color(palette.dim_text)
-                    .into(),
-            );
-        }
-
-        Container::new(Column {
-            gap: Some(tokens.spacing.s),
-            children,
-            flex_grow: 1.0,
-            justify_content: fission::core::op::JustifyContent::Start,
-            ..Default::default()
-        })
+                            .color(palette.dim_text)
+                    },
+                    if !state.search_results.is_empty() {
+                        Scroll(
+                            direction: FlexDirection::Column,
+                            show_scrollbar: true,
+                            flex_grow: 1.0,
+                            flex_shrink: 1.0,
+                            child: VStack(
+                                spacing: tokens.spacing.xs,
+                                children: [
+                                    for result in state.search_results
+                                        .iter()
+                                        .take(SEARCH_RESULT_LIMIT)
+                                        .cloned()
+                                    {
+                                        SearchResultItem(
+                                            result.clone(),
+                                            key: format!("{}:{}:{}", result.path, result.line, result.col),
+                                        )
+                                    },
+                                ],
+                            ),
+                        )
+                    } else if !state.search_query.is_empty() {
+                        Text("No results found")
+                            .size(tokens.typography.font_size_sm)
+                            .color(palette.dim_text)
+                    },
+                ],
+            ),
+        )
         .padding_all(tokens.spacing.s)
         .flex_grow(1.0)
-        .into()
-    }
 }

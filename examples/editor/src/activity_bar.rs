@@ -1,18 +1,13 @@
 use crate::layout::ACTIVITY_BAR_WIDTH;
 use crate::model::*;
 use crate::palette::EditorPalette;
-use fission::core::reduce_with;
-use fission::core::ui::{Align, Button, ButtonVariant, Column, Container, Widget};
+use fission::prelude::*;
 
-pub(crate) struct ActivityBar;
-
-impl From<ActivityBar> for Widget {
-    fn from(_component: ActivityBar) -> Self {
-        let (ctx, view) = fission::build::current::<EditorState>();
-        let palette = EditorPalette::from_theme(&view.env().theme);
-        let tokens = &view.env().theme.tokens;
-
-        let section_icons = vec![
+fission_component! {
+    pub(crate) ActivityBar<EditorState> |_bar, state, cx| {
+        let palette = EditorPalette::from_theme(&cx.view.env().theme);
+        let tokens = &cx.view.env().theme.tokens;
+        let section_icons = [
             (
                 fission::icons::material::action::description::round(),
                 SidebarSection::Explorer,
@@ -34,55 +29,50 @@ impl From<ActivityBar> for Widget {
                 "Extensions",
             ),
         ];
-
-        let mut icons = Vec::new();
-        for (icon_svg, section, _label) in &section_icons {
-            let is_active =
-                view.state().sidebar_visible && view.state().sidebar_section == *section;
-            let color = if is_active {
-                palette.bright_text
-            } else {
-                palette.dim_text
-            };
-
-            let indicator_color = if is_active {
-                palette.bright_text
-            } else {
-                palette.transparent
-            };
-
-            icons.push(
-                Button {
-                    variant: ButtonVariant::Ghost,
-                    child: Some(
-                        Container::new(Align::new(
-                            fission::widgets::Icon::svg(*icon_svg)
-                                .size(tokens.typography.font_size_xl)
-                                .color(color),
-                        ))
-                        .border(indicator_color, 0.0)
-                        .into(),
-                    ),
-                    on_press: Some(ctx.bind(
-                        SetSidebarSection(*section),
-                        reduce_with!(on_select_sidebar_section),
-                    )),
-                    width: Some(ACTIVITY_BAR_WIDTH),
-                    height: Some(ACTIVITY_BAR_WIDTH),
-                    padding: Some([tokens.spacing.none; 4]),
-                    ..Default::default()
-                }
-                .into(),
-            );
-        }
-
-        Container::new(Column {
-            children: icons,
-            ..Default::default()
-        })
+    } =>
+        Container(
+            Column(
+                children: [
+                    for (icon, section, label) in section_icons {
+                        ActivityButton(icon, section, label, key: label)
+                    },
+                ],
+            ),
+        )
         .width(ACTIVITY_BAR_WIDTH)
         .bg(palette.activity_bar_bg)
         .flex_shrink(0.0)
-        .into()
-    }
+}
+
+fission_component! {
+    ActivityButton<EditorState> {
+        icon: &'static str,
+        section: SidebarSection,
+        label: &'static str,
+    } |button, state, cx| {
+        let palette = EditorPalette::from_theme(&cx.view.env().theme);
+        let tokens = &cx.view.env().theme.tokens;
+        let active = state.sidebar_visible && state.sidebar_section == button.section;
+    } =>
+    Button(
+        variant: ButtonVariant::Ghost,
+        child: Container(
+            Align::new(
+                Icon::svg(button.icon)
+                    .size(tokens.typography.font_size_xl)
+                    .color(if active { palette.bright_text } else { palette.dim_text }),
+            ),
+        ).border(if active { palette.bright_text } else { palette.transparent }, 0.0),
+        on_press: cx.bind(
+            SetSidebarSection(button.section),
+            reduce_with!(on_select_sidebar_section),
+        ),
+        width: ACTIVITY_BAR_WIDTH,
+        height: ACTIVITY_BAR_WIDTH,
+        padding: [tokens.spacing.none, tokens.spacing.none, tokens.spacing.none, tokens.spacing.none],
+        semantics: Semantics {
+            label: Some(button.label.into()),
+            ..Default::default()
+        },
+    )
 }
