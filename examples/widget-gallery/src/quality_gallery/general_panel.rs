@@ -3,59 +3,50 @@ use fission::prelude::*;
 use super::account_card::AccountDetailsCard;
 use super::action_card::ActionHierarchyCard;
 use super::empty_card::TrustedDevicesCard;
+use crate::GalleryState;
 
-pub(super) struct QualityGeneralPanel {
-    pub compact: bool,
-}
-
-impl From<QualityGeneralPanel> for Widget {
-    fn from(panel: QualityGeneralPanel) -> Self {
+fission_component! {
+    pub(super) QualityGeneralPanel<GalleryState> { compact: bool }
+    |panel, _state, _cx| {} =>
         if panel.compact {
-            return Column {
-                gap: Some(12.0),
-                children: widgets![
-                    AccountDetailsCard { compact: true },
-                    Row {
-                        gap: Some(12.0),
+            Column(
+                gap: 12.0_f32,
+                children: [
+                    AccountDetailsCard(true),
+                    Row(
+                        gap: 12.0_f32,
                         align_items: fission::op::AlignItems::Stretch,
-                        children: widgets![
-                            Container::new(ActionHierarchyCard { compact: true })
+                        children: [
+                            Container(ActionHierarchyCard(true))
                                 .width_length(Length::percent(50.0))
                                 .min_height(211.25)
                                 .flex_grow(1.0),
-                            Container::new(TrustedDevicesCard { compact: true })
+                            Container(TrustedDevicesCard(true))
                                 .width_length(Length::percent(50.0))
                                 .min_height(211.25)
                                 .flex_grow(1.0),
                         ],
-                        ..Default::default()
-                    },
+                    ),
                 ],
-                ..Default::default()
-            }
-            .into();
+            )
+        } else {
+            Row(
+                gap: 16.0_f32,
+                align_items: fission::op::AlignItems::Stretch,
+                children: [
+                    Container(AccountDetailsCard(false))
+                        .width_length(Length::percent(64.0))
+                        .flex_grow(1.55),
+                    Container(Column(
+                        gap: 16.0_f32,
+                        children: [
+                            Container(ActionHierarchyCard(false)).min_height(185.0),
+                            Container(TrustedDevicesCard(false)).min_height(250.5),
+                        ],
+                    ))
+                    .width_length(Length::percent(35.0))
+                    .flex_grow(0.85),
+                ],
+            )
         }
-
-        Row {
-            gap: Some(16.0),
-            align_items: fission::op::AlignItems::Stretch,
-            children: widgets![
-                Container::new(AccountDetailsCard { compact: false },)
-                    .width_length(Length::percent(64.0))
-                    .flex_grow(1.55),
-                Container::new(Column {
-                    gap: Some(16.0),
-                    children: widgets![
-                        Container::new(ActionHierarchyCard { compact: false }).min_height(185.0),
-                        Container::new(TrustedDevicesCard { compact: false }).min_height(250.5),
-                    ],
-                    ..Default::default()
-                })
-                .width_length(Length::percent(35.0))
-                .flex_grow(0.85),
-            ],
-            ..Default::default()
-        }
-        .into()
-    }
 }

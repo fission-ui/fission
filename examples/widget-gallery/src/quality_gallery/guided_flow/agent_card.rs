@@ -1,20 +1,20 @@
 use super::palette::{rgba, BLUE, GREEN, INK, MUTED};
 use fission::prelude::*;
 
-pub(super) struct GuidedAgentCard {
-    pub(super) title: &'static str,
-    pub(super) description: &'static str,
-    pub(super) tag_one: &'static str,
-    pub(super) tag_two: Option<&'static str>,
-    pub(super) summary: &'static str,
-    pub(super) action_one: &'static str,
-    pub(super) action_two: &'static str,
-    pub(super) meta: &'static str,
-    pub(super) tone: AgentTone,
-    pub(super) selected: bool,
-}
-impl From<GuidedAgentCard> for Widget {
-    fn from(card: GuidedAgentCard) -> Self {
+fission_component! {
+    pub(super) GuidedAgentCard<()> {
+        title: &'static str,
+        description: &'static str,
+        tag_one: &'static str,
+        tag_two: Option<&'static str>,
+        summary: &'static str,
+        action_one: &'static str,
+        action_two: &'static str,
+        meta: &'static str,
+        tone: AgentTone,
+        selected: bool,
+    }
+    |card, _state, _cx| {
         let (icon_source, icon_bg, icon_color) = match card.tone {
             AgentTone::Intake => (
                 material::content::inbox::regular(),
@@ -33,121 +33,126 @@ impl From<GuidedAgentCard> for Widget {
             ),
         };
 
-        Container::new(GuidedAgentSurface {
-            card,
-            icon_source,
-            icon_bg,
-            icon_color,
-        })
+    } =>
+        Container(GuidedAgentSurface::new((*card).clone(), icon_source, icon_bg, icon_color))
         .margin([11.0, 0.0, 0.0, 0.0])
-        .into()
-    }
 }
 
-pub(super) struct GuidedAgentSurface {
-    card: GuidedAgentCard,
-    icon_source: &'static str,
-    icon_bg: Color,
-    icon_color: Color,
-}
-impl From<GuidedAgentSurface> for Widget {
-    fn from(surface: GuidedAgentSurface) -> Self {
-        let card = surface.card;
+fission_component! {
+    pub(super) GuidedAgentSurface<()> {
+        card: GuidedAgentCard,
+        icon_source: &'static str,
+        icon_bg: Color,
+        icon_color: Color,
+    }
+    |surface, _state, _cx| {
+        let card = &surface.card;
         let selected = card.selected;
         let (tag_background, tag_text) = if card.tone == AgentTone::Planning {
             (rgba(255, 244, 223, 255), rgba(209, 105, 0, 255))
         } else {
             (rgba(227, 250, 243, 255), rgba(0, 141, 110, 255))
         };
-        let mut tags = vec![Badge {
-            text: card.tag_one.into(),
-            color: Some(tag_background),
-            text_color: Some(tag_text),
-            size: ComponentSize::Sm,
-            ..Default::default()
-        }
-        .into()];
-        if let Some(tag_two) = card.tag_two {
-            tags.push(
-                Badge {
-                    text: tag_two.into(),
-                    color: Some(tag_background),
-                    text_color: Some(tag_text),
-                    size: ComponentSize::Sm,
-                    ..Default::default()
-                }
-                .into(),
-            );
-        }
+    } =>
+        Container(
+            CardLayout::new()
+                .header(CardHeader::custom(GuidedAgentHeading::new(
+                    card.clone(), surface.icon_source, surface.icon_bg, surface.icon_color,
+                )).action(GuidedAgentHeaderActions::new()))
+                .content(CardContent::new(GuidedAgentContent::new(card.clone())))
+                .footer(CardFooter::new(widgets![GuidedAgentFooter::new(card.meta)]))
+                .size(ComponentSize::Md)
+                .pattern(CardPattern::Plain)
+                .selected(selected)
+                .separator_inset(32.0),
+        )
+        .min_height(192.0)
+}
 
-        let heading = Row {
-            gap: Some(12.0),
+fission_component! {
+    GuidedAgentHeading<()> { card: GuidedAgentCard, icon_source: &'static str, icon_bg: Color, icon_color: Color }
+    |heading, _state, _cx| {
+        let card = &heading.card;
+        let (tag_background, tag_text) = if card.tone == AgentTone::Planning {
+            (rgba(255, 244, 223, 255), rgba(209, 105, 0, 255))
+        } else {
+            (rgba(227, 250, 243, 255), rgba(0, 141, 110, 255))
+        };
+    } =>
+        Row(
+            gap: 12.0_f32,
             align_items: fission::op::AlignItems::Start,
-            children: widgets![
-                Container::new(
-                    Icon::svg(surface.icon_source)
+            children: [
+                Container(
+                    Icon::svg(heading.icon_source)
                         .size(29.0)
-                        .color(surface.icon_color),
+                        .color(heading.icon_color),
                 )
                 .size(56.0, 56.0)
                 .align_child(BoxAlignment::Center)
-                .bg(surface.icon_bg)
+                .bg(heading.icon_bg)
                 .border_radius(13.0),
-                Column {
-                    gap: Some(1.0),
-                    children: widgets![
-                        Text::new(card.title)
+                Column(
+                    gap: 1.0_f32,
+                    children: [
+                        Text(card.title)
                             .size(17.0)
                             .line_height(20.0)
                             .weight(600)
                             .color(INK),
-                        Text::new(card.description)
+                        Text(card.description)
                             .size(14.0)
                             .line_height(20.0)
                             .color(MUTED),
-                        Row {
-                            gap: Some(8.0),
-                            children: tags,
-                            ..Default::default()
-                        },
+                        Row(
+                            gap: 8.0_f32,
+                            children: [
+                                Badge(text: card.tag_one.to_string(), color: tag_background, text_color: tag_text, size: ComponentSize::Sm),
+                                if let Some(tag_two) = card.tag_two {
+                                    Badge(text: tag_two.to_string(), color: tag_background, text_color: tag_text, size: ComponentSize::Sm)
+                                },
+                            ],
+                        ),
                     ],
-                    ..Default::default()
-                },
+                ),
             ],
-            ..Default::default()
-        };
-        let header_actions = Row {
-            gap: Some(8.0),
-            children: widgets![
-                Button {
+        )
+}
+
+fission_component! {
+    GuidedAgentHeaderActions<()> |_actions, _state, _cx| {} =>
+        Row(
+            gap: 8.0_f32,
+            children: [
+                Button(
                     variant: ButtonVariant::Outline,
                     size: ComponentSize::Md,
-                    content: Some(
-                        ButtonContent::new("Edit agent")
-                            .leading_icon(Icon::svg(material::image::edit::regular())),
-                    ),
-                    ..Default::default()
-                },
-                Button {
+                    content: ButtonContent::new("Edit agent")
+                        .leading_icon(Icon::svg(material::image::edit::regular())),
+                ),
+                Button(
                     variant: ButtonVariant::Outline,
                     size: ComponentSize::Md,
                     child: Some(
                         Icon::svg(material::navigation::more_horiz::regular())
                             .size(18.0)
                             .color(INK)
-                            .into(),
+                            .into()
                     ),
-                    ..Default::default()
-                },
+                ),
             ],
-            ..Default::default()
-        };
-        let content = Row {
-            gap: Some(12.0),
+        )
+}
+
+fission_component! {
+    GuidedAgentContent<()> { card: GuidedAgentCard }
+    |content, _state, _cx| { let card = &content.card; } =>
+        Row(
+            gap: 12.0_f32,
             align_items: fission::op::AlignItems::Start,
-            children: widgets![
-                Container::new(
-                    Text::new(if card.tone == AgentTone::Intake {
+            children: [
+                Container(
+                    Text(if card.tone == AgentTone::Intake {
                         "G"
                     } else {
                         "W"
@@ -168,18 +173,18 @@ impl From<GuidedAgentSurface> for Widget {
                     BLUE
                 })
                 .border_radius(12.0),
-                Column {
-                    gap: Some(4.0),
-                    children: widgets![
-                        Text::new(card.summary)
+                Column(
+                    gap: 4.0_f32,
+                    children: [
+                        Text(card.summary)
                             .size(13.0)
                             .line_height(18.0)
                             .color(INK),
-                        Row {
-                            gap: Some(8.0),
-                            children: widgets![
-                                Container::new(
-                                    Text::new(card.action_one)
+                        Row(
+                            gap: 8.0_f32,
+                            children: [
+                                Container(
+                                    Text(card.action_one)
                                         .size(12.0)
                                         .line_height(18.0)
                                         .color(rgba(64, 87, 152, 255)),
@@ -187,8 +192,8 @@ impl From<GuidedAgentSurface> for Widget {
                                 .bg(rgba(239, 242, 255, 255))
                                 .border_radius(6.0)
                                 .padding([10.0, 10.0, 2.0, 2.0]),
-                                Container::new(
-                                    Text::new(card.action_two)
+                                Container(
+                                    Text(card.action_two)
                                         .size(12.0)
                                         .line_height(18.0)
                                         .color(rgba(64, 87, 152, 255)),
@@ -197,39 +202,26 @@ impl From<GuidedAgentSurface> for Widget {
                                 .border_radius(6.0)
                                 .padding([10.0, 10.0, 2.0, 2.0]),
                             ],
-                            ..Default::default()
-                        },
+                        ),
                     ],
-                    ..Default::default()
-                },
+                ),
             ],
-            ..Default::default()
-        };
-        let footer = Row {
-            gap: Some(8.0),
-            flex_grow: 1.0,
-            children: widgets![
+        )
+}
+
+fission_component! {
+    GuidedAgentFooter<()> { meta: &'static str }
+    |footer, _state, _cx| {} =>
+        Row(
+            gap: 8.0_f32,
+            flex_grow: 1.0_f32,
+            children: [
                 Icon::svg(material::action::description::regular())
                     .size(16.0)
                     .color(MUTED),
-                Text::new(card.meta).size(13.0).color(MUTED),
+                Text(footer.meta).size(13.0).color(MUTED),
             ],
-            ..Default::default()
-        };
-
-        Container::new(
-            CardLayout::new()
-                .header(CardHeader::custom(heading).action(header_actions))
-                .content(CardContent::new(content))
-                .footer(CardFooter::new(widgets![footer]))
-                .size(ComponentSize::Md)
-                .pattern(CardPattern::Plain)
-                .selected(selected)
-                .separator_inset(32.0),
         )
-        .min_height(192.0)
-        .into()
-    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]

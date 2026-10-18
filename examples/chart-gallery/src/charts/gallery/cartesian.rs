@@ -5,16 +5,11 @@ use fission::charts::{
     VisualMap,
 };
 use fission::core::op::Color;
-use fission::core::ui::Widget;
+use fission::prelude::*;
 
-pub(super) struct CartesianChart {
-    pub chart: usize,
-    pub scale: f32,
-}
-
-impl From<CartesianChart> for Widget {
-    fn from(selection: CartesianChart) -> Self {
-        let (_, view) = fission::build::current::<GalleryState>();
+fission_component! {
+    pub(super) CartesianChart<GalleryState> { chart: usize, scale: f32 }
+    |selection, state, _cx| {} => (|| -> Widget {
         let chart = selection.chart;
         let s = selection.scale;
 
@@ -61,7 +56,7 @@ impl From<CartesianChart> for Widget {
                             b: 117,
                             a: 255,
                         })
-                        .smooth(view.state().smooth)
+                        .smooth(state.smooth)
                         .into(),
                 ])
                 .in_gallery()
@@ -98,7 +93,7 @@ impl From<CartesianChart> for Widget {
                             b: 117,
                             a: 255,
                         })
-                        .smooth(view.state().smooth)
+                        .smooth(state.smooth)
                         .into(),
                     LineSeries::new("Video Ads")
                         .stack("total")
@@ -123,7 +118,7 @@ impl From<CartesianChart> for Widget {
                             b: 198,
                             a: 255,
                         })
-                        .smooth(view.state().smooth)
+                        .smooth(state.smooth)
                         .into(),
                 ])
                 .in_gallery()
@@ -219,5 +214,5 @@ impl From<CartesianChart> for Widget {
                 .into(),
             _ => unreachable!("chart catalog and builder are out of sync"),
         }
-    }
+    })()
 }

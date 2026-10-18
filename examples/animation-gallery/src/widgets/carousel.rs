@@ -2,8 +2,7 @@ use super::carousel_preview::CarouselPreview;
 use super::common::*;
 use crate::state::AnimationGalleryState;
 use crate::style;
-use fission::build::BuildCtxHandle;
-use fission::Widget;
+use fission::prelude::*;
 
 pub const PATH: &str = "/widgets/carousel";
 
@@ -15,22 +14,7 @@ pub const SUMMARY: WidgetSummary = WidgetSummary {
     tint: style::Tint::Success,
 };
 
-pub struct CarouselPage<'a> {
-    pub ctx: BuildCtxHandle<AnimationGalleryState>,
-    pub state: &'a AnimationGalleryState,
-}
-
-impl From<CarouselPage<'_>> for Widget {
-    fn from(page: CarouselPage<'_>) -> Self {
-        WidgetPage {
-            ctx: &page.ctx,
-            state: page.state,
-            case: case(),
-            preview: CarouselPreview { state: page.state }.into(),
-        }
-        .into()
-    }
-}
+fission_component! { pub CarouselPage<AnimationGalleryState> {} |_page, _state, _cx| {} => WidgetPage(case(), CarouselPreview()) }
 
 fn case() -> GalleryCase {
     GalleryCase {
@@ -52,25 +36,20 @@ fn case() -> GalleryCase {
     }
 }
 
-const SOURCE: &str = r#"pub struct AppCarousel {
-    pub active_index: usize,
-    pub slides: Vec<Widget>,
-}
-
-impl From<AppCarousel> for Widget {
-    fn from(carousel: AppCarousel) -> Self {
-        let (_, view) = fission::build::current::<()>();
-        Row {
-            gap: Some(view.env().theme.tokens.spacing.s),
-            children: carousel.slides.into_iter().enumerate().map(|(i, slide)| {
-                Motion {
+const SOURCE: &str = r#"fission_component! {
+    pub AppCarousel<()> { active_index: usize, slides: Vec<Widget> }
+    |carousel, _state, cx| {} =>
+        Row(
+            gap: cx.view.env().theme.tokens.spacing.s,
+            children: [
+                for (i, slide) in carousel.slides.into_iter().enumerate() {
+                    Motion(
                     id: WidgetId::derived(WidgetId::explicit("carousel").as_u128(), &[i as u32]),
                     tracks: vec![slide_translate_x(carousel.active_index, i)],
                     child: slide,
-                    ..Default::default()
-                }.into()
-            }).collect(),
-            ..Default::default()
-        }.into()
-    }
+                    key: i,
+                )
+                },
+            ],
+        )
 }"#;

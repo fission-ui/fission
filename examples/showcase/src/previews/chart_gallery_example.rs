@@ -3,19 +3,14 @@ use crate::state::ShowcaseState;
 use chart_gallery_example::{GalleryApp, GalleryState};
 use fission::prelude::*;
 
-#[derive(Clone, Copy, Debug)]
-pub(crate) struct ChartGalleryExample;
-
-impl From<ChartGalleryExample> for Widget {
-    fn from(_component: ChartGalleryExample) -> Self {
-        let (_ctx, view) = fission::build::current::<ShowcaseState>();
+fission_component! {
+    #[derive(Clone, Copy, Debug)] pub(crate) ChartGalleryExample<ShowcaseState> {}
+    |_component, state, _cx| {} =>
         MountedExample::<GalleryState, _>::new(
             "showcase.example.chart-gallery",
-            view.state().preview_generation,
+            state.preview_generation,
             GalleryApp,
         )
         // The showcase header already names the example, so the gallery drops its title.
         .with_state(chart_gallery_example::embedded_state)
-        .into()
-    }
 }

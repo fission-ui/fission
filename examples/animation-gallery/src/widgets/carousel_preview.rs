@@ -7,53 +7,34 @@ use fission::prelude::*;
 
 const DEFAULT_OFFSET: f32 = 18.0;
 
-pub(super) struct CarouselPreview<'a> {
-    pub state: &'a AnimationGalleryState,
-}
-
-impl From<CarouselPreview<'_>> for Widget {
-    fn from(preview: CarouselPreview<'_>) -> Self {
-        let (_, view) = fission::build::current::<AnimationGalleryState>();
-        let progress = if preview.state.playing {
+fission_component! {
+    pub(super) CarouselPreview<AnimationGalleryState> {}
+    |_preview, state, cx| {
+        let progress = if state.playing {
             1.0
         } else {
-            preview.state.scrub_ms as f32 / 300.0
+            state.scrub_ms as f32 / 300.0
         };
-        let offset = carousel_offset(preview.state);
-
-        PreviewShell {
-            child: Row {
-                gap: Some(view.env().theme.tokens.spacing.s),
-                children: widgets![
-                    CarouselTile {
-                        label: "One",
-                        background: style::primary(),
-                    },
-                    Motion {
+        let offset = carousel_offset(state);
+    } =>
+        PreviewShell(
+            Row(
+                gap: cx.view.env().theme.tokens.spacing.s,
+                children: [
+                    CarouselTile("One".to_string(), style::primary()),
+                    Motion(
                         id: WidgetId::explicit("gallery.carousel.slide"),
                         tracks: vec![MotionTrack::composite(
                             MotionPropertyId::TranslateX,
                             MotionStartValue::Explicit(px(offset)),
                             px(offset * (1.0 - progress)),
                         )],
-                        child: CarouselTile {
-                            label: "Two",
-                            background: style::success(),
-                        }
-                        .into(),
-                        ..Default::default()
-                    },
-                    CarouselTile {
-                        label: "Three",
-                        background: style::secondary(),
-                    },
+                        child: CarouselTile("Two".to_string(), style::success()),
+                    ),
+                    CarouselTile("Three".to_string(), style::secondary()),
                 ],
-                ..Default::default()
-            }
-            .into(),
-        }
-        .into()
-    }
+            ),
+        )
 }
 
 fn carousel_offset(state: &AnimationGalleryState) -> f32 {

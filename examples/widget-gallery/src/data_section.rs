@@ -29,24 +29,22 @@ fn select_tree_node(state: &mut GalleryState, id: String) {
 }
 
 pub(crate) fn card() -> Vec<Widget> {
-    let (_, view) = fission::build::current::<GalleryState>();
-    let tokens = &view.env().theme.tokens;
-    let typography = &tokens.typography;
-    widgets![Container::new(
+    widgets![CardDemo::new()]
+}
+
+fission_component! {
+    CardDemo<GalleryState> |_demo, _state, cx| {
+        let tokens = &cx.view.env().theme.tokens;
+        let typography = &tokens.typography;
+    } =>
+    Container(
         CardLayout::new()
             .header(
                 CardHeader::new(CardTitle::new("Messages synced"))
                     .description(CardDescription::new(
                         "Across every connected inbox this week.",
                     ))
-                    .action(Button {
-                        variant: ButtonVariant::Ghost,
-                        icon_content: Some(ButtonIconContent::new(
-                            Icon::svg(fission::icons::material::navigation::more_horiz::regular()),
-                            "Card options",
-                        )),
-                        ..Default::default()
-                    }),
+                    .action(CardOptionsButton::new()),
             )
             .content(CardContent::new(
                 Text::new("1,284")
@@ -55,61 +53,83 @@ pub(crate) fn card() -> Vec<Widget> {
                     .color(tokens.colors.text_primary),
             ))
             .footer(CardFooter::new(vec![
-                Button {
-                    variant: ButtonVariant::Outline,
-                    size: ComponentSize::Sm,
-                    child: Some(Text::new("View report").into()),
-                    ..Default::default()
-                }
-                .into(),
-                Button {
-                    variant: ButtonVariant::Filled,
-                    size: ComponentSize::Sm,
-                    child: Some(Text::new("Sync now").into()),
-                    ..Default::default()
-                }
-                .into(),
+                CardFooterButton::new(ButtonVariant::Outline, "View report").into(),
+                CardFooterButton::new(ButtonVariant::Filled, "Sync now").into(),
             ])),
     )
-    .max_width_length(Length::points(CARD_MAX_WIDTH))]
+    .max_width_length(Length::points(CARD_MAX_WIDTH))
+}
+
+fission_component! {
+    CardOptionsButton<()> |_button, _state, _cx| {} =>
+    Button(
+        variant: ButtonVariant::Ghost,
+        icon_content: ButtonIconContent::new(
+            Icon::svg(fission::icons::material::navigation::more_horiz::regular()),
+            "Card options",
+        ),
+    )
+}
+
+fission_component! {
+    CardFooterButton<()> { variant: ButtonVariant, label: &'static str }
+    |button, _state, _cx| {} =>
+    Button(
+        variant: button.variant,
+        size: ComponentSize::Sm,
+        child: Text(button.label),
+    )
 }
 
 pub(crate) fn accordion() -> Vec<Widget> {
-    let (ctx, view) = fission::build::current::<GalleryState>();
-    let state = view.state();
-    widgets![Accordion {
+    widgets![AccordionDemo::new()]
+}
+
+fission_component! {
+    AccordionDemo<GalleryState> |_demo, state, cx| {} =>
+    Accordion(
         items: vec![
             AccordionItem {
                 title: "Section 1".into(),
                 content: Text::new("Content of section 1").into(),
                 is_expanded: state.accordion_open == 0,
-                on_toggle: Some(with_reducer!(ctx, ToggleAccordion(0), toggle_accordion)),
+                on_toggle: Some(with_reducer!(cx.build, ToggleAccordion(0), toggle_accordion)),
             },
             AccordionItem {
                 title: "Section 2".into(),
                 content: Text::new("Content of section 2").into(),
                 is_expanded: state.accordion_open == 1,
-                on_toggle: Some(with_reducer!(ctx, ToggleAccordion(1), toggle_accordion)),
+                on_toggle: Some(with_reducer!(cx.build, ToggleAccordion(1), toggle_accordion)),
             },
         ],
         motion: None,
-    }]
+    )
 }
 
 pub(crate) fn stepper() -> Vec<Widget> {
-    widgets![Stepper {
+    widgets![StepperDemo::new()]
+}
+
+fission_component! {
+    StepperDemo<()> |_demo, _state, _cx| {} =>
+    Stepper(
         steps: vec![
             "Import".into(),
             "Configure".into(),
             "Review".into(),
             "Deploy".into(),
         ],
-        active_index: 1,
-    }]
+        active_index: 1_usize,
+    )
 }
 
 pub(crate) fn timeline() -> Vec<Widget> {
-    widgets![Timeline {
+    widgets![TimelineDemo::new()]
+}
+
+fission_component! {
+    TimelineDemo<()> |_demo, _state, _cx| {} =>
+    Timeline(
         items: vec![
             TimelineItem {
                 title: "Created".into(),
@@ -127,13 +147,16 @@ pub(crate) fn timeline() -> Vec<Widget> {
                 timestamp: Some("2025-03-01".into()),
             },
         ],
-    }]
+    )
 }
 
 pub(crate) fn tree_view() -> Vec<Widget> {
-    let (ctx, view) = fission::build::current::<GalleryState>();
-    let state = view.state();
-    widgets![TreeView {
+    widgets![TreeViewDemo::new()]
+}
+
+fission_component! {
+    TreeViewDemo<GalleryState> |_demo, state, cx| {} =>
+    TreeView(
         items: vec![TreeItem {
             id: "src".into(),
             label: "src/".into(),
@@ -146,7 +169,7 @@ pub(crate) fn tree_view() -> Vec<Widget> {
                     children: vec![],
                     on_toggle: None,
                     on_select: Some(with_reducer!(
-                        ctx,
+                        cx.build,
                         SelectTreeNode("main".into()),
                         select_tree_node
                     )),
@@ -158,14 +181,14 @@ pub(crate) fn tree_view() -> Vec<Widget> {
                     children: vec![],
                     on_toggle: None,
                     on_select: Some(with_reducer!(
-                        ctx,
+                        cx.build,
                         SelectTreeNode("lib".into()),
                         select_tree_node
                     )),
                 },
             ],
             on_toggle: Some(with_reducer!(
-                ctx,
+                cx.build,
                 ToggleTreeNode("src".into()),
                 toggle_tree_node
             )),
@@ -173,5 +196,5 @@ pub(crate) fn tree_view() -> Vec<Widget> {
         }],
         expanded_ids: state.tree_expanded.clone(),
         selected_id: state.tree_selected.clone(),
-    }]
+    )
 }

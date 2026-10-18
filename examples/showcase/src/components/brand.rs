@@ -2,17 +2,14 @@ use crate::state::{on_navigate, Navigate, ShowcaseState};
 use fission::op::{AlignItems, Fill};
 use fission::prelude::*;
 
-#[derive(Clone, Debug)]
-pub(super) struct Brand;
-
-impl From<Brand> for Widget {
-    fn from(_component: Brand) -> Self {
-        let (ctx, view) = fission::build::current::<ShowcaseState>();
-        let tokens = &view.env().theme.tokens;
-        let navigate = with_reducer!(ctx, Navigate("/".into()), on_navigate);
-
-        Pressable::new(Row {
-            children: widgets![
+fission_component! {
+    #[derive(Clone, Debug)] pub(super) Brand<ShowcaseState> {}
+    |_component, _state, cx| {
+        let tokens = &cx.view.env().theme.tokens;
+        let navigate = with_reducer!(cx.build, Navigate("/".into()), on_navigate);
+    } =>
+        Pressable(Row(
+            children: [
                 Icon::svg(include_str!(
                     "../../../../documentation/static/img/fission-mark.svg"
                 ))
@@ -22,14 +19,13 @@ impl From<Brand> for Widget {
                     .weight(tokens.typography.font_weight_semibold)
                     .color(tokens.colors.text_primary),
             ],
-            gap: Some(tokens.spacing.s),
+            gap: tokens.spacing.s,
             align_items: AlignItems::Center,
-            ..Default::default()
-        })
+        ))
         .id(WidgetId::explicit("showcase.nav.brand"))
         .on_press(navigate)
         .role(PressableRole::Link)
-        .label(view.env().tr("showcase.app.title"))
+        .label(cx.view.env().tr("showcase.app.title"))
         .semantics_identifier("showcase.nav.home")
         .style(PressableStyle {
             padding: Some(Length::all(Length::points(tokens.spacing.xs))),
@@ -40,6 +36,4 @@ impl From<Brand> for Widget {
             background: Some(Fill::Solid(tokens.colors.primary_subtle)),
             ..Default::default()
         })
-        .into()
-    }
 }

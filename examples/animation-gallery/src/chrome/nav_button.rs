@@ -1,37 +1,24 @@
 use super::*;
 
-pub(super) struct NavButton<'a> {
-    pub(super) ctx: &'a BuildCtxHandle<AnimationGalleryState>,
-    pub(super) state: &'a AnimationGalleryState,
-    pub(super) item: &'a NavItem,
-}
-
-impl From<NavButton<'_>> for Widget {
-    fn from(button: NavButton<'_>) -> Self {
-        let (_, view) = fission::build::current::<AnimationGalleryState>();
-        let active = button.state.current_path == button.item.path;
-        Button {
-            variant: if active {
+fission_component! {
+    pub(super) NavButton<AnimationGalleryState> { item: &'static NavItem }
+    |button, state, cx| {} =>
+        Button(
+            variant: if state.current_path == button.item.path {
                 ButtonVariant::Filled
             } else {
                 ButtonVariant::Ghost
             },
-            child: Some(
-                Text::new(button.item.label)
-                    .size(view.env().theme.tokens.typography.font_size_xs)
-                    .into(),
-            ),
-            on_press: Some(button.ctx.bind(
+            child: Text(button.item.label)
+                .size(cx.view.env().theme.tokens.typography.font_size_xs),
+            on_press: cx.bind(
                 NavigateTo(button.item.path.to_string()),
                 fission::reduce_with!(navigate_to),
-            )),
-            ..Default::default()
-        }
+            ),
+        )
         .semantics_identifier(format!(
             "animation-gallery.nav{}",
-            button.item.path.replace('/', ".")
+            button.item.path.replace('/', "."),
         ))
         .width_length(Length::percent(100.0))
-        .into()
-    }
 }

@@ -4,69 +4,46 @@ use crate::state::{
     MotionPolicy, ResetTimeline,
 };
 use crate::style;
-use crate::ui;
-use fission::build::BuildCtxHandle;
+use crate::ui::*;
 use fission::prelude::*;
 use fission::widgets::{Toast, ToastKind, ToastMotion};
 
-pub(super) struct ToastPreview<'a> {
-    pub ctx: &'a BuildCtxHandle<AnimationGalleryState>,
-    pub state: &'a AnimationGalleryState,
-}
-
-impl From<ToastPreview<'_>> for Widget {
-    fn from(preview: ToastPreview<'_>) -> Self {
-        let (_, view) = fission::build::current::<AnimationGalleryState>();
-        let tokens = &view.env().theme.tokens;
-        let close = preview
-            .ctx
-            .bind(ResetTimeline, reduce_with!(reset_timeline));
-        let toast: Widget = if preview_active(preview.state) {
-            Toast {
-                id: WidgetId::explicit("gallery.real.toast"),
-                kind: ToastKind::Success,
-                message: "Saved changes with real Toast motion.".into(),
-                on_close: Some(close),
-                duration: fission::widgets::ToastDuration::Default,
-                motion: toast_motion(preview.state),
-            }
-            .into()
-        } else {
-            Text::new("Use the playback control to mount the real Toast widget.")
-                .size(tokens.typography.font_size_sm)
-                .color(style::text_muted())
-                .into()
-        };
-
-        PreviewShell {
-            child: Column {
-                gap: Some(tokens.spacing.s),
-                children: widgets![
-                    Text::new("Actual Toast widget; app state controls its lifetime.")
+fission_component! {
+    pub(super) ToastPreview<AnimationGalleryState> {}
+    |_preview, state, cx| {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+        PreviewShell(
+            Column(
+                gap: tokens.spacing.s,
+                children: [
+                    Text("Actual Toast widget; app state controls its lifetime.")
                         .size(tokens.typography.font_size_sm)
                         .color(style::text_muted()),
-                    toast,
-                    if preview_active(preview.state) {
-                        Widget::from(ui::SmallButton {
-                            ctx: preview.ctx,
-                            label: "Dismiss toast",
-                            action: ResetTimeline,
-                            reducer: reset_timeline,
-                        })
-                    } else {
-                        Widget::from(
-                            Text::new("The toast close action is wired to application state.")
-                                .size(tokens.typography.font_size_sm)
-                                .color(style::text_muted()),
+                    if preview_active(state) {
+                        Toast(
+                            id: WidgetId::explicit("gallery.real.toast"),
+                            kind: ToastKind::Success,
+                            message: "Saved changes with real Toast motion.",
+                            on_close: cx.bind(ResetTimeline, reduce_with!(reset_timeline)),
+                            duration: fission::widgets::ToastDuration::Default,
+                            motion: toast_motion(state),
                         )
+                    } else {
+                        Text("Use the playback control to mount the real Toast widget.")
+                            .size(tokens.typography.font_size_sm)
+                            .color(style::text_muted())
+                    },
+                    if preview_active(state) {
+                        SmallButton("Dismiss toast".to_string(), cx.bind(ResetTimeline, reduce_with!(reset_timeline)))
+                    } else {
+                        Text("The toast close action is wired to application state.")
+                                .size(tokens.typography.font_size_sm)
+                                .color(style::text_muted())
                     },
                 ],
-                ..Default::default()
-            }
-            .into(),
-        }
-        .into()
-    }
+            ),
+        )
 }
 
 fn toast_motion(state: &AnimationGalleryState) -> Option<ToastMotion> {

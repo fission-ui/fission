@@ -4,76 +4,56 @@ use crate::state::{
     MotionChoice, MotionPolicy, ResetTimeline, TogglePlay,
 };
 use crate::style;
-use crate::ui;
-use fission::build::BuildCtxHandle;
+use crate::ui::*;
 use fission::prelude::*;
 use fission::widgets::{Drawer, DrawerMotion, DrawerSide};
 
 const DRAWER_WIDTH: f32 = 320.0;
 
-pub(super) struct DrawerPreview<'a> {
-    pub ctx: &'a BuildCtxHandle<AnimationGalleryState>,
-    pub state: &'a AnimationGalleryState,
-}
-
-impl From<DrawerPreview<'_>> for Widget {
-    fn from(preview: DrawerPreview<'_>) -> Self {
-        let (_, view) = fission::build::current::<AnimationGalleryState>();
-        let tokens = &view.env().theme.tokens;
-        let close = preview
-            .ctx
-            .bind(ResetTimeline, reduce_with!(reset_timeline));
-
-        PreviewShell {
-            child: Column {
-                gap: Some(tokens.spacing.s),
-                children: widgets![
-                    Text::new(
+fission_component! {
+    pub(super) DrawerPreview<AnimationGalleryState> {}
+    |_preview, state, cx| {
+        let tokens = &cx.view.env().theme.tokens;
+        let close = cx.bind(ResetTimeline, reduce_with!(reset_timeline));
+    } =>
+        PreviewShell(
+            Column(
+                gap: tokens.spacing.s,
+                children: [
+                    Text(
                         "Real Drawer widget. Play opens the side panel through the portal layer.",
                     )
                     .size(tokens.typography.font_size_sm)
                     .color(style::text_muted()),
-                    ui::SmallButton {
-                        ctx: preview.ctx,
-                        label: "Open real drawer",
-                        action: TogglePlay,
-                        reducer: toggle_play,
-                    },
-                    Drawer {
+                    SmallButton("Open real drawer".to_string(), cx.bind(TogglePlay, reduce_with!(toggle_play))),
+                    Drawer(
                         id: WidgetId::explicit("gallery.real.drawer"),
                         side: DrawerSide::Right,
-                        is_open: preview_active(preview.state),
-                        on_dismiss: Some(close.clone()),
-                        dismiss_semantics_identifier: Some("gallery.real.drawer.backdrop".into()),
-                        content: Column {
-                            gap: Some(tokens.spacing.s),
-                            children: widgets![
-                                Text::new("Settings").size(tokens.typography.font_size_lg),
-                                Text::new("This is the actual Drawer content.")
+                        is_open: preview_active(state),
+                        on_dismiss: close.clone(),
+                        dismiss_semantics_identifier: "gallery.real.drawer.backdrop".to_string(),
+                        content: Column(
+                            gap: tokens.spacing.s,
+                            children: [
+                                Text("Settings").size(tokens.typography.font_size_lg),
+                                Text("This is the actual Drawer content.")
                                     .size(tokens.typography.font_size_sm),
-                                Button {
+                                Button(
                                     variant: ButtonVariant::Outline,
-                                    child: Some(Text::new("Close drawer").into()),
-                                    on_press: Some(close),
-                                    ..Default::default()
-                                }
+                                    child: Text("Close drawer"),
+                                    on_press: close.clone(),
+                                )
                                 .semantics_identifier("gallery.real.drawer.close"),
                             ],
-                            ..Default::default()
-                        }
-                        .into(),
-                        width: Some(DRAWER_WIDTH),
-                        motion: preview_active(preview.state)
-                            .then(|| drawer_motion(preview.state))
+                        ),
+                        width: DRAWER_WIDTH,
+                        motion: preview_active(state)
+                            .then(|| drawer_motion(state))
                             .flatten(),
-                    },
+                    ),
                 ],
-                ..Default::default()
-            }
-            .into(),
-        }
-        .into()
-    }
+            ),
+        )
 }
 
 fn drawer_motion(state: &AnimationGalleryState) -> Option<DrawerMotion> {

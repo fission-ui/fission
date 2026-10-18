@@ -38,41 +38,30 @@ fission_component! {
 
         let expanded = cx.view.viewport_size().width >= EXPANDED_BREAKPOINT;
         let instance = if expanded { "expanded" } else { "compact" };
-        let controls = GalleryControls {
-            toggle_smooth,
-            update_scale,
-            toggle_theme,
-            toggle_interactions,
-            toggle_animations,
-            toggle_markers,
-            instance,
-        };
-        let sidebar = GallerySidebar {
-            select_chart_id,
-            toggle_category_picker,
-            layout: if expanded {
-                GallerySidebarLayout::Expanded
-            } else {
-                GallerySidebarLayout::Compact
-            },
-            instance,
-        };
-        let content = GalleryContent {
-            chart: SelectedChart {
-                scale: state.data_scale,
-            },
-            controls,
-            instance,
-        };
-        let gallery: Widget = if let Some(slug) = doc_capture {
-            DocCaptureView { slug }.into()
-        } else if expanded {
-            GalleryExpanded { sidebar, content }.into()
-        } else {
-            GalleryCompact { sidebar, content }.into()
-        };
     } =>
-    Container(gallery)
+    Container(
+        if let Some(slug) = doc_capture {
+            DocCaptureView(slug)
+        } else if expanded {
+            GalleryExpanded(
+                GallerySidebar(select_chart_id, toggle_category_picker.clone(), GallerySidebarLayout::Expanded, instance),
+                GalleryContent(
+                    SelectedChart(state.data_scale),
+                    GalleryControls(toggle_smooth, update_scale, toggle_theme, toggle_interactions, toggle_animations, toggle_markers, instance),
+                    instance,
+                ),
+            )
+        } else {
+            GalleryCompact(
+                GallerySidebar(select_chart_id, toggle_category_picker.clone(), GallerySidebarLayout::Compact, instance),
+                GalleryContent(
+                    SelectedChart(state.data_scale),
+                    GalleryControls(toggle_smooth, update_scale, toggle_theme, toggle_interactions, toggle_animations, toggle_markers, instance),
+                    instance,
+                ),
+            )
+        }
+    )
         .width_length(Length::vw(100.0))
         .height_length(Length::vh(100.0))
 }

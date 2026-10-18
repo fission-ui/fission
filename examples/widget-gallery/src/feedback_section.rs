@@ -9,94 +9,104 @@ const SKELETON_WIDTH: f32 = 120.0;
 const SKELETON_HEIGHT: f32 = 20.0;
 
 pub(crate) fn alert() -> Vec<Widget> {
-    widgets![
-        Alert {
+    widgets![AlertDemo::new()]
+}
+
+fission_component! {
+    AlertDemo<()> |_demo, _state, _cx| {} =>
+    Column(children: [
+        Alert(
             kind: AlertKind::Info,
-            title: "Information".into(),
-            description: Some("This is an info alert.".into()),
-        },
-        Alert {
+            title: "Information",
+            description: Some("This is an info alert.".to_string()),
+        ),
+        Alert(
             kind: AlertKind::Success,
-            title: "Success".into(),
+            title: "Success",
             description: None,
-        },
-        Alert {
+        ),
+        Alert(
             kind: AlertKind::Warning,
-            title: "Warning".into(),
-            description: Some("Be careful!".into()),
-        },
-        Alert {
+            title: "Warning",
+            description: Some("Be careful!".to_string()),
+        ),
+        Alert(
             kind: AlertKind::Error,
-            title: "Error".into(),
-            description: Some("Something went wrong.".into()),
-        },
-    ]
+            title: "Error",
+            description: Some("Something went wrong.".to_string()),
+        ),
+    ])
 }
 
 pub(crate) fn progress() -> Vec<Widget> {
-    let (_, view) = fission::build::current::<()>();
-    let tokens = &view.env().theme.tokens;
-    widgets![
-        ProgressBar {
+    widgets![ProgressDemo::new()]
+}
+
+fission_component! {
+    ProgressDemo<()> |_demo, _state, cx| { let tokens = &cx.view.env().theme.tokens; } =>
+    Column(children: [
+        ProgressBar(
             value: 0.65,
-            label: Some("Upload progress".into()),
-        },
-        HStack {
-            spacing: Some(tokens.spacing.m),
-            children: widgets![
-                Spinner {
+            label: "Upload progress".to_string(),
+        ),
+        HStack(
+            spacing: tokens.spacing.m,
+            children: [
+                Spinner(
                     id: WidgetId::explicit("spinner1"),
                     label: None,
                     color: None,
-                    motion: Some(SpinnerMotion::Default),
-                },
-                CircularProgress {
-                    value: Some(0.7),
-                    size: Some(CIRCULAR_PROGRESS_SIZE),
-                    ..Default::default()
-                },
+                    motion: SpinnerMotion::Default,
+                ),
+                CircularProgress(value: 0.7_f32, size: CIRCULAR_PROGRESS_SIZE),
             ],
-        },
-    ]
+        ),
+    ])
 }
 
 pub(crate) fn skeleton() -> Vec<Widget> {
-    let (_, view) = fission::build::current::<()>();
-    let tokens = &view.env().theme.tokens;
-    widgets![HStack {
-        spacing: Some(tokens.spacing.m),
-        children: widgets![
-            Skeleton {
+    widgets![SkeletonDemo::new()]
+}
+
+fission_component! {
+    SkeletonDemo<()> |_demo, _state, cx| { let tokens = &cx.view.env().theme.tokens; } =>
+    HStack(
+        spacing: tokens.spacing.m,
+        children: [
+            Skeleton(
                 id: WidgetId::explicit("skel_avatar"),
-                width: Some(SKELETON_HEIGHT * 2.0),
-                height: Some(SKELETON_HEIGHT * 2.0),
+                width: SKELETON_HEIGHT * 2.0,
+                height: SKELETON_HEIGHT * 2.0,
                 circle: true,
-                motion: Some(SkeletonMotion::Default),
-            },
-            Skeleton {
+                motion: SkeletonMotion::Default,
+            ),
+            Skeleton(
                 id: WidgetId::explicit("skel1"),
-                width: Some(SKELETON_WIDTH),
-                height: Some(SKELETON_HEIGHT),
+                width: SKELETON_WIDTH,
+                height: SKELETON_HEIGHT,
                 circle: false,
-                motion: Some(SkeletonMotion::Default),
-            },
+                motion: SkeletonMotion::Default,
+            ),
         ],
-    }]
+    )
 }
 
 pub(crate) fn empty_state() -> Vec<Widget> {
-    widgets![EmptyState {
+    widgets![EmptyStateDemo::new()]
+}
+
+fission_component! {
+    EmptyStateDemo<()> |_demo, _state, _cx| {} =>
+    EmptyState(
         icon: None,
-        title: "No items yet".into(),
-        description: Some("Add your first item to get started.".into()),
+        title: "No items yet",
+        description: Some("Add your first item to get started.".to_string()),
         action: Some(
-            Button {
+            Button(
                 variant: ButtonVariant::Outline,
-                child: Some(Text::new("Add Item").into()),
-                ..Default::default()
-            }
+                child: Text("Add Item"),
+            )
             .semantics_identifier("gallery.empty_state.add")
-            .into(),
         ),
-    }]
+    )
 }

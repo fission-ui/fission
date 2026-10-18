@@ -1,15 +1,14 @@
 use fission::prelude::*;
 
-pub(super) struct ChartSelectionEmpty;
+use crate::state::GalleryState;
 
-impl From<ChartSelectionEmpty> for Widget {
-    fn from(_empty: ChartSelectionEmpty) -> Self {
-        Container::new(Text::new("Select a chart from the gallery").color(Color {
+fission_component! {
+    pub(super) ChartSelectionEmpty<GalleryState> {}
+    |_empty, _state, _cx| {} =>
+        Container(Text("Select a chart from the gallery").color(Color {
             r: 150,
             g: 150,
             b: 150,
             a: 255,
         }))
-        .into()
-    }
 }

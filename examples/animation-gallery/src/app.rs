@@ -1,4 +1,4 @@
-use crate::chrome;
+use crate::chrome::AppShell;
 use crate::state::AnimationGalleryState;
 use crate::style;
 use fission::prelude::*;
@@ -7,11 +7,8 @@ use fission::DesktopApp;
 
 fission_component! {
     pub AnimationGalleryApp<AnimationGalleryState>
-    |_app, state, cx| =>
-    Container(chrome::AppShell {
-        ctx: &cx.build,
-        state,
-    })
+    |_app, _state, _cx| =>
+    Container(AppShell())
     .bg(style::background())
 }
 

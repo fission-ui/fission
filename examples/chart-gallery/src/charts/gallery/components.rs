@@ -1,19 +1,16 @@
 use super::GalleryBuildExt;
+use crate::state::GalleryState;
 use fission::charts::{
     Axis, BarSeries, Chart, ChartBrush, ChartGraphic, ChartInteraction, ChartTimeline,
     ChartToolAction, DataZoom, Legend, LineSeries, MarkArea, MarkLine, MarkPoint, ScatterSeries,
     Tooltip,
 };
 use fission::core::op::Color;
-use fission::core::ui::Widget;
+use fission::prelude::*;
 
-pub(super) struct ComponentChart {
-    pub chart: usize,
-    pub scale: f32,
-}
-
-impl From<ComponentChart> for Widget {
-    fn from(selection: ComponentChart) -> Self {
+fission_component! {
+    pub(super) ComponentChart<GalleryState> { chart: usize, scale: f32 }
+    |selection, _state, _cx| {} => (|| -> Widget {
         let chart = selection.chart;
         let s = selection.scale;
 
@@ -27,7 +24,7 @@ impl From<ComponentChart> for Widget {
             6 => graphic_overlay(s).in_gallery().into(),
             _ => unreachable!("chart catalog and component builder are out of sync"),
         }
-    }
+    })()
 }
 
 pub(crate) fn mark_line_point(s: f32) -> Chart {

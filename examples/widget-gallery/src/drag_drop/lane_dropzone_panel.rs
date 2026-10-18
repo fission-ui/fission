@@ -14,51 +14,16 @@ pub(super) enum LanePanelState {
     Hovered,
 }
 
-pub(super) struct LaneDropzonePanel {
-    pub title: &'static str,
-    pub items: Vec<String>,
-    pub state: LanePanelState,
-    pub instance: &'static str,
-}
-
-impl From<LaneDropzonePanel> for Widget {
-    fn from(panel: LaneDropzonePanel) -> Self {
-        let (_, view) = fission::build::current::<GalleryState>();
-        let tokens = &view.env().theme.tokens;
+fission_component! {
+    pub(super) LaneDropzonePanel<GalleryState> {
+        title: &'static str,
+        items: Vec<String>,
+        state: LanePanelState,
+        instance: &'static str,
+    }
+    |panel, state, cx| {
+        let tokens = &cx.view.env().theme.tokens;
         let hovered = matches!(panel.state, LanePanelState::Hovered);
-        let mut children = widgets![
-            HStack {
-                spacing: Some(tokens.spacing.s),
-                children: widgets![
-                    Text::new(panel.title)
-                        .size(tokens.typography.body_large_size)
-                        .weight(tokens.typography.font_weight_bold)
-                        .color(tokens.colors.text_primary),
-                    Tag {
-                        label: panel.items.len().to_string(),
-                        on_close: None,
-                        on_press: None,
-                        selected: false,
-                    },
-                ],
-            },
-            Text::new(if hovered {
-                "Release to drop here"
-            } else {
-                "Drag cards into this lane"
-            })
-            .size(tokens.typography.body_medium_size)
-            .color(tokens.colors.text_secondary),
-        ];
-        children.extend(panel.items.into_iter().map(|label| {
-            TaskCard {
-                label,
-                snap_to_grid: view.state().drag_snap_preview,
-                instance: panel.instance,
-            }
-            .into()
-        }));
-
         let (border, border_width, background) = match panel.state {
             LanePanelState::Idle => (
                 tokens.colors.border,
@@ -77,10 +42,28 @@ impl From<LaneDropzonePanel> for Widget {
             ),
         };
 
-        Container::new(VStack {
-            spacing: Some(tokens.spacing.s),
-            children,
-        })
+    } =>
+        Container(VStack(
+            spacing: tokens.spacing.s,
+            children: [
+                HStack(
+                    spacing: tokens.spacing.s,
+                    children: [
+                        Text(panel.title)
+                            .size(tokens.typography.body_large_size)
+                            .weight(tokens.typography.font_weight_bold)
+                            .color(tokens.colors.text_primary),
+                        Tag(label: panel.items.len().to_string(), selected: false),
+                    ],
+                ),
+                Text(if hovered { "Release to drop here" } else { "Drag cards into this lane" })
+                    .size(tokens.typography.body_medium_size)
+                    .color(tokens.colors.text_secondary),
+                for label in panel.items.iter().cloned() {
+                    TaskCard(label.clone(), state.drag_snap_preview, panel.instance, key: label)
+                },
+            ],
+        ))
         .width_length(Length::clamp(
             Length::points(DROP_PANEL_MIN_WIDTH),
             Length::percent(100.0),
@@ -91,6 +74,4 @@ impl From<LaneDropzonePanel> for Widget {
         .border(border, border_width)
         .border_radius(tokens.radii.xl)
         .bg(background)
-        .into()
-    }
 }

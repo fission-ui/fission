@@ -135,20 +135,14 @@ fn select_dropdown_item(state: &mut GalleryState, item: String) {
     state.dropdown_open = false;
 }
 
-/// Keeps a control at its natural width inside the stretching page column.
-fn hug(child: impl Into<Widget>) -> Widget {
-    HStack {
-        spacing: None,
-        children: vec![child.into()],
-    }
-    .into()
+fission_component! {
+    Hug<()> { child: Widget } |hug, _state, _cx| {} =>
+    HStack(spacing: None, children: [hug.child.clone()])
 }
 
-fn caption(text: impl Into<String>) -> Widget {
-    let (_, view) = fission::build::current::<()>();
-    Text::new(text.into())
-        .color(view.env().theme.tokens.colors.text_secondary)
-        .into()
+fission_component! {
+    Caption<()> { text: String } |caption, _state, cx| {} =>
+    Text(caption.text.clone()).color(cx.view.env().theme.tokens.colors.text_secondary)
 }
 
 fn format_date(date: Option<NaiveDate>) -> String {
@@ -157,193 +151,185 @@ fn format_date(date: Option<NaiveDate>) -> String {
 }
 
 pub(crate) fn calendar() -> Vec<Widget> {
-    let (ctx, view) = fission::build::current::<GalleryState>();
-    let state = view.state();
-    let (year, month) = state.calendar_view;
-    let select = with_reducer!(
-        ctx,
-        SelectCalendarDate(NaiveDate::default()),
-        select_calendar_date
-    );
-    let navigate = with_reducer!(ctx, NavigateCalendar(year, month), navigate_calendar);
-    vec![
-        hug(Calendar {
-            year,
-            month,
+    widgets![CalendarDemo::new()]
+}
+
+fission_component! {
+    CalendarDemo<GalleryState> |_demo, state, cx| {
+        let (year, month) = state.calendar_view;
+        let select = with_reducer!(cx.build, SelectCalendarDate(NaiveDate::default()), select_calendar_date);
+        let navigate = with_reducer!(cx.build, NavigateCalendar(year, month), navigate_calendar);
+    } => Column(children: [
+        Hug(Calendar(
+            year: year,
+            month: month,
             selected_date: state.calendar_selected,
-            on_select: Some(Arc::new(move |date| {
+            on_select: Arc::new(move |date| {
                 select.with_action(&SelectCalendarDate(date))
-            })),
-            on_navigate: Some(Arc::new(move |y, m| {
+            }),
+            on_navigate: Arc::new(move |y, m| {
                 navigate.with_action(&NavigateCalendar(y, m))
-            })),
+            }),
             cell_size: None,
             padding: None,
-        }),
-        caption(format!(
+        )),
+        Caption(format!(
             "Selected: {}",
             format_date(state.calendar_selected)
         )),
-    ]
+    ])
 }
 
 pub(crate) fn date_picker() -> Vec<Widget> {
-    let (ctx, view) = fission::build::current::<GalleryState>();
-    let state = view.state();
-    let pick = with_reducer!(ctx, PickDate(NaiveDate::default()), pick_date);
-    let navigate = with_reducer!(ctx, NavigateDatePicker(0, 1), navigate_date_picker);
-    vec![
-        hug(DatePicker {
+    widgets![DatePickerDemo::new()]
+}
+
+fission_component! {
+    DatePickerDemo<GalleryState> |_demo, state, cx| {
+        let pick = with_reducer!(cx.build, PickDate(NaiveDate::default()), pick_date);
+        let navigate = with_reducer!(cx.build, NavigateDatePicker(0, 1), navigate_date_picker);
+    } => Column(children: [
+        Hug(DatePicker(
             id: WidgetId::explicit("gallery.date_picker"),
             value: state.date_picker_value,
             is_open: state.date_picker_open,
             width: None,
             view_year: state.date_picker_view.map(|(y, _)| y),
             view_month: state.date_picker_view.map(|(_, m)| m),
-            on_navigate: Some(Arc::new(move |y, m| {
+            on_navigate: Arc::new(move |y, m| {
                 navigate.with_action(&NavigateDatePicker(y, m))
-            })),
-            on_change: Some(Arc::new(move |date| pick.with_action(&PickDate(date)))),
-            on_toggle: Some(with_reducer!(ctx, ToggleDatePicker, toggle_date_picker)),
-            on_close: Some(with_reducer!(ctx, CloseDatePicker, close_date_picker)),
-        }),
-        caption(format!(
+            }),
+            on_change: Arc::new(move |date| pick.with_action(&PickDate(date))),
+            on_toggle: with_reducer!(cx.build, ToggleDatePicker, toggle_date_picker),
+            on_close: with_reducer!(cx.build, CloseDatePicker, close_date_picker),
+        )),
+        Caption(format!(
             "Due date: {}",
             format_date(state.date_picker_value)
         )),
-    ]
+    ])
 }
 
 pub(crate) fn date_range_picker() -> Vec<Widget> {
-    let (ctx, view) = fission::build::current::<GalleryState>();
-    let state = view.state();
-    let change = with_reducer!(ctx, SetDateRange(None, None), set_date_range);
-    let close = with_reducer!(ctx, CloseRangePickers, close_range_pickers);
-    vec![
-        DateRangePicker {
+    widgets![DateRangeDemo::new()]
+}
+
+fission_component! {
+    DateRangeDemo<GalleryState> |_demo, state, cx| {
+        let change = with_reducer!(cx.build, SetDateRange(None, None), set_date_range);
+        let close = with_reducer!(cx.build, CloseRangePickers, close_range_pickers);
+    } => Column(children: [
+        DateRangePicker(
             id_start: WidgetId::explicit("gallery.date_range.start"),
             id_end: WidgetId::explicit("gallery.date_range.end"),
             start: state.range_start,
             end: state.range_end,
             is_start_open: state.range_start_open,
             is_end_open: state.range_end_open,
-            on_change: Some(Arc::new(move |start, end| {
+            on_change: Arc::new(move |start, end| {
                 change.with_action(&SetDateRange(start, end))
-            })),
-            on_toggle_start: Some(with_reducer!(ctx, ToggleRangeStart, toggle_range_start)),
-            on_toggle_end: Some(with_reducer!(ctx, ToggleRangeEnd, toggle_range_end)),
-            on_close_start: Some(close.clone()),
-            on_close_end: Some(close),
-        }
-        .into(),
-        caption(format!(
+            }),
+            on_toggle_start: with_reducer!(cx.build, ToggleRangeStart, toggle_range_start),
+            on_toggle_end: with_reducer!(cx.build, ToggleRangeEnd, toggle_range_end),
+            on_close_start: close.clone(),
+            on_close_end: close,
+        ),
+        Caption(format!(
             "Trip: {} to {}",
             format_date(state.range_start),
             format_date(state.range_end)
         )),
-    ]
+    ])
 }
 
 pub(crate) fn time_picker() -> Vec<Widget> {
-    let (ctx, view) = fission::build::current::<GalleryState>();
-    let state = view.state();
-    let change = with_reducer!(ctx, SetTime(0, 0), set_time);
-    vec![
-        hug(TimePicker {
+    widgets![TimePickerDemo::new()]
+}
+
+fission_component! {
+    TimePickerDemo<GalleryState> |_demo, state, cx| {
+        let change = with_reducer!(cx.build, SetTime(0, 0), set_time);
+    } => Column(children: [
+        Hug(TimePicker(
             hour: state.time_hour,
             minute: state.time_minute,
-            on_change: Some(Arc::new(move |hour, minute| {
+            on_change: Arc::new(move |hour, minute| {
                 change.with_action(&SetTime(hour, minute))
-            })),
-        }),
-        caption(format!(
+            }),
+        )),
+        Caption(format!(
             "Reminder at {:02}:{:02}",
             state.time_hour, state.time_minute
         )),
-    ]
+    ])
 }
 
 pub(crate) fn combobox() -> Vec<Widget> {
-    let (ctx, view) = fission::build::current::<GalleryState>();
-    let state = view.state();
-    let query = state.combobox_value.to_lowercase();
-    let items: Vec<String> = FRUITS
-        .iter()
-        .filter(|fruit| {
-            fruit.to_lowercase().contains(&query) || FRUITS.contains(&state.combobox_value.as_str())
-        })
-        .map(|fruit| fruit.to_string())
-        .collect();
-    let select = with_reducer!(ctx, SelectComboboxItem(String::new()), select_combobox_item);
-    widgets![hug(Combobox {
+    widgets![ComboboxDemo::new()]
+}
+
+fission_component! {
+    ComboboxDemo<GalleryState> |_demo, state, cx| {
+        let query = state.combobox_value.to_lowercase();
+        let items: Vec<String> = FRUITS.iter()
+            .filter(|fruit| fruit.to_lowercase().contains(&query) || FRUITS.contains(&state.combobox_value.as_str()))
+            .map(|fruit| fruit.to_string())
+            .collect();
+        let select = with_reducer!(cx.build, SelectComboboxItem(String::new()), select_combobox_item);
+    } => Hug(Combobox(
         id: WidgetId::explicit("gallery.combobox"),
         value: state.combobox_value.clone(),
         placeholder: Some("Search options".into()),
-        items,
+        items: items,
         is_open: state.combobox_open,
         width: Some(COMBOBOX_WIDTH),
         max_popup_height: None,
-        on_input: Some(with_reducer!(
-            ctx,
-            UpdateComboboxQuery,
-            update_combobox_query
-        )),
-        on_select: Some(Arc::new(move |item| {
-            select.with_action(&SelectComboboxItem(item))
-        })),
-        on_toggle: Some(with_reducer!(ctx, ToggleCombobox, toggle_combobox)),
+        on_input: with_reducer!(cx.build, UpdateComboboxQuery, update_combobox_query),
+        on_select: Arc::new(move |item| select.with_action(&SelectComboboxItem(item))),
+        on_toggle: with_reducer!(cx.build, ToggleCombobox, toggle_combobox),
         semantics_identifier: Some("gallery.combobox.input".into()),
-    })]
+    ))
 }
 
 pub(crate) fn dropdown() -> Vec<Widget> {
-    let (ctx, view) = fission::build::current::<GalleryState>();
-    let state = view.state();
-    let tokens = &view.env().theme.tokens;
-    let options: Vec<Widget> = REGIONS
-        .iter()
-        .map(|region| {
-            Button {
-                variant: ButtonVariant::Ghost,
-                content_align: ButtonContentAlign::Start,
-                child: Some(Text::new(*region).into()),
-                on_press: Some(with_reducer!(
-                    ctx,
-                    SelectDropdownItem(region.to_string()),
-                    select_dropdown_item
-                )),
-                ..Default::default()
+    widgets![DropdownDemo::new()]
+}
+
+fission_component! {
+    DropdownMenu<GalleryState> |_menu, _state, cx| {
+        let tokens = &cx.view.env().theme.tokens;
+    } => Container(
+        VStack(spacing: tokens.spacing.xxs, children: [
+            for region in REGIONS.iter() {
+                Button(
+                    variant: ButtonVariant::Ghost,
+                    content_align: ButtonContentAlign::Start,
+                    child: Text(*region),
+                    on_press: with_reducer!(cx.build, SelectDropdownItem(region.to_string()), select_dropdown_item),
+                    key: *region,
+                ).semantics_identifier(format!("gallery.dropdown.{}", region.to_lowercase().replace(' ', "_")))
             }
-            .semantics_identifier(format!(
-                "gallery.dropdown.{}",
-                region.to_lowercase().replace(' ', "_")
-            ))
-            .into()
-        })
-        .collect();
-    let menu: Widget = Container::new(VStack {
-        spacing: Some(tokens.spacing.xxs),
-        children: options,
-    })
+        ])
+    )
     .width(DROPDOWN_MENU_WIDTH)
     .padding_all(tokens.spacing.xs)
     .bg(tokens.colors.surface)
     .border(tokens.colors.border, tokens.sizing.border_hairline)
     .border_radius(tokens.radii.medium)
-    .into();
-    // DropDown is only the trigger; a popover supplies the list it opens.
-    widgets![hug(Popover {
+}
+
+fission_component! {
+    DropdownDemo<GalleryState> |_demo, state, cx| {} =>
+    Hug(Popover(
         id: WidgetId::explicit("gallery.dropdown"),
         is_open: state.dropdown_open,
-        on_close: Some(with_reducer!(ctx, CloseDropdown, close_dropdown)),
-        trigger: DropDown {
-            on_toggle: Some(with_reducer!(ctx, ToggleDropdown, toggle_dropdown)),
+        on_close: with_reducer!(cx.build, CloseDropdown, close_dropdown),
+        trigger: DropDown(
+            on_toggle: with_reducer!(cx.build, ToggleDropdown, toggle_dropdown),
             selected: state.dropdown_value.clone(),
             is_open: state.dropdown_open,
-            ..Default::default()
-        }
-        .into(),
-        content: menu,
+        ),
+        content: DropdownMenu(),
         motion: None,
-    })]
+    ))
 }

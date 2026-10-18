@@ -3,58 +3,44 @@ use crate::state::{
 };
 use crate::style;
 use crate::widgets::common::{preview_active, PreviewShell};
-use fission::build::BuildCtxHandle;
 use fission::prelude::*;
 use fission::widgets::{Modal, ModalAction, ModalMotion};
 
 const MODAL_WIDTH: f32 = 400.0;
 
-pub(super) struct CompositionPreview<'a> {
-    pub ctx: &'a BuildCtxHandle<AnimationGalleryState>,
-    pub state: &'a AnimationGalleryState,
-}
-
-impl From<CompositionPreview<'_>> for Widget {
-    fn from(preview: CompositionPreview<'_>) -> Self {
-        let (_, view) = fission::build::current::<AnimationGalleryState>();
-        let close = preview
-            .ctx
-            .bind(ResetTimeline, reduce_with!(reset_timeline));
-
-        PreviewShell {
-            child: Column {
-                gap: Some(view.env().theme.tokens.spacing.s),
-                children: widgets![
-                    Text::new(
+fission_component! {
+    pub(super) CompositionPreview<AnimationGalleryState> |_preview, state, cx| {
+        let close = cx.bind(ResetTimeline, reduce_with!(reset_timeline));
+    } =>
+        PreviewShell(
+            Column(
+                gap: cx.view.env().theme.tokens.spacing.s,
+                children: [
+                    Text(
                         "Real Modal widget using the ordered expression. Use playback to open it.",
                     )
-                    .size(view.env().theme.tokens.typography.font_size_sm)
+                    .size(cx.view.env().theme.tokens.typography.font_size_sm)
                     .color(style::text_muted()),
-                    Modal {
+                    Modal(
                         id: WidgetId::explicit("gallery.composition.modal"),
-                        title: "Composed motion".into(),
-                        content: Text::new("This modal is using the selected composition.",).into(),
-                        is_open: preview_active(preview.state),
-                        on_dismiss: Some(close.clone()),
-                        backdrop_semantics_identifier: None,
-                        close_semantics_identifier: Some("gallery.composition.modal.close".into()),
-                        surface_semantics_identifier: Some("gallery.composition.modal".into()),
+                        title: "Composed motion".to_string(),
+                        content: Text("This modal is using the selected composition."),
+                        is_open: preview_active(state),
+                        on_dismiss: close.clone(),
+                        close_semantics_identifier: "gallery.composition.modal.close".to_string(),
+                        surface_semantics_identifier: "gallery.composition.modal".to_string(),
                         actions: vec![ModalAction {
                             label: "Close".into(),
-                            on_press: Some(close),
+                            on_press: Some(close.clone()),
                             is_primary: true,
                             semantics_identifier: Some("gallery.composition.modal.done".into()),
                         }],
-                        width: Some(MODAL_WIDTH),
-                        motion: composed_modal_motion(preview.state),
-                    },
+                        width: MODAL_WIDTH,
+                        motion: composed_modal_motion(state),
+                    ),
                 ],
-                ..Default::default()
-            }
-            .into(),
-        }
-        .into()
-    }
+            ),
+        )
 }
 
 fn composed_modal_motion(state: &AnimationGalleryState) -> Option<ModalMotion> {

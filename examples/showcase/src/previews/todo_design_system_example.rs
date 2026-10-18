@@ -3,19 +3,14 @@ use crate::state::ShowcaseState;
 use fission::prelude::*;
 use todo_design_system_example::{TodoApp, TodoState};
 
-#[derive(Clone, Copy, Debug)]
-pub(crate) struct TodoDesignSystemExample;
-
-impl From<TodoDesignSystemExample> for Widget {
-    fn from(_component: TodoDesignSystemExample) -> Self {
-        let (_ctx, view) = fission::build::current::<ShowcaseState>();
+fission_component! {
+    #[derive(Clone, Copy, Debug)] pub(crate) TodoDesignSystemExample<ShowcaseState> {}
+    |_component, state, _cx| {} =>
         MountedExample::<TodoState, _>::new(
             "showcase.example.todo-design-system",
-            view.state().preview_generation,
+            state.preview_generation,
             TodoApp,
         )
         .with_state(todo_design_system_example::embedded_state)
         .with_env(todo_design_system_example::configure_embedded_env)
-        .into()
-    }
 }

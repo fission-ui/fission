@@ -5,16 +5,11 @@ use crate::state::{on_search_changed, SearchChanged, ShowcaseState};
 use fission::prelude::*;
 use fission::widgets::EmptyState;
 
-#[derive(Clone, Debug)]
-pub(crate) struct CatalogPanel {
-    pub(crate) selected_slug: String,
-}
-
-impl From<CatalogPanel> for Widget {
-    fn from(component: CatalogPanel) -> Self {
-        let (ctx, view) = fission::build::current::<ShowcaseState>();
-        let tokens = &view.env().theme.tokens;
-        let query = view.state().search.trim().to_lowercase();
+fission_component! {
+    #[derive(Clone, Debug)] pub(crate) CatalogPanel<ShowcaseState> { selected_slug: String }
+    |component, state, cx| {
+        let tokens = &cx.view.env().theme.tokens;
+        let query = state.search.trim().to_lowercase();
         let mut sections = Vec::new();
 
         for category in ExampleCategory::ALL {
@@ -22,74 +17,60 @@ impl From<CatalogPanel> for Widget {
                 .iter()
                 .copied()
                 .filter(|example| example.category == category)
-                .filter(|example| example.supports_filter(view.state().target_filter))
+                .filter(|example| example.supports_filter(state.target_filter))
                 .filter(|example| {
                     if query.is_empty() {
                         return true;
                     }
-                    let title = view.tr(example.title_key).to_lowercase();
-                    let summary = view.tr(example.summary_key).to_lowercase();
+                    let title = cx.view.tr(example.title_key).to_lowercase();
+                    let summary = cx.view.tr(example.summary_key).to_lowercase();
                     title.contains(&query) || summary.contains(&query)
                 })
                 .collect::<Vec<_>>();
             if !examples.is_empty() {
-                sections.push(
-                    CatalogSection {
-                        category,
-                        examples,
-                        selected_slug: component.selected_slug.clone(),
-                    }
-                    .into(),
-                );
+                sections.push((category, examples));
             }
         }
-
-        let body: Widget = if sections.is_empty() {
-            EmptyState {
-                icon: None,
-                title: view.tr("showcase.catalog.empty"),
-                description: None,
-                action: None,
-            }
-            .into()
-        } else {
-            Column {
-                children: sections,
-                gap: Some(tokens.spacing.l),
-                ..Default::default()
-            }
-            .into()
-        };
-
-        // Search sits with the list it filters, above the platform filters.
-        let search = TextInput {
-            id: Some(WidgetId::explicit("showcase.search")),
-            semantics_identifier: Some("showcase.search".into()),
-            value: view.state().search.clone(),
-            placeholder: Some(TextContent::Key("showcase.nav.search".into())),
-            on_input: Some(with_reducer!(ctx, SearchChanged, on_search_changed)),
-            ..Default::default()
-        };
-
-        Column {
-            children: widgets![
+    } =>
+        Column(
+            children: [
                 Text::new(TextContent::Key("showcase.catalog.title".into()))
                     .size(tokens.typography.font_size_lg)
                     .weight(tokens.typography.font_weight_semibold)
                     .color(tokens.colors.text_primary),
-                Column {
-                    children: widgets![
-                        Container::new(search).width_length(Length::percent(100.0)),
-                        FilterBar,
+                Column(
+                    children: [
+                        Container(TextInput(
+                            id: WidgetId::explicit("showcase.search"),
+                            semantics_identifier: "showcase.search".to_string(),
+                            value: state.search.clone(),
+                            placeholder: TextContent::Key("showcase.nav.search".into()),
+                            on_input: with_reducer!(cx.build, SearchChanged, on_search_changed),
+                        )).width_length(Length::percent(100.0)),
+                        FilterBar(),
                     ],
-                    gap: Some(tokens.spacing.s),
-                    ..Default::default()
+                    gap: tokens.spacing.s,
+                ),
+                if sections.is_empty() {
+                    EmptyState(
+                        title: cx.view.tr("showcase.catalog.empty"),
+                    )
+                } else {
+                    Column(
+                        children: [
+                            for (category, examples) in sections {
+                                CatalogSection(
+                                    category,
+                                    examples,
+                                    component.selected_slug.clone(),
+                                    key: category.translation_key(),
+                                )
+                            },
+                        ],
+                        gap: tokens.spacing.l,
+                    )
                 },
-                body,
             ],
-            gap: Some(tokens.spacing.l),
-            ..Default::default()
-        }
-        .into()
-    }
+            gap: tokens.spacing.l,
+        )
 }

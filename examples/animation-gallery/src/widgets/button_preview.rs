@@ -3,38 +3,29 @@ use crate::state::{
     current_composition_atoms, toggle_play, AnimationGalleryState, MotionAtom, MotionChoice,
     TogglePlay,
 };
-use fission::build::BuildCtxHandle;
 use fission::prelude::*;
 use fission::widgets::ButtonMotion;
 
-pub(super) struct ButtonPreview<'a> {
-    pub ctx: &'a BuildCtxHandle<AnimationGalleryState>,
-    pub state: &'a AnimationGalleryState,
-}
-
-impl From<ButtonPreview<'_>> for Widget {
-    fn from(preview: ButtonPreview<'_>) -> Self {
-        PreviewShell {
-            child: Button {
-                id: Some(WidgetId::explicit("gallery.preview.button")),
+fission_component! {
+    pub(super) ButtonPreview<AnimationGalleryState> {}
+    |_preview, state, cx| {} =>
+        PreviewShell(
+            Button(
+                id: WidgetId::explicit("gallery.preview.button"),
                 variant: ButtonVariant::Filled,
-                child: Some(Text::new("Send").into()),
-                on_press: Some(preview.ctx.bind(TogglePlay, reduce_with!(toggle_play))),
-                motion: match preview.state.motion {
+                child: Text("Send"),
+                on_press: cx.bind(TogglePlay, reduce_with!(toggle_play)),
+                motion: match state.motion {
                     MotionChoice::None => None,
                     MotionChoice::Default => Some(ButtonMotion::Default),
                     MotionChoice::Scale => Some(ButtonMotion::HoverPressScale),
                     MotionChoice::Composition => {
-                        compose_button_motion(current_composition_atoms(preview.state))
-                    }
+                        compose_button_motion(current_composition_atoms(state))
+                    },
                     _ => Some(ButtonMotion::HoverPressRipple),
                 },
-                ..Default::default()
-            }
-            .into(),
-        }
-        .into()
-    }
+            ),
+        )
 }
 
 fn compose_button_motion(atoms: &[MotionAtom]) -> Option<ButtonMotion> {

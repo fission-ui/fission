@@ -1,17 +1,14 @@
 use super::GalleryBuildExt;
+use crate::state::GalleryState;
 use crate::style::{blue, teal};
 use fission::charts::{
     CalendarHeatmapSeries, Chart, PolarBarSeries, PolarLineSeries, SingleAxisSeries, VisualMap,
 };
-use fission::core::ui::Widget;
+use fission::prelude::*;
 
-pub(super) struct CoordinateChart {
-    pub chart: usize,
-    pub scale: f32,
-}
-
-impl From<CoordinateChart> for Widget {
-    fn from(selection: CoordinateChart) -> Self {
+fission_component! {
+    pub(super) CoordinateChart<GalleryState> { chart: usize, scale: f32 }
+    |selection, _state, _cx| {} => (|| -> Widget {
         let chart = selection.chart;
         let s = selection.scale;
 
@@ -22,7 +19,7 @@ impl From<CoordinateChart> for Widget {
             3 => single_axis(s).in_gallery().into(),
             _ => unreachable!("chart catalog and coordinate builder are out of sync"),
         }
-    }
+    })()
 }
 
 pub(crate) fn polar_bar(s: f32) -> Chart {

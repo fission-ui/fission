@@ -8,36 +8,20 @@ mod expression_panel;
 mod playback_controls;
 
 use crate::state::AnimationGalleryState;
-use crate::ui;
+use crate::ui::*;
 use composition_workbench::CompositionWorkbench;
-use fission::build::BuildCtxHandle;
 use fission::prelude::*;
 
-pub struct CompositionPage<'a> {
-    pub ctx: BuildCtxHandle<AnimationGalleryState>,
-    pub state: &'a AnimationGalleryState,
-    pub path: String,
-}
-
-impl From<CompositionPage<'_>> for Widget {
-    fn from(page: CompositionPage<'_>) -> Self {
-        let (_, view) = fission::build::current::<AnimationGalleryState>();
-
-        Column {
-            gap: Some(view.env().theme.tokens.spacing.s),
-            children: widgets![
-                ui::PageHeader {
-                    title: "Composition Builder",
-                    subtitle: "Add any number of widget-owned motion atoms in order, play the real widget, and inspect last-wins lowering.",
-                },
-                CompositionWorkbench {
-                    ctx: &page.ctx,
-                    state: page.state,
-                    path: &page.path,
-                },
+fission_component! {
+    pub CompositionPage<AnimationGalleryState> { path: String } |page, _state, cx| {} =>
+        Column(
+            gap: cx.view.env().theme.tokens.spacing.s,
+            children: [
+                PageHeader(
+                    "Composition Builder".to_string(),
+                    "Add any number of widget-owned motion atoms in order, play the real widget, and inspect last-wins lowering.".to_string(),
+                ),
+                CompositionWorkbench(page.path),
             ],
-            ..Default::default()
-        }
-        .into()
-    }
+        )
 }

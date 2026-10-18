@@ -4,52 +4,39 @@ use crate::state::{
     MotionChoice, MotionPolicy, ResetTimeline, TogglePlay,
 };
 use crate::style;
-use crate::ui;
-use fission::build::BuildCtxHandle;
+use crate::ui::*;
 use fission::prelude::*;
 use fission::widgets::{Modal, ModalAction, ModalMotion};
 
 const MODAL_WIDTH: f32 = 420.0;
 
-pub(super) struct ModalPreview<'a> {
-    pub ctx: &'a BuildCtxHandle<AnimationGalleryState>,
-    pub state: &'a AnimationGalleryState,
-}
-
-impl From<ModalPreview<'_>> for Widget {
-    fn from(preview: ModalPreview<'_>) -> Self {
-        let (_, view) = fission::build::current::<AnimationGalleryState>();
-        let close = preview
-            .ctx
-            .bind(ResetTimeline, reduce_with!(reset_timeline));
-
-        PreviewShell {
-            child: Column {
-                gap: Some(view.env().theme.tokens.spacing.s),
-                children: widgets![
-                    Text::new(
+fission_component! {
+    pub(super) ModalPreview<AnimationGalleryState> {}
+    |_preview, state, cx| {
+        let tokens = &cx.view.env().theme.tokens;
+        let close = cx.bind(ResetTimeline, reduce_with!(reset_timeline));
+    } =>
+        PreviewShell(
+            Column(
+                gap: tokens.spacing.s,
+                children: [
+                    Text(
                         "Real Modal widget. Use the playback control to mount its portal and run enter motion.",
                     )
-                    .size(view.env().theme.tokens.typography.font_size_sm)
+                    .size(tokens.typography.font_size_sm)
                     .color(style::text_muted()),
-                    ui::SmallButton {
-                        ctx: preview.ctx,
-                        label: "Open real modal",
-                        action: TogglePlay,
-                        reducer: toggle_play,
-                    },
-                    Modal {
+                    SmallButton("Open real modal".to_string(), cx.bind(TogglePlay, reduce_with!(toggle_play))),
+                    Modal(
                         id: WidgetId::explicit("gallery.real.modal"),
-                        title: "Archive thread".into(),
-                        content: Text::new(
+                        title: "Archive thread".to_string(),
+                        content: Text(
                             "This is the actual Modal widget using the selected motion.",
-                        )
-                        .into(),
-                        is_open: preview_active(preview.state),
-                        on_dismiss: Some(close.clone()),
-                        backdrop_semantics_identifier: Some("gallery.real.modal.backdrop".into()),
-                        close_semantics_identifier: Some("gallery.real.modal.close".into()),
-                        surface_semantics_identifier: Some("gallery.real.modal.surface".into()),
+                        ),
+                        is_open: preview_active(state),
+                        on_dismiss: close.clone(),
+                        backdrop_semantics_identifier: "gallery.real.modal.backdrop".to_string(),
+                        close_semantics_identifier: "gallery.real.modal.close".to_string(),
+                        surface_semantics_identifier: "gallery.real.modal.surface".to_string(),
                         actions: vec![
                             ModalAction {
                                 label: "Cancel".into(),
@@ -59,23 +46,19 @@ impl From<ModalPreview<'_>> for Widget {
                             },
                             ModalAction {
                                 label: "Confirm".into(),
-                                on_press: Some(close),
+                                on_press: Some(close.clone()),
                                 is_primary: true,
                                 semantics_identifier: Some("gallery.real.modal.confirm".into()),
                             },
                         ],
-                        width: Some(MODAL_WIDTH),
-                        motion: preview_active(preview.state)
-                            .then(|| modal_motion(preview.state))
+                        width: MODAL_WIDTH,
+                        motion: preview_active(state)
+                            .then(|| modal_motion(state))
                             .flatten(),
-                    },
+                    ),
                 ],
-                ..Default::default()
-            }
-            .into(),
-        }
-        .into()
-    }
+            ),
+        )
 }
 
 fn modal_motion(state: &AnimationGalleryState) -> Option<ModalMotion> {

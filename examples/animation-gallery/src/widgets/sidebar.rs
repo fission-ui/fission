@@ -2,8 +2,7 @@ use super::common::*;
 use super::sidebar_preview::SidebarPreview;
 use crate::state::AnimationGalleryState;
 use crate::style;
-use fission::build::BuildCtxHandle;
-use fission::Widget;
+use fission::prelude::*;
 
 pub const PATH: &str = "/widgets/sidebar";
 
@@ -15,22 +14,7 @@ pub const SUMMARY: WidgetSummary = WidgetSummary {
     tint: style::Tint::Secondary,
 };
 
-pub struct SidebarPage<'a> {
-    pub ctx: BuildCtxHandle<AnimationGalleryState>,
-    pub state: &'a AnimationGalleryState,
-}
-
-impl From<SidebarPage<'_>> for Widget {
-    fn from(page: SidebarPage<'_>) -> Self {
-        WidgetPage {
-            ctx: &page.ctx,
-            state: page.state,
-            case: case(),
-            preview: SidebarPreview { state: page.state }.into(),
-        }
-        .into()
-    }
-}
+fission_component! { pub SidebarPage<AnimationGalleryState> {} |_page, _state, _cx| {} => WidgetPage(case(), SidebarPreview()) }
 
 fn case() -> GalleryCase {
     GalleryCase {
@@ -48,19 +32,14 @@ fn case() -> GalleryCase {
     }
 }
 
-const SOURCE: &str = r#"AppSidebar {
-    expanded: view.state().sidebar_expanded,
-}.into()
+const SOURCE: &str = r#"AppSidebar(expanded: state.sidebar_expanded)
 
-impl From<AppSidebar> for Widget {
-    fn from(sidebar: AppSidebar) -> Self {
-        Motion {
+fission_component! {
+    pub AppSidebar<()> { expanded: bool }
+    |sidebar, _state, _cx| {} =>
+        Motion(
             id: WidgetId::explicit("app_sidebar.width"),
             tracks: vec![width_track(sidebar.expanded)],
-            child: SidebarContent {
-                expanded: sidebar.expanded,
-            }.into(),
-            ..Default::default()
-        }.into()
-    }
+            child: SidebarContent(expanded: sidebar.expanded),
+        )
 }"#;

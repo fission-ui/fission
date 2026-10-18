@@ -117,25 +117,25 @@ fn finish_refresh(state: &mut GalleryState) {
     state.refresh_extent = 0.0;
 }
 
-fn caption(text: impl Into<String>) -> Widget {
-    let (_, view) = fission::build::current::<()>();
-    Text::new(text.into())
-        .color(view.env().theme.tokens.colors.text_secondary)
+fission_component! {
+    Caption<()> { text: String } |caption, _state, cx| {} =>
+    Text(caption.text.clone())
+        .color(cx.view.env().theme.tokens.colors.text_secondary)
         .wrap(true)
-        .into()
 }
 
 pub(crate) fn data_table() -> Vec<Widget> {
-    let (ctx, view) = fission::build::current::<GalleryState>();
-    let state = view.state();
-    let mut team: Vec<_> = TEAM.to_vec();
-    team.sort_by(|a, b| a.1.cmp(b.1));
-    if !state.table_sort_ascending {
-        team.reverse();
-    }
-    let toggle_row = with_reducer!(ctx, ToggleTableRow(String::new()), toggle_table_row);
-    vec![
-        DataTable {
+    widgets![DataTableDemo::new()]
+}
+
+fission_component! {
+    DataTableDemo<GalleryState> |_demo, state, cx| {
+        let mut team: Vec<_> = TEAM.to_vec();
+        team.sort_by(|a, b| a.1.cmp(b.1));
+        if !state.table_sort_ascending { team.reverse(); }
+        let toggle_row = with_reducer!(cx.build, ToggleTableRow(String::new()), toggle_table_row);
+    } => Column(children: [
+        DataTable(
             id: WidgetId::explicit("gallery.data_table"),
             selection_mode: DataTableSelectionMode::Multiple,
             columns: vec![
@@ -144,7 +144,7 @@ pub(crate) fn data_table() -> Vec<Widget> {
                     title: "Name".into(),
                     width: NAME_COLUMN_WIDTH,
                     sortable: true,
-                    on_sort: Some(with_reducer!(ctx, ToggleTableSort, toggle_table_sort)),
+                    on_sort: Some(with_reducer!(cx.build, ToggleTableSort, toggle_table_sort)),
                     sorted_ascending: Some(state.table_sort_ascending),
                 },
                 TableColumn {
@@ -166,216 +166,179 @@ pub(crate) fn data_table() -> Vec<Widget> {
                     id: id.to_string(),
                     cells: vec![name.to_string(), group.to_string(), status.to_string()],
                 })
-                .collect(),
+                .collect::<Vec<_>>(),
             selected_ids: state.table_selected.clone(),
-            on_selection_change: Some(Arc::new(move |id| {
+            on_selection_change: Arc::new(move |id| {
                 toggle_row.with_action(&ToggleTableRow(id))
-            })),
-            on_select_all: Some(with_reducer!(
-                ctx,
+            }),
+            on_select_all: with_reducer!(
+                cx.build,
                 ToggleAllTableRows,
                 toggle_all_table_rows
-            )),
+            ),
             label: Some("Team members".into()),
-        }
-        .into(),
-        caption(format!(
+        ),
+        Caption(format!(
             "{} of {} selected",
             state.table_selected.len(),
             TEAM.len()
         )),
-    ]
+    ])
 }
 
-fn pane(title: &str, body: &str) -> Widget {
-    let (_, view) = fission::build::current::<()>();
-    let tokens = &view.env().theme.tokens;
-    Container::new(VStack {
-        spacing: Some(tokens.spacing.xs),
-        children: widgets![
-            Text::new(title)
+fission_component! {
+    Pane<()> { title: String, body: String } |pane, _state, cx| {
+        let tokens = &cx.view.env().theme.tokens;
+    } => Container(
+        VStack(spacing: tokens.spacing.xs, children: [
+            Text(pane.title.clone())
                 .weight(tokens.typography.font_weight_semibold)
                 .color(tokens.colors.text_primary),
-            Text::new(body)
+            Text(pane.body.clone())
                 .color(tokens.colors.text_secondary)
                 .wrap(true),
-        ],
-    })
-    .padding_all(tokens.spacing.m)
-    .into()
+        ])
+    ).padding_all(tokens.spacing.m)
 }
 
 pub(crate) fn split_view() -> Vec<Widget> {
-    let (ctx, view) = fission::build::current::<GalleryState>();
-    let state = view.state();
-    let tokens = &view.env().theme.tokens;
-    let presets: Vec<Widget> = SPLIT_RATIOS
-        .iter()
-        .map(|(ratio, label, slug)| {
-            let active = (state.split_ratio - ratio).abs() < f32::EPSILON;
-            Button {
-                variant: if active {
-                    ButtonVariant::SecondaryGray
-                } else {
-                    ButtonVariant::Outline
-                },
-                size: ComponentSize::Sm,
-                child: Some(Text::new(*label).into()),
-                on_press: Some(with_reducer!(ctx, SetSplitRatio(*ratio), set_split_ratio)),
-                ..Default::default()
+    widgets![SplitViewDemo::new()]
+}
+
+fission_component! {
+    SplitViewDemo<GalleryState> |_demo, state, cx| {
+        let tokens = &cx.view.env().theme.tokens;
+    } => Column(children: [
+        HStack(spacing: tokens.spacing.s, children: [
+            for (ratio, label, slug) in SPLIT_RATIOS.iter() {
+                Button(
+                    variant: if (state.split_ratio - ratio).abs() < f32::EPSILON {
+                        ButtonVariant::SecondaryGray
+                    } else {
+                        ButtonVariant::Outline
+                    },
+                    size: ComponentSize::Sm,
+                    child: Text(*label),
+                    on_press: with_reducer!(cx.build, SetSplitRatio(*ratio), set_split_ratio),
+                    key: *slug,
+                ).semantics_identifier(format!("gallery.split_view.{slug}"))
             }
-            .semantics_identifier(format!("gallery.split_view.{slug}"))
-            .into()
-        })
-        .collect();
-    vec![
-        HStack {
-            spacing: Some(tokens.spacing.s),
-            children: presets,
-        }
-        .into(),
-        Container::new(SplitView {
+        ]),
+        Container(SplitView(
             id: WidgetId::explicit("gallery.split_view"),
             direction: SplitDirection::Horizontal,
-            first: pane("Folders", "Inbox, Drafts, Sent and Archive."),
-            second: pane(
-                "Message",
-                "The selected message opens here, next to the list of folders.",
-            ),
+            first: Pane("Folders".to_string(), "Inbox, Drafts, Sent and Archive.".to_string()),
+            second: Pane("Message".to_string(), "The selected message opens here, next to the list of folders.".to_string()),
             split_ratio: state.split_ratio,
-            on_resize: None,
-        })
+        ))
         .width_length(Length::percent(100.0))
         .height(SPLIT_HEIGHT)
         .border(tokens.colors.border, tokens.sizing.border_hairline)
         .border_radius(tokens.radii.medium)
-        .into(),
-    ]
+    ])
 }
 
 pub(crate) fn popover() -> Vec<Widget> {
-    let (ctx, view) = fission::build::current::<GalleryState>();
-    let state = view.state();
-    let tokens = &view.env().theme.tokens;
-    let close = with_reducer!(ctx, ClosePopover, close_popover);
-    let content: Widget = Container::new(VStack {
-        spacing: Some(tokens.spacing.s),
-        children: widgets![
-            Text::new("Share this page")
+    widgets![PopoverDemo::new()]
+}
+
+fission_component! {
+    PopoverContent<GalleryState> |_content, _state, cx| {
+        let tokens = &cx.view.env().theme.tokens;
+    } => Container(
+        VStack(spacing: tokens.spacing.s, children: [
+            Text("Share this page")
                 .weight(tokens.typography.font_weight_semibold)
                 .color(tokens.colors.text_primary),
-            Text::new("Anyone with the link can view it.")
+            Text("Anyone with the link can view it.")
                 .color(tokens.colors.text_secondary)
                 .wrap(true),
-            HStack {
-                spacing: None,
-                children: widgets![Button {
+            HStack(spacing: None, children: [Button(
                     variant: ButtonVariant::Filled,
                     size: ComponentSize::Sm,
-                    child: Some(Text::new("Copy link").into()),
-                    on_press: Some(close.clone()),
-                    ..Default::default()
-                }
-                .semantics_identifier("gallery.popover.copy")],
-            },
-        ],
-    })
-    .width(POPOVER_WIDTH)
+                    child: Text("Copy link"),
+                    on_press: with_reducer!(cx.build, ClosePopover, close_popover),
+                ).semantics_identifier("gallery.popover.copy")]),
+        ])
+    ).width(POPOVER_WIDTH)
     .padding_all(tokens.spacing.m)
     .bg(tokens.colors.surface)
     .border(tokens.colors.border, tokens.sizing.border_hairline)
     .border_radius(tokens.radii.large)
-    .into();
-    widgets![HStack {
-        spacing: None,
-        children: widgets![Popover {
+}
+
+fission_component! {
+    PopoverDemo<GalleryState> |_demo, state, cx| {} =>
+    HStack(spacing: None, children: [Popover(
             id: WidgetId::explicit("gallery.popover"),
             is_open: state.popover_open,
-            on_close: Some(close),
-            trigger: Button {
+            on_close: with_reducer!(cx.build, ClosePopover, close_popover),
+            trigger: Button(
                 variant: ButtonVariant::Outline,
-                child: Some(Text::new("Share").into()),
-                on_press: Some(with_reducer!(ctx, TogglePopover, toggle_popover)),
-                ..Default::default()
-            }
-            .semantics_identifier("gallery.popover.trigger")
-            .into(),
-            content,
+                child: Text("Share"),
+                on_press: with_reducer!(cx.build, TogglePopover, toggle_popover),
+            ).semantics_identifier("gallery.popover.trigger"),
+            content: PopoverContent(),
             motion: None,
-        }],
-    }]
+        )])
 }
 
 pub(crate) fn refresh_indicator() -> Vec<Widget> {
-    let (ctx, view) = fission::build::current::<GalleryState>();
-    let state = view.state();
-    let tokens = &view.env().theme.tokens;
-    let rows: Vec<Widget> = state
-        .refresh_items
-        .iter()
-        .map(|item| {
-            Container::new(Text::new(item.clone()).color(tokens.colors.text_primary))
-                .width_length(Length::percent(100.0))
-                .padding_all(tokens.spacing.s)
-                .bg(tokens.colors.surface)
-                .border_radius(tokens.radii.medium)
-                .into()
-        })
-        .collect();
-    let list: Widget = Container::new(VStack {
-        spacing: Some(tokens.spacing.xs),
-        children: rows,
-    })
+    widgets![RefreshDemo::new()]
+}
+
+fission_component! {
+    RefreshList<()> { items: Vec<String> } |list, _state, cx| {
+        let tokens = &cx.view.env().theme.tokens;
+    } => Container(
+        VStack(spacing: tokens.spacing.xs, children: [
+            for (index, item) in list.items.iter().enumerate() {
+                Container(Text(item.clone()).color(tokens.colors.text_primary), key: index)
+                    .width_length(Length::percent(100.0))
+                    .padding_all(tokens.spacing.s)
+                    .bg(tokens.colors.surface)
+                    .border_radius(tokens.radii.medium)
+            }
+        ])
+    )
     .width_length(Length::percent(100.0))
     .height_length(Length::percent(100.0))
     .padding_all(tokens.spacing.s)
-    .into();
-    let mut indicator = RefreshIndicator::new(list)
+}
+
+fission_component! {
+    RefreshDemo<GalleryState> |_demo, state, cx| {
+    let tokens = &cx.view.env().theme.tokens;
+    let mut indicator = RefreshIndicator::new(RefreshList::new(state.refresh_items.clone()))
         .status(state.refresh_status)
         .pulled_extent(state.refresh_extent)
         .trigger_distance(REFRESH_TRIGGER)
         .displacement(REFRESH_DISPLACEMENT)
-        .on_pull_start(with_reducer!(ctx, PullStarted, pull_started))
-        .on_pull_update(with_reducer!(ctx, PullUpdated, pull_updated))
-        .on_pull_cancel(with_reducer!(ctx, PullCancelled, pull_cancelled))
-        .on_refresh(with_reducer!(ctx, StartRefresh, start_refresh));
+        .on_pull_start(with_reducer!(cx.build, PullStarted, pull_started))
+        .on_pull_update(with_reducer!(cx.build, PullUpdated, pull_updated))
+        .on_pull_cancel(with_reducer!(cx.build, PullCancelled, pull_cancelled))
+        .on_refresh(with_reducer!(cx.build, StartRefresh, start_refresh));
     indicator.id = WidgetId::explicit("gallery.refresh_indicator");
 
     let refreshing = state.refresh_status == RefreshIndicatorStatus::Refreshing;
-    // There is no real feed behind the demo, so a button stands in for the work finishing.
-    let action: Widget = Button {
-        variant: ButtonVariant::Outline,
-        size: ComponentSize::Sm,
-        child: Some(
-            Text::new(if refreshing {
-                "Finish refresh"
-            } else {
-                "Refresh"
-            })
-            .into(),
-        ),
-        on_press: Some(if refreshing {
-            with_reducer!(ctx, FinishRefresh, finish_refresh)
-        } else {
-            with_reducer!(ctx, StartRefresh, start_refresh)
-        }),
-        ..Default::default()
-    }
-    .semantics_identifier("gallery.refresh_indicator.action")
-    .into();
-
-    vec![
-        caption("Drag the list down and let go, or use the button."),
-        Container::new(indicator)
+    } => Column(children: [
+        Caption("Drag the list down and let go, or use the button.".to_string()),
+        Container(indicator)
             .width_length(Length::percent(100.0))
             .height(REFRESH_HEIGHT)
             .border(tokens.colors.border, tokens.sizing.border_hairline)
-            .border_radius(tokens.radii.medium)
-            .into(),
-        HStack {
-            spacing: None,
-            children: vec![action],
-        }
-        .into(),
-    ]
+            .border_radius(tokens.radii.medium),
+        HStack(spacing: None, children: [
+            Button(
+                variant: ButtonVariant::Outline,
+                size: ComponentSize::Sm,
+                child: Text(if refreshing { "Finish refresh" } else { "Refresh" }),
+                on_press: if refreshing {
+                    with_reducer!(cx.build, FinishRefresh, finish_refresh)
+                } else {
+                    with_reducer!(cx.build, StartRefresh, start_refresh)
+                },
+            ).semantics_identifier("gallery.refresh_indicator.action"),
+        ]),
+    ])
 }

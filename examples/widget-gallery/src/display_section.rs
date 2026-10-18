@@ -44,29 +44,24 @@ Read the [full changelog](https://example.com/changelog) for details.\n\n\
 ```rust\nlet total = items.iter().sum::<u32>();\n```\n";
 
 pub(crate) fn avatar() -> Vec<Widget> {
-    let (_, view) = fission::build::current::<()>();
-    let tokens = &view.env().theme.tokens;
-    widgets![
-        HStack {
-            spacing: Some(tokens.spacing.s),
-            children: widgets![
-                Avatar {
-                    name: Some("John Doe".into()),
-                    src: None,
-                    size: Some(AVATAR_SIZE),
-                },
-                Avatar {
-                    name: Some("Ada Lovelace".into()),
-                    src: None,
-                    size: Some(AVATAR_SIZE),
-                },
+    widgets![AvatarDemo::new()]
+}
+
+fission_component! {
+    AvatarDemo<()> |_demo, _state, cx| { let tokens = &cx.view.env().theme.tokens; } =>
+    Column(children: [
+        HStack(
+            spacing: tokens.spacing.s,
+            children: [
+                Avatar(name: "John Doe".to_string(), size: AVATAR_SIZE),
+                Avatar(name: "Ada Lovelace".to_string(), size: AVATAR_SIZE),
             ],
-        },
+        ),
         // A group overlaps its people and counts the ones it cannot show.
-        HStack {
+        HStack(
             spacing: None,
-            children: widgets![AvatarGroup {
-                id: Some(WidgetId::explicit("gallery.avatar.group")),
+            children: [AvatarGroup(
+                id: WidgetId::explicit("gallery.avatar.group"),
                 avatars: TEAM
                     .iter()
                     .map(|(id, name)| AvatarGroupItem::new(
@@ -76,107 +71,94 @@ pub(crate) fn avatar() -> Vec<Widget> {
                             ..Default::default()
                         },
                     ))
-                    .collect(),
-                max_visible: Some(AVATAR_GROUP_VISIBLE),
-                size: Some(AVATAR_SIZE),
-                semantics_label: Some("Project members".into()),
-                ..Default::default()
-            }],
-        },
-    ]
+                    .collect::<Vec<_>>(),
+                max_visible: AVATAR_GROUP_VISIBLE,
+                size: AVATAR_SIZE,
+                semantics_label: "Project members".to_string(),
+            )],
+        ),
+    ])
 }
 
 pub(crate) fn badge() -> Vec<Widget> {
-    let (_, view) = fission::build::current::<()>();
-    let tokens = &view.env().theme.tokens;
-    widgets![Wrap {
+    widgets![BadgeDemo::new()]
+}
+
+fission_component! {
+    BadgeDemo<()> |_demo, _state, cx| { let tokens = &cx.view.env().theme.tokens; } =>
+    Wrap(
         direction: FlexDirection::Row,
-        spacing: Some(tokens.spacing.s),
-        run_spacing: Some(tokens.spacing.s),
-        children: BADGE_TONES
-            .iter()
-            .map(|(tone, label)| {
-                Badge {
-                    text: (*label).into(),
-                    tone: *tone,
-                    ..Default::default()
-                }
-                .into()
-            })
-            .collect(),
-    }]
+        spacing: tokens.spacing.s,
+        run_spacing: tokens.spacing.s,
+        children: [
+            for (tone, label) in BADGE_TONES.iter() {
+                Badge(text: (*label).to_string(), tone: *tone, key: *label)
+            },
+        ],
+    )
 }
 
 pub(crate) fn divider() -> Vec<Widget> {
-    let (_, view) = fission::build::current::<()>();
-    let tokens = &view.env().theme.tokens;
-    let label = |text: &str| -> Widget { Text::new(text).color(tokens.colors.text_primary).into() };
-    let vertical = || -> Widget {
-        Container::new(Divider {
-            orientation: Orientation::Vertical,
-            ..Default::default()
-        })
-        .height(tokens.sizing.icon_md)
-        .into()
-    };
-    widgets![
-        VStack {
-            spacing: Some(tokens.spacing.s),
-            children: vec![
-                label("Account"),
-                Divider::default().into(),
-                label("Notifications"),
-            ],
-        },
-        HStack {
-            spacing: None,
-            children: widgets![HStack {
-                spacing: Some(tokens.spacing.m),
-                children: vec![
-                    label("Edit"),
-                    vertical(),
-                    label("Share"),
-                    vertical(),
-                    label("Delete"),
-                ],
-            }],
-        },
-        Divider {
-            dash_pattern: Some(vec![DIVIDER_DASH, DIVIDER_DASH]),
-            ..Default::default()
-        },
-    ]
+    widgets![DividerDemo::new()]
 }
 
-fn ratio_tile(width: f32, ratio: f32, label: &str) -> Widget {
-    let (_, view) = fission::build::current::<()>();
-    let tokens = &view.env().theme.tokens;
-    Container::new(AspectRatio {
-        ratio,
-        child: Container::new(Text::new(label).color(tokens.colors.text_primary))
+fission_component! {
+    DividerDemo<()> |_demo, _state, cx| { let tokens = &cx.view.env().theme.tokens; } =>
+    Column(children: [
+        VStack(
+            spacing: tokens.spacing.s,
+            children: [
+                Text("Account").color(tokens.colors.text_primary),
+                Divider(),
+                Text("Notifications").color(tokens.colors.text_primary),
+            ],
+        ),
+        HStack(
+            spacing: None,
+            children: [HStack(
+                spacing: tokens.spacing.m,
+                children: [
+                    Text("Edit").color(tokens.colors.text_primary),
+                    Container(Divider(orientation: Orientation::Vertical)).height(tokens.sizing.icon_md),
+                    Text("Share").color(tokens.colors.text_primary),
+                    Container(Divider(orientation: Orientation::Vertical)).height(tokens.sizing.icon_md),
+                    Text("Delete").color(tokens.colors.text_primary),
+                ],
+            )],
+        ),
+        Divider(dash_pattern: vec![DIVIDER_DASH, DIVIDER_DASH]),
+    ])
+}
+
+fission_component! {
+    RatioTile<()> { width: f32, ratio: f32, label: &'static str }
+    |tile, _state, cx| { let tokens = &cx.view.env().theme.tokens; } =>
+    Container(AspectRatio(
+        ratio: tile.ratio,
+        child: Container(Text(tile.label).color(tokens.colors.text_primary))
             .width_length(Length::percent(100.0))
             .height_length(Length::percent(100.0))
             .align_child(BoxAlignment::Center)
             .bg(tokens.colors.primary_subtle)
-            .border_radius(tokens.radii.medium)
-            .into(),
-    })
-    .width(width)
-    .into()
+            .border_radius(tokens.radii.medium),
+    ))
+    .width(tile.width)
 }
 
 pub(crate) fn aspect_ratio() -> Vec<Widget> {
-    let (_, view) = fission::build::current::<()>();
-    let tokens = &view.env().theme.tokens;
-    widgets![Row {
-        gap: Some(tokens.spacing.m),
+    widgets![AspectRatioDemo::new()]
+}
+
+fission_component! {
+    AspectRatioDemo<()> |_demo, _state, cx| { let tokens = &cx.view.env().theme.tokens; } =>
+    Row(
+        gap: tokens.spacing.m,
         align_items: fission::op::AlignItems::Start,
-        children: vec![
-            ratio_tile(WIDE_RATIO_WIDTH, 16.0 / 9.0, "16 : 9"),
-            ratio_tile(SQUARE_RATIO_WIDTH, 1.0, "1 : 1"),
+        children: [
+            RatioTile(WIDE_RATIO_WIDTH, 16.0_f32 / 9.0_f32, "16 : 9"),
+            RatioTile(SQUARE_RATIO_WIDTH, 1.0_f32, "1 : 1"),
         ],
-        ..Default::default()
-    }]
+    )
 }
 
 fn hex(color: Color) -> String {
@@ -184,11 +166,14 @@ fn hex(color: Color) -> String {
 }
 
 pub(crate) fn image() -> Vec<Widget> {
-    let (_, view) = fission::build::current::<()>();
-    let tokens = &view.env().theme.tokens;
-    let colors = &tokens.colors;
-    // An inline drawing, so the page works offline and follows the theme's colours.
-    let svg = format!(
+    widgets![ImageDemo::new()]
+}
+
+fission_component! {
+    ImageDemo<()> |_demo, _state, cx| {
+        let tokens = &cx.view.env().theme.tokens;
+        let colors = &tokens.colors;
+        let svg = format!(
         r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 160">
 <rect width="240" height="160" fill="{sky}"/>
 <circle cx="182" cy="46" r="20" fill="{sun}"/>
@@ -197,35 +182,41 @@ pub(crate) fn image() -> Vec<Widget> {
         sky = hex(colors.primary_subtle),
         sun = hex(colors.warning),
         hill = hex(colors.primary),
-    );
-    let framed = |fit: ImageFit, label: &str| -> Widget {
-        VStack {
-            spacing: Some(tokens.spacing.xs),
-            children: widgets![
-                Container::new(
-                    Image::svg_text(svg.clone())
-                        .size(IMAGE_WIDTH, IMAGE_HEIGHT)
-                        .fit(fit)
-                        .semantic_label("Mountains under the sun"),
-                )
-                .size(IMAGE_WIDTH, IMAGE_HEIGHT)
-                .bg(colors.surface)
-                .border(colors.border, tokens.sizing.border_hairline)
-                .border_radius(tokens.radii.medium),
-                Text::new(label).color(colors.text_secondary),
-            ],
-        }
-        .into()
-    };
-    widgets![Wrap {
+        );
+    } =>
+    Wrap(
         direction: FlexDirection::Row,
-        spacing: Some(tokens.spacing.m),
-        run_spacing: Some(tokens.spacing.m),
-        children: vec![
-            framed(ImageFit::Cover, "Cover"),
-            framed(ImageFit::Contain, "Contain"),
+        spacing: tokens.spacing.m,
+        run_spacing: tokens.spacing.m,
+        children: [
+            ImageFrame(svg.clone(), ImageFit::Cover, "Cover"),
+            ImageFrame(svg, ImageFit::Contain, "Contain"),
         ],
-    }]
+    )
+}
+
+fission_component! {
+    ImageFrame<()> { svg: String, fit: ImageFit, label: &'static str }
+    |frame, _state, cx| {
+        let tokens = &cx.view.env().theme.tokens;
+        let colors = &tokens.colors;
+    } =>
+    VStack(
+        spacing: tokens.spacing.xs,
+        children: [
+            Container(
+                Image::svg_text(frame.svg.clone())
+                    .size(IMAGE_WIDTH, IMAGE_HEIGHT)
+                    .fit(frame.fit)
+                    .semantic_label("Mountains under the sun"),
+            )
+            .size(IMAGE_WIDTH, IMAGE_HEIGHT)
+            .bg(colors.surface)
+            .border(colors.border, tokens.sizing.border_hairline)
+            .border_radius(tokens.radii.medium),
+            Text(frame.label).color(colors.text_secondary),
+        ],
+    )
 }
 
 pub(crate) fn markdown() -> Vec<Widget> {
@@ -233,71 +224,95 @@ pub(crate) fn markdown() -> Vec<Widget> {
 }
 
 pub(crate) fn tag() -> Vec<Widget> {
-    let (_, view) = fission::build::current::<()>();
-    let tokens = &view.env().theme.tokens;
-    widgets![HStack {
-        spacing: Some(tokens.spacing.s),
-        children: widgets![
-            Tag {
-                label: "Rust".into(),
-                on_close: None,
-                on_press: None,
+    widgets![TagDemo::new()]
+}
+
+fission_component! {
+    TagDemo<()> |_demo, _state, cx| { let tokens = &cx.view.env().theme.tokens; } =>
+    HStack(
+        spacing: tokens.spacing.s,
+        children: [
+            Tag(
+                label: "Rust",
                 selected: false,
-            },
-            Tag {
-                label: "Design".into(),
-                on_close: None,
-                on_press: None,
+            ),
+            Tag(
+                label: "Design",
                 selected: true,
-            },
+            ),
         ],
-    }]
+    )
 }
 
 pub(crate) fn code() -> Vec<Widget> {
-    let (_, view) = fission::build::current::<()>();
-    let tokens = &view.env().theme.tokens;
-    widgets![HStack {
-        spacing: Some(tokens.spacing.s),
-        children: widgets![
-            Code {
-                text: "let x = 42;".into(),
-            },
-            Kbd {
-                text: "Ctrl+C".into(),
-            },
+    widgets![CodeDemo::new()]
+}
+
+fission_component! {
+    CodeDemo<()> |_demo, _state, cx| { let tokens = &cx.view.env().theme.tokens; } =>
+    HStack(
+        spacing: tokens.spacing.s,
+        children: [
+            Code(
+                text: "let x = 42;",
+            ),
+            Kbd(
+                text: "Ctrl+C",
+            ),
         ],
-    }]
+    )
 }
 
 pub(crate) fn stat() -> Vec<Widget> {
-    widgets![HStack {
+    widgets![StatDemo::new()]
+}
+
+fission_component! {
+    StatDemo<()> |_demo, _state, _cx| {} =>
+    HStack(
         spacing: None,
-        children: widgets![Stat {
-            label: "Total Users".into(),
-            value: "1,234".into(),
-            help_text: Some("+12% this month".into()),
-        }],
-    }]
+        children: [Stat(
+            label: "Total Users",
+            value: "1,234",
+            help_text: Some("+12% this month".to_string()),
+        )],
+    )
+}
+
+fission_component! {
+    ContextMenuTarget<()> |_target, _state, cx| {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+        Container(
+            Text("Right-click this custom region for a widget-backed context menu.")
+                .wrap(true)
+        )
+        .padding_lengths(Length::all(Length::points(tokens.spacing.s)))
+        .border(tokens.colors.border, BORDER_WIDTH)
+        .border_radius(tokens.radii.large)
 }
 
 pub(crate) fn context_menu() -> Vec<Widget> {
-    let (_, view) = fission::build::current::<()>();
-    let tokens = &view.env().theme.tokens;
-    let typography = &tokens.typography;
-    widgets![
-        Container::new(Text {
-            id: Some(WidgetId::explicit("gallery.selectable.text")),
+    widgets![ContextMenuDemo::new()]
+}
+
+fission_component! {
+    ContextMenuDemo<()> |_demo, _state, cx| {
+        let tokens = &cx.view.env().theme.tokens;
+        let typography = &tokens.typography;
+    } =>
+    Column(children: [
+        Container(Text(
+            id: WidgetId::explicit("gallery.selectable.text"),
             content: TextContent::Literal(
                 "Selectable Text: drag across this sentence, then use Ctrl/Cmd+C or right-click for Copy and Select All.".into(),
             ),
             selectable: true,
             wrap: true,
-            ..Default::default()
-        })
+        ))
         .width_length(Length::percent(100.0)),
-        Container::new(RichText {
-            id: Some(WidgetId::explicit("gallery.selectable.rich_text")),
+        Container(RichText(
+            id: WidgetId::explicit("gallery.selectable.rich_text"),
             runs: vec![
                 RichTextRun::new("Selectable RichText: "),
                 RichTextRun::new("mixed style text can be selected too.")
@@ -306,34 +321,31 @@ pub(crate) fn context_menu() -> Vec<Widget> {
             ],
             selectable: true,
             wrap: true,
-            ..Default::default()
-        })
+        ))
         .width_length(Length::percent(100.0)),
         ContextMenuRegion::new(
-            Container::new(
-                Text::new("Right-click this custom region for a widget-backed context menu.")
-                    .wrap(true),
-            )
-            .padding_lengths(Length::all(Length::points(tokens.spacing.s)))
-            .border(tokens.colors.border, BORDER_WIDTH)
-            .border_radius(tokens.radii.large),
+            ContextMenuTarget::new(),
             ContextMenu::with_items([ContextMenuEntry::Item(ContextMenuItem::new(
                 "custom-help",
-                HStack {
-                    spacing: Some(tokens.spacing.xs),
-                    children: widgets![
-                        Badge {
-                            text: "Tip".into(),
-                            ..Default::default()
-                        },
-                        Text::new(TextContent::KeyWithFallback {
-                            key: "gallery.context_menu.copy_help".into(),
-                            fallback: "Menu items can be arbitrary widgets".into(),
-                        }),
-                    ],
-                },
+                ContextMenuHelp::new(),
             ))]),
         )
         .id(WidgetId::explicit("gallery.custom.context_menu")),
-    ]
+    ])
+}
+
+fission_component! {
+    ContextMenuHelp<()> |_help, _state, cx| {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    HStack(
+        spacing: tokens.spacing.xs,
+        children: [
+            Badge(text: "Tip".to_string()),
+            Text(TextContent::KeyWithFallback {
+                key: "gallery.context_menu.copy_help".into(),
+                fallback: "Menu items can be arbitrary widgets".into(),
+            }),
+        ],
+    )
 }

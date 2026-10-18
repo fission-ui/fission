@@ -2,25 +2,14 @@ use super::palette::{rgba, BLUE, INK, LINE, MUTED, PALE_BLUE, SOFT};
 use super::{AgentTone, GuidedAgentCard};
 use fission::prelude::*;
 
-pub(super) struct GuidedAgentTimeline;
-impl From<GuidedAgentTimeline> for Widget {
-    fn from(_timeline: GuidedAgentTimeline) -> Self {
+fission_component! {
+    pub(super) GuidedAgentTimeline<()> {}
+    |_timeline, _state, _cx| {
         let root_id = WidgetId::explicit("quality-gallery.guided.agent-timeline");
-        TimelineLayout::new(vec![
+        let timeline = TimelineLayout::new(vec![
             TimelineEntry::new(
                 WidgetId::derived(root_id.as_u128(), &[1]),
-                GuidedAgentCard {
-                    title: "Inbox Listener",
-                    description: "Find and read new customer feedback.",
-                    tag_one: "email",
-                    tag_two: Some("intake"),
-                    summary: "Can read email using 2 mailbox actions",
-                    action_one: "mail::list_messages",
-                    action_two: "mail::get_message",
-                    meta: "3 rules   ·   2 examples",
-                    tone: AgentTone::Intake,
-                    selected: true,
-                },
+                GuidedAgentCard::new("Inbox Listener", "Find and read new customer feedback.", "email", Some("intake"), "Can read email using 2 mailbox actions", "mail::list_messages", "mail::get_message", "3 rules   ·   2 examples", AgentTone::Intake, true),
             )
             .marker(GuidedTimelineMarker::Step {
                 number: "1",
@@ -28,23 +17,12 @@ impl From<GuidedAgentTimeline> for Widget {
             }),
             TimelineEntry::new(
                 WidgetId::derived(root_id.as_u128(), &[2]),
-                GuidedConnector { analysis: false },
+                GuidedConnector::new(false),
             )
             .marker(GuidedTimelineMarker::Transition),
             TimelineEntry::new(
                 WidgetId::derived(root_id.as_u128(), &[3]),
-                GuidedAgentCard {
-                    title: "Feedback Analyst",
-                    description: "Group recurring themes and identify urgency.",
-                    tag_one: "analysis",
-                    tag_two: None,
-                    summary: "Can organise feedback using 2 project actions",
-                    action_one: "project::read_feedback",
-                    action_two: "project::write_analysis",
-                    meta: "4 rules   ·   3 examples",
-                    tone: AgentTone::Analysis,
-                    selected: false,
-                },
+                GuidedAgentCard::new("Feedback Analyst", "Group recurring themes and identify urgency.", "analysis", None, "Can organise feedback using 2 project actions", "project::read_feedback", "project::write_analysis", "4 rules   ·   3 examples", AgentTone::Analysis, false),
             )
             .marker(GuidedTimelineMarker::Step {
                 number: "2",
@@ -52,23 +30,12 @@ impl From<GuidedAgentTimeline> for Widget {
             }),
             TimelineEntry::new(
                 WidgetId::derived(root_id.as_u128(), &[4]),
-                GuidedConnector { analysis: true },
+                GuidedConnector::new(true),
             )
             .marker(GuidedTimelineMarker::Transition),
             TimelineEntry::new(
                 WidgetId::derived(root_id.as_u128(), &[5]),
-                GuidedAgentCard {
-                    title: "Product Planner",
-                    description: "Turn approved themes into a weekly priorities brief.",
-                    tag_one: "planning",
-                    tag_two: Some("weekly"),
-                    summary: "Can view projects and create proposed issues using 2 actions",
-                    action_one: "projects::list_projects",
-                    action_two: "projects::create_issue",
-                    meta: "3 rules   ·   2 examples",
-                    tone: AgentTone::Planning,
-                    selected: false,
-                },
+                GuidedAgentCard::new("Product Planner", "Turn approved themes into a weekly priorities brief.", "planning", Some("weekly"), "Can view projects and create proposed issues using 2 actions", "projects::list_projects", "projects::create_issue", "3 rules   ·   2 examples", AgentTone::Planning, false),
             )
             .marker(GuidedTimelineMarker::Step {
                 number: "3",
@@ -78,9 +45,8 @@ impl From<GuidedAgentTimeline> for Widget {
         .id(root_id)
         .marker_geometry(42.0, 42.0)
         .spacing(21.0, 0.0)
-        .connector(1.0, LINE)
-        .into()
-    }
+        .connector(1.0, LINE);
+    } => timeline
 }
 
 pub(super) enum GuidedTimelineMarker {
@@ -127,16 +93,14 @@ impl From<GuidedTimelineMarker> for Widget {
     }
 }
 
-pub(super) struct GuidedConnector {
-    analysis: bool,
-}
-impl From<GuidedConnector> for Widget {
-    fn from(connector: GuidedConnector) -> Self {
-        Container::new(Row {
-            gap: Some(12.0),
+fission_component! {
+    pub(super) GuidedConnector<()> { analysis: bool }
+    |connector, _state, _cx| {} =>
+        Container(Row(
+            gap: 12.0_f32,
             align_items: fission::op::AlignItems::Center,
-            children: widgets![
-                Container::new(
+            children: [
+                Container(
                     Icon::svg(if connector.analysis {
                         material::content::bolt::regular()
                     } else {
@@ -149,10 +113,10 @@ impl From<GuidedConnector> for Widget {
                 .align_child(BoxAlignment::Center)
                 .bg(SOFT)
                 .border_radius(15.0),
-                Column {
-                    gap: Some(0.0),
-                    children: widgets![
-                        Text::new(if connector.analysis {
+                Column(
+                    gap: 0.0_f32,
+                    children: [
+                        Text(if connector.analysis {
                             "After analysis is complete"
                         } else {
                             "Passes new feedback to Feedback Analyst"
@@ -161,53 +125,36 @@ impl From<GuidedConnector> for Widget {
                         .weight(600)
                         .color(INK),
                         if connector.analysis {
-                            Widget::from(
-                                Text::new("Pass approved themes to Product Planner")
-                                    .size(13.0)
-                                    .color(MUTED),
-                            )
+                            Text("Pass approved themes to Product Planner")
+                                .size(13.0)
+                                .color(MUTED)
                         } else {
-                            Widget::from(Spacer {
-                                height: Some(0.0),
-                                ..Default::default()
-                            })
+                            Spacer(height: 0.0_f32)
                         },
                     ],
-                    ..Default::default()
-                },
-                Spacer {
-                    flex_grow: 1.0,
-                    ..Default::default()
+                ),
+                Spacer(flex_grow: 1.0_f32),
+                if connector.analysis {
+                    Badge(
+                        text: "Automatic",
+                        color: rgba(227, 250, 243, 255),
+                        text_color: rgba(0, 141, 110, 255),
+                        size: ComponentSize::Sm,
+                    )
+                } else {
+                    Spacer(width: 0.0_f32)
                 },
                 if connector.analysis {
-                    Widget::from(Badge {
-                        text: "Automatic".into(),
-                        color: Some(rgba(227, 250, 243, 255)),
-                        text_color: Some(rgba(0, 141, 110, 255)),
+                    Badge(
+                        text: "1 hook",
+                        color: PALE_BLUE,
+                        text_color: BLUE,
                         size: ComponentSize::Sm,
-                        ..Default::default()
-                    })
+                    )
                 } else {
-                    Widget::from(Spacer {
-                        width: Some(0.0),
-                        ..Default::default()
-                    })
+                    Spacer(width: 0.0_f32)
                 },
-                if connector.analysis {
-                    Widget::from(Badge {
-                        text: "1 hook".into(),
-                        color: Some(PALE_BLUE),
-                        text_color: Some(BLUE),
-                        size: ComponentSize::Sm,
-                        ..Default::default()
-                    })
-                } else {
-                    Widget::from(Spacer {
-                        width: Some(0.0),
-                        ..Default::default()
-                    })
-                },
-                Text::new(if connector.analysis {
+                Text(if connector.analysis {
                     "Edit"
                 } else {
                     "Edit handoff"
@@ -216,12 +163,9 @@ impl From<GuidedConnector> for Widget {
                 .weight(500)
                 .color(BLUE),
             ],
-            ..Default::default()
-        })
+        ))
         .padding([14.0, 14.0, 8.0, 8.0])
         .border(LINE, 1.0)
         .border_radius(7.0)
         .margin([11.0, 0.0, 0.0, 0.0])
-        .into()
-    }
 }

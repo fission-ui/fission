@@ -7,38 +7,22 @@ mod property_workspace;
 pub use property_case::PropertyCase;
 
 use crate::state::AnimationGalleryState;
-use crate::ui;
-use fission::build::BuildCtxHandle;
+use crate::ui::*;
 use fission::prelude::*;
 use property_case::property_case;
 use property_layout::PropertyLayout;
 
-pub struct PropertiesPage<'a> {
-    pub ctx: BuildCtxHandle<AnimationGalleryState>,
-    pub state: &'a AnimationGalleryState,
-    pub path: String,
-}
-
-impl From<PropertiesPage<'_>> for Widget {
-    fn from(page: PropertiesPage<'_>) -> Self {
-        let (_, view) = fission::build::current::<AnimationGalleryState>();
+fission_component! {
+    pub PropertiesPage<AnimationGalleryState> { path: String }
+    |page, _state, cx| {
+        let tokens = &cx.view.env().theme.tokens;
         let property = property_case(&page.path);
-
-        Column {
-            gap: Some(view.env().theme.tokens.spacing.s),
-            children: widgets![
-                ui::PageHeader {
-                    title: property.title,
-                    subtitle: property.description,
-                },
-                PropertyLayout {
-                    ctx: &page.ctx,
-                    state: page.state,
-                    property: &property,
-                },
+    } =>
+        Column(
+            gap: tokens.spacing.s,
+            children: [
+                PageHeader(property.title.to_string(), property.description.to_string()),
+                PropertyLayout(property),
             ],
-            ..Default::default()
-        }
-        .into()
-    }
+        )
 }

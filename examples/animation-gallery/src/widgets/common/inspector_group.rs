@@ -1,27 +1,17 @@
 use crate::state::AnimationGalleryState;
 use crate::style;
-use crate::ui;
+use crate::ui::*;
 use fission::prelude::*;
 
-pub(super) struct InspectorGroup<'a> {
-    pub title: &'a str,
-    pub rows: &'a [&'a str],
-}
-
-impl From<InspectorGroup<'_>> for Widget {
-    fn from(group: InspectorGroup<'_>) -> Self {
-        let (_, view) = fission::build::current::<AnimationGalleryState>();
-        let tokens = &view.env().theme.tokens;
-        let mut children: Vec<Widget> = widgets![Text::new(group.title)
-            .size(tokens.typography.font_size_sm)
-            .color(style::text_primary()),];
-        children.extend(group.rows.iter().map(|label| ui::LabelRow { label }.into()));
-
-        Column {
-            gap: Some(tokens.spacing.xs),
-            children,
-            ..Default::default()
-        }
-        .into()
-    }
+fission_component! {
+    pub(super) InspectorGroup<AnimationGalleryState> { title: String, rows: Vec<String> }
+    |group, _state, cx| {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+        Column(gap: tokens.spacing.xs, children: [
+            Text(group.title.clone()).size(tokens.typography.font_size_sm).color(style::text_primary()),
+            for (index, label) in group.rows.iter().enumerate() {
+                LabelRow(label.clone(), key: index)
+            }
+        ])
 }

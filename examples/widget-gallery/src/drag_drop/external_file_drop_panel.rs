@@ -6,50 +6,30 @@ use crate::GalleryState;
 const EXTERNAL_PANEL_MAX_WIDTH: f32 = 280.0;
 const EXTERNAL_PANEL_MIN_HEIGHT: f32 = 86.0;
 
-pub(super) struct ExternalFileDropPanel {
-    pub hovered: bool,
-}
-
-impl From<ExternalFileDropPanel> for Widget {
-    fn from(panel: ExternalFileDropPanel) -> Self {
-        let (_, view) = fission::build::current::<GalleryState>();
-        let tokens = &view.env().theme.tokens;
-        let mut children = widgets![Text::new(if panel.hovered {
-            "Release to import"
-        } else {
-            "External files"
-        })
-        .size(tokens.typography.body_large_size)
-        .weight(tokens.typography.font_weight_bold)
-        .color(tokens.colors.text_primary),];
-
-        if view.state().drag_external_files.is_empty() {
-            children.push(
-                Text::new("Drop files from Finder, Explorer, or the test driver here.")
-                    .size(tokens.typography.body_medium_size)
-                    .color(tokens.colors.text_secondary)
-                    .into(),
-            );
-        } else {
-            children.extend(
-                view.state()
-                    .drag_external_files
-                    .iter()
-                    .take(4)
-                    .cloned()
-                    .map(|file| {
-                        Text::new(file)
-                            .size(tokens.typography.body_medium_size)
-                            .color(tokens.colors.text_primary)
-                            .into()
-                    }),
-            );
-        }
-
-        Container::new(VStack {
-            spacing: Some(tokens.spacing.xs),
-            children,
-        })
+fission_component! {
+    pub(super) ExternalFileDropPanel<GalleryState> { hovered: bool }
+    |panel, state, cx| {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+        Container(VStack(
+            spacing: tokens.spacing.xs,
+            children: [
+                Text(if panel.hovered { "Release to import" } else { "External files" })
+                    .size(tokens.typography.body_large_size)
+                    .weight(tokens.typography.font_weight_bold)
+                    .color(tokens.colors.text_primary),
+                if state.drag_external_files.is_empty() {
+                    Text("Drop files from Finder, Explorer, or the test driver here.")
+                        .size(tokens.typography.body_medium_size)
+                        .color(tokens.colors.text_secondary)
+                },
+                for file in state.drag_external_files.iter().take(4) {
+                    Text(file.clone(), key: file.clone())
+                        .size(tokens.typography.body_medium_size)
+                        .color(tokens.colors.text_primary)
+                },
+            ],
+        ))
         .width_length(Length::clamp(
             Length::points(DROP_PANEL_MIN_WIDTH),
             Length::percent(100.0),
@@ -71,6 +51,4 @@ impl From<ExternalFileDropPanel> for Widget {
         } else {
             tokens.colors.background.with_alpha(28)
         })
-        .into()
-    }
 }

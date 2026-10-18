@@ -3,30 +3,22 @@ use crate::state::AnimationGalleryState;
 use crate::style;
 use fission::prelude::*;
 
-pub struct LabelValue<'a> {
-    pub label: &'a str,
-    pub value: &'a str,
-}
-
-impl From<LabelValue<'_>> for Widget {
-    fn from(value: LabelValue<'_>) -> Self {
-        let (_, view) = fission::build::current::<AnimationGalleryState>();
-        let tokens = &view.env().theme.tokens;
-        Row {
-            gap: Some(tokens.spacing.s),
-            children: widgets![
-                Container::new(
-                    Text::new(value.label)
+fission_component! {
+    pub LabelValue<AnimationGalleryState> { label: String, value: String }
+    |value, _state, cx| {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+        Row(
+            gap: tokens.spacing.s,
+            children: [
+                Container(
+                    Text(value.label)
                         .size(tokens.typography.font_size_xs)
                         .color(style::text_muted()),
-                )
-                .width(LABEL_COLUMN_WIDTH),
-                Text::new(value.value)
+                ).width(LABEL_COLUMN_WIDTH),
+                Text(value.value)
                     .size(tokens.typography.font_size_xs)
                     .color(style::text_primary()),
             ],
-            ..Default::default()
-        }
-        .into()
-    }
+        )
 }

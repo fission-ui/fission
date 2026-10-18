@@ -1,60 +1,37 @@
 use super::*;
 
-pub(super) struct DesktopShell<'a> {
-    pub(super) ctx: &'a BuildCtxHandle<AnimationGalleryState>,
-    pub(super) state: &'a AnimationGalleryState,
-}
-
-impl From<DesktopShell<'_>> for Widget {
-    fn from(shell: DesktopShell<'_>) -> Self {
-        let (_, view) = fission::build::current::<AnimationGalleryState>();
-        let tokens = &view.env().theme.tokens;
-
-        Row {
-            gap: Some(tokens.spacing.none),
+fission_component! {
+    pub(super) DesktopShell<AnimationGalleryState> |_shell, state, cx| {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+        Row(
+            gap: tokens.spacing.none,
             align_items: fission::op::AlignItems::Start,
-            children: vec![
-                BrandRail {
-                    ctx: shell.ctx,
-                    state: shell.state,
-                }
-                .into(),
-                Container::new(Scroll {
-                    id: Some(WidgetId::explicit(&format!(
-                        "animation-gallery.content-scroll.{}",
-                        shell.state.current_path
-                    ))),
-                    direction: FlexDirection::Column,
-                    show_scrollbar: true,
-                    flex_grow: 1.0,
-                    child: Some(
-                        Container::new(Column {
-                            gap: Some(tokens.spacing.m),
-                            // Embedded, the host header names the example, so the hero goes.
-                            children: (!shell.state.embedded)
-                                .then(|| Widget::from(HeroBar { state: shell.state }))
-                                .into_iter()
-                                .chain([
-                                    pages::GalleryRouter {
-                                        current_path: shell.state.current_path.clone(),
-                                    }
-                                    .into(),
-                                    BottomStrip.into(),
-                                ])
-                                .collect(),
-                            ..Default::default()
-                        })
+            children: [
+                BrandRail(),
+                Container(
+                    Scroll(
+                        id: WidgetId::explicit(&format!(
+                            "animation-gallery.content-scroll.{}",
+                            state.current_path,
+                        )),
+                        direction: FlexDirection::Column,
+                        show_scrollbar: true,
+                        flex_grow: 1.0_f32,
+                        child: Container(
+                            Column(
+                                gap: tokens.spacing.m,
+                                children: [
+                                    if !state.embedded { HeroBar() },
+                                    pages::GalleryRouter::new(state.current_path.clone()),
+                                    BottomStrip(),
+                                ],
+                            ),
+                        )
                         .width_length(Length::percent(100.0))
-                        .padding_all(tokens.spacing.l)
-                        .into(),
+                        .padding_all(tokens.spacing.l),
                     ),
-                    ..Default::default()
-                })
-                .flex_grow(1.0)
-                .into(),
+                ).flex_grow(1.0),
             ],
-            ..Default::default()
-        }
-        .into()
-    }
+        )
 }

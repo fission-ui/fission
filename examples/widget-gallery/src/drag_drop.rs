@@ -16,9 +16,6 @@ use lane_dropzone::LaneDropzone;
 pub(super) const DRAG_GRID_SIZE: f32 = 24.0;
 pub(super) const DROP_PANEL_MIN_WIDTH: f32 = 190.0;
 
-#[derive(Clone)]
-pub(crate) struct DragDropSection;
-
 #[fission_action]
 pub(super) struct ToggleSnapPreview;
 
@@ -131,71 +128,56 @@ fn push_drag_log(state: &mut GalleryState, message: String) {
     state.drag_log.truncate(6);
 }
 
-impl From<DragDropSection> for Widget {
-    fn from(_section: DragDropSection) -> Self {
-        let (ctx, view) = fission::build::current::<GalleryState>();
-        let state = view.state();
-        let tokens = &view.env().theme.tokens;
-
-        VStack {
-            spacing: Some(tokens.spacing.m),
-            children: widgets![
-                Row {
-                    gap: Some(tokens.spacing.s),
+fission_component! {
+    pub(crate) DragDropSection<GalleryState> {}
+    |_section, state, cx| {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+        VStack(
+            spacing: tokens.spacing.m,
+            children: [
+                Row(
+                    gap: tokens.spacing.s,
                     wrap: ir_op::FlexWrap::Wrap,
-                    children: widgets![
-                        Button {
+                    children: [
+                        Button(
                             variant: if state.drag_snap_preview {
                                 ButtonVariant::Filled
                             } else {
                                 ButtonVariant::Outline
                             },
-                            child: Some(Text::new(if state.drag_snap_preview {
+                            child: Text(if state.drag_snap_preview {
                                 "Snap preview: on"
                             } else {
                                 "Snap preview: off"
-                            })
-                            .into()),
-                            on_press: Some(ctx.bind(
+                            }),
+                            on_press: cx.build.bind(
                                 ToggleSnapPreview,
                                 reduce_with!(toggle_snap_preview),
-                            )),
-                            ..Default::default()
-                        }
+                            ),
+                        )
                         .semantics_identifier("gallery.drag.snap_preview"),
-                        Text::new(
+                        Text(
                             "The preview follows the pointer; snapping demonstrates grid-constrained drag UX.",
                         )
                         .size(tokens.typography.body_medium_size)
                         .color(tokens.colors.text_secondary),
                     ],
-                    ..Default::default()
-                },
-                Grid {
+                ),
+                Grid(
                     columns: vec![GridTrack::auto_fit(GridTrack::minmax(
                         GridTrack::Points(DROP_PANEL_MIN_WIDTH),
                         GridTrack::Fr(1.0),
                     ))],
                     rows: vec![GridTrack::Auto],
-                    column_gap: Some(tokens.spacing.m),
-                    row_gap: Some(tokens.spacing.m),
-                    children: widgets![
-                        LaneDropzone {
-                            id: "Backlog",
-                            title: "Backlog",
-                            items: state.drag_backlog.clone(),
-                        },
-                        LaneDropzone {
-                            id: "Done",
-                            title: "Done",
-                            items: state.drag_done.clone(),
-                        },
-                        DragAuxiliaryColumn,
+                    column_gap: tokens.spacing.m,
+                    row_gap: tokens.spacing.m,
+                    children: [
+                        LaneDropzone("Backlog", "Backlog", state.drag_backlog.clone()),
+                        LaneDropzone("Done", "Done", state.drag_done.clone()),
+                        DragAuxiliaryColumn(),
                     ],
-                    ..Default::default()
-                },
+                ),
             ],
-        }
-        .into()
-    }
+        )
 }

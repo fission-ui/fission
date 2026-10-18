@@ -2,126 +2,59 @@ use crate::gallery_switch_control::GallerySwitchControl;
 use crate::state::GalleryState;
 use fission::op::{AlignItems, FlexWrap};
 use fission::prelude::*;
+use fission::widgets::Slider;
 
-#[derive(Clone)]
-pub struct GalleryControls {
-    pub toggle_smooth: ActionEnvelope,
-    pub update_scale: ActionEnvelope,
-    pub toggle_theme: ActionEnvelope,
-    pub toggle_interactions: ActionEnvelope,
-    pub toggle_animations: ActionEnvelope,
-    pub toggle_markers: ActionEnvelope,
-    pub instance: &'static str,
-}
-
-impl From<GalleryControls> for Widget {
-    fn from(controls: GalleryControls) -> Self {
-        let (_, view) = fission::build::current::<GalleryState>();
-        let tokens = &view.env().theme.tokens;
-
-        Column {
-            id: Some(WidgetId::explicit(&format!(
-                "chart-gallery.controls.{}",
-                controls.instance
-            ))),
-            children: widgets![
-                Text::new("Chart controls")
-                    .size(tokens.typography.label_large_size)
-                    .color(tokens.colors.heading),
-                Row {
-                    children: widgets![
-                        GallerySwitchControl {
-                            label: "Dark theme",
-                            checked: view.state().dark_theme,
-                            action: controls.toggle_theme,
-                            identifier: format!(
-                                "chart-gallery.control.{}.theme",
-                                controls.instance
-                            ),
-                        },
-                        GallerySwitchControl {
-                            label: "Smooth lines",
-                            checked: view.state().smooth,
-                            action: controls.toggle_smooth,
-                            identifier: format!(
-                                "chart-gallery.control.{}.smooth",
-                                controls.instance
-                            ),
-                        },
-                        GallerySwitchControl {
-                            label: "Interactions",
-                            checked: view.state().interactions,
-                            action: controls.toggle_interactions,
-                            identifier: format!(
-                                "chart-gallery.control.{}.interactions",
-                                controls.instance
-                            ),
-                        },
-                        GallerySwitchControl {
-                            label: "Animations",
-                            checked: view.state().animations,
-                            action: controls.toggle_animations,
-                            identifier: format!(
-                                "chart-gallery.control.{}.animations",
-                                controls.instance
-                            ),
-                        },
-                        GallerySwitchControl {
-                            label: "Markers",
-                            checked: view.state().markers,
-                            action: controls.toggle_markers,
-                            identifier: format!(
-                                "chart-gallery.control.{}.markers",
-                                controls.instance
-                            ),
-                        },
+fission_component! {
+    #[derive(Clone)]
+    pub GalleryControls<GalleryState> {
+        toggle_smooth: ActionEnvelope,
+        update_scale: ActionEnvelope,
+        toggle_theme: ActionEnvelope,
+        toggle_interactions: ActionEnvelope,
+        toggle_animations: ActionEnvelope,
+        toggle_markers: ActionEnvelope,
+        instance: &'static str,
+    }
+    |controls, state, cx| {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+        Column(
+            id: WidgetId::explicit(&format!("chart-gallery.controls.{}", controls.instance)),
+            children: [
+                Text("Chart controls").size(tokens.typography.label_large_size).color(tokens.colors.heading),
+                Row(
+                    children: [
+                        GallerySwitchControl("Dark theme", state.dark_theme, controls.toggle_theme, format!("chart-gallery.control.{}.theme", controls.instance)),
+                        GallerySwitchControl("Smooth lines", state.smooth, controls.toggle_smooth, format!("chart-gallery.control.{}.smooth", controls.instance)),
+                        GallerySwitchControl("Interactions", state.interactions, controls.toggle_interactions, format!("chart-gallery.control.{}.interactions", controls.instance)),
+                        GallerySwitchControl("Animations", state.animations, controls.toggle_animations, format!("chart-gallery.control.{}.animations", controls.instance)),
+                        GallerySwitchControl("Markers", state.markers, controls.toggle_markers, format!("chart-gallery.control.{}.markers", controls.instance)),
                     ],
-                    gap: Some(tokens.spacing.m),
+                    gap: tokens.spacing.m,
                     align_items: AlignItems::Center,
                     wrap: FlexWrap::Wrap,
-                    ..Default::default()
-                },
-                Row {
-                    children: widgets![
-                        Text::new("Data scale").color(tokens.colors.text_primary),
-                        fission::widgets::Slider {
-                            id: Some(WidgetId::explicit(&format!(
-                                "chart-gallery.control.{}.scale",
-                                controls.instance
-                            ))),
-                            semantics_identifier: Some(format!(
-                                "chart-gallery.control.{}.scale",
-                                controls.instance
-                            )),
-                            value: view.state().data_scale,
+                ),
+                Row(
+                    children: [
+                        Text("Data scale").color(tokens.colors.text_primary),
+                        Slider(
+                            id: WidgetId::explicit(&format!("chart-gallery.control.{}.scale", controls.instance)),
+                            semantics_identifier: format!("chart-gallery.control.{}.scale", controls.instance),
+                            value: state.data_scale,
                             min: 0.1,
                             max: 2.0,
-                            on_change: Some(controls.update_scale),
-                            ..Default::default()
-                        },
-                        Text::new(format!("{:.2}x", view.state().data_scale))
-                            .color(tokens.colors.text_secondary),
+                            on_change: controls.update_scale.clone(),
+                        ),
+                        Text(format!("{:.2}x", state.data_scale)).color(tokens.colors.text_secondary),
                     ],
-                    gap: Some(tokens.spacing.m),
+                    gap: tokens.spacing.m,
                     align_items: AlignItems::Center,
-                    ..Default::default()
-                },
-                Text::new(
-                    view.state()
-                        .last_interaction
-                        .as_deref()
-                        .unwrap_or("Interact with the chart to see typed chart events here."),
-                )
-                .size(tokens.typography.body_medium_size)
-                .color(tokens.colors.text_secondary),
+                ),
+                Text(state.last_interaction.as_deref().unwrap_or("Interact with the chart to see typed chart events here."))
+                    .size(tokens.typography.body_medium_size)
+                    .color(tokens.colors.text_secondary),
             ],
-            gap: Some(tokens.spacing.s),
-            // The chart area above grows to fill the column; keep the controls
-            // at their natural height so the slider row cannot overlap the
-            // helper text when the window is short.
+            gap: tokens.spacing.s,
             flex_shrink: 0.0,
-            ..Default::default()
-        }
-        .into()
-    }
+        )
 }

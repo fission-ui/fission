@@ -9,14 +9,10 @@ fn select_quality_tab(state: &mut GalleryState, index: usize) {
     state.active_tab = index;
 }
 
-pub(super) struct QualityTabs {
-    pub compact: bool,
-}
-
-impl From<QualityTabs> for Widget {
-    fn from(tabs: QualityTabs) -> Self {
-        let (ctx, view) = fission::build::current::<GalleryState>();
-        let active_tab = view.state().active_tab;
+fission_component! {
+    pub(super) QualityTabs<GalleryState> { compact: bool }
+    |tabs, state, cx| {
+        let active_tab = state.active_tab;
         let root_id = WidgetId::explicit(if tabs.compact {
             "quality-gallery.tabs.mobile"
         } else {
@@ -30,39 +26,10 @@ impl From<QualityTabs> for Widget {
         let notifications_trigger_id = WidgetId::derived(root_id.as_u128(), &[6]);
         let notifications_panel_id = WidgetId::derived(root_id.as_u128(), &[7]);
 
-        let general_action = with_reducer!(ctx, SelectQualityTab(0), select_quality_tab);
-        let security_action = with_reducer!(ctx, SelectQualityTab(1), select_quality_tab);
-        let notifications_action = with_reducer!(ctx, SelectQualityTab(2), select_quality_tab);
-        let active_panel: Widget = match active_tab {
-            0 => TabPanel::new(
-                general_panel_id,
-                general_trigger_id,
-                QualityGeneralPanel {
-                    compact: tabs.compact,
-                },
-            )
-            .into(),
-            1 => TabPanel::new(
-                security_panel_id,
-                security_trigger_id,
-                QualityPendingPanel {
-                    title: "Security settings",
-                    description: "Security controls will appear in this panel.",
-                },
-            )
-            .into(),
-            2 => TabPanel::new(
-                notifications_panel_id,
-                notifications_trigger_id,
-                QualityPendingPanel {
-                    title: "Notification settings",
-                    description: "Notification controls will appear in this panel.",
-                },
-            )
-            .into(),
-            _ => Spacer::default().into(),
-        };
-
+        let general_action = with_reducer!(cx.build, SelectQualityTab(0), select_quality_tab);
+        let security_action = with_reducer!(cx.build, SelectQualityTab(1), select_quality_tab);
+        let notifications_action = with_reducer!(cx.build, SelectQualityTab(2), select_quality_tab);
+    } =>
         Widget::from(TabsLayout::new(
             TabList::new(
                 list_id,
@@ -88,31 +55,50 @@ impl From<QualityTabs> for Widget {
                     .semantics_identifier("quality-gallery.tabs.notifications"),
                 ],
             ),
-            active_panel,
+            QualityActivePanel::new(
+                active_tab,
+                tabs.compact,
+                general_panel_id,
+                general_trigger_id,
+                security_panel_id,
+                security_trigger_id,
+                notifications_panel_id,
+                notifications_trigger_id,
+            ),
         ))
         .id(root_id)
+}
+
+fission_component! {
+    QualityActivePanel<GalleryState> {
+        active_tab: usize,
+        compact: bool,
+        general_panel_id: WidgetId,
+        general_trigger_id: WidgetId,
+        security_panel_id: WidgetId,
+        security_trigger_id: WidgetId,
+        notifications_panel_id: WidgetId,
+        notifications_trigger_id: WidgetId,
+    } |panel, _state, _cx| {} => match panel.active_tab {
+        0 => Widget::from(TabPanel::new(panel.general_panel_id, panel.general_trigger_id, QualityGeneralPanel::new(panel.compact))),
+        1 => Widget::from(TabPanel::new(panel.security_panel_id, panel.security_trigger_id, QualityPendingPanel::new("Security settings", "Security controls will appear in this panel."))),
+        2 => Widget::from(TabPanel::new(panel.notifications_panel_id, panel.notifications_trigger_id, QualityPendingPanel::new("Notification settings", "Notification controls will appear in this panel."))),
+        _ => Widget::from(Spacer::default()),
     }
 }
 
-struct QualityPendingPanel {
-    title: &'static str,
-    description: &'static str,
-}
-
-impl From<QualityPendingPanel> for Widget {
-    fn from(panel: QualityPendingPanel) -> Self {
-        Card {
-            child: EmptyState {
+fission_component! {
+    QualityPendingPanel<GalleryState> { title: &'static str, description: &'static str }
+    |panel, _state, _cx| {} =>
+        Card(
+            child: EmptyState(
                 icon: None,
-                title: panel.title.into(),
-                description: Some(panel.description.into()),
+                title: panel.title.to_string(),
+                description: Some(panel.description.to_string()),
                 action: None,
-            }
-            .into(),
+            ),
             pattern: CardPattern::Plain,
             interactive: false,
             selected: false,
-        }
-        .into()
-    }
+        )
 }
