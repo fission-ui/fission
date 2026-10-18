@@ -72,6 +72,20 @@ mod tests {
         syn::parse2::<syn::File>(output).unwrap();
     }
     #[test]
+    fn component_attributes_are_preserved_without_duplicate_clone_derives() {
+        let output = expand(quote! {
+            #[derive(Clone, Debug)]
+            /// A documented component.
+            pub Screen<State> |screen, state, cx| => Text("Ready")
+        })
+        .unwrap()
+        .to_string();
+
+        assert!(output.contains("derive (Clone , Debug)"), "{output}");
+        assert_eq!(output.matches("derive (Clone").count(), 1, "{output}");
+        assert!(output.contains("A documented component"), "{output}");
+    }
+    #[test]
     fn named_arguments_lower_to_struct_fields_without_generated_builders() {
         let output = expand(quote! {
             pub Screen<State> |screen, state, cx| =>
@@ -80,12 +94,27 @@ mod tests {
         .unwrap()
         .to_string();
 
-        assert!(output.contains("ThirdPartyWidget {"), "{output}");
-        assert!(output.contains("title :"), "{output}");
-        assert!(output.contains("enabled :"), "{output}");
+        assert!(output.contains("__widget : ThirdPartyWidget"), "{output}");
+        assert!(output.contains("__widget . title ="), "{output}");
+        assert!(output.contains("__widget . enabled ="), "{output}");
         assert!(output.contains("Default :: default"), "{output}");
         assert!(!output.contains(". title ("), "{output}");
         assert!(!output.contains(". enabled ("), "{output}");
+    }
+    #[test]
+    fn non_child_arrays_remain_rust_arrays() {
+        let output = expand(quote! {
+            pub Screen<State> |screen, state, cx| => Button(
+                padding: [1.0, 2.0, 3.0, 4.0],
+                child: Text("Save"),
+            )
+        })
+        .unwrap()
+        .to_string();
+
+        assert!(output.contains("__widget . padding ="), "{output}");
+        assert!(output.contains("as f32"), "{output}");
+        assert!(!output.contains("Vec <"), "{output}");
     }
     #[test]
     fn setup_statements_and_explicit_widget_modifiers_remain_ordinary_rust() {
@@ -142,6 +171,49 @@ mod tests {
         assert!(!output.contains("Ok {"), "{output}");
         assert!(!output.contains("Err {"), "{output}");
     }
+    #[test]
+    fn some_can_wrap_a_composed_widget() {
+        let output = expand(quote! {
+            pub Screen<State> |screen, state, cx| => EmptyState(
+                icon: Some(Icon(name: "inbox")),
+            )
+        })
+        .unwrap()
+        .to_string();
+
+        assert!(output.contains("__widget . icon = (Some"), "{output}");
+        assert!(output.contains("__widget : Icon"), "{output}");
+    }
+
+    #[test]
+    fn expressions_beginning_with_some_remain_rust_expressions() {
+        let output = expand(quote! {
+            pub Screen<State> |screen, state, cx| => ProductCard(
+                selected: Some(screen.id) == state.selected_id,
+            )
+        })
+        .unwrap()
+        .to_string();
+
+        assert!(
+            output.contains("Some (screen . id) == state . selected_id"),
+            "{output}"
+        );
+        assert!(!output.contains("Some (Some"), "{output}");
+    }
+
+    #[test]
+    fn method_calls_on_if_expressions_remain_rust_expressions() {
+        let output = expand(quote! {
+            pub Screen<State> |screen, state, cx| => Label(
+                if state.ready { "Ready" } else { "Waiting" }.to_string(),
+            )
+        })
+        .unwrap()
+        .to_string();
+
+        assert!(output.contains(". to_string ()"), "{output}");
+    }
 
     #[test]
     fn qualified_enum_constructors_remain_rust_expressions() {
@@ -173,6 +245,21 @@ mod tests {
 
         assert!(first.contains("in_slot (\"argument:"), "{first}");
         assert_eq!(first, second, "positional scopes must be deterministic");
+    }
+
+    #[test]
+    fn component_fields_are_cloned_when_read_as_children() {
+        let output = expand(quote! {
+            pub Layout<State> { content: Widget } |layout, state, cx| =>
+                Column(children: [layout.content])
+        })
+        .unwrap()
+        .to_string();
+
+        assert!(
+            output.contains("Clone :: clone (& (layout . content))"),
+            "{output}"
+        );
     }
 
     #[test]
@@ -233,8 +320,8 @@ mod tests {
         syn::parse2::<syn::File>(output.clone()).unwrap();
         let output = output.to_string();
 
-        assert!(output.contains("on_lower_change :"), "{output}");
-        assert!(output.contains("on_upper_change :"), "{output}");
+        assert!(output.contains("__widget . on_lower_change ="), "{output}");
+        assert!(output.contains("__widget . on_upper_change ="), "{output}");
         assert!(output.contains("LowerChanged"), "{output}");
         assert!(output.contains("UpperChanged"), "{output}");
     }

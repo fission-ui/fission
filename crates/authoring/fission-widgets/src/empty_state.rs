@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 /// The bordered panel groups an optional icon, a title, an optional
 /// description, and an optional action. Its message regions remain bounded and
 /// centered while the surface fills the available parent width.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct EmptyState {
     /// Optional illustration or icon shown above the title.
     pub icon: Option<Widget>,

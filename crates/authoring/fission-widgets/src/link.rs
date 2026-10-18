@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 /// Use [`Link::to`] or [`Link::hyperlink`] for navigation so Web, Static site,
 /// and SSR can lower a real `href`; use `on_click` directly for a non-navigation
 /// action that merely uses link styling.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Link {
     /// Visible link label.
     pub text: String,

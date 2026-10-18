@@ -7,6 +7,7 @@ use syn::{Expr, Ident, Lit, LitStr, Member, Pat};
 pub fn component(input: Component) -> syn::Result<Tokens> {
     let rt = crate::support();
     let Component {
+        attrs,
         vis,
         name,
         target,
@@ -18,6 +19,15 @@ pub fn component(input: Component) -> syn::Result<Tokens> {
         setup,
         body,
     } = input;
+    let derives_clone = attrs.iter().any(|attr| {
+        attr.path().is_ident("derive")
+            && attr
+                .parse_args_with(
+                    syn::punctuated::Punctuated::<syn::Path, syn::Token![,]>::parse_terminated,
+                )
+                .is_ok_and(|paths| paths.iter().any(|path| path.is_ident("Clone")))
+    });
+    let clone_derive = (!derives_clone).then(|| quote!(#[derive(Clone)]));
     let setup = setup.map(|block| block.stmts).unwrap_or_default();
     let root_scope_ty = format_ident!("__{}RootScope", name);
     let (scope_ty, root_scope_item) = match &scope {
@@ -79,10 +89,11 @@ pub fn component(input: Component) -> syn::Result<Tokens> {
     });
     let prop_init = props.iter().map(|f| &f.name);
     let component_definition = if props.is_empty() {
-        quote!(#[derive(Clone)] #vis struct #name;)
+        quote!(#(#attrs)* #clone_derive #vis struct #name;)
     } else {
         quote!(
-            #[derive(Clone)]
+            #(#attrs)*
+            #clone_derive
             #vis struct #name {
                 #(#prop_fields,)*
             }
@@ -182,9 +193,8 @@ impl Emitter<'_> {
         let rt = self.rt.clone();
         match v {
             Value::Call(c) => self.call(c, path),
-            Value::Rust(e) | Value::ExplicitRust(e) | Value::Read(e) | Value::Source(e) => {
-                Ok(quote!(#e))
-            }
+            Value::Rust(e) | Value::Read(e) => Ok(borrowed_read(e, &self.editor, &self.state)),
+            Value::ExplicitRust(e) | Value::Source(e) => Ok(quote!(#e)),
             Value::To(e) => Err(syn::Error::new_spanned(
                 e,
                 "to(...) is only valid on the right-hand side of bind(event):",
@@ -197,6 +207,14 @@ impl Emitter<'_> {
                 Ok(
                     quote!({let mut __children:Vec<#rt::core::Widget>=Vec::new();#(#pieces)* __children}),
                 )
+            }
+            Value::Optional(value) => {
+                let value = self.bare(value, path)?;
+                if v.is_plain_rust() {
+                    Ok(quote!(Some(#value)))
+                } else {
+                    Ok(quote!(Some((#value).into())))
+                }
             }
             Value::If { cond, yes, no } => {
                 // Conditional branches share the same semantic namespace. This lets
@@ -270,6 +288,14 @@ impl Emitter<'_> {
                 }
                 quote!(#(#pieces)*)
             }
+            Value::Optional(value) => {
+                let value = self.bare(value, path)?;
+                if v.is_plain_rust() {
+                    quote!(__children.push((Some(#value)).into());)
+                } else {
+                    quote!(__children.push((Some((#value).into())).into());)
+                }
+            }
             _ => {
                 let child = self.bare(v, path)?;
                 quote!(__children.push((#child).into());)
@@ -281,6 +307,32 @@ impl Emitter<'_> {
             return Ok(borrowed_read(expr, &self.editor, &self.state));
         }
         self.bare(v, path)
+    }
+
+    fn property_value(&mut self, v: &Value, path: &str, property: &str) -> syn::Result<Tokens> {
+        if property != "children" {
+            if let Value::Array(values) = v {
+                let values = values
+                    .iter()
+                    .map(|value| {
+                        value
+                            .rust()
+                            .map(|expr| property_expression(expr, &self.editor, &self.state))
+                            .ok_or_else(|| {
+                                syn::Error::new(
+                                    Span::call_site(),
+                                    "only children may contain component expressions; this property array must contain Rust expressions",
+                                )
+                            })
+                    })
+                    .collect::<syn::Result<Vec<_>>>()?;
+                return Ok(quote!([#(#values),*]));
+            }
+        }
+        if let Value::Rust(expr) = v {
+            return Ok(property_expression(expr, &self.editor, &self.state));
+        }
+        self.value(v, path)
     }
     fn binding(&mut self, v: &Value) -> syn::Result<Tokens> {
         let rt = self.rt.clone();
@@ -336,7 +388,7 @@ impl Emitter<'_> {
             let expr = key
                 .rust()
                 .ok_or_else(|| syn::Error::new_spanned(widget, "key must be a Rust expression"))?;
-            borrowed_read(expr, &self.editor, &self.state)
+            quote!(::std::clone::Clone::clone(&(#expr)))
         } else {
             let automatic_key = LitStr::new(&automatic_key, Span::call_site());
             quote!(#automatic_key)
@@ -350,6 +402,7 @@ impl Emitter<'_> {
             static_key.as_deref().unwrap_or(&automatic_key)
         );
         let mut fields = Vec::new();
+        let mut events = Vec::new();
         let mut bindings = Vec::new();
         let mut positional = Vec::new();
         for arg in &c.args {
@@ -367,10 +420,11 @@ impl Emitter<'_> {
                     None => default_edit_event(port)?,
                 };
                 let source = self.binding(&Value::Rust(target.clone()))?;
-                fields.push(quote!(
-                    #port:#rt::identity::in_slot(#property,||
-                        #rt::binding::update_for::<_,#event,_>(#property,#source)
-                    )
+                events.push(quote!(
+                    #rt::identity::in_slot(#property,||{
+                        __widget.#port=
+                            #rt::binding::update_for::<_,#event,_>(#property,#source);
+                    });
                 ));
                 continue;
             }
@@ -402,13 +456,15 @@ impl Emitter<'_> {
                     Some(Expr::Closure(closure)) => {
                         let handler_name=c.named("handler").and_then(Value::rust).and_then(string_literal).or_else(||static_key.clone())
                             .ok_or_else(||syn::Error::new_spanned(closure,"an inline handler needs a literal key: \"save\"; with a dynamic control key, add handler: \"save\""))?;
-                        self.handler(
+                        let handler = self.handler(
                             closure,
                             &property,
                             &format!("{parent_path}/{widget_name}/{handler_name}/{property}"),
-                        )?
+                        )?;
+                        quote!((#handler).into())
                     }
-                    Some(e) => quote!(#e),
+                    Some(e) => borrowed_read(e, &self.editor, &self.state),
+                    None if arg.value.is_plain_rust() => self.bare(&arg.value, &argument_path)?,
                     None => {
                         return Err(syn::Error::new_spanned(
                             widget,
@@ -417,17 +473,23 @@ impl Emitter<'_> {
                     }
                 }
             } else {
-                self.value(&arg.value, &argument_path)?
+                self.property_value(&arg.value, &argument_path, &property)?
             };
             // Argument values are built in a named slot, never a declaration ordinal.
             if property == "bind" {
                 bindings.push(quote!(let __widget=#rt::ComposeBind::compose_bind(__widget,#rt::identity::in_slot(#property,||#value));));
             } else if property.starts_with("on_") {
-                fields.push(
-                    quote!(#method:Some((#rt::identity::in_slot(#property,||#value)).into())),
-                );
+                events.push(quote!(
+                    #rt::identity::in_slot(#property,||{
+                        __widget.#method=Some(#value);
+                    });
+                ));
             } else {
-                fields.push(quote!(#method:(#rt::identity::in_slot(#property,||#value)).into()));
+                fields.push(quote!(
+                    #rt::identity::in_slot(#property,||{
+                        __widget.#method=(#value).into();
+                    });
+                ));
             }
         }
         let base = if positional.is_empty() {
@@ -443,7 +505,9 @@ impl Emitter<'_> {
         Ok(quote!({
             let __key=#key;
             #rt::identity::with_node(stringify!(#widget),&__key,||{
-                let __widget=#widget{#(#fields,)*..#base};
+                let mut __widget:#widget=#base;
+                #(#fields)*
+                #(#events)*
                 #(#modifiers)*
                 #(#bindings)*
                 let __widget:#rt::core::Widget=__widget.into();
@@ -666,6 +730,7 @@ fn value_shape(value: &Value) -> String {
         | Value::Read(expr)
         | Value::Source(expr)
         | Value::To(expr) => expr.to_token_stream().to_string(),
+        Value::Optional(value) => format!("Some({})", value_shape(value)),
         Value::Array(values) => format!(
             "[{}]",
             values.iter().map(value_shape).collect::<Vec<_>>().join(",")
@@ -755,6 +820,60 @@ fn string_literal(expr: &Expr) -> Option<String> {
             _ => None,
         },
         _ => None,
+    }
+}
+
+fn property_expression(expr: &Expr, editor: &Ident, state: &Ident) -> Tokens {
+    if unsuffixed_float_expression(expr) {
+        quote!((#expr) as f32)
+    } else {
+        borrowed_read(expr, editor, state)
+    }
+}
+
+fn unsuffixed_float_expression(expr: &Expr) -> bool {
+    match expr {
+        Expr::Lit(literal) => match &literal.lit {
+            Lit::Float(float) => float.suffix().is_empty(),
+            _ => false,
+        },
+        Expr::Binary(binary) => {
+            numeric_literal_expression(&binary.left)
+                && numeric_literal_expression(&binary.right)
+                && (contains_float_literal(&binary.left) || contains_float_literal(&binary.right))
+        }
+        Expr::Group(group) => unsuffixed_float_expression(&group.expr),
+        Expr::Paren(paren) => unsuffixed_float_expression(&paren.expr),
+        Expr::Unary(unary) => unsuffixed_float_expression(&unary.expr),
+        _ => false,
+    }
+}
+
+fn numeric_literal_expression(expr: &Expr) -> bool {
+    match expr {
+        Expr::Lit(literal) => matches!(literal.lit, Lit::Float(_) | Lit::Int(_)),
+        Expr::Binary(binary) => {
+            numeric_literal_expression(&binary.left) && numeric_literal_expression(&binary.right)
+        }
+        Expr::Group(group) => numeric_literal_expression(&group.expr),
+        Expr::Paren(paren) => numeric_literal_expression(&paren.expr),
+        Expr::Unary(unary) => numeric_literal_expression(&unary.expr),
+        _ => false,
+    }
+}
+
+fn contains_float_literal(expr: &Expr) -> bool {
+    match expr {
+        Expr::Lit(literal) => {
+            matches!(&literal.lit, Lit::Float(float) if float.suffix().is_empty())
+        }
+        Expr::Binary(binary) => {
+            contains_float_literal(&binary.left) || contains_float_literal(&binary.right)
+        }
+        Expr::Group(group) => contains_float_literal(&group.expr),
+        Expr::Paren(paren) => contains_float_literal(&paren.expr),
+        Expr::Unary(unary) => contains_float_literal(&unary.expr),
+        _ => false,
     }
 }
 fn parameter(p: &Pat) -> syn::Result<Option<Ident>> {

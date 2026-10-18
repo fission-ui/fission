@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 /// Children expand evenly across each row and wrap when another
 /// `min_child_width` item no longer fits. Use [`fission_core::ui::Grid`] when
 /// the application needs explicit rows, columns, or named placements.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct SimpleGrid {
     /// Smallest logical width assigned to an item before wrapping occurs.
     pub min_child_width: f32,

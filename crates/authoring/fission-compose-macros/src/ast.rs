@@ -15,6 +15,7 @@ pub struct Field {
     pub local: Option<Expr>,
 }
 pub struct Component {
+    pub attrs: Vec<Attribute>,
     pub vis: Visibility,
     pub name: Ident,
     pub target: Type,
@@ -28,6 +29,7 @@ pub struct Component {
 }
 impl Parse for Component {
     fn parse(input: ParseStream<'_>) -> syn::Result<Self> {
+        let attrs = input.call(Attribute::parse_outer)?;
         let vis = input.parse()?;
         let name = input.parse()?;
         input.parse::<Token![<]>()?;
@@ -126,6 +128,7 @@ impl Parse for Component {
             ));
         }
         Ok(Self {
+            attrs,
             vis,
             name,
             target,
@@ -173,6 +176,7 @@ impl Call {
 pub enum Value {
     Call(Call),
     Array(Vec<Value>),
+    Optional(Box<Value>),
     If {
         cond: Expr,
         yes: Box<Value>,
@@ -212,6 +216,7 @@ impl Value {
             Self::If { yes, no, .. } => {
                 yes.is_plain_rust() && no.as_deref().is_none_or(Self::is_plain_rust)
             }
+            Self::Optional(value) => value.is_plain_rust(),
             Self::Match { arms, .. } => arms.iter().all(|(_, _, body)| body.is_plain_rust()),
             Self::Call(_) | Self::Array(_) | Self::For { .. } => false,
         }
@@ -222,6 +227,9 @@ fn is_bare_component(expr: &Expr) -> bool {
     let Expr::Path(path) = expr else {
         return false;
     };
+    if path.path.is_ident("None") {
+        return false;
+    }
     if path.qself.is_some() || path.path.segments.len() != 1 {
         return false;
     }
@@ -273,6 +281,13 @@ impl Parse for Value {
             return Ok(Self::ExplicitRust(syn::parse_quote!(#block)));
         }
         if input.peek(Token![if]) {
+            let fork = input.fork();
+            if let Ok(expr) = fork.parse::<Expr>() {
+                if !matches!(expr, Expr::If(_)) && (fork.is_empty() || fork.peek(Token![,])) {
+                    let expr = input.parse::<Expr>()?;
+                    return Ok(Self::Rust(expr));
+                }
+            }
             input.parse::<Token![if]>()?;
             let cond = input.call(Expr::parse_without_eager_brace)?;
             let yes = Box::new(branch(input)?);
@@ -309,17 +324,22 @@ impl Parse for Value {
                 let pat = body.call(Pat::parse_multi_with_leading_vert)?;
                 let guard = if body.peek(Token![if]) {
                     body.parse::<Token![if]>()?;
-                    Some(body.parse()?)
+                    Some(body.call(Expr::parse_without_eager_brace)?)
                 } else {
                     None
                 };
                 body.parse::<Token![=>]>()?;
                 let value = body.parse()?;
+                let comma_optional = matches!(&value, Self::Rust(Expr::Block(_)));
                 arms.push((pat, guard, value));
                 if body.is_empty() {
                     break;
                 }
-                body.parse::<Token![,]>()?;
+                if body.peek(Token![,]) {
+                    body.parse::<Token![,]>()?;
+                } else if !comma_optional {
+                    return Err(body.error("expected `,` after match arm"));
+                }
             }
             return Ok(Self::Match { expr, arms });
         }
@@ -328,13 +348,55 @@ impl Parse for Value {
             syn::bracketed!(list in input);
             let mut values = Vec::new();
             while !list.is_empty() {
-                values.push(list.parse()?);
+                let value: Value = list.parse()?;
+                let comma_optional = matches!(
+                    &value,
+                    Self::If { .. }
+                        | Self::For { .. }
+                        | Self::Match { .. }
+                        | Self::Rust(Expr::Block(_))
+                );
+                values.push(value);
                 if list.is_empty() {
                     break;
                 }
-                list.parse::<Token![,]>()?;
+                if list.peek(Token![,]) {
+                    list.parse::<Token![,]>()?;
+                } else if !comma_optional {
+                    return Err(list.error("expected `,` between child expressions"));
+                }
             }
             return Ok(Self::Array(values));
+        }
+        if input.peek(Ident) {
+            let fork = input.fork();
+            let ident: Ident = fork.parse()?;
+            if ident == "Some" && fork.peek(syn::token::Paren) {
+                let fork_inner;
+                syn::parenthesized!(fork_inner in fork);
+                let _: Value = fork_inner.parse()?;
+                if fork_inner.peek(Token![,]) {
+                    fork_inner.parse::<Token![,]>()?;
+                }
+                // `Some(widget)` is Compose sugar, while an expression beginning
+                // with `Some(...)` (for example, a comparison) remains ordinary Rust.
+                if !fork_inner.is_empty() || !(fork.is_empty() || fork.peek(Token![,])) {
+                    let expr: Expr = input.parse()?;
+                    return Ok(Self::Rust(expr));
+                }
+
+                input.parse::<Ident>()?;
+                let inner;
+                syn::parenthesized!(inner in input);
+                let value = inner.parse()?;
+                if inner.peek(Token![,]) {
+                    inner.parse::<Token![,]>()?;
+                }
+                if !inner.is_empty() {
+                    return Err(inner.error("Some takes one value"));
+                }
+                return Ok(Self::Optional(Box::new(value)));
+            }
         }
         if starts_constructor(input) {
             let path = input.parse()?;

@@ -22,12 +22,18 @@ pub enum AlertKind {
     Success,
 }
 
+impl Default for AlertKind {
+    fn default() -> Self {
+        Self::Info
+    }
+}
+
 /// Persistent inline message with semantic tone, title, and optional detail.
 ///
 /// This convenience API lowers through the same named anatomy as
 /// [`AlertLayout`]. Use that layout directly when an alert needs custom
 /// retained content, a custom leading visual, or a trailing action.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Alert {
     /// Tone used to resolve icon and design-system colors.
     pub kind: AlertKind,

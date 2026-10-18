@@ -30,6 +30,23 @@ pub struct DatePicker {
     pub on_close: Option<ActionEnvelope>,
 }
 
+impl Default for DatePicker {
+    fn default() -> Self {
+        Self {
+            id: WidgetId::from_u128(0),
+            value: None,
+            is_open: false,
+            width: None,
+            view_year: None,
+            view_month: None,
+            on_navigate: None,
+            on_change: None,
+            on_toggle: None,
+            on_close: None,
+        }
+    }
+}
+
 impl std::fmt::Debug for DatePicker {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("DatePicker")
