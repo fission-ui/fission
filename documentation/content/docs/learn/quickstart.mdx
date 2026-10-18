@@ -47,7 +47,7 @@ fission init my-app
 cd my-app
 ```
 
-`fission init my-app` creates a new folder named `my-app` and fills it with a working starter project. The starter app is a small counter, which is useful because it already shows the basic Fission loop: state, an action, a reducer, and a widget tree.
+`fission init my-app` creates a new folder named `my-app` and fills it with a working starter project. The starter app is a small counter, which is useful because it already shows the basic Fission loop: state, an inline reducer, and a Compose widget tree.
 
 `cd my-app` moves your terminal into that new project so the next commands run against it.
 
@@ -58,7 +58,7 @@ Before you run anything, it helps to know what the important files are for.
 | Path | What it is for |
 |---|---|
 | `src/main.rs` | The default desktop entrypoint. When you run `cargo run` on Windows, macOS, or Linux, this is the file that starts the app. |
-| `src/app.rs` | The shared app itself. This is the most important file to open first. The starter project keeps the counter state, the increment action, the reducer, and the widget tree here. |
+| `src/app.rs` | The shared app itself. This is the most important file to open first. The starter project keeps the counter state, inline increment reducer, and Compose widget tree here. |
 | [`fission.toml`](/reference/config/fission-toml/) | The Fission project manifest. It records project information such as the app identifier and which extra targets you have generated. The command-line interface updates this file when you add more platforms. |
 | `platforms/<target>/...` | Generated platform-specific wrapper files. These are created when you add a target such as Web, Android, iOS, Static site, or SSR. They include small helper files, platform notes, and host scripts for building and launching on that target. |
 

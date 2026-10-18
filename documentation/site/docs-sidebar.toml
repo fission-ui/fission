@@ -20,6 +20,11 @@ href = "/docs/learn/quickstart/"
 level = 2
 
 [[items]]
+title = "Compose"
+href = "/compose/"
+level = 2
+
+[[items]]
 title = "Project structure"
 href = "/docs/guides/app-structure/"
 level = 2

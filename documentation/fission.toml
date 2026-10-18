@@ -58,6 +58,10 @@ title = "Docs"
 href = "/docs/"
 
 [[site.nav]]
+title = "Compose"
+href = "/compose/"
+
+[[site.nav]]
 title = "Reference"
 href = "/reference/overview/overview/"
 
@@ -83,6 +87,12 @@ path = "/docs"
 source = "content/docs"
 template = "fission::site::documentation"
 sidebar = "site/docs-sidebar.toml"
+
+[[site.routes]]
+kind = "content"
+path = "/compose"
+source = "content/compose"
+template = "fission::site::documentation"
 
 [[site.routes]]
 kind = "content"
