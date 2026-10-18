@@ -26,11 +26,15 @@ impl From<OverviewGrid<'_>> for Widget {
             children: widgets::summaries()
                 .into_iter()
                 .map(|summary| {
-                    OverviewCard {
+                    let id = WidgetId::explicit(&format!(
+                        "animation-gallery.overview{}",
+                        summary.path.replace('/', ".")
+                    ));
+                    Widget::from(OverviewCard {
                         ctx: grid.ctx,
                         summary,
-                    }
-                    .into()
+                    })
+                    .id(id)
                 })
                 .collect(),
             ..Default::default()

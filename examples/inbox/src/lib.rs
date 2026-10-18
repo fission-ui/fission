@@ -7,7 +7,6 @@ use fission::i18n::{Locale, TranslationBundle};
     not(any(target_arch = "wasm32", target_os = "android", target_os = "ios"))
 ))]
 use fission::prelude::DesktopApp;
-use fission::prelude::{DesignMode, DesignSystem, FissionFluent2DesignSystem};
 use std::collections::HashMap;
 
 mod app;
@@ -503,15 +502,9 @@ pub fn configure_embedded_env(state: &InboxState, env: &mut Env) {
     env.locale = state.locale.clone();
 }
 
-/// Syncs locale and the Fluent 2 theme for the mode the reader picked, when the
-/// inbox runs as its own app.
+/// Syncs app-wide environment values when the inbox runs as its own app.
 fn sync_standalone_env(state: &InboxState, env: &mut Env) {
     configure_embedded_env(state, env);
-    // env.theme = FissionFluent2DesignSystem::theme(if state.theme_mode == "dark" {
-    //     DesignMode::Dark
-    // } else {
-    //     DesignMode::Light
-    // });
 }
 
 #[cfg(all(
@@ -547,7 +540,6 @@ pub fn run_desktop() -> anyhow::Result<()> {
     let mut app = DesktopApp::<InboxState, _>::new(InboxApp)
         .with_title("Fission Inbox")
         .with_env(create_env())
-        // .with_design_system::<FissionFluent2DesignSystem>(DesignMode::Light)
         .with_sync_env(sync_standalone_env);
 
     // Register global handlers

@@ -16,38 +16,35 @@ pub use model::{
     IconResults, SearchChanged, State,
 };
 
-#[derive(Clone)]
-pub struct IconsApp;
-
-impl From<IconsApp> for Widget {
-    fn from(_component: IconsApp) -> Self {
-        let (_, view) = fission::build::current::<State>();
-        let tokens = &view.env().theme.tokens;
-        let results = filter_icons(view.state());
-
-        Container::new(Column {
-            gap: Some(tokens.spacing.l),
-            flex_grow: 1.0,
-            children: widgets![
-                Text::new("Material Icons Gallery")
+fission_component! {
+    pub IconsApp<State>
+    |_app, state, cx| {
+        let tokens = &cx.view.env().theme.tokens;
+        let results = filter_icons(state);
+        let shown = results.visible.len();
+    } =>
+    Container(
+        Column(
+            gap: tokens.spacing.l,
+            flex_grow: 1.0_f32,
+            children: [
+                Text("Material Icons Gallery")
                     .size(tokens.typography.heading1_size)
                     .color(tokens.colors.heading),
                 IconGalleryControls {
                     categories: results.categories,
-                    shown: results.visible.len(),
+                    shown,
                     total: results.total,
                 },
                 IconGalleryList {
                     entries: results.visible,
                 },
             ],
-            ..Default::default()
-        })
-        .padding_all(tokens.spacing.l)
-        .bg(tokens.colors.background)
-        .flex_grow(1.0)
-        .into()
-    }
+        ),
+    )
+    .padding_all(tokens.spacing.l)
+    .bg(tokens.colors.background)
+    .flex_grow(1.0)
 }
 
 #[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]

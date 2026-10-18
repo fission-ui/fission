@@ -4,45 +4,41 @@ use crate::inbox_shell::InboxShell;
 use crate::model::detail::set_toast_visible;
 use crate::model::list::set_mobile_menu_open;
 use crate::model::{InboxState, SetMobileMenuOpen, ToggleToast};
-use fission::core::ui::{Text, Widget};
-use fission::core::{reduce_with, WidgetId};
+use fission::core::reduce_with;
 use fission::motion::{
     scalar, Motion, MotionEasing, MotionPhase, MotionPropertyId, MotionStartValue, MotionTrack,
     MotionTransition,
 };
+use fission::prelude::*;
 use fission::widgets::{
     Card, Center, Drawer, DrawerSide, Overlay, Positioned, Spacer, Toast, ToastKind, VStack,
 };
 
 const MOBILE_DRAWER_WIDTH: f32 = 280.0;
 
-#[derive(Clone)]
-pub struct InboxApp;
-
-impl From<InboxApp> for Widget {
-    fn from(_component: InboxApp) -> Self {
-        let (ctx, view) = fission::build::current::<InboxState>();
-
-        if view.state().show_settings {
-            ctx.register_portal(SettingsModal.into());
+fission_component! {
+    pub InboxApp<InboxState>
+    |_app, state, cx| {
+        if state.show_settings {
+            cx.build.register_portal(SettingsModal.into());
         }
-        if view.state().show_contacts {
-            ctx.register_portal(ContactsModal.into());
+        if state.show_contacts {
+            cx.build.register_portal(ContactsModal.into());
         }
-        if view.state().show_compose {
-            ctx.register_portal(ComposeModal.into());
+        if state.show_compose {
+            cx.build.register_portal(ComposeModal.into());
         }
-        if view.state().show_browser_demo {
-            ctx.register_portal(BrowserModal.into());
+        if state.show_browser_demo {
+            cx.build.register_portal(BrowserModal.into());
         }
-        if view.state().show_mobile_menu {
-            ctx.register_portal(
+        if state.show_mobile_menu {
+            cx.build.register_portal(
                 Drawer {
                     id: WidgetId::explicit("mobile_drawer"),
                     side: DrawerSide::Left,
                     is_open: true,
                     on_dismiss: Some(
-                        ctx.bind(SetMobileMenuOpen(false), reduce_with!(set_mobile_menu_open)),
+                        cx.build.bind(SetMobileMenuOpen(false), reduce_with!(set_mobile_menu_open)),
                     ),
                     dismiss_semantics_identifier: Some("inbox.mobile-drawer.dismiss".into()),
                     content: Sidebar.into(),
@@ -52,20 +48,18 @@ impl From<InboxApp> for Widget {
                 .into(),
             );
         }
-        if view.state().show_toast {
+        if state.show_toast {
             let toast = Toast {
                 id: WidgetId::explicit("app_toast"),
                 kind: ToastKind::Success,
-                message: view
-                    .state()
-                    .toast_message
+                message: state.toast_message
                     .clone()
                     .unwrap_or_else(|| "Action completed successfully".into()),
-                on_close: Some(ctx.bind(ToggleToast(false), reduce_with!(set_toast_visible))),
+                on_close: Some(cx.build.bind(ToggleToast(false), reduce_with!(set_toast_visible))),
                 duration: fission::widgets::ToastDuration::Default,
                 motion: None,
             };
-            ctx.register_portal(
+            cx.build.register_portal(
                 Positioned {
                     left: Some(20.0),
                     bottom: Some(20.0),
@@ -76,7 +70,7 @@ impl From<InboxApp> for Widget {
             );
         }
 
-        let tip = if view.state().show_quick_tip {
+        let tip: Widget = if state.show_quick_tip {
             Motion {
                 id: WidgetId::explicit("quick_tip_fade"),
                 tracks: vec![MotionTrack {
@@ -110,11 +104,10 @@ impl From<InboxApp> for Widget {
             Spacer::default().into()
         };
 
-        Overlay {
-            id: None,
-            content: InboxShell.into(),
-            overlay: tip,
-        }
-        .into()
-    }
+    } =>
+    Overlay(
+        id: None,
+        content: InboxShell,
+        overlay: tip,
+    )
 }

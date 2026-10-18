@@ -9,6 +9,14 @@ pub struct StoreShell {
     pub child: Widget,
 }
 
+impl StoreShell {
+    pub(crate) fn new(child: impl Into<Widget>) -> Self {
+        Self {
+            child: child.into(),
+        }
+    }
+}
+
 impl From<StoreShell> for Widget {
     fn from(component: StoreShell) -> Self {
         let (_ctx, view) = fission::build::current::<StoreState>();

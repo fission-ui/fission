@@ -11,20 +11,17 @@ use crate::data::{CatalogRequest, CATALOG_JOB};
 use fission::core::{JobResource, ResourceKey};
 use fission::prelude::*;
 
-#[derive(Clone)]
-pub struct StoreHomePage;
-
-impl From<StoreHomePage> for Widget {
-    fn from(_: StoreHomePage) -> Self {
-        let (ctx, view) = fission::build::current::<StoreState>();
-        let catalog_loaded = with_reducer!(ctx, CatalogLoaded, on_catalog_loaded);
-        let catalog_failed = with_reducer!(ctx, CatalogFailed, on_catalog_failed);
-        ctx.register::<AddToCart, _>(reduce_with!(on_add_to_cart));
+fission_component! {
+    pub StoreHomePage<StoreState>
+    |_page, state, cx| {
+        let catalog_loaded = with_reducer!(cx.build, CatalogLoaded, on_catalog_loaded);
+        let catalog_failed = with_reducer!(cx.build, CatalogFailed, on_catalog_failed);
+        cx.build.register::<AddToCart, _>(reduce_with!(on_add_to_cart));
         let request = CatalogRequest { generation: 1 };
-        let snapshot = view.state().catalog.clone();
-        let gap = view.env().theme.tokens.spacing.l;
+        let snapshot = state.catalog.clone();
+        let gap = cx.view.env().theme.tokens.spacing.l;
 
-        ctx.with_resources(|resources| {
+        cx.build.with_resources(|resources| {
             resources.job(
                 JobResource::new(
                     ResourceKey::new("pokemon-card-store.catalog"),
@@ -37,19 +34,16 @@ impl From<StoreHomePage> for Widget {
             );
         });
 
-        StoreShell {
-            child: Column {
-                gap: Some(gap),
-                children: widgets![
-                    Hero,
-                    CartSummary,
-                    CardGrid { snapshot },
-                    BrowserRuntimePanel,
-                ],
-                ..Default::default()
-            }
-            .into(),
-        }
-        .into()
-    }
+    } =>
+    StoreShell(
+        Column(
+            gap: gap,
+            children: [
+                Hero,
+                CartSummary,
+                CardGrid { snapshot },
+                BrowserRuntimePanel,
+            ],
+        ),
+    )
 }

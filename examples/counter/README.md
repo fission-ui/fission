@@ -1,6 +1,6 @@
 # Counter
 
-Counter is the smallest useful Fission application in the repository. It demonstrates the v2 authoring model: define a component, keep small retained UI state on that component with `#[local_state]`, bind buttons to generated actions, and convert the component into a `Widget` tree.
+Counter is the smallest useful Fission application in the repository. It demonstrates the recommended Compose authoring model: define a component, keep small retained UI state on that component with `#[local_state]`, and place small state transitions beside the buttons that own them.
 
 Use this example first if you are new to Fission. It intentionally avoids extra styling and platform configuration so the state/action/widget flow is easy to see.
 
@@ -12,19 +12,20 @@ cargo run -p counter
 
 ## What to look at
 
-- [`src/main.rs`](src/main.rs) contains the whole app in one file so the core pattern is visible without jumping between modules.
-- `CounterApp` shows `#[with_local_state]` and `#[local_state]` for retained widget-local state.
-- `increment` and `decrement` show `#[fission_reducer]` on simple local state mutations.
-- `impl From<CounterApp> for Widget` is the public component boundary.
-- The widget tree shows `widgets!`, `Text`, `Button`, `Row`, `Column`, and `Container` without app-wide state.
+- [`src/lib.rs`](src/lib.rs) contains the complete shared component so the core pattern is visible without jumping between modules.
+- `CounterApp` uses `fission_component!` and `#[local_state]` for retained widget-local state.
+- The two inline button reducers show where one-component state transitions belong.
+- Literal reducer keys and semantic identifiers give actions stable identity and make the controls accessible to live tests.
+- The tree uses imported `Text`, `Button`, `Row`, `Column`, and `Container` types directly; Compose has no separate widget catalogue.
 
 ## Features exercised
 
 - Desktop app startup through `DesktopApp::new(...).run()`.
-- Fission component, local state, and reducer macros.
-- Button press handling through bound action envelopes.
+- Compose components, retained local state, and inline reducers.
+- Button press handling through the same typed action envelopes used by reusable reducers.
 - Rebuilding UI from retained local widget state after actions run.
+- Active design-system tokens for spacing, colour, and typography.
 
 ## Learning path
 
-Read the file from top to bottom. The order mirrors a typical beginner app: component first, reducers second, widget tree third, shell startup last. When you build larger examples, app-wide domain data moves into `GlobalState`, but small UI-only state can stay local to the component that owns it.
+Read the component from top to bottom, then look at the thin shell entrypoints. When you build larger examples, app-wide domain data moves into `GlobalState`, reusable domain transitions become named reducers, and temporary UI memory stays local to the component that owns it. Continue with the [`compose` example](../compose/) to see that structure across multiple routes and components.

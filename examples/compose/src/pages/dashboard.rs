@@ -3,17 +3,19 @@ use crate::state::AppState;
 use fission::prelude::*;
 
 fission_component! {
-    pub Dashboard<AppState> |dashboard, state, cx| =>
+    pub Dashboard<AppState> |dashboard, state, cx| {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
     Column(
-        gap: 20.0,
+        gap: tokens.spacing.ml,
         children: [
-            Text::new(cx.tr("dashboard.title")).size(28.0),
+            Text(cx.tr("dashboard.title")).size(tokens.typography.heading1_size),
             Navigation(),
             Text(cx.tr("dashboard.summary")),
-            Text::new(
+            Text(
                     cx.tr("dashboard.product_count")
                         .replace("{count}", &state.products.len().to_string()),
-            ).size(22.0),
+            ).size(tokens.typography.heading2_size),
             Text(
                 cx.tr("dashboard.available_count").replace(
                     "{count}",

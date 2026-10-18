@@ -6,8 +6,10 @@ use fission::prelude::*;
 fission_component! {
     pub ProductRow<Product> using Products(row.product_id) {
         product_id: u64,
-    } |row, product, cx| =>
-    Row(children: [
+    } |row, product, cx| {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Row(gap: tokens.spacing.m, children: [
         Text(product.name.clone()),
         Text(cx.tr("products.price").replace("{price}", &product.price.to_string())),
         StatusPill(

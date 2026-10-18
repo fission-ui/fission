@@ -5,16 +5,13 @@ use fission::prelude::*;
 
 const PAGE_MAX_WIDTH: f32 = 880.0;
 
-#[derive(Clone)]
-pub struct GalleryApp;
-
-impl From<GalleryApp> for Widget {
-    fn from(_app: GalleryApp) -> Self {
-        let (_, view) = fission::build::current::<GalleryState>();
-        let tokens = &view.env().theme.tokens;
-        let page = view.state().page;
+fission_component! {
+    pub GalleryApp<GalleryState>
+    |_app, state, cx| {
+        let tokens = &cx.view.env().theme.tokens;
+        let page = state.page;
         // A phone-width window has no room for the sidebar beside the page.
-        let compact = view.viewport_size().width < tokens.breakpoints.compact_max;
+        let compact = cx.view.viewport_size().width < tokens.breakpoints.compact_max;
         let page_padding = if compact {
             tokens.spacing.l
         } else {
@@ -77,7 +74,7 @@ impl From<GalleryApp> for Widget {
 
         // An embedding host drives the theme, so the gallery's own controls would
         // only repeat, or fight, the host's.
-        let children = if view.state().embedded {
+        let children = if state.embedded {
             widgets![body]
         } else {
             // The theme bar sits above the sidebar and page so it stays in reach everywhere.
@@ -95,10 +92,9 @@ impl From<GalleryApp> for Widget {
         .into();
 
         // The page ground comes from the theme, so dark mode and other looks paint it.
-        Container::new(shell)
-            .bg(tokens.colors.background)
-            .width_length(Length::percent(100.0))
-            .height_length(Length::percent(100.0))
-            .into()
-    }
+    } =>
+    Container(shell)
+        .bg(tokens.colors.background)
+        .width_length(Length::percent(100.0))
+        .height_length(Length::percent(100.0))
 }

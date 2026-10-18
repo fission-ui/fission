@@ -8,13 +8,15 @@ fission_component! {
         product_id: u64,
         #[local_state(default = false)]
         show_notes: bool,
-    } |editor, product, cx| =>
+    } |editor, product, cx| {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
     Column(
-        gap: 20.0,
+        gap: tokens.spacing.ml,
         children: [
-            Text::new(cx.tr("editor.title")).size(28.0),
+            Text(cx.tr("editor.title")).size(tokens.typography.heading1_size),
             Navigation(),
-            Column(gap: 12.0, children: [
+            Column(gap: tokens.spacing.ms, children: [
             TextInput(
                 label: Some(cx.tr("editor.name").into()),
                 value: product.name,
@@ -28,7 +30,7 @@ fission_component! {
                 value: product.price,
                 bind(on_input): to(product.price),
             ),
-            Row(children: [
+            Row(gap: tokens.spacing.s, children: [
                 Text(cx.tr("editor.active")),
                 Switch(
                     checked: product.active,
@@ -36,7 +38,7 @@ fission_component! {
                     semantics_identifier: "compose.editor.active".to_string(),
                 ),
             ]),
-            Row(children: [
+            Row(gap: tokens.spacing.s, children: [
                 Text(cx.tr("editor.notes")),
                 Switch(
                     checked: editor.show_notes,
@@ -53,7 +55,7 @@ fission_component! {
                 )
             },
             ]),
-            Row(children: [
+            Row(gap: tokens.spacing.s, children: [
                 Button(
                     child: Text(cx.tr("editor.cancel")),
                     key: "cancel",

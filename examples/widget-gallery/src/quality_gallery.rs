@@ -78,48 +78,41 @@ pub(crate) fn configure_initial_state(state: &mut crate::GalleryState) {
     }
 }
 
-/// A cohesive account-settings surface used for browser visual qualification.
-///
-/// Unlike the desktop inventory gallery, this app deliberately composes the
-/// widgets into a realistic product screen. That makes density, hierarchy,
-/// responsive behavior, and overlay treatment visible in one stable fixture.
-#[derive(Clone)]
-pub struct QualityGalleryApp;
-
-impl From<QualityGalleryApp> for Widget {
-    fn from(_app: QualityGalleryApp) -> Self {
+// A cohesive account-settings surface used for browser visual qualification.
+// Unlike the desktop inventory gallery, this app deliberately composes the
+// widgets into a realistic product screen. That makes density, hierarchy,
+// responsive behaviour, and overlay treatment visible in one stable fixture.
+fission_component! {
+    pub QualityGalleryApp<crate::GalleryState>
+    |_app, _state, cx| {
         #[cfg(target_arch = "wasm32")]
         if quality_gallery_page() == "guided-flow" {
             return guided_flow::GuidedFlowPage.into();
         }
 
-        let (_, view) = fission::build::current::<crate::GalleryState>();
-        let tokens = &view.env().theme.tokens;
-        let viewport_width = view.viewport_size().width;
+        let tokens = &cx.view.env().theme.tokens;
+        let viewport_width = cx.view.viewport_size().width;
         let compact = viewport_width.is_finite()
             && viewport_width > 0.0
             && viewport_width < MOBILE_BREAKPOINT;
 
-        Container::new(Scroll {
+    } =>
+    Container(
+        Scroll(
             direction: FlexDirection::Column,
-            child: Some(
-                Center {
-                    // The page owns controlled portals. Build only the active
-                    // width variant so an inactive responsive branch cannot
-                    // register a duplicate menu, select, or modal surface.
-                    child: QualityPage { compact }.into(),
-                }
-                .into(),
+            child: Center(
+                // The page owns controlled portals. Build only the active
+                // width variant so an inactive responsive branch cannot
+                // register a duplicate menu, select, or modal surface.
+                QualityPage { compact },
             ),
             show_scrollbar: true,
-            flex_grow: 1.0,
-            flex_shrink: 1.0,
-            ..Default::default()
-        })
-        .bg(tokens.colors.surface_sunken)
-        .min_height_length(Length::percent(100.0))
-        .into()
-    }
+            flex_grow: 1.0_f32,
+            flex_shrink: 1.0_f32,
+        ),
+    )
+    .bg(tokens.colors.surface_sunken)
+    .min_height_length(Length::percent(100.0))
 }
 
 struct QualityPage {

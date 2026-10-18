@@ -62,48 +62,44 @@ fn edit_verification_code(state: &mut CounterState, ctx: &mut ReducerContext<Cou
     }
 }
 
-#[derive(Clone)]
-pub struct CounterApp;
-
-impl From<CounterApp> for Widget {
-    fn from(_component: CounterApp) -> Self {
-        let (_, view) = fission::build::current::<CounterState>();
-        let tokens = &view.env().theme.tokens;
-        let content = Container::new(Column {
-            gap: Some(tokens.spacing.m),
-            children: widgets![
-                SmokeHeader,
-                CounterSection,
-                PrimaryField,
-                SecondaryField,
-                PasswordField,
-                VerificationCodeField,
-                PerformanceRows,
-                ScrolledCounterButton,
-            ],
-            ..Default::default()
-        })
-        .width_length(Length::clamp(
-            Length::points(CONTENT_MIN_WIDTH),
-            Length::percent(100.0),
-            Length::points(CONTENT_MAX_WIDTH),
-        ));
-
-        Container::new(Scroll {
+fission_component! {
+    pub CounterApp<CounterState>
+    |_app, _state, cx| {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Container(
+        Scroll(
             id: Some(WidgetId::explicit("web-smoke.scroll")),
-            child: Some(content.into()),
+            child: Container(
+                Column(
+                    gap: tokens.spacing.m,
+                    children: [
+                        SmokeHeader,
+                        CounterSection,
+                        PrimaryField,
+                        SecondaryField,
+                        PasswordField,
+                        VerificationCodeField,
+                        PerformanceRows,
+                        ScrolledCounterButton,
+                    ],
+                ),
+            )
+            .width_length(Length::clamp(
+                Length::points(CONTENT_MIN_WIDTH),
+                Length::percent(100.0),
+                Length::points(CONTENT_MAX_WIDTH),
+            )),
             direction: FlexDirection::Column,
             show_scrollbar: true,
-            flex_grow: 1.0,
+            flex_grow: 1.0_f32,
             semantic_label: Some("Web smoke content".into()),
-            ..Default::default()
-        })
-        .width_length(Length::vw(100.0))
-        .height_length(Length::vh(100.0))
-        .padding_lengths(Length::all(Length::points(tokens.spacing.l)))
-        .bg(tokens.colors.background)
-        .into()
-    }
+        ),
+    )
+    .width_length(Length::vw(100.0))
+    .height_length(Length::vh(100.0))
+    .padding_lengths(Length::all(Length::points(tokens.spacing.l)))
+    .bg(tokens.colors.background)
 }
 
 /// Keeps the browser smoke fixture large enough to expose widget-count and

@@ -90,24 +90,21 @@ fn host_input(
     state.advance();
 }
 
-#[derive(Clone)]
-pub struct QualificationApp;
-
-impl From<QualificationApp> for Widget {
-    fn from(_app: QualificationApp) -> Self {
-        let (ctx, view) = fission::build::current::<QualificationState>();
-        let tokens = &view.env().theme.tokens;
-        let move_action = ctx.bind(
+fission_component! {
+    pub QualificationApp<QualificationState>
+    |_app, state, cx| {
+        let tokens = &cx.view.env().theme.tokens;
+        let move_action = cx.build.bind(
             MovePlayer(Direction::Up),
             move_player
                 as fn(&mut QualificationState, MovePlayer, &mut ReducerContext<QualificationState>),
         );
-        let reset = ctx.bind(
+        let reset = cx.build.bind(
             ResetGame,
             reset_game
                 as fn(&mut QualificationState, ResetGame, &mut ReducerContext<QualificationState>),
         );
-        let host_input = ctx.bind(
+        let host_input = cx.build.bind(
             GameHostInput::FocusLost,
             host_input
                 as fn(
@@ -116,7 +113,6 @@ impl From<QualificationApp> for Widget {
                     &mut ReducerContext<QualificationState>,
                 ),
         );
-        let state = view.state();
         let game = state.runtime.state();
         let status: Widget = if let Some(error) = &game.last_error {
             Text::new(error.clone())
@@ -135,51 +131,70 @@ impl From<QualificationApp> for Widget {
                 .into()
         };
 
-        let content: Widget = Container::new(Column {
-            gap: Some(tokens.spacing.m),
-            children: widgets![
-                Text::new(TextContent::Key("game.title".into()))
-                    .size(tokens.typography.heading1_size)
-                    .color(tokens.colors.text_primary),
-                status,
-                SemanticsRegion::new(
-                    Container::new(
-                        Scene2D::new(state.scene.clone())
+        let scene = Scene2D::new(state.scene.clone())
+            .width(VIEWPORT_SIZE.x)
+            .height(VIEWPORT_SIZE.y);
+    } =>
+    QualificationGameRegion(
+        Container(
+            Column(
+                gap: tokens.spacing.m,
+                children: [
+                    Text(TextContent::Key("game.title".into()))
+                        .size(tokens.typography.heading1_size)
+                        .color(tokens.colors.text_primary),
+                    status,
+                    SemanticsRegion(
+                        Container(scene)
                             .width(VIEWPORT_SIZE.x)
-                            .height(VIEWPORT_SIZE.y),
+                            .height(VIEWPORT_SIZE.y)
+                            .border(tokens.colors.border, 1.0)
+                            .clip_overflow(true),
                     )
-                    .width(VIEWPORT_SIZE.x)
-                    .height(VIEWPORT_SIZE.y)
-                    .border(tokens.colors.border, 1.0)
-                    .clip_overflow(true)
-                )
-                .identifier("scene2d-qualification.viewport"),
-                Row {
-                    gap: Some(tokens.spacing.s),
-                    children: widgets![
-                        direction_button("←", Direction::Left, &move_action),
-                        direction_button("↑", Direction::Up, &move_action),
-                        direction_button("↓", Direction::Down, &move_action),
-                        direction_button("→", Direction::Right, &move_action),
-                        Button {
-                            on_press: Some(reset),
-                            child: Some(Text::new(TextContent::Key("game.restart".into())).into()),
-                            ..Default::default()
-                        }
-                        .semantics_identifier("beacon-run.restart"),
-                    ],
-                    ..Default::default()
-                },
-                Text::new(TextContent::Key("game.controls_help".into()))
-                    .size(tokens.typography.font_size_sm)
-                    .color(tokens.colors.text_muted),
-            ],
-            ..Default::default()
-        })
+                    .identifier("scene2d-qualification.viewport"),
+                    Row(
+                        gap: tokens.spacing.s,
+                        children: [
+                            direction_button("←", Direction::Left, &move_action),
+                            direction_button("↑", Direction::Up, &move_action),
+                            direction_button("↓", Direction::Down, &move_action),
+                            direction_button("→", Direction::Right, &move_action),
+                            Button(
+                                child: Text(TextContent::Key("game.restart".into())),
+                                on_press: reset,
+                            )
+                            .semantics_identifier("beacon-run.restart"),
+                        ],
+                    ),
+                    Text(TextContent::Key("game.controls_help".into()))
+                        .size(tokens.typography.font_size_sm)
+                        .color(tokens.colors.text_muted),
+                ],
+            ),
+        )
         .padding_all(tokens.spacing.xl)
-        .bg(tokens.colors.background)
-        .into();
-        GameInputRegion::for_game::<QualificationGame>(content, host_input)
+        .bg(tokens.colors.background),
+        host_input,
+    )
+}
+
+struct QualificationGameRegion {
+    child: Widget,
+    action: ActionEnvelope,
+}
+
+impl QualificationGameRegion {
+    fn new(child: impl Into<Widget>, action: ActionEnvelope) -> Self {
+        Self {
+            child: child.into(),
+            action,
+        }
+    }
+}
+
+impl From<QualificationGameRegion> for Widget {
+    fn from(region: QualificationGameRegion) -> Self {
+        GameInputRegion::for_game::<QualificationGame>(region.child, region.action)
             .semantics_identifier("beacon-run.game-input")
             .into()
     }

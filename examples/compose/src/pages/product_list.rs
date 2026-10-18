@@ -6,11 +6,13 @@ fission_component! {
     pub ProductList<AppState> {
         #[local_state(default = String::new())]
         query: String,
-    } |list, state, cx| =>
+    } |list, state, cx| {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
     Column(
-        gap: 20.0,
+        gap: tokens.spacing.ml,
         children: [
-            Text::new(cx.tr("products.title")).size(28.0),
+            Text(cx.tr("products.title")).size(tokens.typography.heading1_size),
             Navigation(),
             TextInput(
                 label: Some(cx.tr("products.filter").into()),
@@ -22,7 +24,7 @@ fission_component! {
                 list.query.is_empty()
                     || product.name.to_lowercase().contains(&list.query.to_lowercase())
             ) {
-                Column(children: [
+                Column(gap: tokens.spacing.s, children: [
                     for product in state.products.values().filter(|product|
                         list.query.is_empty()
                             || product.name.to_lowercase().contains(&list.query.to_lowercase())
@@ -33,7 +35,7 @@ fission_component! {
             } else {
                 Text(cx.tr("products.empty"))
             },
-            Row(children: [
+            Row(gap: tokens.spacing.s, children: [
                 Button(
                     child: Text(cx.tr("products.add")),
                     key: "add-product",

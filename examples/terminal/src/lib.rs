@@ -10,6 +10,7 @@ use crate::layout::{
 use crate::window_dot::WindowDot;
 use fission::core::ui::{Container, Text, Widget};
 use fission::core::{Action, ActionId, GlobalState, ReducerContext, ResourceKey, TimerResource};
+use fission::prelude::fission_component;
 #[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
 use fission::prelude::DesktopApp;
 use fission::widgets::{HStack, Spacer, VStack};
@@ -125,14 +126,11 @@ fn poll_terminal(
     }
 }
 
-#[derive(Clone)]
-pub struct TerminalExampleApp;
-
-impl From<TerminalExampleApp> for Widget {
-    fn from(_component: TerminalExampleApp) -> Self {
-        let (ctx, view) = fission::build::current::<TerminalExampleState>();
-        let tokens = &view.env().theme.tokens;
-        ctx.register(
+fission_component! {
+    pub TerminalExampleApp<TerminalExampleState>
+    |_app, state, cx| {
+        let tokens = &cx.view.env().theme.tokens;
+        cx.build.register(
             start_terminal
                 as fn(
                     &mut TerminalExampleState,
@@ -140,7 +138,7 @@ impl From<TerminalExampleApp> for Widget {
                     &mut ReducerContext<TerminalExampleState>,
                 ),
         );
-        let poll_terminal_action = ctx.bind(
+        let poll_terminal_action = cx.build.bind(
             PollTerminal,
             poll_terminal
                 as fn(
@@ -149,7 +147,7 @@ impl From<TerminalExampleApp> for Widget {
                     &mut ReducerContext<TerminalExampleState>,
                 ),
         );
-        ctx.with_resources(|resources| {
+        cx.build.with_resources(|resources| {
             resources.timer(
                 TimerResource::new(
                     ResourceKey::new("terminal-session-poll"),
@@ -160,15 +158,13 @@ impl From<TerminalExampleApp> for Widget {
             );
         });
 
-        let title = view
-            .state()
-            .session
+        let title = state.session
             .as_ref()
             .map(|session| format_terminal_title(&session.title()))
             .filter(|title| !title.trim().is_empty())
             .unwrap_or_else(|| "Shell".into());
 
-        let chrome = Container::new(HStack {
+        let chrome: Widget = Container::new(HStack {
             spacing: Some(tokens.spacing.s),
             children: vec![
                 WindowDot {
@@ -195,7 +191,7 @@ impl From<TerminalExampleApp> for Widget {
                             .size(tokens.typography.font_size_sm)
                             .color(tokens.colors.text_primary)
                             .into(),
-                        Text::new(view.state().cwd.display().to_string())
+                        Text::new(state.cwd.display().to_string())
                             .size(tokens.typography.font_size_xs)
                             .color(tokens.colors.text_muted)
                             .into(),
@@ -219,11 +215,11 @@ impl From<TerminalExampleApp> for Widget {
 
         #[cfg(not(target_arch = "wasm32"))]
         let terminal_height =
-            (view.viewport_size().height - CHROME_VERTICAL_RESERVE).max(MIN_TERMINAL_HEIGHT);
+            (cx.view.viewport_size().height - CHROME_VERTICAL_RESERVE).max(MIN_TERMINAL_HEIGHT);
         #[cfg(not(target_arch = "wasm32"))]
-        let terminal_width = view.viewport_size().width.max(MIN_TERMINAL_WIDTH);
+        let terminal_width = cx.view.viewport_size().width.max(MIN_TERMINAL_WIDTH);
         #[cfg(not(target_arch = "wasm32"))]
-        let body = if let Some(session) = view.state().session.clone() {
+        let body: Widget = if let Some(session) = state.session.clone() {
             TerminalView::new(session, terminal_width, terminal_height)
                 .font_size(TERMINAL_FONT_SIZE)
                 .line_height(TERMINAL_LINE_HEIGHT)
@@ -240,7 +236,7 @@ impl From<TerminalExampleApp> for Widget {
             .into()
         };
         #[cfg(target_arch = "wasm32")]
-        let body = Container::new(
+        let body: Widget = Container::new(
             Text::new("The terminal example requires native process access.")
                 .size(tokens.typography.body_medium_size)
                 .color(tokens.colors.text_primary),
@@ -249,13 +245,14 @@ impl From<TerminalExampleApp> for Widget {
         .bg(tokens.colors.surface_sunken)
         .into();
 
-        Container::new(VStack {
-            spacing: Some(tokens.spacing.none),
-            children: vec![chrome, body],
-        })
-        .bg(tokens.colors.surface_sunken)
-        .into()
-    }
+    } =>
+    Container(
+        VStack(
+            spacing: tokens.spacing.none,
+            children: [chrome, body],
+        ),
+    )
+    .bg(tokens.colors.surface_sunken)
 }
 
 fn format_terminal_title(title: &str) -> String {

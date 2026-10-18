@@ -3,14 +3,10 @@ use crate::state::AppState;
 use fission::prelude::*;
 use std::sync::Arc;
 
-#[derive(Clone, Debug)]
-pub struct App;
-
-impl From<App> for Widget {
-    fn from(_: App) -> Self {
-        let (_, view) = fission::build::current::<AppState>();
-        Router::<AppState>::new()
-            .with_path(view.state().current_path.clone())
+fission_component! {
+    pub App<AppState> |_app, state, _cx| {
+        let router = Router::<AppState>::new()
+            .with_path(state.current_path.clone())
             .route("/", Dashboard::new)
             .route("/products", ProductList::new)
             .route_builder(
@@ -24,7 +20,7 @@ impl From<App> for Widget {
                 }),
             )
             .route("/settings", SettingsPage::new)
-            .not_found(NotFound::new)
-            .into()
-    }
+            .not_found(NotFound::new);
+    } =>
+    router
 }

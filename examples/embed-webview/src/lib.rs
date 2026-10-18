@@ -14,37 +14,34 @@ pub struct WebViewEmbedState;
 
 impl GlobalState for WebViewEmbedState {}
 
-#[derive(Clone)]
-pub struct WebViewEmbedApp;
-
-impl From<WebViewEmbedApp> for Widget {
-    fn from(_component: WebViewEmbedApp) -> Self {
-        let (_ctx, view) = fission::build::current::<WebViewEmbedState>();
-        let tokens = &view.env().theme.tokens.colors;
-        Container::new(Column {
-            gap: Some(16.0),
-            children: vec![
-                Text::new("WebView embed").size(28.0).into(),
-                Text::new("A bounded host-backed web surface.")
+fission_component! {
+    pub WebViewEmbedApp<WebViewEmbedState>
+    |_app, _state, cx| {
+        let colours = &cx.view.env().theme.tokens.colors;
+    } =>
+    Container(
+        Column(
+            gap: 16.0,
+            children: [
+                Text("WebView embed").size(28.0),
+                Text("A bounded host-backed web surface.")
                     .size(14.0)
-                    .color(tokens.text_secondary)
-                    .into(),
-                Container::new(WebView {
-                    id: WidgetId::explicit("embed-webview.demo"),
-                    label: None,
-                    url: WEBVIEW_DEMO_URL.into(),
-                    user_agent: None,
-                    width: Some(480.0),
-                    height: Some(270.0),
-                })
+                    .color(colours.text_secondary),
+                Container(
+                    WebView(
+                        WidgetId::explicit("embed-webview.demo"),
+                        WEBVIEW_DEMO_URL,
+                        label: None,
+                        user_agent: None,
+                        width: Some(480.0),
+                        height: Some(270.0),
+                    ),
+                )
                 .width(480.0)
                 .height(270.0)
-                .border(tokens.border, 1.0)
-                .into(),
+                .border(colours.border, 1.0),
             ],
-            ..Default::default()
-        })
-        .padding_all(32.0)
-        .into()
-    }
+        ),
+    )
+    .padding_all(32.0)
 }

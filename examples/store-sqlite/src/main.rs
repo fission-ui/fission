@@ -3,9 +3,15 @@ mod transaction;
 use fission::prelude::*;
 use fission::sql::{SqlMigration, SqlMigrations, SqlStatement};
 
+#[derive(Debug)]
+struct Project {
+    id: i64,
+    name: String,
+}
+
 #[derive(Debug, Default)]
 struct AppState {
-    projects: Vec<String>,
+    projects: Vec<Project>,
     message: String,
 }
 
@@ -45,7 +51,7 @@ fn load_projects(_state: &mut AppState, ctx: &mut ReducerContext<AppState>) {
     ctx.effects
         .sql()
         .query(SqlStatement::new(
-            "SELECT name FROM projects ORDER BY id DESC LIMIT 20",
+            "SELECT id, name FROM projects ORDER BY id DESC LIMIT 20",
         ))
         .on_ok(ActionEnvelope::from(ProjectsLoaded))
         .on_err(ActionEnvelope::from(DatabaseFailed));
@@ -59,7 +65,12 @@ fn projects_loaded(state: &mut AppState, ctx: &mut ReducerContext<AppState>) {
     state.projects = rows
         .rows
         .iter()
-        .filter_map(|row| row.get::<String>("name").ok())
+        .filter_map(|row| {
+            Some(Project {
+                id: row.get::<i64>("id").ok()?,
+                name: row.get::<String>("name").ok()?,
+            })
+        })
         .collect();
     state.message = format!("Loaded {} projects", state.projects.len());
 }
@@ -73,47 +84,36 @@ fn database_failed(state: &mut AppState, ctx: &mut ReducerContext<AppState>) {
         .unwrap_or_else(|| "Database operation failed".to_string());
 }
 
-#[derive(Clone)]
-struct StoreExample;
-
-impl From<StoreExample> for Widget {
-    fn from(_: StoreExample) -> Widget {
-        let (ctx, view) = fission::build::current::<AppState>();
-        let tokens = &view.env().theme.tokens;
-        let add = ctx.bind(AddProject, reduce!(add_project));
-        ctx.register::<PrepareDatabase, _>(reduce!(prepare_database));
-        ctx.register::<LoadProjects, _>(reduce!(load_projects));
-        ctx.register::<ProjectsLoaded, _>(reduce!(projects_loaded));
-        ctx.register::<DatabaseFailed, _>(reduce!(database_failed));
-
-        let mut children = widgets![
-            Text::new("SQLite store")
-                .size(tokens.typography.heading1_size)
-                .color(tokens.colors.text_primary),
-            Text::new(view.state().message.clone()).color(tokens.colors.text_secondary),
-            Button {
-                on_press: Some(add),
-                child: Some(Text::new("Add project atomically").into()),
-                ..Default::default()
-            },
-        ];
-        children.extend(
-            view.state()
-                .projects
-                .iter()
-                .cloned()
-                .map(|project| Text::new(project).into()),
-        );
-
-        Container::new(Column {
-            gap: Some(tokens.spacing.m),
-            children,
-            ..Default::default()
-        })
-        .padding_all(tokens.spacing.xl)
-        .bg(tokens.colors.background)
-        .into()
-    }
+fission_component! {
+    StoreExample<AppState>
+    |_app, state, cx| {
+        let tokens = &cx.view.env().theme.tokens;
+        let add = cx.build.bind(AddProject, reduce!(add_project));
+        cx.build.register::<PrepareDatabase, _>(reduce!(prepare_database));
+        cx.build.register::<LoadProjects, _>(reduce!(load_projects));
+        cx.build.register::<ProjectsLoaded, _>(reduce!(projects_loaded));
+        cx.build.register::<DatabaseFailed, _>(reduce!(database_failed));
+    } =>
+    Container(
+        Column(
+            gap: tokens.spacing.m,
+            children: [
+                Text("SQLite store")
+                    .size(tokens.typography.heading1_size)
+                    .color(tokens.colors.text_primary),
+                Text(state.message.clone()).color(tokens.colors.text_secondary),
+                Button(
+                    child: Text("Add project atomically"),
+                    on_press: add,
+                ),
+                for project in &state.projects {
+                    Text(project.name.clone(), key: project.id)
+                },
+            ],
+        ),
+    )
+    .padding_all(tokens.spacing.xl)
+    .bg(tokens.colors.background)
 }
 
 fn main() -> anyhow::Result<()> {

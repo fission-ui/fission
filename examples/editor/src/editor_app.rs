@@ -4,37 +4,32 @@ use crate::context_menu::ContextMenu;
 use crate::editor_workspace::EditorWorkspace;
 use crate::hover_tooltip::HoverTooltip;
 use crate::model::*;
-use fission::core::ui::Widget;
 use fission::core::{reduce_with, JobResource, ResourceKey, TimerResource};
+use fission::prelude::*;
 use std::path::PathBuf;
 use std::time::Duration;
 
-#[derive(Clone)]
-pub struct EditorApp;
-
-impl From<EditorApp> for Widget {
-    fn from(_component: EditorApp) -> Self {
-        let (ctx, view) = fission::build::current::<EditorState>();
-        let state = view.state();
-
+fission_component! {
+    pub EditorApp<EditorState>
+    |_app, state, cx| {
         // Registers the reducer for the EditorStarted action dispatched at launch.
-        ctx.bind(
+        cx.build.bind(
             EditorStarted {
                 root_path: PathBuf::from("."),
             },
             reduce_with!(on_editor_started),
         );
 
-        let tree_scan_loaded = ctx.bind(TreeScanCompleted, reduce_with!(on_tree_scan_completed));
-        let tree_scan_failed = ctx.bind(TreeScanFailed, reduce_with!(on_tree_scan_failed));
-        let git_status_loaded = ctx.bind(GitStatusLoaded, reduce_with!(on_git_status_loaded));
-        let git_status_failed = ctx.bind(GitStatusFailed, reduce_with!(on_git_status_failed));
-        let fs_completed = ctx.bind(FsCompleted, reduce_with!(on_fs_completed));
-        let fs_failed = ctx.bind(FsFailed, reduce_with!(on_fs_failed));
-        let poll_terminal = ctx.bind(PollTerminal, reduce_with!(on_poll_terminal));
-        let poll_lsp = ctx.bind(PollLsp, reduce_with!(on_poll_lsp));
+        let tree_scan_loaded = cx.build.bind(TreeScanCompleted, reduce_with!(on_tree_scan_completed));
+        let tree_scan_failed = cx.build.bind(TreeScanFailed, reduce_with!(on_tree_scan_failed));
+        let git_status_loaded = cx.build.bind(GitStatusLoaded, reduce_with!(on_git_status_loaded));
+        let git_status_failed = cx.build.bind(GitStatusFailed, reduce_with!(on_git_status_failed));
+        let fs_completed = cx.build.bind(FsCompleted, reduce_with!(on_fs_completed));
+        let fs_failed = cx.build.bind(FsFailed, reduce_with!(on_fs_failed));
+        let poll_terminal = cx.build.bind(PollTerminal, reduce_with!(on_poll_terminal));
+        let poll_lsp = cx.build.bind(PollLsp, reduce_with!(on_poll_lsp));
 
-        ctx.with_resources(|resources| {
+        cx.build.with_resources(|resources| {
             if state.tree_scan_pending() {
                 resources.job(
                     JobResource::new(
@@ -107,14 +102,12 @@ impl From<EditorApp> for Widget {
             }
         });
 
-        let root: Widget = EditorWorkspace.into();
-
         // Overlays register themselves as portals while they build.
         let _: Widget = CommandPalette.into();
         let _: Widget = ContextMenu.into();
         let _: Widget = CompletionPopup.into();
         let _: Widget = HoverTooltip.into();
 
-        root
-    }
+    } =>
+    EditorWorkspace
 }

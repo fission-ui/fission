@@ -3,8 +3,10 @@ use crate::state::AppState;
 use fission::prelude::*;
 
 fission_component! {
-    pub Navigation<AppState> |navigation, state, cx| =>
-    Row(children: [
+    pub Navigation<AppState> |navigation, state, cx| {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Row(gap: tokens.spacing.s, children: [
         Button(
             child: Text(cx.tr("nav.dashboard")),
             key: "dashboard",
