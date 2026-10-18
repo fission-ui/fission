@@ -2,17 +2,15 @@ use crate::app::StoreState;
 use crate::components::hero_metric::HeroMetric;
 use fission::prelude::*;
 
-pub struct HeroCopy;
-
-impl From<HeroCopy> for Widget {
-    fn from(_: HeroCopy) -> Self {
-        let (_, view) = fission::build::current::<StoreState>();
-        let tokens = &view.env().theme.tokens;
+fission_component! {
+    pub HeroCopy<StoreState> {}
+    |_copy, _state, cx| {
+        let tokens = &cx.view.env().theme.tokens;
         let typography = &tokens.typography;
-
-        Container::new(Column {
-            gap: Some(tokens.spacing.m),
-            children: widgets![
+    } =>
+        Container(Column(
+            gap: tokens.spacing.m,
+            children: [
                 Text::new("Server-rendered collector commerce")
                     .size(typography.display_sm_size)
                     .line_height(
@@ -26,29 +24,16 @@ impl From<HeroCopy> for Widget {
                         typography.body_large_size * typography.line_height_normal
                     )
                     .color(tokens.colors.text_secondary),
-                Row {
-                    gap: Some(tokens.spacing.s),
+                Row(
+                    gap: tokens.spacing.s,
                     wrap: ir_op::FlexWrap::Wrap,
-                    children: widgets![
-                        HeroMetric {
-                            value: "6",
-                            label: "cards",
-                        },
-                        HeroMetric {
-                            value: "1",
-                            label: "session cart",
-                        },
-                        HeroMetric {
-                            value: "2",
-                            label: "browser artifacts",
-                        },
+                    children: [
+                        HeroMetric("6", "cards"),
+                        HeroMetric("1", "session cart"),
+                        HeroMetric("2", "browser artifacts"),
                     ],
-                    ..Default::default()
-                },
+                ),
             ],
-            ..Default::default()
-        })
+        ))
         .flex_grow(1.0)
-        .into()
-    }
 }

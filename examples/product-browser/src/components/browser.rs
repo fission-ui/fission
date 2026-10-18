@@ -32,10 +32,6 @@ fission_component! {
 
         let products_request = state.product_request();
         let categories_request = state.categories_request();
-        let product_snapshot = state.products.clone();
-        let category_snapshot = state.categories.clone();
-        let selected_product = state.selected_product();
-
         cx.build.with_resources(|resources| {
             resources.job(
                 JobResource::new(
@@ -60,52 +56,49 @@ fission_component! {
         });
 
         let expanded = cx.view.viewport_size().width >= EXPANDED_BREAKPOINT;
-        let instance = if expanded { "expanded" } else { "compact" };
-        let products = ProductRefresh {
-            snapshot: product_snapshot,
-            instance,
-            status: state.refresh_status,
-            pulled_extent: state.pulled_extent,
-            on_pull_start: pull_started,
-            on_pull_update: pull_updated,
-            on_pull_cancel: pull_canceled,
-            on_refresh: refresh_products,
-        };
-        let categories = CategoryRail {
-            snapshot: category_snapshot,
-            instance,
-        };
-        let content: Widget = if expanded {
-            ProductBrowserExpanded {
-                categories,
-                products,
-                detail: ProductDetail {
-                    product: selected_product,
-                    layout: ProductDetailLayout::Expanded,
-                },
-            }
-            .into()
-        } else {
-            ProductBrowserCompact {
-                categories,
-                products,
-                detail: ProductDetail {
-                    product: selected_product,
-                    layout: ProductDetailLayout::Compact,
-                },
-            }
-            .into()
-        };
-
     } =>
     Container(
         Column(
             gap: tokens.spacing.l,
             children: [
-                ProductBrowserHeader {
-                    on_search: search_changed,
+                ProductBrowserHeader(search_changed),
+                if expanded {
+                    ProductBrowserExpanded(
+                        CategoryRail(state.categories.clone(), "expanded"),
+                        ProductRefresh(
+                            state.products.clone(),
+                            "expanded",
+                            state.refresh_status,
+                            state.pulled_extent,
+                            pull_started.clone(),
+                            pull_updated.clone(),
+                            pull_canceled.clone(),
+                            refresh_products.clone(),
+                        ),
+                        ProductDetail(
+                            state.selected_product(),
+                            ProductDetailLayout::Expanded,
+                        ),
+                    )
+                } else {
+                    ProductBrowserCompact(
+                        CategoryRail(state.categories.clone(), "compact"),
+                        ProductRefresh(
+                            state.products.clone(),
+                            "compact",
+                            state.refresh_status,
+                            state.pulled_extent,
+                            pull_started,
+                            pull_updated,
+                            pull_canceled,
+                            refresh_products,
+                        ),
+                        ProductDetail(
+                            state.selected_product(),
+                            ProductDetailLayout::Compact,
+                        ),
+                    )
                 },
-                content,
             ],
         ),
     )

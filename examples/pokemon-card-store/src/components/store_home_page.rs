@@ -41,7 +41,7 @@ fission_component! {
             children: [
                 Hero,
                 CartSummary,
-                CardGrid { snapshot },
+                CardGrid::new(snapshot),
                 BrowserRuntimePanel,
             ],
         ),

@@ -1,33 +1,29 @@
 use crate::state::{toggle_todo, TodoItem, TodoState, ToggleTodo};
 use fission::prelude::*;
 
+fission_component! {
 /// One task. The whole label toggles it, and finished tasks sink into the card.
-pub(super) struct TodoRow {
-    pub item: TodoItem,
-}
-
-impl From<TodoRow> for Widget {
-    fn from(row: TodoRow) -> Self {
-        let (ctx, view) = fission::build::current::<TodoState>();
-        let tokens = &view.env().theme.tokens;
-        let item = row.item;
-        let background = if item.done {
+    pub(super) TodoRow<TodoState> { item: TodoItem } |row, _state, cx| {
+        let tokens = &cx.view.env().theme.tokens;
+        let background = if row.item.done {
             tokens.colors.surface_sunken
         } else {
             tokens.colors.surface
         };
-
-        Container::new(Checkbox {
-            semantics_identifier: Some(format!("todo.item.{}", item.id)),
-            checked: item.done,
-            on_toggle: Some(ctx.bind(ToggleTodo(item.id), reduce_with!(toggle_todo))),
-            label: Some(item.title),
-            ..Default::default()
-        })
+    } =>
+        Container(
+            Checkbox(
+                semantics_identifier: format!("todo.item.{}", row.item.id),
+                checked: row.item.done,
+                on_toggle: cx.bind(
+                    ToggleTodo(row.item.id),
+                    reduce_with!(toggle_todo),
+                ),
+                label: row.item.title.clone(),
+            ),
+        )
         .padding_all(tokens.spacing.m)
         .border(tokens.colors.border, 1.0)
         .border_radius(tokens.radii.medium)
         .bg(background)
-        .into()
-    }
 }

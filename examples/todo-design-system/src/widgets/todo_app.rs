@@ -20,7 +20,12 @@ fission_component! {
                         pattern: CardPattern::Raised,
                         child: Column(
                             gap: tokens.spacing.l,
-                            children: [TodoHeader, TodoComposer, TodoList, CompletedFooter],
+                            children: [
+                                TodoHeader(),
+                                TodoComposer(),
+                                TodoList(),
+                                CompletedFooter(),
+                            ],
                         ),
                     ),
                 )

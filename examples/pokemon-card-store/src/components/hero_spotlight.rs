@@ -4,18 +4,17 @@ use crate::components::palette::card_accent;
 use crate::data;
 use fission::prelude::*;
 
-pub struct HeroSpotlight;
-
-impl From<HeroSpotlight> for Widget {
-    fn from(_: HeroSpotlight) -> Self {
-        let (_, view) = fission::build::current::<StoreState>();
-        let tokens = &view.env().theme.tokens;
+fission_component! {
+    pub HeroSpotlight<StoreState> {}
+    |_spotlight, _state, cx| {
+        let tokens = &cx.view.env().theme.tokens;
         let typography = &tokens.typography;
         let card = &data::cards()[0];
 
-        Container::new(Column {
-            gap: Some(tokens.spacing.m),
-            children: widgets![
+    } =>
+        Container(Column(
+            gap: tokens.spacing.m,
+            children: [
                 Text::new("Featured card")
                     .size(typography.font_size_sm)
                     .line_height(typography.font_size_sm * typography.line_height_snug)
@@ -36,8 +35,7 @@ impl From<HeroSpotlight> for Widget {
                     .weight(typography.font_weight_bold)
                     .color(tokens.colors.info.with_alpha(235)),
             ],
-            ..Default::default()
-        })
+        ))
         .width_length(Length::min(vec![
             Length::percent(100.0),
             Length::points(HERO_SPOTLIGHT_WIDTH),
@@ -46,6 +44,4 @@ impl From<HeroSpotlight> for Widget {
         .border(tokens.colors.info.with_alpha(150), 1.0)
         .border_radius(tokens.radii.xxl)
         .bg(card_accent(card.accent).with_alpha(70))
-        .into()
-    }
 }

@@ -6,31 +6,28 @@ use crate::components::palette::card_accent;
 use crate::data::Card;
 use fission::prelude::*;
 
-pub struct CardDetail {
-    pub card: Card,
-}
-
-impl From<CardDetail> for Widget {
-    fn from(detail: CardDetail) -> Self {
-        let (ctx, view) = fission::build::current::<StoreState>();
-        let tokens = &view.env().theme.tokens;
+fission_component! {
+    pub CardDetail<StoreState> { card: Card }
+    |detail, _state, cx| {
+        let tokens = &cx.view.env().theme.tokens;
         let typography = &tokens.typography;
         let accent = card_accent(detail.card.accent);
-        let add = ctx.bind(
+        let add = cx.build.bind(
             AddToCart(detail.card.slug.to_string()),
             reduce_with!(on_add_to_cart),
         );
 
-        Column {
-            gap: Some(tokens.spacing.l),
-            children: widgets![
+    } =>
+        Column(
+            gap: tokens.spacing.l,
+            children: [
                 Text::new("Card details")
                     .size(typography.font_size_base)
                     .line_height(typography.font_size_base * typography.line_height_snug)
                     .weight(typography.font_weight_bold)
                     .color(accent)
                     .semantics_identifier("site-route:/"),
-                Container::new(Grid {
+                Container(Grid(
                     columns: vec![GridTrack::auto_fit(GridTrack::minmax(
                         GridTrack::Points(DETAIL_ART_WIDTH),
                         GridTrack::Fr(1.0),
@@ -38,13 +35,11 @@ impl From<CardDetail> for Widget {
                     rows: vec![GridTrack::Auto],
                     column_gap: Some(tokens.spacing.l),
                     row_gap: Some(tokens.spacing.l),
-                    children: widgets![
-                        DetailArt {
-                            card: detail.card.clone(),
-                        },
-                        Column {
-                            gap: Some(tokens.spacing.m),
-                            children: widgets![
+                    children: [
+                        DetailArt(detail.card.clone()),
+                        Column(
+                            gap: tokens.spacing.m,
+                            children: [
                                 Text::new(detail.card.name)
                                     .size(typography.heading1_size)
                                     .line_height(
@@ -78,30 +73,24 @@ impl From<CardDetail> for Widget {
                                 )
                                 .weight(typography.font_weight_bold)
                                 .color(tokens.colors.text_primary),
-                                Button {
+                                Button(
                                     variant: ButtonVariant::Filled,
-                                    child: Some(Text::new("Add this card to basket").into()),
-                                    on_press: Some(add),
-                                    ..Default::default()
-                                }
+                                    child: Text("Add this card to basket"),
+                                    on_press: add,
+                                )
                                 .semantics_identifier(format!(
                                     "pokemon-card-store.add.{}",
                                     detail.card.slug
                                 )),
-                                CartSummary,
+                                CartSummary(),
                             ],
-                            ..Default::default()
-                        },
+                        ),
                     ],
-                    ..Default::default()
-                })
+                ))
                 .padding_all(tokens.spacing.l)
                 .border(accent.with_alpha(120), 1.0)
                 .border_radius(tokens.radii.xxl)
                 .bg(tokens.colors.surface),
             ],
-            ..Default::default()
-        }
-        .into()
-    }
+        )
 }

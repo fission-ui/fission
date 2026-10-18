@@ -2,18 +2,16 @@ use crate::app::StoreState;
 use crate::components::layout::CART_ISLAND_WIDTH;
 use fission::prelude::*;
 
-pub struct BrowserCartIsland;
-
-impl From<BrowserCartIsland> for Widget {
-    fn from(_: BrowserCartIsland) -> Self {
-        let (_, view) = fission::build::current::<StoreState>();
-        let tokens = &view.env().theme.tokens;
+fission_component! {
+    pub BrowserCartIsland<StoreState> {}
+    |_island, _state, cx| {
+        let tokens = &cx.view.env().theme.tokens;
         let typography = &tokens.typography;
-
-        SemanticsRegion::new(
-            Container::new(Column {
-                gap: Some(tokens.spacing.s),
-                children: widgets![
+    } =>
+        SemanticsRegion(
+            Container(Column(
+                gap: tokens.spacing.s,
+                children: [
                     Text::new("Island booting")
                         .size(typography.font_size_sm)
                         .line_height(
@@ -30,8 +28,7 @@ impl From<BrowserCartIsland> for Widget {
                         )
                         .color(tokens.colors.text_secondary),
                 ],
-                ..Default::default()
-            })
+            ))
             .width_length(Length::min(vec![
                 Length::percent(100.0),
                 Length::points(CART_ISLAND_WIDTH),
@@ -43,6 +40,4 @@ impl From<BrowserCartIsland> for Widget {
         )
         .identifier("cart-drawer")
         .id(WidgetId::explicit("cart-drawer"))
-        .into()
-    }
 }

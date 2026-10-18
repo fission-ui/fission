@@ -2,28 +2,25 @@ use super::{EmptyState, TodoRow};
 use crate::state::TodoState;
 use fission::prelude::*;
 
-pub(super) struct TodoList;
-
-impl From<TodoList> for Widget {
-    fn from(_list: TodoList) -> Self {
-        let (_, view) = fission::build::current::<TodoState>();
-        let tokens = &view.env().theme.tokens;
-        let items = &view.state().items;
-        if items.is_empty() {
-            return EmptyState.into();
+fission_component! {
+    pub(super) TodoList<TodoState> |_list, state, cx| {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+        if state.items.is_empty() {
+            EmptyState()
+        } else {
+            SemanticsRegion(
+                role: Role::Group,
+                label: cx.view.tr("todo.list.label"),
+                identifier: "todo.list".to_string(),
+                child: Column(
+                    gap: tokens.spacing.s,
+                    children: [
+                        for item in state.items.iter().cloned() {
+                            TodoRow(item.clone(), key: item.id)
+                        },
+                    ],
+                ),
+            )
         }
-
-        SemanticsRegion::new(Column {
-            gap: Some(tokens.spacing.s),
-            children: items
-                .iter()
-                .map(|item| TodoRow { item: item.clone() }.into())
-                .collect(),
-            ..Default::default()
-        })
-        .role(Role::Group)
-        .label(view.tr("todo.list.label"))
-        .identifier("todo.list")
-        .into()
-    }
 }
