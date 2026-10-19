@@ -53,8 +53,20 @@ fission_component! {
                     .color(tokens.colors.text_primary),
             ))
             .footer(CardFooter::new(vec![
-                CardFooterButton::new(ButtonVariant::Outline, "View report").into(),
-                CardFooterButton::new(ButtonVariant::Filled, "Sync now").into(),
+                Button {
+                    variant: ButtonVariant::Outline,
+                    size: ComponentSize::Sm,
+                    child: Some(Text::new("View report").into()),
+                    ..Default::default()
+                }
+                .into(),
+                Button {
+                    variant: ButtonVariant::Filled,
+                    size: ComponentSize::Sm,
+                    child: Some(Text::new("Sync now").into()),
+                    ..Default::default()
+                }
+                .into(),
             ])),
     )
     .max_width_length(Length::points(CARD_MAX_WIDTH))
@@ -68,16 +80,6 @@ fission_component! {
             Icon::svg(fission::icons::material::navigation::more_horiz::regular()),
             "Card options",
         ),
-    )
-}
-
-fission_component! {
-    CardFooterButton<()> { variant: ButtonVariant, label: &'static str }
-    |button, _state, _cx| {} =>
-    Button(
-        variant: button.variant,
-        size: ComponentSize::Sm,
-        child: Text(button.label),
     )
 }
 

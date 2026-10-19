@@ -119,9 +119,17 @@ fission_component! {
                 spacing: tokens.spacing.m,
                 children: [
                     Text("Edit").color(tokens.colors.text_primary),
-                    Container(Divider(orientation: Orientation::Vertical)).height(tokens.sizing.icon_md),
+                    Container(
+                        Divider(orientation: Orientation::Vertical),
+                        key: "edit-share-divider",
+                    )
+                    .height(tokens.sizing.icon_md),
                     Text("Share").color(tokens.colors.text_primary),
-                    Container(Divider(orientation: Orientation::Vertical)).height(tokens.sizing.icon_md),
+                    Container(
+                        Divider(orientation: Orientation::Vertical),
+                        key: "share-delete-divider",
+                    )
+                    .height(tokens.sizing.icon_md),
                     Text("Delete").color(tokens.colors.text_primary),
                 ],
             )],

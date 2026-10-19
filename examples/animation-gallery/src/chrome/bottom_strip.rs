@@ -10,11 +10,31 @@ fission_component! {
             direction: FlexDirection::Row,
             spacing: tokens.spacing.l,
             children: [
-                StripItem { title: "Typed & discoverable", body: "via widget-owned enums" },
-                StripItem { title: "Composability by design", body: "Additive + last-wins" },
-                StripItem { title: "One runtime", body: "Everything lowers to MotionExpr" },
-                StripItem { title: "Deterministic", body: "Pure, replayable, testable" },
-                StripItem { title: "Accessibility first", body: "Policy respects users" },
+                StripItem(
+                    "Typed & discoverable",
+                    "via widget-owned enums",
+                    key: "typed",
+                ),
+                StripItem(
+                    "Composability by design",
+                    "Additive + last-wins",
+                    key: "composable",
+                ),
+                StripItem(
+                    "One runtime",
+                    "Everything lowers to MotionExpr",
+                    key: "runtime",
+                ),
+                StripItem(
+                    "Deterministic",
+                    "Pure, replayable, testable",
+                    key: "deterministic",
+                ),
+                StripItem(
+                    "Accessibility first",
+                    "Policy respects users",
+                    key: "accessibility",
+                ),
             ],
         ))
         .padding_all(tokens.spacing.m)

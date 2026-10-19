@@ -20,21 +20,24 @@ fission_component! {
             column_gap: tokens.spacing.s,
             row_gap: tokens.spacing.s,
             children: [
-                PolicyCard {
-                    title: "Full",
-                    body: "FromTop + Fade + Scale",
-                    active: cards.selected == MotionPolicy::Full,
-                },
-                PolicyCard {
-                    title: "Reduced",
-                    body: "Fade only, shorter duration",
-                    active: cards.selected == MotionPolicy::Reduced,
-                },
-                PolicyCard {
-                    title: "Disabled",
-                    body: "Instant final state",
-                    active: cards.selected == MotionPolicy::Disabled,
-                },
+                PolicyCard(
+                    "Full",
+                    "FromTop + Fade + Scale",
+                    cards.selected == MotionPolicy::Full,
+                    key: "full",
+                ),
+                PolicyCard(
+                    "Reduced",
+                    "Fade only, shorter duration",
+                    cards.selected == MotionPolicy::Reduced,
+                    key: "reduced",
+                ),
+                PolicyCard(
+                    "Disabled",
+                    "Instant final state",
+                    cards.selected == MotionPolicy::Disabled,
+                    key: "disabled",
+                ),
             ],
         ))
         .padding_all(tokens.spacing.m)

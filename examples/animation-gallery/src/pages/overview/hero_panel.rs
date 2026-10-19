@@ -18,22 +18,10 @@ fission_component! {
             column_gap: spacing.s,
             row_gap: spacing.s,
             children: [
-                HeroMetric {
-                    value: "12",
-                    label: "widget demos",
-                },
-                HeroMetric {
-                    value: "9",
-                    label: "motion properties",
-                },
-                HeroMetric {
-                    value: "4",
-                    label: "composition routes",
-                },
-                HeroMetric {
-                    value: "9",
-                    label: "LiveTests",
-                },
+                HeroMetric("12", "widget demos", key: "widget-demos"),
+                HeroMetric("9", "motion properties", key: "motion-properties"),
+                HeroMetric("4", "composition routes", key: "composition-routes"),
+                HeroMetric("9", "LiveTests", key: "live-tests"),
             ],
         ))
         .padding_all(spacing.m)
