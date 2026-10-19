@@ -75,7 +75,8 @@ fission_component! {
                             padding: [tokens.spacing.none, tokens.spacing.none, tokens.spacing.none, tokens.spacing.none],
                         )
                         .flex_grow(1.0)
-                        .min_width(0.0),
+                        .min_width(0.0)
+                        .semantics_identifier(format!("inbox.email.open.{}", row.email.id)),
                         FlagButton(
                             row.email.is_flagged,
                             row.email.id,

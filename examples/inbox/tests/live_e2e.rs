@@ -4,7 +4,7 @@
 /// of each section, scrolls, clicks, and verifies behavior.
 ///
 /// Run: cargo test -p inbox --test live_e2e -- --ignored --nocapture
-use fission_test_driver::LiveTestClient;
+use fission_test_driver::{LiveTestClient, SelectorQuery};
 use std::net::TcpListener;
 use std::process::{Child, Command};
 
@@ -142,6 +142,32 @@ fn inbox_initial_list_keeps_last_preview_above_pagination() {
         preview.y,
         preview.height
     );
+
+    client.quit().expect("quit");
+    let _ = child.wait();
+}
+
+#[test]
+#[ignore]
+fn opening_email_builds_the_complete_detail_route() {
+    let control_port = reserve_control_port();
+    let mut child = launch_inbox(control_port);
+    let client = LiveTestClient::connect(control_port);
+    client.wait_for_ready(20_000).expect("inbox did not start");
+    client.wait(1_500).expect("wait for initial render");
+
+    client
+        .activate_selector(SelectorQuery::semantic_identifier("inbox.email.open.1"))
+        .expect("open the first email");
+    client
+        .assert_text_visible("Quarterly planning sync")
+        .expect("opened thread subject should remain visible");
+    client
+        .assert_text_visible("Attachments")
+        .expect("state-agnostic attachment components should build in the routed detail view");
+    client
+        .assert_text_visible("Scanning attachments...")
+        .expect("the complete attachment state should render without terminating the app");
 
     client.quit().expect("quit");
     let _ = child.wait();
