@@ -71,6 +71,35 @@ mod tests {
         .unwrap();
         syn::parse2::<syn::File>(output).unwrap();
     }
+
+    #[test]
+    fn action_envelope_slots_accept_inline_handlers_without_a_widget_allowlist() {
+        let output = expand(quote! {
+            pub Dialog<State> |dialog, state, cx| => Modal(
+                key: "dialog",
+                on_dismiss: |_dialog, state, _cx| state.open = false,
+            )
+        })
+        .unwrap();
+
+        syn::parse2::<syn::File>(output.clone()).unwrap();
+        let output = output.to_string();
+        assert!(output.contains("events :: Press"), "{output}");
+        assert!(output.contains("__widget . on_dismiss = Some"), "{output}");
+    }
+
+    #[test]
+    fn state_agnostic_components_do_not_request_unit_view_state() {
+        let output = expand(quote! {
+            pub Caption<()> { text: String } |caption, _state, _cx| => Text(caption.text.clone())
+        })
+        .unwrap();
+
+        syn::parse2::<syn::File>(output.clone()).unwrap();
+        let output = output.to_string();
+        assert!(output.contains("let _state : & () = & ()"), "{output}");
+        assert!(!output.contains("__view . state ()"), "{output}");
+    }
     #[test]
     fn component_attributes_are_preserved_without_duplicate_clone_derives() {
         let output = expand(quote! {
@@ -100,6 +129,34 @@ mod tests {
         assert!(output.contains("Default :: default"), "{output}");
         assert!(!output.contains(". title ("), "{output}");
         assert!(!output.contains(". enabled ("), "{output}");
+    }
+    #[test]
+    fn authored_widget_ids_are_not_overwritten_by_compose_identity() {
+        let output = expand(quote! {
+            pub Screen<State> |screen, state, cx| => TextInput(
+                id: Some(WidgetId::explicit("name")),
+                bind: state.name,
+            )
+        })
+        .unwrap()
+        .to_string();
+
+        assert!(output.contains("__widget . id ="), "{output}");
+        assert!(!output.contains("WidgetIdExt :: id"), "{output}");
+    }
+    #[test]
+    fn generated_components_protect_their_owned_tree_with_a_composite_boundary() {
+        let output = expand(quote! {
+            pub Screen<State> |screen, state, cx| => ThirdPartyWidget(
+                title: "Imported",
+            )
+        })
+        .unwrap()
+        .to_string();
+
+        assert!(output.contains("core :: ui :: Composite"), "{output}");
+        assert!(output.contains("id : Some (__owner)"), "{output}");
+        assert!(output.contains("WidgetIdExt :: id"), "{output}");
     }
     #[test]
     fn non_child_arrays_remain_rust_arrays() {
@@ -345,10 +402,18 @@ mod tests {
         );
     }
     #[test]
-    fn anonymous_inline_handlers_need_a_semantic_name() {
-        rejects(
+    fn unkeyed_static_inline_handlers_use_the_authored_shape() {
+        let output = expand(
             quote! { X<S> |e,s,c| => Button(child: Text("Save"), on_press: |_,s,_| s.save()) },
-            "literal key",
+        )
+        .unwrap();
+        syn::parse2::<syn::File>(output).unwrap();
+    }
+    #[test]
+    fn dynamically_keyed_inline_handlers_need_a_semantic_name() {
+        rejects(
+            quote! { X<S> { id:String } |e,s,c| => Button(child: Text("Save"), key:e.id.clone(), on_press: |_,s,_| s.save()) },
+            "with a dynamic control key",
         );
     }
     #[test]

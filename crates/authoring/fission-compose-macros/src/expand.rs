@@ -57,11 +57,26 @@ pub fn component(input: Component) -> syn::Result<Tokens> {
         .as_ref()
         .map(|(_, e)| quote!(::std::clone::Clone::clone(&(#e))))
         .unwrap_or(quote!(()));
+    let name_string = quote!(concat!(module_path!(), "::", stringify!(#name)));
+    let state_lookup = if scope.is_none()
+        && matches!(&target, syn::Type::Tuple(tuple) if tuple.elems.is_empty())
+    {
+        quote!(let #state: &() = &();)
+    } else {
+        quote! {
+            let #state:&#target=match <#scope_ty as #rt::Scope>::get(__view.state(),&__scope_key){
+                Some(state)=>state,
+                None=>panic!(
+                    "Fission Compose component `{}` could not resolve its state scope",
+                    #name_string,
+                ),
+            };
+        }
+    };
     let root = quote!(<#scope_ty as #rt::Scope>::Root);
     let props: Vec<_> = fields.iter().filter(|f| f.local.is_none()).collect();
     let locals: Vec<_> = fields.iter().filter(|f| f.local.is_some()).collect();
     let view_ty = format_ident!("__{}View", name);
-    let name_string = quote!(concat!(module_path!(), "::", stringify!(#name)));
     let local_defs = locals.iter().map(|f| {
         let id = &f.name;
         let ty = &f.ty;
@@ -145,13 +160,7 @@ pub fn component(input: Component) -> syn::Result<Tokens> {
                 let #editor=&__component;
                 let __scope_key:<#scope_ty as #rt::Scope>::Key=#key;
                 let (__build,__view)=#rt::core::build::current::<#root>();
-                let #state:&#target=match <#scope_ty as #rt::Scope>::get(__view.state(),&__scope_key){
-                    Some(state)=>state,
-                    None=>panic!(
-                        "Fission Compose component `{}` could not resolve its state scope",
-                        #name_string,
-                    ),
-                };
+                #state_lookup
                 #rt::identity::BuildSession::run(||{
                     let __base=#rt::identity::current_id();
                     let __owner=#rt::identity::child_id(__base,#name_string,&__scope_key);
@@ -164,7 +173,11 @@ pub fn component(input: Component) -> syn::Result<Tokens> {
                         let _=(&#editor,&#state,&#cx);
                         #(#setup)*
                         let __tree:#rt::core::Widget=(#tree).into();
-                        __tree
+                        #rt::core::ui::Composite {
+                            id: Some(__owner),
+                            child: __tree,
+                            ..::std::default::Default::default()
+                        }.into()
                     })
                 })
             }
@@ -454,7 +467,9 @@ impl Emitter<'_> {
             } else if property.starts_with("on_") {
                 match arg.value.rust() {
                     Some(Expr::Closure(closure)) => {
-                        let handler_name=c.named("handler").and_then(Value::rust).and_then(string_literal).or_else(||static_key.clone())
+                        let handler_name=c.named("handler").and_then(Value::rust).and_then(string_literal)
+                            .or_else(||static_key.clone())
+                            .or_else(||c.named("key").is_none().then(||automatic_key.clone()))
                             .ok_or_else(||syn::Error::new_spanned(closure,"an inline handler needs a literal key: \"save\"; with a dynamic control key, add handler: \"save\""))?;
                         let handler = self.handler(
                             closure,
@@ -502,6 +517,22 @@ impl Emitter<'_> {
             let args = &modifier.args;
             quote!(let __widget=__widget.#name(#args);)
         });
+        let convert_widget = if c.named("id").is_some() {
+            // A named `id:` is the conventional Fission widget identity. Do not
+            // let the enclosing component's explicit ID replace it during
+            // conversion. `key:` remains the independent Compose structural
+            // identity used for children, bindings, and handlers above.
+            quote! {
+                let __widget: #rt::core::Widget =
+                    #rt::core::build::without_widget_id(|| __widget.into());
+                __widget
+            }
+        } else {
+            quote! {
+                let __widget: #rt::core::Widget = __widget.into();
+                #rt::core::ui::WidgetIdExt::id(__widget, #rt::identity::node().id)
+            }
+        };
         Ok(quote!({
             let __key=#key;
             #rt::identity::with_node(stringify!(#widget),&__key,||{
@@ -510,8 +541,7 @@ impl Emitter<'_> {
                 #(#events)*
                 #(#modifiers)*
                 #(#bindings)*
-                let __widget:#rt::core::Widget=__widget.into();
-                #rt::core::ui::WidgetIdExt::id(__widget,#rt::identity::node().id)
+                #convert_widget
             })
         }))
     }
@@ -538,11 +568,15 @@ impl Emitter<'_> {
             .iter()
             .map(parameter)
             .collect::<syn::Result<_>>()?;
-        let event=match port{
-            "on_press"|"on_submit"=>quote!(#rt::events::Press),
-            "on_input"=>quote!(#rt::events::TextChanged),
-            "on_toggle"=>quote!(#rt::events::Toggle),
-            _=>return Err(syn::Error::new_spanned(closure,"this prototype supports inline on_press, on_submit, on_input and on_toggle; pass a typed Event for another event contract")),
+        let event = match port {
+            "on_press" | "on_submit" => quote!(#rt::events::Press),
+            "on_input" => quote!(#rt::events::TextChanged),
+            "on_toggle" => quote!(#rt::events::Toggle),
+            // Other action slots (`on_close`, `on_dismiss`, `on_select`, and
+            // so on) carry the same ActionEnvelope. Callback factories such as
+            // `Fn(value) -> ActionEnvelope` remain typed Rust expressions until
+            // Compose has an explicit event-payload contract for them.
+            _ => quote!(#rt::events::Press),
         };
         if !self.symbols.insert(symbol.into()) {
             return Err(syn::Error::new_spanned(closure,"duplicate inline handler identity; give the control or handler a distinct semantic name"));

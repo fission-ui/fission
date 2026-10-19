@@ -239,6 +239,37 @@ pub fn with_widget_id<R>(id: crate::WidgetId, f: impl FnOnce() -> R) -> R {
     f()
 }
 
+/// Runs widget conversion without inheriting an enclosing explicit widget ID.
+///
+/// Authoring layers use this when a concrete widget already carries its own
+/// explicit ID. Structural identity remains active, while `current_widget_id`
+/// behaves exactly as it does for a directly converted widget value.
+#[doc(hidden)]
+pub fn without_widget_id<R>(f: impl FnOnce() -> R) -> R {
+    let saved = BUILD_SCOPES.with(|scopes| {
+        scopes
+            .borrow_mut()
+            .last_mut()
+            .map(|scope| std::mem::take(&mut scope.widget_id_stack))
+    });
+
+    struct RestoreGuard(Option<Vec<crate::WidgetId>>);
+    impl Drop for RestoreGuard {
+        fn drop(&mut self) {
+            if let Some(saved) = self.0.take() {
+                BUILD_SCOPES.with(|scopes| {
+                    if let Some(scope) = scopes.borrow_mut().last_mut() {
+                        scope.widget_id_stack = saved;
+                    }
+                });
+            }
+        }
+    }
+
+    let _guard = RestoreGuard(saved);
+    f()
+}
+
 /// Runs child construction beneath an automatically derived structural scope.
 ///
 /// The scope participates in local-state identity but is not an explicit
