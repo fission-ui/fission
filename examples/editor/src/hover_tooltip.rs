@@ -44,7 +44,10 @@ fission_component! {
                         top: Some(tokens.spacing.none),
                         bottom: Some(tokens.spacing.none),
                         child: GestureDetector(
-                            on_tap: cx.bind(DismissHover, reduce_with!(on_dismiss_hover)),
+                            on_tap: |_tooltip, state, _cx| {
+                                state.show_hover = false;
+                                state.hover_info = None;
+                            },
                             child: Container(Spacer())
                                 .bg(palette.transparent)
                                 .flex_grow(1.0),

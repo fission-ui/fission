@@ -5,8 +5,7 @@ use fission::prelude::*;
 
 fission_component! {
     pub EditorMenuButton<EditorState> {
-        label: &'static str,
-        action: ActionEnvelope,
+        label: String,
     } |button, _state, cx| {
         let palette = EditorPalette::from_theme(&cx.view.env().theme);
         let tokens = &cx.view.env().theme.tokens;
@@ -16,7 +15,13 @@ fission_component! {
             child: Text(button.label)
                     .size(tokens.typography.font_size_xs)
                     .color(palette.bright_text),
-            on_press: button.action.clone(),
+            on_press: |button, state, _cx| {
+                state.active_menu = if state.active_menu.as_deref() == Some(button.label.as_str()) {
+                    None
+                } else {
+                    Some(button.label.clone())
+                };
+            },
             width: MENU_BUTTON_WIDTH,
             height: MENU_BAR_HEIGHT,
             padding: [

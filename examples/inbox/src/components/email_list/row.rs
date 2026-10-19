@@ -1,5 +1,4 @@
-use crate::model::list::{navigate, toggle_email_selection, toggle_flag};
-use crate::model::{Email, InboxState, Navigate, ToggleEmailSelection, ToggleFlag};
+use crate::model::{Email, Folder, InboxState};
 use fission::op::AlignItems;
 use fission::prelude::*;
 use fission::widgets::divider::Orientation;
@@ -29,10 +28,17 @@ fission_component! {
                     children: [
                         Checkbox(
                             checked: selected,
-                            on_toggle: cx.bind(
-                                ToggleEmailSelection(row.email.id),
-                                reduce_with!(toggle_email_selection),
-                            ),
+                            on_toggle: |row, state, _cx| {
+                                if let Some(position) = state
+                                    .selected_emails
+                                    .iter()
+                                    .position(|id| *id == row.email.id)
+                                {
+                                    state.selected_emails.remove(position);
+                                } else {
+                                    state.selected_emails.push(row.email.id);
+                                }
+                            },
                         ),
                         Button(
                             variant: ButtonVariant::Ghost,
@@ -55,17 +61,24 @@ fission_component! {
                                     },
                                 ],
                             ),
-                            on_press: cx.bind(
-                                Navigate(row.path.clone()),
-                                reduce_with!(navigate),
-                            ),
+                            on_press: |row, state, _cx| {
+                                state.navigate_to(row.path.clone());
+                                state.show_mobile_menu = false;
+                                if let Some(id) = state.selected_email_id {
+                                    if let Some(email) =
+                                        state.emails.iter_mut().find(|email| email.id == id)
+                                    {
+                                        email.is_read = true;
+                                    }
+                                }
+                            },
                             padding: [tokens.spacing.none, tokens.spacing.none, tokens.spacing.none, tokens.spacing.none],
                         )
                         .flex_grow(1.0)
                         .min_width(0.0),
                         FlagButton(
                             row.email.is_flagged,
-                            cx.bind(ToggleFlag(row.email.id), reduce_with!(toggle_flag)),
+                            row.email.id,
                         ),
                     ],
                 ),
@@ -106,7 +119,7 @@ fission_component! {
 fission_component! {
     FlagButton<InboxState> {
         flagged: bool,
-        on_flag: ActionEnvelope,
+        email_id: usize,
     } |flag, _state, cx| {
         let tokens = &cx.view.env().theme.tokens;
         let icon = if flag.flagged {
@@ -119,7 +132,16 @@ fission_component! {
     Button(
         variant: ButtonVariant::Ghost,
         child: Some(Widget::from(Icon::svg(icon).size(tokens.typography.font_size_lg))),
-        on_press: flag.on_flag.clone(),
+        on_press: |flag, state, _cx| {
+            if let Some(email) = state.emails.iter_mut().find(|email| email.id == flag.email_id) {
+                email.is_flagged = !email.is_flagged;
+                if email.is_flagged {
+                    email.folders.insert(Folder::Starred);
+                } else {
+                    email.folders.remove(&Folder::Starred);
+                }
+            }
+        },
         width: size,
         height: size,
         padding: [

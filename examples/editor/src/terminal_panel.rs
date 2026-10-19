@@ -4,7 +4,7 @@ use crate::layout::{
     MIN_TERMINAL_WIDTH, SIDEBAR_MAX_WIDTH, SIDEBAR_MIN_WIDTH,
 };
 use crate::layout::{MIN_TERMINAL_HEIGHT, PANEL_HEADER_HEIGHT, TERMINAL_HEIGHT_FRACTION};
-use crate::model::{on_set_bottom_panel_tab, BottomPanelTab, EditorState, SetBottomPanelTab};
+use crate::model::{BottomPanelTab, EditorState};
 use crate::palette::EditorPalette;
 use crate::terminal_panel_tab::TerminalPanelTab;
 use fission::prelude::*;
@@ -65,19 +65,13 @@ fission_component! {
                     TerminalPanelTab(
                         "TERMINAL",
                         state.bottom_panel_tab == BottomPanelTab::Terminal,
-                        cx.bind(
-                            SetBottomPanelTab(BottomPanelTab::Terminal),
-                            reduce_with!(on_set_bottom_panel_tab),
-                        ),
+                        BottomPanelTab::Terminal,
                         "editor_terminal_tab_button",
                     ),
                     TerminalPanelTab(
                         "PROBLEMS",
                         state.bottom_panel_tab == BottomPanelTab::Problems,
-                        cx.bind(
-                            SetBottomPanelTab(BottomPanelTab::Problems),
-                            reduce_with!(on_set_bottom_panel_tab),
-                        ),
+                        BottomPanelTab::Problems,
                         "editor_problems_tab_button",
                     ),
                     Spacer(flex_grow: 1.0),

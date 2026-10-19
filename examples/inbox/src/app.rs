@@ -1,9 +1,7 @@
 use crate::components::Sidebar;
 use crate::features::{BrowserModal, ComposeModal, ContactsModal, SettingsModal};
 use crate::inbox_shell::InboxShell;
-use crate::model::detail::set_toast_visible;
-use crate::model::list::set_mobile_menu_open;
-use crate::model::{InboxState, SetMobileMenuOpen, ToggleToast};
+use crate::model::InboxState;
 use fission::motion::{
     scalar, Motion, MotionEasing, MotionPhase, MotionPropertyId, MotionStartValue, MotionTrack,
     MotionTransition,
@@ -69,10 +67,7 @@ fission_component! {
         id: WidgetId::explicit("mobile_drawer"),
         side: DrawerSide::Left,
         is_open: true,
-        on_dismiss: cx.bind(
-            SetMobileMenuOpen(false),
-            reduce_with!(set_mobile_menu_open),
-        ),
+        on_dismiss: |_drawer, state, _cx| state.show_mobile_menu = false,
         dismiss_semantics_identifier: Some("inbox.mobile-drawer.dismiss".into()),
         content: Sidebar(),
         width: MOBILE_DRAWER_WIDTH,
@@ -88,7 +83,7 @@ fission_component! {
             id: WidgetId::explicit("app_toast"),
             kind: ToastKind::Success,
             message: state.toast_message.clone().unwrap_or_else(|| cx.tr("toast.completed")),
-            on_close: cx.bind(ToggleToast(false), reduce_with!(set_toast_visible)),
+            on_close: |_toast, state, _cx| state.show_toast = false,
             duration: ToastDuration::Default,
         ),
     )

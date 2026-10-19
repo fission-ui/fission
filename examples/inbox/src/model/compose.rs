@@ -1,9 +1,8 @@
 //! Reducers behind the compose modal.
 
 use super::{
-    Category, DiscardCompose, Email, EmailMessage, FileSelected, Folder, InboxState, SendCompose,
-    SetComposeBody, SetComposeOpen, SetComposeSubject, SetComposeTo, SetDatePickerOpen,
-    SetScheduleDate, SetScheduleTime,
+    Category, DiscardCompose, Email, EmailMessage, Folder, InboxState, SendCompose, SetComposeOpen,
+    SetComposeTo, SetDatePickerOpen, SetScheduleDate, SetScheduleTime,
 };
 use chrono::Local;
 use fission::core::ReducerContext;
@@ -55,18 +54,6 @@ fn is_address(recipient: &str) -> bool {
     }
 }
 
-pub fn set_compose_subject(
-    state: &mut InboxState,
-    action: SetComposeSubject,
-    cx: &mut Cx<'_, '_, '_>,
-) {
-    state.compose_subject = edited_text(cx, action.0);
-}
-
-pub fn set_compose_body(state: &mut InboxState, action: SetComposeBody, cx: &mut Cx<'_, '_, '_>) {
-    state.compose_body = edited_text(cx, action.0);
-}
-
 pub fn set_schedule_date(state: &mut InboxState, action: SetScheduleDate, _: &mut Cx<'_, '_, '_>) {
     state.schedule_date = Some(action.0);
     state.is_date_picker_open = false;
@@ -82,13 +69,6 @@ pub fn set_date_picker_open(
     _: &mut Cx<'_, '_, '_>,
 ) {
     state.is_date_picker_open = action.0;
-}
-
-/// Adds every file dropped on the modal to the draft's attachments.
-pub fn add_dropped_files(state: &mut InboxState, _: FileSelected, cx: &mut Cx<'_, '_, '_>) {
-    if let Some(paths) = cx.input.as_drop_paths() {
-        state.compose_attachments.extend(paths.iter().cloned());
-    }
 }
 
 /// Files the draft as a new sent thread, clears the draft, closes the modal and

@@ -1,5 +1,5 @@
 use crate::layout::{ACTIVE_INDICATOR_THICKNESS, TAB_BAR_HEIGHT, TAB_CLOSE_SIZE};
-use crate::model::{on_close_tab, on_select_tab, CloseTab, EditorState, SelectTab, TabInfo};
+use crate::model::{EditorState, TabInfo};
 use crate::palette::EditorPalette;
 use fission::prelude::*;
 
@@ -30,7 +30,10 @@ fission_component! {
         Button(
             variant: ButtonVariant::Ghost,
             content_align: ButtonContentAlign::Start,
-            on_press: cx.bind(SelectTab(tab.index), reduce_with!(on_select_tab)),
+            on_press: |tab, state, _cx| {
+                state.active_tab = tab.index;
+                state.update_breadcrumb();
+            },
             height: TAB_BAR_HEIGHT,
             padding: [tokens.spacing.none, tokens.spacing.none, tokens.spacing.none, tokens.spacing.none],
             child: Column(
@@ -50,10 +53,7 @@ fission_component! {
                                     child: Text("×")
                                         .size(tokens.typography.body_medium_size)
                                         .color(palette.tab_inactive_text),
-                                    on_press: cx.bind(
-                                        CloseTab(tab.index),
-                                        reduce_with!(on_close_tab),
-                                    ),
+                                    on_press: |tab, state, _cx| state.close_tab(tab.index),
                                     width: TAB_CLOSE_SIZE,
                                     height: TAB_CLOSE_SIZE,
                                     padding: [tokens.spacing.none, tokens.spacing.none, tokens.spacing.none, tokens.spacing.none],

@@ -1,5 +1,4 @@
-use crate::model::list::set_mobile_menu_open;
-use crate::model::{Folder, InboxState, SetMobileMenuOpen};
+use crate::model::{Folder, InboxState};
 use fission::op::AlignItems;
 use fission::prelude::*;
 
@@ -33,10 +32,7 @@ fission_component! {
                                 .size(tokens.typography.font_size_xl)
                         )
                     ),
-                    on_press: cx.bind(
-                        SetMobileMenuOpen(true),
-                        reduce_with!(set_mobile_menu_open),
-                    ),
+                    on_press: |_header, state, _cx| state.show_mobile_menu = true,
                     width: tokens.spacing.xl + tokens.spacing.xs,
                     height: tokens.spacing.xl + tokens.spacing.xs,
                     padding: [tokens.spacing.xs, tokens.spacing.xs, tokens.spacing.xs, tokens.spacing.xs],

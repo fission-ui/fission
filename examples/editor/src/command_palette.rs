@@ -4,10 +4,7 @@ use crate::layout::{
     COMMAND_PALETTE_MAX_WIDTH, COMMAND_PALETTE_MIN_WIDTH, COMMAND_PALETTE_VERTICAL_RESERVE,
     COMMAND_RESULTS_MAX_HEIGHT, COMMAND_RESULTS_MIN_HEIGHT, OVERLAY_HORIZONTAL_RESERVE,
 };
-use crate::model::{
-    on_dismiss_command_palette, on_run_command, on_update_command_query, DismissCommandPalette,
-    EditorState, RunCommand, UpdateCommandQuery, PALETTE_COMMANDS,
-};
+use crate::model::{on_run_command, EditorState, RunCommand, PALETTE_COMMANDS};
 use crate::palette::EditorPalette;
 use fission::prelude::*;
 
@@ -36,10 +33,10 @@ fission_component! {
                 children: [
                     FillParent(
                         GestureDetector(
-                            on_tap: cx.bind(
-                                DismissCommandPalette,
-                                reduce_with!(on_dismiss_command_palette),
-                            ),
+                            on_tap: |_overlay, state, _cx| {
+                                state.show_command_palette = false;
+                                state.command_query.clear();
+                            },
                             child: Container(Spacer())
                                 .bg(palette.modal_backdrop)
                                 .flex_grow(1.0),
@@ -76,9 +73,8 @@ fission_component! {
                 Container(
                     TextInput(
                     id: Some(WidgetId::explicit("editor_command_palette_input")),
-                    value: state.command_query.clone(),
                     placeholder: Some("Type a command...".into()),
-                    on_input: cx.bind(UpdateCommandQuery, reduce_with!(on_update_command_query)),
+                    bind: state.command_query,
                     ),
                 ).padding_all(tokens.spacing.s),
                 Container(

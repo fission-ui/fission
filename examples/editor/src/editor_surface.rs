@@ -7,10 +7,7 @@ use crate::layout::{
     TAB_BAR_HEIGHT, TERMINAL_HEIGHT_FRACTION,
 };
 use crate::minimap::Minimap;
-use crate::model::{
-    on_update_cursor_position, on_update_editor_document, EditorState, UpdateCursorPosition,
-    UpdateEditorDocument,
-};
+use crate::model::EditorState;
 use crate::palette::EditorPalette;
 use fission::prelude::*;
 
@@ -67,14 +64,35 @@ fission_component! {
                                         tokens.typography.font_size_sm
                                             * tokens.typography.line_height_normal,
                                     ),
-                                    on_input: cx.bind(
-                                        UpdateEditorDocument,
-                                        reduce_with!(on_update_editor_document),
-                                    ),
-                                    on_cursor_change: cx.bind(
-                                        UpdateCursorPosition { caret: 0, anchor: 0 },
-                                        reduce_with!(on_update_cursor_position),
-                                    ),
+                                    on_input: |_surface, state, cx| {
+                                        if let Some(change) = cx.input.text_change() {
+                                            if let Some(tab) = state.open_tabs.get(state.active_tab) {
+                                                let path = tab.path.clone();
+                                                if let Some(buffer) = state.file_contents.get_mut(&path) {
+                                                    if !buffer.is_editable() {
+                                                        state.status_message = Some(
+                                                            "This document is not editable".into(),
+                                                        );
+                                                        return;
+                                                    }
+                                                    buffer.replace_document(&change.new_text);
+                                                }
+                                                state.mark_active_tab_dirty();
+                                                state.notify_buffer_changed(&path);
+                                            }
+                                        }
+                                    },
+                                    on_cursor_change: |_surface, state, cx| {
+                                        if let Some(change) = cx.input.text_selection_change() {
+                                            if let Some((_tab, buffer)) = state.active_buffer_mut() {
+                                                buffer.clear_preedit();
+                                                buffer.set_selection_offsets(
+                                                    change.value.selection.extent.utf8_offset(),
+                                                    change.value.selection.base.utf8_offset(),
+                                                );
+                                            }
+                                        }
+                                    },
                                     width: width,
                                     height: height,
                                     multiline: true,

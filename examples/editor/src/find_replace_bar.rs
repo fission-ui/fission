@@ -2,6 +2,16 @@ use crate::layout::{FIND_BAR_HEIGHT, TOOLBAR_CONTROL_SIZE};
 use crate::model::*;
 use crate::palette::EditorPalette;
 use fission::prelude::*;
+use serde::{Deserialize, Serialize};
+
+#[derive(Clone, Copy, Serialize, Deserialize)]
+enum FindCommand {
+    Previous,
+    Next,
+    Replace,
+    ReplaceAll,
+    Close,
+}
 
 fission_component! {
     pub(crate) FindReplaceBar<EditorState> |_bar, state, cx| {
@@ -26,24 +36,23 @@ fission_component! {
                                 children: [
                                     Container(
                                         TextInput(
+                                            key: "find-query",
                                             id: WidgetId::explicit("find_input"),
                                             value: state.find_query.clone(),
                                             placeholder: Some("Find".into()),
-                                            on_input: cx.bind(
-                                                UpdateFindQuery,
-                                                reduce_with!(on_update_find_query),
-                                            ),
+                                            on_input: |_bar, state, cx| {
+                                                if let Some(change) = cx.input.text_change() {
+                                                    state.find_query = change.new_text.clone();
+                                                    state.find_next();
+                                                }
+                                            },
                                         ),
                                     ).flex_grow(1.0),
                                     Container(
                                         TextInput(
                                             id: WidgetId::explicit("replace_input"),
-                                            value: state.replace_query.clone(),
                                             placeholder: Some("Replace".into()),
-                                            on_input: cx.bind(
-                                                UpdateReplaceQuery,
-                                                reduce_with!(on_update_replace_query),
-                                            ),
+                                            bind: state.replace_query,
                                         ),
                                     ).flex_grow(1.0),
                                 ],
@@ -59,25 +68,25 @@ fission_component! {
                         ).padding_all(tokens.spacing.xs),
                         FindBarIconButton(
                             fission::icons::material::navigation::chevron_left::round(),
-                            cx.bind(FindPrevious, reduce_with!(on_find_previous)),
+                            FindCommand::Previous,
                             "Previous match",
                         ),
                         FindBarIconButton(
                             fission::icons::material::navigation::chevron_right::round(),
-                            cx.bind(FindNext, reduce_with!(on_find_next)),
+                            FindCommand::Next,
                             "Next match",
                         ),
                         FindBarTextButton(
                             "Replace",
-                            cx.bind(ReplaceOne, reduce_with!(on_replace_one)),
+                            FindCommand::Replace,
                         ),
                         FindBarTextButton(
                             "Replace All",
-                            cx.bind(ReplaceAll, reduce_with!(on_replace_all)),
+                            FindCommand::ReplaceAll,
                         ),
                         FindBarIconButton(
                             fission::icons::material::navigation::close::round(),
-                            cx.bind(ToggleFindReplace, reduce_with!(on_close_find_replace)),
+                            FindCommand::Close,
                             "Close find and replace",
                         ),
                     ],
@@ -95,7 +104,7 @@ fission_component! {
 fission_component! {
     FindBarIconButton<EditorState> {
         icon: &'static str,
-        action: ActionEnvelope,
+        command: FindCommand,
         label: &'static str,
     } |button, _state, cx| {
         let palette = EditorPalette::from_theme(&cx.view.env().theme);
@@ -106,7 +115,7 @@ fission_component! {
             child: Some(Icon::svg(button.icon)
                 .size(tokens.typography.font_size_lg)
                 .color(palette.bright_text).into()),
-            on_press: button.action,
+            on_press: |button, state, _cx| run_find_command(state, button.command),
             height: TOOLBAR_CONTROL_SIZE,
             width: TOOLBAR_CONTROL_SIZE,
             padding: [tokens.spacing.none, tokens.spacing.none, tokens.spacing.none, tokens.spacing.none],
@@ -120,7 +129,7 @@ fission_component! {
 fission_component! {
     FindBarTextButton<EditorState> {
         label: &'static str,
-        action: ActionEnvelope,
+        command: FindCommand,
     } |button, _state, cx| {
         let palette = EditorPalette::from_theme(&cx.view.env().theme);
         let tokens = &cx.view.env().theme.tokens;
@@ -130,7 +139,7 @@ fission_component! {
             child: Text(button.label)
                 .size(tokens.typography.font_size_xs)
                 .color(palette.bright_text),
-            on_press: button.action,
+            on_press: |button, state, _cx| run_find_command(state, button.command),
             height: TOOLBAR_CONTROL_SIZE,
             padding: [
                 tokens.spacing.none,
@@ -139,4 +148,14 @@ fission_component! {
                 tokens.spacing.s,
             ],
         )
+}
+
+fn run_find_command(state: &mut EditorState, command: FindCommand) {
+    match command {
+        FindCommand::Previous => state.find_previous(),
+        FindCommand::Next => state.find_next(),
+        FindCommand::Replace => state.replace_one(),
+        FindCommand::ReplaceAll => state.replace_all(),
+        FindCommand::Close => state.show_find_replace = false,
+    }
 }

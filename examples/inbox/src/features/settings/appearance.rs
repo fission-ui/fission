@@ -1,16 +1,19 @@
 use super::section::SectionHeading;
 use crate::features::settings_theme_preview::SettingsThemePreview;
-use crate::model::settings::{
-    set_density, set_density_select_open, set_theme, set_theme_select_open, set_zoom_level,
-};
-use crate::model::{
-    InboxState, SetDensity, SetDensitySelectOpen, SetTheme, SetThemeSelectOpen, SetZoomLevel,
-};
+use crate::model::settings::{set_density, set_theme, set_zoom_level};
+use crate::model::{InboxState, SetDensity, SetTheme, SetZoomLevel};
 use fission::prelude::*;
 use fission::theme::{DesignMode, DesignSystem, FissionFluent2DesignSystem};
+use serde::{Deserialize, Serialize};
 
 const MIN_ZOOM: f32 = 0.75;
 const MAX_ZOOM: f32 = 1.25;
+
+#[derive(Clone, Copy, Serialize, Deserialize)]
+enum AppearanceSelect {
+    Theme,
+    Density,
+}
 
 /// Theme values, with each one's label key and semantics identifier.
 const THEMES: [(&str, &str, &str); 3] = [
@@ -52,10 +55,7 @@ fission_component! {
                     &THEMES[..],
                     state.theme_mode.clone(),
                     state.show_theme_select,
-                    cx.bind(
-                        SetThemeSelectOpen(!state.show_theme_select),
-                        reduce_with!(set_theme_select_open),
-                    ),
+                    AppearanceSelect::Theme,
                     THEMES
                         .iter()
                         .map(|(value, ..)| {
@@ -72,10 +72,7 @@ fission_component! {
                     &DENSITIES[..],
                     state.density_mode.clone(),
                     state.show_density_select,
-                    cx.bind(
-                        SetDensitySelectOpen(!state.show_density_select),
-                        reduce_with!(set_density_select_open),
-                    ),
+                    AppearanceSelect::Density,
                     DENSITIES
                         .iter()
                         .map(|(value, ..)| {
@@ -119,7 +116,7 @@ fission_component! {
         options: &'static [(&'static str, &'static str, &'static str)],
         current: String,
         is_open: bool,
-        on_toggle: ActionEnvelope,
+        kind: AppearanceSelect,
         on_select: Vec<ActionEnvelope>,
     } |select, _state, cx| {
         let selected_key = select
@@ -138,7 +135,22 @@ fission_component! {
                 selected_label: Some(cx.tr(selected_key)),
                 placeholder: cx.tr(select.placeholder_key),
                 is_open: select.is_open,
-                on_toggle: select.on_toggle.clone(),
+                    on_toggle: |select, state, _cx| match select.kind {
+                        AppearanceSelect::Theme => {
+                            state.show_theme_select = !state.show_theme_select;
+                            if state.show_theme_select {
+                                state.show_inbox_type_select = false;
+                                state.show_density_select = false;
+                            }
+                        }
+                        AppearanceSelect::Density => {
+                            state.show_density_select = !state.show_density_select;
+                            if state.show_density_select {
+                                state.show_inbox_type_select = false;
+                                state.show_theme_select = false;
+                            }
+                        }
+                    },
                 items: select
                     .options
                     .iter()

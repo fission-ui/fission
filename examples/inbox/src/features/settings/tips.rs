@@ -1,5 +1,4 @@
-use crate::model::settings::set_quick_tip_open;
-use crate::model::{InboxState, SetQuickTipOpen};
+use crate::model::InboxState;
 use fission::prelude::*;
 
 fission_component! {
@@ -14,10 +13,7 @@ fission_component! {
                     spacing: tokens.spacing.xs,
                     children: [
                         GestureDetector(
-                            on_tap: cx.bind(
-                                SetQuickTipOpen(true),
-                                reduce_with!(set_quick_tip_open),
-                            ),
+                            on_tap: |_settings, state, _cx| state.show_quick_tip = true,
                             child: HStack(
                                 spacing: tokens.spacing.xs,
                                 children: [

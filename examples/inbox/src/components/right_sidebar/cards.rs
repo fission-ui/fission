@@ -1,7 +1,14 @@
 use super::density::SidebarDensity;
-use crate::model::quick::{set_meet_camera_on, set_meet_mic_on, show_toast};
-use crate::model::{Folder, InboxState, SetMeetCameraOn, SetMeetMicOn, ShowToast};
+use crate::model::quick::show_toast;
+use crate::model::{Folder, InboxState, ShowToast};
 use fission::prelude::*;
+use serde::{Deserialize, Serialize};
+
+#[derive(Clone, Copy, Serialize, Deserialize)]
+enum MeetSetting {
+    Camera,
+    Microphone,
+}
 
 fission_component! {
     TitledCard<()> {
@@ -103,18 +110,12 @@ fission_component! {
                 MeetToggle(
                     "quick.camera",
                     state.meet_camera_on,
-                    cx.bind(
-                        SetMeetCameraOn(!state.meet_camera_on),
-                        reduce_with!(set_meet_camera_on),
-                    ),
+                    MeetSetting::Camera,
                 ),
                 MeetToggle(
                     "quick.microphone",
                     state.meet_mic_on,
-                    cx.bind(
-                        SetMeetMicOn(!state.meet_mic_on),
-                        reduce_with!(set_meet_mic_on),
-                    ),
+                    MeetSetting::Microphone,
                 ),
                 Button(
                     variant: ButtonVariant::Filled,
@@ -138,10 +139,10 @@ fission_component! {
 }
 
 fission_component! {
-    MeetToggle<()> {
+    MeetToggle<InboxState> {
         label_key: &'static str,
         checked: bool,
-        on_toggle: ActionEnvelope,
+        setting: MeetSetting,
     } |toggle, _state, cx| {
         let tokens = &cx.view.env().theme.tokens;
     } =>
@@ -153,7 +154,10 @@ fission_component! {
             Spacer(flex_grow: 1.0),
             Switch(
                 checked: toggle.checked,
-                on_toggle: toggle.on_toggle.clone(),
+                on_toggle: |toggle, state, _cx| match toggle.setting {
+                    MeetSetting::Camera => state.meet_camera_on = !state.meet_camera_on,
+                    MeetSetting::Microphone => state.meet_mic_on = !state.meet_mic_on,
+                },
             ),
         ],
     )

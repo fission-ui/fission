@@ -1,6 +1,6 @@
 use fission::prelude::*;
 
-use super::{drag_ended, drag_started, DragEnded, DragStarted, DRAG_GRID_SIZE};
+use super::{push_drag_log, DRAG_GRID_SIZE};
 use crate::GalleryState;
 
 fission_component! {
@@ -54,10 +54,12 @@ fission_component! {
                 snap_grid: card.snap_to_grid.then_some(DRAG_GRID_SIZE),
                 ..Default::default()
             },
-            on_drag_start: cx.build.bind(DragStarted(card.label.clone()), reduce_with!(drag_started)),
-            on_drag_end: cx.build.bind(
-                DragEnded(card.label.clone()),
-                reduce_with!(drag_ended),
-            ),
+            on_drag_start: |card, state, _cx| {
+                push_drag_log(state, format!("Started dragging {}", card.label));
+            },
+            on_drag_end: |card, state, _cx| {
+                push_drag_log(state, format!("Ended dragging {}", card.label));
+                state.drag_hover_zone = None;
+            },
         )
 }

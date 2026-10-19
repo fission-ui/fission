@@ -1,13 +1,13 @@
 use fission::prelude::*;
 
 use super::lane_dropzone_panel::{LaneDropzonePanel, LanePanelState};
-use super::{drag_entered, drag_left, drop_on_lane, DragEntered, DragLeft, DropOnLane};
+use super::{drop_on_lane, push_drag_log};
 use crate::GalleryState;
 
 fission_component! {
     #[derive(Clone)] pub(super) LaneDropzone<GalleryState> {
         id: &'static str,
-        title: &'static str,
+        title: String,
         items: Vec<String>,
     }
     |lane, _state, cx| {
@@ -20,7 +20,7 @@ fission_component! {
             id: Some(WidgetId::explicit(&identifier)),
             semantics_identifier: Some(identifier),
             child: LaneDropzonePanel(
-                lane.title,
+                lane.title.clone(),
                 lane.items.clone(),
                 LanePanelState::Idle,
                 match lane.id {
@@ -29,7 +29,7 @@ fission_component! {
                 },
             ),
             active_child: LaneDropzonePanel(
-                    lane.title,
+                    lane.title.clone(),
                     lane.items.clone(),
                     LanePanelState::Active,
                     match lane.id {
@@ -38,7 +38,7 @@ fission_component! {
                     },
                 ),
             hover_child: LaneDropzonePanel(
-                    lane.title,
+                    lane.title.clone(),
                     lane.items.clone(),
                     LanePanelState::Hovered,
                     match lane.id {
@@ -46,8 +46,16 @@ fission_component! {
                         _ => "done",
                     },
                 ),
-            on_drop: cx.build.bind(DropOnLane(lane.title.into()), reduce_with!(drop_on_lane)),
-            on_drag_enter: cx.build.bind(DragEntered(lane.title.into()), reduce_with!(drag_entered)),
-            on_drag_leave: cx.build.bind(DragLeft(lane.title.into()), reduce_with!(drag_left)),
+            on_drop: |lane, state, cx| drop_on_lane(state, &lane.title, cx),
+            on_drag_enter: |lane, state, _cx| {
+                state.drag_hover_zone = Some(lane.title.clone());
+                push_drag_log(state, format!("Hovering over {}", lane.title));
+            },
+            on_drag_leave: |lane, state, _cx| {
+                if state.drag_hover_zone.as_deref() == Some(lane.title.as_str()) {
+                    state.drag_hover_zone = None;
+                }
+                push_drag_log(state, format!("Left {}", lane.title));
+            },
         )
 }

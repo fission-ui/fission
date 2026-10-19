@@ -2,8 +2,8 @@
 
 mod fields;
 
-use crate::model::compose::{add_dropped_files, discard_compose, send_compose, set_compose_open};
-use crate::model::{DiscardCompose, FileSelected, InboxState, SendCompose, SetComposeOpen};
+use crate::model::compose::{discard_compose, send_compose, set_compose_open};
+use crate::model::{DiscardCompose, InboxState, SendCompose, SetComposeOpen};
 use fields::{AttachmentField, MessageField, RecipientField, ScheduleFields, SubjectField};
 use fission::prelude::*;
 
@@ -38,7 +38,11 @@ fission_component! {
                             MessageField(),
                         ],
                     ),
-                    on_drop: cx.bind(FileSelected, reduce_with!(add_dropped_files)),
+                    on_drop: |_modal, state, cx| {
+                        if let Some(paths) = cx.input.as_drop_paths() {
+                            state.compose_attachments.extend(paths.iter().cloned());
+                        }
+                    },
                     ),
                 ],
             ),
@@ -65,8 +69,8 @@ mod tests {
     use super::*;
     #[allow(unused_imports)]
     use crate::model::{
-        Email, EmailMessage, FileSelected, Folder, SendCompose, SetComposeBody, SetComposeOpen,
-        SetComposeSubject, SetComposeTo, SetDatePickerOpen, SetScheduleDate, SetScheduleTime,
+        Email, EmailMessage, Folder, SendCompose, SetComposeOpen, SetComposeTo, SetDatePickerOpen,
+        SetScheduleDate, SetScheduleTime,
     };
     use anyhow::Result;
     use fission::core::event::{InputEvent, KeyCode, KeyEvent, PointerButton, PointerEvent};

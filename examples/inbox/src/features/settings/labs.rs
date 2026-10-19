@@ -1,9 +1,14 @@
 use super::section::SectionHeading;
-use crate::model::settings::{
-    set_auto_advance_enabled, set_offline_enabled, set_smart_compose_enabled,
-};
-use crate::model::{InboxState, SetAutoAdvanceEnabled, SetOfflineEnabled, SetSmartComposeEnabled};
+use crate::model::InboxState;
 use fission::prelude::*;
+use serde::{Deserialize, Serialize};
+
+#[derive(Clone, Copy, Serialize, Deserialize)]
+enum LabSetting {
+    SmartCompose,
+    Offline,
+    AutoAdvance,
+}
 
 fission_component! {
 /// Experimental features the reader can switch on.
@@ -22,28 +27,19 @@ fission_component! {
                                 Icon::svg(material::action::check_circle::regular()),
                                 "settings.labs.smart_compose",
                                 state.smart_compose_enabled,
-                                cx.bind(
-                                    SetSmartComposeEnabled(!state.smart_compose_enabled),
-                                    reduce_with!(set_smart_compose_enabled),
-                                ),
+                                LabSetting::SmartCompose,
                             ),
                             LabToggle(
                                 Icon::svg(material::action::report_problem::regular()),
                                 "settings.labs.offline",
                                 state.offline_enabled,
-                                cx.bind(
-                                    SetOfflineEnabled(!state.offline_enabled),
-                                    reduce_with!(set_offline_enabled),
-                                ),
+                                LabSetting::Offline,
                             ),
                             LabToggle(
                                 Icon::svg(material::action::info::regular()),
                                 "settings.labs.auto_advance",
                                 state.auto_advance_enabled,
-                                cx.bind(
-                                    SetAutoAdvanceEnabled(!state.auto_advance_enabled),
-                                    reduce_with!(set_auto_advance_enabled),
-                                ),
+                                LabSetting::AutoAdvance,
                             ),
                         ],
                     ),
@@ -54,11 +50,11 @@ fission_component! {
 
 fission_component! {
 /// One experimental feature with its switch.
-    LabToggle<()> {
+    LabToggle<InboxState> {
         icon: Icon,
         label_key: &'static str,
         checked: bool,
-        on_toggle: ActionEnvelope,
+        setting: LabSetting,
     } |toggle, _state, cx| {
         let tokens = &cx.view.env().theme.tokens;
     } =>
@@ -70,7 +66,15 @@ fission_component! {
                 Spacer(flex_grow: 1.0),
                 Switch(
                     checked: toggle.checked,
-                    on_toggle: toggle.on_toggle.clone(),
+                    on_toggle: |toggle, state, _cx| match toggle.setting {
+                        LabSetting::SmartCompose => {
+                            state.smart_compose_enabled = !state.smart_compose_enabled;
+                        }
+                        LabSetting::Offline => state.offline_enabled = !state.offline_enabled,
+                        LabSetting::AutoAdvance => {
+                            state.auto_advance_enabled = !state.auto_advance_enabled;
+                        }
+                    },
                 ),
             ],
         )

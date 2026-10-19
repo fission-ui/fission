@@ -1,5 +1,4 @@
 use crate::model::compose::set_compose_open;
-use crate::model::list::toggle_label_filter;
 use crate::model::navigation::{select_folder, set_contacts_open};
 use crate::model::settings::set_settings_open;
 use crate::model::{
@@ -75,15 +74,7 @@ fission_component! {
                         spacing: tokens.spacing.s,
                         children: [
                             for label in LABELS {
-                                Tag(
-                                    label: label.to_string(),
-                                    selected: state.label_filter.as_deref() == Some(label),
-                                    key: label,
-                                    on_press: cx.bind(
-                                        crate::model::ToggleLabelFilter(label.into()),
-                                        reduce_with!(toggle_label_filter),
-                                    ),
-                                )
+                                LabelFilterTag(label.to_string(), key: label)
                             },
                         ],
                     ),
@@ -108,6 +99,19 @@ fission_component! {
     )
     .bg(tokens.colors.surface)
     .padding_all(tokens.spacing.s)
+}
+
+fission_component! {
+    LabelFilterTag<InboxState> { label: String } |tag, state, _cx| =>
+        Tag(
+            label: tag.label.to_string(),
+            selected: state.label_filter.as_deref() == Some(tag.label.as_str()),
+            on_press: |tag, state, _cx| {
+                state.label_filter = (state.label_filter.as_deref() != Some(tag.label.as_str()))
+                    .then(|| tag.label.clone());
+                state.page = 1;
+            },
+        )
 }
 
 fission_component! {

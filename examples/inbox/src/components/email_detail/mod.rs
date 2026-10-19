@@ -29,7 +29,10 @@ fission_component! {
                     spacing: tokens.spacing.m,
                     children: [
                         DetailHeader(detail.folder.clone(), email.clone()),
-                        Divider(orientation: Orientation::Horizontal),
+                        Divider(
+                            key: "header-divider",
+                            orientation: Orientation::Horizontal,
+                        ),
                         Container(
                             Text(
                                 content: TextContent::Literal(email.last_message().body.clone()),
@@ -46,7 +49,10 @@ fission_component! {
                         ThreadHistory(
                             email.messages[..email.messages.len().saturating_sub(1)].to_vec(),
                         ),
-                        Divider(orientation: Orientation::Horizontal),
+                        Divider(
+                            key: "reply-divider",
+                            orientation: Orientation::Horizontal,
+                        ),
                         ReplyModeSelector(),
                         ReplyComposer(email.id),
                     ],

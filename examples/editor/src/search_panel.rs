@@ -1,7 +1,5 @@
 use crate::layout::{INPUT_HEIGHT, SEARCH_ACTION_HEIGHT, SEARCH_ACTION_WIDTH, SEARCH_RESULT_LIMIT};
-use crate::model::{
-    on_execute_search, on_update_search_query, EditorState, ExecuteSearch, UpdateSearchQuery,
-};
+use crate::model::EditorState;
 use crate::palette::EditorPalette;
 use crate::search_result_item::SearchResultItem;
 use fission::prelude::*;
@@ -23,12 +21,8 @@ fission_component! {
                             children: [
                                 TextInput(
                                     id: WidgetId::explicit("editor_search_query_input"),
-                                    value: state.search_query.clone(),
                                     placeholder: Some("Search...".into()),
-                                    on_input: cx.bind(
-                                        UpdateSearchQuery,
-                                        reduce_with!(on_update_search_query),
-                                    ),
+                                    bind: state.search_query,
                                     borderless: true,
                                 ),
                                 Button(
@@ -36,10 +30,7 @@ fission_component! {
                                     child: Text("Go")
                                         .size(tokens.typography.font_size_xs)
                                         .color(palette.panel_text),
-                                    on_press: cx.bind(
-                                        ExecuteSearch,
-                                        reduce_with!(on_execute_search),
-                                    ),
+                                    on_press: |_panel, state, _cx| state.run_search(),
                                     width: SEARCH_ACTION_WIDTH,
                                     height: SEARCH_ACTION_HEIGHT,
                                     padding: [tokens.spacing.none, tokens.spacing.none, tokens.spacing.none, tokens.spacing.none],

@@ -1,13 +1,11 @@
 use crate::command_menu::CommandMenu;
 use crate::editor_menu_button::EditorMenuButton;
-use crate::flyout_overlay::FlyoutOverlay;
+use crate::flyout_overlay::{FlyoutDismiss, FlyoutOverlay};
 use crate::layout::{
     MENU_BAR_HEIGHT, MENU_BUTTON_WIDTH, MENU_FLYOUT_MAX_WIDTH, MENU_FLYOUT_MIN_WIDTH,
     OVERLAY_EDGE_GUTTER, OVERLAY_HORIZONTAL_RESERVE, OVERLAY_MIN_INSET,
 };
-use crate::model::{
-    on_dismiss_menu, on_toggle_menu, DismissMenu, EditorState, SetActiveMenu, MENUS,
-};
+use crate::model::{EditorState, MENUS};
 use crate::palette::EditorPalette;
 use fission::prelude::*;
 
@@ -29,11 +27,7 @@ fission_component! {
                 children: [
                     for (label, _) in MENUS {
                         EditorMenuButton(
-                            label,
-                            cx.bind(
-                                SetActiveMenu(Some(label.to_string())),
-                                reduce_with!(on_toggle_menu),
-                            ),
+                            label.to_string(),
                             key: label,
                         )
                     },
@@ -58,7 +52,7 @@ fission_component! {
         let (_, commands) = MENUS[flyout.index];
     } =>
         FlyoutOverlay(
-            cx.bind(DismissMenu, reduce_with!(on_dismiss_menu)),
+            FlyoutDismiss::Menu,
             palette.interaction_backdrop,
             left,
             MENU_BAR_HEIGHT,

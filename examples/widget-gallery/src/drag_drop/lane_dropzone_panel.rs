@@ -16,7 +16,7 @@ pub(super) enum LanePanelState {
 
 fission_component! {
     pub(super) LaneDropzonePanel<GalleryState> {
-        title: &'static str,
+        title: String,
         items: Vec<String>,
         state: LanePanelState,
         instance: &'static str,

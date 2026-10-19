@@ -1,12 +1,6 @@
 use crate::model::app_state::SIZE_FILTER_MAX_MB;
-use crate::model::list::{
-    set_advanced_filters_open, set_date_filter, set_date_filter_end_open,
-    set_date_filter_start_open, set_size_filter,
-};
-use crate::model::{
-    InboxState, SetAdvancedFiltersOpen, SetDateFilter, SetDateFilterEndOpen,
-    SetDateFilterStartOpen, SetSizeFilter,
-};
+use crate::model::list::set_date_filter;
+use crate::model::{InboxState, SetDateFilter};
 use fission::prelude::*;
 use std::sync::Arc;
 
@@ -24,10 +18,7 @@ fission_component! {
         Popover(
             id: WidgetId::explicit("advanced_filters"),
             is_open: state.show_advanced_filters,
-            on_close: cx.bind(
-                SetAdvancedFiltersOpen(false),
-                reduce_with!(set_advanced_filters_open),
-            ),
+            on_close: |_filters, state, _cx| state.show_advanced_filters = false,
             trigger: Button(
                 variant: ButtonVariant::Outline,
                 child: HStack(
@@ -38,10 +29,9 @@ fission_component! {
                             Text(TextContent::Key("header.filters".into())),
                         ],
                 ),
-                on_press: cx.bind(
-                    SetAdvancedFiltersOpen(!state.show_advanced_filters),
-                    reduce_with!(set_advanced_filters_open),
-                ),
+                on_press: |_filters, state, _cx| {
+                    state.show_advanced_filters = !state.show_advanced_filters;
+                },
             ),
             content: Container(
                 VStack(
@@ -62,22 +52,20 @@ fission_component! {
                                 + Send
                                 + Sync,
                         >,
-                        on_toggle_start: cx.bind(
-                            SetDateFilterStartOpen(!state.date_filter_start_open),
-                            reduce_with!(set_date_filter_start_open),
-                        ),
-                        on_toggle_end: cx.bind(
-                            SetDateFilterEndOpen(!state.date_filter_end_open),
-                            reduce_with!(set_date_filter_end_open),
-                        ),
-                        on_close_start: cx.bind(
-                            SetDateFilterStartOpen(false),
-                            reduce_with!(set_date_filter_start_open),
-                        ),
-                        on_close_end: cx.bind(
-                            SetDateFilterEndOpen(false),
-                            reduce_with!(set_date_filter_end_open),
-                        ),
+                        on_toggle_start: |_filters, state, _cx| {
+                            state.date_filter_start_open = !state.date_filter_start_open;
+                            state.date_filter_end_open = false;
+                        },
+                        on_toggle_end: |_filters, state, _cx| {
+                            state.date_filter_end_open = !state.date_filter_end_open;
+                            state.date_filter_start_open = false;
+                        },
+                        on_close_start: |_filters, state, _cx| {
+                            state.date_filter_start_open = false;
+                        },
+                        on_close_end: |_filters, state, _cx| {
+                            state.date_filter_end_open = false;
+                        },
                     ),
                     caption("filter.size_mb"),
                     RangeSlider(
@@ -88,7 +76,12 @@ fission_component! {
                         min: 0.0,
                         max: SIZE_FILTER_MAX_MB,
                         step: Some(1.0),
-                        on_change: cx.bind(SetSizeFilter, reduce_with!(set_size_filter)),
+                        on_change: |_filters, state, cx| {
+                            if let Some(change) = cx.input.range_slider_change() {
+                                state.size_filter_mb = (change.start, change.end);
+                                state.page = 1;
+                            }
+                        },
                     ),
                 ],
                 ),

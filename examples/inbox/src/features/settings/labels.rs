@@ -1,5 +1,4 @@
-use crate::model::settings::{label_dropped, set_drag_in_progress};
-use crate::model::{InboxState, LabelDropped, SetDragInProgress};
+use crate::model::InboxState;
 use fission::prelude::*;
 
 /// Labels the reader can drag onto the pin target.
@@ -9,8 +8,6 @@ fission_component! {
 /// Drag a label onto the pin target to pin it.
     pub(super) LabelSettings<InboxState> |_settings, state, cx| {
         let tokens = &cx.view.env().theme.tokens;
-        let drag_started = cx.bind(SetDragInProgress(true), reduce_with!(set_drag_in_progress));
-        let drag_ended = cx.bind(SetDragInProgress(false), reduce_with!(set_drag_in_progress));
     } =>
         VStack(
             spacing: tokens.spacing.s,
@@ -22,22 +19,20 @@ fission_component! {
                     spacing: tokens.spacing.xs,
                     children: [
                         for label in LABELS {
-                            Draggable(
-                                key: label,
-                                id: Some(WidgetId::explicit(&format!(
-                                    "settings.label.{}",
-                                    label.to_lowercase()
-                                ))),
-                                payload: label.as_bytes().to_vec(),
-                                on_drag_start: drag_started.clone(),
-                                on_drag_end: drag_ended.clone(),
-                                child: Tag(label: label),
-                            )
+                            DraggableLabel(label, key: label)
                         },
                     ],
                 ),
                 DragTarget(
-                    on_drop: cx.bind(LabelDropped("Pinned".into()), reduce_with!(label_dropped)),
+                    on_drop: |_settings, state, cx| {
+                        if let Some(label) = cx
+                            .input
+                            .as_internal_drop()
+                            .and_then(|payload| String::from_utf8(payload.to_vec()).ok())
+                        {
+                            pin_label(state, label);
+                        }
+                    },
                     child: Container(
                         Text(TextContent::Key("settings.labels.drop_target".into()))
                             .size(tokens.typography.font_size_xs),
@@ -61,5 +56,24 @@ fission_component! {
                         .color(tokens.colors.text_secondary),
                 },
             ],
+        )
+}
+
+pub(crate) fn pin_label(state: &mut InboxState, label: String) {
+    state.last_drag_label = Some(label);
+    state.drag_in_progress = false;
+}
+
+fission_component! {
+    DraggableLabel<InboxState> { label: &'static str } |item, _state, _cx| =>
+        Draggable(
+            id: WidgetId::explicit(&format!(
+                "settings.label.{}",
+                item.label.to_lowercase()
+            )),
+            payload: item.label.as_bytes().to_vec(),
+            on_drag_start: |_item, state, _cx| state.drag_in_progress = true,
+            on_drag_end: |_item, state, _cx| state.drag_in_progress = false,
+            child: Tag(label: item.label),
         )
 }

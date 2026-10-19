@@ -1,13 +1,10 @@
 use crate::command_menu::CommandMenu;
-use crate::flyout_overlay::FlyoutOverlay;
+use crate::flyout_overlay::{FlyoutDismiss, FlyoutOverlay};
 use crate::layout::{
     CONTEXT_MENU_MAX_HEIGHT, CONTEXT_MENU_MAX_WIDTH, CONTEXT_MENU_MIN_WIDTH, OVERLAY_EDGE_GUTTER,
     OVERLAY_HORIZONTAL_RESERVE, OVERLAY_MIN_INSET,
 };
-use crate::model::{
-    on_dismiss_context_menu, DismissContextMenu, EditorState, EDITOR_CONTEXT_COMMANDS,
-    TREE_CONTEXT_COMMANDS,
-};
+use crate::model::{EditorState, EDITOR_CONTEXT_COMMANDS, TREE_CONTEXT_COMMANDS};
 use crate::palette::EditorPalette;
 use fission::prelude::*;
 
@@ -50,7 +47,7 @@ fission_component! {
         let palette = EditorPalette::from_theme(&cx.view.env().theme);
     } =>
     FlyoutOverlay(
-        cx.bind(DismissContextMenu, reduce_with!(on_dismiss_context_menu)),
+        FlyoutDismiss::ContextMenu,
         palette.interaction_backdrop,
         overlay.left,
         overlay.top,

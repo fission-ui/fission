@@ -1,5 +1,5 @@
 use crate::layout::{COMPLETION_ITEM_HEIGHT, COMPLETION_KIND_WIDTH};
-use crate::model::{on_select_completion, EditorState, SelectCompletion};
+use crate::model::EditorState;
 use crate::palette::EditorPalette;
 use fission::prelude::*;
 
@@ -42,10 +42,7 @@ fission_component! {
                         },
                     ],
             ),
-            on_press: cx.bind(
-                SelectCompletion(item.index),
-                reduce_with!(on_select_completion),
-            ),
+            on_press: |item, state, _cx| state.select_completion(item.index),
             height: COMPLETION_ITEM_HEIGHT,
             padding: [
                 tokens.spacing.xs,

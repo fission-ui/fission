@@ -1,13 +1,13 @@
 //! Auto-complete popup widget that displays LSP completion suggestions.
 
 use crate::completion_popup_item::CompletionPopupItem;
-use crate::flyout_overlay::FlyoutOverlay;
+use crate::flyout_overlay::{FlyoutDismiss, FlyoutOverlay};
 use crate::layout::{
     COMPLETION_POPUP_HEIGHT_FRACTION, COMPLETION_POPUP_MAX_HEIGHT, COMPLETION_POPUP_MAX_WIDTH,
     COMPLETION_POPUP_MIN_HEIGHT, COMPLETION_POPUP_MIN_WIDTH, OVERLAY_EDGE_GUTTER,
     OVERLAY_HORIZONTAL_RESERVE, OVERLAY_MIN_INSET,
 };
-use crate::model::{on_dismiss_completions, DismissCompletions, EditorState};
+use crate::model::EditorState;
 use crate::palette::EditorPalette;
 use fission::prelude::*;
 
@@ -33,7 +33,7 @@ fission_component! {
                 PortalLayer::Flyout,
                 Some(WidgetId::explicit("completion_popup")),
                 FlyoutOverlay::new(
-                    cx.bind(DismissCompletions, reduce_with!(on_dismiss_completions)),
+                    FlyoutDismiss::Completions,
                     palette.transparent,
                     left,
                     top,

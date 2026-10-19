@@ -1,11 +1,7 @@
 use crate::model::compose::{
-    set_compose_body, set_compose_subject, set_compose_to, set_date_picker_open, set_schedule_date,
-    set_schedule_time,
+    set_compose_to, set_date_picker_open, set_schedule_date, set_schedule_time,
 };
-use crate::model::{
-    InboxState, SetComposeBody, SetComposeSubject, SetComposeTo, SetDatePickerOpen,
-    SetScheduleDate, SetScheduleTime,
-};
+use crate::model::{InboxState, SetComposeTo, SetDatePickerOpen, SetScheduleDate, SetScheduleTime};
 use fission::prelude::*;
 use std::sync::Arc;
 
@@ -55,12 +51,8 @@ fission_component! {
         label: Some(cx.tr("compose.subject_label")),
         child: TextInput(
             id: Some(WidgetId::explicit("compose_subject_input")),
-            value: state.compose_subject.clone(),
             placeholder: Some(cx.tr("compose.subject_placeholder").into()),
-            on_input: cx.bind(
-                SetComposeSubject(String::new()),
-                reduce_with!(set_compose_subject),
-            ),
+            bind: state.compose_subject,
         ),
     )
 }
@@ -121,9 +113,8 @@ fission_component! {
         helper: Some(cx.tr("compose.message_helper")),
         child: TextInput(
             id: Some(WidgetId::explicit("compose_body_input")),
-            value: state.compose_body.clone(),
             placeholder: Some(cx.tr("compose.message_placeholder").into()),
-            on_input: cx.bind(SetComposeBody(String::new()), reduce_with!(set_compose_body)),
+            bind: state.compose_body,
             multiline: true,
             height: 160.0,
         ),

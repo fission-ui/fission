@@ -63,10 +63,14 @@ fission_component! {
                     .color(if active { palette.bright_text } else { palette.dim_text }),
             ),
         ).border(if active { palette.bright_text } else { palette.transparent }, 0.0),
-        on_press: cx.bind(
-            SetSidebarSection(button.section),
-            reduce_with!(on_select_sidebar_section),
-        ),
+        on_press: |button, state, _cx| {
+            if state.sidebar_visible && state.sidebar_section == button.section {
+                state.sidebar_visible = false;
+            } else {
+                state.sidebar_section = button.section;
+                state.sidebar_visible = true;
+            }
+        },
         width: ACTIVITY_BAR_WIDTH,
         height: ACTIVITY_BAR_WIDTH,
         padding: [tokens.spacing.none, tokens.spacing.none, tokens.spacing.none, tokens.spacing.none],

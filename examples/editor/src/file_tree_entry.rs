@@ -1,7 +1,4 @@
-use crate::model::{
-    on_open_file, on_show_context_menu, on_toggle_tree_node, on_update_rename_input, EditorState,
-    FileEntry, OpenFile, ShowContextMenu, ToggleTreeNode, UpdateRenameInput,
-};
+use crate::model::{EditorState, FileEntry};
 use crate::palette::EditorPalette;
 use fission::prelude::*;
 
@@ -45,22 +42,6 @@ fission_component! {
         } else {
             Color::TRANSPARENT
         };
-        let tap_action = if entry.is_dir {
-            cx.bind(
-                ToggleTreeNode(entry.path.clone()),
-                reduce_with!(on_toggle_tree_node),
-            )
-        } else {
-            cx.bind(OpenFile(entry.path.clone()), reduce_with!(on_open_file))
-        };
-        let context_menu_action = cx.bind(
-            ShowContextMenu {
-                x: 0.0,
-                y: 0.0,
-                target: Some(entry.path.clone()),
-            },
-            reduce_with!(on_show_context_menu),
-        );
     } =>
         VStack(
             spacing: tokens.spacing.none,
@@ -79,23 +60,26 @@ fission_component! {
                     ).height(ROW_HEIGHT)
                 } else {
                     GestureDetector(
-                        on_secondary_click: context_menu_action,
-                        child: Button(
-                            variant: ButtonVariant::Ghost,
-                            content_align: ButtonContentAlign::Start,
-                            on_press: tap_action,
-                            child: FileTreeRowContent(
-                                component.entry.clone(),
-                                component.depth,
-                                chevron,
-                                file_icon,
-                                icon_color,
-                                background,
-                                false,
-                            ),
-                            height: ROW_HEIGHT,
-                            padding: [tokens.spacing.none, tokens.spacing.none, tokens.spacing.none, tokens.spacing.none],
-                        ).semantics_identifier(format!("editor.file-tree.{}", entry.path)),
+                        on_secondary_click: |component, state, cx| {
+                            let (x, y) = match cx.input {
+                                ActionInput::Pointer { x, y, .. } => (*x, *y),
+                                _ => (100.0, 100.0),
+                            };
+                            state.context_menu_visible = true;
+                            state.context_menu_position = (
+                                if x < 10.0 { 100.0 } else { x },
+                                if y < 10.0 { 100.0 } else { y },
+                            );
+                            state.context_menu_target = Some(component.entry.path.clone());
+                        },
+                        child: FileTreeButton(
+                            component.entry.clone(),
+                            component.depth,
+                            chevron,
+                            file_icon,
+                            icon_color,
+                            background,
+                        ),
                     )
                 },
                 if entry.is_dir && is_expanded {
@@ -109,6 +93,46 @@ fission_component! {
                 },
             ],
         )
+}
+
+fission_component! {
+    FileTreeButton<EditorState> {
+        entry: FileEntry,
+        depth: usize,
+        chevron: &'static str,
+        file_icon: &'static str,
+        icon_color: Color,
+        background: Color,
+    } |row, _state, cx| =>
+        Button(
+            variant: ButtonVariant::Ghost,
+            content_align: ButtonContentAlign::Start,
+            on_press: |row, state, _cx| {
+                if row.entry.is_dir {
+                    if !state.tree_expanded.remove(&row.entry.path) {
+                        state.tree_expanded.insert(row.entry.path.clone());
+                    }
+                } else {
+                    state.open_file(row.entry.path.clone());
+                }
+            },
+            child: FileTreeRowContent(
+                row.entry.clone(),
+                row.depth,
+                row.chevron,
+                row.file_icon,
+                row.icon_color,
+                row.background,
+                false,
+            ),
+            height: ROW_HEIGHT,
+            padding: [
+                cx.view.env().theme.tokens.spacing.none,
+                cx.view.env().theme.tokens.spacing.none,
+                cx.view.env().theme.tokens.spacing.none,
+                cx.view.env().theme.tokens.spacing.none,
+            ],
+        ).semantics_identifier(format!("editor.file-tree.{}", row.entry.path))
 }
 
 fission_component! {
@@ -139,12 +163,8 @@ fission_component! {
                     if row.is_renaming {
                         TextInput(
                             id: WidgetId::explicit("rename_input"),
-                            value: state.rename_input.clone(),
                             placeholder: Some("New name".into()),
-                            on_input: cx.bind(
-                                UpdateRenameInput,
-                                reduce_with!(on_update_rename_input),
-                            ),
+                            bind: state.rename_input,
                         )
                     } else {
                         Text(row.entry.name.clone())

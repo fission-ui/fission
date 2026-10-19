@@ -13,6 +13,8 @@ use crate::model::{InboxState, SetSettingsOpen};
 use appearance::AppearanceSettings;
 use fission::prelude::*;
 use general::GeneralSettings;
+#[cfg(test)]
+pub(crate) use labels::pin_label;
 use labels::LabelSettings;
 use labs::LabsSettings;
 use section::SectionDivider;
@@ -41,11 +43,11 @@ fission_component! {
                         spacing: tokens.spacing.m,
                         children: [
                             GeneralSettings(),
-                            SectionDivider(),
+                            SectionDivider(key: "general-appearance"),
                             AppearanceSettings(),
-                            SectionDivider(),
+                            SectionDivider(key: "appearance-signature"),
                             SignatureSettings(),
-                            SectionDivider(),
+                            SectionDivider(key: "signature-labs"),
                             LabsSettings(),
                             LabelSettings(),
                             TipsSettings(),

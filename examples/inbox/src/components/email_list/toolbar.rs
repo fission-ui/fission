@@ -1,6 +1,6 @@
 use super::filters::AdvancedFilters;
-use crate::model::list::{set_filter_mode, set_sort_menu_open, set_sort_option, update_search};
-use crate::model::{InboxState, SetFilterMode, SetSortMenuOpen, SetSortOption, UpdateSearch};
+use crate::model::list::{set_filter_mode, set_sort_option};
+use crate::model::{InboxState, SetFilterMode, SetSortOption};
 use fission::op::FlexWrap;
 use fission::prelude::*;
 use std::sync::Arc;
@@ -31,9 +31,8 @@ fission_component! {
             spacing: tokens.spacing.xs,
             children: [
                 TextInput(
-                    value: state.search_query.clone(),
                     placeholder: TextContent::Key("search.placeholder".into()),
-                    on_input: cx.bind(UpdateSearch(String::new()), reduce_with!(update_search)),
+                    bind: state.search_query,
                 ),
                 Row(
                     gap: tokens.spacing.s,
@@ -65,10 +64,9 @@ fission_component! {
                                 })
                                 .collect::<Vec<_>>(),
                             is_open: state.show_sort_menu,
-                            on_toggle: cx.bind(
-                                SetSortMenuOpen(!state.show_sort_menu),
-                                reduce_with!(set_sort_menu_open),
-                            ),
+                            on_toggle: |_toolbar, state, _cx| {
+                                state.show_sort_menu = !state.show_sort_menu;
+                            },
                             trigger_semantics_identifier: Some("inbox.sort".into()),
                             width: 140.0,
                         ),

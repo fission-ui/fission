@@ -1,6 +1,6 @@
 use crate::git_status_item::GitStatusItem;
 use crate::layout::PANEL_ACTION_HEIGHT;
-use crate::model::{on_refresh_git_status, EditorState, RefreshGitStatus};
+use crate::model::EditorState;
 use crate::palette::EditorPalette;
 use fission::prelude::*;
 
@@ -24,7 +24,7 @@ fission_component! {
                     child: Text("Refresh")
                             .size(tokens.typography.font_size_xs)
                             .color(palette.panel_text),
-                    on_press: cx.bind(RefreshGitStatus, reduce_with!(on_refresh_git_status)),
+                    on_press: |_panel, state, _cx| state.refresh_git_status(),
                     height: PANEL_ACTION_HEIGHT,
                     padding: [
                         tokens.spacing.xs,

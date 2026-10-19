@@ -1,6 +1,6 @@
 use super::section::SectionHeading;
-use crate::model::settings::{set_inbox_type, set_inbox_type_select_open, set_locale};
-use crate::model::{InboxState, SetInboxType, SetInboxTypeSelectOpen, SetLocale};
+use crate::model::settings::{set_inbox_type, set_locale};
+use crate::model::{InboxState, SetInboxType, SetLocale};
 use fission::i18n::Locale;
 use fission::prelude::*;
 use std::sync::Arc;
@@ -57,10 +57,13 @@ fission_component! {
                         selected_label: Some(cx.tr(selected_inbox_type.1)),
                         placeholder: cx.tr("settings.inbox_type.placeholder"),
                         is_open: state.show_inbox_type_select,
-                        on_toggle: cx.bind(
-                            SetInboxTypeSelectOpen(!state.show_inbox_type_select),
-                            reduce_with!(set_inbox_type_select_open),
-                        ),
+                        on_toggle: |_settings, state, _cx| {
+                            state.show_inbox_type_select = !state.show_inbox_type_select;
+                            if state.show_inbox_type_select {
+                                state.show_theme_select = false;
+                                state.show_density_select = false;
+                            }
+                        },
                         items: INBOX_TYPES
                             .iter()
                             .map(|(value, key, identifier)| SelectItem {

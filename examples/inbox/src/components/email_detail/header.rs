@@ -1,5 +1,5 @@
-use crate::model::detail::{delete_email, navigate_back, toggle_details};
-use crate::model::{DeleteEmail, Email, InboxState, Navigate, ToggleDetails};
+use crate::model::detail::{delete_email, toggle_details};
+use crate::model::{Email, InboxState, ToggleDetails};
 use fission::prelude::*;
 use fission_ir::{Role, Semantics};
 
@@ -67,7 +67,9 @@ fission_component! {
                         Text(label).size(tokens.typography.font_size_base),
                     ],
             ),
-            on_press: cx.bind(Navigate(format!("/{folder}")), reduce_with!(navigate_back)),
+            on_press: |back, state, _cx| {
+                state.navigate_to(format!("/{}", back.folder.to_lowercase()));
+            },
             content_align: ButtonContentAlign::Start,
             ),
         )
@@ -109,7 +111,7 @@ fission_component! {
                                 .size(tokens.typography.font_size_xl)
                         )
                     ),
-                    on_press: cx.bind(DeleteEmail(row.email_id), reduce_with!(delete_email)),
+                    on_press: |row, state, _cx| delete_email(state, row.email_id),
                 ),
             ],
         )
