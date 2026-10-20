@@ -9,6 +9,8 @@ use serde::{Deserialize, Serialize};
 #[cfg(not(target_arch = "wasm32"))]
 use serde_json::{json, Value};
 #[cfg(not(target_arch = "wasm32"))]
+use std::collections::HashSet;
+#[cfg(not(target_arch = "wasm32"))]
 use std::collections::VecDeque;
 #[cfg(not(target_arch = "wasm32"))]
 use std::fs;
@@ -30,6 +32,8 @@ use crate::{
 };
 
 #[cfg(not(target_arch = "wasm32"))]
+mod site;
+#[cfg(not(target_arch = "wasm32"))]
 mod viewport;
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -39,6 +43,7 @@ pub mod review;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BrowserSmokeMode {
     Dom,
+    FissionSite,
     FissionCanvas,
 }
 
@@ -83,6 +88,12 @@ impl BrowserTestOptions {
 
     pub fn fission_canvas(mut self) -> Self {
         self.mode = BrowserSmokeMode::FissionCanvas;
+        self
+    }
+
+    /// Drives a Fission Static site or SSR application through its semantic DOM.
+    pub fn fission_site(mut self) -> Self {
+        self.mode = BrowserSmokeMode::FissionSite;
         self
     }
 
@@ -191,6 +202,7 @@ impl BrowserController {
         client.send("Runtime.enable", json!({}))?;
         client.send("Log.enable", json!({}))?;
         client.send("Page.enable", json!({}))?;
+        client.send("Network.enable", json!({}))?;
         // Headless Chromium has no desktop clipboard broker. Grant clipboard
         // access to this disposable browser profile so trusted keyboard copy,
         // cut, and paste events exercise the same DOM path as an interactive
@@ -294,16 +306,16 @@ impl BrowserController {
         relative_x: f32,
         relative_y: f32,
     ) -> Result<TestResponse> {
-        ensure_response_ok(self.send_bridge_command(TestCommand::ScrollIntoView {
+        ensure_response_ok(self.send_runtime_command(TestCommand::ScrollIntoView {
             query: query.clone().include_hidden(),
         })?)?;
-        ensure_response_ok(self.send_bridge_command(TestCommand::Pump {})?)?;
-        let response = self.send_bridge_command(TestCommand::ResolveSelector { query })?;
+        ensure_response_ok(self.send_runtime_command(TestCommand::Pump {})?)?;
+        let response = self.send_runtime_command(TestCommand::ResolveSelector { query })?;
         let TestResponse::SelectorResolved { node } = response else {
             return Ok(response);
         };
         let bounds = node.visible_bounds.unwrap_or(node.logical_bounds);
-        let (offset_x, offset_y) = self.canvas_viewport_offset()?;
+        let (offset_x, offset_y) = self.runtime_viewport_offset()?;
         let x = offset_x + f64::from(bounds.x + bounds.width * relative_x);
         let y = offset_y + f64::from(bounds.y + bounds.height * relative_y);
         self.client.send(
@@ -321,7 +333,7 @@ impl BrowserController {
             "Input.dispatchTouchEvent",
             json!({ "type": "touchEnd", "touchPoints": [] }),
         )?;
-        ensure_response_ok(self.send_bridge_command(TestCommand::Pump {})?)?;
+        ensure_response_ok(self.send_runtime_command(TestCommand::Pump {})?)?;
         Ok(TestResponse::Ok {})
     }
 
@@ -331,12 +343,12 @@ impl BrowserController {
         delta_x: f64,
         delta_y: f64,
     ) -> Result<TestResponse> {
-        let response = self.send_bridge_command(TestCommand::ResolveSelector { query })?;
+        let response = self.send_runtime_command(TestCommand::ResolveSelector { query })?;
         let TestResponse::SelectorResolved { node } = response else {
             return Ok(response);
         };
         let bounds = node.visible_bounds.unwrap_or(node.logical_bounds);
-        let (offset_x, offset_y) = self.canvas_viewport_offset()?;
+        let (offset_x, offset_y) = self.runtime_viewport_offset()?;
         let x = offset_x + f64::from(bounds.x + bounds.width * 0.5);
         let y = offset_y + f64::from(bounds.y + bounds.height * 0.5);
         self.client.send(
@@ -349,11 +361,14 @@ impl BrowserController {
                 "deltaY": delta_y
             }),
         )?;
-        ensure_response_ok(self.send_bridge_command(TestCommand::Pump {})?)?;
+        ensure_response_ok(self.send_runtime_command(TestCommand::Pump {})?)?;
         Ok(TestResponse::Ok {})
     }
 
     pub(crate) fn send_test_command(&mut self, command: TestCommand) -> Result<TestResponse> {
+        if self.options.mode == BrowserSmokeMode::FissionSite {
+            return self.send_site_test_command(command);
+        }
         anyhow::ensure!(
             self.options.mode != BrowserSmokeMode::Dom
                 || matches!(&command, TestCommand::SimulateResize { .. } | TestCommand::Wait { .. }
@@ -521,6 +536,14 @@ impl BrowserController {
         ))
     }
 
+    fn runtime_viewport_offset(&mut self) -> Result<(f64, f64)> {
+        if self.options.mode == BrowserSmokeMode::FissionCanvas {
+            self.canvas_viewport_offset()
+        } else {
+            Ok((0.0, 0.0))
+        }
+    }
+
     fn selector_action(
         &mut self,
         query: SelectorQuery,
@@ -678,6 +701,16 @@ impl BrowserController {
                 ));
             }
             std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+
+    fn send_runtime_command(&mut self, command: TestCommand) -> Result<TestResponse> {
+        match self.options.mode {
+            BrowserSmokeMode::FissionCanvas => self.send_bridge_command(command),
+            BrowserSmokeMode::FissionSite => self.send_site_command(command),
+            BrowserSmokeMode::Dom => Err(anyhow!(
+                "unsupported_page_mode: semantic commands require fission_site() or fission_canvas()"
+            )),
         }
     }
 
@@ -862,6 +895,8 @@ struct RuntimeStatus {
     renderer: Option<String>,
     test_bridge_ready: bool,
     #[serde(default)]
+    fission_site: bool,
+    #[serde(default)]
     rendered_frames: u64,
 }
 
@@ -873,6 +908,7 @@ fn browser_is_ready(
 ) -> bool {
     (match mode {
         BrowserSmokeMode::Dom => status.ready_dom,
+        BrowserSmokeMode::FissionSite => status.ready_dom && status.fission_site,
         BrowserSmokeMode::FissionCanvas => {
             status.ready_canvas && status.renderer.is_some() && status.rendered_frames > 0
         }
@@ -896,6 +932,7 @@ fn read_runtime_status(client: &mut CdpClient) -> Result<RuntimeStatus> {
         test_bridge_ready: !!globalThis.__FISSION_TEST__
           && typeof globalThis.__FISSION_TEST__.submit === 'function'
           && typeof globalThis.__FISSION_TEST__.poll === 'function',
+        fission_site: !!document.querySelector('[data-fission-node],[data-fission-semantics]'),
       };
     })()"#;
     let result = client.send(
@@ -1036,6 +1073,8 @@ struct CdpClient {
     operation_deadline: Option<Instant>,
     review_events: Vec<Value>,
     report_only: bool,
+    network_requests: HashSet<String>,
+    network_last_activity: Instant,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -1054,6 +1093,8 @@ impl CdpClient {
             operation_deadline: None,
             review_events: Vec::new(),
             report_only: false,
+            network_requests: HashSet::new(),
+            network_last_activity: Instant::now(),
         })
     }
 
@@ -1161,6 +1202,19 @@ impl CdpClient {
     }
 
     fn handle_event(&mut self, message: &Value) {
+        let method = message.get("method").and_then(Value::as_str);
+        let request_id = message.pointer("/params/requestId").and_then(Value::as_str);
+        match (method, request_id) {
+            (Some("Network.requestWillBeSent"), Some(request_id)) => {
+                self.network_requests.insert(request_id.to_owned());
+                self.network_last_activity = Instant::now();
+            }
+            (Some("Network.loadingFinished" | "Network.loadingFailed"), Some(request_id)) => {
+                self.network_requests.remove(request_id);
+                self.network_last_activity = Instant::now();
+            }
+            _ => {}
+        }
         if self.review_events.len() < 512
             && matches!(
                 message.get("method").and_then(Value::as_str),

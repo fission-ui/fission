@@ -862,8 +862,8 @@ impl LiveTestClient {
     }
 
     /// Launches an owned Chromium session. Canvas mode requires a Web
-    /// test-control build; DOM mode supports host resize and screenshots
-    /// without injecting a bridge into static HTML.
+    /// test-control build; site mode drives Fission semantic HTML without a
+    /// bridge; plain DOM mode supports host resize and screenshots only.
     pub fn launch_browser(options: BrowserTestOptions) -> Result<Self> {
         let live_control = options.mode == BrowserSmokeMode::FissionCanvas;
         let controller = browser::BrowserController::launch(options, live_control)?;
