@@ -18,6 +18,13 @@ pub struct SignedServerAction {
     /// Logical typed-form schema bound to this action, when present.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub form_id: Option<String>,
+    /// Query values from the request that rendered this action.
+    ///
+    /// These values are covered by the token signature and restored when the
+    /// action is handled, so a form post cannot discard or replace trusted
+    /// route context such as an OAuth state or return destination.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub request_query: BTreeMap<String, String>,
     /// Expiry time as Unix seconds.
     pub expires_unix: u64,
     /// Per-token replay identifier covered by the signature.
@@ -37,6 +44,8 @@ pub struct VerifiedServerAction {
     pub action: ActionEnvelope,
     /// Verified logical typed-form schema, when present.
     pub form_id: Option<String>,
+    /// Verified query values from the request that rendered the action.
+    pub request_query: BTreeMap<String, String>,
 }
 
 #[derive(Clone)]
@@ -87,7 +96,18 @@ impl ServerActionSigner {
         action: ActionEnvelope,
         ttl: Duration,
     ) -> SignedServerAction {
-        self.sign_envelope_for_form(route_path, target_node, action, None, ttl)
+        self.sign_envelope_for_form(route_path, target_node, action, None, BTreeMap::new(), ttl)
+    }
+
+    pub(crate) fn sign_envelope_for_request(
+        &self,
+        route_path: impl Into<String>,
+        target_node: u128,
+        action: ActionEnvelope,
+        request_query: BTreeMap<String, String>,
+        ttl: Duration,
+    ) -> SignedServerAction {
+        self.sign_envelope_for_form(route_path, target_node, action, None, request_query, ttl)
     }
 
     pub(crate) fn sign_form_envelope(
@@ -98,7 +118,33 @@ impl ServerActionSigner {
         form_id: impl Into<String>,
         ttl: Duration,
     ) -> SignedServerAction {
-        self.sign_envelope_for_form(route_path, target_node, action, Some(form_id.into()), ttl)
+        self.sign_envelope_for_form(
+            route_path,
+            target_node,
+            action,
+            Some(form_id.into()),
+            BTreeMap::new(),
+            ttl,
+        )
+    }
+
+    pub(crate) fn sign_form_envelope_for_request(
+        &self,
+        route_path: impl Into<String>,
+        target_node: u128,
+        action: ActionEnvelope,
+        form_id: impl Into<String>,
+        request_query: BTreeMap<String, String>,
+        ttl: Duration,
+    ) -> SignedServerAction {
+        self.sign_envelope_for_form(
+            route_path,
+            target_node,
+            action,
+            Some(form_id.into()),
+            request_query,
+            ttl,
+        )
     }
 
     fn sign_envelope_for_form(
@@ -107,6 +153,7 @@ impl ServerActionSigner {
         target_node: u128,
         action: ActionEnvelope,
         form_id: Option<String>,
+        request_query: BTreeMap<String, String>,
         ttl: Duration,
     ) -> SignedServerAction {
         let route_path = route_path.into();
@@ -116,6 +163,7 @@ impl ServerActionSigner {
             target_node,
             &action,
             form_id.as_deref(),
+            &request_query,
             expires_unix,
         );
         let signature = self.signature(
@@ -123,6 +171,7 @@ impl ServerActionSigner {
             target_node,
             &action,
             form_id.as_deref(),
+            &request_query,
             expires_unix,
             &nonce,
         );
@@ -131,6 +180,7 @@ impl ServerActionSigner {
             target_node,
             action,
             form_id,
+            request_query,
             expires_unix,
             nonce,
             signature,
@@ -147,6 +197,7 @@ impl ServerActionSigner {
             token.target_node,
             &token.action,
             token.form_id.as_deref(),
+            &token.request_query,
             token.expires_unix,
             &token.nonce,
         );
@@ -158,6 +209,7 @@ impl ServerActionSigner {
             target_node: token.target_node,
             action: token.action.clone(),
             form_id: token.form_id.clone(),
+            request_query: token.request_query.clone(),
         })
     }
 
@@ -201,11 +253,14 @@ impl ServerActionSigner {
         target_node: u128,
         action: &ActionEnvelope,
         form_id: Option<&str>,
+        request_query: &BTreeMap<String, String>,
         expires_unix: u64,
         nonce: &str,
     ) -> String {
         let mut hasher = blake3::Hasher::new_keyed(&self.key);
-        hasher.update(if form_id.is_some() {
+        hasher.update(if !request_query.is_empty() {
+            b"fission.server.action.v3"
+        } else if form_id.is_some() {
             b"fission.server.action.v2"
         } else {
             b"fission.server.action.v1"
@@ -215,9 +270,15 @@ impl ServerActionSigner {
         hasher.update(&action.id.as_u128().to_le_bytes());
         hasher.update(&(action.payload.len() as u64).to_le_bytes());
         hasher.update(&action.payload);
+        if !request_query.is_empty() {
+            hasher.update(&[u8::from(form_id.is_some())]);
+        }
         if let Some(form_id) = form_id {
             hasher.update(&(form_id.len() as u64).to_le_bytes());
             hasher.update(form_id.as_bytes());
+        }
+        if !request_query.is_empty() {
+            hash_request_query(&mut hasher, request_query);
         }
         hasher.update(&expires_unix.to_le_bytes());
         hasher.update(nonce.as_bytes());
@@ -244,13 +305,16 @@ fn nonce_for(
     target_node: u128,
     action: &ActionEnvelope,
     form_id: Option<&str>,
+    request_query: &BTreeMap<String, String>,
     expires_unix: u64,
 ) -> String {
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default();
     let mut hasher = blake3::Hasher::new();
-    hasher.update(if form_id.is_some() {
+    hasher.update(if !request_query.is_empty() {
+        b"fission.server.action.nonce.v3"
+    } else if form_id.is_some() {
         b"fission.server.action.nonce.v2"
     } else {
         b"fission.server.action.nonce.v1"
@@ -259,14 +323,30 @@ fn nonce_for(
     hasher.update(&target_node.to_le_bytes());
     hasher.update(&action.id.as_u128().to_le_bytes());
     hasher.update(&action.payload);
+    if !request_query.is_empty() {
+        hasher.update(&[u8::from(form_id.is_some())]);
+    }
     if let Some(form_id) = form_id {
         hasher.update(&(form_id.len() as u64).to_le_bytes());
         hasher.update(form_id.as_bytes());
+    }
+    if !request_query.is_empty() {
+        hash_request_query(&mut hasher, request_query);
     }
     hasher.update(&expires_unix.to_le_bytes());
     hasher.update(&now.as_nanos().to_le_bytes());
     hasher.update(&std::process::id().to_le_bytes());
     to_hex(&hasher.finalize().as_bytes()[..16])
+}
+
+fn hash_request_query(hasher: &mut blake3::Hasher, query: &BTreeMap<String, String>) {
+    hasher.update(&(query.len() as u64).to_le_bytes());
+    for (name, value) in query {
+        hasher.update(&(name.len() as u64).to_le_bytes());
+        hasher.update(name.as_bytes());
+        hasher.update(&(value.len() as u64).to_le_bytes());
+        hasher.update(value.as_bytes());
+    }
 }
 
 fn to_hex(bytes: &[u8]) -> String {
@@ -340,6 +420,29 @@ mod tests {
             Some("search")
         );
         token.form_id = Some("admin".into());
+        assert!(signer.verify(&token).is_err());
+    }
+
+    #[test]
+    fn signed_request_query_round_trips_and_rejects_tampering() {
+        let signer = ServerActionSigner::new("secret");
+        let query = BTreeMap::from([
+            ("state".to_string(), "oauth-state".to_string()),
+            ("return_to".to_string(), "/account".to_string()),
+        ]);
+        let mut token = signer.sign_form_envelope_for_request(
+            "/consent",
+            7,
+            AddToCart { sku: "abc".into() }.into(),
+            "consent",
+            query.clone(),
+            Duration::from_secs(60),
+        );
+
+        assert_eq!(signer.verify(&token).unwrap().request_query, query);
+        token
+            .request_query
+            .insert("return_to".into(), "/admin".into());
         assert!(signer.verify(&token).is_err());
     }
 

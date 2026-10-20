@@ -46,7 +46,7 @@ type BrowserPropsResolver = dyn for<'a> Fn(&ServerRenderContext<'a>) -> Result<B
     + Sync
     + 'static;
 type ServerFormDecoder =
-    dyn Fn(&[(String, String)]) -> Result<ActionEnvelope> + Send + Sync + 'static;
+    dyn Fn(&ActionEnvelope, &[(String, String)]) -> Result<ActionEnvelope> + Send + Sync + 'static;
 
 #[derive(Clone)]
 pub(crate) struct ServerFormActionBinding {
@@ -55,9 +55,13 @@ pub(crate) struct ServerFormActionBinding {
 }
 
 impl ServerFormActionBinding {
-    pub(crate) fn decode(&self, submitted: &[(String, String)]) -> Result<ActionEnvelope> {
+    pub(crate) fn decode(
+        &self,
+        signed_action: &ActionEnvelope,
+        submitted: &[(String, String)],
+    ) -> Result<ActionEnvelope> {
         let normalized = self.schema.normalize(submitted)?;
-        (self.decode)(&normalized)
+        (self.decode)(signed_action, &normalized)
     }
 }
 
@@ -577,13 +581,58 @@ impl FissionServerApp {
         let form_id = schema.id.clone();
         let binding = ServerFormActionBinding {
             schema,
-            decode: Arc::new(move |submitted| {
+            decode: Arc::new(move |_signed_action, submitted| {
                 let encoded = form_urlencoded::Serializer::new(String::new())
                     .extend_pairs(submitted.iter().map(|(name, value)| (name, value)))
                     .finish();
                 let form = serde_html_form::from_str::<P>(&encoded)
                     .map_err(|error| anyhow::anyhow!("invalid typed server form: {error}"))?;
                 Ok(create_action(form).into())
+            }),
+        };
+        assert!(
+            self.form_actions.insert(key, binding).is_none(),
+            "server form action `{form_id}` was registered more than once for this action type"
+        );
+        self
+    }
+
+    /// Registers a typed signed form decoder that retains the action payload
+    /// created while rendering the original request.
+    ///
+    /// Use this when the submit action already contains trusted context such
+    /// as an OAuth request, return destination, or entity identifier. The
+    /// callback receives that verified action together with the validated
+    /// browser-editable form fields and returns the final action to dispatch.
+    /// The action type and identity cannot change.
+    pub fn form_action_with_context<P, A, F>(
+        mut self,
+        schema: ServerFormSchema,
+        create_action: F,
+    ) -> Self
+    where
+        P: DeserializeOwned + 'static,
+        A: Action,
+        F: Fn(A, P) -> A + Send + Sync + 'static,
+    {
+        let key = (schema.id.clone(), A::static_id());
+        let form_id = schema.id.clone();
+        let binding = ServerFormActionBinding {
+            schema,
+            decode: Arc::new(move |signed_action, submitted| {
+                if signed_action.id != A::static_id() {
+                    anyhow::bail!("signed server form action type changed");
+                }
+                let context =
+                    serde_json::from_slice::<A>(&signed_action.payload).map_err(|error| {
+                        anyhow::anyhow!("invalid signed server form action: {error}")
+                    })?;
+                let encoded = form_urlencoded::Serializer::new(String::new())
+                    .extend_pairs(submitted.iter().map(|(name, value)| (name, value)))
+                    .finish();
+                let form = serde_html_form::from_str::<P>(&encoded)
+                    .map_err(|error| anyhow::anyhow!("invalid typed server form: {error}"))?;
+                Ok(create_action(context, form).into())
             }),
         };
         assert!(

@@ -741,6 +741,7 @@ impl ServerRenderer {
         let action_tokens = collect_server_action_tokens(
             lowering.ir(),
             &route_path,
+            &request.query,
             &self.action_signer,
             Duration::from_secs(10 * 60),
         )?;
@@ -1020,7 +1021,7 @@ impl ServerRenderer {
                         "server action form schema not registered",
                     ));
                 };
-                match binding.decode(fields) {
+                match binding.decode(&verified.action, fields) {
                     Ok(action) => Some(action),
                     Err(_) => {
                         return Ok(ServerResponse::text(
@@ -1080,10 +1081,13 @@ impl ServerRenderer {
                 "server action route not found",
             ));
         };
-        let session = self.session_for_request(&request)?;
         let wants_redirect = normalize_server_path(&request.path) == "/__fission/action/"
             && action_request_should_redirect(&request);
-        let rendered = self.render_uncached(route, Some(&action), &request, &session)?;
+        let mut trusted_request = request.clone();
+        trusted_request.path = route_path.clone();
+        trusted_request.query = action.request_query.clone();
+        let session = self.session_for_request(&trusted_request)?;
+        let rendered = self.render_uncached(route, Some(&action), &trusted_request, &session)?;
         let navigation_location = rendered
             .navigation
             .as_ref()
@@ -1766,6 +1770,7 @@ fn page_response(page: &RenderedPage, freshness: Freshness) -> ServerResponse {
 fn collect_server_action_tokens(
     ir: &CoreIR,
     route_path: &str,
+    request_query: &BTreeMap<String, String>,
     signer: &ServerActionSigner,
     ttl: Duration,
 ) -> Result<BTreeMap<(fission_ir::WidgetId, u128), String>> {
@@ -1803,15 +1808,22 @@ fn collect_server_action_tokens(
                         "server action form id `{form_id}` belongs to more than one submit action"
                     );
                 }
-                signer.sign_form_envelope(
+                signer.sign_form_envelope_for_request(
                     route_path.to_string(),
                     node.id.as_u128(),
                     envelope,
                     form_id,
+                    request_query.clone(),
                     ttl,
                 )
             } else {
-                signer.sign_envelope(route_path.to_string(), node.id.as_u128(), envelope, ttl)
+                signer.sign_envelope_for_request(
+                    route_path.to_string(),
+                    node.id.as_u128(),
+                    envelope,
+                    request_query.clone(),
+                    ttl,
+                )
             };
             tokens.insert((node.id, entry.action_id), signer.encode(&token)?);
         }
@@ -2040,11 +2052,15 @@ mod tests {
         ir.set_root(id);
 
         let signer = ServerActionSigner::development();
-        assert!(
-            collect_server_action_tokens(&ir, "/", &signer, Duration::from_secs(60))
-                .unwrap()
-                .is_empty()
-        );
+        assert!(collect_server_action_tokens(
+            &ir,
+            "/",
+            &BTreeMap::new(),
+            &signer,
+            Duration::from_secs(60),
+        )
+        .unwrap()
+        .is_empty());
     }
 
     #[test]
@@ -2069,11 +2085,15 @@ mod tests {
         ir.set_root(root);
 
         let signer = ServerActionSigner::development();
-        assert!(
-            collect_server_action_tokens(&ir, "/", &signer, Duration::from_secs(60))
-                .unwrap()
-                .is_empty()
-        );
+        assert!(collect_server_action_tokens(
+            &ir,
+            "/",
+            &BTreeMap::new(),
+            &signer,
+            Duration::from_secs(60),
+        )
+        .unwrap()
+        .is_empty());
     }
 
     #[derive(Debug, Default)]
@@ -2288,6 +2308,83 @@ mod tests {
                         ..Default::default()
                     }
                     .form_id("search")
+                    .into(),
+                ],
+                ..Default::default()
+            }
+            .into()
+        }
+    }
+
+    #[derive(Debug, Default)]
+    struct ContextFormState {
+        oauth_state: String,
+        submitted: Option<ContextualConsent>,
+    }
+
+    impl GlobalState for ContextFormState {}
+
+    #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+    struct ConsentFields {
+        display_name: String,
+    }
+
+    #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+    struct ContextualConsent {
+        oauth_state: String,
+        display_name: String,
+    }
+
+    impl Action for ContextualConsent {
+        fn static_id() -> ActionId {
+            ActionId::from_name("server-renderer.contextual-consent")
+        }
+    }
+
+    fn on_contextual_consent(
+        state: &mut ContextFormState,
+        action: ContextualConsent,
+        _ctx: &mut ReducerContext<ContextFormState>,
+    ) {
+        state.submitted = Some(action);
+    }
+
+    #[derive(Clone)]
+    struct ContextFormPage;
+
+    impl From<ContextFormPage> for Widget {
+        fn from(_: ContextFormPage) -> Self {
+            let (ctx, view) = fission_core::build::current::<ContextFormState>();
+            let submit = ctx.bind(
+                ContextualConsent {
+                    oauth_state: view.state().oauth_state.clone(),
+                    display_name: String::new(),
+                },
+                on_contextual_consent as Handler<ContextFormState, ContextualConsent>,
+            );
+            let submitted = view
+                .state()
+                .submitted
+                .as_ref()
+                .map(|action| format!("submitted:{}:{}", action.oauth_state, action.display_name))
+                .unwrap_or_else(|| "not submitted".to_string());
+            Column {
+                children: vec![
+                    Text::new(format!("request-state:{}", view.state().oauth_state)).into(),
+                    Text::new(submitted).into(),
+                    TextInput {
+                        label: Some("Display name".into()),
+                        name: Some("display_name".into()),
+                        form_id: Some("consent".into()),
+                        ..Default::default()
+                    }
+                    .into(),
+                    Button {
+                        child: Some(Text::new("Continue").into()),
+                        on_press: Some(submit),
+                        ..Default::default()
+                    }
+                    .form_id("consent")
                     .into(),
                 ],
                 ..Default::default()
@@ -4153,6 +4250,67 @@ same_site = "none"
                 .unwrap()
                 .archived
         );
+    }
+
+    #[test]
+    fn typed_server_form_restores_signed_query_and_merges_signed_action_context() {
+        let schema = ServerFormSchema::new("consent")
+            .field(ServerFormField::text("display_name").required());
+        let renderer = ServerRenderer::new(
+            FissionServerApp::new("Test")
+                .form_action_with_context::<ConsentFields, ContextualConsent, _>(
+                    schema,
+                    |mut context, fields| {
+                        context.display_name = fields.display_name;
+                        context
+                    },
+                )
+                .route_widget_with_state::<ContextFormState, _, _>(
+                    "/consent",
+                    "Consent",
+                    None,
+                    WebRouteMode::Server(Default::default()),
+                    ContextFormPage,
+                    |ctx| {
+                        Ok(ContextFormState {
+                            oauth_state: ctx
+                                .request
+                                .query
+                                .get("state")
+                                .cloned()
+                                .unwrap_or_default(),
+                            submitted: None,
+                        })
+                    },
+                ),
+        );
+        let mut initial = ServerRequest::get("/consent");
+        initial
+            .query
+            .insert("state".into(), "trusted-oauth-state".into());
+        let html = renderer.handle(initial).unwrap().body_string();
+        let token = html
+            .split("name=\"token\" value=\"")
+            .nth(1)
+            .and_then(|value| value.split('"').next())
+            .unwrap();
+        let body = encoded_form(&[("token", token), ("display_name", "Alex Rivera")]);
+        let mut submitted = ServerRequest::post("/consent", body);
+        submitted.headers.insert(
+            "content-type".into(),
+            "application/x-www-form-urlencoded".into(),
+        );
+        submitted
+            .query
+            .insert("state".into(), "unsigned-attacker-value".into());
+
+        let response = renderer.handle(submitted).unwrap();
+
+        assert_eq!(response.status, 200);
+        let html = response.body_string();
+        assert!(html.contains("request-state:trusted-oauth-state"));
+        assert!(html.contains("submitted:trusted-oauth-state:Alex Rivera"));
+        assert!(!html.contains("unsigned-attacker-value"));
     }
 
     fn rendered_form_token(renderer: &ServerRenderer) -> String {

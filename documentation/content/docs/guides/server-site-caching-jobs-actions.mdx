@@ -259,6 +259,38 @@ percent encoding, schema violations, oversized bodies, wrong origins, and
 replayed tokens are rejected. Use `ServerFormField::repeated` only where the
 typed action deliberately accepts a sequence.
 
+The signed token also preserves the query values from the request that rendered
+the form. During the action request, Fission restores those verified values to
+`ctx.request.query`; query text supplied on the POST cannot replace them. This
+keeps request context such as OAuth state, PKCE parameters, and a sign-in
+`return_to` value available without copying it into an editable hidden input.
+
+If the action itself already carries trusted context, merge the validated form
+fields into that signed action with `form_action_with_context`:
+
+```rust
+#[derive(serde::Deserialize)]
+struct SearchFields {
+    query: String,
+    archived: bool,
+}
+
+FissionServerApp::new("Store")
+    .form_action_with_context::<SearchFields, SearchSubmitted, _>(
+        schema,
+        |mut signed_action, fields| {
+            signed_action.query = fields.query;
+            signed_action.archived = fields.archived;
+            signed_action
+        },
+    )
+```
+
+The callback receives the verified action payload created during rendering and
+the separately validated browser fields. It must return the same action type;
+the signed action identity, route, target, form schema, and original query
+remain framework-controlled.
+
 ## 6. Keep cached pages and actions separate
 
 Do not cache a full page that contains signed server action forms. The action token is request-specific and short lived; putting it into a public revalidated cache would either replay the same token for different users or leave users with expired controls. Fission rejects that combination.
