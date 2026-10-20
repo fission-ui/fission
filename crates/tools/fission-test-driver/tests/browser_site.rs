@@ -33,10 +33,13 @@ fn fixture() -> anyhow::Result<(String, mpsc::Sender<()>, std::thread::JoinHandl
             let request = String::from_utf8_lossy(&request[..read]);
             let welcome = request.starts_with("GET /welcome");
             let sign_in = request.starts_with("GET /sign-in");
+            let admin_login = request.starts_with("GET /admin-login");
             let body = if welcome {
                 r#"<!doctype html><title>Welcome</title><main><h1 data-testid="welcome.title">Welcome</h1><a href="/">Register again</a></main>"#
             } else if sign_in {
                 r#"<!doctype html><title>Sign in</title><main><h1>Sign in instead</h1></main>"#
+            } else if admin_login {
+                r#"<!doctype html><title>Admin login</title><main><h1>Admin login</h1><form><input name="username" placeholder="Username"><input name="password" type="password" placeholder="Password"><input type="submit" value="Login"></form></main>"#
             } else {
                 r#"<!doctype html><title>Register</title><style>html{scroll-behavior:smooth}label{display:block;height:240px}button{margin-top:120px}</style><main><h1>Register</h1><form action="/welcome" method="get"><label>Full name<input data-testid="registration.name" name="name" required></label><label>Email address<input name="email" type="email" required></label><label>Organisation<input id="registration-organisation" name="organisation" required></label><label>Role<input data-testid="registration.role" name="role" required></label><label>Country<input data-testid="registration.country" name="country" required></label><button type="submit">Create account</button><a href="/sign-in">Sign in instead</a></form></main>"#
             };
@@ -44,6 +47,27 @@ fn fixture() -> anyhow::Result<(String, mpsc::Sender<()>, std::thread::JoinHandl
         }
     });
     Ok((url, stop_tx, handle))
+}
+
+#[test]
+fn website_mode_uses_native_input_values_and_placeholders_as_fallback_labels() -> anyhow::Result<()>
+{
+    if detect_chrome().is_none() {
+        eprintln!("skipping browser site test because Chrome/Chromium is unavailable");
+        return Ok(());
+    }
+    let (url, stop, server) = fixture()?;
+    let client = LiveTestClient::launch_browser(
+        BrowserTestOptions::new(format!("{url}admin-login")).website(),
+    )?;
+
+    client.fill_text_selector(SelectorQuery::role_label("textbox", "Username"), "admin")?;
+    client.fill_text_selector(SelectorQuery::role_label("textbox", "Password"), "secret")?;
+    client.resolve_selector(SelectorQuery::role_label("button", "Login"))?;
+
+    let _ = stop.send(());
+    server.join().expect("site fixture thread panicked");
+    Ok(())
 }
 
 #[test]

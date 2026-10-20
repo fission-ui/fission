@@ -29,7 +29,8 @@ const SITE_COMMAND: &str = r#"(command => {
     const ids=(el.getAttribute('aria-labelledby')||'').trim().split(/\s+/).filter(Boolean);
     if(ids.length)return ids.map(id=>document.getElementById(id)?.textContent||'').join(' ').trim();
     if(el.labels?.length)return Array.from(el.labels).map(x=>x.textContent||'').join(' ').trim();
-    return (el.getAttribute('alt')||el.getAttribute('title')||el.textContent||'').trim();
+    if(el.tagName==='INPUT'&&['submit','button','reset'].includes(el.type))return (el.value||({submit:'Submit',reset:'Reset'}[el.type])||'').trim();
+    return (el.getAttribute('alt')||el.getAttribute('title')||el.textContent||el.getAttribute('placeholder')||'').trim();
   };
   const value = el => ('value' in el ? String(el.value??'') : null);
   const domPath = el => {
