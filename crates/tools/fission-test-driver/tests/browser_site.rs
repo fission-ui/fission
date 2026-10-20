@@ -15,6 +15,13 @@ fn response(stream: &mut TcpStream, body: &str) -> std::io::Result<()> {
     )
 }
 
+fn redirect(stream: &mut TcpStream, location: &str) -> std::io::Result<()> {
+    write!(
+        stream,
+        "HTTP/1.1 302 Found\r\nLocation: {location}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+    )
+}
+
 fn fixture() -> anyhow::Result<(String, mpsc::Sender<()>, std::thread::JoinHandle<()>)> {
     let listener = TcpListener::bind("127.0.0.1:0")?;
     listener.set_nonblocking(true)?;
@@ -34,6 +41,10 @@ fn fixture() -> anyhow::Result<(String, mpsc::Sender<()>, std::thread::JoinHandl
             let welcome = request.starts_with("GET /welcome");
             let sign_in = request.starts_with("GET /sign-in");
             let admin_login = request.starts_with("GET /admin-login");
+            if request.starts_with("GET /protected") {
+                let _ = redirect(&mut stream, "/sign-in");
+                continue;
+            }
             let body = if welcome {
                 r#"<!doctype html><title>Welcome</title><main><h1 data-testid="welcome.title">Welcome</h1><a href="/">Register again</a></main>"#
             } else if sign_in {
@@ -47,6 +58,24 @@ fn fixture() -> anyhow::Result<(String, mpsc::Sender<()>, std::thread::JoinHandl
         }
     });
     Ok((url, stop_tx, handle))
+}
+
+#[test]
+fn website_mode_attaches_before_an_initial_redirect() -> anyhow::Result<()> {
+    if detect_chrome().is_none() {
+        eprintln!("skipping browser site test because Chrome/Chromium is unavailable");
+        return Ok(());
+    }
+    let (url, stop, server) = fixture()?;
+    let client = LiveTestClient::launch_browser(
+        BrowserTestOptions::new(format!("{url}protected")).website(),
+    )?;
+
+    client.wait_for_text("Sign in instead", 5_000)?;
+
+    let _ = stop.send(());
+    server.join().expect("site fixture thread panicked");
+    Ok(())
 }
 
 #[test]

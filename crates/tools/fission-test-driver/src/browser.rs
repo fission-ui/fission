@@ -963,18 +963,11 @@ fn wait_for_target(cdp_port: u16, expected_url: &str, timeout: Duration) -> Resu
         match ureq::get(&format!("http://127.0.0.1:{cdp_port}/json/list")).call() {
             Ok(response) => {
                 let targets: Value = response.into_json()?;
-                if let Some(target) = targets.as_array().and_then(|items| {
-                    items.iter().find(|entry| {
-                        entry.get("type").and_then(Value::as_str) == Some("page")
-                            && entry
-                                .get("url")
-                                .and_then(Value::as_str)
-                                .is_some_and(|url| url.starts_with(expected_url))
-                    })
-                }) {
-                    if let Some(url) = target.get("webSocketDebuggerUrl").and_then(Value::as_str) {
-                        return Ok(url.to_string());
-                    }
+                if let Some(url) = targets
+                    .as_array()
+                    .and_then(|items| target_websocket(items, expected_url))
+                {
+                    return Ok(url.to_string());
                 }
             }
             Err(error) => last_error = Some(error.to_string()),
@@ -985,6 +978,29 @@ fn wait_for_target(cdp_port: u16, expected_url: &str, timeout: Duration) -> Resu
         "Chrome CDP target did not become ready for {expected_url}: {}",
         last_error.unwrap_or_else(|| "no matching target".to_string())
     ))
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn target_websocket<'a>(targets: &'a [Value], expected_url: &str) -> Option<&'a str> {
+    let pages = targets
+        .iter()
+        .filter(|entry| entry.get("type").and_then(Value::as_str) == Some("page"))
+        .collect::<Vec<_>>();
+    pages
+        .iter()
+        .copied()
+        .find(|entry| {
+            entry
+                .get("url")
+                .and_then(Value::as_str)
+                .is_some_and(|url| url.starts_with(expected_url))
+        })
+        // Chrome is launched with a fresh profile and one requested page. If
+        // that page redirects before target discovery, its URL no longer
+        // matches the requested URL but it remains the only page owned by this
+        // browser session. Never guess when Chrome exposes multiple pages.
+        .or_else(|| (pages.len() == 1).then_some(pages[0]))
+        .and_then(|target| target.get("webSocketDebuggerUrl").and_then(Value::as_str))
 }
 
 #[cfg(not(target_arch = "wasm32"))]
