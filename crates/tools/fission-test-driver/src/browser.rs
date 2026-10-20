@@ -1032,6 +1032,9 @@ impl ChromeSession {
         fs::create_dir_all(&profile_dir)?;
         let mut command = Command::new(chrome);
         command
+            // Headless browser automation does not use the desktop session bus. A stale
+            // inherited address can otherwise block Chromium before its first navigation.
+            .env_remove("DBUS_SESSION_BUS_ADDRESS")
             .arg("--headless=new")
             .arg("--enable-unsafe-webgpu")
             .arg("--no-first-run")

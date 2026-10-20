@@ -97,7 +97,7 @@ const SITE_COMMAND: &str = r#"(command => {
   const resolved = query => resolve(query).element;
   switch(command.cmd){
     case 'ResolveSelector': return selectorResponse(command.query);
-    case 'ScrollIntoView': {const el=resolved(command.query);if(!el)return selectorResponse(command.query);el.scrollIntoView({block:'center',inline:'nearest',behavior:'instant'});void el.getBoundingClientRect();return selectorResponse(command.query);}
+    case 'ScrollIntoView': {const query={...command.query,include_hidden:true};const el=resolved(query);if(!el)return selectorResponse(query);el.scrollIntoView({block:'center',inline:'nearest',behavior:'instant'});void el.getBoundingClientRect();return selectorResponse(command.query);}
     case 'FocusSelector': {const el=resolved(command.query);if(!el)return selectorResponse(command.query);el.focus();return {status:'Ok'};}
     case 'Toggle': {const el=resolved(command.query);if(!el)return selectorResponse(command.query);el.click();return {status:'Ok'};}
     case 'SelectOption': {const el=resolved(command.query);if(!el)return selectorResponse(command.query);if(el.tagName!=='OPTION')return {status:'Error',message:'SelectOption requires an option element'};el.parentElement.value=el.value;el.parentElement.dispatchEvent(new Event('input',{bubbles:true}));el.parentElement.dispatchEvent(new Event('change',{bubbles:true}));return {status:'Ok'};}
