@@ -43,7 +43,7 @@ pub mod review;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BrowserSmokeMode {
     Dom,
-    FissionSite,
+    Website,
     FissionCanvas,
 }
 
@@ -91,9 +91,9 @@ impl BrowserTestOptions {
         self
     }
 
-    /// Drives a Fission Static site or SSR application through its semantic DOM.
-    pub fn fission_site(mut self) -> Self {
-        self.mode = BrowserSmokeMode::FissionSite;
+    /// Drives any rendered website through its semantic DOM and real Chromium input.
+    pub fn website(mut self) -> Self {
+        self.mode = BrowserSmokeMode::Website;
         self
     }
 
@@ -366,7 +366,7 @@ impl BrowserController {
     }
 
     pub(crate) fn send_test_command(&mut self, command: TestCommand) -> Result<TestResponse> {
-        if self.options.mode == BrowserSmokeMode::FissionSite {
+        if self.options.mode == BrowserSmokeMode::Website {
             return self.send_site_test_command(command);
         }
         anyhow::ensure!(
@@ -707,9 +707,9 @@ impl BrowserController {
     fn send_runtime_command(&mut self, command: TestCommand) -> Result<TestResponse> {
         match self.options.mode {
             BrowserSmokeMode::FissionCanvas => self.send_bridge_command(command),
-            BrowserSmokeMode::FissionSite => self.send_site_command(command),
+            BrowserSmokeMode::Website => self.send_site_command(command),
             BrowserSmokeMode::Dom => Err(anyhow!(
-                "unsupported_page_mode: semantic commands require fission_site() or fission_canvas()"
+                "unsupported_page_mode: semantic commands require website() or fission_canvas()"
             )),
         }
     }
@@ -895,8 +895,6 @@ struct RuntimeStatus {
     renderer: Option<String>,
     test_bridge_ready: bool,
     #[serde(default)]
-    fission_site: bool,
-    #[serde(default)]
     rendered_frames: u64,
 }
 
@@ -908,7 +906,7 @@ fn browser_is_ready(
 ) -> bool {
     (match mode {
         BrowserSmokeMode::Dom => status.ready_dom,
-        BrowserSmokeMode::FissionSite => status.ready_dom && status.fission_site,
+        BrowserSmokeMode::Website => status.ready_dom,
         BrowserSmokeMode::FissionCanvas => {
             status.ready_canvas && status.renderer.is_some() && status.rendered_frames > 0
         }
@@ -932,7 +930,6 @@ fn read_runtime_status(client: &mut CdpClient) -> Result<RuntimeStatus> {
         test_bridge_ready: !!globalThis.__FISSION_TEST__
           && typeof globalThis.__FISSION_TEST__.submit === 'function'
           && typeof globalThis.__FISSION_TEST__.poll === 'function',
-        fission_site: !!document.querySelector('[data-fission-node],[data-fission-semantics]'),
       };
     })()"#;
     let result = client.send(

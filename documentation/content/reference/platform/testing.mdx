@@ -93,13 +93,15 @@ Static site validation should use `fission site check` for route rendering and i
 SSR validation should use `fission server check` for route rendering, then exercise request-time behavior for sessions, signed actions, jobs, cache policy, progressive workers, and islands.
 
 Use the same `LiveTestClient` interaction API as native and Web canvas tests to
-drive a rendered SSR site in Chromium. Select site mode when launching the
-browser; it resolves Fission semantic identifiers, roles and labels against the
-rendered HTML and sends real Chromium pointer and keyboard input:
+drive an SSR site—or any other website—in Chromium. Select website mode when
+launching the browser; it resolves standard test ids, element ids, accessible
+roles and labels against the rendered HTML and sends real Chromium pointer and
+keyboard input. Fission semantic identifiers remain available when the page
+provides them:
 
 ```rust
 let client = LiveTestClient::launch_browser(
-    BrowserTestOptions::new("http://127.0.0.1:3000/sign-in").fission_site(),
+    BrowserTestOptions::new("http://127.0.0.1:3000/sign-in").website(),
 )?;
 
 client.fill_text_selector(
@@ -110,12 +112,13 @@ client.tap_selector(SelectorQuery::role_label("button", "Sign in"))?;
 client.wait_for_text("Welcome", 5_000)?;
 ```
 
-The browser retains cookies and session state across server navigation. Site
-mode requires Fission semantic HTML (`data-fission-node` or
-`data-fission-semantics`) but requires no test endpoint, production JavaScript
-bridge or `FISSION_WEB_TEST_CONTROL` build. Commands tied specifically to a
-retained render loop, such as deterministic animation clock advancement, remain
-canvas/native capabilities rather than SSR capabilities.
+The browser retains cookies and session state across server navigation.
+Website mode requires no Fission markup, test endpoint, production JavaScript
+bridge or `FISSION_WEB_TEST_CONTROL` build. Prefer `data-testid`, ordinary
+element ids, labelled controls and accessible roles for stable selectors.
+Commands tied specifically to a retained render loop, such as deterministic
+animation clock advancement, remain canvas/native capabilities rather than
+website capabilities.
 
 ## Smoke scripts and live-driver tests answer different questions
 
