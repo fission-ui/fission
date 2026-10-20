@@ -22,6 +22,13 @@ fn redirect(stream: &mut TcpStream, location: &str) -> std::io::Result<()> {
     )
 }
 
+fn not_found(stream: &mut TcpStream) -> std::io::Result<()> {
+    write!(
+        stream,
+        "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+    )
+}
+
 fn fixture() -> anyhow::Result<(String, mpsc::Sender<()>, std::thread::JoinHandle<()>)> {
     let listener = TcpListener::bind("127.0.0.1:0")?;
     listener.set_nonblocking(true)?;
@@ -38,6 +45,10 @@ fn fixture() -> anyhow::Result<(String, mpsc::Sender<()>, std::thread::JoinHandl
             let mut request = [0_u8; 4096];
             let read = stream.read(&mut request).unwrap_or_default();
             let request = String::from_utf8_lossy(&request[..read]);
+            if request.starts_with("GET /favicon.ico") {
+                let _ = not_found(&mut stream);
+                continue;
+            }
             let welcome = request.starts_with("GET /welcome");
             let sign_in = request.starts_with("GET /sign-in");
             let admin_login = request.starts_with("GET /admin-login");

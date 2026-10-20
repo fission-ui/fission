@@ -1266,11 +1266,8 @@ impl CdpClient {
                 }
             }
             Some("Log.entryAdded") => {
-                if message
-                    .pointer("/params/entry/level")
-                    .and_then(Value::as_str)
-                    == Some("error")
-                {
+                let entry = &message["params"]["entry"];
+                if entry.get("level").and_then(Value::as_str) == Some("error") {
                     let text = message
                         .pointer("/params/entry/text")
                         .and_then(Value::as_str)
@@ -1279,8 +1276,8 @@ impl CdpClient {
                         .pointer("/params/entry/url")
                         .and_then(Value::as_str)
                         .unwrap_or("unknown URL");
-                    if !text.contains("/__fission/renderer") && !url.contains("/__fission/renderer")
-                    {
+                    let source = entry.get("source").and_then(Value::as_str).unwrap_or("");
+                    if !ignorable_browser_log(source, url, text) {
                         self.errors
                             .push(format!("browser log error at {url}: {text}"));
                     }
@@ -1289,6 +1286,26 @@ impl CdpClient {
             _ => {}
         }
     }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn ignorable_browser_log(source: &str, url: &str, text: &str) -> bool {
+    text.contains("/__fission/renderer")
+        || url.contains("/__fission/renderer")
+        || (source == "network" && is_root_favicon_url(url))
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn is_root_favicon_url(url: &str) -> bool {
+    let Some((scheme, remainder)) = url.split_once("://") else {
+        return false;
+    };
+    if !matches!(scheme, "http" | "https") {
+        return false;
+    }
+    remainder
+        .find('/')
+        .is_some_and(|path_start| &remainder[path_start..] == "/favicon.ico")
 }
 
 #[cfg(test)]
@@ -1303,6 +1320,36 @@ mod tests {
 
         let reduced = standard.reduced_motion();
         assert!(reduced.prefers_reduced_motion);
+    }
+
+    #[test]
+    fn browser_logs_ignore_only_the_root_network_favicon() {
+        assert!(ignorable_browser_log(
+            "network",
+            "http://localhost:8099/favicon.ico",
+            "Failed to load resource: status 404"
+        ));
+        assert!(ignorable_browser_log(
+            "network",
+            "https://example.com/favicon.ico",
+            "Failed to load resource"
+        ));
+        for url in [
+            "http://localhost:8099/assets/favicon.ico",
+            "http://localhost:8099/app.js",
+            "file:///favicon.ico",
+        ] {
+            assert!(!ignorable_browser_log(
+                "network",
+                url,
+                "Failed to load resource: status 404"
+            ));
+        }
+        assert!(!ignorable_browser_log(
+            "javascript",
+            "http://localhost:8099/favicon.ico",
+            "application error"
+        ));
     }
 
     fn resolved_node(
