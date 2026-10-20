@@ -79,6 +79,7 @@ impl From<ListToolbar> for Widget {
                                         "inbox.sort.{}",
                                         value.to_lowercase()
                                     )),
+                                    form_value: None,
                                 })
                                 .collect(),
                             is_open: state.show_sort_menu,

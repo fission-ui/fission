@@ -245,8 +245,13 @@ FissionServerApp::new("Store")
 ```
 
 Set `name` and `form_id` on each `TextInput`, and call
-`.name("archived").form_id("catalog-search")` on a `Checkbox`. Associate the
-submit button with `.form_id("catalog-search")`. Fission keeps the route,
+`.name("archived").form_id("catalog-search")` on a Boolean `Checkbox`.
+Repeated checkbox options share a name and supply distinct values, for example
+`.name("tag").form_id("catalog-search").form_value(tag.slug.clone())`. A
+retained `Select` participates in the same form by setting its `name`,
+`form_id`, and current machine `form_value`; its localized `selected_label`
+remains presentation only. Associate the submit button with
+`.form_id("catalog-search")`. Fission keeps the route,
 target node, action type, expiry, nonce, and form schema inside the signed
 token; submitted controls can only populate the already-authorized action type.
 Unknown fields, duplicate scalar values, invalid booleans, malformed UTF-8 or

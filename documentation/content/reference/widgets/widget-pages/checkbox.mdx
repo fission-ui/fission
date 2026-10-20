@@ -39,6 +39,9 @@ The checkbox does not flip itself. It emits an action, the reducer changes `Glob
 | Field | Type | Meaning | Notes / default behavior |
 | --- | --- | --- | --- |
 | `id` | `Option<WidgetId>` | Stable widget identity. | Defaults to `None`. |
+| `name` | `Option<String>` | Successful-control name for Static site and SSR forms. | Several checkboxes may share a repeated field name. |
+| `form_id` | `Option<String>` | Associates the checkbox with a server form. | Must match the form schema id. |
+| `form_value` | `Option<String>` | Machine value submitted when checked. | Leave unset for a Boolean field (`on`); set a distinct value for each repeated option. |
 | `checked` | `bool` | Whether the checkbox is currently selected. | Defaults to `false`. |
 | `on_toggle` | `Option<ActionEnvelope>` | Action dispatched when the user toggles the checkbox. | Defaults to `None`. |
 | `label` | `Option<String>` | Visible text shown next to the indicator. | Defaults to `None`, but most real checkboxes should have a label. |
@@ -52,6 +55,22 @@ Because the control is controlled by state, it is easy to test. Given a known `c
 ## Specific advice
 
 Prefer a checkbox when the choice can stay pending until a later submit. If the control means an immediate app setting that turns behavior on or off right away, a [`Switch`](/reference/widgets/switch) often reads more naturally.
+
+For a repeated server-form field, give every option the same `name` and a
+distinct `form_value`:
+
+```rust
+Checkbox {
+    name: Some("regions".into()),
+    form_id: Some("connect".into()),
+    form_value: Some(region.code.clone()),
+    checked: selected_regions.contains(&region.code),
+    ..Default::default()
+}
+```
+
+Declare the matching schema field with `ServerFormField::repeated("regions")`
+and deserialize it into `#[serde(default)] regions: Vec<String>`.
 
 ## Production checklist
 
@@ -67,4 +86,3 @@ If a screen starts repeating the same `Checkbox` setup, extract a named componen
 ## Related
 
 [`Switch`](/reference/widgets/switch), [`Radio`](/reference/widgets/radio), [`FormControl`](/reference/widgets/form-control), and [`Button`](/reference/widgets/button).
-

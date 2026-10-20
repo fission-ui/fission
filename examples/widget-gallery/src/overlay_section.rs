@@ -211,12 +211,14 @@ pub(crate) fn select() -> Vec<Widget> {
                     icon: None,
                     on_select: with_reducer!(ctx, SelectValue("Option A".into()), select_value),
                     semantics_identifier: Some("gallery.select.a".into()),
+                    form_value: None,
                 },
                 SelectItem {
                     label: "Option B".into(),
                     icon: None,
                     on_select: with_reducer!(ctx, SelectValue("Option B".into()), select_value),
                     semantics_identifier: Some("gallery.select.b".into()),
+                    form_value: None,
                 },
             ],
             is_open: state.select_open,
@@ -224,6 +226,7 @@ pub(crate) fn select() -> Vec<Widget> {
             trigger_semantics_identifier: Some("gallery.select.trigger".into()),
             placeholder: "Choose...".into(),
             width: None,
+            ..Default::default()
         }],
     }]
 }
