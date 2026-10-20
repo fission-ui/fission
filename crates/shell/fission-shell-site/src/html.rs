@@ -2405,16 +2405,22 @@ impl HtmlRenderer<'_> {
                 ));
             }
         }
-        // The browser range input replaces the retained slider's painted track
-        // and thumb. Rendering both creates a second, non-interactive slider.
-        let children = if semantics.role == Role::Slider {
+        // Native successful controls must own their visible state. A named
+        // checkbox or radio can change locally before its form is submitted;
+        // retaining the separately painted indicator would leave that visual
+        // frozen at the server-rendered value. As with range controls, render
+        // only the native control and its semantic label in this case.
+        let native_form_checkable = matches!(semantics.role, Role::Checkbox | Role::Radio)
+            && semantics.text_field_name.is_some();
+        let children = if semantics.role == Role::Slider || native_form_checkable {
             String::new()
         } else {
             self.render_children(&node.children, &HashSet::new())?
         };
         let retained_checkable =
             matches!(semantics.role, Role::Checkbox | Role::Radio | Role::Switch)
-                && !node.children.is_empty();
+                && !node.children.is_empty()
+                && !native_form_checkable;
         let control_class = if retained_checkable {
             "fission-site-node fission-site-control fission-site-retained-control"
         } else {
@@ -5872,6 +5878,10 @@ mod tests {
         assert!(rendered
             .html
             .contains("name=\"regions\" form=\"connect\" value=\"eu-west\" checked"));
+        assert!(!rendered.html.contains("fission-site-retained-control"));
+        assert!(!rendered
+            .html
+            .contains("fission-site-retained-control-input"));
     }
 
     #[test]
