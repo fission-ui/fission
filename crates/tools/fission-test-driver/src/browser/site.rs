@@ -99,6 +99,7 @@ const SITE_COMMAND: &str = r#"(command => {
     case 'ResolveSelector': return selectorResponse(command.query);
     case 'ScrollIntoView': {const el=resolved(command.query);if(!el)return selectorResponse(command.query);el.scrollIntoView({block:'center',inline:'nearest',behavior:'instant'});void el.getBoundingClientRect();return selectorResponse(command.query);}
     case 'FocusSelector': {const el=resolved(command.query);if(!el)return selectorResponse(command.query);el.focus();return {status:'Ok'};}
+    case 'Toggle': {const el=resolved(command.query);if(!el)return selectorResponse(command.query);el.click();return {status:'Ok'};}
     case 'SelectOption': {const el=resolved(command.query);if(!el)return selectorResponse(command.query);if(el.tagName!=='OPTION')return {status:'Error',message:'SelectOption requires an option element'};el.parentElement.value=el.value;el.parentElement.dispatchEvent(new Event('input',{bubbles:true}));el.parentElement.dispatchEvent(new Event('change',{bubbles:true}));return {status:'Ok'};}
     case 'GetTree': return {status:'Tree',nodes:all().map(node)};
     case 'GetText': return {status:'Text',items:Array.from(document.querySelectorAll('body *')).filter(el=>visible(el)&&el.children.length===0&&(el.innerText||el.textContent||'').trim()).map(el=>{const r=rect(el);return {text:(el.innerText||el.textContent||'').trim(),...r};})};
@@ -172,9 +173,10 @@ impl BrowserController {
             }
             TestCommand::WaitForText { text, timeout_ms } => self.site_wait_text(&text, timeout_ms),
             TestCommand::WaitForIdle { timeout_ms, .. } => self.site_wait_idle(timeout_ms),
-            TestCommand::TapSelector { query }
-            | TestCommand::ActivateSelector { query }
-            | TestCommand::Toggle { query } => self.site_click(query, "left"),
+            TestCommand::TapSelector { query } | TestCommand::ActivateSelector { query } => {
+                self.site_click(query, "left")
+            }
+            TestCommand::Toggle { query } => self.send_site_command(TestCommand::Toggle { query }),
             TestCommand::HoverSelector { query } => self.site_pointer(query, None),
             TestCommand::RightClickSelector { query } => self.site_click(query, "right"),
             TestCommand::FillText { query, text } => self.site_fill(query, &text),

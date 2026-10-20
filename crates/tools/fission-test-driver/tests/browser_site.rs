@@ -63,12 +63,35 @@ fn fixture() -> anyhow::Result<(String, mpsc::Sender<()>, std::thread::JoinHandl
             } else if admin_login {
                 r#"<!doctype html><title>Admin login</title><main><h1>Admin login</h1><form><input name="username" placeholder="Username"><input name="password" type="password" placeholder="Password"><input type="submit" value="Login"></form></main>"#
             } else {
-                r#"<!doctype html><title>Register</title><style>html{scroll-behavior:smooth}label{display:block;height:240px}button{margin-top:120px}</style><main><h1>Register</h1><form action="/welcome" method="get"><label>Full name<input data-testid="registration.name" name="name" required></label><label>Email address<input name="email" type="email" required></label><label>Organisation<input id="registration-organisation" name="organisation" required></label><label>Role<input data-testid="registration.role" name="role" required></label><label>Country<input data-testid="registration.country" name="country" required></label><button type="submit">Create account</button><a href="/sign-in">Sign in instead</a></form></main>"#
+                r#"<!doctype html><title>Register</title><style>html{scroll-behavior:smooth}label{display:block;height:240px}button{margin-top:120px}</style><main><h1>Register</h1><form action="/welcome" method="get"><label>Full name<input data-testid="registration.name" name="name" required></label><label>Email address<input name="email" type="email" required></label><label>Organisation<input id="registration-organisation" name="organisation" required></label><label>Role<input data-testid="registration.role" name="role" required></label><label>Country<input data-testid="registration.country" name="country" required></label><label><input data-testid="region.eu-west" type="checkbox" name="regions" value="eu-west"> Europe West</label><button type="submit">Create account</button><a href="/sign-in">Sign in instead</a></form></main>"#
             };
             let _ = response(&mut stream, body);
         }
     });
     Ok((url, stop_tx, handle))
+}
+
+#[test]
+fn website_mode_toggles_a_below_fold_native_checkbox() -> anyhow::Result<()> {
+    if detect_chrome().is_none() {
+        eprintln!("skipping browser site test because Chrome/Chromium is unavailable");
+        return Ok(());
+    }
+    let (url, stop, server) = fixture()?;
+    let client = LiveTestClient::launch_browser(BrowserTestOptions::new(url).website())?;
+    let region = SelectorQuery::test_id("region.eu-west");
+
+    let before = client.resolve_selector(region.clone().include_hidden())?;
+    assert_eq!(before.checked, Some(false));
+    client.scroll_into_view(region.clone())?;
+    client.wait_for_visible(region.clone(), 2_000)?;
+    client.toggle_selector(region.clone())?;
+    let after = client.resolve_selector(region)?;
+    assert_eq!(after.checked, Some(true));
+
+    let _ = stop.send(());
+    server.join().expect("site fixture thread panicked");
+    Ok(())
 }
 
 #[test]
