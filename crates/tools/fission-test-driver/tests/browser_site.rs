@@ -32,10 +32,13 @@ fn fixture() -> anyhow::Result<(String, mpsc::Sender<()>, std::thread::JoinHandl
             let read = stream.read(&mut request).unwrap_or_default();
             let request = String::from_utf8_lossy(&request[..read]);
             let welcome = request.starts_with("GET /welcome");
+            let sign_in = request.starts_with("GET /sign-in");
             let body = if welcome {
                 r#"<!doctype html><title>Welcome</title><main data-fission-node="welcome"><h1 data-fission-semantics="welcome.title">Welcome to Fission</h1><a href="/" data-fission-node="again">Sign in again</a></main>"#
+            } else if sign_in {
+                r#"<!doctype html><title>Sign in</title><main data-fission-node="sign-in"><h1>Sign in instead</h1></main>"#
             } else {
-                r#"<!doctype html><title>Register</title><style>html{scroll-behavior:smooth}label{display:block;height:240px}button{margin-top:120px}</style><main data-fission-node="registration"><h1>Register</h1><form action="/welcome" method="get"><label>Full name<input data-fission-semantics="registration.name" name="name" required></label><label>Email address<input data-fission-semantics="registration.email" name="email" type="email" required></label><label>Organisation<input data-fission-semantics="registration.organisation" name="organisation" required></label><label>Role<input data-fission-semantics="registration.role" name="role" required></label><label>Country<input data-fission-semantics="registration.country" name="country" required></label><button data-fission-node="submit" data-fission-semantics="registration.submit" type="submit">Create account</button></form></main>"#
+                r#"<!doctype html><title>Register</title><style>html{scroll-behavior:smooth}label{display:block;height:240px}button{margin-top:120px}</style><main data-fission-node="registration"><h1>Register</h1><form action="/welcome" method="get"><label>Full name<input data-fission-semantics="registration.name" name="name" required></label><label>Email address<input data-fission-semantics="registration.email" name="email" type="email" required></label><label>Organisation<input data-fission-semantics="registration.organisation" name="organisation" required></label><label>Role<input data-fission-semantics="registration.role" name="role" required></label><label>Country<input data-fission-semantics="registration.country" name="country" required></label><button data-fission-node="submit" data-fission-semantics="registration.submit" type="submit">Create account</button><a href="/sign-in">Sign in instead</a></form></main>"#
             };
             let _ = response(&mut stream, body);
         }
