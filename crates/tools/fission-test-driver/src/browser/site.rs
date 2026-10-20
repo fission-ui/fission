@@ -81,7 +81,7 @@ const SITE_COMMAND: &str = r#"(command => {
   const resolved = query => resolve(query).element;
   switch(command.cmd){
     case 'ResolveSelector': return selectorResponse(command.query);
-    case 'ScrollIntoView': {const el=resolved(command.query);if(!el)return selectorResponse(command.query);el.scrollIntoView({block:'center',inline:'nearest'});return selectorResponse(command.query);}
+    case 'ScrollIntoView': {const el=resolved(command.query);if(!el)return selectorResponse(command.query);el.scrollIntoView({block:'center',inline:'nearest',behavior:'instant'});void el.getBoundingClientRect();return selectorResponse(command.query);}
     case 'FocusSelector': {const el=resolved(command.query);if(!el)return selectorResponse(command.query);el.focus();return {status:'Ok'};}
     case 'SelectOption': {const el=resolved(command.query);if(!el)return selectorResponse(command.query);if(el.tagName!=='OPTION')return {status:'Error',message:'SelectOption requires an option element'};el.parentElement.value=el.value;el.parentElement.dispatchEvent(new Event('input',{bubbles:true}));el.parentElement.dispatchEvent(new Event('change',{bubbles:true}));return {status:'Ok'};}
     case 'GetTree': return {status:'Tree',nodes:all().filter(el=>el.hasAttribute('data-fission-node')||el.hasAttribute('data-fission-semantics')).map(node)};
@@ -221,9 +221,12 @@ impl BrowserController {
     }
 
     fn site_click(&mut self, query: SelectorQuery, button: &str) -> Result<TestResponse> {
-        let _ = self.send_site_command(TestCommand::ScrollIntoView {
+        let scroll = self.send_site_command(TestCommand::ScrollIntoView {
             query: query.clone().include_hidden(),
         })?;
+        if !matches!(scroll, TestResponse::SelectorResolved { .. }) {
+            return Ok(scroll);
+        }
         self.site_pointer(query, Some(button))
     }
 
@@ -238,7 +241,13 @@ impl BrowserController {
     }
 
     fn site_fill(&mut self, query: SelectorQuery, text: &str) -> Result<TestResponse> {
-        let response = self.site_click(query, "left")?;
+        let response = self.site_click(query.clone(), "left")?;
+        if !matches!(response, TestResponse::Ok {}) {
+            return Ok(response);
+        }
+        let response = self.send_site_command(TestCommand::FocusSelector {
+            query: query.clone(),
+        })?;
         if !matches!(response, TestResponse::Ok {}) {
             return Ok(response);
         }

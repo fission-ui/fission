@@ -35,7 +35,7 @@ fn fixture() -> anyhow::Result<(String, mpsc::Sender<()>, std::thread::JoinHandl
             let body = if welcome {
                 r#"<!doctype html><title>Welcome</title><main data-fission-node="welcome"><h1 data-fission-semantics="welcome.title">Welcome to Fission</h1><a href="/" data-fission-node="again">Sign in again</a></main>"#
             } else {
-                r#"<!doctype html><title>Sign in</title><main data-fission-node="sign-in"><h1>Sign in</h1><form action="/welcome" method="get"><label>Email address<input data-fission-node="email" data-fission-semantics="sign-in.email" name="email" type="email" required></label><button data-fission-node="submit" data-fission-semantics="sign-in.submit" type="submit">Sign in</button></form></main>"#
+                r#"<!doctype html><title>Register</title><style>html{scroll-behavior:smooth}label{display:block;height:240px}button{margin-top:120px}</style><main data-fission-node="registration"><h1>Register</h1><form action="/welcome" method="get"><label>Full name<input data-fission-semantics="registration.name" name="name" required></label><label>Email address<input data-fission-semantics="registration.email" name="email" type="email" required></label><label>Organisation<input data-fission-semantics="registration.organisation" name="organisation" required></label><label>Role<input data-fission-semantics="registration.role" name="role" required></label><label>Country<input data-fission-semantics="registration.country" name="country" required></label><button data-fission-node="submit" data-fission-semantics="registration.submit" type="submit">Create account</button></form></main>"#
             };
             let _ = response(&mut stream, body);
         }
@@ -51,11 +51,18 @@ fn site_mode_drives_semantic_ssr_navigation() -> anyhow::Result<()> {
     }
     let (url, stop, server) = fixture()?;
     let client = LiveTestClient::launch_browser(BrowserTestOptions::new(url).fission_site())?;
-    let email = SelectorQuery::semantic_identifier("sign-in.email");
-    client.wait_for_visible(email.clone(), 2_000)?;
-    client.fill_text_selector(email.clone(), "person@example.com")?;
-    client.wait_for_value(email, "person@example.com", 2_000)?;
-    client.tap_selector(SelectorQuery::role_label("button", "Sign in"))?;
+    for (identifier, value) in [
+        ("registration.name", "Alex Rivera"),
+        ("registration.email", "person@example.com"),
+        ("registration.organisation", "Fission Labs"),
+        ("registration.role", "Engineer"),
+        ("registration.country", "United Kingdom"),
+    ] {
+        let field = SelectorQuery::semantic_identifier(identifier);
+        client.fill_text_selector(field.clone(), value)?;
+        client.wait_for_value(field, value, 2_000)?;
+    }
+    client.tap_selector(SelectorQuery::role_label("button", "Create account"))?;
     client.wait_for_idle(5_000, true)?;
     client.wait_for_text("Welcome to Fission", 5_000)?;
     client.resolve_selector(SelectorQuery::semantic_identifier("welcome.title"))?;
