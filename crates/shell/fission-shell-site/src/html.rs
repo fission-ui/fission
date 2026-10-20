@@ -6659,6 +6659,8 @@ mod tests {
             .html
             .contains("<option value=\"us-east\">US East</option>"));
         assert!(!rendered.html.contains("type=\"hidden\""));
+        assert!(crate::build::site_base_css()
+            .contains("select.fission-site-input {\n  appearance: auto;"));
     }
 
     #[test]
