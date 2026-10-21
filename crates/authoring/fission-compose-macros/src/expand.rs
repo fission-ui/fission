@@ -1,4 +1,4 @@
-use crate::ast::{Call, Component, Value};
+use crate::ast::{Call, Component, Effect, Value};
 use proc_macro2::{Span, TokenStream as Tokens, TokenTree};
 use quote::{format_ident, quote, ToTokens};
 use std::collections::{BTreeSet, HashSet};
@@ -132,6 +132,7 @@ pub fn component(input: Component) -> syn::Result<Tokens> {
         root: root.clone(),
         editor: editor.clone(),
         state: state.clone(),
+        cx: cx.clone(),
         fields: &fields,
         items: Vec::new(),
         methods: Vec::new(),
@@ -196,6 +197,7 @@ struct Emitter<'a> {
     root: Tokens,
     editor: Ident,
     state: Ident,
+    cx: Ident,
     fields: &'a [crate::ast::Field],
     items: Vec<Tokens>,
     methods: Vec<Tokens>,
@@ -205,6 +207,10 @@ impl Emitter<'_> {
     fn bare(&mut self, v: &Value, path: &str) -> syn::Result<Tokens> {
         let rt = self.rt.clone();
         match v {
+            Value::Effect(effect) => Err(syn::Error::new_spanned(
+                &effect.operation,
+                "effect is only valid as an event property such as on_press:",
+            )),
             Value::Call(c) => self.call(c, path),
             Value::Rust(e) | Value::Read(e) => Ok(borrowed_read(e, &self.editor, &self.state)),
             Value::ExplicitRust(e) | Value::Source(e) => Ok(quote!(#e)),
@@ -465,26 +471,41 @@ impl Emitter<'_> {
             let value = if property == "bind" {
                 self.binding(&arg.value)?
             } else if property.starts_with("on_") {
-                match arg.value.rust() {
-                    Some(Expr::Closure(closure)) => {
-                        let handler_name=c.named("handler").and_then(Value::rust).and_then(string_literal)
+                if let Value::Effect(effect) = &arg.value {
+                    let handler_name=c.named("handler").and_then(Value::rust).and_then(string_literal)
+                        .or_else(||static_key.clone())
+                        .or_else(||c.named("key").is_none().then(||automatic_key.clone()))
+                        .ok_or_else(||syn::Error::new_spanned(&effect.operation,"an effect handler needs a literal key: \"save\"; with a dynamic control key, add handler: \"save\""))?;
+                    let handler = self.effect_handler(
+                        effect,
+                        &property,
+                        &format!("{parent_path}/{widget_name}/{handler_name}/{property}"),
+                    )?;
+                    quote!((#handler).into())
+                } else {
+                    match arg.value.rust() {
+                        Some(Expr::Closure(closure)) => {
+                            let handler_name=c.named("handler").and_then(Value::rust).and_then(string_literal)
                             .or_else(||static_key.clone())
                             .or_else(||c.named("key").is_none().then(||automatic_key.clone()))
                             .ok_or_else(||syn::Error::new_spanned(closure,"an inline handler needs a literal key: \"save\"; with a dynamic control key, add handler: \"save\""))?;
-                        let handler = self.handler(
-                            closure,
-                            &property,
-                            &format!("{parent_path}/{widget_name}/{handler_name}/{property}"),
-                        )?;
-                        quote!((#handler).into())
-                    }
-                    Some(e) => borrowed_read(e, &self.editor, &self.state),
-                    None if arg.value.is_plain_rust() => self.bare(&arg.value, &argument_path)?,
-                    None => {
-                        return Err(syn::Error::new_spanned(
-                            widget,
-                            "an event takes an inline handler or an already-typed Event value",
-                        ))
+                            let handler = self.handler(
+                                closure,
+                                &property,
+                                &format!("{parent_path}/{widget_name}/{handler_name}/{property}"),
+                            )?;
+                            quote!((#handler).into())
+                        }
+                        Some(e) => borrowed_read(e, &self.editor, &self.state),
+                        None if arg.value.is_plain_rust() => {
+                            self.bare(&arg.value, &argument_path)?
+                        }
+                        None => {
+                            return Err(syn::Error::new_spanned(
+                                widget,
+                                "an event takes an inline handler or an already-typed Event value",
+                            ))
+                        }
                     }
                 }
             } else {
@@ -712,6 +733,303 @@ impl Emitter<'_> {
             #rt::Event::<#event>::new(__envelope)
         }))
     }
+
+    fn effect_handler(&mut self, effect: &Effect, port: &str, symbol: &str) -> syn::Result<Tokens> {
+        let rt = self.rt.clone();
+        let name = self.component.clone();
+        let scope = self.scope.clone();
+        let target = self.target.clone();
+        let root = self.root.clone();
+        if port != "on_press" && port != "on_submit" {
+            return Err(syn::Error::new_spanned(
+                &effect.operation,
+                "effects currently require a press-like event property",
+            ));
+        }
+        if !self.symbols.insert(symbol.into()) {
+            return Err(syn::Error::new_spanned(
+                &effect.operation,
+                "duplicate effect handler identity; give the control a distinct semantic key",
+            ));
+        }
+
+        let editor = &self.editor;
+        let state = &self.state;
+        let cx = &self.cx;
+        let mut used = BTreeSet::new();
+        for argument in &effect.args {
+            scan_fields(argument.to_token_stream(), editor, &mut used)?;
+        }
+        scan_fields(effect.start.to_token_stream(), editor, &mut used)?;
+        scan_fields(effect.ok.to_token_stream(), editor, &mut used)?;
+        scan_fields(effect.err.to_token_stream(), editor, &mut used)?;
+        for field in &used {
+            if !self
+                .fields
+                .iter()
+                .any(|candidate| candidate.name == field.as_str())
+            {
+                return Err(syn::Error::new_spanned(
+                    &effect.operation,
+                    format!("{field} is not a declared prop or local field"),
+                ));
+            }
+        }
+
+        let captures: Vec<_> = self
+            .fields
+            .iter()
+            .filter(|field| field.local.is_none() && used.contains(&field.name.to_string()))
+            .collect();
+        let locals: Vec<_> = self
+            .fields
+            .iter()
+            .filter(|field| field.local.is_some() && used.contains(&field.name.to_string()))
+            .collect();
+        let suffix = format!("{:016x}", stable_hash(symbol));
+        let request_action = format_ident!("__{}_EffectRequest_{}", name, suffix);
+        let ok_action = format_ident!("__{}_EffectOk_{}", name, suffix);
+        let err_action = format_ident!("__{}_EffectErr_{}", name, suffix);
+        let capture = format_ident!("__{}_EffectCapture_{}", name, suffix);
+        let facade = format_ident!("__{}_EffectEditor_{}", name, suffix);
+        let start_method = format_ident!("__effect_start_{}", suffix);
+        let ok_method = format_ident!("__effect_ok_{}", suffix);
+        let err_method = format_ident!("__effect_err_{}", suffix);
+        let ser_path = LitStr::new(
+            &format!("{}::serde", rt.to_string().replace(' ', "")),
+            Span::call_site(),
+        );
+
+        let mut definition = effect.operation.clone();
+        let operation_name = definition
+            .segments
+            .last()
+            .expect("effect operation path must not be empty")
+            .ident
+            .clone();
+        definition.segments.pop();
+        definition
+            .segments
+            .push(syn::PathSegment::from(format_ident!(
+                "__fission_effect_{}",
+                operation_name
+            )));
+        definition
+            .segments
+            .push(syn::PathSegment::from(format_ident!("Definition")));
+
+        let prop_defs = captures.iter().map(|field| {
+            let id = &field.name;
+            let ty = &field.ty;
+            quote!(#id:#ty)
+        });
+        let local_defs = locals.iter().map(|field| {
+            let id = &field.name;
+            let ty = &field.ty;
+            quote!(#id:#ty)
+        });
+        let action_definition = |action: &Ident| {
+            quote! {
+                #[allow(non_camel_case_types)]
+                #[derive(Clone,#rt::serde::Serialize,#rt::serde::Deserialize)]
+                #[serde(crate=#ser_path)]
+                struct #action {
+                    key:<#scope as #rt::Scope>::Key,
+                    incarnation:u64,
+                    props:#capture,
+                }
+                impl ::std::fmt::Debug for #action {
+                    fn fmt(&self, formatter:&mut ::std::fmt::Formatter<'_>)->::std::fmt::Result {
+                        formatter.write_str(stringify!(#action))
+                    }
+                }
+                impl #rt::core::Action for #action {
+                    fn static_id()->#rt::core::ActionId {
+                        #rt::core::ActionId::from_name(concat!(module_path!(),"::",stringify!(#action)))
+                    }
+                }
+            }
+        };
+        let request_action_definition = action_definition(&request_action);
+        let ok_action_definition = action_definition(&ok_action);
+        let err_action_definition = action_definition(&err_action);
+        self.items.push(quote! {
+            #[allow(non_camel_case_types)]
+            #[derive(Clone,#rt::serde::Serialize,#rt::serde::Deserialize)]
+            #[serde(crate=#ser_path)]
+            struct #capture { #(#prop_defs,)* }
+            #request_action_definition
+            #ok_action_definition
+            #err_action_definition
+            #[allow(non_camel_case_types)]
+            struct #facade<'a> { __props:&'a #capture, #(#local_defs,)* }
+            impl ::std::ops::Deref for #facade<'_> {
+                type Target=#capture;
+                fn deref(&self)->&Self::Target { self.__props }
+            }
+        });
+
+        let request = match effect.args.len() {
+            0 => quote!(()),
+            1 => {
+                let argument = effect.args.first().expect("one effect argument");
+                quote!(#argument)
+            }
+            _ => {
+                let arguments = &effect.args;
+                quote!((#arguments))
+            }
+        };
+        let start = &effect.start;
+        let ok_pattern = &effect.ok_pattern;
+        let ok = &effect.ok;
+        let err_pattern = &effect.err_pattern;
+        let err = &effect.err;
+        self.methods.push(quote! {
+            #[allow(unused_variables)]
+            fn #start_method(
+                #editor:&mut #facade<'_>,
+                #state:&mut #target,
+                #cx:&mut #rt::core::ReducerContext<#root>,
+            ) -> <#definition as #rt::core::AppEffect>::Request {
+                let __request = #request;
+                #start
+                __request
+            }
+            #[allow(unused_variables)]
+            fn #ok_method(
+                #editor:&mut #facade<'_>,
+                #state:&mut #target,
+                #cx:&mut #rt::core::ReducerContext<#root>,
+                __value:<#definition as #rt::core::AppEffect>::Ok,
+            ) {
+                let #ok_pattern = __value;
+                #ok
+            }
+            #[allow(unused_variables)]
+            fn #err_method(
+                #editor:&mut #facade<'_>,
+                #state:&mut #target,
+                #cx:&mut #rt::core::ReducerContext<#root>,
+                __error:<#definition as #rt::core::AppEffect>::Err,
+            ) {
+                let #err_pattern = __error;
+                #err
+            }
+        });
+
+        let props = captures.iter().map(|field| {
+            let id = &field.name;
+            quote!(#id: ::std::clone::Clone::clone(&#editor.#id))
+        });
+        let keys = locals.iter().map(|field| {
+            let id = &field.name;
+            let handle = handle_name(id);
+            let key = format_ident!("__key_{}", id);
+            quote!(let #key=#handle.key().clone();)
+        });
+        let local_reads = locals.iter().map(|field| {
+            let id = &field.name;
+            let ty = &field.ty;
+            let key = format_ident!("__key_{}", id);
+            quote!(let Some(#id)=__live.snapshot::<#ty>(&#key)else{return;};)
+        });
+        let local_values = locals.iter().map(|field| &field.name);
+        let local_writes = locals.iter().map(|field| {
+            let id = &field.name;
+            let key = format_ident!("__key_{}", id);
+            quote!(if !__live.replace(&#key,__editor.#id){return;})
+        });
+        let ok_local_reads = locals.iter().map(|field| {
+            let id = &field.name;
+            let ty = &field.ty;
+            let key = format_ident!("__ok_key_{}", id);
+            quote!(let Some(#id)=__ok_live.snapshot::<#ty>(&#key)else{return;};)
+        });
+        let err_local_reads = locals.iter().map(|field| {
+            let id = &field.name;
+            let ty = &field.ty;
+            let key = format_ident!("__err_key_{}", id);
+            quote!(let Some(#id)=__err_live.snapshot::<#ty>(&#key)else{return;};)
+        });
+        let ok_local_values = local_values.clone();
+        let err_local_values = local_values.clone();
+        let ok_local_writes = locals.iter().map(|field| {
+            let id = &field.name;
+            let key = format_ident!("__ok_key_{}", id);
+            quote!(if !__ok_live.replace(&#key,__editor.#id){return;})
+        });
+        let err_local_writes = locals.iter().map(|field| {
+            let id = &field.name;
+            let key = format_ident!("__err_key_{}", id);
+            quote!(if !__err_live.replace(&#key,__editor.#id){return;})
+        });
+        let callback_keys = locals.iter().map(|field| {
+            let key = format_ident!("__key_{}", field.name);
+            let ok_key = format_ident!("__ok_key_{}", field.name);
+            let err_key = format_ident!("__err_key_{}", field.name);
+            quote!(let #ok_key=#key.clone(); let #err_key=#key.clone();)
+        });
+
+        Ok(quote!({
+            let __node=#rt::identity::node().id;
+            let __control_mount=__mount.control(__node,#symbol);
+            let __action=#request_action {
+                key:__scope_key.clone(),
+                incarnation:__control_mount.incarnation,
+                props:#capture { #(#props,)* },
+            };
+            let __live=__control_mount.clone();
+            let __expected_key=__scope_key.clone();
+            #(#keys)*
+            let __handler=#rt::events::HandlerFn(move|__root:&mut #root,__event:#request_action,__cx:&mut #rt::core::ReducerContext<#root>|{
+                if __event.key!=__expected_key||!__live.alive(__event.incarnation){return;}
+                let Some(__state)=<#scope as #rt::Scope>::get_mut(__root,&__event.key)else{return;};
+                #(#local_reads)*
+                let mut __editor=#facade { __props:&__event.props, #(#local_values,)* };
+                let __request=#name::#start_method(&mut __editor,__state,__cx);
+                #(#local_writes)*
+
+                #(#callback_keys)*
+                let __ok_live=::std::clone::Clone::clone(&__live);
+                let __ok_expected=__event.key.clone();
+                let __ok_handler=#rt::events::HandlerFn(move|__root:&mut #root,__event:#ok_action,__cx:&mut #rt::core::ReducerContext<#root>|{
+                    if __event.key!=__ok_expected||!__ok_live.alive(__event.incarnation){return;}
+                    let Some(__state)=<#scope as #rt::Scope>::get_mut(__root,&__event.key)else{return;};
+                    #(#ok_local_reads)*
+                    let mut __editor=#facade { __props:&__event.props, #(#ok_local_values,)* };
+                    let __job=#rt::core::JobRef::<#rt::core::AppEffectJob<#definition>>::new(<#definition as #rt::core::AppEffect>::NAME);
+                    let Some(__value)=__cx.input.job_ok(__job)else{return;};
+                    #name::#ok_method(&mut __editor,__state,__cx,__value);
+                    #(#ok_local_writes)*
+                });
+                let __err_live=::std::clone::Clone::clone(&__live);
+                let __err_expected=__event.key.clone();
+                let __err_handler=#rt::events::HandlerFn(move|__root:&mut #root,__event:#err_action,__cx:&mut #rt::core::ReducerContext<#root>|{
+                    if __event.key!=__err_expected||!__err_live.alive(__event.incarnation){return;}
+                    let Some(__state)=<#scope as #rt::Scope>::get_mut(__root,&__event.key)else{return;};
+                    #(#err_local_reads)*
+                    let mut __editor=#facade { __props:&__event.props, #(#err_local_values,)* };
+                    let __job=#rt::core::JobRef::<#rt::core::AppEffectJob<#definition>>::new(<#definition as #rt::core::AppEffect>::NAME);
+                    let Some(__error)=__cx.input.job_err(__job)else{return;};
+                    #name::#err_method(&mut __editor,__state,__cx,__error);
+                    #(#err_local_writes)*
+                });
+                let __ok=__cx.effects.bind(
+                    #ok_action { key:__event.key.clone(), incarnation:__event.incarnation, props:__event.props.clone() },
+                    __ok_handler,
+                );
+                let __err=__cx.effects.bind(
+                    #err_action { key:__event.key, incarnation:__event.incarnation, props:__event.props },
+                    __err_handler,
+                );
+                __cx.effects.app_effect::<#definition>(__request).on_ok(__ok).on_err(__err);
+            });
+            let __envelope=__build.bind_scoped(__node,#symbol,__action,__handler);
+            #rt::identity::record(&__control_mount,__node,#symbol,&__envelope);
+            #rt::Event::<#rt::events::Press>::new(__envelope)
+        }))
+    }
 }
 
 fn call_shape(call: &Call) -> String {
@@ -758,6 +1076,17 @@ fn call_shape(call: &Call) -> String {
 
 fn value_shape(value: &Value) -> String {
     match value {
+        Value::Effect(effect) => format!(
+            "effect:{}({})",
+            effect.operation.to_token_stream(),
+            effect
+                .args
+                .iter()
+                .map(ToTokens::to_token_stream)
+                .map(|tokens| tokens.to_string())
+                .collect::<Vec<_>>()
+                .join(","),
+        ),
         Value::Call(call) => call_shape(call),
         Value::Rust(expr)
         | Value::ExplicitRust(expr)

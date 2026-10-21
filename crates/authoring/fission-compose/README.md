@@ -11,6 +11,7 @@ Application developers should normally depend on the [`fission`](https://crates.
 - Typed value/update sources used by control bindings.
 - Stable semantic identities for components, repeated children, fields and inline handlers.
 - Event contracts for presses, text changes and toggles.
+- `#[fission_effect]` and inline `start`/`Ok`/`Err` handling for component-owned async work.
 
 Widget names are resolved by normal Rust imports. Named arguments initialise public struct fields and omitted fields use `Default`; positional arguments call the type's existing `new(...)` constructor. Third-party widgets require no Compose registration.
 
@@ -33,7 +34,32 @@ fission_component! {
 }
 ```
 
-Use ordinary Fission reducers for behaviour shared across components and jobs/effects for asynchronous work. Handwritten `From<YourWidget> for Widget` implementations remain fully interoperable for low-level custom rendering.
+Use ordinary Fission reducers and registered jobs for behaviour shared across components. Component-owned async work can stay beside the control that starts it:
+
+```rust,ignore
+#[fission_effect]
+async fn save_draft(draft: String) -> Result<String, String> {
+    api::save(draft).await
+}
+
+Button(
+    child: Text("Save"),
+    key: "save",
+    on_press: effect save_draft(editor.draft.clone()) {
+        start { editor.saving = true; }
+        Ok(saved) {
+            editor.draft = saved;
+            editor.saving = false;
+        }
+        Err(error) {
+            editor.error = Some(error);
+            editor.saving = false;
+        }
+    },
+)
+```
+
+Handwritten `From<YourWidget> for Widget` implementations remain fully interoperable for low-level custom rendering.
 
 Read the [Compose guide](https://fission.rs/compose/) or run the checked-in [`compose` example](https://github.com/fission-ui/fission/tree/main/examples/compose).
 

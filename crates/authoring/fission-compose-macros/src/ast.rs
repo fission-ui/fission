@@ -4,6 +4,8 @@ use syn::{
     Attribute, Block, Expr, Ident, Pat, Path, Token, Type, Visibility,
 };
 mod kw {
+    syn::custom_keyword!(effect);
+    syn::custom_keyword!(start);
     syn::custom_keyword!(using);
     syn::custom_keyword!(rust);
 }
@@ -164,6 +166,17 @@ pub struct Modifier {
     pub name: Ident,
     pub args: Punctuated<Expr, Token![,]>,
 }
+
+#[derive(Clone)]
+pub struct Effect {
+    pub operation: Path,
+    pub args: Punctuated<Expr, Token![,]>,
+    pub start: Block,
+    pub ok_pattern: Pat,
+    pub ok: Block,
+    pub err_pattern: Pat,
+    pub err: Block,
+}
 impl Call {
     pub fn named(&self, name: &str) -> Option<&Value> {
         self.args
@@ -174,6 +187,7 @@ impl Call {
 }
 #[derive(Clone)]
 pub enum Value {
+    Effect(Effect),
     Call(Call),
     Array(Vec<Value>),
     Optional(Box<Value>),
@@ -218,7 +232,7 @@ impl Value {
             }
             Self::Optional(value) => value.is_plain_rust(),
             Self::Match { arms, .. } => arms.iter().all(|(_, _, body)| body.is_plain_rust()),
-            Self::Call(_) | Self::Array(_) | Self::For { .. } => false,
+            Self::Effect(_) | Self::Call(_) | Self::Array(_) | Self::For { .. } => false,
         }
     }
 }
@@ -275,6 +289,61 @@ fn starts_constructor(input: ParseStream<'_>) -> bool {
 }
 impl Parse for Value {
     fn parse(input: ParseStream<'_>) -> syn::Result<Self> {
+        if input.peek(kw::effect) {
+            input.parse::<kw::effect>()?;
+            let operation = input.parse()?;
+            let arguments;
+            syn::parenthesized!(arguments in input);
+            let args = arguments.parse_terminated(Expr::parse, Token![,])?;
+            let lifecycle;
+            syn::braced!(lifecycle in input);
+
+            lifecycle.parse::<kw::start>()?;
+            let start = lifecycle.parse()?;
+
+            let ok_name: Ident = lifecycle.parse()?;
+            if ok_name != "Ok" {
+                return Err(syn::Error::new_spanned(
+                    ok_name,
+                    "expected Ok(result) block",
+                ));
+            }
+            let ok_binding;
+            syn::parenthesized!(ok_binding in lifecycle);
+            let ok_pattern = ok_binding.call(Pat::parse_single)?;
+            if !ok_binding.is_empty() {
+                return Err(ok_binding.error("Ok takes one result pattern"));
+            }
+            let ok = lifecycle.parse()?;
+
+            let err_name: Ident = lifecycle.parse()?;
+            if err_name != "Err" {
+                return Err(syn::Error::new_spanned(
+                    err_name,
+                    "expected Err(error) block",
+                ));
+            }
+            let err_binding;
+            syn::parenthesized!(err_binding in lifecycle);
+            let err_pattern = err_binding.call(Pat::parse_single)?;
+            if !err_binding.is_empty() {
+                return Err(err_binding.error("Err takes one error pattern"));
+            }
+            let err = lifecycle.parse()?;
+
+            if !lifecycle.is_empty() {
+                return Err(lifecycle.error("unexpected tokens after Err block"));
+            }
+            return Ok(Self::Effect(Effect {
+                operation,
+                args,
+                start,
+                ok_pattern,
+                ok,
+                err_pattern,
+                err,
+            }));
+        }
         if input.peek(kw::rust) {
             input.parse::<kw::rust>()?;
             let block: syn::Block = input.parse()?;

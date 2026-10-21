@@ -140,7 +140,89 @@ fission_component! {
 }
 ```
 
-That is the escape path for shared domain transitions, effect completion handlers and any behaviour that deserves its own Rust symbol. Compose does not replace synchronous reducers, jobs or effects.
+That is the escape path for shared domain transitions and any behaviour that deserves its own Rust symbol. Compose does not replace synchronous reducers or explicitly registered jobs.
+
+## Async effects without lifecycle boilerplate
+
+Use `#[fission_effect]` for one-shot, component-owned asynchronous work. The function body is ordinary async Rust. Compose generates the typed job request plus the start, success and failure reducers while preserving Fission's rule that rendering and reducers never perform I/O directly.
+
+```rust
+use fission::prelude::*;
+use serde::Deserialize;
+
+#[derive(Deserialize)]
+struct CounterResponse {
+    count: i32,
+}
+
+#[fission_effect]
+async fn increment_counter(current: i32) -> Result<i32, String> {
+    let response = reqwest::Client::new()
+        .post("https://example.com/counter")
+        .json(&serde_json::json!({ "current": current }))
+        .send()
+        .await
+        .map_err(|error| error.to_string())?
+        .error_for_status()
+        .map_err(|error| error.to_string())?
+        .json::<CounterResponse>()
+        .await
+        .map_err(|error| error.to_string())?;
+
+    Ok(response.count)
+}
+
+fission_component! {
+    pub RemoteCounter<()> {
+        #[local_state(default = 0)]
+        count: i32,
+
+        #[local_state(default = false)]
+        loading: bool,
+
+        #[local_state(default = None)]
+        error: Option<String>,
+    } |counter, _state, _cx| =>
+    Column(
+        gap: 16.0,
+        children: [
+            Text(format!("Count: {}", counter.count)),
+            Button(
+                child: Text(if counter.loading {
+                    "Calling API…"
+                } else {
+                    "Increment via API"
+                }),
+                key: "remote-increment",
+                disabled: counter.loading,
+                on_press: effect increment_counter(counter.count) {
+                    start {
+                        counter.loading = true;
+                        counter.error = None;
+                    }
+                    Ok(count) {
+                        counter.count = count;
+                        counter.loading = false;
+                    }
+                    Err(error) {
+                        counter.error = Some(error);
+                        counter.loading = false;
+                    }
+                },
+            ),
+            if let Some(error) = &counter.error {
+                Text(format!("Request failed: {error}"))
+            },
+        ],
+    )
+}
+```
+
+`start` runs synchronously when the control is activated. `Ok(value)` and `Err(error)` run later with the typed job result. Each block receives the component editor, scoped application state and a fresh reducer context. A completion for a component that has since unmounted is ignored rather than recreating its local state.
+
+Effect arguments are evaluated when the event is handled. They may use declared component properties, retained local fields, scoped application state, literals and ordinary functions. They do not implicitly capture temporary values from the build-time setup block. Put durable inputs in a property or state, or use an explicitly registered job when the work is shared or requires a specialised host implementation.
+
+The `example.com` endpoint above documents the expected request shape; substitute an endpoint that accepts `{ "current": 4 }` and returns `{ "count": 5 }` when running it.
 
 ## Conditions, matches and repeated children
 

@@ -6,6 +6,7 @@ use proc_macro_crate::{crate_name, FoundCrate};
 use quote::{format_ident, quote};
 use syn::parse_macro_input;
 mod ast;
+mod effect;
 mod expand;
 mod scope;
 
@@ -30,6 +31,14 @@ fn support() -> Tokens {
 pub fn fission_component(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as ast::Component);
     expand::component(input)
+        .unwrap_or_else(syn::Error::into_compile_error)
+        .into()
+}
+
+#[proc_macro_attribute]
+pub fn fission_effect(_args: TokenStream, input: TokenStream) -> TokenStream {
+    let function = parse_macro_input!(input as syn::ItemFn);
+    effect::expand(function)
         .unwrap_or_else(syn::Error::into_compile_error)
         .into()
 }
@@ -70,6 +79,51 @@ mod tests {
         })
         .unwrap();
         syn::parse2::<syn::File>(output).unwrap();
+    }
+
+    #[test]
+    fn effect_functions_and_component_lifecycle_blocks_expand_to_rust() {
+        let effect = effect::expand(
+            syn::parse2(quote! {
+                pub async fn increment_counter(current: i32) -> Result<i32, String> {
+                    Ok(current + 1)
+                }
+            })
+            .unwrap(),
+        )
+        .unwrap();
+        syn::parse2::<syn::File>(effect).unwrap();
+
+        let output = expand(quote! {
+            pub RemoteCounter<()> {
+                #[local_state(default = 0)] count: i32,
+                #[local_state(default = false)] loading: bool,
+                #[local_state(default = None)] error: Option<String>,
+            } |counter, _state, _cx| => Button(
+                key: "increment",
+                child: Text("Increment via API"),
+                on_press: effect increment_counter(counter.count) {
+                    start {
+                        counter.loading = true;
+                        counter.error = None;
+                    }
+                    Ok(count) {
+                        counter.count = count;
+                        counter.loading = false;
+                    }
+                    Err(error) {
+                        counter.error = Some(error);
+                        counter.loading = false;
+                    }
+                },
+            )
+        })
+        .unwrap();
+        syn::parse2::<syn::File>(output.clone()).unwrap();
+        let output = output.to_string();
+        assert!(output.contains("app_effect"), "{output}");
+        assert!(output.contains("job_ok"), "{output}");
+        assert!(output.contains("job_err"), "{output}");
     }
 
     #[test]
