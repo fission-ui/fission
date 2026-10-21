@@ -529,6 +529,7 @@ impl JobResource {
                 effect: Effect::Job(JobRequestPayload {
                     job_name: job.name.to_string(),
                     payload,
+                    inline: None,
                 }),
                 on_ok: None,
                 on_err: None,

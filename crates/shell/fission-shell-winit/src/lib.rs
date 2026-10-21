@@ -2409,6 +2409,7 @@ fn process_pending_effects(
             Effect::Job(job) => {
                 if !async_registry.spawn_job(
                     &job.job_name,
+                    job.inline,
                     env.req_id,
                     job.payload,
                     env.on_ok.clone(),

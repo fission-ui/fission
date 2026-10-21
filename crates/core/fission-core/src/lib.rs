@@ -377,8 +377,9 @@ pub mod public {
         UpdateTextSelection,
     };
     pub use crate::async_runtime::{
-        BoxFuture, JobCtx, JobRef, JobSpec, ResourceExecutionContext, ServiceBindings, ServiceCtx,
-        ServiceRunner, ServiceSlot, ServiceSpec, ServiceType,
+        AppEffect, AppEffectJob, BoxFuture, InlineJob, InlineJobError, JobCtx, JobRef, JobSpec,
+        ResourceExecutionContext, ServiceBindings, ServiceCtx, ServiceRunner, ServiceSlot,
+        ServiceSpec, ServiceType,
     };
     pub use crate::capability::{
         CapabilityCtx, CapabilityInvocationPayload, CapabilityType, OpenUrlCapability,
@@ -593,8 +594,9 @@ pub use action::{
     UpdateTextInput, UpdateTextSelection,
 };
 pub use async_runtime::{
-    BoxFuture, JobCtx, JobRef, JobSpec, ResourceExecutionContext, ServiceBindings, ServiceCtx,
-    ServiceRunner, ServiceSlot, ServiceSpec, ServiceType,
+    AppEffect, AppEffectJob, BoxFuture, InlineJob, InlineJobError, JobCtx, JobRef, JobSpec,
+    ResourceExecutionContext, ServiceBindings, ServiceCtx, ServiceRunner, ServiceSlot, ServiceSpec,
+    ServiceType,
 };
 pub use bytes::Bytes;
 pub use capability::{

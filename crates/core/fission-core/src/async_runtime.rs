@@ -18,6 +18,100 @@ pub trait JobSpec {
     const NAME: &'static str;
 }
 
+/// A component-owned, one-shot asynchronous operation whose executable
+/// handler accompanies its in-process job request.
+pub trait AppEffect: Send + Sync + 'static {
+    type Request: Serialize + DeserializeOwned + Send + 'static;
+    type Ok: Serialize + DeserializeOwned + Send + 'static;
+    type Err: Serialize + DeserializeOwned + Send + 'static;
+
+    const NAME: &'static str;
+
+    fn run(request: Self::Request, ctx: JobCtx) -> BoxFuture<Result<Self::Ok, Self::Err>>;
+}
+
+#[derive(Debug)]
+pub struct AppEffectJob<E>(PhantomData<fn() -> E>);
+
+impl<E: AppEffect> JobSpec for AppEffectJob<E> {
+    type Request = E::Request;
+    type Ok = E::Ok;
+    type Err = E::Err;
+
+    const NAME: &'static str = E::NAME;
+}
+
+#[derive(Debug)]
+pub struct InlineJobError {
+    pub payload: Option<Vec<u8>>,
+    pub message: Option<String>,
+}
+
+trait ErasedInlineJob: Send + Sync {
+    fn name(&self) -> &'static str;
+    fn run(&self, payload: Vec<u8>, ctx: JobCtx) -> BoxFuture<Result<Vec<u8>, InlineJobError>>;
+}
+
+struct TypedInlineJob<E>(PhantomData<fn() -> E>);
+
+impl<E: AppEffect> ErasedInlineJob for TypedInlineJob<E> {
+    fn name(&self) -> &'static str {
+        E::NAME
+    }
+
+    fn run(&self, payload: Vec<u8>, ctx: JobCtx) -> BoxFuture<Result<Vec<u8>, InlineJobError>> {
+        Box::pin(async move {
+            let request =
+                serde_json::from_slice::<E::Request>(&payload).map_err(|error| InlineJobError {
+                    payload: None,
+                    message: Some(error.to_string()),
+                })?;
+            match E::run(request, ctx).await {
+                Ok(value) => serde_json::to_vec(&value).map_err(|error| InlineJobError {
+                    payload: None,
+                    message: Some(error.to_string()),
+                }),
+                Err(error) => {
+                    let payload = serde_json::to_vec(&error).ok();
+                    Err(InlineJobError {
+                        message: payload
+                            .is_none()
+                            .then(|| "app effect error serialization failed".to_string()),
+                        payload,
+                    })
+                }
+            }
+        })
+    }
+}
+
+/// Type-erased executable attached to an in-process app-effect request.
+#[derive(Clone)]
+pub struct InlineJob(Arc<dyn ErasedInlineJob>);
+
+impl InlineJob {
+    pub fn for_effect<E: AppEffect>() -> Self {
+        Self(Arc::new(TypedInlineJob::<E>(PhantomData)))
+    }
+
+    pub fn name(&self) -> &'static str {
+        self.0.name()
+    }
+
+    pub fn run(&self, payload: Vec<u8>, ctx: JobCtx) -> BoxFuture<Result<Vec<u8>, InlineJobError>> {
+        self.0.run(payload, ctx)
+    }
+}
+
+impl std::fmt::Debug for InlineJob {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_tuple("InlineJob")
+            .field(&self.name())
+            .finish()
+    }
+}
+
 #[derive(Debug)]
 pub struct JobRef<J: JobSpec> {
     pub name: &'static str,
@@ -109,11 +203,24 @@ impl<S: ServiceSpec> Clone for ServiceSlot<S> {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct JobRequestPayload {
     pub job_name: String,
     pub payload: Vec<u8>,
+    #[serde(skip)]
+    pub inline: Option<InlineJob>,
 }
+
+impl PartialEq for JobRequestPayload {
+    fn eq(&self, other: &Self) -> bool {
+        self.job_name == other.job_name
+            && self.payload == other.payload
+            && self.inline.as_ref().map(InlineJob::name)
+                == other.inline.as_ref().map(InlineJob::name)
+    }
+}
+
+impl Eq for JobRequestPayload {}
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ServiceStartPayload {
