@@ -5,7 +5,7 @@ use serde_json::json;
 use std::time::{Duration, Instant};
 
 const SITE_COMMAND: &str = r#"(command => {
-  const semanticSelector = '[data-fission-node],[data-fission-semantics],[data-testid],[role],[aria-label],[aria-labelledby],button,a[href],input,textarea,select,option,details,summary,img,h1,h2,h3,h4,h5,h6,form,main,nav,header,footer,section,article';
+  const semanticSelector = '[data-fission-node],[data-fission-semantics],[data-testid],[role],[aria-label],[aria-labelledby],button,a[href],input,textarea,select,option,details,summary,table,thead,tbody,tfoot,tr,th,td,img,h1,h2,h3,h4,h5,h6,form,main,nav,header,footer,section,article';
   const all = () => Array.from(document.querySelectorAll(semanticSelector));
   const rect = el => { const r=el.getBoundingClientRect(); return {x:r.x,y:r.y,width:r.width,height:r.height}; };
   const clippedRect = el => {
@@ -24,11 +24,11 @@ const SITE_COMMAND: &str = r#"(command => {
       style.display!=='none' && style.visibility!=='hidden' && Number(style.opacity)!==0 &&
       r.width>0 && r.height>0 && !!clippedRect(el);
   };
-  const role = el => el.getAttribute('role') || ({
-    BUTTON:'button',A:'link',TEXTAREA:'textbox',SELECT:'combobox',OPTION:'option',DETAILS:'group',SUMMARY:'button',IMG:'img',
+  const role = el => el.getAttribute('role') || (el.tagName==='TH' ? (el.getAttribute('scope')==='row'?'rowheader':'columnheader') : ({
+    BUTTON:'button',A:'link',TEXTAREA:'textbox',SELECT:'combobox',OPTION:'option',DETAILS:'group',SUMMARY:'button',TABLE:'table',THEAD:'rowgroup',TBODY:'rowgroup',TFOOT:'rowgroup',TR:'row',TD:'cell',IMG:'img',
     H1:'heading',H2:'heading',H3:'heading',H4:'heading',H5:'heading',H6:'heading',
     FORM:'form',MAIN:'main',NAV:'navigation',HEADER:'banner',FOOTER:'contentinfo',SECTION:'region',ARTICLE:'article'
-  }[el.tagName] || (el.tagName==='INPUT' ? ({checkbox:'checkbox',radio:'radio',range:'slider',submit:'button',button:'button'}[el.type]||'textbox') : 'generic'));
+  }[el.tagName] || (el.tagName==='INPUT' ? ({checkbox:'checkbox',radio:'radio',range:'slider',submit:'button',button:'button'}[el.type]||'textbox') : 'generic')));
   const label = el => {
     const aria=el.getAttribute('aria-label'); if(aria)return aria.trim();
     const ids=(el.getAttribute('aria-labelledby')||'').trim().split(/\s+/).filter(Boolean);

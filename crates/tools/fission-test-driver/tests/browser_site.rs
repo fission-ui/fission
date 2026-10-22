@@ -54,11 +54,14 @@ fn fixture() -> anyhow::Result<(String, mpsc::Sender<()>, std::thread::JoinHandl
             let admin_login = request.starts_with("GET /admin-login");
             let disclosure = request.starts_with("GET /disclosure");
             let frame_barrier = request.starts_with("GET /frame-barrier");
+            let native_table = request.starts_with("GET /native-table");
             if request.starts_with("GET /protected") {
                 let _ = redirect(&mut stream, "/sign-in");
                 continue;
             }
-            let body = if frame_barrier {
+            let body = if native_table {
+                r#"<!doctype html><title>Services</title><style>.spacer{height:1400px}</style><main><h1>My Services</h1><div class="spacer"></div><table data-testid="services-table"><thead><tr><th scope="col">Service ID</th><th scope="col">Product</th><th scope="col">Status</th></tr></thead><tbody><tr data-service="managed-hosting"><th scope="row">SRV-001</th><td>Managed hosting</td><td>Active</td></tr><tr data-testid="object-storage-row"><th scope="row">SRV-002</th><td>Object storage</td><td id="object-storage-status">Pending</td></tr></tbody></table></main><script>document.querySelector('[data-testid="object-storage-row"]>td').addEventListener('click',()=>document.querySelector('#object-storage-status').textContent='Opened');</script>"#
+            } else if frame_barrier {
                 r#"<!doctype html><title>Frame barrier</title><style>body{margin:0}.spacer{height:1600px}</style><main><div class="spacer"></div><button data-testid="save">Save changes</button></main><script>globalThis.pointerState={scrolled:false,painted:false,pressedAfterPaint:false};addEventListener('scroll',()=>{pointerState.scrolled=true;requestAnimationFrame(()=>requestAnimationFrame(()=>pointerState.painted=true));},{once:true});document.querySelector('[data-testid="save"]').addEventListener('mousedown',()=>pointerState.pressedAfterPaint=pointerState.painted);</script>"#
             } else if disclosure {
                 r#"<!doctype html><title>Disclosure</title><main><h1>Account</h1><details id="credentials"><summary>Customer credentials</summary><div data-testid="credential-fields">Bucket and credential controls</div></details></main>"#
@@ -75,6 +78,43 @@ fn fixture() -> anyhow::Result<(String, mpsc::Sender<()>, std::thread::JoinHandl
         }
     });
     Ok((url, stop_tx, handle))
+}
+
+#[test]
+fn website_mode_projects_and_drives_native_table_semantics() -> anyhow::Result<()> {
+    if detect_chrome().is_none() {
+        eprintln!("skipping browser site test because Chrome/Chromium is unavailable");
+        return Ok(());
+    }
+    let (url, stop, server) = fixture()?;
+    let client = LiveTestClient::launch_browser(
+        BrowserTestOptions::new(format!("{url}native-table")).website(),
+    )?;
+
+    assert_eq!(
+        client
+            .resolve_selector(SelectorQuery::test_id("services-table").include_hidden())?
+            .role,
+        "table"
+    );
+    assert_eq!(
+        client
+            .resolve_selector(SelectorQuery::test_id("object-storage-row").include_hidden())?
+            .role,
+        "row"
+    );
+    client
+        .resolve_selector(SelectorQuery::role_label("columnheader", "Product").include_hidden())?;
+    client.resolve_selector(SelectorQuery::role_label("rowheader", "SRV-002").include_hidden())?;
+    let product = SelectorQuery::role_label("cell", "Object storage");
+    client.resolve_selector(product.clone().include_hidden())?;
+    client.tap_selector(product)?;
+    client.wait_for_text("Opened", 2_000)?;
+    client.resolve_selector(SelectorQuery::role_label("cell", "Opened"))?;
+
+    let _ = stop.send(());
+    server.join().expect("site fixture thread panicked");
+    Ok(())
 }
 
 #[test]
