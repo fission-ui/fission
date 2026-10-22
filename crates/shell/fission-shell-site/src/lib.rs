@@ -24,10 +24,12 @@ pub use build::{
     SiteContentRouteConfig, SiteRouteReport,
 };
 pub use document::SiteNavLink;
-pub use document_config::{DocumentMetadata, DocumentShellConfig};
+pub use document_config::{DocumentMetadata, DocumentShellConfig, WebFontDelivery};
 pub use html::{
-    render_ir_to_html, render_ir_to_html_with_styles, theme_variables_css, CodeHighlightingOptions,
-    CssVariableMap, HtmlRenderOptions, RenderedHtml, StyleRegistry,
+    generated_stylesheet_href, packaged_font_asset_href, packaged_font_asset_path,
+    packaged_font_content_type, packaged_font_css, render_ir_to_html,
+    render_ir_to_html_with_styles, theme_variables_css, CodeHighlightingOptions, CssVariableMap,
+    HtmlRenderOptions, RenderedHtml, StyleRegistry,
 };
 pub use site::{
     build_from_cli, ContentTransform, CustomRoute, FissionSite, SiteLocaleContext, SitePageElement,

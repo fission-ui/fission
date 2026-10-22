@@ -45,7 +45,7 @@ pub use config::{
 };
 pub use fission_shell_site::{
     CodeHighlightingOptions, DocumentMetadata, DocumentShellConfig, SitePageElement,
-    SitePageElementFilter, SitePageElementPlacement,
+    SitePageElementFilter, SitePageElementPlacement, WebFontDelivery,
 };
 pub use form::{ServerFormField, ServerFormFieldKind, ServerFormSchema};
 pub use jobs::{ServerJobCtx, ServerJobError, ServerJobRegistry};

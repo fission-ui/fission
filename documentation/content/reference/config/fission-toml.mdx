@@ -319,6 +319,19 @@ android_animation_duration_ms = 900
 
 iOS launch screens are static by platform design. If an app needs a longer animated handoff after launch, implement that as the first route or app state in the Fission widget tree, then transition into the main screen when the required data is ready.
 
+## `[web]`
+
+`[web]` contains browser-document settings shared by SSR and Static site output. It does not configure the canvas-rendered Web SPA shell, which registers packaged fonts directly with its renderer.
+
+| Field | Type | Required | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `font_delivery` | string | No | `none` | Delivery policy for fonts registered by the active design system or `.with_fonts(...)`. `none` emits no font CSS or generated font files. `external` emits `@font-face` rules referencing content-addressed, long-cacheable font files. `inline` embeds the font bytes in CSS and should be selected only when deliberately producing self-contained output. |
+
+```toml
+[web]
+font_delivery = "external"
+```
+
 ## `[site]`
 
 `[site]` configures the static-site target. It is used by `fission site ...`, `fission package --target static-site --format static`, and static-site publishing providers.

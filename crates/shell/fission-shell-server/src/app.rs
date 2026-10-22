@@ -391,6 +391,12 @@ impl FissionServerApp {
         self
     }
 
+    /// Selects how SSR HTML output delivers packaged fonts.
+    pub fn with_font_delivery(mut self, delivery: fission_shell_site::WebFontDelivery) -> Self {
+        self.document = self.document.with_font_delivery(delivery);
+        self
+    }
+
     /// Replaces the complete base environment cloned for each request.
     ///
     /// This is the SSR equivalent of `WebApp::with_env` and is the normal way to

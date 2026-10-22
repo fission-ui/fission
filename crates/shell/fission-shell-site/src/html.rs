@@ -19,6 +19,8 @@ use fission_ir::{
 use fission_theme::{DesignMode, PackagedFont, PackagedFontStyle, Theme};
 use std::collections::{BTreeMap, HashSet};
 
+use crate::WebFontDelivery;
+
 mod path_css;
 
 #[derive(Clone, Debug)]
@@ -76,6 +78,12 @@ pub struct HtmlRenderOptions {
     pub web_registrations: BTreeMap<WidgetId, WebRegistration>,
     /// Font faces embedded by the selected design system.
     pub font_faces: &'static [PackagedFont],
+    /// Whether generated node CSS is linked as a content-addressed stylesheet.
+    ///
+    /// SSR enables this so route-specific rules never accumulate in the shared
+    /// stylesheet. Static-site builds reuse one registry and emit one complete
+    /// stylesheet after rendering every route.
+    pub separate_generated_stylesheet: bool,
 }
 
 impl Default for HtmlRenderOptions {
@@ -107,6 +115,7 @@ impl Default for HtmlRenderOptions {
             video_registrations: BTreeMap::new(),
             web_registrations: BTreeMap::new(),
             font_faces: &[],
+            separate_generated_stylesheet: false,
         }
     }
 }
@@ -145,6 +154,8 @@ pub struct RenderedHtml {
     pub body_html: String,
     /// Deduplicated CSS generated while rendering.
     pub css: String,
+    /// Content-addressed stylesheet URL when generated CSS is emitted separately.
+    pub generated_stylesheet_href: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, serde::Deserialize)]
@@ -219,15 +230,6 @@ pub fn render_ir_to_html_with_styles(
     let root = ir
         .root
         .ok_or_else(|| anyhow!("site render failed: Core IR has no root node"))?;
-    for font in options.font_faces {
-        styles.raw_rule(
-            format!(
-                "fission-font-{}-{}-{:?}",
-                font.family, font.weight, font.style
-            ),
-            packaged_font_css(font),
-        );
-    }
     let mut renderer = HtmlRenderer {
         ir,
         options,
@@ -245,15 +247,50 @@ pub fn render_ir_to_html_with_styles(
         "<div class=\"{}\"{direction_attr}>{body}</div>",
         escape_attr(&options.root_class)
     );
-    let html = render_document(&body_html, options, has_code_blocks);
+    let css = renderer.styles.to_css();
+    let generated_stylesheet_href = (options.separate_generated_stylesheet && !css.is_empty())
+        .then(|| generated_stylesheet_href(&css));
+    let html = render_document(
+        &body_html,
+        options,
+        has_code_blocks,
+        generated_stylesheet_href.as_deref(),
+    );
     Ok(RenderedHtml {
         html,
         body_html,
-        css: renderer.styles.to_css(),
+        css,
+        generated_stylesheet_href,
     })
 }
 
-fn packaged_font_css(font: &PackagedFont) -> String {
+/// Returns the relative, content-addressed URL used by generated font CSS.
+pub fn packaged_font_asset_href(font: &PackagedFont) -> String {
+    format!(
+        "__fission/fonts/{:016x}.{}",
+        stable_hash(font.data),
+        font_extension(font.format)
+    )
+}
+
+/// Returns an absolute request path for a packaged font asset.
+pub fn packaged_font_asset_path(font: &PackagedFont) -> String {
+    format!("/{}", packaged_font_asset_href(font))
+}
+
+/// Returns the MIME type served for a packaged font asset.
+pub fn packaged_font_content_type(font: &PackagedFont) -> &'static str {
+    match font_extension(font.format) {
+        "woff2" => "font/woff2",
+        "woff" => "font/woff",
+        "otf" => "font/otf",
+        "ttf" => "font/ttf",
+        _ => "application/octet-stream",
+    }
+}
+
+/// Generates one `@font-face` rule when packaged-font delivery is enabled.
+pub fn packaged_font_css(font: &PackagedFont, delivery: WebFontDelivery) -> Option<String> {
     let style = match font.style {
         PackagedFontStyle::Normal => "normal",
         PackagedFontStyle::Italic => "italic",
@@ -273,27 +310,45 @@ fn packaged_font_css(font: &PackagedFont) -> String {
             .join(",");
         format!("font-variation-settings:{settings};")
     };
-    format!(
-        "@font-face{{font-family:'{}';font-style:{style};font-weight:{};font-display:swap;{axes}src:url(data:font/{};base64,{}) format('{}')}}",
+    let source = match delivery {
+        WebFontDelivery::None => return None,
+        WebFontDelivery::External => packaged_font_asset_href(font),
+        WebFontDelivery::Inline => format!(
+            "data:{};base64,{}",
+            packaged_font_content_type(font),
+            BASE64_STANDARD.encode(font.data)
+        ),
+    };
+    Some(format!(
+        "@font-face{{font-family:'{}';font-style:{style};font-weight:{};font-display:swap;{axes}src:url('{}') format('{}')}}",
         escape_attr(font.family),
         font.weight,
-        font_mime(font.format),
-        BASE64_STANDARD.encode(font.data),
+        escape_attr(&source),
         escape_attr(font.format),
-    )
+    ))
 }
 
-fn font_mime(format: &str) -> &'static str {
+fn font_extension(format: &str) -> &'static str {
     match format.to_ascii_lowercase().as_str() {
         "woff2" => "woff2",
         "woff" => "woff",
         "opentype" | "otf" => "otf",
         "truetype" | "ttf" => "ttf",
-        _ => "octet-stream",
+        _ => "bin",
     }
 }
 
-fn render_document(body_html: &str, options: &HtmlRenderOptions, has_code_blocks: bool) -> String {
+/// Returns the content-addressed URL for generated route CSS.
+pub fn generated_stylesheet_href(css: &str) -> String {
+    format!("/__fission/styles/{:016x}.css", stable_hash(css.as_bytes()))
+}
+
+fn render_document(
+    body_html: &str,
+    options: &HtmlRenderOptions,
+    has_code_blocks: bool,
+    generated_stylesheet_href: Option<&str>,
+) -> String {
     let head_start_html = raw_page_elements(&options.head_start_html, 4);
     let head_end_html = raw_page_elements(&options.head_end_html, 4);
     let body_start_html = raw_page_elements(&options.body_start_html, 4);
@@ -377,8 +432,16 @@ fn render_document(body_html: &str, options: &HtmlRenderOptions, has_code_blocks
     let code_highlighting_assets = code_highlighting_assets(options, has_code_blocks);
     let search_script = search_script(options);
     let enhancement_script = site_enhancement_script(options);
+    let generated_stylesheet = generated_stylesheet_href
+        .map(|href| {
+            format!(
+                "\n    <link rel=\"stylesheet\" href=\"{}\">",
+                escape_attr(href)
+            )
+        })
+        .unwrap_or_default();
     format!(
-        "<!doctype html>\n<html lang=\"{}\"{theme_attr}>\n  <head>{head_start_html}\n    <meta charset=\"utf-8\">\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">{metadata}\n    <title>{}</title>\n    <link rel=\"stylesheet\" href=\"{}\">{code_highlighting_assets}{search_script}{enhancement_script}{head_end_html}\n  </head>\n  <body>{body_start_html}\n    {body_html}{body_end_html}\n  </body>\n</html>\n",
+        "<!doctype html>\n<html lang=\"{}\"{theme_attr}>\n  <head>{head_start_html}\n    <meta charset=\"utf-8\">\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">{metadata}\n    <title>{}</title>\n    <link rel=\"stylesheet\" href=\"{}\">{generated_stylesheet}{code_highlighting_assets}{search_script}{enhancement_script}{head_end_html}\n  </head>\n  <body>{body_start_html}\n    {body_html}{body_end_html}\n  </body>\n</html>\n",
         escape_attr(&options.lang),
         escape_text(&options.document_title),
         escape_attr(&options.stylesheet_href)
@@ -5138,7 +5201,7 @@ mod tests {
     }
 
     #[test]
-    fn embeds_packaged_font_faces_in_site_css() {
+    fn packaged_fonts_are_omitted_by_default() {
         let root = WidgetId::explicit("root");
         let mut ir = CoreIR::new();
         ir.add_node(
@@ -5147,21 +5210,30 @@ mod tests {
             Vec::new(),
         );
         ir.set_root(root);
-        let rendered = render_ir_to_html(
-            &ir,
-            &HtmlRenderOptions {
-                font_faces: &TEST_FONT,
-                ..Default::default()
-            },
-        )
-        .unwrap();
+        let rendered = render_ir_to_html(&ir, &HtmlRenderOptions::default()).unwrap();
+        assert!(!rendered.css.contains("@font-face"));
 
-        assert!(rendered.css.contains("@font-face"));
-        assert!(rendered.css.contains("font-family:'Test Sans'"));
-        assert!(rendered.css.contains("font-weight:600"));
-        assert!(rendered.css.contains("font-style:italic"));
-        assert!(rendered.css.contains("font-variation-settings:'wght' 612"));
-        assert!(rendered.css.contains("base64,Zm9udC1ieXRlcw=="));
+        assert_eq!(
+            packaged_font_css(&TEST_FONT[0], WebFontDelivery::default()),
+            None
+        );
+    }
+
+    #[test]
+    fn packaged_fonts_can_use_external_cacheable_assets() {
+        let css = packaged_font_css(&TEST_FONT[0], WebFontDelivery::External).unwrap();
+        assert!(css.contains("font-family:'Test Sans'"));
+        assert!(css.contains("font-weight:600"));
+        assert!(css.contains("font-style:italic"));
+        assert!(css.contains("font-variation-settings:'wght' 612"));
+        assert!(css.contains("src:url('__fission/fonts/"));
+        assert!(!css.contains("data:"));
+    }
+
+    #[test]
+    fn packaged_fonts_embed_only_when_explicitly_requested() {
+        let css = packaged_font_css(&TEST_FONT[0], WebFontDelivery::Inline).unwrap();
+        assert!(css.contains("src:url('data:font/ttf;base64,Zm9udC1ieXRlcw==')"));
     }
 
     #[test]

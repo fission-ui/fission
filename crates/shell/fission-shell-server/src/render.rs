@@ -19,8 +19,10 @@ use fission_core::{
 use fission_ir::{semantics::ActionTrigger, CoreIR, Op};
 use fission_layout::LayoutSize;
 use fission_shell_site::{
-    render_ir_to_html_with_styles, site_base_css, site_enhancement_js, theme_variables_css,
-    CssVariableMap, HtmlRenderOptions, SitePageElement, SitePageElementPlacement, StyleRegistry,
+    generated_stylesheet_href, packaged_font_asset_path, packaged_font_content_type,
+    packaged_font_css, render_ir_to_html_with_styles, site_base_css, site_enhancement_js,
+    theme_variables_css, CssVariableMap, HtmlRenderOptions, SitePageElement,
+    SitePageElementPlacement, StyleRegistry,
 };
 use fission_theme::DesignMode;
 use serde::{Deserialize, Serialize};
@@ -259,6 +261,9 @@ impl ServerRenderer {
     pub fn with_config(mut app: FissionServerApp, config: ServerRuntimeConfig) -> Result<Self> {
         if let Some(mode) = config.default_route_mode {
             app.apply_default_route_mode(mode);
+        }
+        if let Some(delivery) = config.font_delivery {
+            app.document = app.document.with_font_delivery(delivery);
         }
         let mut renderer = Self::new(app);
         if let Some(limit) = config.render_pass_limit {
@@ -785,6 +790,7 @@ impl ServerRenderer {
                 .map(|registration| (registration.node_id, registration))
                 .collect(),
             font_faces: self.app.document.font_faces(),
+            separate_generated_stylesheet: true,
             head_start_html,
             head_end_html,
             body_start_html,
@@ -819,6 +825,12 @@ impl ServerRenderer {
                 SERVER_BROWSER_RUNTIME_JS,
             ))),
             "/favicon.ico" => Ok(Some(self.favicon_response()?)),
+            path if path.starts_with("/__fission/styles/") => {
+                Ok(Some(self.generated_stylesheet_response(path)?))
+            }
+            path if path.starts_with("/__fission/fonts/") => {
+                Ok(Some(self.packaged_font_response(path)))
+            }
             path if path.starts_with("/assets/") => Ok(Some(self.project_asset_response(path)?)),
             _ => Ok(None),
         }
@@ -854,27 +866,82 @@ impl ServerRenderer {
         } else {
             css.push_str(&theme_variables_css(":root", self.app.document.theme()));
         }
-        let styles = self
-            .style_cache
-            .read()
-            .map_err(|_| anyhow!("server style cache lock poisoned"))?;
-        for style in styles.values() {
-            css.push('\n');
-            css.push_str(style);
+        for font in self.app.document.font_faces() {
+            if let Some(font_css) = packaged_font_css(font, self.app.document.font_delivery()) {
+                css.push('\n');
+                css.push_str(&font_css);
+            }
         }
         for user_css in self.app.document.user_css() {
             css.push('\n');
             css.push_str(user_css);
         }
-        Ok(ServerResponse::text(200, "text/css; charset=utf-8", css))
+        let mut response = ServerResponse::text(200, "text/css; charset=utf-8", css);
+        response.headers.push((
+            "cache-control".to_string(),
+            "public, max-age=300".to_string(),
+        ));
+        Ok(response)
     }
 
     fn remember_route_css(&self, route_path: &str, css: &str) -> Result<()> {
+        let _ = route_path;
+        let href = generated_stylesheet_href(css);
         self.style_cache
             .write()
             .map_err(|_| anyhow!("server style cache lock poisoned"))?
-            .insert(route_path.to_string(), css.to_string());
+            .insert(href, css.to_string());
         Ok(())
+    }
+
+    fn generated_stylesheet_response(&self, request_path: &str) -> Result<ServerResponse> {
+        let styles = self
+            .style_cache
+            .read()
+            .map_err(|_| anyhow!("server style cache lock poisoned"))?;
+        let Some(css) = styles.get(request_path) else {
+            return Ok(ServerResponse::text(
+                404,
+                "text/plain; charset=utf-8",
+                "stylesheet not found",
+            ));
+        };
+        let mut response = ServerResponse::text(200, "text/css; charset=utf-8", css.clone());
+        response.headers.push((
+            "cache-control".to_string(),
+            "public, max-age=31536000, immutable".to_string(),
+        ));
+        Ok(response)
+    }
+
+    fn packaged_font_response(&self, request_path: &str) -> ServerResponse {
+        if self.app.document.font_delivery() != fission_shell_site::WebFontDelivery::External {
+            return ServerResponse::text(404, "text/plain; charset=utf-8", "font not found");
+        }
+        let Some(font) = self
+            .app
+            .document
+            .font_faces()
+            .iter()
+            .find(|font| packaged_font_asset_path(font) == request_path)
+        else {
+            return ServerResponse::text(404, "text/plain; charset=utf-8", "font not found");
+        };
+        ServerResponse {
+            status: 200,
+            headers: vec![
+                (
+                    "content-type".to_string(),
+                    packaged_font_content_type(font).to_string(),
+                ),
+                (
+                    "cache-control".to_string(),
+                    "public, max-age=31536000, immutable".to_string(),
+                ),
+            ],
+            body: font.data.to_vec(),
+            cache_status: None,
+        }
     }
 
     fn favicon_response(&self) -> Result<ServerResponse> {
@@ -3824,6 +3891,48 @@ same_site = "none"
     }
 
     #[test]
+    fn shared_site_css_does_not_accumulate_rendered_route_styles() {
+        let renderer = ServerRenderer::new(
+            FissionServerApp::new("Test")
+                .server_route_widget::<TestState, _>("/", "Home", None, TestPage("Home"))
+                .server_route_widget::<TestState, _>("/catalog", "Catalog", None, CodePage),
+        );
+
+        let before = renderer
+            .handle(ServerRequest::get("/site.css"))
+            .unwrap()
+            .body;
+        renderer.handle(ServerRequest::get("/")).unwrap();
+        renderer.handle(ServerRequest::get("/catalog")).unwrap();
+        let after = renderer
+            .handle(ServerRequest::get("/site.css"))
+            .unwrap()
+            .body;
+
+        assert_eq!(before, after);
+    }
+
+    #[test]
+    fn packaged_fonts_are_not_exposed_by_default() {
+        let renderer = ServerRenderer::new(
+            FissionServerApp::new("Test")
+                .with_fonts(&TEST_FONT)
+                .server_route_widget::<TestState, _>("/", "Home", None, TestPage("Home")),
+        );
+
+        let css = renderer
+            .handle(ServerRequest::get("/site.css"))
+            .unwrap()
+            .body_string();
+        assert!(!css.contains("@font-face"));
+
+        let font = renderer
+            .handle(ServerRequest::get(packaged_font_asset_path(&TEST_FONT[0])))
+            .unwrap();
+        assert_eq!(font.status, 404);
+    }
+
+    #[test]
     fn server_renderer_applies_document_elements_with_static_site_filters() {
         let renderer = ServerRenderer::new(
             FissionServerApp::new("Test")
@@ -3879,6 +3988,7 @@ same_site = "none"
         let renderer = ServerRenderer::new(
             FissionServerApp::new("Test")
                 .with_fonts(&TEST_FONT)
+                .with_font_delivery(fission_shell_site::WebFontDelivery::External)
                 .favicon("/assets/icon.svg")
                 .code_highlighting(fission_shell_site::CodeHighlightingOptions {
                     enabled: true,
@@ -3897,8 +4007,41 @@ same_site = "none"
         assert!(html.contains("rel=\"icon\" href=\"/assets/icon.svg\""));
         assert!(html.contains("highlight.js/11.11.1/highlight.min.js"));
         let rendered = renderer.render_route("/").unwrap();
-        assert!(rendered.css.contains("font-family:'Parity Sans'"));
-        assert!(rendered.css.contains("data:font/woff2;base64,"));
+        assert!(!rendered.css.contains("@font-face"));
+        assert!(!rendered.css.contains("data:font/"));
+
+        let shared_css = renderer.handle(ServerRequest::get("/site.css")).unwrap();
+        assert_eq!(
+            response_header(&shared_css, "cache-control"),
+            Some("public, max-age=300")
+        );
+        let shared_css = shared_css.body_string();
+        assert!(shared_css.contains("font-family:'Parity Sans'"));
+        assert!(shared_css.contains("src:url('__fission/fonts/"));
+        assert!(!shared_css.contains("data:font/"));
+
+        let font_path = packaged_font_asset_path(&TEST_FONT[0]);
+        let font = renderer.handle(ServerRequest::get(font_path)).unwrap();
+        assert_eq!(font.status, 200);
+        assert_eq!(font.body, TEST_FONT[0].data);
+        assert_eq!(
+            response_header(&font, "cache-control"),
+            Some("public, max-age=31536000, immutable")
+        );
+
+        let route_css_path = rendered
+            .html
+            .split("href=\"")
+            .filter_map(|rest| rest.split_once('\"').map(|(href, _)| href))
+            .find(|href| href.starts_with("/__fission/styles/"))
+            .expect("content-addressed route stylesheet");
+        let route_css = renderer.handle(ServerRequest::get(route_css_path)).unwrap();
+        assert_eq!(route_css.status, 200);
+        assert_eq!(route_css.body, rendered.css.as_bytes());
+        assert_eq!(
+            response_header(&route_css, "cache-control"),
+            Some("public, max-age=31536000, immutable")
+        );
     }
 
     #[test]
