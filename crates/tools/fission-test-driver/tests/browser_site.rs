@@ -57,11 +57,14 @@ fn fixture() -> anyhow::Result<(String, mpsc::Sender<()>, std::thread::JoinHandl
             let native_table = request.starts_with("GET /native-table");
             let native_focus = request.starts_with("GET /native-focus");
             let named_value = request.starts_with("GET /named-value");
+            let duplicate_navigation = request.starts_with("GET /duplicate-navigation");
             if request.starts_with("GET /protected") {
                 let _ = redirect(&mut stream, "/sign-in");
                 continue;
             }
-            let body = if named_value {
+            let body = if duplicate_navigation {
+                r##"<!doctype html><title>Duplicate navigation</title><header hidden><a href="#hidden-services">My Services</a></header><main><a id="dashboard-services" href="#services">My Services</a><p id="navigation-result">Dashboard</p></main><script>document.querySelector('#dashboard-services').addEventListener('click',()=>document.querySelector('#navigation-result').textContent='Services opened');</script>"##
+            } else if named_value {
                 r#"<!doctype html><title>Named properties</title><main><form id="pricing"><input name="id" value="shadowed-id"><input name="name" value="shadowed-name"><input name="action" value="shadowed-action"><label>Price value<input name="value" value="12.50"></label><button type="submit">Save price</button></form></main>"#
             } else if native_focus {
                 r#"<!doctype html><title>Focus</title><style>.spacer{height:1400px}</style><main><input id="group-name" value="Initial focus"><div class="spacer"></div><button id="save-group">Save group</button><p id="focus-result">Not saved</p></main><script>document.querySelector('#group-name').focus();document.querySelector('#save-group').addEventListener('click',()=>document.querySelector('#focus-result').textContent='Saved');</script>"#
@@ -84,6 +87,30 @@ fn fixture() -> anyhow::Result<(String, mpsc::Sender<()>, std::thread::JoinHandl
         }
     });
     Ok((url, stop_tx, handle))
+}
+
+#[test]
+fn website_mode_scroll_preserves_a_unique_visible_match() -> anyhow::Result<()> {
+    if detect_chrome().is_none() {
+        eprintln!("skipping browser site test because Chrome/Chromium is unavailable");
+        return Ok(());
+    }
+    let (url, stop, server) = fixture()?;
+    let client = LiveTestClient::launch_browser(
+        BrowserTestOptions::new(format!("{url}duplicate-navigation")).website(),
+    )?;
+    let services = SelectorQuery::role_label("link", "My Services");
+
+    assert_eq!(
+        client.resolve_selector(services.clone())?.widget_id,
+        "dashboard-services"
+    );
+    client.tap_selector(services)?;
+    client.wait_for_text("Services opened", 2_000)?;
+
+    let _ = stop.send(());
+    server.join().expect("site fixture thread panicked");
+    Ok(())
 }
 
 #[test]
