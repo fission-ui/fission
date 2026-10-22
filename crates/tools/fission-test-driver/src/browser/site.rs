@@ -37,7 +37,11 @@ const SITE_COMMAND: &str = r#"(command => {
     if(el.tagName==='INPUT'&&['submit','button','reset'].includes(el.type))return (el.value||({submit:'Submit',reset:'Reset'}[el.type])||'').trim();
     return (el.getAttribute('alt')||el.getAttribute('title')||el.textContent||el.getAttribute('placeholder')||'').trim();
   };
-  const value = el => ('value' in el ? String(el.value??'') : null);
+  const value = el => {
+    if(!el.matches('input,textarea,select,option,button,output,meter,progress'))return null;
+    const raw=el.value;
+    return typeof raw==='string'||typeof raw==='number'?`${raw}`:null;
+  };
   const domPath = el => {
     const parts=[];
     while(el&&el.nodeType===1&&el!==document.documentElement){

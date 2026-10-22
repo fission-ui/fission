@@ -56,11 +56,14 @@ fn fixture() -> anyhow::Result<(String, mpsc::Sender<()>, std::thread::JoinHandl
             let frame_barrier = request.starts_with("GET /frame-barrier");
             let native_table = request.starts_with("GET /native-table");
             let native_focus = request.starts_with("GET /native-focus");
+            let named_value = request.starts_with("GET /named-value");
             if request.starts_with("GET /protected") {
                 let _ = redirect(&mut stream, "/sign-in");
                 continue;
             }
-            let body = if native_focus {
+            let body = if named_value {
+                r#"<!doctype html><title>Named value</title><main><form id="pricing"><label>Price value<input name="value" value="12.50"></label><button type="submit">Save price</button></form></main>"#
+            } else if native_focus {
                 r#"<!doctype html><title>Focus</title><style>.spacer{height:1400px}</style><main><input id="group-name" value="Initial focus"><div class="spacer"></div><button id="save-group">Save group</button><p id="focus-result">Not saved</p></main><script>document.querySelector('#group-name').focus();document.querySelector('#save-group').addEventListener('click',()=>document.querySelector('#focus-result').textContent='Saved');</script>"#
             } else if native_table {
                 r#"<!doctype html><title>Services</title><style>.spacer{height:1400px}</style><main><h1>My Services</h1><div class="spacer"></div><table data-testid="services-table"><thead><tr><th scope="col">Service ID</th><th scope="col">Product</th><th scope="col">Status</th></tr></thead><tbody><tr data-service="managed-hosting"><th scope="row">SRV-001</th><td>Managed hosting</td><td>Active</td></tr><tr data-testid="object-storage-row"><th scope="row">SRV-002</th><td>Object storage</td><td id="object-storage-status">Pending</td></tr></tbody></table></main><script>document.querySelector('[data-testid="object-storage-row"]>td').addEventListener('click',()=>document.querySelector('#object-storage-status').textContent='Opened');</script>"#
@@ -81,6 +84,33 @@ fn fixture() -> anyhow::Result<(String, mpsc::Sender<()>, std::thread::JoinHandl
         }
     });
     Ok((url, stop_tx, handle))
+}
+
+#[test]
+fn website_mode_does_not_project_named_form_controls_as_scalar_values() -> anyhow::Result<()> {
+    if detect_chrome().is_none() {
+        eprintln!("skipping browser site test because Chrome/Chromium is unavailable");
+        return Ok(());
+    }
+    let (url, stop, server) = fixture()?;
+    let client = LiveTestClient::launch_browser(
+        BrowserTestOptions::new(format!("{url}named-value")).website(),
+    )?;
+
+    let nodes = client.get_tree()?;
+    let form = nodes
+        .iter()
+        .find(|node| node.identifier.as_deref() == Some("pricing"))
+        .expect("pricing form should be projected");
+    assert_eq!(form.value, None);
+    assert!(!form.value_present);
+    let input = client.resolve_selector(SelectorQuery::role_label("textbox", "Price value"))?;
+    assert_eq!(input.value.as_deref(), Some("12.50"));
+    assert!(input.value_present);
+
+    let _ = stop.send(());
+    server.join().expect("site fixture thread panicked");
+    Ok(())
 }
 
 #[test]
