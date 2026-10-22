@@ -5,7 +5,7 @@ use serde_json::json;
 use std::time::{Duration, Instant};
 
 const SITE_COMMAND: &str = r#"(command => {
-  const semanticSelector = '[data-fission-node],[data-fission-semantics],[data-testid],[role],[aria-label],[aria-labelledby],button,a[href],input,textarea,select,option,img,h1,h2,h3,h4,h5,h6,form,main,nav,header,footer,section,article';
+  const semanticSelector = '[data-fission-node],[data-fission-semantics],[data-testid],[role],[aria-label],[aria-labelledby],button,a[href],input,textarea,select,option,details,summary,img,h1,h2,h3,h4,h5,h6,form,main,nav,header,footer,section,article';
   const all = () => Array.from(document.querySelectorAll(semanticSelector));
   const rect = el => { const r=el.getBoundingClientRect(); return {x:r.x,y:r.y,width:r.width,height:r.height}; };
   const clippedRect = el => {
@@ -14,13 +14,18 @@ const SITE_COMMAND: &str = r#"(command => {
     return right>left&&bottom>top ? {x:left,y:top,width:right-left,height:bottom-top} : null;
   };
   const visible = el => {
+    const closedDetails=el.closest('details:not([open])');
+    if(closedDetails){
+      const summary=closedDetails.querySelector(':scope > summary');
+      if(!summary||(el!==summary&&!summary.contains(el)))return false;
+    }
     const style=getComputedStyle(el), r=el.getBoundingClientRect();
     return !el.hidden && !el.closest('[hidden],[inert],[aria-hidden="true"]') &&
       style.display!=='none' && style.visibility!=='hidden' && Number(style.opacity)!==0 &&
       r.width>0 && r.height>0 && !!clippedRect(el);
   };
   const role = el => el.getAttribute('role') || ({
-    BUTTON:'button',A:'link',TEXTAREA:'textbox',SELECT:'combobox',OPTION:'option',IMG:'img',
+    BUTTON:'button',A:'link',TEXTAREA:'textbox',SELECT:'combobox',OPTION:'option',DETAILS:'group',SUMMARY:'button',IMG:'img',
     H1:'heading',H2:'heading',H3:'heading',H4:'heading',H5:'heading',H6:'heading',
     FORM:'form',MAIN:'main',NAV:'navigation',HEADER:'banner',FOOTER:'contentinfo',SECTION:'region',ARTICLE:'article'
   }[el.tagName] || (el.tagName==='INPUT' ? ({checkbox:'checkbox',radio:'radio',range:'slider',submit:'button',button:'button'}[el.type]||'textbox') : 'generic'));
@@ -49,15 +54,16 @@ const SITE_COMMAND: &str = r#"(command => {
     const disabled=!!el.disabled||el.getAttribute('aria-disabled')==='true';
     const readOnly=!!el.readOnly||el.getAttribute('aria-readonly')==='true';
     const editable=el.matches('input:not([type]),input[type="text"],input[type="email"],input[type="password"],input[type="search"],input[type="url"],input[type="tel"],textarea,[contenteditable="true"]');
-    const focusable=el.matches('button,a[href],input,textarea,select,[tabindex]:not([tabindex="-1"])');
-    const actions=[]; if(focusable)actions.push('focus'); if(el.matches('button,a[href],input,select,option,[role="button"]'))actions.push('activate'); if(editable)actions.push('set_value');
+    const focusable=el.matches('button,a[href],input,textarea,select,summary,[tabindex]:not([tabindex="-1"])');
+    const actions=[]; if(focusable)actions.push('focus'); if(el.matches('button,a[href],input,select,option,summary,[role="button"]'))actions.push('activate'); if(editable)actions.push('set_value');
+    const disclosure=el.tagName==='DETAILS'?el:(el.tagName==='SUMMARY'&&el.parentElement?.tagName==='DETAILS'?el.parentElement:null);
     return {
       identifier:el.getAttribute('data-fission-semantics')||el.getAttribute('data-testid')||el.id||null, widget_id:el.getAttribute('data-fission-node')||el.id||'', stable_node_id:nodeId(el),
       parent:parent?nodeId(parent):null, children, role:role(el), label:label(el)||null, value:value(el), value_present:value(el)!==null,
       focusable, sequential_focusable:focusable&&el.tabIndex>=0, text_editable:editable, disabled, read_only:readOnly,
       checked:'checked' in el?Boolean(el.checked):(el.hasAttribute('aria-checked')?el.getAttribute('aria-checked')==='true':null),
       selected:'selected' in el?Boolean(el.selected):(el.hasAttribute('aria-selected')?el.getAttribute('aria-selected')==='true':null),
-      expanded:el.hasAttribute('aria-expanded')?el.getAttribute('aria-expanded')==='true':null,
+      expanded:el.hasAttribute('aria-expanded')?el.getAttribute('aria-expanded')==='true':(disclosure?disclosure.open:null),
       has_popup:el.getAttribute('aria-haspopup'), orientation:el.getAttribute('aria-orientation'), modal:el.getAttribute('aria-modal')==='true',
       required:!!el.required||el.getAttribute('aria-required')==='true', invalid:el.getAttribute('aria-invalid')==='true',
       controls:(el.getAttribute('aria-controls')||'').split(/\s+/).filter(Boolean), labelled_by:(el.getAttribute('aria-labelledby')||'').split(/\s+/).filter(Boolean),

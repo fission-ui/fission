@@ -513,7 +513,7 @@ impl BrowserController {
                 }),
             )?;
         }
-        ensure_response_ok(self.send_bridge_command(TestCommand::Pump {})?)?;
+        ensure_response_ok(self.send_runtime_command(TestCommand::Pump {})?)?;
         Ok(TestResponse::Ok {})
     }
 

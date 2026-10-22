@@ -52,11 +52,14 @@ fn fixture() -> anyhow::Result<(String, mpsc::Sender<()>, std::thread::JoinHandl
             let welcome = request.starts_with("GET /welcome");
             let sign_in = request.starts_with("GET /sign-in");
             let admin_login = request.starts_with("GET /admin-login");
+            let disclosure = request.starts_with("GET /disclosure");
             if request.starts_with("GET /protected") {
                 let _ = redirect(&mut stream, "/sign-in");
                 continue;
             }
-            let body = if welcome {
+            let body = if disclosure {
+                r#"<!doctype html><title>Disclosure</title><main><h1>Account</h1><details id="credentials"><summary>Customer credentials</summary><div data-testid="credential-fields">Bucket and credential controls</div></details></main>"#
+            } else if welcome {
                 r#"<!doctype html><title>Welcome</title><main><h1 data-testid="welcome.title">Welcome</h1><a href="/">Register again</a></main>"#
             } else if sign_in {
                 r#"<!doctype html><title>Sign in</title><main><h1>Sign in instead</h1></main>"#
@@ -69,6 +72,59 @@ fn fixture() -> anyhow::Result<(String, mpsc::Sender<()>, std::thread::JoinHandl
         }
     });
     Ok((url, stop_tx, handle))
+}
+
+#[test]
+fn website_mode_drives_native_details_disclosure() -> anyhow::Result<()> {
+    if detect_chrome().is_none() {
+        eprintln!("skipping browser site test because Chrome/Chromium is unavailable");
+        return Ok(());
+    }
+    let (url, stop, server) = fixture()?;
+    let client = LiveTestClient::launch_browser(
+        BrowserTestOptions::new(format!("{url}disclosure")).website(),
+    )?;
+    let summary = SelectorQuery::role_label("button", "Customer credentials");
+    let content = SelectorQuery::test_id("credential-fields");
+
+    let collapsed = client.resolve_selector(summary.clone())?;
+    assert_eq!(collapsed.role, "button");
+    assert_eq!(collapsed.expanded, Some(false));
+    assert!(collapsed.is_sequentially_focusable());
+    assert!(collapsed.actions.iter().any(|action| action == "activate"));
+    assert_eq!(
+        client
+            .resolve_selector(content.clone().include_hidden())?
+            .visibility,
+        VisibilityState::Hidden
+    );
+
+    client.activate_selector(summary.clone())?;
+    client.wait_for_visible(content.clone(), 2_000)?;
+    assert_eq!(
+        client.resolve_selector(summary.clone())?.expanded,
+        Some(true)
+    );
+
+    client.activate_selector(summary.clone())?;
+    assert_eq!(client.resolve_selector(summary)?.expanded, Some(false));
+    assert_eq!(
+        client
+            .resolve_selector(content.include_hidden())?
+            .visibility,
+        VisibilityState::Hidden
+    );
+
+    let summary = SelectorQuery::role_label("button", "Customer credentials");
+    client.focus_selector(summary.clone())?;
+    client.press_key("Space", 0)?;
+    assert_eq!(client.resolve_selector(summary.clone())?.expanded, Some(true));
+    client.press_key("Space", 0)?;
+    assert_eq!(client.resolve_selector(summary)?.expanded, Some(false));
+
+    let _ = stop.send(());
+    server.join().expect("site fixture thread panicked");
+    Ok(())
 }
 
 #[test]
