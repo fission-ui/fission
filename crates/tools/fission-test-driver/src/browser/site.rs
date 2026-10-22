@@ -251,6 +251,10 @@ impl BrowserController {
         if !matches!(scroll, TestResponse::SelectorResolved { .. }) {
             return Ok(scroll);
         }
+        // Chromium can acknowledge the DOM scroll before the compositor's hit-test
+        // data reflects it. Wait for the scroll to cross a paint boundary, then
+        // resolve the target again before dispatching native pointer input.
+        self.paint_boundary()?;
         self.site_pointer(query, Some(button))
     }
 

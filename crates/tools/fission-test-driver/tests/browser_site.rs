@@ -53,11 +53,14 @@ fn fixture() -> anyhow::Result<(String, mpsc::Sender<()>, std::thread::JoinHandl
             let sign_in = request.starts_with("GET /sign-in");
             let admin_login = request.starts_with("GET /admin-login");
             let disclosure = request.starts_with("GET /disclosure");
+            let frame_barrier = request.starts_with("GET /frame-barrier");
             if request.starts_with("GET /protected") {
                 let _ = redirect(&mut stream, "/sign-in");
                 continue;
             }
-            let body = if disclosure {
+            let body = if frame_barrier {
+                r#"<!doctype html><title>Frame barrier</title><style>body{margin:0}.spacer{height:1600px}</style><main><div class="spacer"></div><button data-testid="save">Save changes</button></main><script>globalThis.pointerState={scrolled:false,painted:false,pressedAfterPaint:false};addEventListener('scroll',()=>{pointerState.scrolled=true;requestAnimationFrame(()=>requestAnimationFrame(()=>pointerState.painted=true));},{once:true});document.querySelector('[data-testid="save"]').addEventListener('mousedown',()=>pointerState.pressedAfterPaint=pointerState.painted);</script>"#
+            } else if disclosure {
                 r#"<!doctype html><title>Disclosure</title><main><h1>Account</h1><details id="credentials"><summary>Customer credentials</summary><div data-testid="credential-fields">Bucket and credential controls</div></details></main>"#
             } else if welcome {
                 r#"<!doctype html><title>Welcome</title><main><h1 data-testid="welcome.title">Welcome</h1><a href="/">Register again</a></main>"#
@@ -72,6 +75,28 @@ fn fixture() -> anyhow::Result<(String, mpsc::Sender<()>, std::thread::JoinHandl
         }
     });
     Ok((url, stop_tx, handle))
+}
+
+#[test]
+fn website_mode_waits_for_post_scroll_frame_before_native_pointer_input() -> anyhow::Result<()> {
+    if detect_chrome().is_none() {
+        eprintln!("skipping browser site test because Chrome/Chromium is unavailable");
+        return Ok(());
+    }
+    let (url, stop, server) = fixture()?;
+    let client = LiveTestClient::launch_browser(
+        BrowserTestOptions::new(format!("{url}frame-barrier")).website(),
+    )?;
+
+    client.tap_selector(SelectorQuery::test_id("save"))?;
+    let state = client.browser_evaluate_json("globalThis.pointerState")?;
+    assert_eq!(state["scrolled"], true);
+    assert_eq!(state["painted"], true);
+    assert_eq!(state["pressedAfterPaint"], true);
+
+    let _ = stop.send(());
+    server.join().expect("site fixture thread panicked");
+    Ok(())
 }
 
 #[test]
@@ -118,7 +143,10 @@ fn website_mode_drives_native_details_disclosure() -> anyhow::Result<()> {
     let summary = SelectorQuery::role_label("button", "Customer credentials");
     client.focus_selector(summary.clone())?;
     client.press_key("Space", 0)?;
-    assert_eq!(client.resolve_selector(summary.clone())?.expanded, Some(true));
+    assert_eq!(
+        client.resolve_selector(summary.clone())?.expanded,
+        Some(true)
+    );
     client.press_key("Space", 0)?;
     assert_eq!(client.resolve_selector(summary)?.expanded, Some(false));
 
