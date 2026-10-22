@@ -62,7 +62,7 @@ fn fixture() -> anyhow::Result<(String, mpsc::Sender<()>, std::thread::JoinHandl
                 continue;
             }
             let body = if named_value {
-                r#"<!doctype html><title>Named properties</title><main><form id="pricing"><input name="id" value="shadowed-id"><label>Price value<input name="value" value="12.50"></label><button type="submit">Save price</button></form></main>"#
+                r#"<!doctype html><title>Named properties</title><main><form id="pricing"><input name="id" value="shadowed-id"><input name="name" value="shadowed-name"><input name="action" value="shadowed-action"><label>Price value<input name="value" value="12.50"></label><button type="submit">Save price</button></form></main>"#
             } else if native_focus {
                 r#"<!doctype html><title>Focus</title><style>.spacer{height:1400px}</style><main><input id="group-name" value="Initial focus"><div class="spacer"></div><button id="save-group">Save group</button><p id="focus-result">Not saved</p></main><script>document.querySelector('#group-name').focus();document.querySelector('#save-group').addEventListener('click',()=>document.querySelector('#focus-result').textContent='Saved');</script>"#
             } else if native_table {
@@ -103,6 +103,14 @@ fn website_mode_safely_projects_forms_with_named_property_collisions() -> anyhow
             .as_str(),
         Some("object"),
         "the fixture must exercise HTMLFormElement named-property shadowing"
+    );
+    assert_eq!(
+        client
+            .browser_evaluate_json(
+                "[typeof document.querySelector('#pricing').name, typeof document.querySelector('#pricing').action]"
+            )?,
+        serde_json::json!(["object", "object"]),
+        "the fixture must mirror the additional named-property collisions"
     );
     let nodes = client.get_tree()?;
     let form = nodes
