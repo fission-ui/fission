@@ -1721,6 +1721,8 @@ impl HtmlRenderer<'_> {
                 "fission-site-node fission-site-align",
                 vec![
                     "display:flex".to_string(),
+                    "width:100%".to_string(),
+                    "height:100%".to_string(),
                     "align-items:center".to_string(),
                     "justify-content:center".to_string(),
                 ],
@@ -1734,6 +1736,8 @@ impl HtmlRenderer<'_> {
                 "fission-site-node fission-site-align",
                 vec![
                     "display:flex".to_string(),
+                    "width:100%".to_string(),
+                    "height:100%".to_string(),
                     format!("align-items:{}", box_alignment_css(*vertical)),
                     format!("justify-content:{}", box_alignment_css(*horizontal)),
                 ],
@@ -5856,6 +5860,9 @@ mod tests {
         assert!(rendered
             .html
             .contains("data-fission-action-payload=\"dead\""));
+        assert!(rendered.css.contains(
+            "display:flex;width:100%;height:100%;align-items:center;justify-content:center"
+        ));
     }
 
     #[test]
