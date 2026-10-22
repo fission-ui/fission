@@ -51,7 +51,7 @@ const SITE_COMMAND: &str = r#"(command => {
     }
     return `dom:${parts.reverse().join('>')}`;
   };
-  const nodeId = el => el.getAttribute('data-fission-node') || el.id || el.getAttribute('data-testid') || domPath(el);
+  const nodeId = el => el.getAttribute('data-fission-node') || el.getAttribute('id') || el.getAttribute('data-testid') || domPath(el);
   const node = el => {
     const r=rect(el), shown=visible(el), parent=el.parentElement?.closest(semanticSelector);
     const children=all().filter(child=>child!==el && child.parentElement?.closest(semanticSelector)===el).map(nodeId);
@@ -62,7 +62,7 @@ const SITE_COMMAND: &str = r#"(command => {
     const actions=[]; if(focusable)actions.push('focus'); if(el.matches('button,a[href],input,select,option,summary,[role="button"]'))actions.push('activate'); if(editable)actions.push('set_value');
     const disclosure=el.tagName==='DETAILS'?el:(el.tagName==='SUMMARY'&&el.parentElement?.tagName==='DETAILS'?el.parentElement:null);
     return {
-      identifier:el.getAttribute('data-fission-semantics')||el.getAttribute('data-testid')||el.id||null, widget_id:el.getAttribute('data-fission-node')||el.id||'', stable_node_id:nodeId(el),
+      identifier:el.getAttribute('data-fission-semantics')||el.getAttribute('data-testid')||el.getAttribute('id')||null, widget_id:el.getAttribute('data-fission-node')||el.getAttribute('id')||'', stable_node_id:nodeId(el),
       parent:parent?nodeId(parent):null, children, role:role(el), label:label(el)||null, value:value(el), value_present:value(el)!==null,
       focusable, sequential_focusable:focusable&&el.tabIndex>=0, text_editable:editable, disabled, read_only:readOnly,
       checked:'checked' in el?Boolean(el.checked):(el.hasAttribute('aria-checked')?el.getAttribute('aria-checked')==='true':null),

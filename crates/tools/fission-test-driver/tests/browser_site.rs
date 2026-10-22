@@ -62,7 +62,7 @@ fn fixture() -> anyhow::Result<(String, mpsc::Sender<()>, std::thread::JoinHandl
                 continue;
             }
             let body = if named_value {
-                r#"<!doctype html><title>Named value</title><main><form id="pricing"><label>Price value<input name="value" value="12.50"></label><button type="submit">Save price</button></form></main>"#
+                r#"<!doctype html><title>Named properties</title><main><form id="pricing"><input name="id" value="shadowed-id"><label>Price value<input name="value" value="12.50"></label><button type="submit">Save price</button></form></main>"#
             } else if native_focus {
                 r#"<!doctype html><title>Focus</title><style>.spacer{height:1400px}</style><main><input id="group-name" value="Initial focus"><div class="spacer"></div><button id="save-group">Save group</button><p id="focus-result">Not saved</p></main><script>document.querySelector('#group-name').focus();document.querySelector('#save-group').addEventListener('click',()=>document.querySelector('#focus-result').textContent='Saved');</script>"#
             } else if native_table {
@@ -87,7 +87,7 @@ fn fixture() -> anyhow::Result<(String, mpsc::Sender<()>, std::thread::JoinHandl
 }
 
 #[test]
-fn website_mode_does_not_project_named_form_controls_as_scalar_values() -> anyhow::Result<()> {
+fn website_mode_safely_projects_forms_with_named_property_collisions() -> anyhow::Result<()> {
     if detect_chrome().is_none() {
         eprintln!("skipping browser site test because Chrome/Chromium is unavailable");
         return Ok(());
@@ -97,11 +97,20 @@ fn website_mode_does_not_project_named_form_controls_as_scalar_values() -> anyho
         BrowserTestOptions::new(format!("{url}named-value")).website(),
     )?;
 
+    assert_eq!(
+        client
+            .browser_evaluate_json("typeof document.querySelector('#pricing').id")?
+            .as_str(),
+        Some("object"),
+        "the fixture must exercise HTMLFormElement named-property shadowing"
+    );
     let nodes = client.get_tree()?;
     let form = nodes
         .iter()
         .find(|node| node.identifier.as_deref() == Some("pricing"))
         .expect("pricing form should be projected");
+    assert_eq!(form.stable_node_id, "pricing");
+    assert_eq!(form.widget_id, "pricing");
     assert_eq!(form.value, None);
     assert!(!form.value_present);
     let input = client.resolve_selector(SelectorQuery::role_label("textbox", "Price value"))?;
