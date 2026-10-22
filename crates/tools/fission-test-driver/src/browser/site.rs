@@ -104,7 +104,7 @@ const SITE_COMMAND: &str = r#"(command => {
   switch(command.cmd){
     case 'ResolveSelector': return selectorResponse(command.query);
     case 'ScrollIntoView': {const query={...command.query,include_hidden:true};const el=resolved(query);if(!el)return selectorResponse(query);el.scrollIntoView({block:'center',inline:'nearest',behavior:'instant'});void el.getBoundingClientRect();return selectorResponse(command.query);}
-    case 'FocusSelector': {const el=resolved(command.query);if(!el)return selectorResponse(command.query);el.focus();return {status:'Ok'};}
+    case 'FocusSelector': {const el=resolved(command.query);if(!el)return selectorResponse(command.query);el.focus({preventScroll:true});return document.activeElement===el?{status:'Ok'}:{status:'Error',message:'focus_selector_failed: selected DOM element did not accept focus'};}
     case 'Toggle': {const el=resolved(command.query);if(!el)return selectorResponse(command.query);el.click();return {status:'Ok'};}
     case 'SelectOption': {const el=resolved(command.query);if(!el)return selectorResponse(command.query);if(el.tagName!=='OPTION')return {status:'Error',message:'SelectOption requires an option element'};el.parentElement.value=el.value;el.parentElement.dispatchEvent(new Event('input',{bubbles:true}));el.parentElement.dispatchEvent(new Event('change',{bubbles:true}));return {status:'Ok'};}
     case 'GetTree': return {status:'Tree',nodes:all().map(node)};
@@ -182,6 +182,7 @@ impl BrowserController {
             TestCommand::TapSelector { query } | TestCommand::ActivateSelector { query } => {
                 self.site_click(query, "left")
             }
+            TestCommand::FocusSelector { query } => self.site_focus(query),
             TestCommand::Toggle { query } => self.send_site_command(TestCommand::Toggle { query }),
             TestCommand::HoverSelector { query } => self.site_pointer(query, None),
             TestCommand::RightClickSelector { query } => self.site_click(query, "right"),
@@ -256,6 +257,17 @@ impl BrowserController {
         // resolve the target again before dispatching native pointer input.
         self.paint_boundary()?;
         self.site_pointer(query, Some(button))
+    }
+
+    fn site_focus(&mut self, query: SelectorQuery) -> Result<TestResponse> {
+        let scroll = self.send_site_command(TestCommand::ScrollIntoView {
+            query: query.clone().include_hidden(),
+        })?;
+        if !matches!(scroll, TestResponse::SelectorResolved { .. }) {
+            return Ok(scroll);
+        }
+        self.paint_boundary()?;
+        self.send_site_command(TestCommand::FocusSelector { query })
     }
 
     fn site_mouse_click(&mut self, x: f32, y: f32, button: &str) -> Result<()> {

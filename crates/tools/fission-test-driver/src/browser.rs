@@ -495,24 +495,37 @@ impl BrowserController {
 
     fn press_dom_key(&mut self, key: &str, modifiers: u8) -> Result<TestResponse> {
         let cdp_modifiers = cdp_modifiers(modifiers);
-        let (dom_key, code) = dom_key_and_code(key);
-        for event_type in ["keyDown", "keyUp"] {
-            let commands = if event_type == "keyDown" {
-                cdp_editing_commands(key, modifiers)
-            } else {
-                Vec::new()
-            };
-            self.client.send(
-                "Input.dispatchKeyEvent",
-                json!({
-                    "type": event_type,
-                    "key": dom_key,
-                    "code": code,
-                    "modifiers": cdp_modifiers,
-                    "commands": commands,
-                }),
-            )?;
-        }
+        let description = cdp_key_description(key, modifiers);
+        let down_type = if description.text.is_empty() {
+            "rawKeyDown"
+        } else {
+            "keyDown"
+        };
+        self.client.send(
+            "Input.dispatchKeyEvent",
+            json!({
+                "type": down_type,
+                "key": description.key,
+                "code": description.code,
+                "text": description.text,
+                "unmodifiedText": description.text,
+                "windowsVirtualKeyCode": description.key_code,
+                "location": description.location,
+                "modifiers": cdp_modifiers,
+                "commands": cdp_editing_commands(key, modifiers),
+            }),
+        )?;
+        self.client.send(
+            "Input.dispatchKeyEvent",
+            json!({
+                "type": "keyUp",
+                "key": description.key,
+                "code": description.code,
+                "windowsVirtualKeyCode": description.key_code,
+                "location": description.location,
+                "modifiers": cdp_modifiers,
+            }),
+        )?;
         ensure_response_ok(self.send_runtime_command(TestCommand::Pump {})?)?;
         Ok(TestResponse::Ok {})
     }
@@ -846,33 +859,78 @@ fn cdp_editing_commands(key: &str, modifiers: u8) -> Vec<&'static str> {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-fn dom_key_and_code(key: &str) -> (String, String) {
+#[derive(Debug, PartialEq, Eq)]
+struct CdpKeyDescription {
+    key: String,
+    code: String,
+    text: String,
+    key_code: u32,
+    location: u8,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn cdp_key_description(key: &str, modifiers: u8) -> CdpKeyDescription {
     let named = match key {
-        "Left" => Some(("ArrowLeft", "ArrowLeft")),
-        "Right" => Some(("ArrowRight", "ArrowRight")),
-        "Up" => Some(("ArrowUp", "ArrowUp")),
-        "Down" => Some(("ArrowDown", "ArrowDown")),
-        "Space" => Some((" ", "Space")),
-        "Esc" => Some(("Escape", "Escape")),
-        "Enter" | "Escape" | "Tab" | "Backspace" | "Delete" | "Home" | "End" | "PageUp"
-        | "PageDown" => Some((key, key)),
+        "Backspace" => Some(("Backspace", "Backspace", "", 8)),
+        "Tab" => Some(("Tab", "Tab", "", 9)),
+        "Enter" => Some(("Enter", "Enter", "\r", 13)),
+        "Esc" | "Escape" => Some(("Escape", "Escape", "", 27)),
+        "Space" => Some((" ", "Space", " ", 32)),
+        "PageUp" => Some(("PageUp", "PageUp", "", 33)),
+        "PageDown" => Some(("PageDown", "PageDown", "", 34)),
+        "End" => Some(("End", "End", "", 35)),
+        "Home" => Some(("Home", "Home", "", 36)),
+        "Left" => Some(("ArrowLeft", "ArrowLeft", "", 37)),
+        "Up" => Some(("ArrowUp", "ArrowUp", "", 38)),
+        "Right" => Some(("ArrowRight", "ArrowRight", "", 39)),
+        "Down" => Some(("ArrowDown", "ArrowDown", "", 40)),
+        "Delete" => Some(("Delete", "Delete", "", 46)),
         _ => None,
     };
-    if let Some((dom_key, code)) = named {
-        return (dom_key.to_owned(), code.to_owned());
+    if let Some((dom_key, code, text, key_code)) = named {
+        return CdpKeyDescription {
+            key: dom_key.to_owned(),
+            code: code.to_owned(),
+            text: if modifiers & !1 == 0 {
+                text.to_owned()
+            } else {
+                String::new()
+            },
+            key_code,
+            location: 0,
+        };
     }
     let mut chars = key.chars();
     if let (Some(ch), None) = (chars.next(), chars.next()) {
-        let code = if ch.is_ascii_alphabetic() {
-            format!("Key{}", ch.to_ascii_uppercase())
+        let (code, key_code) = if ch.is_ascii_alphabetic() {
+            (
+                format!("Key{}", ch.to_ascii_uppercase()),
+                ch.to_ascii_uppercase() as u32,
+            )
         } else if ch.is_ascii_digit() {
-            format!("Digit{ch}")
+            (format!("Digit{ch}"), ch as u32)
         } else {
-            String::new()
+            (String::new(), ch as u32)
         };
-        (ch.to_string(), code)
+        CdpKeyDescription {
+            key: ch.to_string(),
+            code,
+            text: if modifiers & !1 == 0 {
+                ch.to_string()
+            } else {
+                String::new()
+            },
+            key_code,
+            location: 0,
+        }
     } else {
-        (key.to_owned(), key.to_owned())
+        CdpKeyDescription {
+            key: key.to_owned(),
+            code: key.to_owned(),
+            text: String::new(),
+            key_code: 0,
+            location: 0,
+        }
     }
 }
 
@@ -1525,10 +1583,35 @@ mod tests {
     #[test]
     fn browser_key_events_use_dom_key_names() {
         assert_eq!(
-            dom_key_and_code("Left"),
-            ("ArrowLeft".into(), "ArrowLeft".into())
+            cdp_key_description("Left", 0),
+            CdpKeyDescription {
+                key: "ArrowLeft".into(),
+                code: "ArrowLeft".into(),
+                text: String::new(),
+                key_code: 37,
+                location: 0,
+            }
         );
-        assert_eq!(dom_key_and_code("a"), ("a".into(), "KeyA".into()));
-        assert_eq!(dom_key_and_code("7"), ("7".into(), "Digit7".into()));
+        assert_eq!(
+            cdp_key_description("Enter", 0),
+            CdpKeyDescription {
+                key: "Enter".into(),
+                code: "Enter".into(),
+                text: "\r".into(),
+                key_code: 13,
+                location: 0,
+            }
+        );
+        assert_eq!(
+            cdp_key_description("a", 0),
+            CdpKeyDescription {
+                key: "a".into(),
+                code: "KeyA".into(),
+                text: "a".into(),
+                key_code: 65,
+                location: 0,
+            }
+        );
+        assert_eq!(cdp_key_description("7", 4).text, "");
     }
 }
