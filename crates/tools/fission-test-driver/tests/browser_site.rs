@@ -15,6 +15,20 @@ fn response(stream: &mut TcpStream, body: &str) -> std::io::Result<()> {
     )
 }
 
+fn redirect(stream: &mut TcpStream, location: &str) -> std::io::Result<()> {
+    write!(
+        stream,
+        "HTTP/1.1 302 Found\r\nLocation: {location}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+    )
+}
+
+fn not_found(stream: &mut TcpStream) -> std::io::Result<()> {
+    write!(
+        stream,
+        "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+    )
+}
+
 fn fixture() -> anyhow::Result<(String, mpsc::Sender<()>, std::thread::JoinHandle<()>)> {
     let listener = TcpListener::bind("127.0.0.1:0")?;
     listener.set_nonblocking(true)?;
@@ -31,11 +45,43 @@ fn fixture() -> anyhow::Result<(String, mpsc::Sender<()>, std::thread::JoinHandl
             let mut request = [0_u8; 4096];
             let read = stream.read(&mut request).unwrap_or_default();
             let request = String::from_utf8_lossy(&request[..read]);
+            if request.starts_with("GET /favicon.ico") {
+                let _ = not_found(&mut stream);
+                continue;
+            }
             let welcome = request.starts_with("GET /welcome");
-            let body = if welcome {
-                r#"<!doctype html><title>Welcome</title><main data-fission-node="welcome"><h1 data-fission-semantics="welcome.title">Welcome to Fission</h1><a href="/" data-fission-node="again">Sign in again</a></main>"#
+            let sign_in = request.starts_with("GET /sign-in");
+            let admin_login = request.starts_with("GET /admin-login");
+            let disclosure = request.starts_with("GET /disclosure");
+            let frame_barrier = request.starts_with("GET /frame-barrier");
+            let native_table = request.starts_with("GET /native-table");
+            let native_focus = request.starts_with("GET /native-focus");
+            let named_value = request.starts_with("GET /named-value");
+            let duplicate_navigation = request.starts_with("GET /duplicate-navigation");
+            if request.starts_with("GET /protected") {
+                let _ = redirect(&mut stream, "/sign-in");
+                continue;
+            }
+            let body = if duplicate_navigation {
+                r##"<!doctype html><title>Duplicate navigation</title><header hidden><a href="#hidden-services">My Services</a></header><main><a id="dashboard-services" href="#services">My Services</a><p id="navigation-result">Dashboard</p></main><script>document.querySelector('#dashboard-services').addEventListener('click',()=>document.querySelector('#navigation-result').textContent='Services opened');</script>"##
+            } else if named_value {
+                r#"<!doctype html><title>Named properties</title><main><form id="pricing"><input name="id" value="shadowed-id"><input name="name" value="shadowed-name"><input name="action" value="shadowed-action"><label>Price value<input name="value" value="12.50"></label><button type="submit">Save price</button></form></main>"#
+            } else if native_focus {
+                r#"<!doctype html><title>Focus</title><style>.spacer{height:1400px}</style><main><input id="group-name" value="Initial focus"><div class="spacer"></div><button id="save-group">Save group</button><p id="focus-result">Not saved</p></main><script>document.querySelector('#group-name').focus();document.querySelector('#save-group').addEventListener('click',()=>document.querySelector('#focus-result').textContent='Saved');</script>"#
+            } else if native_table {
+                r#"<!doctype html><title>Services</title><style>.spacer{height:1400px}</style><main><h1>My Services</h1><div class="spacer"></div><table data-testid="services-table"><thead><tr><th scope="col">Service ID</th><th scope="col">Product</th><th scope="col">Status</th></tr></thead><tbody><tr data-service="managed-hosting"><th scope="row">SRV-001</th><td>Managed hosting</td><td>Active</td></tr><tr data-testid="object-storage-row"><th scope="row">SRV-002</th><td>Object storage</td><td id="object-storage-status">Pending</td></tr></tbody></table></main><script>document.querySelector('[data-testid="object-storage-row"]>td').addEventListener('click',()=>document.querySelector('#object-storage-status').textContent='Opened');</script>"#
+            } else if frame_barrier {
+                r#"<!doctype html><title>Frame barrier</title><style>body{margin:0}.spacer{height:1600px}</style><main><div class="spacer"></div><button data-testid="save">Save changes</button></main><script>globalThis.pointerState={scrolled:false,painted:false,pressedAfterPaint:false};addEventListener('scroll',()=>{pointerState.scrolled=true;requestAnimationFrame(()=>requestAnimationFrame(()=>pointerState.painted=true));},{once:true});document.querySelector('[data-testid="save"]').addEventListener('mousedown',()=>pointerState.pressedAfterPaint=pointerState.painted);</script>"#
+            } else if disclosure {
+                r#"<!doctype html><title>Disclosure</title><main><h1>Account</h1><details id="credentials"><summary>Customer credentials</summary><div data-testid="credential-fields">Bucket and credential controls</div></details></main>"#
+            } else if welcome {
+                r#"<!doctype html><title>Welcome</title><main><h1 data-testid="welcome.title">Welcome</h1><a href="/">Register again</a></main>"#
+            } else if sign_in {
+                r#"<!doctype html><title>Sign in</title><main><h1>Sign in instead</h1></main>"#
+            } else if admin_login {
+                r#"<!doctype html><title>Admin login</title><main><h1>Admin login</h1><form><input name="username" placeholder="Username"><input name="password" type="password" placeholder="Password"><input type="submit" value="Login"></form></main>"#
             } else {
-                r#"<!doctype html><title>Sign in</title><main data-fission-node="sign-in"><h1>Sign in</h1><form action="/welcome" method="get"><label>Email address<input data-fission-node="email" data-fission-semantics="sign-in.email" name="email" type="email" required></label><button data-fission-node="submit" data-fission-semantics="sign-in.submit" type="submit">Sign in</button></form></main>"#
+                r#"<!doctype html><title>Register</title><style>html{scroll-behavior:smooth}label{display:block;height:240px}button{margin-top:120px}</style><main><h1>Register</h1><form action="/welcome" method="get"><label>Full name<input data-testid="registration.name" name="name" required></label><label>Email address<input name="email" type="email" required></label><label>Organisation<input id="registration-organisation" name="organisation" required></label><label>Role<input data-testid="registration.role" name="role" required></label><label>Country<input data-testid="registration.country" name="country" required></label><label><input data-testid="region.eu-west" type="checkbox" name="regions" value="eu-west"> Europe West</label><button type="submit">Create account</button><a href="/sign-in">Sign in instead</a></form></main>"#
             };
             let _ = response(&mut stream, body);
         }
@@ -44,21 +90,314 @@ fn fixture() -> anyhow::Result<(String, mpsc::Sender<()>, std::thread::JoinHandl
 }
 
 #[test]
-fn site_mode_drives_semantic_ssr_navigation() -> anyhow::Result<()> {
+fn website_mode_scroll_preserves_a_unique_visible_match() -> anyhow::Result<()> {
     if detect_chrome().is_none() {
         eprintln!("skipping browser site test because Chrome/Chromium is unavailable");
         return Ok(());
     }
     let (url, stop, server) = fixture()?;
-    let client = LiveTestClient::launch_browser(BrowserTestOptions::new(url).fission_site())?;
-    let email = SelectorQuery::semantic_identifier("sign-in.email");
-    client.wait_for_visible(email.clone(), 2_000)?;
-    client.fill_text_selector(email.clone(), "person@example.com")?;
-    client.wait_for_value(email, "person@example.com", 2_000)?;
-    client.tap_selector(SelectorQuery::role_label("button", "Sign in"))?;
+    let client = LiveTestClient::launch_browser(
+        BrowserTestOptions::new(format!("{url}duplicate-navigation")).website(),
+    )?;
+    let services = SelectorQuery::role_label("link", "My Services");
+
+    assert_eq!(
+        client.resolve_selector(services.clone())?.widget_id,
+        "dashboard-services"
+    );
+    client.tap_selector(services)?;
+    client.wait_for_text("Services opened", 2_000)?;
+
+    let _ = stop.send(());
+    server.join().expect("site fixture thread panicked");
+    Ok(())
+}
+
+#[test]
+fn website_mode_safely_projects_forms_with_named_property_collisions() -> anyhow::Result<()> {
+    if detect_chrome().is_none() {
+        eprintln!("skipping browser site test because Chrome/Chromium is unavailable");
+        return Ok(());
+    }
+    let (url, stop, server) = fixture()?;
+    let client = LiveTestClient::launch_browser(
+        BrowserTestOptions::new(format!("{url}named-value")).website(),
+    )?;
+
+    assert_eq!(
+        client
+            .browser_evaluate_json("typeof document.querySelector('#pricing').id")?
+            .as_str(),
+        Some("object"),
+        "the fixture must exercise HTMLFormElement named-property shadowing"
+    );
+    assert_eq!(
+        client
+            .browser_evaluate_json(
+                "[typeof document.querySelector('#pricing').name, typeof document.querySelector('#pricing').action]"
+            )?,
+        serde_json::json!(["object", "object"]),
+        "the fixture must mirror the additional named-property collisions"
+    );
+    let nodes = client.get_tree()?;
+    let form = nodes
+        .iter()
+        .find(|node| node.identifier.as_deref() == Some("pricing"))
+        .expect("pricing form should be projected");
+    assert_eq!(form.stable_node_id, "pricing");
+    assert_eq!(form.widget_id, "pricing");
+    assert_eq!(form.value, None);
+    assert!(!form.value_present);
+    let input = client.resolve_selector(SelectorQuery::role_label("textbox", "Price value"))?;
+    assert_eq!(input.value.as_deref(), Some("12.50"));
+    assert!(input.value_present);
+
+    let _ = stop.send(());
+    server.join().expect("site fixture thread panicked");
+    Ok(())
+}
+
+#[test]
+fn website_mode_focuses_offscreen_target_before_native_key_input() -> anyhow::Result<()> {
+    if detect_chrome().is_none() {
+        eprintln!("skipping browser site test because Chrome/Chromium is unavailable");
+        return Ok(());
+    }
+    let (url, stop, server) = fixture()?;
+    let client = LiveTestClient::launch_browser(
+        BrowserTestOptions::new(format!("{url}native-focus")).website(),
+    )?;
+
+    assert_eq!(
+        client
+            .browser_evaluate_json("document.activeElement.id")?
+            .as_str(),
+        Some("group-name")
+    );
+    let save = SelectorQuery::accessibility_identifier("save-group");
+    client.focus_selector(save)?;
+    assert_eq!(
+        client
+            .browser_evaluate_json("document.activeElement.id")?
+            .as_str(),
+        Some("save-group")
+    );
+    client.press_key("Enter", 0)?;
+    client.wait_for_text("Saved", 2_000)?;
+
+    let _ = stop.send(());
+    server.join().expect("site fixture thread panicked");
+    Ok(())
+}
+
+#[test]
+fn website_mode_projects_and_drives_native_table_semantics() -> anyhow::Result<()> {
+    if detect_chrome().is_none() {
+        eprintln!("skipping browser site test because Chrome/Chromium is unavailable");
+        return Ok(());
+    }
+    let (url, stop, server) = fixture()?;
+    let client = LiveTestClient::launch_browser(
+        BrowserTestOptions::new(format!("{url}native-table")).website(),
+    )?;
+
+    assert_eq!(
+        client
+            .resolve_selector(SelectorQuery::test_id("services-table").include_hidden())?
+            .role,
+        "table"
+    );
+    assert_eq!(
+        client
+            .resolve_selector(SelectorQuery::test_id("object-storage-row").include_hidden())?
+            .role,
+        "row"
+    );
+    client
+        .resolve_selector(SelectorQuery::role_label("columnheader", "Product").include_hidden())?;
+    client.resolve_selector(SelectorQuery::role_label("rowheader", "SRV-002").include_hidden())?;
+    let product = SelectorQuery::role_label("cell", "Object storage");
+    client.resolve_selector(product.clone().include_hidden())?;
+    client.tap_selector(product)?;
+    client.wait_for_text("Opened", 2_000)?;
+    client.resolve_selector(SelectorQuery::role_label("cell", "Opened"))?;
+
+    let _ = stop.send(());
+    server.join().expect("site fixture thread panicked");
+    Ok(())
+}
+
+#[test]
+fn website_mode_waits_for_post_scroll_frame_before_native_pointer_input() -> anyhow::Result<()> {
+    if detect_chrome().is_none() {
+        eprintln!("skipping browser site test because Chrome/Chromium is unavailable");
+        return Ok(());
+    }
+    let (url, stop, server) = fixture()?;
+    let client = LiveTestClient::launch_browser(
+        BrowserTestOptions::new(format!("{url}frame-barrier")).website(),
+    )?;
+
+    client.tap_selector(SelectorQuery::test_id("save"))?;
+    let state = client.browser_evaluate_json("globalThis.pointerState")?;
+    assert_eq!(state["scrolled"], true);
+    assert_eq!(state["painted"], true);
+    assert_eq!(state["pressedAfterPaint"], true);
+
+    let _ = stop.send(());
+    server.join().expect("site fixture thread panicked");
+    Ok(())
+}
+
+#[test]
+fn website_mode_drives_native_details_disclosure() -> anyhow::Result<()> {
+    if detect_chrome().is_none() {
+        eprintln!("skipping browser site test because Chrome/Chromium is unavailable");
+        return Ok(());
+    }
+    let (url, stop, server) = fixture()?;
+    let client = LiveTestClient::launch_browser(
+        BrowserTestOptions::new(format!("{url}disclosure")).website(),
+    )?;
+    let summary = SelectorQuery::role_label("button", "Customer credentials");
+    let content = SelectorQuery::test_id("credential-fields");
+
+    let collapsed = client.resolve_selector(summary.clone())?;
+    assert_eq!(collapsed.role, "button");
+    assert_eq!(collapsed.expanded, Some(false));
+    assert!(collapsed.is_sequentially_focusable());
+    assert!(collapsed.actions.iter().any(|action| action == "activate"));
+    assert_eq!(
+        client
+            .resolve_selector(content.clone().include_hidden())?
+            .visibility,
+        VisibilityState::Hidden
+    );
+
+    client.activate_selector(summary.clone())?;
+    client.wait_for_visible(content.clone(), 2_000)?;
+    assert_eq!(
+        client.resolve_selector(summary.clone())?.expanded,
+        Some(true)
+    );
+
+    client.activate_selector(summary.clone())?;
+    assert_eq!(client.resolve_selector(summary)?.expanded, Some(false));
+    assert_eq!(
+        client
+            .resolve_selector(content.include_hidden())?
+            .visibility,
+        VisibilityState::Hidden
+    );
+
+    let summary = SelectorQuery::role_label("button", "Customer credentials");
+    client.focus_selector(summary.clone())?;
+    client.press_key("Space", 0)?;
+    assert_eq!(
+        client.resolve_selector(summary.clone())?.expanded,
+        Some(true)
+    );
+    client.press_key("Space", 0)?;
+    assert_eq!(client.resolve_selector(summary)?.expanded, Some(false));
+
+    let _ = stop.send(());
+    server.join().expect("site fixture thread panicked");
+    Ok(())
+}
+
+#[test]
+fn website_mode_toggles_a_below_fold_native_checkbox() -> anyhow::Result<()> {
+    if detect_chrome().is_none() {
+        eprintln!("skipping browser site test because Chrome/Chromium is unavailable");
+        return Ok(());
+    }
+    let (url, stop, server) = fixture()?;
+    let client = LiveTestClient::launch_browser(BrowserTestOptions::new(url).website())?;
+    let region = SelectorQuery::test_id("region.eu-west");
+
+    let before = client.resolve_selector(region.clone().include_hidden())?;
+    assert_eq!(before.checked, Some(false));
+    client.scroll_into_view(region.clone())?;
+    client.wait_for_visible(region.clone(), 2_000)?;
+    client.toggle_selector(region.clone())?;
+    let after = client.resolve_selector(region)?;
+    assert_eq!(after.checked, Some(true));
+
+    let _ = stop.send(());
+    server.join().expect("site fixture thread panicked");
+    Ok(())
+}
+
+#[test]
+fn website_mode_attaches_before_an_initial_redirect() -> anyhow::Result<()> {
+    if detect_chrome().is_none() {
+        eprintln!("skipping browser site test because Chrome/Chromium is unavailable");
+        return Ok(());
+    }
+    let (url, stop, server) = fixture()?;
+    let client = LiveTestClient::launch_browser(
+        BrowserTestOptions::new(format!("{url}protected")).website(),
+    )?;
+
+    client.wait_for_text("Sign in instead", 5_000)?;
+
+    let _ = stop.send(());
+    server.join().expect("site fixture thread panicked");
+    Ok(())
+}
+
+#[test]
+fn website_mode_uses_native_input_values_and_placeholders_as_fallback_labels() -> anyhow::Result<()>
+{
+    if detect_chrome().is_none() {
+        eprintln!("skipping browser site test because Chrome/Chromium is unavailable");
+        return Ok(());
+    }
+    let (url, stop, server) = fixture()?;
+    let client = LiveTestClient::launch_browser(
+        BrowserTestOptions::new(format!("{url}admin-login")).website(),
+    )?;
+
+    client.fill_text_selector(SelectorQuery::role_label("textbox", "Username"), "admin")?;
+    client.fill_text_selector(SelectorQuery::role_label("textbox", "Password"), "secret")?;
+    client.resolve_selector(SelectorQuery::role_label("button", "Login"))?;
+
+    let _ = stop.send(());
+    server.join().expect("site fixture thread panicked");
+    Ok(())
+}
+
+#[test]
+fn website_mode_drives_semantic_navigation_without_fission_markup() -> anyhow::Result<()> {
+    if detect_chrome().is_none() {
+        eprintln!("skipping browser site test because Chrome/Chromium is unavailable");
+        return Ok(());
+    }
+    let (url, stop, server) = fixture()?;
+    let client = LiveTestClient::launch_browser(BrowserTestOptions::new(url).website())?;
+    for (field, value) in [
+        (SelectorQuery::test_id("registration.name"), "Alex Rivera"),
+        (
+            SelectorQuery::role_label("textbox", "Email address"),
+            "person@example.com",
+        ),
+        (
+            SelectorQuery::accessibility_identifier("registration-organisation"),
+            "Fission Labs",
+        ),
+        (SelectorQuery::test_id("registration.role"), "Engineer"),
+        (
+            SelectorQuery::test_id("registration.country"),
+            "United Kingdom",
+        ),
+    ] {
+        client.fill_text_selector(field.clone(), value)?;
+        client.wait_for_value(field, value, 2_000)?;
+    }
+    client.tap_selector(SelectorQuery::role_label("button", "Create account"))?;
     client.wait_for_idle(5_000, true)?;
-    client.wait_for_text("Welcome to Fission", 5_000)?;
-    client.resolve_selector(SelectorQuery::semantic_identifier("welcome.title"))?;
+    client.wait_for_text("Welcome", 5_000)?;
+    client.resolve_selector(SelectorQuery::test_id("welcome.title"))?;
     assert!(client.get_tree()?.iter().any(|node| {
         node.identifier.as_deref() == Some("welcome.title")
             && node.visibility != VisibilityState::Hidden

@@ -30,6 +30,7 @@ impl From<DesignSystemPicker> for Widget {
                     "showcase.preview.design_system.{}",
                     choice.slug()
                 )),
+                form_value: None,
             })
             .collect();
 
@@ -46,6 +47,7 @@ impl From<DesignSystemPicker> for Widget {
             trigger_semantics_identifier: Some("showcase.preview.design_system".into()),
             placeholder: view.tr("showcase.workbench.design_system"),
             width: Some(PICKER_WIDTH),
+            ..Default::default()
         })
         .role(Role::Group)
         .label(view.tr("showcase.workbench.design_system"))

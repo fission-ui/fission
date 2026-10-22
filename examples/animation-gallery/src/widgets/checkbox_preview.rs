@@ -46,6 +46,7 @@ impl From<CheckboxPreview<'_>> for Widget {
                             semantics_identifier: Some("gallery.checkbox.accept_motion".into(),),
                             name: None,
                             form_id: None,
+                            form_value: None,
                             checked: preview_active(preview.state),
                             on_toggle: Some(on_toggle),
                             label: Some("Accept motion terms".into()),

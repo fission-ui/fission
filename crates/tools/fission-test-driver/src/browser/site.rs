@@ -5,50 +5,76 @@ use serde_json::json;
 use std::time::{Duration, Instant};
 
 const SITE_COMMAND: &str = r#"(command => {
-  const all = () => Array.from(document.querySelectorAll(
-    '[data-fission-node],[data-fission-semantics],button,a[href],input,textarea,select,option,[role]'
-  ));
+  const semanticSelector = '[data-fission-node],[data-fission-semantics],[data-testid],[role],[aria-label],[aria-labelledby],button,a[href],input,textarea,select,option,details,summary,table,thead,tbody,tfoot,tr,th,td,img,h1,h2,h3,h4,h5,h6,form,main,nav,header,footer,section,article';
+  const all = () => Array.from(document.querySelectorAll(semanticSelector));
+  const rect = el => { const r=el.getBoundingClientRect(); return {x:r.x,y:r.y,width:r.width,height:r.height}; };
+  const clippedRect = el => {
+    const r=el.getBoundingClientRect(), left=Math.max(0,r.left), top=Math.max(0,r.top);
+    const right=Math.min(innerWidth,r.right), bottom=Math.min(innerHeight,r.bottom);
+    return right>left&&bottom>top ? {x:left,y:top,width:right-left,height:bottom-top} : null;
+  };
   const visible = el => {
+    const closedDetails=el.closest('details:not([open])');
+    if(closedDetails){
+      const summary=closedDetails.querySelector(':scope > summary');
+      if(!summary||(el!==summary&&!summary.contains(el)))return false;
+    }
     const style=getComputedStyle(el), r=el.getBoundingClientRect();
     return !el.hidden && !el.closest('[hidden],[inert],[aria-hidden="true"]') &&
       style.display!=='none' && style.visibility!=='hidden' && Number(style.opacity)!==0 &&
-      r.width>0 && r.height>0;
+      r.width>0 && r.height>0 && !!clippedRect(el);
   };
-  const role = el => el.getAttribute('role') || ({
-    BUTTON:'button',A:'link',TEXTAREA:'textbox',SELECT:'combobox',OPTION:'option',IMG:'img'
-  }[el.tagName] || (el.tagName==='INPUT' ? ({checkbox:'checkbox',radio:'radio',range:'slider',submit:'button',button:'button'}[el.type]||'textbox') : 'generic'));
+  const role = el => el.getAttribute('role') || (el.tagName==='TH' ? (el.getAttribute('scope')==='row'?'rowheader':'columnheader') : ({
+    BUTTON:'button',A:'link',TEXTAREA:'textbox',SELECT:'combobox',OPTION:'option',DETAILS:'group',SUMMARY:'button',TABLE:'table',THEAD:'rowgroup',TBODY:'rowgroup',TFOOT:'rowgroup',TR:'row',TD:'cell',IMG:'img',
+    H1:'heading',H2:'heading',H3:'heading',H4:'heading',H5:'heading',H6:'heading',
+    FORM:'form',MAIN:'main',NAV:'navigation',HEADER:'banner',FOOTER:'contentinfo',SECTION:'region',ARTICLE:'article'
+  }[el.tagName] || (el.tagName==='INPUT' ? ({checkbox:'checkbox',radio:'radio',range:'slider',submit:'button',button:'button'}[el.type]||'textbox') : 'generic')));
   const label = el => {
     const aria=el.getAttribute('aria-label'); if(aria)return aria.trim();
     const ids=(el.getAttribute('aria-labelledby')||'').trim().split(/\s+/).filter(Boolean);
     if(ids.length)return ids.map(id=>document.getElementById(id)?.textContent||'').join(' ').trim();
     if(el.labels?.length)return Array.from(el.labels).map(x=>x.textContent||'').join(' ').trim();
-    return (el.getAttribute('alt')||el.getAttribute('title')||el.textContent||'').trim();
+    if(el.tagName==='INPUT'&&['submit','button','reset'].includes(el.type))return (el.value||({submit:'Submit',reset:'Reset'}[el.type])||'').trim();
+    return (el.getAttribute('alt')||el.getAttribute('title')||el.textContent||el.getAttribute('placeholder')||'').trim();
   };
-  const value = el => ('value' in el ? String(el.value??'') : null);
-  const rect = el => { const r=el.getBoundingClientRect(); return {x:r.x,y:r.y,width:r.width,height:r.height}; };
-  const nodeId = el => el.getAttribute('data-fission-node') || el.id || `dom-${all().indexOf(el)}`;
+  const value = el => {
+    if(!el.matches('input,textarea,select,option,button,output,meter,progress'))return null;
+    const raw=el.value;
+    return typeof raw==='string'||typeof raw==='number'?`${raw}`:null;
+  };
+  const domPath = el => {
+    const parts=[];
+    while(el&&el.nodeType===1&&el!==document.documentElement){
+      let index=1, sibling=el;
+      while((sibling=sibling.previousElementSibling))if(sibling.tagName===el.tagName)index++;
+      parts.push(`${el.tagName.toLowerCase()}:nth-of-type(${index})`);el=el.parentElement;
+    }
+    return `dom:${parts.reverse().join('>')}`;
+  };
+  const nodeId = el => el.getAttribute('data-fission-node') || el.getAttribute('id') || el.getAttribute('data-testid') || domPath(el);
   const node = el => {
-    const r=rect(el), shown=visible(el), parent=el.parentElement?.closest('[data-fission-node],[data-fission-semantics]');
-    const children=all().filter(child=>child!==el && (child.parentElement?.closest('[data-fission-node],[data-fission-semantics]')===el)).map(nodeId);
+    const r=rect(el), shown=visible(el), parent=el.parentElement?.closest(semanticSelector);
+    const children=all().filter(child=>child!==el && child.parentElement?.closest(semanticSelector)===el).map(nodeId);
     const disabled=!!el.disabled||el.getAttribute('aria-disabled')==='true';
     const readOnly=!!el.readOnly||el.getAttribute('aria-readonly')==='true';
     const editable=el.matches('input:not([type]),input[type="text"],input[type="email"],input[type="password"],input[type="search"],input[type="url"],input[type="tel"],textarea,[contenteditable="true"]');
-    const focusable=el.matches('button,a[href],input,textarea,select,[tabindex]:not([tabindex="-1"])');
-    const actions=[]; if(focusable)actions.push('focus'); if(el.matches('button,a[href],input,select,option,[role="button"]'))actions.push('activate'); if(editable)actions.push('set_value');
+    const focusable=el.matches('button,a[href],input,textarea,select,summary,[tabindex]:not([tabindex="-1"])');
+    const actions=[]; if(focusable)actions.push('focus'); if(el.matches('button,a[href],input,select,option,summary,[role="button"]'))actions.push('activate'); if(editable)actions.push('set_value');
+    const disclosure=el.tagName==='DETAILS'?el:(el.tagName==='SUMMARY'&&el.parentElement?.tagName==='DETAILS'?el.parentElement:null);
     return {
-      identifier:el.getAttribute('data-fission-semantics'), widget_id:el.getAttribute('data-fission-node')||'', stable_node_id:nodeId(el),
+      identifier:el.getAttribute('data-fission-semantics')||el.getAttribute('data-testid')||el.getAttribute('id')||null, widget_id:el.getAttribute('data-fission-node')||el.getAttribute('id')||'', stable_node_id:nodeId(el),
       parent:parent?nodeId(parent):null, children, role:role(el), label:label(el)||null, value:value(el), value_present:value(el)!==null,
       focusable, sequential_focusable:focusable&&el.tabIndex>=0, text_editable:editable, disabled, read_only:readOnly,
       checked:'checked' in el?Boolean(el.checked):(el.hasAttribute('aria-checked')?el.getAttribute('aria-checked')==='true':null),
       selected:'selected' in el?Boolean(el.selected):(el.hasAttribute('aria-selected')?el.getAttribute('aria-selected')==='true':null),
-      expanded:el.hasAttribute('aria-expanded')?el.getAttribute('aria-expanded')==='true':null,
+      expanded:el.hasAttribute('aria-expanded')?el.getAttribute('aria-expanded')==='true':(disclosure?disclosure.open:null),
       has_popup:el.getAttribute('aria-haspopup'), orientation:el.getAttribute('aria-orientation'), modal:el.getAttribute('aria-modal')==='true',
       required:!!el.required||el.getAttribute('aria-required')==='true', invalid:el.getAttribute('aria-invalid')==='true',
       controls:(el.getAttribute('aria-controls')||'').split(/\s+/).filter(Boolean), labelled_by:(el.getAttribute('aria-labelledby')||'').split(/\s+/).filter(Boolean),
       described_by:(el.getAttribute('aria-describedby')||'').split(/\s+/).filter(Boolean), active_descendant:el.getAttribute('aria-activedescendant'),
       actions, text_selection:typeof el.selectionStart==='number'?[el.selectionStart,el.selectionEnd]:null, masked:el.type==='password',
       scrollable_x:el.scrollWidth>el.clientWidth, scrollable_y:el.scrollHeight>el.clientHeight, logical_bounds:r,
-      visible_bounds:shown?r:null, visibility:shown?'FullyVisible':'Hidden', x:r.x,y:r.y,width:r.width,height:r.height
+      visible_bounds:shown?clippedRect(el):null, visibility:shown?'FullyVisible':'Hidden', x:r.x,y:r.y,width:r.width,height:r.height
     };
   };
   const candidates = query => {
@@ -58,8 +84,8 @@ const SITE_COMMAND: &str = r#"(command => {
     return all().filter(el=>root===document||root.contains(el)).filter(el=>{
       switch(wanted.kind){
         case 'semantic_identifier': return el.getAttribute('data-fission-semantics')===wanted.identifier;
-        case 'test_id': return el.getAttribute('data-fission-semantics')===wanted.test_id;
-        case 'accessibility_identifier': return el.getAttribute('data-fission-semantics')===wanted.identifier;
+        case 'test_id': return el.getAttribute('data-testid')===wanted.test_id||el.getAttribute('data-fission-semantics')===wanted.test_id;
+        case 'accessibility_identifier': return el.id===wanted.identifier||el.getAttribute('data-fission-semantics')===wanted.identifier;
         case 'widget_id': return el.getAttribute('data-fission-node')===wanted.widget_id||el.id===wanted.widget_id;
         case 'role_label': return norm(role(el))===norm(wanted.role)&&norm(label(el))===norm(wanted.label);
         case 'label': return norm(label(el))===norm(wanted.label);
@@ -81,10 +107,20 @@ const SITE_COMMAND: &str = r#"(command => {
   const resolved = query => resolve(query).element;
   switch(command.cmd){
     case 'ResolveSelector': return selectorResponse(command.query);
-    case 'ScrollIntoView': {const el=resolved(command.query);if(!el)return selectorResponse(command.query);el.scrollIntoView({block:'center',inline:'nearest'});return selectorResponse(command.query);}
-    case 'FocusSelector': {const el=resolved(command.query);if(!el)return selectorResponse(command.query);el.focus();return {status:'Ok'};}
+    case 'ScrollIntoView': {
+      let query=command.query,result=resolve(query);
+      if(!result.element&&result.failure==='NoMatch'){
+        query={...query,include_hidden:true};result=resolve(query);
+      }
+      if(!result.element)return selectorResponse(query);
+      result.element.scrollIntoView({block:'center',inline:'nearest',behavior:'instant'});
+      void result.element.getBoundingClientRect();
+      return selectorResponse(command.query);
+    }
+    case 'FocusSelector': {const el=resolved(command.query);if(!el)return selectorResponse(command.query);el.focus({preventScroll:true});return document.activeElement===el?{status:'Ok'}:{status:'Error',message:'focus_selector_failed: selected DOM element did not accept focus'};}
+    case 'Toggle': {const el=resolved(command.query);if(!el)return selectorResponse(command.query);el.click();return {status:'Ok'};}
     case 'SelectOption': {const el=resolved(command.query);if(!el)return selectorResponse(command.query);if(el.tagName!=='OPTION')return {status:'Error',message:'SelectOption requires an option element'};el.parentElement.value=el.value;el.parentElement.dispatchEvent(new Event('input',{bubbles:true}));el.parentElement.dispatchEvent(new Event('change',{bubbles:true}));return {status:'Ok'};}
-    case 'GetTree': return {status:'Tree',nodes:all().filter(el=>el.hasAttribute('data-fission-node')||el.hasAttribute('data-fission-semantics')).map(node)};
+    case 'GetTree': return {status:'Tree',nodes:all().map(node)};
     case 'GetText': return {status:'Text',items:Array.from(document.querySelectorAll('body *')).filter(el=>visible(el)&&el.children.length===0&&(el.innerText||el.textContent||'').trim()).map(el=>{const r=rect(el);return {text:(el.innerText||el.textContent||'').trim(),...r};})};
     case 'TapText': {const el=all().find(el=>visible(el)&&label(el).includes(command.text));if(!el)return {status:'Error',message:`text \`${command.text}\` was not found`};el.click();return {status:'Ok'};}
     case 'Pump': return {status:'Ok'};
@@ -118,9 +154,9 @@ impl BrowserController {
             let value = result
                 .pointer("/result/value")
                 .cloned()
-                .context("site command returned no value")?;
+                .context("website command returned no value")?;
             return serde_json::from_value(value)
-                .context("failed to decode Fission site command response");
+                .context("failed to decode website command response");
         }
     }
 
@@ -156,9 +192,11 @@ impl BrowserController {
             }
             TestCommand::WaitForText { text, timeout_ms } => self.site_wait_text(&text, timeout_ms),
             TestCommand::WaitForIdle { timeout_ms, .. } => self.site_wait_idle(timeout_ms),
-            TestCommand::TapSelector { query }
-            | TestCommand::ActivateSelector { query }
-            | TestCommand::Toggle { query } => self.site_click(query, "left"),
+            TestCommand::TapSelector { query } | TestCommand::ActivateSelector { query } => {
+                self.site_click(query, "left")
+            }
+            TestCommand::FocusSelector { query } => self.site_focus(query),
+            TestCommand::Toggle { query } => self.send_site_command(TestCommand::Toggle { query }),
             TestCommand::HoverSelector { query } => self.site_pointer(query, None),
             TestCommand::RightClickSelector { query } => self.site_click(query, "right"),
             TestCommand::FillText { query, text } => self.site_fill(query, &text),
@@ -221,10 +259,28 @@ impl BrowserController {
     }
 
     fn site_click(&mut self, query: SelectorQuery, button: &str) -> Result<TestResponse> {
-        let _ = self.send_site_command(TestCommand::ScrollIntoView {
-            query: query.clone().include_hidden(),
+        let scroll = self.send_site_command(TestCommand::ScrollIntoView {
+            query: query.clone(),
         })?;
+        if !matches!(scroll, TestResponse::SelectorResolved { .. }) {
+            return Ok(scroll);
+        }
+        // Chromium can acknowledge the DOM scroll before the compositor's hit-test
+        // data reflects it. Wait for the scroll to cross a paint boundary, then
+        // resolve the target again before dispatching native pointer input.
+        self.paint_boundary()?;
         self.site_pointer(query, Some(button))
+    }
+
+    fn site_focus(&mut self, query: SelectorQuery) -> Result<TestResponse> {
+        let scroll = self.send_site_command(TestCommand::ScrollIntoView {
+            query: query.clone(),
+        })?;
+        if !matches!(scroll, TestResponse::SelectorResolved { .. }) {
+            return Ok(scroll);
+        }
+        self.paint_boundary()?;
+        self.send_site_command(TestCommand::FocusSelector { query })
     }
 
     fn site_mouse_click(&mut self, x: f32, y: f32, button: &str) -> Result<()> {
@@ -238,7 +294,13 @@ impl BrowserController {
     }
 
     fn site_fill(&mut self, query: SelectorQuery, text: &str) -> Result<TestResponse> {
-        let response = self.site_click(query, "left")?;
+        let response = self.site_click(query.clone(), "left")?;
+        if !matches!(response, TestResponse::Ok {}) {
+            return Ok(response);
+        }
+        let response = self.send_site_command(TestCommand::FocusSelector {
+            query: query.clone(),
+        })?;
         if !matches!(response, TestResponse::Ok {}) {
             return Ok(response);
         }
@@ -283,7 +345,7 @@ impl BrowserController {
                         selector: query,
                         candidates: vec![],
                         message: format!(
-                            "timed out after {timeout_ms}ms waiting for Fission site selector"
+                            "timed out after {timeout_ms}ms waiting for website selector"
                         ),
                     },
                 });
@@ -332,7 +394,7 @@ impl BrowserController {
             if start.elapsed() >= timeout {
                 return Ok(TestResponse::Error {
                     message: format!(
-                        "timed out after {timeout_ms}ms waiting for Fission site navigation and network activity to settle"
+                        "timed out after {timeout_ms}ms waiting for website navigation and network activity to settle"
                     ),
                 });
             }

@@ -176,6 +176,11 @@ button.fission-site-semantics {
   line-height: 1.4;
 }
 
+select.fission-site-input {
+  appearance: auto;
+  cursor: pointer;
+}
+
 .fission-site-input::placeholder,
 .fission-site-form-input::placeholder {
   color: var(--fs-color-text-muted);

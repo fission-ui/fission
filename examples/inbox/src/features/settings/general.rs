@@ -82,6 +82,7 @@ impl From<GeneralSettings> for Widget {
                                     reduce_with!(set_inbox_type),
                                 ),
                                 semantics_identifier: Some((*identifier).into()),
+                                form_value: None,
                             })
                             .collect(),
                         ..Default::default()

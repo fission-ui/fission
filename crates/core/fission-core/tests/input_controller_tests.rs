@@ -402,6 +402,8 @@ fn create_rich_text_input_tree(
                 input_formatters: Vec::new(),
                 text_field_name: None,
                 text_form_id: None,
+                form_value: None,
+                form_select_options: Vec::new(),
                 autofill_group: None,
                 required: false,
                 min_length: None,

@@ -540,6 +540,9 @@ impl From<PagePicker> for Widget {
             on_toggle: Some(with_reducer!(ctx, TogglePagePicker, toggle_page_picker)),
             // The picker spans the bar, less the bar's side padding.
             width: Some((viewport.width - 2.0 * tokens.spacing.l).max(0.0)),
+            name: None,
+            form_id: None,
+            form_value: None,
         }
         .into()
     }

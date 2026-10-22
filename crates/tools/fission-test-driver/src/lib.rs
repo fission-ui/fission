@@ -503,13 +503,16 @@ pub enum TestEvent {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Selector {
-    /// Match [`fission_ir::Semantics::identifier`].
+    /// Match [`fission_ir::Semantics::identifier`] in Fission or
+    /// `data-fission-semantics` on a website.
     SemanticIdentifier { identifier: String },
     /// Match a stable widget id. Accepts a 32-character raw id or an explicit id key.
     WidgetId { widget_id: String },
-    /// Match a stable test identifier. This currently aliases semantic identifier.
+    /// Match a stable test identifier. Website mode uses `data-testid` and also
+    /// accepts Fission semantic identifiers.
     TestId { test_id: String },
-    /// Match an accessibility identifier. This currently aliases semantic identifier.
+    /// Match an accessibility identifier. Website mode accepts an element `id`
+    /// and Fission semantic identifiers.
     AccessibilityIdentifier { identifier: String },
     /// Match by role and label.
     RoleLabel { role: String, label: String },
@@ -862,8 +865,8 @@ impl LiveTestClient {
     }
 
     /// Launches an owned Chromium session. Canvas mode requires a Web
-    /// test-control build; site mode drives Fission semantic HTML without a
-    /// bridge; plain DOM mode supports host resize and screenshots only.
+    /// test-control build; website mode drives ordinary semantic HTML without
+    /// a bridge; plain DOM mode supports host resize and screenshots only.
     pub fn launch_browser(options: BrowserTestOptions) -> Result<Self> {
         let live_control = options.mode == BrowserSmokeMode::FissionCanvas;
         let controller = browser::BrowserController::launch(options, live_control)?;

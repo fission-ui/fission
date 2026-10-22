@@ -363,6 +363,7 @@ impl From<AllWidgets> for Widget {
                     trigger_semantics_identifier: None,
                     placeholder: "Select".into(),
                     width: Some(200.0),
+                    ..Default::default()
                 }
                 .into(),
                 MenuButton {

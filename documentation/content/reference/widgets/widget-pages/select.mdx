@@ -28,12 +28,14 @@ let theme_select: Widget = Select {
             icon: None,
             on_select: system_theme_and_close_action,
             semantics_identifier: Some("theme-select.system".into()),
+            form_value: Some("system".into()),
         },
         SelectItem {
             label: "Dark".into(),
             icon: None,
             on_select: dark_theme_and_close_action,
             semantics_identifier: Some("theme-select.dark".into()),
+            form_value: Some("dark".into()),
         },
     ],
     is_open: view.state().theme_select_open,
@@ -41,6 +43,7 @@ let theme_select: Widget = Select {
     trigger_semantics_identifier: Some("theme-select.trigger".into()),
     placeholder: "Select theme".into(),
     width: Some(240.0),
+    ..Default::default()
 }
 .into();
 ```
@@ -115,6 +118,9 @@ visual or interaction model.
 | `trigger_semantics_identifier` | `Option<String>` | Stable identifier for the trigger semantic node. | Does not replace its exposed value. |
 | `placeholder` | `String` | Text shown with no selection. | `"Select..."` in `Default`. |
 | `width` | `Option<f32>` | Logical width supplied to the trigger. | `Some(200.0)` in `Default`; with `None`, the trigger sizes from layout and the flyout still matches its measured anchor width. |
+| `name` | `Option<String>` | Successful-control name for Static site and SSR forms. | Set it when the selected value belongs to a server form. |
+| `form_id` | `Option<String>` | Associates the selected value with a server form. | Must match the form schema id. |
+| `form_value` | `Option<String>` | Current machine value submitted by the server form. | Keep this separate from the localized `selected_label`. |
 
 `SelectItem` contains `label`, optional SVG `icon`, required `on_select`, and an
 optional stable `semantics_identifier`.
@@ -140,6 +146,14 @@ Wrap `Select` in [`FormControl`](/reference/widgets/form-control) when it needs
 a visible field label, supporting description, required state, or validation
 message. The selected value or placeholder is not a substitute for the field's
 name.
+
+For Static site and SSR forms, set `name`, `form_id`, and `form_value`, and give
+every `SelectItem` its own `form_value`. Fission renders a native HTML `select`
+with those machine-valued options, so it remains editable without a Fission
+browser runtime. The visible or translated label is never submitted as the
+authoritative value. If a read-only composite select has no native option list,
+Fission preserves an explicitly supplied current value in a hidden successful
+control instead.
 
 Opening moves focus to the selected option when its label is present, otherwise
 to the first option when one exists. `ArrowUp` and `ArrowDown` wrap through

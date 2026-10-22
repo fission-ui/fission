@@ -141,6 +141,7 @@ fn menu_select_and_combobox_choose_control_specific_policies() {
                 icon: None,
                 on_select: action("canada"),
                 semantics_identifier: None,
+                form_value: None,
             }],
             is_open: true,
             on_toggle: None,
@@ -149,6 +150,7 @@ fn menu_select_and_combobox_choose_control_specific_policies() {
             // A fluid trigger must not cause the popup to fall back to the
             // standalone menu width.
             width: None,
+            ..Default::default()
         }
         .into()
     });

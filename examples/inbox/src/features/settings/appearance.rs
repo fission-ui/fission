@@ -171,6 +171,7 @@ impl From<SettingSelect> for Widget {
                         icon: None,
                         on_select,
                         semantics_identifier: Some((*identifier).into()),
+                        form_value: None,
                     })
                     .collect(),
                 ..Default::default()

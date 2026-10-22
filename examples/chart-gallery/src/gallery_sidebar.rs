@@ -148,6 +148,7 @@ impl From<GallerySidebar> for Widget {
                             } else {
                                 format!("chart-gallery.category.{index}")
                             }),
+                            form_value: None,
                         })
                         .collect(),
                     is_open: state.category_picker_open,
@@ -155,6 +156,7 @@ impl From<GallerySidebar> for Widget {
                     trigger_semantics_identifier: Some("chart-gallery.category".into()),
                     placeholder: "Choose a category".into(),
                     width: Some(COMPACT_CATEGORY_SELECT_WIDTH),
+                    ..Default::default()
                 };
                 let mut children: Vec<Widget> = title.into_iter().collect();
                 children.push(

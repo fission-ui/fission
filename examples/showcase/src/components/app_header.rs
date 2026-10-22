@@ -103,6 +103,7 @@ impl From<LocalePicker> for Widget {
                 icon: None,
                 on_select: with_reducer!(ctx, SetLocale((*code).to_string()), on_set_locale),
                 semantics_identifier: Some(format!("showcase.preview.locale.{code}")),
+                form_value: None,
             })
             .collect();
         let selected = LOCALES
@@ -119,6 +120,7 @@ impl From<LocalePicker> for Widget {
             trigger_semantics_identifier: Some("showcase.preview.locale.trigger".into()),
             placeholder: view.tr("showcase.workbench.locale"),
             width: Some(LOCALE_PICKER_WIDTH),
+            ..Default::default()
         })
         .role(Role::Group)
         .label(view.tr("showcase.workbench.locale"))

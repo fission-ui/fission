@@ -11,7 +11,7 @@ use fission_core::ui::{
 };
 use fission_core::{ActionEnvelope, WidgetId};
 use fission_icons::material;
-use fission_ir::{PopupKind, Role, Semantics, TextFieldValidationState};
+use fission_ir::{FormSelectOption, PopupKind, Role, Semantics, TextFieldValidationState};
 use fission_theme::ComponentState;
 use serde::{Deserialize, Serialize};
 
@@ -52,6 +52,10 @@ pub struct SelectItem {
     /// Stable identifier exposed on this option's actionable semantics node.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub semantics_identifier: Option<String>,
+    /// Stable machine value used when an SSR or Static site renders this item
+    /// as a native HTML option.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub form_value: Option<String>,
 }
 
 /// Retained trigger anatomy for a read-only selection control.
@@ -241,6 +245,15 @@ pub struct SelectLayout {
     pub on_toggle: Option<ActionEnvelope>,
     /// Optional logical width shared by trigger and popup.
     pub width: Option<f32>,
+    /// Successful-control name used by server-rendered HTML forms.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    /// Logical form membership for server-rendered HTML submission.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub form_id: Option<String>,
+    /// Current machine value submitted by server-rendered HTML forms.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub form_value: Option<String>,
 }
 
 impl SelectLayout {
@@ -253,6 +266,9 @@ impl SelectLayout {
             is_open: false,
             on_toggle: None,
             width: None,
+            name: None,
+            form_id: None,
+            form_value: None,
         }
     }
 
@@ -289,14 +305,15 @@ impl SelectLayout {
 ///     id: WidgetId::explicit("country"),
 ///     selected_label: Some("United States".into()),
 ///     items: vec![
-///         SelectItem { label: "United States".into(), icon: None, on_select: us_action, semantics_identifier: Some("country.us".into()) },
-///         SelectItem { label: "Canada".into(), icon: None, on_select: ca_action, semantics_identifier: Some("country.ca".into()) },
+///         SelectItem { label: "United States".into(), icon: None, on_select: us_action, semantics_identifier: Some("country.us".into()), form_value: None },
+///         SelectItem { label: "Canada".into(), icon: None, on_select: ca_action, semantics_identifier: Some("country.ca".into()), form_value: None },
 ///     ],
 ///     is_open: state.country_open,
 ///     on_toggle: Some(toggle_action),
 ///     trigger_semantics_identifier: Some("country.open".into()),
 ///     placeholder: "Choose country...".into(),
 ///     width: Some(250.0),
+///     ..Default::default()
 /// }
 /// ```
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -318,6 +335,15 @@ pub struct Select {
     pub placeholder: String,
     /// Optional logical width shared by the trigger and popup.
     pub width: Option<f32>,
+    /// Successful-control name used by server-rendered HTML forms.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    /// Logical form membership for server-rendered HTML submission.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub form_id: Option<String>,
+    /// Current machine value submitted by server-rendered HTML forms.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub form_value: Option<String>,
 }
 
 impl Default for Select {
@@ -331,6 +357,9 @@ impl Default for Select {
             trigger_semantics_identifier: None,
             placeholder: "Select...".into(),
             width: Some(200.0),
+            name: None,
+            form_id: None,
+            form_value: None,
         }
     }
 }
@@ -343,11 +372,27 @@ struct SelectRecipe {
     is_open: bool,
     on_toggle: Option<ActionEnvelope>,
     width: Option<f32>,
+    name: Option<String>,
+    form_id: Option<String>,
+    form_value: Option<String>,
+    form_select_options: Vec<FormSelectOption>,
 }
 
 impl From<Select> for Widget {
     fn from(component: Select) -> Self {
         let selected_label = component.selected_label.as_deref();
+        let form_select_options = component
+            .items
+            .iter()
+            .map(|item| {
+                Some(FormSelectOption {
+                    label: item.label.clone(),
+                    value: item.form_value.clone()?,
+                    disabled: false,
+                })
+            })
+            .collect::<Option<Vec<_>>>()
+            .unwrap_or_default();
         let mut selected_found = false;
         let entries = component
             .items
@@ -379,6 +424,10 @@ impl From<Select> for Widget {
             is_open: component.is_open,
             on_toggle: component.on_toggle,
             width: component.width,
+            name: component.name,
+            form_id: component.form_id,
+            form_value: component.form_value,
+            form_select_options,
         }
         .into()
     }
@@ -393,6 +442,10 @@ impl From<SelectLayout> for Widget {
             is_open: component.is_open,
             on_toggle: component.on_toggle,
             width: component.width,
+            name: component.name,
+            form_id: component.form_id,
+            form_value: component.form_value,
+            form_select_options: Vec::new(),
         }
         .into()
     }
@@ -407,6 +460,10 @@ struct SelectTriggerRegion {
     on_toggle: Option<ActionEnvelope>,
     active_descendant: Option<WidgetId>,
     width: Option<f32>,
+    name: Option<String>,
+    form_id: Option<String>,
+    form_value: Option<String>,
+    form_select_options: Vec<FormSelectOption>,
 }
 
 impl From<SelectTriggerRegion> for Widget {
@@ -476,6 +533,10 @@ impl From<SelectTriggerRegion> for Widget {
             controls: vec![region.popup_id],
             active_descendant: region.is_open.then_some(region.active_descendant).flatten(),
             focusable: !region.trigger.disabled,
+            text_field_name: region.name,
+            text_form_id: region.form_id,
+            form_value: region.form_value,
+            form_select_options: region.form_select_options,
             validation_state: if region.trigger.invalid {
                 TextFieldValidationState::Invalid
             } else {
@@ -528,6 +589,10 @@ impl From<SelectRecipe> for Widget {
             on_toggle: component.on_toggle.clone(),
             active_descendant,
             width: component.width,
+            name: component.name,
+            form_id: component.form_id,
+            form_value: component.form_value,
+            form_select_options: component.form_select_options,
         }
         .into();
         let content = component.content.into_menu_content(

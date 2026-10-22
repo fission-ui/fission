@@ -43,7 +43,7 @@ pub mod review;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BrowserSmokeMode {
     Dom,
-    FissionSite,
+    Website,
     FissionCanvas,
 }
 
@@ -91,9 +91,9 @@ impl BrowserTestOptions {
         self
     }
 
-    /// Drives a Fission Static site or SSR application through its semantic DOM.
-    pub fn fission_site(mut self) -> Self {
-        self.mode = BrowserSmokeMode::FissionSite;
+    /// Drives any rendered website through its semantic DOM and real Chromium input.
+    pub fn website(mut self) -> Self {
+        self.mode = BrowserSmokeMode::Website;
         self
     }
 
@@ -366,7 +366,7 @@ impl BrowserController {
     }
 
     pub(crate) fn send_test_command(&mut self, command: TestCommand) -> Result<TestResponse> {
-        if self.options.mode == BrowserSmokeMode::FissionSite {
+        if self.options.mode == BrowserSmokeMode::Website {
             return self.send_site_test_command(command);
         }
         anyhow::ensure!(
@@ -495,25 +495,38 @@ impl BrowserController {
 
     fn press_dom_key(&mut self, key: &str, modifiers: u8) -> Result<TestResponse> {
         let cdp_modifiers = cdp_modifiers(modifiers);
-        let (dom_key, code) = dom_key_and_code(key);
-        for event_type in ["keyDown", "keyUp"] {
-            let commands = if event_type == "keyDown" {
-                cdp_editing_commands(key, modifiers)
-            } else {
-                Vec::new()
-            };
-            self.client.send(
-                "Input.dispatchKeyEvent",
-                json!({
-                    "type": event_type,
-                    "key": dom_key,
-                    "code": code,
-                    "modifiers": cdp_modifiers,
-                    "commands": commands,
-                }),
-            )?;
-        }
-        ensure_response_ok(self.send_bridge_command(TestCommand::Pump {})?)?;
+        let description = cdp_key_description(key, modifiers);
+        let down_type = if description.text.is_empty() {
+            "rawKeyDown"
+        } else {
+            "keyDown"
+        };
+        self.client.send(
+            "Input.dispatchKeyEvent",
+            json!({
+                "type": down_type,
+                "key": description.key,
+                "code": description.code,
+                "text": description.text,
+                "unmodifiedText": description.text,
+                "windowsVirtualKeyCode": description.key_code,
+                "location": description.location,
+                "modifiers": cdp_modifiers,
+                "commands": cdp_editing_commands(key, modifiers),
+            }),
+        )?;
+        self.client.send(
+            "Input.dispatchKeyEvent",
+            json!({
+                "type": "keyUp",
+                "key": description.key,
+                "code": description.code,
+                "windowsVirtualKeyCode": description.key_code,
+                "location": description.location,
+                "modifiers": cdp_modifiers,
+            }),
+        )?;
+        ensure_response_ok(self.send_runtime_command(TestCommand::Pump {})?)?;
         Ok(TestResponse::Ok {})
     }
 
@@ -707,9 +720,9 @@ impl BrowserController {
     fn send_runtime_command(&mut self, command: TestCommand) -> Result<TestResponse> {
         match self.options.mode {
             BrowserSmokeMode::FissionCanvas => self.send_bridge_command(command),
-            BrowserSmokeMode::FissionSite => self.send_site_command(command),
+            BrowserSmokeMode::Website => self.send_site_command(command),
             BrowserSmokeMode::Dom => Err(anyhow!(
-                "unsupported_page_mode: semantic commands require fission_site() or fission_canvas()"
+                "unsupported_page_mode: semantic commands require website() or fission_canvas()"
             )),
         }
     }
@@ -846,33 +859,78 @@ fn cdp_editing_commands(key: &str, modifiers: u8) -> Vec<&'static str> {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-fn dom_key_and_code(key: &str) -> (String, String) {
+#[derive(Debug, PartialEq, Eq)]
+struct CdpKeyDescription {
+    key: String,
+    code: String,
+    text: String,
+    key_code: u32,
+    location: u8,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn cdp_key_description(key: &str, modifiers: u8) -> CdpKeyDescription {
     let named = match key {
-        "Left" => Some(("ArrowLeft", "ArrowLeft")),
-        "Right" => Some(("ArrowRight", "ArrowRight")),
-        "Up" => Some(("ArrowUp", "ArrowUp")),
-        "Down" => Some(("ArrowDown", "ArrowDown")),
-        "Space" => Some((" ", "Space")),
-        "Esc" => Some(("Escape", "Escape")),
-        "Enter" | "Escape" | "Tab" | "Backspace" | "Delete" | "Home" | "End" | "PageUp"
-        | "PageDown" => Some((key, key)),
+        "Backspace" => Some(("Backspace", "Backspace", "", 8)),
+        "Tab" => Some(("Tab", "Tab", "", 9)),
+        "Enter" => Some(("Enter", "Enter", "\r", 13)),
+        "Esc" | "Escape" => Some(("Escape", "Escape", "", 27)),
+        "Space" => Some((" ", "Space", " ", 32)),
+        "PageUp" => Some(("PageUp", "PageUp", "", 33)),
+        "PageDown" => Some(("PageDown", "PageDown", "", 34)),
+        "End" => Some(("End", "End", "", 35)),
+        "Home" => Some(("Home", "Home", "", 36)),
+        "Left" => Some(("ArrowLeft", "ArrowLeft", "", 37)),
+        "Up" => Some(("ArrowUp", "ArrowUp", "", 38)),
+        "Right" => Some(("ArrowRight", "ArrowRight", "", 39)),
+        "Down" => Some(("ArrowDown", "ArrowDown", "", 40)),
+        "Delete" => Some(("Delete", "Delete", "", 46)),
         _ => None,
     };
-    if let Some((dom_key, code)) = named {
-        return (dom_key.to_owned(), code.to_owned());
+    if let Some((dom_key, code, text, key_code)) = named {
+        return CdpKeyDescription {
+            key: dom_key.to_owned(),
+            code: code.to_owned(),
+            text: if modifiers & !1 == 0 {
+                text.to_owned()
+            } else {
+                String::new()
+            },
+            key_code,
+            location: 0,
+        };
     }
     let mut chars = key.chars();
     if let (Some(ch), None) = (chars.next(), chars.next()) {
-        let code = if ch.is_ascii_alphabetic() {
-            format!("Key{}", ch.to_ascii_uppercase())
+        let (code, key_code) = if ch.is_ascii_alphabetic() {
+            (
+                format!("Key{}", ch.to_ascii_uppercase()),
+                ch.to_ascii_uppercase() as u32,
+            )
         } else if ch.is_ascii_digit() {
-            format!("Digit{ch}")
+            (format!("Digit{ch}"), ch as u32)
         } else {
-            String::new()
+            (String::new(), ch as u32)
         };
-        (ch.to_string(), code)
+        CdpKeyDescription {
+            key: ch.to_string(),
+            code,
+            text: if modifiers & !1 == 0 {
+                ch.to_string()
+            } else {
+                String::new()
+            },
+            key_code,
+            location: 0,
+        }
     } else {
-        (key.to_owned(), key.to_owned())
+        CdpKeyDescription {
+            key: key.to_owned(),
+            code: key.to_owned(),
+            text: String::new(),
+            key_code: 0,
+            location: 0,
+        }
     }
 }
 
@@ -895,8 +953,6 @@ struct RuntimeStatus {
     renderer: Option<String>,
     test_bridge_ready: bool,
     #[serde(default)]
-    fission_site: bool,
-    #[serde(default)]
     rendered_frames: u64,
 }
 
@@ -908,7 +964,7 @@ fn browser_is_ready(
 ) -> bool {
     (match mode {
         BrowserSmokeMode::Dom => status.ready_dom,
-        BrowserSmokeMode::FissionSite => status.ready_dom && status.fission_site,
+        BrowserSmokeMode::Website => status.ready_dom,
         BrowserSmokeMode::FissionCanvas => {
             status.ready_canvas && status.renderer.is_some() && status.rendered_frames > 0
         }
@@ -932,7 +988,6 @@ fn read_runtime_status(client: &mut CdpClient) -> Result<RuntimeStatus> {
         test_bridge_ready: !!globalThis.__FISSION_TEST__
           && typeof globalThis.__FISSION_TEST__.submit === 'function'
           && typeof globalThis.__FISSION_TEST__.poll === 'function',
-        fission_site: !!document.querySelector('[data-fission-node],[data-fission-semantics]'),
       };
     })()"#;
     let result = client.send(
@@ -966,18 +1021,11 @@ fn wait_for_target(cdp_port: u16, expected_url: &str, timeout: Duration) -> Resu
         match ureq::get(&format!("http://127.0.0.1:{cdp_port}/json/list")).call() {
             Ok(response) => {
                 let targets: Value = response.into_json()?;
-                if let Some(target) = targets.as_array().and_then(|items| {
-                    items.iter().find(|entry| {
-                        entry.get("type").and_then(Value::as_str) == Some("page")
-                            && entry
-                                .get("url")
-                                .and_then(Value::as_str)
-                                .is_some_and(|url| url.starts_with(expected_url))
-                    })
-                }) {
-                    if let Some(url) = target.get("webSocketDebuggerUrl").and_then(Value::as_str) {
-                        return Ok(url.to_string());
-                    }
+                if let Some(url) = targets
+                    .as_array()
+                    .and_then(|items| target_websocket(items, expected_url))
+                {
+                    return Ok(url.to_string());
                 }
             }
             Err(error) => last_error = Some(error.to_string()),
@@ -988,6 +1036,29 @@ fn wait_for_target(cdp_port: u16, expected_url: &str, timeout: Duration) -> Resu
         "Chrome CDP target did not become ready for {expected_url}: {}",
         last_error.unwrap_or_else(|| "no matching target".to_string())
     ))
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn target_websocket<'a>(targets: &'a [Value], expected_url: &str) -> Option<&'a str> {
+    let pages = targets
+        .iter()
+        .filter(|entry| entry.get("type").and_then(Value::as_str) == Some("page"))
+        .collect::<Vec<_>>();
+    pages
+        .iter()
+        .copied()
+        .find(|entry| {
+            entry
+                .get("url")
+                .and_then(Value::as_str)
+                .is_some_and(|url| url.starts_with(expected_url))
+        })
+        // Chrome is launched with a fresh profile and one requested page. If
+        // that page redirects before target discovery, its URL no longer
+        // matches the requested URL but it remains the only page owned by this
+        // browser session. Never guess when Chrome exposes multiple pages.
+        .or_else(|| (pages.len() == 1).then_some(pages[0]))
+        .and_then(|target| target.get("webSocketDebuggerUrl").and_then(Value::as_str))
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -1019,6 +1090,9 @@ impl ChromeSession {
         fs::create_dir_all(&profile_dir)?;
         let mut command = Command::new(chrome);
         command
+            // Headless browser automation does not use the desktop session bus. A stale
+            // inherited address can otherwise block Chromium before its first navigation.
+            .env_remove("DBUS_SESSION_BUS_ADDRESS")
             .arg("--headless=new")
             .arg("--enable-unsafe-webgpu")
             .arg("--no-first-run")
@@ -1253,11 +1327,8 @@ impl CdpClient {
                 }
             }
             Some("Log.entryAdded") => {
-                if message
-                    .pointer("/params/entry/level")
-                    .and_then(Value::as_str)
-                    == Some("error")
-                {
+                let entry = &message["params"]["entry"];
+                if entry.get("level").and_then(Value::as_str) == Some("error") {
                     let text = message
                         .pointer("/params/entry/text")
                         .and_then(Value::as_str)
@@ -1266,8 +1337,8 @@ impl CdpClient {
                         .pointer("/params/entry/url")
                         .and_then(Value::as_str)
                         .unwrap_or("unknown URL");
-                    if !text.contains("/__fission/renderer") && !url.contains("/__fission/renderer")
-                    {
+                    let source = entry.get("source").and_then(Value::as_str).unwrap_or("");
+                    if !ignorable_browser_log(source, url, text) {
                         self.errors
                             .push(format!("browser log error at {url}: {text}"));
                     }
@@ -1276,6 +1347,26 @@ impl CdpClient {
             _ => {}
         }
     }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn ignorable_browser_log(source: &str, url: &str, text: &str) -> bool {
+    text.contains("/__fission/renderer")
+        || url.contains("/__fission/renderer")
+        || (source == "network" && is_root_favicon_url(url))
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn is_root_favicon_url(url: &str) -> bool {
+    let Some((scheme, remainder)) = url.split_once("://") else {
+        return false;
+    };
+    if !matches!(scheme, "http" | "https") {
+        return false;
+    }
+    remainder
+        .find('/')
+        .is_some_and(|path_start| &remainder[path_start..] == "/favicon.ico")
 }
 
 #[cfg(test)]
@@ -1290,6 +1381,36 @@ mod tests {
 
         let reduced = standard.reduced_motion();
         assert!(reduced.prefers_reduced_motion);
+    }
+
+    #[test]
+    fn browser_logs_ignore_only_the_root_network_favicon() {
+        assert!(ignorable_browser_log(
+            "network",
+            "http://localhost:8099/favicon.ico",
+            "Failed to load resource: status 404"
+        ));
+        assert!(ignorable_browser_log(
+            "network",
+            "https://example.com/favicon.ico",
+            "Failed to load resource"
+        ));
+        for url in [
+            "http://localhost:8099/assets/favicon.ico",
+            "http://localhost:8099/app.js",
+            "file:///favicon.ico",
+        ] {
+            assert!(!ignorable_browser_log(
+                "network",
+                url,
+                "Failed to load resource: status 404"
+            ));
+        }
+        assert!(!ignorable_browser_log(
+            "javascript",
+            "http://localhost:8099/favicon.ico",
+            "application error"
+        ));
     }
 
     fn resolved_node(
@@ -1462,10 +1583,35 @@ mod tests {
     #[test]
     fn browser_key_events_use_dom_key_names() {
         assert_eq!(
-            dom_key_and_code("Left"),
-            ("ArrowLeft".into(), "ArrowLeft".into())
+            cdp_key_description("Left", 0),
+            CdpKeyDescription {
+                key: "ArrowLeft".into(),
+                code: "ArrowLeft".into(),
+                text: String::new(),
+                key_code: 37,
+                location: 0,
+            }
         );
-        assert_eq!(dom_key_and_code("a"), ("a".into(), "KeyA".into()));
-        assert_eq!(dom_key_and_code("7"), ("7".into(), "Digit7".into()));
+        assert_eq!(
+            cdp_key_description("Enter", 0),
+            CdpKeyDescription {
+                key: "Enter".into(),
+                code: "Enter".into(),
+                text: "\r".into(),
+                key_code: 13,
+                location: 0,
+            }
+        );
+        assert_eq!(
+            cdp_key_description("a", 0),
+            CdpKeyDescription {
+                key: "a".into(),
+                code: "KeyA".into(),
+                text: "a".into(),
+                key_code: 65,
+                location: 0,
+            }
+        );
+        assert_eq!(cdp_key_description("7", 4).text, "");
     }
 }

@@ -3,6 +3,19 @@ use fission_core::Env;
 use fission_i18n::{I18nRegistry, TranslationBundle};
 use fission_theme::{DesignMode, DesignSystem, PackagedFont, Theme};
 
+/// How SSR and Static site HTML targets deliver packaged font bytes.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum WebFontDelivery {
+    /// Do not add packaged fonts to browser CSS or generated assets.
+    #[default]
+    None,
+    /// Emit cacheable font files and reference them from `@font-face` rules.
+    External,
+    /// Embed font bytes as CSS data URLs for deliberately self-contained output.
+    Inline,
+}
+
 /// Browser and social metadata for one rendered document.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DocumentMetadata {
@@ -39,6 +52,7 @@ pub struct DocumentShellConfig {
     user_css: Vec<String>,
     page_elements: Vec<SitePageElement>,
     font_faces: &'static [PackagedFont],
+    font_delivery: WebFontDelivery,
     favicon_href: Option<String>,
     code_highlighting: Option<CodeHighlightingOptions>,
 }
@@ -55,6 +69,7 @@ impl Default for DocumentShellConfig {
             user_css: Vec::new(),
             page_elements: Vec::new(),
             font_faces: &[],
+            font_delivery: WebFontDelivery::None,
             favicon_href: None,
             code_highlighting: None,
         }
@@ -83,9 +98,15 @@ impl DocumentShellConfig {
         self
     }
 
-    /// Replaces the packaged font faces embedded in generated CSS.
+    /// Replaces the packaged font faces delivered to browser targets.
     pub fn with_fonts(mut self, fonts: &'static [PackagedFont]) -> Self {
         self.font_faces = fonts;
+        self
+    }
+
+    /// Selects how SSR and Static site HTML output delivers packaged fonts.
+    pub fn with_font_delivery(mut self, delivery: WebFontDelivery) -> Self {
+        self.font_delivery = delivery;
         self
     }
 
@@ -193,9 +214,14 @@ impl DocumentShellConfig {
         &self.page_elements
     }
 
-    /// Returns font faces embedded into generated site CSS.
+    /// Returns font faces registered for browser rendering.
     pub fn font_faces(&self) -> &'static [PackagedFont] {
         self.font_faces
+    }
+
+    /// Returns how packaged font bytes are delivered to browser targets.
+    pub fn font_delivery(&self) -> WebFontDelivery {
+        self.font_delivery
     }
 
     /// Returns the configured favicon URL.
