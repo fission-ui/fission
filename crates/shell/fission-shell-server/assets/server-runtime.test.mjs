@@ -59,6 +59,7 @@ class MockControl {
 class MockRoot {
   constructor(controls) {
     this.controls = controls;
+    this.innerHTML = '';
   }
 
   querySelectorAll(selector) {
@@ -71,6 +72,7 @@ class MockRoot {
     if (selector === '[data-fission-browser-action="true"]') {
       return this.controls.filter((control) => control.getAttribute('data-fission-browser-action') === 'true');
     }
+    if (selector === '[data-fission-node]') return this.controls;
     if (selector.includes('input[data-fission-node]')) return this.controls;
     return [];
   }
@@ -130,7 +132,10 @@ globalThis.document = {
   documentElement: { getAttribute() { return null; }, lang: 'en' },
   addEventListener() {},
   getElementById(id) { return roots.get(id) ?? null; },
-  querySelector() { return null; },
+  querySelector(selector) {
+    const match = selector.match(/^\[data-fission-semantics="(.+)"\]$/);
+    return match ? roots.get(match[1]) ?? null : null;
+  },
   querySelectorAll() { return []; },
 };
 globalThis.window = {
@@ -227,6 +232,53 @@ test('native range input sends its live numeric value through the range action',
     target_node: '910',
   });
   assert.equal(posted.length, 1);
+});
+
+test('native range replacement waits until a drag commits', async () => {
+  const control = new MockControl('912', '10');
+  control.attributes.delete('data-fission-browser-text-action');
+  control.attributes.set('data-fission-browser-range-action', 'true');
+  const root = new MockRoot([control]);
+  const { bridge } = boundBridge(root, control);
+
+  control.value = '11';
+  control.emit('input');
+  hooks.applyDomOp(bridge, {
+    op: 'replace_children_html_by_semantics',
+    semantics: 'mount',
+    html: '<p>11</p>',
+  });
+  hooks.applyDomOp(bridge, {
+    op: 'replace_children_html_by_semantics',
+    semantics: 'mount',
+    html: '<p>12</p>',
+  });
+
+  assert.equal(root.innerHTML, '', 'an active range must remain in the live DOM');
+  control.emit('change');
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(root.innerHTML, '<p>12</p>', 'only the latest deferred render is committed');
+});
+
+test('number input replacement waits until editing commits', async () => {
+  const control = new MockControl('913', '370');
+  control.selectionStart = null;
+  control.selectionEnd = null;
+  const root = new MockRoot([control]);
+  const { bridge } = boundBridge(root, control);
+
+  control.value = '3700';
+  control.emit('input');
+  hooks.applyDomOp(bridge, {
+    op: 'replace_children_html_by_semantics',
+    semantics: 'mount',
+    html: '<input type="number" value="3700">',
+  });
+
+  assert.equal(root.innerHTML, '', 'a number input without selection APIs must not be rebuilt mid-edit');
+  control.emit('blur');
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(root.innerHTML, '<input type="number" value="3700">');
 });
 
 test('native radio dispatches once after the browser updates its checked state', () => {
