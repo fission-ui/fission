@@ -70,9 +70,9 @@ use fission::prelude::*;
 
 fission_component! {
     pub CounterApp<()> {
-        #[local_state(default = 0)]
-        count: i32,
-    } |counter, _state, cx| {
+        state { count: i32 = 0 }
+    }
+    view(counter, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
     Container(
@@ -85,7 +85,7 @@ fission_component! {
                 Button(
                     child: Text("Increment"),
                     key: "increment",
-                    on_press: |counter, _state, _cx| counter.count += 1,
+                    on_press: reduce { counter.count += 1; },
                 ),
             ],
         ),

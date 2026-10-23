@@ -15,9 +15,9 @@ use fission::prelude::*;
 
 fission_component! {
     CounterApp<()> {
-        #[local_state(default = 0)]
-        count: i32,
-    } |counter, _state, cx| {
+        state { count: i32 = 0 }
+    }
+    view(counter, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
     Container(
@@ -29,7 +29,7 @@ fission_component! {
                 Button(
                     child: Text("Increment"),
                     key: "increment",
-                    on_press: |counter, _state, _cx| counter.count += 1,
+                    on_press: reduce { counter.count += 1; },
                 )
                 .semantics_identifier("counter.increment"),
             ],
@@ -46,8 +46,8 @@ fn main() -> anyhow::Result<()> {
 ## What matters
 
 - `fission_component!` defines a typed component and its widget tree together.
-- `#[local_state(default = 0)]` makes `count` retained local state rather than app-wide `GlobalState`.
-- The inline `on_press` reducer keeps this one-component state transition beside the control that owns it.
+- The `state` section makes `count` retained component state rather than app-wide `GlobalState`.
+- The inline `on_press: reduce` block keeps this one-component state transition beside the control that owns it.
 - The literal `key` gives the reducer a stable identity, while the semantic identifier makes the control accessible to tests and assistive tooling.
 - Theme tokens provide spacing and typography rather than baking a second visual language into the example.
 

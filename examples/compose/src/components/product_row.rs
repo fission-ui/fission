@@ -1,12 +1,13 @@
-use crate::actions::{navigate, Navigate};
+use crate::actions::{Navigate, navigate};
 use crate::components::StatusPill;
 use crate::state::{Product, Products};
 use fission::prelude::*;
 
 fission_component! {
     pub ProductRow<Product> using Products(row.product_id) {
-        product_id: u64,
-    } |row, product, cx| {
+        props { product_id: u64 }
+    }
+    view(row, product, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
     Row(gap: tokens.spacing.m, children: [

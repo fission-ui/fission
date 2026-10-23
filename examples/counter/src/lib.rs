@@ -2,9 +2,9 @@ use fission::prelude::*;
 
 fission_component! {
     pub CounterApp<()> {
-        #[local_state(default = 0)]
-        count: i32,
-    } |counter, _state, cx| {
+        state { count: i32 = 0 }
+    }
+    view(counter, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
     Container(
@@ -26,13 +26,13 @@ fission_component! {
                             child: Text("Decrement"),
                             key: "decrement",
                             variant: ButtonVariant::Outline,
-                            on_press: |counter, _state, _cx| counter.count -= 1,
+                            on_press: reduce { counter.count -= 1; },
                         )
                         .semantics_identifier("counter.decrement"),
                         Button(
                             child: Text("Increment"),
                             key: "increment",
-                            on_press: |counter, _state, _cx| counter.count += 1,
+                            on_press: reduce { counter.count += 1; },
                         )
                         .semantics_identifier("counter.increment"),
                     ],

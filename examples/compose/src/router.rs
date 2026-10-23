@@ -4,7 +4,8 @@ use fission::prelude::*;
 use std::sync::Arc;
 
 fission_component! {
-    pub App<AppState> |_app, state, _cx| {
+    pub App<AppState>
+    view(_app, state, _cx) {
         let router = Router::<AppState>::new()
             .with_path(state.current_path.clone())
             .route("/", Dashboard::new)

@@ -23,11 +23,14 @@ impl GlobalState for AppState {}
 
 fission_component! {
     pub Editor<AppState> {
-        title: String,
-
-        #[local_state(default = String::new())]
-        draft: String,
-    } |editor, state, cx| {
+        props {
+            title: String,
+        }
+        state {
+            draft: String = String::new(),
+        }
+    }
+    view(editor, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
     Container(
@@ -45,7 +48,7 @@ fission_component! {
                 Button(
                     child: Text(cx.tr("editor.save")),
                     key: "save",
-                    on_press: |editor, state, _cx| {
+                    on_press: reduce {
                         if !editor.draft.trim().is_empty() {
                             state.saves += 1;
                         }
@@ -60,7 +63,7 @@ fission_component! {
 }
 ```
 
-The three names after the component declaration are available while building the tree:
+The three names in `view(editor, state, cx)` are available while building the tree and inside `reduce` and effect lifecycle blocks. They are named Compose scopes, not closure parameters:
 
 - `editor` contains component properties and retained local-state values.
 - `state` is the current state selected for this component.
@@ -77,7 +80,8 @@ use fission::prelude::{Card, Column, Text};
 use my_components::AccountSummary;
 
 fission_component! {
-    pub Dashboard<AppState> |_, state, _cx| =>
+    pub Dashboard<AppState>
+    view(_dashboard, state, _cx) =>
     Card(
         child: Column(children: [
             Text("Dashboard"),
@@ -91,7 +95,7 @@ Named arguments are public struct fields and unspecified fields come from `Defau
 
 ## State and bindings
 
-Use global state for durable application facts and `#[local_state]` for retained memory owned by one component instance. A `bind` creates the current value and update action together:
+Use global state for durable application facts and a component's `state` section for retained memory owned by one component instance. Values in `props` are supplied by the parent and observed again on every build. A `bind` creates the current value and update action together:
 
 ```rust
 TextInput(bind: state.profile.display_name)
@@ -120,7 +124,7 @@ Put a small, component-specific transition beside the control that dispatches it
 Button(
     child: Text("Add item"),
     key: "add-item",
-    on_press: |_, state, cx| {
+    on_press: reduce {
         state.items.push(Item::new());
         cx.effects.navigate("/items/latest");
     },
@@ -133,7 +137,8 @@ Reusable actions and reducers remain ordinary Fission APIs. Register them in the
 
 ```rust
 fission_component! {
-    pub Toolbar<AppState> |_, _state, cx| {
+    pub Toolbar<AppState>
+    view(_toolbar, _state, cx) {
         let refresh = with_reducer!(cx.build, Refresh, refresh);
     } =>
     Button(child: Text("Refresh"), on_press: refresh)
@@ -174,15 +179,13 @@ async fn increment_counter(current: i32) -> Result<i32, String> {
 
 fission_component! {
     pub RemoteCounter<()> {
-        #[local_state(default = 0)]
-        count: i32,
-
-        #[local_state(default = false)]
-        loading: bool,
-
-        #[local_state(default = None)]
-        error: Option<String>,
-    } |counter, _state, _cx| =>
+        state {
+            count: i32 = 0,
+            loading: bool = false,
+            error: Option<String> = None,
+        }
+    }
+    view(counter, _state, _cx) =>
     Column(
         gap: 16.0,
         children: [
@@ -196,15 +199,15 @@ fission_component! {
                 key: "remote-increment",
                 disabled: counter.loading,
                 on_press: effect increment_counter(counter.count) {
-                    start {
+                    on_start {
                         counter.loading = true;
                         counter.error = None;
                     }
-                    Ok(count) {
+                    on_ok(count) {
                         counter.count = count;
                         counter.loading = false;
                     }
-                    Err(error) {
+                    on_err(error) {
                         counter.error = Some(error);
                         counter.loading = false;
                     }
@@ -218,9 +221,9 @@ fission_component! {
 }
 ```
 
-`start` runs synchronously when the control is activated. `Ok(value)` and `Err(error)` run later with the typed job result. Each block receives the component editor, scoped application state and a fresh reducer context. A completion for a component that has since unmounted is ignored rather than recreating its local state.
+`on_start` runs synchronously when the control is activated and is optional. `on_ok(value)` and `on_err(error)` run later with the typed job result; both are required so an effect cannot silently discard either outcome. Each block receives current access to the component, scoped application state and a fresh reducer context. A completion for a component that has since unmounted is ignored rather than recreating its local state.
 
-Effect arguments are evaluated when the event is handled. They may use declared component properties, retained local fields, scoped application state, literals and ordinary functions. They do not implicitly capture temporary values from the build-time setup block. Put durable inputs in a property or state, or use an explicitly registered job when the work is shared or requires a specialised host implementation.
+Effect arguments are evaluated when the event is handled and must be owned snapshots. They may select or clone declared component properties, retained local fields and scoped application-state values, and may use literals and ordinary functions. Compose rejects passing the whole component, global state, reducer context, or references into the asynchronous operation. Rust's `Serialize + Send + 'static` bounds provide a second safety layer. Temporary values from the build-time setup block are not captured; put durable inputs in a property or state, or use an explicitly registered job when the work is shared or requires a specialised host implementation.
 
 The `example.com` endpoint above documents the expected request shape; substitute an endpoint that accepts `{ "current": 4 }` and returns `{ "count": 5 }` when running it.
 
@@ -250,7 +253,8 @@ Use Fission's native `Router` rather than introducing a second routing model. Ro
 
 ```rust
 fission_component! {
-    pub App<AppState> |_, state, _cx| =>
+    pub App<AppState>
+    view(_app, state, _cx) =>
     Router::<AppState>::new()
         .with_path(state.current_path.clone())
         .route_component("/", HomePage)
@@ -270,8 +274,9 @@ state_scope! {
 
 fission_component! {
     pub ProductEditor<Product> using Products(editor.product_id) {
-        product_id: u64,
-    } |editor, product, _cx| =>
+        props { product_id: u64 }
+    }
+    view(editor, product, _cx) =>
     TextInput(bind: product.name)
 }
 ```

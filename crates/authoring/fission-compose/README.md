@@ -11,7 +11,7 @@ Application developers should normally depend on the [`fission`](https://crates.
 - Typed value/update sources used by control bindings.
 - Stable semantic identities for components, repeated children, fields and inline handlers.
 - Event contracts for presses, text changes and toggles.
-- `#[fission_effect]` and inline `start`/`Ok`/`Err` handling for component-owned async work.
+- `#[fission_effect]` and inline `on_start`/`on_ok`/`on_err` handling for component-owned async work.
 
 Widget names are resolved by normal Rust imports. Named arguments initialise public struct fields and omitted fields use `Default`; positional arguments call the type's existing `new(...)` constructor. Third-party widgets require no Compose registration.
 
@@ -20,15 +20,17 @@ use fission::prelude::*;
 
 fission_component! {
     pub Counter<()> {
-        #[local_state(default = 0)]
-        count: i32,
-    } |counter, _state, _cx| =>
+        state {
+            count: i32 = 0,
+        }
+    }
+    view(counter, _state, _cx) =>
     Column(children: [
         Text(counter.count.to_string()),
         Button(
             child: Text("Increment"),
             key: "increment",
-            on_press: |counter, _state, _cx| counter.count += 1,
+            on_press: reduce { counter.count += 1; },
         ),
     ])
 }
@@ -46,12 +48,12 @@ Button(
     child: Text("Save"),
     key: "save",
     on_press: effect save_draft(editor.draft.clone()) {
-        start { editor.saving = true; }
-        Ok(saved) {
+        on_start { editor.saving = true; }
+        on_ok(saved) {
             editor.draft = saved;
             editor.saving = false;
         }
-        Err(error) {
+        on_err(error) {
             editor.error = Some(error);
             editor.saving = false;
         }
@@ -60,6 +62,10 @@ Button(
 ```
 
 Handwritten `From<YourWidget> for Widget` implementations remain fully interoperable for low-level custom rendering.
+
+`on_ok` and `on_err` are required so every effect handles both outcomes. `on_start`
+is optional. Effect arguments are owned snapshots; Compose rejects component,
+global-state and reducer-context handles crossing the asynchronous boundary.
 
 Read the [Compose guide](https://fission.rs/compose/) or run the checked-in [`compose` example](https://github.com/fission-ui/fission/tree/main/examples/compose).
 

@@ -1,9 +1,10 @@
-use crate::actions::{navigate, Navigate};
+use crate::actions::{Navigate, navigate};
 use crate::state::AppState;
 use fission::prelude::*;
 
 fission_component! {
-    pub NotFound<AppState> |page, state, cx| {
+    pub NotFound<AppState>
+    view(_page, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
     Column(

@@ -4,7 +4,8 @@ use fission::i18n::Locale;
 use fission::prelude::*;
 
 fission_component! {
-    pub SettingsPage<AppState> |settings, state, cx| {
+    pub SettingsPage<AppState>
+    view(_settings, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
     Column(
@@ -31,13 +32,13 @@ fission_component! {
                     child: Text(cx.tr("settings.english")),
                     key: "english",
                     variant: ButtonVariant::Outline,
-                    on_press: |_, state, _| { state.locale = Locale::from("en-US"); },
+                    on_press: reduce { state.locale = Locale::from("en-US"); },
                 ),
                 Button(
                     child: Text(cx.tr("settings.spanish")),
                     key: "spanish",
                     variant: ButtonVariant::Outline,
-                    on_press: |_, state, _| { state.locale = Locale::from("es-ES"); },
+                    on_press: reduce { state.locale = Locale::from("es-ES"); },
                 ),
             ]),
         ],

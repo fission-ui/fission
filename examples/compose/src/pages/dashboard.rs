@@ -3,7 +3,8 @@ use crate::state::AppState;
 use fission::prelude::*;
 
 fission_component! {
-    pub Dashboard<AppState> |dashboard, state, cx| {
+    pub Dashboard<AppState>
+    view(_dashboard, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
     Column(

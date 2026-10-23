@@ -4,9 +4,9 @@ use fission::prelude::*;
 
 fission_component! {
     pub ProductList<AppState> {
-        #[local_state(default = String::new())]
-        query: String,
-    } |list, state, cx| {
+        state { query: String = String::new() }
+    }
+    view(list, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
     Column(
@@ -39,7 +39,7 @@ fission_component! {
                 Button(
                     child: Text(cx.tr("products.add")),
                     key: "add-product",
-                    on_press: |_, state, cx| {
+                    on_press: reduce {
                         let id = state.products.keys().next_back().copied().unwrap_or(0) + 1;
                         state.products.insert(id, Product {
                             id,

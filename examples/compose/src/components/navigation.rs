@@ -1,9 +1,10 @@
-use crate::actions::{navigate, Navigate};
+use crate::actions::{Navigate, navigate};
 use crate::state::AppState;
 use fission::prelude::*;
 
 fission_component! {
-    pub Navigation<AppState> |navigation, state, cx| {
+    pub Navigation<AppState>
+    view(_navigation, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
     Row(gap: tokens.spacing.s, children: [

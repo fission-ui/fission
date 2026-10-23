@@ -1,14 +1,14 @@
-use crate::actions::{navigate, Navigate};
+use crate::actions::{Navigate, navigate};
 use crate::components::Navigation;
 use crate::state::{Product, Products};
 use fission::prelude::*;
 
 fission_component! {
     pub ProductEditor<Product> using Products(editor.product_id) {
-        product_id: u64,
-        #[local_state(default = false)]
-        show_notes: bool,
-    } |editor, product, cx| {
+        props { product_id: u64 }
+        state { show_notes: bool = false }
+    }
+    view(editor, product, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
     Column(
@@ -66,7 +66,7 @@ fission_component! {
                     child: Text(cx.tr("editor.save")),
                     key: "save",
                     disabled: product.name.trim().is_empty(),
-                    on_press: |editor, product, _| {
+                    on_press: reduce {
                         if product.name.trim().is_empty() {
                             return;
                         }
