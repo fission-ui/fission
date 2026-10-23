@@ -171,6 +171,22 @@ fn canvas_buttons_accept_real_browser_touch_input() -> Result<()> {
 }
 
 #[test]
+fn long_press_on_empty_text_input_opens_mobile_paste_toolbar() -> Result<()> {
+    let Some(url) = browser_url() else {
+        eprintln!("set FISSION_WEB_SMOKE_URL to run the browser long-press conformance test");
+        return Ok(());
+    };
+    let mut options = BrowserTestOptions::new(url).fission_canvas().mobile(3.0);
+    options.viewport_width = 390;
+    options.viewport_height = 844;
+    let client = LiveTestClient::launch_browser(options)?;
+
+    client.long_press_selector(SelectorQuery::semantic_identifier("web-smoke.text.primary"))?;
+    client.wait_for_text("Paste", 5_000)?;
+    Ok(())
+}
+
+#[test]
 fn physical_key_on_the_ime_bridge_is_applied_once() -> Result<()> {
     let Some(url) = browser_url() else {
         eprintln!("set FISSION_WEB_SMOKE_URL to run the browser keyboard conformance test");

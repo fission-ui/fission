@@ -305,6 +305,7 @@ impl BrowserController {
         query: SelectorQuery,
         relative_x: f32,
         relative_y: f32,
+        hold_duration: Duration,
     ) -> Result<TestResponse> {
         ensure_response_ok(self.send_runtime_command(TestCommand::ScrollIntoView {
             query: query.clone().include_hidden(),
@@ -329,6 +330,9 @@ impl BrowserController {
                 "touchPoints": [{ "x": x, "y": y, "id": 1 }]
             }),
         )?;
+        if !hold_duration.is_zero() {
+            std::thread::sleep(hold_duration);
+        }
         self.client.send(
             "Input.dispatchTouchEvent",
             json!({ "type": "touchEnd", "touchPoints": [] }),

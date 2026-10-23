@@ -920,13 +920,29 @@ impl LiveTestClient {
         relative_x: f32,
         relative_y: f32,
     ) -> Result<()> {
+        self.touch_selector_at_for(query, relative_x, relative_y, std::time::Duration::ZERO)
+    }
+
+    /// Holds a real browser touch over the center of a semantic node long
+    /// enough to exercise the platform long-press path.
+    pub fn long_press_selector(&self, query: SelectorQuery) -> Result<()> {
+        self.touch_selector_at_for(query, 0.5, 0.5, std::time::Duration::from_millis(600))
+    }
+
+    fn touch_selector_at_for(
+        &self,
+        query: SelectorQuery,
+        relative_x: f32,
+        relative_y: f32,
+        hold_duration: std::time::Duration,
+    ) -> Result<()> {
         let query = self.scoped_query(query);
         match &self.transport {
             LiveTestTransport::Browser(controller) => {
                 let response = controller
                     .lock()
                     .map_err(|_| anyhow!("browser test controller lock is poisoned"))?
-                    .touch_selector(query, relative_x, relative_y)?;
+                    .touch_selector(query, relative_x, relative_y, hold_duration)?;
                 match response {
                     TestResponse::Ok {} => Ok(()),
                     TestResponse::SelectorError { failure } => {
