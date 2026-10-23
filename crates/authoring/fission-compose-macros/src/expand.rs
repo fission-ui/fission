@@ -189,6 +189,35 @@ fn handle_name(id: &Ident) -> Ident {
     format_ident!("__local_{}", id)
 }
 
+fn is_static_str(ty: &syn::Type) -> bool {
+    let syn::Type::Reference(reference) = ty else {
+        return false;
+    };
+    reference
+        .lifetime
+        .as_ref()
+        .is_some_and(|lifetime| lifetime.ident == "static")
+        && matches!(reference.elem.as_ref(), syn::Type::Path(path) if path.qself.is_none() && path.path.is_ident("str"))
+}
+
+fn captured_field_type(field: &crate::ast::Field) -> Tokens {
+    if is_static_str(&field.ty) {
+        quote!(::std::string::String)
+    } else {
+        let ty = &field.ty;
+        quote!(#ty)
+    }
+}
+
+fn captured_field_value(field: &crate::ast::Field, editor: &Ident) -> Tokens {
+    let id = &field.name;
+    if is_static_str(&field.ty) {
+        quote!(::std::string::ToString::to_string(#editor.#id))
+    } else {
+        quote!(::std::clone::Clone::clone(&#editor.#id))
+    }
+}
+
 struct Emitter<'a> {
     rt: Tokens,
     component: Ident,
@@ -210,6 +239,10 @@ impl Emitter<'_> {
             Value::Effect(effect) => Err(syn::Error::new_spanned(
                 &effect.operation,
                 "effect is only valid as an event property such as on_press:",
+            )),
+            Value::Reduce(block) => Err(syn::Error::new_spanned(
+                block,
+                "reduce is only valid as an event property such as on_press:",
             )),
             Value::Call(c) => self.call(c, path),
             Value::Rust(e) | Value::Read(e) => Ok(borrowed_read(e, &self.editor, &self.state)),
@@ -295,7 +328,10 @@ impl Emitter<'_> {
             }
             Value::For { pat, iter, body } => {
                 if !matches!(body.as_ref(),Value::Call(c) if c.named("key").is_some()) {
-                    return Err(syn::Error::new_spanned(iter,"a dynamic child must be a component/control with an explicit key: for item in items { Row(key: item.id, ...) }"));
+                    return Err(syn::Error::new_spanned(
+                        iter,
+                        "a dynamic child must be a component/control with an explicit key: for item in items { Row(key: item.id, ...) }",
+                    ));
                 }
                 let body = self.append(body, path)?;
                 quote!(for #pat in #iter{#body})
@@ -395,7 +431,10 @@ impl Emitter<'_> {
                 return Ok(quote!(#rt::binding::local_source(__build,&__mount,#h.clone(),#symbol)));
             }
         }
-        Err(syn::Error::new_spanned(expr,"bind requires a directly writable state or local field; use source(existing_binding) for a custom binding"))
+        Err(syn::Error::new_spanned(
+            expr,
+            "bind requires a directly writable state or local field; use source(existing_binding) for a custom binding",
+        ))
     }
     fn call(&mut self, c: &Call, parent_path: &str) -> syn::Result<Tokens> {
         let rt = self.rt.clone();
@@ -482,6 +521,22 @@ impl Emitter<'_> {
                         &format!("{parent_path}/{widget_name}/{handler_name}/{property}"),
                     )?;
                     quote!((#handler).into())
+                } else if let Value::Reduce(block) = &arg.value {
+                    let handler_name=c.named("handler").and_then(Value::rust).and_then(string_literal)
+                        .or_else(||static_key.clone())
+                        .or_else(||c.named("key").is_none().then(||automatic_key.clone()))
+                        .ok_or_else(||syn::Error::new_spanned(block,"a reduce handler needs a literal key: \"reset\"; with a dynamic control key, add handler: \"reset\""))?;
+                    let editor = &self.editor;
+                    let state = &self.state;
+                    let cx = &self.cx;
+                    let closure: syn::ExprClosure =
+                        syn::parse_quote!(|#editor, #state, #cx| #block);
+                    let handler = self.handler(
+                        &closure,
+                        &property,
+                        &format!("{parent_path}/{widget_name}/{handler_name}/{property}"),
+                    )?;
+                    quote!((#handler).into())
                 } else {
                     match arg.value.rust() {
                         Some(Expr::Closure(closure)) => {
@@ -504,7 +559,7 @@ impl Emitter<'_> {
                             return Err(syn::Error::new_spanned(
                                 widget,
                                 "an event takes an inline handler or an already-typed Event value",
-                            ))
+                            ));
                         }
                     }
                 }
@@ -582,7 +637,10 @@ impl Emitter<'_> {
             || closure.asyncness.is_some()
             || !matches!(closure.output, syn::ReturnType::Default)
         {
-            return Err(syn::Error::new_spanned(closure,"inline handlers use |editor, state, cx| { ... }; no move, async, return-type annotation, or captured render locals"));
+            return Err(syn::Error::new_spanned(
+                closure,
+                "inline handlers use |editor, state, cx| { ... }; no move, async, return-type annotation, or captured render locals",
+            ));
         }
         let args: Vec<_> = closure
             .inputs
@@ -600,7 +658,10 @@ impl Emitter<'_> {
             _ => quote!(#rt::events::Press),
         };
         if !self.symbols.insert(symbol.into()) {
-            return Err(syn::Error::new_spanned(closure,"duplicate inline handler identity; give the control or handler a distinct semantic name"));
+            return Err(syn::Error::new_spanned(
+                closure,
+                "duplicate inline handler identity; give the control or handler a distinct semantic name",
+            ));
         }
         let mut used = BTreeSet::new();
         if let Some(editor) = &args[0] {
@@ -618,7 +679,12 @@ impl Emitter<'_> {
         }
         for field in &used {
             if !self.fields.iter().any(|f| f.name == field.as_str()) {
-                return Err(syn::Error::new_spanned(closure,format!("{field} is not a declared prop or local field; event editor access is limited to declared fields")));
+                return Err(syn::Error::new_spanned(
+                    closure,
+                    format!(
+                        "{field} is not a declared prop or local field; event editor access is limited to declared fields"
+                    ),
+                ));
             }
         }
         let captures: Vec<_> = self
@@ -642,7 +708,7 @@ impl Emitter<'_> {
         );
         let prop_defs = captures.iter().map(|f| {
             let id = &f.name;
-            let ty = &f.ty;
+            let ty = captured_field_type(f);
             quote!(#id:#ty)
         });
         let local_defs = locals.iter().map(|f| {
@@ -694,7 +760,8 @@ impl Emitter<'_> {
         let editor = &self.editor;
         let props = captures.iter().map(|f| {
             let id = &f.name;
-            quote!(#id: ::std::clone::Clone::clone(&#editor.#id))
+            let value = captured_field_value(f, editor);
+            quote!(#id: #value)
         });
         let keys = locals.iter().map(|f| {
             let id = &f.name;
@@ -758,9 +825,12 @@ impl Emitter<'_> {
         let cx = &self.cx;
         let mut used = BTreeSet::new();
         for argument in &effect.args {
+            validate_effect_argument(argument, editor, state, cx)?;
             scan_fields(argument.to_token_stream(), editor, &mut used)?;
         }
-        scan_fields(effect.start.to_token_stream(), editor, &mut used)?;
+        if let Some(start) = &effect.start {
+            scan_fields(start.to_token_stream(), editor, &mut used)?;
+        }
         scan_fields(effect.ok.to_token_stream(), editor, &mut used)?;
         scan_fields(effect.err.to_token_stream(), editor, &mut used)?;
         for field in &used {
@@ -820,7 +890,7 @@ impl Emitter<'_> {
 
         let prop_defs = captures.iter().map(|field| {
             let id = &field.name;
-            let ty = &field.ty;
+            let ty = captured_field_type(field);
             quote!(#id:#ty)
         });
         let local_defs = locals.iter().map(|field| {
@@ -880,7 +950,7 @@ impl Emitter<'_> {
                 quote!((#arguments))
             }
         };
-        let start = &effect.start;
+        let start = effect.start.as_ref();
         let ok_pattern = &effect.ok_pattern;
         let ok = &effect.ok;
         let err_pattern = &effect.err_pattern;
@@ -920,7 +990,8 @@ impl Emitter<'_> {
 
         let props = captures.iter().map(|field| {
             let id = &field.name;
-            quote!(#id: ::std::clone::Clone::clone(&#editor.#id))
+            let value = captured_field_value(field, editor);
+            quote!(#id: #value)
         });
         let keys = locals.iter().map(|field| {
             let id = &field.name;
@@ -1087,6 +1158,7 @@ fn value_shape(value: &Value) -> String {
                 .collect::<Vec<_>>()
                 .join(","),
         ),
+        Value::Reduce(block) => format!("reduce:{}", block.to_token_stream()),
         Value::Call(call) => call_shape(call),
         Value::Rust(expr)
         | Value::ExplicitRust(expr)
@@ -1257,6 +1329,106 @@ fn stable_hash(text: &str) -> u64 {
         (h ^ u64::from(b)).wrapping_mul(0x100000001b3)
     })
 }
+
+fn strip_expression_wrappers(mut expr: &Expr) -> &Expr {
+    loop {
+        expr = match expr {
+            Expr::Group(group) => &group.expr,
+            Expr::Paren(paren) => &paren.expr,
+            _ => return expr,
+        };
+    }
+}
+
+fn expression_root(expr: &Expr) -> Option<&Ident> {
+    match strip_expression_wrappers(expr) {
+        Expr::Path(path) if path.qself.is_none() && path.path.segments.len() == 1 => {
+            path.path.get_ident()
+        }
+        Expr::Field(field) => expression_root(&field.base),
+        Expr::Index(index) => expression_root(&index.expr),
+        Expr::MethodCall(call) => expression_root(&call.receiver),
+        Expr::Reference(reference) => expression_root(&reference.expr),
+        _ => None,
+    }
+}
+
+fn validate_effect_argument(
+    argument: &Expr,
+    editor: &Ident,
+    state: &Ident,
+    cx: &Ident,
+) -> syn::Result<()> {
+    let argument = strip_expression_wrappers(argument);
+    if matches!(argument, Expr::Path(path) if path.path.is_ident(editor)) {
+        return Err(syn::Error::new_spanned(
+            argument,
+            format!(
+                "an effect cannot receive the component binding `{editor}`; pass an owned snapshot, such as `{editor}.count` or `{editor}.name.clone()`"
+            ),
+        ));
+    }
+    if matches!(argument, Expr::Path(path) if path.path.is_ident(state)) {
+        return Err(syn::Error::new_spanned(
+            argument,
+            format!(
+                "an effect cannot receive the global-state binding `{state}`; select the owned values required by the operation, such as `{state}.session.account_id.clone()`"
+            ),
+        ));
+    }
+
+    let mut check = EffectArgumentCheck {
+        editor,
+        state,
+        cx,
+        error: None,
+    };
+    syn::visit::Visit::visit_expr(&mut check, argument);
+    check.error.map_or(Ok(()), Err)
+}
+
+struct EffectArgumentCheck<'a> {
+    editor: &'a Ident,
+    state: &'a Ident,
+    cx: &'a Ident,
+    error: Option<syn::Error>,
+}
+
+impl<'ast> syn::visit::Visit<'ast> for EffectArgumentCheck<'_> {
+    fn visit_expr(&mut self, expr: &'ast Expr) {
+        if self.error.is_some() {
+            return;
+        }
+        if matches!(expr, Expr::Path(path) if path.path.is_ident(self.cx)) {
+            self.error = Some(syn::Error::new_spanned(
+                expr,
+                format!(
+                    "an effect cannot receive the reducer context `{}`; use `{}` inside on_start, on_ok, or on_err",
+                    self.cx, self.cx,
+                ),
+            ));
+            return;
+        }
+        syn::visit::visit_expr(self, expr);
+    }
+
+    fn visit_expr_reference(&mut self, reference: &'ast syn::ExprReference) {
+        if self.error.is_some() {
+            return;
+        }
+        if expression_root(&reference.expr)
+            .is_some_and(|root| root == self.editor || root == self.state)
+        {
+            self.error = Some(syn::Error::new_spanned(
+                reference,
+                "effect arguments must be owned; clone this value instead of passing a reference across the asynchronous effect boundary",
+            ));
+            return;
+        }
+        syn::visit::visit_expr_reference(self, reference);
+    }
+}
+
 fn scan_fields(tokens: Tokens, editor: &Ident, out: &mut BTreeSet<String>) -> syn::Result<()> {
     let tokens: Vec<_> = tokens.into_iter().collect();
     for (i, t) in tokens.iter().enumerate() {
@@ -1272,7 +1444,10 @@ fn scan_fields(tokens: Tokens, editor: &Ident, out: &mut BTreeSet<String>) -> sy
                     continue;
                 }
             }
-            return Err(syn::Error::new(t.span(),"event editor access must name a declared field, e.g. editor.session or editor.advanced; no implicit whole-widget capture"));
+            return Err(syn::Error::new(
+                t.span(),
+                "event editor access must name a declared field, e.g. editor.session or editor.advanced; no implicit whole-widget capture",
+            ));
         }
     }
     Ok(())
@@ -1289,7 +1464,10 @@ impl<'ast> syn::visit::Visit<'ast> for HandlerCheck {
         ));
     }
     fn visit_expr_async(&mut self, e: &'ast syn::ExprAsync) {
-        self.error=Some(syn::Error::new_spanned(e,"an async block in an extracted handler is unsupported; use an ordinary effect/job helper"));
+        self.error = Some(syn::Error::new_spanned(
+            e,
+            "an async block in an extracted handler is unsupported; use an ordinary effect/job helper",
+        ));
     }
     fn visit_pat_ident(&mut self, p: &'ast syn::PatIdent) {
         if self.params.contains(&p.ident) {

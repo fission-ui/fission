@@ -5,8 +5,15 @@ use syn::{
 };
 mod kw {
     syn::custom_keyword!(effect);
+    syn::custom_keyword!(on_err);
+    syn::custom_keyword!(on_ok);
+    syn::custom_keyword!(on_start);
+    syn::custom_keyword!(props);
+    syn::custom_keyword!(reduce);
     syn::custom_keyword!(start);
+    syn::custom_keyword!(state);
     syn::custom_keyword!(using);
+    syn::custom_keyword!(view);
     syn::custom_keyword!(rust);
 }
 
@@ -54,59 +61,61 @@ impl Parse for Component {
         if input.peek(syn::token::Brace) {
             let fs;
             syn::braced!(fs in input);
-            while !fs.is_empty() {
-                let mut attrs = fs.call(Attribute::parse_outer)?;
-                let name: Ident = fs.parse()?;
-                fs.parse::<Token![:]>()?;
-                let ty = fs.parse()?;
-                let mut local = None;
-                if let Some(i) = attrs.iter().position(|a| a.path().is_ident("local_state")) {
-                    let attr = attrs.remove(i);
-                    attr.parse_nested_meta(|m| {
-                        if !m.path.is_ident("default") {
-                            return Err(m.error("expected default = expression"));
+            if fs.peek(kw::props) || fs.peek(kw::state) {
+                let mut saw_props = false;
+                let mut saw_state = false;
+                while !fs.is_empty() {
+                    let local = if fs.peek(kw::props) {
+                        fs.parse::<kw::props>()?;
+                        if saw_props {
+                            return Err(fs.error("duplicate props section"));
                         }
-                        if local.is_some() {
-                            return Err(m.error("duplicate local default"));
+                        saw_props = true;
+                        false
+                    } else if fs.peek(kw::state) {
+                        fs.parse::<kw::state>()?;
+                        if saw_state {
+                            return Err(fs.error("duplicate state section"));
                         }
-                        local = Some(m.value()?.parse()?);
-                        Ok(())
-                    })?;
-                    if local.is_none() {
-                        return Err(syn::Error::new_spanned(
-                            attr,
-                            "local_state requires default = expression",
-                        ));
+                        saw_state = true;
+                        true
+                    } else {
+                        return Err(fs.error("expected props { ... } or state { ... }"));
+                    };
+                    let section;
+                    syn::braced!(section in fs);
+                    parse_section_fields(&section, &mut fields, local)?;
+                    if fs.peek(Token![,]) {
+                        fs.parse::<Token![,]>()?;
                     }
                 }
-                if fields.iter().any(|f: &Field| f.name == name) {
-                    return Err(syn::Error::new(name.span(), "duplicate component field"));
-                }
-                if name.to_string().starts_with("__") {
-                    return Err(syn::Error::new(
-                        name.span(),
-                        "names beginning __ are reserved for generated implementation details",
-                    ));
-                }
-                fields.push(Field {
-                    attrs,
-                    name,
-                    ty,
-                    local,
-                });
-                if fs.is_empty() {
-                    break;
-                }
-                fs.parse::<Token![,]>()?;
+            } else {
+                parse_legacy_fields(&fs, &mut fields)?;
             }
         }
-        input.parse::<Token![|]>()?;
-        let editor = input.parse()?;
-        input.parse::<Token![,]>()?;
-        let state = input.parse()?;
-        input.parse::<Token![,]>()?;
-        let cx = input.parse()?;
-        input.parse::<Token![|]>()?;
+        let (editor, state, cx) = if input.peek(kw::view) {
+            input.parse::<kw::view>()?;
+            let bindings;
+            syn::parenthesized!(bindings in input);
+            let editor = bindings.parse()?;
+            bindings.parse::<Token![,]>()?;
+            let state = bindings.parse()?;
+            bindings.parse::<Token![,]>()?;
+            let cx = bindings.parse()?;
+            if !bindings.is_empty() {
+                return Err(bindings.error("view takes component, state and context bindings"));
+            }
+            (editor, state, cx)
+        } else {
+            input.parse::<Token![|]>()?;
+            let editor = input.parse()?;
+            input.parse::<Token![,]>()?;
+            let state = input.parse()?;
+            input.parse::<Token![,]>()?;
+            let cx = input.parse()?;
+            input.parse::<Token![|]>()?;
+            (editor, state, cx)
+        };
         let setup = if input.peek(syn::token::Brace) {
             Some(input.parse()?)
         } else {
@@ -144,6 +153,94 @@ impl Parse for Component {
         })
     }
 }
+
+fn validate_field(fields: &[Field], name: &Ident) -> syn::Result<()> {
+    if fields.iter().any(|field| field.name == *name) {
+        return Err(syn::Error::new(name.span(), "duplicate component field"));
+    }
+    if name.to_string().starts_with("__") {
+        return Err(syn::Error::new(
+            name.span(),
+            "names beginning __ are reserved for generated implementation details",
+        ));
+    }
+    Ok(())
+}
+
+fn parse_section_fields(
+    input: ParseStream<'_>,
+    fields: &mut Vec<Field>,
+    local: bool,
+) -> syn::Result<()> {
+    while !input.is_empty() {
+        let attrs = input.call(Attribute::parse_outer)?;
+        let name: Ident = input.parse()?;
+        validate_field(fields, &name)?;
+        input.parse::<Token![:]>()?;
+        let ty = input.parse()?;
+        let default = if local {
+            input.parse::<Token![=]>()?;
+            Some(input.parse()?)
+        } else {
+            None
+        };
+        fields.push(Field {
+            attrs,
+            name,
+            ty,
+            local: default,
+        });
+        if input.is_empty() {
+            break;
+        }
+        input.parse::<Token![,]>()?;
+    }
+    Ok(())
+}
+
+fn parse_legacy_fields(input: ParseStream<'_>, fields: &mut Vec<Field>) -> syn::Result<()> {
+    while !input.is_empty() {
+        let mut attrs = input.call(Attribute::parse_outer)?;
+        let name: Ident = input.parse()?;
+        validate_field(fields, &name)?;
+        input.parse::<Token![:]>()?;
+        let ty = input.parse()?;
+        let mut local = None;
+        if let Some(index) = attrs
+            .iter()
+            .position(|attribute| attribute.path().is_ident("local_state"))
+        {
+            let attribute = attrs.remove(index);
+            attribute.parse_nested_meta(|meta| {
+                if !meta.path.is_ident("default") {
+                    return Err(meta.error("expected default = expression"));
+                }
+                if local.is_some() {
+                    return Err(meta.error("duplicate local default"));
+                }
+                local = Some(meta.value()?.parse()?);
+                Ok(())
+            })?;
+            if local.is_none() {
+                return Err(syn::Error::new_spanned(
+                    attribute,
+                    "local_state requires default = expression",
+                ));
+            }
+        }
+        fields.push(Field {
+            attrs,
+            name,
+            ty,
+            local,
+        });
+        if input.is_empty() {
+            break;
+        }
+        input.parse::<Token![,]>()?;
+    }
+    Ok(())
+}
 #[derive(Clone)]
 pub struct Arg {
     pub name: Option<Ident>,
@@ -171,7 +268,7 @@ pub struct Modifier {
 pub struct Effect {
     pub operation: Path,
     pub args: Punctuated<Expr, Token![,]>,
-    pub start: Block,
+    pub start: Option<Block>,
     pub ok_pattern: Pat,
     pub ok: Block,
     pub err_pattern: Pat,
@@ -188,6 +285,7 @@ impl Call {
 #[derive(Clone)]
 pub enum Value {
     Effect(Effect),
+    Reduce(Block),
     Call(Call),
     Array(Vec<Value>),
     Optional(Box<Value>),
@@ -232,7 +330,11 @@ impl Value {
             }
             Self::Optional(value) => value.is_plain_rust(),
             Self::Match { arms, .. } => arms.iter().all(|(_, _, body)| body.is_plain_rust()),
-            Self::Effect(_) | Self::Call(_) | Self::Array(_) | Self::For { .. } => false,
+            Self::Effect(_)
+            | Self::Reduce(_)
+            | Self::Call(_)
+            | Self::Array(_)
+            | Self::For { .. } => false,
         }
     }
 }
@@ -289,6 +391,10 @@ fn starts_constructor(input: ParseStream<'_>) -> bool {
 }
 impl Parse for Value {
     fn parse(input: ParseStream<'_>) -> syn::Result<Self> {
+        if input.peek(kw::reduce) {
+            input.parse::<kw::reduce>()?;
+            return Ok(Self::Reduce(input.parse()?));
+        }
         if input.peek(kw::effect) {
             input.parse::<kw::effect>()?;
             let operation = input.parse()?;
@@ -298,41 +404,58 @@ impl Parse for Value {
             let lifecycle;
             syn::braced!(lifecycle in input);
 
-            lifecycle.parse::<kw::start>()?;
-            let start = lifecycle.parse()?;
+            let start = if lifecycle.peek(kw::on_start) {
+                lifecycle.parse::<kw::on_start>()?;
+                Some(lifecycle.parse()?)
+            } else if lifecycle.peek(kw::start) {
+                lifecycle.parse::<kw::start>()?;
+                Some(lifecycle.parse()?)
+            } else {
+                None
+            };
 
-            let ok_name: Ident = lifecycle.parse()?;
-            if ok_name != "Ok" {
-                return Err(syn::Error::new_spanned(
-                    ok_name,
-                    "expected Ok(result) block",
-                ));
+            let legacy_ok = lifecycle.peek(Ident)
+                && lifecycle
+                    .fork()
+                    .parse::<Ident>()
+                    .is_ok_and(|name| name == "Ok");
+            if lifecycle.peek(kw::on_ok) {
+                lifecycle.parse::<kw::on_ok>()?;
+            } else if legacy_ok {
+                lifecycle.parse::<Ident>()?;
+            } else {
+                return Err(lifecycle.error("effect requires on_ok(result) { ... }"));
             }
             let ok_binding;
             syn::parenthesized!(ok_binding in lifecycle);
             let ok_pattern = ok_binding.call(Pat::parse_single)?;
             if !ok_binding.is_empty() {
-                return Err(ok_binding.error("Ok takes one result pattern"));
+                return Err(ok_binding.error("on_ok takes one result pattern"));
             }
             let ok = lifecycle.parse()?;
 
-            let err_name: Ident = lifecycle.parse()?;
-            if err_name != "Err" {
-                return Err(syn::Error::new_spanned(
-                    err_name,
-                    "expected Err(error) block",
-                ));
+            let legacy_err = lifecycle.peek(Ident)
+                && lifecycle
+                    .fork()
+                    .parse::<Ident>()
+                    .is_ok_and(|name| name == "Err");
+            if lifecycle.peek(kw::on_err) {
+                lifecycle.parse::<kw::on_err>()?;
+            } else if legacy_err {
+                lifecycle.parse::<Ident>()?;
+            } else {
+                return Err(lifecycle.error("effect requires on_err(error) { ... }"));
             }
             let err_binding;
             syn::parenthesized!(err_binding in lifecycle);
             let err_pattern = err_binding.call(Pat::parse_single)?;
             if !err_binding.is_empty() {
-                return Err(err_binding.error("Err takes one error pattern"));
+                return Err(err_binding.error("on_err takes one error pattern"));
             }
             let err = lifecycle.parse()?;
 
             if !lifecycle.is_empty() {
-                return Err(lifecycle.error("unexpected tokens after Err block"));
+                return Err(lifecycle.error("unexpected tokens after on_err block"));
             }
             return Ok(Self::Effect(Effect {
                 operation,

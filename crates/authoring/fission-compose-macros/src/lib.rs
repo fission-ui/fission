@@ -67,11 +67,14 @@ mod tests {
     #[test]
     fn generated_items_are_valid_rust_syntax() {
         let output = expand(quote! {
-            pub Editor<State> { session: u64, #[local_state(default = false)] open: bool }
-            |editor, state, cx| => Column(children: [
+            pub Editor<State> {
+                props { session: u64 }
+                state { open: bool = false }
+            }
+            view(editor, state, cx) => Column(children: [
                 TextInput(label: Some("Name".into()), bind: state.name),
                 Switch(checked: editor.open, bind(on_toggle): to(editor.open)),
-                Button(child: Text("Save"), key: "save", on_press: |editor, state, cx| {
+                Button(child: Text("Save"), key: "save", on_press: reduce {
                     state.name = format!("{}", editor.session);
                     editor.open = !editor.open;
                 }),
@@ -96,22 +99,25 @@ mod tests {
 
         let output = expand(quote! {
             pub RemoteCounter<()> {
-                #[local_state(default = 0)] count: i32,
-                #[local_state(default = false)] loading: bool,
-                #[local_state(default = None)] error: Option<String>,
-            } |counter, _state, _cx| => Button(
+                state {
+                    count: i32 = 0,
+                    loading: bool = false,
+                    error: Option<String> = None,
+                }
+            }
+            view(counter, _state, _cx) => Button(
                 key: "increment",
                 child: Text("Increment via API"),
                 on_press: effect increment_counter(counter.count) {
-                    start {
+                    on_start {
                         counter.loading = true;
                         counter.error = None;
                     }
-                    Ok(count) {
+                    on_ok(count) {
                         counter.count = count;
                         counter.loading = false;
                     }
-                    Err(error) {
+                    on_err(error) {
                         counter.error = Some(error);
                         counter.loading = false;
                     }
@@ -124,6 +130,132 @@ mod tests {
         assert!(output.contains("app_effect"), "{output}");
         assert!(output.contains("job_ok"), "{output}");
         assert!(output.contains("job_err"), "{output}");
+    }
+
+    #[test]
+    fn effect_function_contract_rejects_unsupported_signatures() {
+        let rejects_effect = |tokens: Tokens, message: &str| {
+            let function = syn::parse2(tokens).expect("effect function syntax");
+            let error = effect::expand(function).expect_err("expected effect rejection");
+            assert!(error.to_string().contains(message), "{error}");
+        };
+
+        rejects_effect(
+            quote!(
+                fn load() -> Result<(), String> {
+                    Ok(())
+                }
+            ),
+            "requires an async function",
+        );
+        rejects_effect(
+            quote!(
+                async fn load<T>(value: T) -> Result<T, String> {
+                    Ok(value)
+                }
+            ),
+            "cannot be generic",
+        );
+        rejects_effect(
+            quote!(
+                async fn load(&self) -> Result<(), String> {
+                    Ok(())
+                }
+            ),
+            "cannot have a receiver",
+        );
+        rejects_effect(
+            quote!(
+                async fn load(value: String) {
+                    drop(value);
+                }
+            ),
+            "must return Result",
+        );
+        rejects_effect(
+            quote!(
+                async fn load((left, right): (i32, i32)) -> Result<i32, String> {
+                    Ok(left + right)
+                }
+            ),
+            "simple identifier patterns",
+        );
+    }
+
+    #[test]
+    fn effect_on_start_is_optional_but_both_completion_paths_are_required() {
+        let output = expand(quote! {
+            pub Counter<()> { state { count: i32 = 0, error: Option<String> = None } }
+            view(counter, _state, _cx) => Button(
+                key: "increment",
+                on_press: effect increment_counter(counter.count) {
+                    on_ok(count) { counter.count = count; }
+                    on_err(error) { counter.error = Some(error); }
+                },
+            )
+        })
+        .unwrap();
+        syn::parse2::<syn::File>(output).unwrap();
+
+        rejects(
+            quote! {
+                pub Counter<()> { state { count: i32 = 0 } }
+                view(counter, _state, _cx) => Button(
+                    key: "increment",
+                    on_press: effect increment_counter(counter.count) {
+                        on_err(_error) {}
+                    },
+                )
+            },
+            "effect requires on_ok",
+        );
+        rejects(
+            quote! {
+                pub Counter<()> { state { count: i32 = 0 } }
+                view(counter, _state, _cx) => Button(
+                    key: "increment",
+                    on_press: effect increment_counter(counter.count) {
+                        on_ok(count) { counter.count = count; }
+                    },
+                )
+            },
+            "effect requires on_err",
+        );
+    }
+
+    #[test]
+    fn effect_arguments_reject_live_bindings_and_borrows() {
+        let component = |argument: Tokens| {
+            quote! {
+                pub Counter<AppState> {
+                    state { count: i32 = 0, error: Option<String> = None }
+                }
+                view(counter, state, cx) => Button(
+                    key: "increment",
+                    on_press: effect increment_counter(#argument) {
+                        on_ok(count) { counter.count = count; }
+                        on_err(error) { counter.error = Some(error); }
+                    },
+                )
+            }
+        };
+        rejects(
+            component(quote!(counter)),
+            "cannot receive the component binding",
+        );
+        rejects(
+            component(quote!(state)),
+            "cannot receive the global-state binding",
+        );
+        rejects(component(quote!(cx)), "cannot receive the reducer context");
+        rejects(
+            component(quote!(&counter.count)),
+            "effect arguments must be owned",
+        );
+        rejects(
+            component(quote!(&state.session)),
+            "effect arguments must be owned",
+        );
     }
 
     #[test]
