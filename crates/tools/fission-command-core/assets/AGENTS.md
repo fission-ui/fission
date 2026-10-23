@@ -116,12 +116,18 @@ tree.
   services, design system, and i18n setup in a shared core. Keep each
   feature-gated shell entrypoint thin: it should configure the shell and run the
   shared core rather than duplicating app behaviour per target.
-- Prefer one reusable widget per file when introducing app UI.
-- Model widgets as concrete structs and implement `From<YourWidget> for Widget`.
+- Prefer one reusable component per file when introducing app UI.
+- Use `fission_component!` as the default authoring API. Its `props` block
+  declares parent inputs, its `state` block declares retained component state,
+  and its `view` expression composes imported core or third-party widgets.
+- Use a concrete widget struct with `From<YourWidget> for Widget` when building
+  low-level rendering infrastructure or when Compose cannot express the
+  required integration.
 - Add semantics to every interactive widget and to semantic regions where they
   improve navigation, testing, or accessibility.
-- Use `#[with_local_state]` for components that own retained local widget
-  state. Do not model retained UI state as ordinary mutable struct fields.
+- In handwritten widget structs, use `#[with_local_state]` for retained local
+  widget state. Compose components declare the same state in their `state`
+  block. Do not model retained UI state as ordinary mutable struct fields.
 - Keep screen modules focused on app state, routing, effects, and composition.
   Move reusable presentation pieces into widget modules.
 - Avoid screen-level helper functions that build large `Widget` trees. If a UI
@@ -133,55 +139,40 @@ tree.
   meaningful UI fragments through anonymous functions can hide identity and
   weaken optimizations.
 
-Local-state component shape:
+Compose component shape:
 
 ```rust
 use fission::prelude::*;
 
-#[with_local_state]
-pub struct DisclosureSection {
-    pub title: String,
-
-    #[local_state(default = false)]
-    open: bool,
-}
-
-#[fission_reducer(ToggleOpen)]
-fn on_toggle_open(open: &mut bool) {
-    *open = !*open;
-}
-
-impl From<DisclosureSection> for Widget {
-    fn from(section: DisclosureSection) -> Widget {
-        let (ctx, _) = fission::build::current::<()>();
-        let open = section.open();
-        let toggle = ctx.bind_local(ToggleOpen, open.clone(), reduce!(on_toggle_open));
-
-        Column {
-            gap: Some(8.0),
-            children: widgets![
-                Button {
-                    on_press: Some(toggle),
-                    child: Some(Text::new(section.title).into()),
-                    ..Default::default()
-                },
-                if open.get() {
-                    Text::new("The details are visible.").into()
+fission_component! {
+    pub DisclosureSection<()> {
+        props { title: String }
+        state { open: bool = false }
+    }
+    view(section, _state, _cx) =>
+        Column(
+            gap: 8.0,
+            children: [
+                Button(
+                    child: Text(section.title.clone()),
+                    key: "toggle",
+                    on_press: reduce { section.open = !section.open; },
+                ),
+                if section.open {
+                    Text("The details are visible.")
                 } else {
-                    Text::new("The details are hidden.").into()
+                    Text("The details are hidden.")
                 },
             ],
-            ..Default::default()
-        }
-        .into()
-    }
+        )
 }
 ```
 
-Use `fission::build::current::<()>()` only when the component is intentionally
-state-agnostic and does not read app state. Use the concrete app state type when
-the component reads `GlobalState`, reads environment values tied to that app, or
-binds reducers that update app state.
+For a handwritten retained-state widget, use `#[with_local_state]` and
+`#[local_state(...)]`, then implement `From<YourWidget> for Widget`. Use
+`fission::build::current::<()>()` only when that widget is intentionally
+state-agnostic. Use the concrete app state type when it reads `GlobalState`,
+environment values tied to that app, or binds reducers that update app state.
 
 ## State, Reducers, Routing and Runtime Data
 
@@ -190,11 +181,13 @@ binds reducers that update app state.
 - Use `GlobalState` for durable app truth: product data, routing, sync,
   persistence, user preferences, shared filters, and values read by distant
   screens.
-- Use `#[local_state]` for retained UI memory owned by one widget identity:
-  open/closed flags, isolated draft text, local selected tabs, hoverless
-  interaction state, or a counter-like local value.
+- Use a Compose component's `state` block for retained UI memory owned by one
+  widget identity: open/closed flags, isolated draft text, local selected tabs,
+  hoverless interaction state, or a counter-like local value. In handwritten
+  widget structs, use `#[local_state]` for the same lifetime.
 - Use reducers on `GlobalState` when an action updates app data. Use
-  `ctx.bind_local(...)` when an action updates one local-state field.
+  `reduce { ... }` for component-specific transitions; handwritten widgets can
+  bind local fields with `ctx.bind_local(...)`.
 - Use reducers for explicit state transitions. Match the dispatched action to the
   reducer registration used by the widget.
 - Do not store `BuildCtxHandle` or `ViewHandle` in structs, reducers, services,
@@ -212,6 +205,14 @@ binds reducers that update app state.
 - For local-state components rendered from dynamic, reorderable, insertable, or
   filterable data, assign stable widget identities with
   `.id(WidgetId::explicit(...))`. Use a durable data id, not the list index.
+- In Compose child collections, use `for item in items { Component(item, key:
+  item.id) }`; the `key` is required and scopes retained component state. Do not
+  call Compose identity helpers manually for ordinary repeated children.
+- When responsive branches construct retained-state components, use
+  `Responsive::new_with_id(id, || fallback)` and the matching
+  `case_min_width_with`, `case_max_width_with`, or `case_between_with` methods.
+  These construct every branch beneath a stable semantic identity without an
+  application dependency on `fission-compose`.
 - Do not pad production UI with fixture, mock, or demo data. Production paths
   should render persisted data, an explicit empty state, or a clear error state.
 - Keep fixture parsing, fixture environment variables, and test-only data inside

@@ -63,6 +63,28 @@ Button(
 
 Handwritten `From<YourWidget> for Widget` implementations remain fully interoperable for low-level custom rendering.
 
+Dynamic children use keyed Compose loops so retained state follows the logical
+item without application-owned identity plumbing:
+
+```rust,ignore
+LazyColumn(children: [
+    for message in messages {
+        MessageRow(message.clone(), key: message.id)
+    },
+])
+```
+
+Responsive branches that construct retained-state components use the lazy core
+API so each branch receives an independent semantic scope:
+
+```rust,ignore
+Responsive::new_with_id(WidgetId::explicit("mail.shell"), || CompactMail::new())
+    .case_min_width_with(960.0, || WideMail::new())
+```
+
+Neither pattern requires an application dependency on `fission-compose` or a
+manual call to its identity helpers.
+
 `on_ok` and `on_err` are required so every effect handles both outcomes. `on_start`
 is optional. Effect arguments are owned snapshots; Compose rejects component,
 global-state and reducer-context handles crossing the asynchronous boundary.
