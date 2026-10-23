@@ -1,17 +1,14 @@
 use super::GalleryBuildExt;
+use crate::state::GalleryState;
 use fission::charts::{
     Axis, Chart, EffectScatterSeries, GaugeSeries, LiquidfillSeries, PictorialBarSeries,
     WordcloudSeries,
 };
-use fission::core::ui::Widget;
+use fission::prelude::*;
 
-pub(super) struct DynamicChart {
-    pub chart: usize,
-    pub scale: f32,
-}
-
-impl From<DynamicChart> for Widget {
-    fn from(selection: DynamicChart) -> Self {
+fission_component! {
+    pub(super) DynamicChart<GalleryState> { chart: usize, scale: f32 }
+    |selection, _state, _cx| {} => (|| -> Widget {
         let chart = selection.chart;
         let s = selection.scale;
 
@@ -66,5 +63,5 @@ impl From<DynamicChart> for Widget {
                 .into(),
             _ => unreachable!("chart catalog and builder are out of sync"),
         }
-    }
+    })()
 }

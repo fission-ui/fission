@@ -1,31 +1,22 @@
 use crate::state::CanvasExampleState;
 use fission::prelude::*;
 
-pub(crate) struct ExampleHeader;
-
-impl From<ExampleHeader> for Widget {
-    fn from(_header: ExampleHeader) -> Self {
-        Responsive::new(HeaderContent { compact: false })
-            .case(ResponsiveCase::max_width(
-                560.0,
-                HeaderContent { compact: true },
-            ))
-            .into()
-    }
+fission_component! {
+    pub(crate) ExampleHeader<CanvasExampleState> |_header, _state, _cx| {} =>
+        Responsive::new(HeaderContent::new(false)).case(ResponsiveCase::max_width(
+            560.0,
+            HeaderContent::new(true),
+        ))
 }
 
-struct HeaderContent {
-    compact: bool,
-}
-
-impl From<HeaderContent> for Widget {
-    fn from(header: HeaderContent) -> Self {
-        let (_, view) = fission::build::current::<CanvasExampleState>();
-        let tokens = &view.env().theme.tokens;
-        Column {
-            gap: Some(tokens.spacing.m),
-            children: widgets![
-                Text::new("Interactive surfaces")
+fission_component! {
+    HeaderContent<CanvasExampleState> { compact: bool } |header, _state, cx| {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+        Column(
+            gap: tokens.spacing.m,
+            children: [
+                Text("Interactive surfaces")
                     .size(if header.compact {
                         tokens.typography.heading2_size
                     } else {
@@ -33,12 +24,9 @@ impl From<HeaderContent> for Widget {
                     })
                     .weight(700)
                     .color(tokens.colors.text_primary),
-                Text::new("One low-level camera primitive and one declarative node editor.")
+                Text("One low-level camera primitive and one declarative node editor.")
                     .size(tokens.typography.body_medium_size)
                     .color(tokens.colors.text_secondary),
             ],
-            ..Default::default()
-        }
-        .into()
-    }
+        )
 }

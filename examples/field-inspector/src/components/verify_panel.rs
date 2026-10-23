@@ -6,69 +6,28 @@ use crate::model::{
     VerifyWithBarcode, VerifyWithNfc,
 };
 use fission::prelude::*;
-
-pub struct VerifyPanel;
-
-impl From<VerifyPanel> for Widget {
-    fn from(_: VerifyPanel) -> Self {
-        let (ctx, view) = fission::build::current::<FieldInspectorState>();
-        let order = view.state().selected_order();
-        let scan_barcode = with_reducer!(ctx, VerifyWithBarcode, on_verify_with_barcode);
-        let scan_nfc = with_reducer!(ctx, VerifyWithNfc, on_verify_with_nfc);
-        let spacing = &view.env().theme.tokens.spacing;
-
-        PanelCard::new(Column {
-            gap: Some(spacing.m),
-            children: widgets![
-                SectionHeader {
-                    title: "Verify the asset",
-                    body: "Use the field label and the embedded service tag to prove the technician is inspecting the right physical unit.",
-                },
-                ResponsiveGrid::new(widgets![
-                    Metric::new("Expected barcode", order.asset.expected_barcode),
-                    Metric::new("Expected NFC", order.asset.expected_nfc_uri),
+fission_component! {
+    pub VerifyPanel<FieldInspectorState> {}
+    |_panel, state, cx| {
+        let order = state.selected_order();
+        let scan_barcode = with_reducer!(cx.build, VerifyWithBarcode, on_verify_with_barcode);
+        let scan_nfc = with_reducer!(cx.build, VerifyWithNfc, on_verify_with_nfc);
+        let spacing = &cx.view.env().theme.tokens.spacing;
+    } =>
+        PanelCard(Column(
+            gap: spacing.m,
+            children: [
+                SectionHeader("Verify the asset", "Use the field label and the embedded service tag to prove the technician is inspecting the right physical unit."),
+                ResponsiveGrid(vec![
+                    Metric::new("Expected barcode".to_string(), order.asset.expected_barcode.to_string()).into(),
+                    Metric::new("Expected NFC".to_string(), order.asset.expected_nfc_uri.to_string()).into(),
+                ], crate::components::ui::DEFAULT_ITEM_MIN_WIDTH),
+                Row(gap: spacing.s, wrap: ir_op::FlexWrap::Wrap, children: [
+                    ActionButton("field-inspector.verify.barcode".to_string(), "Scan barcode".to_string(), scan_barcode, ButtonVariant::Primary),
+                    ActionButton("field-inspector.verify.nfc".to_string(), "Tap NFC tag".to_string(), scan_nfc, ButtonVariant::SecondaryColor),
                 ]),
-                Row {
-                    gap: Some(spacing.s),
-                    wrap: ir_op::FlexWrap::Wrap,
-                    children: widgets![
-                        ActionButton::new(
-                            "field-inspector.verify.barcode",
-                            "Scan barcode",
-                            scan_barcode,
-                            ButtonVariant::Primary,
-                        ),
-                        ActionButton::new(
-                            "field-inspector.verify.nfc",
-                            "Tap NFC tag",
-                            scan_nfc,
-                            ButtonVariant::SecondaryColor,
-                        ),
-                    ],
-                    ..Default::default()
-                },
-                ResultLine {
-                    label: "Barcode result",
-                    value: view
-                        .state()
-                        .scanned_barcode
-                        .as_ref()
-                        .and_then(|result| result.items.first())
-                        .map(|item| item.value.clone()),
-                    matched: view.state().asset_barcode_matches(),
-                },
-                ResultLine {
-                    label: "NFC result",
-                    value: view
-                        .state()
-                        .scanned_nfc
-                        .as_ref()
-                        .and_then(nfc_uri_for_display),
-                    matched: view.state().asset_nfc_matches(),
-                },
+                ResultLine("Barcode result", state.scanned_barcode.as_ref().and_then(|result| result.items.first()).map(|item| item.value.clone()), state.asset_barcode_matches()),
+                ResultLine("NFC result", state.scanned_nfc.as_ref().and_then(nfc_uri_for_display), state.asset_nfc_matches()),
             ],
-            ..Default::default()
-        })
-        .into()
-    }
+        ))
 }

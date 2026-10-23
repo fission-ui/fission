@@ -1,40 +1,35 @@
 use crate::layout::ACTIVE_INDICATOR_THICKNESS;
-use crate::model::EditorState;
+use crate::model::{BottomPanelTab, EditorState};
 use crate::palette::EditorPalette;
 use fission::prelude::*;
-use fission::widgets::{Spacer, VStack};
 
-pub struct TerminalPanelTab {
-    pub label: &'static str,
-    pub active: bool,
-    pub action: ActionEnvelope,
-    pub id: &'static str,
-}
-
-impl From<TerminalPanelTab> for Widget {
-    fn from(tab: TerminalPanelTab) -> Self {
-        let (_, view) = fission::build::current::<EditorState>();
-        let palette = EditorPalette::from_theme(&view.env().theme);
-        let tokens = &view.env().theme.tokens;
-
-        Button {
+fission_component! {
+    pub TerminalPanelTab<EditorState> {
+        label: &'static str,
+        active: bool,
+        panel: BottomPanelTab,
+        id: &'static str,
+    } |tab, _state, cx| {
+        let palette = EditorPalette::from_theme(&cx.view.env().theme);
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+        Button(
             id: Some(WidgetId::explicit(tab.id)),
             variant: ButtonVariant::Ghost,
-            child: Some(
-                VStack {
-                    spacing: Some(tokens.spacing.none),
-                    children: widgets![
-                        Container::new(
-                            Text::new(tab.label)
+            child: VStack(
+                    spacing: tokens.spacing.none,
+                    children: [
+                        Container(
+                            Text(tab.label)
                                 .size(tokens.typography.font_size_xs)
                                 .color(if tab.active {
                                     palette.bright_text
                                 } else {
                                     palette.dim_text
-                                }),
+                            }),
                         )
                         .padding_all(tokens.spacing.s),
-                        Container::new(Spacer::default())
+                        Container(Spacer())
                             .height(ACTIVE_INDICATOR_THICKNESS)
                             .bg(if tab.active {
                                 palette.bright_text
@@ -42,14 +37,14 @@ impl From<TerminalPanelTab> for Widget {
                                 palette.transparent
                             }),
                     ],
-                }
-                .into(),
             ),
-            on_press: Some(tab.action),
-            padding: Some([tokens.spacing.none; 4]),
-            ..Default::default()
-        }
+            on_press: |tab, state, _cx| {
+                state.bottom_panel_tab = tab.panel;
+                if tab.panel == BottomPanelTab::Terminal {
+                    state.ensure_terminal_session();
+                }
+            },
+            padding: [tokens.spacing.none, tokens.spacing.none, tokens.spacing.none, tokens.spacing.none],
+        )
         .semantics_identifier(format!("editor.bottom-panel.{}", tab.label.to_lowercase()))
-        .into()
-    }
 }

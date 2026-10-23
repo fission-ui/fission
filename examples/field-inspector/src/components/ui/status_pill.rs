@@ -2,24 +2,10 @@ use super::color;
 use crate::model::{CapabilityState, FieldInspectorState};
 use fission::prelude::*;
 
-pub struct StatusPill {
-    pub label: String,
-    pub state: CapabilityState,
-}
-
-impl StatusPill {
-    pub fn new(label: impl Into<String>, state: CapabilityState) -> Self {
-        Self {
-            label: label.into(),
-            state,
-        }
-    }
-}
-
-impl From<StatusPill> for Widget {
-    fn from(pill: StatusPill) -> Self {
-        let (_, view) = fission::build::current::<FieldInspectorState>();
-        let tokens = &view.env().theme.tokens;
+fission_component! {
+    pub StatusPill<FieldInspectorState> { label: String, state: CapabilityState }
+    |pill, _state, cx| {
+        let tokens = &cx.view.env().theme.tokens;
         let (background, foreground) = match pill.state {
             CapabilityState::Idle => (tokens.colors.surface, tokens.colors.text_secondary),
             CapabilityState::Pending => (color(254, 243, 199), color(146, 64, 14)),
@@ -30,9 +16,9 @@ impl From<StatusPill> for Widget {
             CapabilityState::Error => (color(254, 226, 226), color(185, 28, 28)),
         };
         let typography = &tokens.typography;
-
-        Container::new(
-            Text::new(pill.label)
+    } =>
+        Container(
+            Text(pill.label)
                 .size(typography.font_size_xs)
                 .line_height(typography.font_size_xs * typography.line_height_snug)
                 .weight(typography.font_weight_bold)
@@ -41,12 +27,5 @@ impl From<StatusPill> for Widget {
         )
         .bg(background)
         .border_radius(tokens.radii.full)
-        .padding([
-            tokens.spacing.s,
-            tokens.spacing.s,
-            tokens.spacing.xs,
-            tokens.spacing.xs,
-        ])
-        .into()
-    }
+        .padding([tokens.spacing.s, tokens.spacing.s, tokens.spacing.xs, tokens.spacing.xs])
 }

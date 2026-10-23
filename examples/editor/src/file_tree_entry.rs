@@ -1,14 +1,6 @@
-use crate::model::{
-    on_open_file, on_show_context_menu, on_toggle_tree_node, on_update_rename_input, EditorState,
-    FileEntry, OpenFile, ShowContextMenu, ToggleTreeNode, UpdateRenameInput,
-};
+use crate::model::{EditorState, FileEntry};
 use crate::palette::EditorPalette;
-use fission::core::op::Color;
-use fission::core::reduce_with;
-use fission::core::ui::{
-    Button, ButtonContentAlign, ButtonVariant, Container, GestureDetector, Text, TextInput, Widget,
-};
-use fission::widgets::{HStack, Icon, Spacer, VStack};
+use fission::prelude::*;
 
 const TREE_INDENT: f32 = 16.0;
 const ROW_HEIGHT: f32 = 24.0;
@@ -19,21 +11,17 @@ const CHEVRON_SIZE: f32 = 11.0;
 const LABEL_SIZE: f32 = 13.0;
 const ICON_SIZE: f32 = 16.0;
 
-pub(crate) struct FileTreeEntry {
-    pub entry: FileEntry,
-    pub depth: usize,
-}
-
-impl From<FileTreeEntry> for Widget {
-    fn from(component: FileTreeEntry) -> Self {
-        let (ctx, view) = fission::build::current::<EditorState>();
-        let palette = EditorPalette::from_theme(&view.env().theme);
-        let tokens = &view.env().theme.tokens;
-        let entry = component.entry;
-        let is_expanded = view.state().tree_expanded.contains(&entry.path);
-        let is_selected = view.state().tree_selected.as_deref() == Some(&entry.path);
-        let is_renaming = view.state().renaming_path.as_deref() == Some(&entry.path);
-
+fission_component! {
+    pub(crate) FileTreeEntry<EditorState> {
+        entry: FileEntry,
+        depth: usize,
+    } |component, state, cx| {
+        let palette = EditorPalette::from_theme(&cx.view.env().theme);
+        let tokens = &cx.view.env().theme.tokens;
+        let entry = &component.entry;
+        let is_expanded = state.tree_expanded.contains(&entry.path);
+        let is_selected = state.tree_selected.as_deref() == Some(&entry.path);
+        let is_renaming = state.renaming_path.as_deref() == Some(&entry.path);
         let icon_color = if entry.is_dir {
             palette.file_folder
         } else {
@@ -54,105 +42,141 @@ impl From<FileTreeEntry> for Widget {
         } else {
             Color::TRANSPARENT
         };
-
-        let tap_action = if entry.is_dir {
-            ctx.bind(
-                ToggleTreeNode(entry.path.clone()),
-                reduce_with!(on_toggle_tree_node),
-            )
-        } else {
-            ctx.bind(OpenFile(entry.path.clone()), reduce_with!(on_open_file))
-        };
-        let context_menu_action = ctx.bind(
-            ShowContextMenu {
-                x: 0.0,
-                y: 0.0,
-                target: Some(entry.path.clone()),
-            },
-            reduce_with!(on_show_context_menu),
-        );
-
-        let name: Widget = if is_renaming {
-            TextInput {
-                id: Some(fission::WidgetId::explicit("rename_input")),
-                value: view.state().rename_input.clone(),
-                placeholder: Some("New name".into()),
-                on_input: Some(ctx.bind(UpdateRenameInput, reduce_with!(on_update_rename_input))),
-                ..Default::default()
-            }
-            .into()
-        } else {
-            Text::new(entry.name.clone())
-                .size(LABEL_SIZE)
-                .color(tokens.colors.text_primary)
-                .flex_grow(1.0)
-                .into()
-        };
-
-        let content = Container::new(HStack {
-            spacing: Some(ROW_GAP),
-            children: vec![
-                Spacer {
-                    width: Some(component.depth as f32 * TREE_INDENT),
-                    ..Default::default()
-                }
-                .into(),
-                Container::new(
-                    Text::new(chevron)
-                        .size(CHEVRON_SIZE)
-                        .color(tokens.colors.text_secondary),
-                )
-                .width(CHEVRON_WIDTH)
-                .into(),
-                Icon::svg(file_icon)
-                    .size(ICON_SIZE)
-                    .color(icon_color)
-                    .into(),
-                name,
+    } =>
+        VStack(
+            spacing: tokens.spacing.none,
+            children: [
+                if is_renaming {
+                    Container(
+                        FileTreeRowContent(
+                            component.entry.clone(),
+                            component.depth,
+                            chevron,
+                            file_icon,
+                            icon_color,
+                            background,
+                            true,
+                        ),
+                    ).height(ROW_HEIGHT)
+                } else {
+                    GestureDetector(
+                        on_secondary_click: |component, state, cx| {
+                            let (x, y) = match cx.input {
+                                ActionInput::Pointer { x, y, .. } => (*x, *y),
+                                _ => (100.0, 100.0),
+                            };
+                            state.context_menu_visible = true;
+                            state.context_menu_position = (
+                                if x < 10.0 { 100.0 } else { x },
+                                if y < 10.0 { 100.0 } else { y },
+                            );
+                            state.context_menu_target = Some(component.entry.path.clone());
+                        },
+                        child: FileTreeButton(
+                            component.entry.clone(),
+                            component.depth,
+                            chevron,
+                            file_icon,
+                            icon_color,
+                            background,
+                        ),
+                    )
+                },
+                if entry.is_dir && is_expanded {
+                    for child in entry.children.iter().cloned() {
+                        FileTreeEntry(
+                            child.clone(),
+                            component.depth + 1,
+                            key: child.path.clone(),
+                        )
+                    },
+                },
             ],
-        })
-        .bg(background)
+        )
+}
+
+fission_component! {
+    FileTreeButton<EditorState> {
+        entry: FileEntry,
+        depth: usize,
+        chevron: &'static str,
+        file_icon: &'static str,
+        icon_color: Color,
+        background: Color,
+    } |row, _state, cx| =>
+        Button(
+            variant: ButtonVariant::Ghost,
+            content_align: ButtonContentAlign::Start,
+            on_press: |row, state, _cx| {
+                if row.entry.is_dir {
+                    if !state.tree_expanded.remove(&row.entry.path) {
+                        state.tree_expanded.insert(row.entry.path.clone());
+                    }
+                } else {
+                    state.open_file(row.entry.path.clone());
+                }
+            },
+            child: FileTreeRowContent(
+                row.entry.clone(),
+                row.depth,
+                row.chevron,
+                row.file_icon,
+                row.icon_color,
+                row.background,
+                false,
+            ),
+            height: ROW_HEIGHT,
+            padding: [
+                cx.view.env().theme.tokens.spacing.none,
+                cx.view.env().theme.tokens.spacing.none,
+                cx.view.env().theme.tokens.spacing.none,
+                cx.view.env().theme.tokens.spacing.none,
+            ],
+        ).semantics_identifier(format!("editor.file-tree.{}", row.entry.path))
+}
+
+fission_component! {
+    FileTreeRowContent<EditorState> {
+        entry: FileEntry,
+        depth: usize,
+        chevron: &'static str,
+        file_icon: &'static str,
+        icon_color: Color,
+        background: Color,
+        is_renaming: bool,
+    } |row, state, cx| {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+        Container(
+            HStack(
+                spacing: ROW_GAP,
+                children: [
+                    Spacer(width: row.depth as f32 * TREE_INDENT),
+                    Container(
+                        Text(row.chevron)
+                            .size(CHEVRON_SIZE)
+                            .color(tokens.colors.text_secondary),
+                    ).width(CHEVRON_WIDTH),
+                    Icon::svg(row.file_icon)
+                        .size(ICON_SIZE)
+                        .color(row.icon_color),
+                    if row.is_renaming {
+                        TextInput(
+                            id: WidgetId::explicit("rename_input"),
+                            placeholder: Some("New name".into()),
+                            bind: state.rename_input,
+                        )
+                    } else {
+                        Text(row.entry.name.clone())
+                            .size(LABEL_SIZE)
+                            .color(tokens.colors.text_primary)
+                            .flex_grow(1.0)
+                    },
+                ],
+            ),
+        )
+        .bg(row.background)
         .padding_all(ROW_PADDING)
-        .into();
-
-        let row = if is_renaming {
-            Container::new(content).height(ROW_HEIGHT).into()
-        } else {
-            GestureDetector {
-                on_secondary_click: Some(context_menu_action),
-                child: Button {
-                    variant: ButtonVariant::Ghost,
-                    content_align: ButtonContentAlign::Start,
-                    on_press: Some(tap_action),
-                    child: Some(content),
-                    height: Some(ROW_HEIGHT),
-                    padding: Some([tokens.spacing.none; 4]),
-                    ..Default::default()
-                }
-                .semantics_identifier(format!("editor.file-tree.{}", entry.path))
-                .into(),
-                ..Default::default()
-            }
-            .into()
-        };
-
-        let mut children = vec![row];
-        if entry.is_dir && is_expanded {
-            children.extend(entry.children.into_iter().map(|child| {
-                FileTreeEntry {
-                    entry: child,
-                    depth: component.depth + 1,
-                }
-                .into()
-            }));
-        }
-
-        VStack {
-            spacing: Some(tokens.spacing.none),
-            children,
-        }
-        .into()
-    }
 }
 
 fn file_icon_color(name: &str, palette: &EditorPalette) -> Color {

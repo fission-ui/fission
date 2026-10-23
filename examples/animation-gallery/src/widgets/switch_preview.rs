@@ -3,36 +3,28 @@ use crate::state::{
     current_composition_atoms, reset_timeline, toggle_play, AnimationGalleryState, MotionAtom,
     MotionChoice, ResetTimeline, TogglePlay,
 };
-use fission::build::BuildCtxHandle;
 use fission::motion::{scalar, Motion, MotionPropertyId, MotionStartValue, MotionTrack};
 use fission::prelude::*;
 
-pub(super) struct SwitchPreview<'a> {
-    pub ctx: &'a BuildCtxHandle<AnimationGalleryState>,
-    pub state: &'a AnimationGalleryState,
-}
-
-impl From<SwitchPreview<'_>> for Widget {
-    fn from(preview: SwitchPreview<'_>) -> Self {
-        let (_, view) = fission::build::current::<AnimationGalleryState>();
-        let progress = preview_progress(preview.state);
-        let on_toggle = if preview_active(preview.state) {
-            preview
-                .ctx
-                .bind(ResetTimeline, reduce_with!(reset_timeline))
+fission_component! {
+    pub(super) SwitchPreview<AnimationGalleryState> {}
+    |_preview, state, cx| {
+        let tokens = &cx.view.env().theme.tokens;
+        let progress = preview_progress(state);
+        let on_toggle = if preview_active(state) {
+            cx.bind(ResetTimeline, reduce_with!(reset_timeline))
         } else {
-            preview.ctx.bind(TogglePlay, reduce_with!(toggle_play))
+            cx.bind(TogglePlay, reduce_with!(toggle_play))
         };
-
-        PreviewShell {
-            child: Column {
-                gap: Some(view.env().theme.tokens.spacing.s),
-                children: widgets![
-                    Text::new("Real Switch widget wrapped in native Motion.")
-                        .size(view.env().theme.tokens.typography.font_size_sm),
-                    Motion {
+    } =>
+        PreviewShell(
+            Column(
+                gap: tokens.spacing.s,
+                children: [
+                    Text("Real Switch widget wrapped in native Motion.").size(tokens.typography.font_size_sm),
+                    Motion(
                         id: WidgetId::explicit("gallery.switch.motion"),
-                        tracks: if switch_scale_enabled(preview.state) {
+                        tracks: if switch_scale_enabled(state) {
                             vec![MotionTrack::composite(
                                 MotionPropertyId::Scale,
                                 MotionStartValue::Explicit(scalar(0.94)),
@@ -41,23 +33,17 @@ impl From<SwitchPreview<'_>> for Widget {
                         } else {
                             Vec::new()
                         },
-                        child: Switch {
-                            id: Some(WidgetId::explicit("gallery.real.switch")),
-                            semantics_identifier: Some("gallery.switch.sync_preview".into(),),
-                            checked: preview_active(preview.state),
-                            on_toggle: Some(on_toggle),
+                        child: Switch(
+                            id: WidgetId::explicit("gallery.real.switch"),
+                            semantics_identifier: "gallery.switch.sync_preview".to_string(),
+                            checked: preview_active(state),
+                            on_toggle: on_toggle,
                             disabled: false,
-                        }
-                        .into(),
-                        ..Default::default()
-                    },
+                        ),
+                    ),
                 ],
-                ..Default::default()
-            }
-            .into(),
-        }
-        .into()
-    }
+            ),
+        )
 }
 
 fn switch_scale_enabled(state: &AnimationGalleryState) -> bool {

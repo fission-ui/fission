@@ -15,68 +15,53 @@ use crate::state::{
 use fission::charts::ChartInteractionEvent;
 use fission::prelude::*;
 
-#[derive(Clone)]
-pub struct GalleryApp;
+fission_component! {
+    pub GalleryApp<GalleryState>
+    |_app, state, cx| {
+        let doc_capture = std::env::var("FISSION_CHART_DOC_SLUG").ok();
 
-impl From<GalleryApp> for Widget {
-    fn from(_app: GalleryApp) -> Self {
-        let (ctx, view) = fission::build::current::<GalleryState>();
-
-        if let Ok(slug) = std::env::var("FISSION_CHART_DOC_SLUG") {
-            return DocCaptureView { slug }.into();
-        }
-
-        let select_chart_id = with_reducer!(ctx, SelectChart(0, 0), select_chart).id;
-        let toggle_smooth = with_reducer!(ctx, ToggleSmooth(false), toggle_smooth);
-        let update_scale = with_reducer!(ctx, UpdateScale(0.0), update_scale);
-        let toggle_theme = with_reducer!(ctx, ToggleDarkTheme(false), toggle_dark_theme);
+        let select_chart_id = with_reducer!(cx.build, SelectChart(0, 0), select_chart).id;
+        let toggle_smooth = with_reducer!(cx.build, ToggleSmooth(false), toggle_smooth);
+        let update_scale = with_reducer!(cx.build, UpdateScale(0.0), update_scale);
+        let toggle_theme = with_reducer!(cx.build, ToggleDarkTheme(false), toggle_dark_theme);
         let toggle_interactions =
-            with_reducer!(ctx, ToggleInteractions(false), toggle_interactions);
-        let toggle_animations = with_reducer!(ctx, ToggleAnimations(false), toggle_animations);
-        let toggle_markers = with_reducer!(ctx, ToggleMarkers(false), toggle_markers);
-        let toggle_category_picker = ctx.bind(
-            SetCategoryPickerOpen(!view.state().category_picker_open),
+            with_reducer!(cx.build, ToggleInteractions(false), toggle_interactions);
+        let toggle_animations =
+            with_reducer!(cx.build, ToggleAnimations(false), toggle_animations);
+        let toggle_markers = with_reducer!(cx.build, ToggleMarkers(false), toggle_markers);
+        let toggle_category_picker = cx.build.bind(
+            SetCategoryPickerOpen(!state.category_picker_open),
             reduce_with!(set_category_picker_open),
         );
-        ctx.register::<ChartInteractionEvent, _>(reduce_with!(record_chart_interaction));
+        cx.build
+            .register::<ChartInteractionEvent, _>(reduce_with!(record_chart_interaction));
 
-        let expanded = view.viewport_size().width >= EXPANDED_BREAKPOINT;
+        let expanded = cx.view.viewport_size().width >= EXPANDED_BREAKPOINT;
         let instance = if expanded { "expanded" } else { "compact" };
-        let controls = GalleryControls {
-            toggle_smooth,
-            update_scale,
-            toggle_theme,
-            toggle_interactions,
-            toggle_animations,
-            toggle_markers,
-            instance,
-        };
-        let sidebar = GallerySidebar {
-            select_chart_id,
-            toggle_category_picker,
-            layout: if expanded {
-                GallerySidebarLayout::Expanded
-            } else {
-                GallerySidebarLayout::Compact
-            },
-            instance,
-        };
-        let content = GalleryContent {
-            chart: SelectedChart {
-                scale: view.state().data_scale,
-            },
-            controls,
-            instance,
-        };
-        let gallery: Widget = if expanded {
-            GalleryExpanded { sidebar, content }.into()
+    } =>
+    Container(
+        if let Some(slug) = doc_capture {
+            DocCaptureView(slug)
+        } else if expanded {
+            GalleryExpanded(
+                GallerySidebar(select_chart_id, toggle_category_picker.clone(), GallerySidebarLayout::Expanded, instance),
+                GalleryContent(
+                    SelectedChart(state.data_scale),
+                    GalleryControls(toggle_smooth, update_scale, toggle_theme, toggle_interactions, toggle_animations, toggle_markers, instance),
+                    instance,
+                ),
+            )
         } else {
-            GalleryCompact { sidebar, content }.into()
-        };
-
-        Container::new(gallery)
-            .width_length(Length::vw(100.0))
-            .height_length(Length::vh(100.0))
-            .into()
-    }
+            GalleryCompact(
+                GallerySidebar(select_chart_id, toggle_category_picker.clone(), GallerySidebarLayout::Compact, instance),
+                GalleryContent(
+                    SelectedChart(state.data_scale),
+                    GalleryControls(toggle_smooth, update_scale, toggle_theme, toggle_interactions, toggle_animations, toggle_markers, instance),
+                    instance,
+                ),
+            )
+        }
+    )
+        .width_length(Length::vw(100.0))
+        .height_length(Length::vh(100.0))
 }

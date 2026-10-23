@@ -501,27 +501,24 @@ fn toggle_page_picker(state: &mut GalleryState) {
 /// The tallest the page picker's list grows before it scrolls.
 const PAGE_PICKER_MAX_HEIGHT: f32 = 480.0;
 
+fission_component! {
 /// Every page in a picker, which stands in for the sidebar on narrow screens.
-pub(crate) struct PagePicker;
-
-impl From<PagePicker> for Widget {
-    fn from(_picker: PagePicker) -> Self {
+    pub(crate) PagePicker<GalleryState> {}
+    |_picker, state, cx| {
         use fission::widgets::{
             MenuLabel, SelectContent, SelectEntry, SelectLayout, SelectOption, SelectTrigger,
         };
 
-        let (ctx, view) = fission::build::current::<GalleryState>();
-        let state = view.state();
         let open = state.page;
-        let tokens = &view.env().theme.tokens;
-        let viewport = view.viewport_size();
+        let tokens = &cx.view.env().theme.tokens;
+        let viewport = cx.view.viewport_size();
 
         let mut entries: Vec<SelectEntry> = Vec::new();
         for (group, pages) in GROUPS.iter() {
             entries.push(SelectEntry::Label(MenuLabel::new(*group)));
             for page in pages.iter().copied() {
                 let mut option = SelectOption::option(page.title(), page == open)
-                    .on_select(with_reducer!(ctx, SelectPage(page), select_page));
+                    .on_select(with_reducer!(cx.build, SelectPage(page), select_page));
                 option.semantics_identifier = Some(format!("gallery.picker.{}", page.slug()));
                 entries.push(SelectEntry::Item(option));
             }
@@ -532,169 +529,136 @@ impl From<PagePicker> for Widget {
         };
         let max_height = (viewport.height * 0.6).min(PAGE_PICKER_MAX_HEIGHT);
 
-        SelectLayout {
-            id: WidgetId::explicit("gallery.page_picker"),
+    } =>
+        SelectLayout(
+            WidgetId::explicit("gallery.page_picker"),
             trigger,
-            content: SelectContent::new(entries).max_height(max_height),
+            SelectContent::new(entries).max_height(max_height),
             is_open: state.page_picker_open,
-            on_toggle: Some(with_reducer!(ctx, TogglePagePicker, toggle_page_picker)),
+            on_toggle: with_reducer!(cx.build, TogglePagePicker, toggle_page_picker),
             // The picker spans the bar, less the bar's side padding.
             width: Some((viewport.width - 2.0 * tokens.spacing.l).max(0.0)),
-            name: None,
-            form_id: None,
-            form_value: None,
-        }
-        .into()
-    }
+        )
 }
 
+fission_component! {
 /// Every page, grouped, with the open one highlighted.
-pub(crate) struct Sidebar;
-
-impl From<Sidebar> for Widget {
-    fn from(_sidebar: Sidebar) -> Self {
-        let (ctx, view) = fission::build::current::<GalleryState>();
-        let open = view.state().page;
-        let tokens = view.env().theme.tokens.clone();
-        let typography = &tokens.typography;
-
-        let mut items: Vec<Widget> = Vec::new();
-        for (index, (group, pages)) in GROUPS.iter().enumerate() {
-            if index > 0 {
-                items.push(
-                    Spacer {
-                        height: Some(tokens.spacing.m),
-                        ..Default::default()
-                    }
-                    .into(),
-                );
-            }
-            items.push(
-                Container::new(
-                    Text::new(*group)
-                        .size(typography.font_size_xs)
-                        .weight(typography.font_weight_medium)
-                        .color(tokens.colors.text_muted),
-                )
-                .padding_lengths(Length::symmetric(
-                    Length::points(tokens.spacing.s),
-                    Length::points(tokens.spacing.xs),
-                ))
-                .into(),
-            );
-            for page in pages.iter().copied() {
-                let is_open = page == open;
-                items.push(
-                    Button {
-                        variant: ButtonVariant::Ghost,
-                        size: ComponentSize::Sm,
-                        content_align: ButtonContentAlign::Start,
-                        child: Some(Text::new(page.title()).into()),
-                        on_press: Some(with_reducer!(ctx, SelectPage(page), select_page)),
-                        // The open page reads as selected by fill and weight, not colour alone.
-                        style: Some(ButtonStyleOverride {
-                            background_fill: is_open
-                                .then(|| Fill::Solid(tokens.colors.primary_subtle)),
-                            text_color: Some(if is_open {
-                                tokens.colors.text_primary
-                            } else {
-                                tokens.colors.text_secondary
-                            }),
-                            font_weight: is_open.then_some(typography.font_weight_semibold),
-                            ..Default::default()
-                        }),
-                        ..Default::default()
-                    }
-                    .semantics_identifier(format!("gallery.nav.{}", page.slug()))
-                    .width_length(Length::percent(100.0))
-                    .into(),
-                );
-            }
-        }
-
-        let list: Widget = Container::new(Column {
-            gap: Some(tokens.spacing.xxs),
-            children: items,
-            ..Default::default()
-        })
-        .padding_all(tokens.spacing.m)
-        .into();
-        let scroll: Widget = Scroll {
-            id: Some(WidgetId::explicit("gallery.components.scroll")),
-            direction: FlexDirection::Column,
-            child: Some(list),
-            show_scrollbar: true,
-            flex_grow: 1.0,
-            flex_shrink: 1.0,
-            ..Default::default()
-        }
-        .semantic_label("Components")
-        .into();
-
-        Container::new(Column {
-            children: widgets![scroll],
-            flex_grow: 1.0,
-            flex_shrink: 1.0,
-            ..Default::default()
-        })
+    pub(crate) Sidebar<GalleryState> {}
+    |_sidebar, state, cx| {
+        let tokens = cx.view.env().theme.tokens.clone();
+    } =>
+        Container(Column(
+            children: [
+                Scroll(
+                    id: WidgetId::explicit("gallery.components.scroll"),
+                    direction: FlexDirection::Column,
+                    child: Container(Column(
+                        gap: tokens.spacing.xxs,
+                        children: [
+                            for (index, (group, pages)) in GROUPS.iter().enumerate() {
+                                SidebarGroup(index, *group, *pages, key: *group)
+                            },
+                        ],
+                    )).padding_all(tokens.spacing.m),
+                    show_scrollbar: true,
+                    flex_grow: 1.0_f32,
+                    flex_shrink: 1.0_f32,
+                ).semantic_label("Components"),
+            ],
+            flex_grow: 1.0_f32,
+            flex_shrink: 1.0_f32,
+        ))
         .width(SIDEBAR_WIDTH)
         .flex_shrink(0.0)
         .bg(tokens.colors.surface)
-        .into()
-    }
 }
 
-/// The open page: its heading, what it is for, and its examples.
-pub(crate) struct PageView;
+fission_component! {
+    SidebarGroup<GalleryState> { index: usize, title: &'static str, pages: &'static [GalleryPage] }
+    |group, _state, cx| {
+        let tokens = &cx.view.env().theme.tokens;
+        let typography = &tokens.typography;
+    } =>
+        Column(
+            gap: tokens.spacing.xxs,
+            children: [
+                if group.index > 0 { Spacer(height: tokens.spacing.m) },
+                Container(
+                    Text(group.title)
+                        .size(typography.font_size_xs)
+                        .weight(typography.font_weight_medium)
+                        .color(tokens.colors.text_muted),
+                ).padding_lengths(Length::symmetric(
+                    Length::points(tokens.spacing.s),
+                    Length::points(tokens.spacing.xs),
+                )),
+                for page in group.pages.iter().copied() {
+                    SidebarPageButton(page, key: page.slug())
+                },
+            ],
+        )
+}
 
-impl From<PageView> for Widget {
-    fn from(_view: PageView) -> Self {
-        let (_, view) = fission::build::current::<GalleryState>();
-        let page = view.state().page;
-        let tokens = view.env().theme.tokens.clone();
+fission_component! {
+    SidebarPageButton<GalleryState> { page: GalleryPage }
+    |button, state, cx| {
+        let tokens = &cx.view.env().theme.tokens;
+        let typography = &tokens.typography;
+        let is_open = button.page == state.page;
+    } =>
+        Button(
+            variant: ButtonVariant::Ghost,
+            size: ComponentSize::Sm,
+            content_align: ButtonContentAlign::Start,
+            child: Text(button.page.title()),
+            on_press: with_reducer!(cx.build, SelectPage(button.page), select_page),
+            style: ButtonStyleOverride {
+                background_fill: is_open.then(|| Fill::Solid(tokens.colors.primary_subtle)),
+                text_color: Some(if is_open { tokens.colors.text_primary } else { tokens.colors.text_secondary }),
+                font_weight: is_open.then_some(typography.font_weight_semibold),
+                ..Default::default()
+            },
+        )
+        .semantics_identifier(format!("gallery.nav.{}", button.page.slug()))
+        .width_length(Length::percent(100.0))
+}
+
+fission_component! {
+/// The open page: its heading, what it is for, and its examples.
+    pub(crate) PageView<GalleryState> {}
+    |_component, state, cx| {
+        let page = state.page;
+        let tokens = cx.view.env().theme.tokens.clone();
         let typography = &tokens.typography;
 
-        let demos: Widget = Column {
-            gap: Some(tokens.spacing.l),
-            children: page.demos(),
-            ..Default::default()
-        }
-        .into();
-        let body: Widget = if page.framed() {
-            // A framed preview, so the examples read as one object apart from the page.
-            Container::new(demos)
-                .width_length(Length::percent(100.0))
-                .padding_all(tokens.spacing.xl)
-                .bg(tokens.colors.card())
-                .border(tokens.colors.border, tokens.sizing.border_hairline)
-                .border_radius(tokens.radii.large)
-                .into()
-        } else {
-            demos
-        };
-
-        Column {
-            gap: Some(tokens.spacing.l),
-            children: widgets![
-                Column {
-                    gap: Some(tokens.spacing.xs),
-                    children: widgets![
-                        Text::new(page.title())
+    } =>
+        Column(
+            gap: tokens.spacing.l,
+            children: [
+                Column(
+                    gap: tokens.spacing.xs,
+                    children: [
+                        Text(page.title())
                             .size(typography.heading2_size)
                             .line_height(typography.heading2_size * typography.line_height_heading)
                             .weight(typography.font_weight_semibold)
                             .color(tokens.colors.text_primary),
-                        Text::new(page.description())
+                        Text(page.description())
                             .size(typography.body_large_size)
                             .color(tokens.colors.text_secondary)
                             .wrap(true),
                     ],
-                    ..Default::default()
+                ),
+                if page.framed() {
+                    Container(Column(gap: tokens.spacing.l, children: page.demos()))
+                        .width_length(Length::percent(100.0))
+                        .padding_all(tokens.spacing.xl)
+                        .bg(tokens.colors.card())
+                        .border(tokens.colors.border, tokens.sizing.border_hairline)
+                        .border_radius(tokens.radii.large)
+                } else {
+                    Column(gap: tokens.spacing.l, children: page.demos())
                 },
-                body,
             ],
-            ..Default::default()
-        }
-        .into()
-    }
+        )
 }

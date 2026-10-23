@@ -2,8 +2,7 @@ use super::common::*;
 use super::switch_preview::SwitchPreview;
 use crate::state::AnimationGalleryState;
 use crate::style;
-use fission::build::BuildCtxHandle;
-use fission::Widget;
+use fission::prelude::*;
 
 pub const PATH: &str = "/widgets/switch";
 
@@ -15,26 +14,7 @@ pub const SUMMARY: WidgetSummary = WidgetSummary {
     tint: style::Tint::Primary,
 };
 
-pub struct SwitchPage<'a> {
-    pub ctx: BuildCtxHandle<AnimationGalleryState>,
-    pub state: &'a AnimationGalleryState,
-}
-
-impl From<SwitchPage<'_>> for Widget {
-    fn from(page: SwitchPage<'_>) -> Self {
-        WidgetPage {
-            ctx: &page.ctx,
-            state: page.state,
-            case: case(),
-            preview: SwitchPreview {
-                ctx: &page.ctx,
-                state: page.state,
-            }
-            .into(),
-        }
-        .into()
-    }
-}
+fission_component! { pub SwitchPage<AnimationGalleryState> {} |_page, _state, _cx| {} => WidgetPage(case(), SwitchPreview()) }
 
 fn case() -> GalleryCase {
     GalleryCase {
@@ -55,19 +35,18 @@ fn case() -> GalleryCase {
     }
 }
 
-const SOURCE: &str = r#"Motion {
+const SOURCE: &str = r#"Motion(
     id: WidgetId::explicit("sync_switch_motion"),
     tracks: vec![MotionTrack::composite(
         MotionPropertyId::Scale,
         MotionStartValue::Explicit(scalar(0.94)),
         scalar(if state.sync_enabled { 1.04 } else { 1.0 }),
     )],
-    child: Switch {
-        id: Some(WidgetId::explicit("sync_switch")),
-        semantics_identifier: Some("gallery.switch.sync".into()),
+    child: Switch(
+        id: WidgetId::explicit("sync_switch"),
+        semantics_identifier: "gallery.switch.sync".into(),
         checked: state.sync_enabled,
-        on_toggle: Some(toggle_sync),
+        on_toggle: toggle_sync,
         disabled: false,
-    }.into(),
-    ..Default::default()
-}.into()"#;
+    ),
+)"#;

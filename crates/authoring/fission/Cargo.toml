@@ -108,6 +108,7 @@ fission-theme = { path = "../../core/fission-theme", version = "0.15.1" }
 fission-i18n = { path = "../../core/fission-i18n", version = "0.15.1" }
 fission-widgets = { path = "../fission-widgets", version = "0.15.1" }
 fission-macros = { path = "../fission-macros", version = "0.15.1" }
+fission-compose = { path = "../fission-compose", version = "0.15.1" }
 fission-icons = { path = "../fission-icons", version = "0.15.1" }
 fission-charts = { path = "../fission-charts", version = "0.15.1", optional = true }
 fission-store = { path = "../../core/fission-store", version = "0.15.1", optional = true }

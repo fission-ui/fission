@@ -1175,7 +1175,7 @@ mkdir -p "$(dirname "$artifact")"
         let agents = std::fs::read_to_string(dir.join("AGENTS.md")).unwrap();
         assert!(agents.contains("# Fission App Guidelines"));
         assert!(agents.contains("fission-cli-generated-agents:v1"));
-        assert!(agents.contains("#[fission_component]"));
+        assert!(agents.contains("#[with_local_state]"));
         assert!(agents.contains("Use Fission's native Router and RouterParams"));
         assert!(agents.contains("Never block the UI thread"));
         assert!(readme.contains("fission devices --project-dir ."));

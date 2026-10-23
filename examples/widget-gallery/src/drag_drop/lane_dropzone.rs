@@ -1,66 +1,61 @@
 use fission::prelude::*;
 
 use super::lane_dropzone_panel::{LaneDropzonePanel, LanePanelState};
-use super::{drag_entered, drag_left, drop_on_lane, DragEntered, DragLeft, DropOnLane};
+use super::{drop_on_lane, push_drag_log};
 use crate::GalleryState;
 
-#[derive(Clone)]
-pub(super) struct LaneDropzone {
-    pub id: &'static str,
-    pub title: &'static str,
-    pub items: Vec<String>,
-}
-
-impl From<LaneDropzone> for Widget {
-    fn from(lane: LaneDropzone) -> Self {
-        let (ctx, _) = fission::build::current::<GalleryState>();
+fission_component! {
+    #[derive(Clone)] pub(super) LaneDropzone<GalleryState> {
+        id: &'static str,
+        title: String,
+        items: Vec<String>,
+    }
+    |lane, _state, cx| {
         let identifier = format!("gallery.drag.zone.{}", lane.id);
         // The zone shows one of its idle, active and hover panels at a time. Cards keep the same
         // identity in each, so the card being dragged is not replaced when the panel changes.
 
-        Dropzone {
+    } =>
+        Dropzone(
             id: Some(WidgetId::explicit(&identifier)),
             semantics_identifier: Some(identifier),
-            child: LaneDropzonePanel {
-                title: lane.title,
-                items: lane.items.clone(),
-                state: LanePanelState::Idle,
-                instance: match lane.id {
+            child: LaneDropzonePanel(
+                lane.title.clone(),
+                lane.items.clone(),
+                LanePanelState::Idle,
+                match lane.id {
                     "Backlog" => "backlog",
                     _ => "done",
                 },
-            }
-            .into(),
-            active_child: Some(
-                LaneDropzonePanel {
-                    title: lane.title,
-                    items: lane.items.clone(),
-                    state: LanePanelState::Active,
-                    instance: match lane.id {
+            ),
+            active_child: LaneDropzonePanel(
+                    lane.title.clone(),
+                    lane.items.clone(),
+                    LanePanelState::Active,
+                    match lane.id {
                         "Backlog" => "backlog",
                         _ => "done",
                     },
-                }
-                .into(),
-            ),
-            hover_child: Some(
-                LaneDropzonePanel {
-                    title: lane.title,
-                    items: lane.items,
-                    state: LanePanelState::Hovered,
-                    instance: match lane.id {
+                ),
+            hover_child: LaneDropzonePanel(
+                    lane.title.clone(),
+                    lane.items.clone(),
+                    LanePanelState::Hovered,
+                    match lane.id {
                         "Backlog" => "backlog",
                         _ => "done",
                     },
+                ),
+            on_drop: |lane, state, cx| drop_on_lane(state, &lane.title, cx),
+            on_drag_enter: |lane, state, _cx| {
+                state.drag_hover_zone = Some(lane.title.clone());
+                push_drag_log(state, format!("Hovering over {}", lane.title));
+            },
+            on_drag_leave: |lane, state, _cx| {
+                if state.drag_hover_zone.as_deref() == Some(lane.title.as_str()) {
+                    state.drag_hover_zone = None;
                 }
-                .into(),
-            ),
-            on_drop: Some(ctx.bind(DropOnLane(lane.title.into()), reduce_with!(drop_on_lane))),
-            on_drag_enter: Some(
-                ctx.bind(DragEntered(lane.title.into()), reduce_with!(drag_entered)),
-            ),
-            on_drag_leave: Some(ctx.bind(DragLeft(lane.title.into()), reduce_with!(drag_left))),
-        }
-        .into()
-    }
+                push_drag_log(state, format!("Left {}", lane.title));
+            },
+        )
 }

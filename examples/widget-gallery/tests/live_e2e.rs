@@ -31,6 +31,94 @@ fn launch_gallery(control_port: u16) -> Child {
 }
 
 #[test]
+#[ignore]
+fn every_gallery_page_builds_without_panicking() {
+    const PAGES: &[&str] = &[
+        "accordion",
+        "alert",
+        "aspect_ratio",
+        "avatar",
+        "badge",
+        "breadcrumb",
+        "button",
+        "calendar",
+        "card",
+        "checkbox",
+        "code",
+        "colour_picker",
+        "combobox",
+        "context_menu",
+        "data_table",
+        "date_picker",
+        "date_range_picker",
+        "divider",
+        "drag_and_drop",
+        "drawer",
+        "dropdown",
+        "dropzone",
+        "editable",
+        "empty_state",
+        "field",
+        "file_upload",
+        "foundations",
+        "image",
+        "link",
+        "markdown",
+        "menu",
+        "modal",
+        "number_input",
+        "pagination",
+        "popover",
+        "progress",
+        "radio",
+        "range_slider",
+        "refresh_indicator",
+        "segmented_control",
+        "select",
+        "skeleton",
+        "slider",
+        "split_view",
+        "stat",
+        "stepper",
+        "switch",
+        "tabs",
+        "tag",
+        "text_input",
+        "time_picker",
+        "timeline",
+        "toast",
+        "tooltip",
+        "tree_view",
+    ];
+
+    let control_port = reserve_control_port();
+    let mut child = launch_gallery(control_port);
+    let client = LiveTestClient::connect(control_port);
+
+    client
+        .wait_for_ready(15_000)
+        .expect("gallery did not start in time");
+
+    for page in PAGES {
+        client
+            .activate_selector(
+                SelectorQuery::semantic_identifier(format!("gallery.nav.{page}")).include_hidden(),
+            )
+            .unwrap_or_else(|error| panic!("failed to open the {page} gallery page: {error}"));
+        client
+            .wait(75)
+            .unwrap_or_else(|error| panic!("the {page} gallery page stopped responding: {error}"));
+        assert!(
+            child.try_wait().expect("query gallery process").is_none(),
+            "the {page} gallery page terminated the application"
+        );
+    }
+
+    client.quit().expect("quit");
+    let _ = child.wait();
+}
+
+#[test]
 #[ignore] // requires display + real window
 fn gallery_live_screenshot_all_sections() {
     let control_port = reserve_control_port();

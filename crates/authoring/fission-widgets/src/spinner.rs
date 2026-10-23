@@ -38,6 +38,17 @@ pub struct Spinner {
     pub label: Option<String>,
 }
 
+impl Default for Spinner {
+    fn default() -> Self {
+        Self {
+            id: WidgetId::from_u128(0),
+            color: None,
+            motion: None,
+            label: None,
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 /// Optional motion presets owned by [`Spinner`].
 ///

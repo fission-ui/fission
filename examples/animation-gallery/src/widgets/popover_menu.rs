@@ -4,35 +4,28 @@ use fission::prelude::*;
 
 const MENU_WIDTH: f32 = 260.0;
 
-pub(super) struct PopoverMenu {
-    pub close: ActionEnvelope,
-}
-
-impl From<PopoverMenu> for Widget {
-    fn from(menu: PopoverMenu) -> Self {
-        let (_, view) = fission::build::current::<AnimationGalleryState>();
-        let tokens = &view.env().theme.tokens;
-
-        Container::new(Column {
-            gap: Some(tokens.spacing.xs),
-            children: widgets![
-                Text::new("Invite teammate").size(tokens.typography.font_size_sm),
-                Text::new("Manage permissions").size(tokens.typography.font_size_sm),
-                Text::new("Archive workspace").size(tokens.typography.font_size_sm),
-                Button {
+fission_component! {
+    pub(super) PopoverMenu<AnimationGalleryState> { close: ActionEnvelope }
+    |menu, _state, cx| {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+        Container(
+            Column(
+            gap: tokens.spacing.xs,
+            children: [
+                Text("Invite teammate").size(tokens.typography.font_size_sm),
+                Text("Manage permissions").size(tokens.typography.font_size_sm),
+                Text("Archive workspace").size(tokens.typography.font_size_sm),
+                Button(
                     variant: ButtonVariant::Outline,
-                    child: Some(Text::new("Close popover").into()),
-                    on_press: Some(menu.close),
-                    ..Default::default()
-                }
+                    child: Text("Close popover"),
+                    on_press: menu.close.clone(),
+                )
                 .semantics_identifier("gallery.real.popover.close"),
             ],
-            ..Default::default()
-        })
+        ))
         .padding_all(tokens.spacing.s)
         .width(MENU_WIDTH)
         .border_radius(tokens.radii.large)
         .bg(style::surface())
-        .into()
-    }
 }

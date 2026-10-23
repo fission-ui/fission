@@ -78,58 +78,51 @@ pub(crate) fn configure_initial_state(state: &mut crate::GalleryState) {
     }
 }
 
-/// A cohesive account-settings surface used for browser visual qualification.
-///
-/// Unlike the desktop inventory gallery, this app deliberately composes the
-/// widgets into a realistic product screen. That makes density, hierarchy,
-/// responsive behavior, and overlay treatment visible in one stable fixture.
-#[derive(Clone)]
-pub struct QualityGalleryApp;
-
-impl From<QualityGalleryApp> for Widget {
-    fn from(_app: QualityGalleryApp) -> Self {
+// A cohesive account-settings surface used for browser visual qualification.
+// Unlike the desktop inventory gallery, this app deliberately composes the
+// widgets into a realistic product screen. That makes density, hierarchy,
+// responsive behaviour, and overlay treatment visible in one stable fixture.
+fission_component! {
+    pub QualityGalleryApp<crate::GalleryState>
+    |_app, _state, cx| {
         #[cfg(target_arch = "wasm32")]
-        if quality_gallery_page() == "guided-flow" {
-            return guided_flow::GuidedFlowPage.into();
-        }
+        let show_guided_flow = quality_gallery_page() == "guided-flow";
+        #[cfg(not(target_arch = "wasm32"))]
+        let show_guided_flow = false;
 
-        let (_, view) = fission::build::current::<crate::GalleryState>();
-        let tokens = &view.env().theme.tokens;
-        let viewport_width = view.viewport_size().width;
+        let tokens = &cx.view.env().theme.tokens;
+        let viewport_width = cx.view.viewport_size().width;
         let compact = viewport_width.is_finite()
             && viewport_width > 0.0
             && viewport_width < MOBILE_BREAKPOINT;
 
-        Container::new(Scroll {
-            direction: FlexDirection::Column,
-            child: Some(
-                Center {
+    } =>
+    if show_guided_flow {
+        guided_flow::GuidedFlowPage
+    } else {
+        Container(
+            Scroll(
+                direction: FlexDirection::Column,
+                child: Center(
                     // The page owns controlled portals. Build only the active
                     // width variant so an inactive responsive branch cannot
                     // register a duplicate menu, select, or modal surface.
-                    child: QualityPage { compact }.into(),
-                }
-                .into(),
+                    QualityPage(compact),
+                ),
+                show_scrollbar: true,
+                flex_grow: 1.0_f32,
+                flex_shrink: 1.0_f32,
             ),
-            show_scrollbar: true,
-            flex_grow: 1.0,
-            flex_shrink: 1.0,
-            ..Default::default()
-        })
+        )
         .bg(tokens.colors.surface_sunken)
         .min_height_length(Length::percent(100.0))
-        .into()
     }
 }
 
-struct QualityPage {
-    compact: bool,
-}
-
-impl From<QualityPage> for Widget {
-    fn from(page: QualityPage) -> Self {
-        let (_, view) = fission::build::current::<crate::GalleryState>();
-        let tokens = &view.env().theme.tokens;
+fission_component! {
+    QualityPage<crate::GalleryState> { compact: bool }
+    |page, _state, cx| {
+        let tokens = &cx.view.env().theme.tokens;
         let outer_padding = if page.compact {
             tokens.spacing.s + tokens.spacing.xs
         } else {
@@ -141,27 +134,17 @@ impl From<QualityPage> for Widget {
             tokens.spacing.m
         };
 
-        Container::new(Column {
-            gap: Some(region_gap),
-            children: widgets![
-                QualityHeader {
-                    compact: page.compact,
-                },
-                QualityHeading {
-                    compact: page.compact,
-                },
-                QualityTabs {
-                    compact: page.compact,
-                },
-                QualityFooter {
-                    compact: page.compact,
-                },
+    } =>
+        Container(Column(
+            gap: region_gap,
+            children: [
+                QualityHeader(page.compact),
+                QualityHeading(page.compact),
+                QualityTabs(page.compact),
+                QualityFooter(page.compact),
             ],
-            ..Default::default()
-        })
+        ))
         .width_length(Length::percent(100.0))
         .max_width_length(Length::points(DESKTOP_FRAME_WIDTH))
         .padding_all(outer_padding)
-        .into()
-    }
 }

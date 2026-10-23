@@ -11,64 +11,46 @@ impl GlobalState for BrowserCartState {}
 /// What one Charizard Holo costs in the island's cart.
 const CHARIZARD_PRICE: f32 = 249.00;
 
-#[derive(Clone)]
-pub struct CartDrawerIsland;
-
-impl From<CartDrawerIsland> for Widget {
-    fn from(_component: CartDrawerIsland) -> Self {
-        let (_, view) = fission::build::current::<BrowserCartState>();
-        let tokens = &view.env().theme.tokens;
-        let count = view.state().count;
-
-        Container::new(Column {
-            gap: Some(tokens.spacing.m),
-            children: widgets![
-                IslandStatus { count },
-                IslandCartSummary { count },
-                IslandCheckoutRow { count },
-                IslandLastEvent { count },
-                IslandCountProbe { count },
+fission_component! {
+    #[derive(Clone)] pub CartDrawerIsland<BrowserCartState> {}
+    |_component, state, cx| { let tokens = &cx.view.env().theme.tokens; } =>
+        Container(Column(
+            gap: tokens.spacing.m,
+            children: [
+                IslandStatus(state.count),
+                IslandCartSummary(state.count),
+                IslandCheckoutRow(state.count),
+                IslandLastEvent(state.count),
+                IslandCountProbe(state.count),
             ],
-            ..Default::default()
-        })
-        .into()
-    }
+        ))
 }
 
+fission_component! {
 /// Whether the island has handled a reducer event yet.
-struct IslandStatus {
-    count: u32,
-}
-
-impl From<IslandStatus> for Widget {
-    fn from(status: IslandStatus) -> Self {
-        let (_, view) = fission::build::current::<BrowserCartState>();
-        let typography = &view.env().theme.tokens.typography;
-        let colors = &view.env().theme.tokens.colors;
+    IslandStatus<BrowserCartState> { count: u32 }
+    |status, _state, cx| {
+        let typography = &cx.view.env().theme.tokens.typography;
+        let colors = &cx.view.env().theme.tokens.colors;
         let text = if status.count == 0 {
             "Island bridge ready"
         } else {
             "Island handled browser-side reducer event"
         };
-        Text::new(text)
+    } =>
+        Text(text)
             .size(typography.body_medium_size)
             .line_height(typography.body_medium_size * typography.line_height_normal)
             .weight(typography.font_weight_bold)
             .color(colors.warning)
             .semantics_identifier("island-status:cart-drawer")
-            .into()
-    }
 }
 
+fission_component! {
 /// The staged line and item count, in a card outlined in the accent colour.
-struct IslandCartSummary {
-    count: u32,
-}
-
-impl From<IslandCartSummary> for Widget {
-    fn from(summary: IslandCartSummary) -> Self {
-        let (_, view) = fission::build::current::<BrowserCartState>();
-        let tokens = &view.env().theme.tokens;
+    IslandCartSummary<BrowserCartState> { count: u32 }
+    |summary, _state, cx| {
+        let tokens = &cx.view.env().theme.tokens;
         let typography = &tokens.typography;
         let count = summary.count;
         let line = if count == 0 {
@@ -78,9 +60,10 @@ impl From<IslandCartSummary> for Widget {
         };
         let item_word = if count == 1 { "item" } else { "items" };
 
-        Container::new(Column {
-            gap: Some(tokens.spacing.s),
-            children: widgets![
+    } =>
+        Container(Column(
+            gap: tokens.spacing.s,
+            children: [
                 Text::new(line)
                     .size(typography.body_large_size)
                     .line_height(typography.body_large_size * typography.line_height_normal)
@@ -93,35 +76,29 @@ impl From<IslandCartSummary> for Widget {
                     .color(tokens.colors.text_muted)
                     .semantics_identifier("island-cart-count"),
             ],
-            ..Default::default()
-        })
+        ))
         .padding_all(tokens.spacing.m)
         .border(tokens.colors.warning.with_alpha(90), 1.0)
         .border_radius(tokens.radii.large)
         .bg(tokens.colors.surface_raised)
-        .into()
-    }
 }
 
+fission_component! {
 /// The subtotal and the button that adds another card.
-struct IslandCheckoutRow {
-    count: u32,
-}
-
-impl From<IslandCheckoutRow> for Widget {
-    fn from(row: IslandCheckoutRow) -> Self {
-        let (ctx, view) = fission::build::current::<BrowserCartState>();
-        let tokens = &view.env().theme.tokens;
+    IslandCheckoutRow<BrowserCartState> { count: u32 }
+    |row, _state, cx| {
+        let tokens = &cx.view.env().theme.tokens;
         let typography = &tokens.typography;
         let subtotal = CHARIZARD_PRICE * row.count as f32;
 
-        Row {
-            gap: Some(tokens.spacing.m),
+    } =>
+        Row(
+            gap: tokens.spacing.m,
             align_items: ir_op::AlignItems::Center,
-            children: widgets![
-                Column {
-                    gap: Some(tokens.spacing.xs),
-                    children: widgets![
+            children: [
+                Column(
+                    gap: tokens.spacing.xs,
+                    children: [
                         Text::new("Island subtotal")
                             .size(typography.font_size_sm)
                             .line_height(typography.font_size_sm * typography.line_height_normal)
@@ -134,14 +111,10 @@ impl From<IslandCheckoutRow> for Widget {
                             .color(tokens.colors.text_primary)
                             .semantics_identifier("island-cart-total"),
                     ],
-                    ..Default::default()
-                },
-                Spacer {
-                    flex_grow: 1.0,
-                    ..Default::default()
-                },
-                SemanticsRegion::new(
-                    Container::new(
+                ),
+                Spacer(flex_grow: 1.0),
+                SemanticsRegion(
+                    Container(
                         Text::new("Add Charizard")
                             .size(typography.body_medium_size)
                             .line_height(
@@ -161,56 +134,41 @@ impl From<IslandCheckoutRow> for Widget {
                 )
                 .identifier("island-action:add-card")
                 .role(fission::Role::Button)
-                .default_action(ctx.bind(IslandAddToCart, reduce_with!(on_island_add_to_cart)))
+                .default_action(cx.build.bind(IslandAddToCart, reduce_with!(on_island_add_to_cart)))
                 .id(fission::WidgetId::explicit("island-action:add-card")),
             ],
-            ..Default::default()
-        }
-        .into()
-    }
+        )
 }
 
+fission_component! {
 /// Confirms the last update happened in the browser, without a page request.
-struct IslandLastEvent {
-    count: u32,
-}
-
-impl From<IslandLastEvent> for Widget {
-    fn from(event: IslandLastEvent) -> Self {
-        let (_, view) = fission::build::current::<BrowserCartState>();
-        let typography = &view.env().theme.tokens.typography;
+    IslandLastEvent<BrowserCartState> { count: u32 }
+    |event, _state, cx| {
+        let typography = &cx.view.env().theme.tokens.typography;
         let text = if event.count == 0 {
             "Ready for client-side cart edits"
         } else {
             "Updated without a full page request"
         };
-        Text::new(text)
+    } =>
+        Text(text)
             .size(typography.font_size_sm)
             .line_height(typography.font_size_sm * typography.line_height_normal)
             .weight(typography.font_weight_semibold)
-            .color(view.env().theme.tokens.colors.warning)
+            .color(cx.view.env().theme.tokens.colors.warning)
             .semantics_identifier("island-last-event")
-            .into()
-    }
 }
 
+fission_component! {
 /// A zero-size copy of the count, so browser tests can read the number without
 /// parsing a sentence.
-struct IslandCountProbe {
-    count: u32,
-}
-
-impl From<IslandCountProbe> for Widget {
-    fn from(probe: IslandCountProbe) -> Self {
-        let (_, view) = fission::build::current::<BrowserCartState>();
-        let tokens = &view.env().theme.tokens;
-        Text::new(probe.count.to_string())
+    IslandCountProbe<BrowserCartState> { count: u32 }
+    |probe, _state, cx| { let tokens = &cx.view.env().theme.tokens; } =>
+        Text(probe.count.to_string())
             .size(tokens.spacing.none)
             .line_height(tokens.spacing.none)
             .color(tokens.colors.surface_raised)
             .semantics_identifier("island-cart-count-short")
-            .into()
-    }
 }
 
 #[fission_reducer(IslandAddToCart)]
@@ -224,7 +182,7 @@ pub fn cart_drawer_boot(input: &str) -> String {
             "cart-drawer",
             "cart-drawer",
             BrowserCartState::default(),
-            CartDrawerIsland,
+            CartDrawerIsland::new(),
         )
         .theme(fission::theme::Theme::dark())
     })

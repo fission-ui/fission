@@ -7,20 +7,16 @@ use crate::components::verify_panel::VerifyPanel;
 use crate::model::{FieldInspectorState, InspectorPanel};
 use fission::prelude::*;
 
-#[derive(Clone, Copy)]
-pub struct ActiveInspectorPanel;
-
-impl From<ActiveInspectorPanel> for Widget {
-    fn from(_: ActiveInspectorPanel) -> Self {
-        let (_ctx, view) = fission::build::current::<FieldInspectorState>();
-
-        match view.state().panel {
-            InspectorPanel::Overview => OverviewPanel.into(),
-            InspectorPanel::Verify => VerifyPanel.into(),
-            InspectorPanel::Evidence => EvidencePanel.into(),
-            InspectorPanel::Sensors => SensorsPanel.into(),
-            InspectorPanel::Security => SecurityPanel.into(),
-            InspectorPanel::Review => ReviewPanel.into(),
+fission_component! {
+    #[derive(Clone, Copy)]
+    pub ActiveInspectorPanel<FieldInspectorState> {}
+    |_panel, state, _cx| {} =>
+        match state.panel {
+            InspectorPanel::Overview => OverviewPanel(),
+            InspectorPanel::Verify => VerifyPanel(),
+            InspectorPanel::Evidence => EvidencePanel(),
+            InspectorPanel::Sensors => SensorsPanel(),
+            InspectorPanel::Security => SecurityPanel(),
+            InspectorPanel::Review => ReviewPanel(),
         }
-    }
 }

@@ -18,6 +18,7 @@ use std::sync::Arc;
 /// * `options` - The label text for each segment.
 /// * `selected_index` - Index of the currently active segment.
 /// * `on_change` - Closure that produces an action for the newly selected index.
+#[derive(Default)]
 pub struct SegmentedControl {
     /// Segment labels in display order.
     pub options: Vec<String>,

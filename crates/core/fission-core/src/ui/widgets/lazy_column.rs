@@ -27,7 +27,7 @@ use serde::{Deserialize, Serialize};
 ///     ..Default::default()
 /// }
 /// ```
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct LazyColumn {
     /// Explicit node identity (used for scroll-offset tracking).
     pub id: Option<WidgetId>,

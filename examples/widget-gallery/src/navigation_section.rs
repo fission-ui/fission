@@ -27,36 +27,37 @@ fn toggle_menu(state: &mut GalleryState) {
 }
 
 pub(crate) fn tabs() -> Vec<Widget> {
-    let (ctx, view) = fission::build::current::<GalleryState>();
-    let state = view.state();
-    widgets![Tabs {
+    widgets![TabsDemo::new()]
+}
+fission_component! { TabsDemo<GalleryState> |_demo, state, cx| {} => Tabs(
         active_index: state.active_tab,
         items: vec![
             TabItem {
                 title: "Tab A".into(),
                 content: Text::new("Content of Tab A").into(),
-                on_press: Some(with_reducer!(ctx, SetTab(0), set_tab)),
+                on_press: Some(with_reducer!(cx.build, SetTab(0), set_tab)),
                 semantics_identifier: Some("gallery.tabs.a".into()),
             },
             TabItem {
                 title: "Tab B".into(),
                 content: Text::new("Content of Tab B").into(),
-                on_press: Some(with_reducer!(ctx, SetTab(1), set_tab)),
+                on_press: Some(with_reducer!(cx.build, SetTab(1), set_tab)),
                 semantics_identifier: Some("gallery.tabs.b".into()),
             },
             TabItem {
                 title: "Tab C".into(),
                 content: Text::new("Content of Tab C").into(),
-                on_press: Some(with_reducer!(ctx, SetTab(2), set_tab)),
+                on_press: Some(with_reducer!(cx.build, SetTab(2), set_tab)),
                 semantics_identifier: Some("gallery.tabs.c".into()),
             },
         ],
-        ..Default::default()
-    }]
+    )
 }
 
 pub(crate) fn breadcrumb() -> Vec<Widget> {
-    widgets![Breadcrumb {
+    widgets![BreadcrumbDemo::new()]
+}
+fission_component! { BreadcrumbDemo<()> |_demo, _state, _cx| {} => Breadcrumb(
         items: vec![
             BreadcrumbItem {
                 label: "Home".into(),
@@ -71,59 +72,63 @@ pub(crate) fn breadcrumb() -> Vec<Widget> {
                 on_click: None,
             },
         ],
-    }]
+    )
 }
 
 pub(crate) fn segmented_control() -> Vec<Widget> {
-    let (ctx, view) = fission::build::current::<GalleryState>();
-    let state = view.state();
+    widgets![SegmentedDemo::new()]
+}
+fission_component! { SegmentedDemo<GalleryState> |_demo, state, cx| {
     let segmented_change = Arc::new({
-        let action = with_reducer!(ctx, SetSegmented(0), set_segmented);
+        let action = with_reducer!(cx.build, SetSegmented(0), set_segmented);
         move |index| action.with_action(&SetSegmented(index))
     });
-    widgets![HStack {
+} => HStack(
         spacing: None,
-        children: widgets![SegmentedControl {
+        children: [SegmentedControl(
             options: vec!["Day".into(), "Week".into(), "Month".into()],
             selected_index: state.segmented_index,
-            on_change: Some(segmented_change),
-        }],
-    }]
+            on_change: segmented_change,
+        )],
+    )
 }
 
 pub(crate) fn pagination() -> Vec<Widget> {
-    let (ctx, view) = fission::build::current::<GalleryState>();
-    let state = view.state();
+    widgets![PaginationDemo::new()]
+}
+fission_component! { PaginationDemo<GalleryState> |_demo, state, cx| {
     let page_change = Arc::new({
-        let action = with_reducer!(ctx, SetPage(1), set_page);
+        let action = with_reducer!(cx.build, SetPage(1), set_page);
         move |page| action.with_action(&SetPage(page))
     });
-    widgets![Pagination {
+} => Pagination(
         current_page: state.current_page.max(1),
-        total_pages: 10,
-        on_change: Some(page_change),
-    }]
+        total_pages: 10_usize,
+        on_change: page_change,
+    )
 }
 
 pub(crate) fn link() -> Vec<Widget> {
-    widgets![HStack {
+    widgets![LinkDemo::new()]
+}
+fission_component! { LinkDemo<()> |_demo, _state, _cx| {} => HStack(
         spacing: None,
-        children: widgets![Link {
-            text: "Visit documentation".into(),
-            on_click: None,
-        }],
-    }]
+        children: [Link(
+            text: "Visit documentation",
+        )],
+    )
 }
 
 pub(crate) fn menu() -> Vec<Widget> {
-    let (ctx, view) = fission::build::current::<GalleryState>();
-    let state = view.state();
+    widgets![MenuDemo::new()]
+}
+fission_component! { MenuDemo<GalleryState> |_demo, state, cx| {} =>
     // The page column stretches its children; the row lets the trigger hug its label.
-    widgets![HStack {
+    HStack(
         spacing: None,
-        children: widgets![MenuButton {
+        children: [MenuButton(
             id: WidgetId::explicit("gallery_menu"),
-            label: "Actions".into(),
+            label: "Actions",
             items: vec![
                 MenuItem {
                     label: "Edit".into(),
@@ -139,8 +144,8 @@ pub(crate) fn menu() -> Vec<Widget> {
                 },
             ],
             is_open: state.menu_open,
-            on_toggle: Some(with_reducer!(ctx, ToggleMenu, toggle_menu)),
-            trigger_semantics_identifier: Some("gallery.menu.trigger".into()),
-        }],
-    }]
+            on_toggle: with_reducer!(cx.build, ToggleMenu, toggle_menu),
+            trigger_semantics_identifier: "gallery.menu.trigger".to_string(),
+        )],
+    )
 }

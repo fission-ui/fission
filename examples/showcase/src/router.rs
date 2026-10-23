@@ -4,43 +4,34 @@ use crate::state::ShowcaseState;
 use fission::prelude::*;
 use std::sync::Arc;
 
-#[derive(Clone, Debug)]
-pub(crate) struct ShowcaseRouter;
-
-impl From<ShowcaseRouter> for Widget {
-    fn from(_component: ShowcaseRouter) -> Self {
-        let (_ctx, view) = fission::build::current::<ShowcaseState>();
+fission_component! {
+    #[derive(Clone, Debug)] pub(crate) ShowcaseRouter<ShowcaseState> {}
+    |_component, state, _cx| {
         let router = Router::<ShowcaseState> {
-            current_path: view.state().current_path.clone(),
+            current_path: state.current_path.clone(),
             routes: vec![
                 Route {
                     path: "/".into(),
-                    builder: Arc::new(|_, _, _| DiscoverPage.into()),
+                    builder: Arc::new(|_, _, _| DiscoverPage::new().into()),
                 },
                 Route {
                     path: "/examples/:slug".into(),
                     builder: Arc::new(|_, _, params| {
-                        ExampleDetailPage {
-                            slug: params.get("slug").cloned().unwrap_or_default(),
-                        }
-                        .into()
+                        ExampleDetailPage::new(params.get("slug").cloned().unwrap_or_default()).into()
                     }),
                 },
             ],
-            not_found: Some(Arc::new(|_, _, _| NotFoundPage.into())),
+            not_found: Some(Arc::new(|_, _, _| NotFoundPage::new().into())),
         };
-
-        Column {
-            children: widgets![
-                AppHeader,
-                Container::new(router)
+    } =>
+        Column(
+            children: [
+                AppHeader(),
+                Container(router)
                     .flex_grow(1.0)
                     .min_height(0.0)
                     .id(WidgetId::explicit("showcase.route.content")),
             ],
-            gap: Some(0.0),
-            ..Default::default()
-        }
-        .into()
-    }
+            gap: 0.0,
+        )
 }

@@ -1,18 +1,15 @@
 use super::GalleryBuildExt;
+use crate::state::GalleryState;
 use fission::charts::{
     Axis, BoxplotSeries, CandlestickSeries, Chart, FunnelSeries, HeatmapSeries, RadarSeries,
     VisualMap,
 };
 use fission::core::op::Color;
-use fission::core::ui::Widget;
+use fission::prelude::*;
 
-pub(super) struct StatisticalChart {
-    pub chart: usize,
-    pub scale: f32,
-}
-
-impl From<StatisticalChart> for Widget {
-    fn from(selection: StatisticalChart) -> Self {
+fission_component! {
+    pub(super) StatisticalChart<GalleryState> { chart: usize, scale: f32 }
+    |selection, _state, _cx| {} => (|| -> Widget {
         let chart = selection.chart;
         let s = selection.scale;
 
@@ -124,5 +121,5 @@ impl From<StatisticalChart> for Widget {
                 .into(),
             _ => unreachable!("chart catalog and builder are out of sync"),
         }
-    }
+    })()
 }

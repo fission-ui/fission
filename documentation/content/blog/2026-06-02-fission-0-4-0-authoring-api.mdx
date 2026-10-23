@@ -56,10 +56,10 @@ let section = fission::build::read::<FormSection>();
 
 This is not a replacement for app state. Provider values are scoped build context. They are useful for local configuration, section identity, density, feature flags, or derived read-only values that should be visible to descendants without passing them through every intermediate component.
 
-Local widget state now has an explicit authoring model as well. Components that own retained UI-local state use `#[fission_component]` and `#[local_state(default = ...)]`:
+Local widget state now has an explicit authoring model as well. Components that own retained UI-local state use `#[with_local_state]` and `#[local_state(default = ...)]`:
 
 ```rust
-#[fission_component]
+#[with_local_state]
 pub struct Counter {
     #[local_state(default = 0)]
     count: i32,
@@ -99,7 +99,7 @@ For existing code, the migration is conceptually straightforward even though it 
 1. Replace public widget-authoring-boundary implementations with `impl From<Component> for Widget`.
 2. Replace build arguments with `let (ctx, view) = fission::build::current::<State>();` inside conversion.
 3. Convert child slots to `Widget`, `Option<Widget>`, or `Vec<Widget>` and use `.into()` or `widgets![...]` at composition boundaries.
-4. Move UI-local retained fields to `#[fission_component]` and `#[local_state(default = ...)]` where appropriate.
+4. Move UI-local retained fields to `#[with_local_state]` and `#[local_state(default = ...)]` where appropriate.
 5. Use `Provider::new(...)` only for scoped read-only context, not product state.
 6. Add explicit `WidgetId` values for dynamic retained children that can be reordered or filtered.
 

@@ -2,65 +2,40 @@ use super::property_preview::PropertyPreview;
 use super::PropertyCase;
 use crate::state::{reset_timeline, toggle_play, AnimationGalleryState, ResetTimeline, TogglePlay};
 use crate::style;
-use crate::ui;
+use crate::ui::*;
 use crate::widgets::common::TimelineControl;
-use fission::build::BuildCtxHandle;
 use fission::prelude::*;
 
-pub(super) struct PropertyWorkspace<'a> {
-    pub ctx: &'a BuildCtxHandle<AnimationGalleryState>,
-    pub state: &'a AnimationGalleryState,
-    pub property: &'a PropertyCase,
-}
-
-impl From<PropertyWorkspace<'_>> for Widget {
-    fn from(workspace: PropertyWorkspace<'_>) -> Self {
-        let (_, view) = fission::build::current::<AnimationGalleryState>();
-        let tokens = &view.env().theme.tokens;
-
-        Container::new(Column {
-            gap: Some(tokens.spacing.s),
-            children: widgets![
-                Row {
-                    gap: Some(tokens.spacing.s),
-                    children: widgets![
-                        ui::SmallButton {
-                            ctx: workspace.ctx,
-                            label: if workspace.state.playing {
-                                "Pause"
-                            } else {
-                                "Play"
-                            },
-                            action: TogglePlay,
-                            reducer: toggle_play,
-                        },
-                        ui::SmallButton {
-                            ctx: workspace.ctx,
-                            label: "Reset",
-                            action: ResetTimeline,
-                            reducer: reset_timeline,
-                        },
-                        TimelineControl {
-                            ctx: workspace.ctx,
-                            state: workspace.state,
-                        },
-                    ],
-                    ..Default::default()
-                },
-                PropertyPreview {
-                    property: workspace.property,
-                    state: workspace.state,
-                },
-                ui::CodeBlock {
-                    source: workspace.property.track_source,
-                },
-            ],
-            ..Default::default()
-        })
+fission_component! {
+    pub(super) PropertyWorkspace<AnimationGalleryState> { property: PropertyCase }
+    |workspace, state, cx| {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+        Container(
+            Column(
+                gap: tokens.spacing.s,
+                children: [
+                    Row(
+                        gap: tokens.spacing.s,
+                        children: [
+                            SmallButton(
+                                (if state.playing { "Pause" } else { "Play" }).to_string(),
+                                cx.bind(TogglePlay, reduce_with!(toggle_play)),
+                            ),
+                            SmallButton(
+                                "Reset".to_string(),
+                                cx.bind(ResetTimeline, reduce_with!(reset_timeline)),
+                            ),
+                            TimelineControl(),
+                        ],
+                    ),
+                    PropertyPreview(workspace.property.clone()),
+                    CodeBlock(workspace.property.track_source.to_string()),
+                ],
+            ),
+        )
         .padding_all(tokens.spacing.m)
         .border(style::border(), 1.0)
         .border_radius(tokens.radii.xl)
         .bg(style::surface())
-        .into()
-    }
 }

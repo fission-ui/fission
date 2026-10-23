@@ -2,16 +2,12 @@ use crate::state::AnimationGalleryState;
 use crate::style;
 use fission::prelude::*;
 
-pub struct CodeBlock<'a> {
-    pub source: &'a str,
-}
-
-impl From<CodeBlock<'_>> for Widget {
-    fn from(block: CodeBlock<'_>) -> Self {
-        let (_, view) = fission::build::current::<AnimationGalleryState>();
-        let tokens = &view.env().theme.tokens;
-        Container::new(
-            Text::new(block.source)
+fission_component! {
+    pub CodeBlock<AnimationGalleryState> { source: String } |block, _state, cx| {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+        Container(
+            Text(block.source)
                 .size(tokens.typography.font_size_xs)
                 .color(style::text_secondary()),
         )
@@ -19,6 +15,4 @@ impl From<CodeBlock<'_>> for Widget {
         .border_radius(tokens.radii.large)
         .border(style::border(), 1.0)
         .bg(style::surface_sunken())
-        .into()
-    }
 }

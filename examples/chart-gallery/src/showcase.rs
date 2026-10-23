@@ -9,42 +9,16 @@ use fission::charts::{
     Axis, Chart, DataZoom, GraphNode, HeatmapSeries, Legend, LineSeries, MapSeries, SankeySeries,
     SunburstSeries, ThemeRiverSeries, TreemapNode, VisualMap,
 };
-use fission::core::ui::{Column, Container, Text, Widget};
+use fission::prelude::*;
 
-pub(crate) struct ChartShowcase {
-    pub scale: f32,
-}
-
-impl From<ChartShowcase> for Widget {
-    fn from(showcase: ChartShowcase) -> Self {
-        let (_, view) = fission::build::current::<GalleryState>();
-        let tokens = &view.env().theme.tokens;
+fission_component! {
+    pub(crate) ChartShowcase<GalleryState> { scale: f32 }
+    |showcase, state, cx| {
+        let tokens = &cx.view.env().theme.tokens;
         let s = showcase.scale;
-
-        let metric_nodes = vec![
-        ShowcaseMetricCard::new(
-            "Available now",
-            "39 chart surfaces",
-            "Core cartesian, radial, statistical, relationship, map, and status charts render through the native chart lowerer.",
-            teal(),
-        ),
-        ShowcaseMetricCard::new(
-            "Data model",
-            "Dataset + encode",
-            "Series can read direct vectors or named dataset dimensions, so app code scales beyond one-off arrays.",
-            blue(),
-        ),
-        ShowcaseMetricCard::new(
-            "Next",
-            "WASM gallery",
-            "This desktop gallery is the source surface for the future browser demo and editable chart examples.",
-            amber(),
-        ),
-    ];
-
-        let mut children: Vec<Widget> = fission::widgets![
-            ShowcaseGrid::single_column(vec![
-                ShowcaseChartCard::new(
+    } => Column(children: [
+            ShowcaseGrid(children: [
+                ShowcaseChartCard(
                     "Revenue composition",
                     "Stacked area, smooth interpolation, legend, and data zoom presentation.",
                     Chart::new()
@@ -70,7 +44,7 @@ impl From<ChartShowcase> for Widget {
                                     302.0 * s,
                                 ])
                                 .color(teal())
-                                .smooth(view.state().smooth)
+                                .smooth(state.smooth)
                                 .into(),
                             LineSeries::new("Services")
                                 .stack("total")
@@ -86,12 +60,12 @@ impl From<ChartShowcase> for Widget {
                                     188.0 * s,
                                 ])
                                 .color(blue())
-                                .smooth(view.state().smooth)
+                                .smooth(state.smooth)
                                 .into(),
                         ]),
                     teal(),
                 ),
-                ShowcaseChartCard::new(
+                ShowcaseChartCard(
                     "Regional demand",
                     "GeoJSON-backed choropleth map, visual map coloring, and region labels.",
                     Chart::new()
@@ -107,9 +81,9 @@ impl From<ChartShowcase> for Widget {
                             .into()]),
                     blue(),
                 ),
-            ],),
-            ShowcaseGrid::single_column(vec![
-                ShowcaseChartCard::new(
+            ], min_track_width: 0.0_f32, single_column: true),
+            ShowcaseGrid(children: [
+                ShowcaseChartCard(
                     "Product hierarchy",
                     "Sunburst layout for nested product and growth categories.",
                     Chart::new()
@@ -152,7 +126,7 @@ impl From<ChartShowcase> for Widget {
                             .into()]),
                     amber(),
                 ),
-                ShowcaseChartCard::new(
+                ShowcaseChartCard(
                     "Traffic stream",
                     "Theme river bands show changing mix across ordered time buckets.",
                     Chart::new()
@@ -176,9 +150,9 @@ impl From<ChartShowcase> for Widget {
                             .into()]),
                     rgb(168, 85, 247),
                 ),
-            ],),
-            ShowcaseGrid::single_column(vec![
-                ShowcaseChartCard::new(
+            ], min_track_width: 0.0_f32, single_column: true),
+            ShowcaseGrid(children: [
+                ShowcaseChartCard(
                     "Conversion flow",
                     "Sankey bands for source-to-target movement in a product funnel.",
                     Chart::new()
@@ -214,7 +188,7 @@ impl From<ChartShowcase> for Widget {
                             .into()]),
                     rgb(244, 114, 182),
                 ),
-                ShowcaseChartCard::new(
+                ShowcaseChartCard(
                     "Operations heat",
                     "Heatmap with visual-map scale for dense categorical intensity.",
                     Chart::new()
@@ -252,13 +226,33 @@ impl From<ChartShowcase> for Widget {
                             .into()]),
                     rgb(96, 165, 250),
                 ),
-            ],),
-            ShowcaseGrid::new(metric_nodes, SHOWCASE_METRIC_MIN_WIDTH),
-        ];
-
-        children.push(
-        Container::new(
-            Text::new("Use the sidebar to inspect the single-chart examples. The overview intentionally renders several chart families together so visual regressions are obvious.")
+            ], min_track_width: 0.0_f32, single_column: true),
+            ShowcaseGrid(
+                children: [
+                    ShowcaseMetricCard(
+                        "Available now",
+                        "39 chart surfaces",
+                        "Core cartesian, radial, statistical, relationship, map, and status charts render through the native chart lowerer.",
+                        teal(),
+                    ),
+                    ShowcaseMetricCard(
+                        "Data model",
+                        "Dataset + encode",
+                        "Series can read direct vectors or named dataset dimensions, so app code scales beyond one-off arrays.",
+                        blue(),
+                    ),
+                    ShowcaseMetricCard(
+                        "Next",
+                        "WASM gallery",
+                        "This desktop gallery is the source surface for the future browser demo and editable chart examples.",
+                        amber(),
+                    ),
+                ],
+                min_track_width: SHOWCASE_METRIC_MIN_WIDTH,
+                single_column: false,
+            ),
+        Container(
+            Text("Use the sidebar to inspect the single-chart examples. The overview intentionally renders several chart families together so visual regressions are obvious.")
                 .size(tokens.typography.body_medium_size)
                 .color(tokens.colors.text_secondary)
         )
@@ -266,16 +260,6 @@ impl From<ChartShowcase> for Widget {
         .border_radius(tokens.radii.xl)
         .bg(tokens.colors.surface)
         .border(tokens.colors.border, 1.0)
-        .into(),
-    );
-
-        // The gallery scrolls the page, so the overview grows to its full height
-        // instead of scrolling inside it.
-        Column {
-            children,
-            gap: Some(tokens.spacing.l),
-            ..Default::default()
-        }
-        .into()
-    }
+        ,
+    ], gap: tokens.spacing.l)
 }

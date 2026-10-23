@@ -14,6 +14,7 @@ const PRODUCT_LINKS: &[(&str, &str)] = &[
 
 const DEVELOPER_LINKS: &[(&str, &str)] = &[
     ("Try Fission in the browser", "/showcase/"),
+    ("Compose", "/compose/"),
     ("Quickstart", "/docs/learn/quickstart/"),
     ("Documentation", "/docs/"),
     ("Guides", "/docs/guides/layout-and-widgets/"),

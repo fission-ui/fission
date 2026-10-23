@@ -1,7 +1,7 @@
 use fission_core::{
-    ActionEnvelope, BoxFuture, CapabilityCtx, CapabilityType, DataStreamRegistry, JobCtx, JobRef,
-    JobSpec, OperationCapability, ResourceExecutionContext, ServiceCtx, ServiceRunner, ServiceSpec,
-    ServiceType,
+    ActionEnvelope, BoxFuture, CapabilityCtx, CapabilityType, DataStreamRegistry, InlineJob,
+    JobCtx, JobRef, JobSpec, OperationCapability, ResourceExecutionContext, ServiceCtx,
+    ServiceRunner, ServiceSpec, ServiceType,
 };
 use std::collections::HashMap;
 use std::future::Future;
@@ -581,6 +581,7 @@ impl AsyncRegistry {
     pub fn spawn_job(
         &self,
         job_name: &str,
+        inline: Option<InlineJob>,
         req_id: u64,
         payload: Vec<u8>,
         on_ok: Option<ActionEnvelope>,
@@ -589,10 +590,7 @@ impl AsyncRegistry {
         tx: &mpsc::Sender<AsyncMessage>,
         wake: WakeFn,
     ) -> bool {
-        let Some(handler) = self.jobs.get(job_name) else {
-            return false;
-        };
-        handler(JobLaunch {
+        let launch = JobLaunch {
             req_id,
             payload,
             on_ok,
@@ -600,6 +598,57 @@ impl AsyncRegistry {
             resource,
             tx: tx.clone(),
             wake,
+        };
+        let Some(inline) = inline else {
+            let Some(handler) = self.jobs.get(job_name) else {
+                return false;
+            };
+            handler(launch);
+            return true;
+        };
+        let data_streams = self.data_streams.clone();
+        let name = job_name.to_string();
+        std::thread::spawn(move || {
+            let runtime = match new_job_runtime() {
+                Ok(runtime) => runtime,
+                Err(error) => {
+                    let _ = launch.tx.send(AsyncMessage::JobErr {
+                        job_name: name,
+                        req_id: launch.req_id,
+                        payload: None,
+                        on_err: launch.on_err,
+                        message: Some(error),
+                        resource: launch.resource,
+                    });
+                    (launch.wake)();
+                    return;
+                }
+            };
+            match runtime.block_on(inline.run(
+                launch.payload,
+                JobCtx::new_runtime(launch.req_id, data_streams),
+            )) {
+                Ok(payload) => {
+                    let _ = launch.tx.send(AsyncMessage::JobOk {
+                        job_name: name,
+                        req_id: launch.req_id,
+                        payload,
+                        on_ok: launch.on_ok,
+                        resource: launch.resource,
+                    });
+                }
+                Err(error) => {
+                    let _ = launch.tx.send(AsyncMessage::JobErr {
+                        job_name: name,
+                        req_id: launch.req_id,
+                        payload: error.payload,
+                        on_err: launch.on_err,
+                        message: error.message,
+                        resource: launch.resource,
+                    });
+                }
+            }
+            (launch.wake)();
         });
         true
     }

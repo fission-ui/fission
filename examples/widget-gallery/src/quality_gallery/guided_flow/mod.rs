@@ -16,49 +16,41 @@ use timeline::GuidedAgentTimeline;
 use topbar::GuidedTopbar;
 use workflow::GuidedWorkflow;
 
-pub(super) struct GuidedFlowPage;
-
-impl From<GuidedFlowPage> for Widget {
-    fn from(_page: GuidedFlowPage) -> Self {
-        Container::new(Row {
-            gap: Some(0.0),
+fission_component! {
+    pub(super) GuidedFlowPage<()> {}
+    |_page, _state, _cx| {} => Container(Row(
+            gap: 0.0_f32,
             align_items: fission::op::AlignItems::Stretch,
-            children: widgets![
-                GuidedSidebar,
-                Container::new(Column {
-                    gap: Some(0.0),
-                    children: widgets![
-                        GuidedTopbar,
-                        Row {
-                            gap: Some(0.0),
+            children: [
+                GuidedSidebar(),
+                Container(Column(
+                    gap: 0.0_f32,
+                    children: [
+                        GuidedTopbar(),
+                        Row(
+                            gap: 0.0_f32,
                             align_items: fission::op::AlignItems::Stretch,
-                            flex_grow: 1.0,
-                            flex_shrink: 1.0,
-                            children: widgets![
-                                Container::new(Scroll {
+                            flex_grow: 1.0_f32,
+                            flex_shrink: 1.0_f32,
+                            children: [
+                                Container(Scroll(
                                     direction: FlexDirection::Column,
-                                    child: Some(GuidedWorkflow.into()),
+                                    child: GuidedWorkflow(),
                                     show_scrollbar: false,
-                                    flex_grow: 1.0,
-                                    flex_shrink: 1.0,
-                                    ..Default::default()
-                                })
+                                    flex_grow: 1.0_f32,
+                                    flex_shrink: 1.0_f32,
+                                ))
                                 .flex_grow(1.0),
-                                GuidedAssistant,
+                                GuidedAssistant(),
                             ],
-                            ..Default::default()
-                        },
+                        ),
                     ],
-                    ..Default::default()
-                })
+                ))
                 .flex_grow(1.0),
             ],
-            ..Default::default()
-        })
+        ))
         .bg(Color::WHITE)
         .width_length(Length::percent(100.0))
         .height_length(Length::percent(100.0))
         .min_height_length(Length::percent(100.0))
-        .into()
-    }
 }

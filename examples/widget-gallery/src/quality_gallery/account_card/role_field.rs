@@ -22,14 +22,9 @@ fn select_quality_role(state: &mut GalleryState, role: String) {
     state.select_open = false;
 }
 
-pub(super) struct RoleField {
-    pub compact: bool,
-}
-
-impl From<RoleField> for Widget {
-    fn from(field: RoleField) -> Self {
-        let (ctx, view) = fission::build::current::<GalleryState>();
-        let state = view.state();
+fission_component! {
+    pub(super) RoleField<GalleryState> { compact: bool }
+    |field, state, cx| {
         let selected = state.select_value.as_deref().unwrap_or("Editor");
 
         let mut options = Vec::new();
@@ -40,7 +35,7 @@ impl From<RoleField> for Widget {
             options.push(
                 SelectOption::option(role, selected == role)
                     .on_select(with_reducer!(
-                        ctx,
+                        cx.build,
                         SelectQualityRole(role.into()),
                         select_quality_role
                     ))
@@ -49,7 +44,8 @@ impl From<RoleField> for Widget {
             );
         }
 
-        Container::new(FormControl {
+    } =>
+        Container(FormControl(
             id: Some(layout_id("quality-gallery.role", field.compact)),
             label: Some("Workspace role".into()),
             child: SelectLayout::new(
@@ -61,17 +57,14 @@ impl From<RoleField> for Widget {
             )
             .open(state.select_open)
             .on_toggle(with_reducer!(
-                ctx,
+                cx.build,
                 ToggleQualitySelect,
                 toggle_quality_select
-            ))
-            .into(),
+            )),
             error: None,
             helper: None,
             required: false,
-        })
+        ))
         .width_length(Length::percent(50.0))
         .flex_grow(1.0)
-        .into()
-    }
 }

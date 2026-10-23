@@ -2,23 +2,14 @@ use crate::components::ui::{MutedText, TitleScale, TitleText};
 use crate::model::FieldInspectorState;
 use fission::prelude::*;
 
-pub struct SectionHeader {
-    pub title: &'static str,
-    pub body: &'static str,
-}
-
-impl From<SectionHeader> for Widget {
-    fn from(header: SectionHeader) -> Self {
-        let (_, view) = fission::build::current::<FieldInspectorState>();
-
-        Column {
-            gap: Some(view.env().theme.tokens.spacing.xs),
-            children: widgets![
-                TitleText::new(header.title, TitleScale::Section),
-                MutedText::new(header.body),
+fission_component! {
+    pub SectionHeader<FieldInspectorState> { title: &'static str, body: &'static str }
+    |header, _state, cx| {} =>
+        Column(
+            gap: cx.view.env().theme.tokens.spacing.xs,
+            children: [
+                TitleText(header.title.to_string(), TitleScale::Section),
+                MutedText(header.body.to_string()),
             ],
-            ..Default::default()
-        }
-        .into()
-    }
+        )
 }

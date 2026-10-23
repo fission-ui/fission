@@ -422,6 +422,36 @@ impl<'a, S: GlobalState> Effects<'a, S> {
             effect: Effect::Job(JobRequestPayload {
                 job_name: job.name.to_string(),
                 payload,
+                inline: None,
+            }),
+            on_ok: None,
+            on_err: None,
+            service_bindings: None,
+            resource: None,
+        });
+        EffectBuilder {
+            effects: self,
+            index,
+        }
+    }
+
+    /// Runs a component-owned async effect through the normal typed job and
+    /// callback pipeline without separate shell registration.
+    pub fn app_effect<E: crate::AppEffect>(
+        &mut self,
+        request: E::Request,
+    ) -> EffectBuilder<'_, 'a, S> {
+        let req_id = self.next_req_id;
+        self.next_req_id += 1;
+        let payload =
+            serde_json::to_vec(&request).expect("app effect request serialization must succeed");
+        let index = self.out.len();
+        self.out.push(EffectEnvelope {
+            req_id,
+            effect: Effect::Job(JobRequestPayload {
+                job_name: E::NAME.to_string(),
+                payload,
+                inline: Some(crate::InlineJob::for_effect::<E>()),
             }),
             on_ok: None,
             on_err: None,

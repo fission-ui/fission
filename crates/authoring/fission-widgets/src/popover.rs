@@ -166,6 +166,19 @@ pub struct Popover {
     pub motion: Option<PopoverMotion>,
 }
 
+impl Default for Popover {
+    fn default() -> Self {
+        Self {
+            id: WidgetId::from_u128(0),
+            is_open: false,
+            on_close: None,
+            trigger: fission_core::ui::widgets::Spacer::default().into(),
+            content: fission_core::ui::widgets::Spacer::default().into(),
+            motion: None,
+        }
+    }
+}
+
 impl From<Popover> for Widget {
     fn from(component: Popover) -> Self {
         popover_with_options(component, FlyoutOptions::default())

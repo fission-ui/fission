@@ -1,16 +1,13 @@
 use super::GalleryBuildExt;
+use crate::state::GalleryState;
 use crate::style::{amber, blue, teal};
 use fission::charts::{Axis, BarSeries, BubbleSeries, Chart, Legend, LineSeries, VisualMap};
 use fission::core::op::Color;
-use fission::core::ui::Widget;
+use fission::prelude::*;
 
-pub(super) struct CartesianVariantChart {
-    pub chart: usize,
-    pub scale: f32,
-}
-
-impl From<CartesianVariantChart> for Widget {
-    fn from(selection: CartesianVariantChart) -> Self {
+fission_component! {
+    pub(super) CartesianVariantChart<GalleryState> { chart: usize, scale: f32 }
+    |selection, _state, _cx| {} => (|| -> Widget {
         let chart = selection.chart;
         let s = selection.scale;
 
@@ -22,7 +19,7 @@ impl From<CartesianVariantChart> for Widget {
             4 => large_line(s).in_gallery().into(),
             _ => unreachable!("chart catalog and cartesian-variant builder are out of sync"),
         }
-    }
+    })()
 }
 
 pub(crate) fn horizontal_bar(s: f32) -> Chart {

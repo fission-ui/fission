@@ -4,20 +4,10 @@ use crate::components::store_footer::StoreFooter;
 use crate::components::store_nav::StoreNav;
 use fission::prelude::*;
 
-#[derive(Clone)]
-pub struct StoreShell {
-    pub child: Widget,
-}
-
-impl From<StoreShell> for Widget {
-    fn from(component: StoreShell) -> Self {
-        let (_ctx, view) = fission::build::current::<StoreState>();
-        let tokens = &view.env().theme.tokens;
-        Container::new(Column {
-            gap: Some(tokens.spacing.l),
-            children: widgets![StoreNav, component.child, StoreFooter],
-            ..Default::default()
-        })
+fission_component! {
+    #[derive(Clone)] pub StoreShell<StoreState> { child: Widget }
+    |component, _state, cx| { let tokens = &cx.view.env().theme.tokens; } =>
+        Container(Column(gap: tokens.spacing.l, children: [StoreNav(), component.child.clone(), StoreFooter()]))
         .min_height_length(Length::max(vec![
             Length::vh(100.0),
             Length::points(STORE_MIN_HEIGHT),
@@ -29,6 +19,4 @@ impl From<StoreShell> for Widget {
             Length::points(tokens.spacing.xl),
         ])
         .bg(tokens.colors.background)
-        .into()
-    }
 }

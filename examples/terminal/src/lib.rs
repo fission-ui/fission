@@ -12,6 +12,7 @@ use fission::core::ui::{Container, Text, Widget};
 use fission::core::{Action, ActionId, GlobalState, ReducerContext, ResourceKey, TimerResource};
 #[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
 use fission::prelude::DesktopApp;
+use fission::prelude::*;
 use fission::widgets::{HStack, Spacer, VStack};
 #[cfg(not(target_arch = "wasm32"))]
 use fission::widgets::{TerminalLaunchConfig, TerminalSession, TerminalView};
@@ -125,14 +126,11 @@ fn poll_terminal(
     }
 }
 
-#[derive(Clone)]
-pub struct TerminalExampleApp;
-
-impl From<TerminalExampleApp> for Widget {
-    fn from(_component: TerminalExampleApp) -> Self {
-        let (ctx, view) = fission::build::current::<TerminalExampleState>();
-        let tokens = &view.env().theme.tokens;
-        ctx.register(
+fission_component! {
+    pub TerminalExampleApp<TerminalExampleState>
+    |_app, state, cx| {
+        let tokens = &cx.view.env().theme.tokens;
+        cx.build.register(
             start_terminal
                 as fn(
                     &mut TerminalExampleState,
@@ -140,7 +138,7 @@ impl From<TerminalExampleApp> for Widget {
                     &mut ReducerContext<TerminalExampleState>,
                 ),
         );
-        let poll_terminal_action = ctx.bind(
+        let poll_terminal_action = cx.build.bind(
             PollTerminal,
             poll_terminal
                 as fn(
@@ -149,7 +147,7 @@ impl From<TerminalExampleApp> for Widget {
                     &mut ReducerContext<TerminalExampleState>,
                 ),
         );
-        ctx.with_resources(|resources| {
+        cx.build.with_resources(|resources| {
             resources.timer(
                 TimerResource::new(
                     ResourceKey::new("terminal-session-poll"),
@@ -160,102 +158,81 @@ impl From<TerminalExampleApp> for Widget {
             );
         });
 
-        let title = view
-            .state()
-            .session
+        let title = state.session
             .as_ref()
             .map(|session| format_terminal_title(&session.title()))
             .filter(|title| !title.trim().is_empty())
             .unwrap_or_else(|| "Shell".into());
 
-        let chrome = Container::new(HStack {
-            spacing: Some(tokens.spacing.s),
-            children: vec![
-                WindowDot {
-                    color: tokens.colors.error,
-                }
-                .into(),
-                WindowDot {
-                    color: tokens.colors.warning,
-                }
-                .into(),
-                WindowDot {
-                    color: tokens.colors.success,
-                }
-                .into(),
-                Spacer {
-                    width: Some(tokens.spacing.m),
-                    ..Default::default()
-                }
-                .into(),
-                VStack {
-                    spacing: Some(tokens.spacing.xs),
-                    children: vec![
-                        Text::new(title)
-                            .size(tokens.typography.font_size_sm)
-                            .color(tokens.colors.text_primary)
-                            .into(),
-                        Text::new(view.state().cwd.display().to_string())
-                            .size(tokens.typography.font_size_xs)
-                            .color(tokens.colors.text_muted)
-                            .into(),
-                    ],
-                }
-                .into(),
-                Spacer {
-                    flex_grow: 1.0,
-                    ..Default::default()
-                }
-                .into(),
-                Text::new("Fission Terminal")
-                    .size(tokens.typography.font_size_xs)
-                    .color(tokens.colors.text_muted)
-                    .into(),
-            ],
-        })
-        .bg(tokens.colors.surface_raised)
-        .padding_all(tokens.spacing.m)
-        .into();
+        let chrome = TerminalChrome::new(title, state.cwd.display().to_string());
 
         #[cfg(not(target_arch = "wasm32"))]
         let terminal_height =
-            (view.viewport_size().height - CHROME_VERTICAL_RESERVE).max(MIN_TERMINAL_HEIGHT);
+            (cx.view.viewport_size().height - CHROME_VERTICAL_RESERVE).max(MIN_TERMINAL_HEIGHT);
         #[cfg(not(target_arch = "wasm32"))]
-        let terminal_width = view.viewport_size().width.max(MIN_TERMINAL_WIDTH);
+        let terminal_width = cx.view.viewport_size().width.max(MIN_TERMINAL_WIDTH);
         #[cfg(not(target_arch = "wasm32"))]
-        let body = if let Some(session) = view.state().session.clone() {
+        let body: Widget = if let Some(session) = state.session.clone() {
             TerminalView::new(session, terminal_width, terminal_height)
                 .font_size(TERMINAL_FONT_SIZE)
                 .line_height(TERMINAL_LINE_HEIGHT)
                 .padding(tokens.spacing.m, tokens.spacing.m)
                 .into()
         } else {
-            Container::new(
-                Text::new("Failed to start shell")
-                    .size(tokens.typography.body_medium_size)
-                    .color(tokens.colors.text_primary),
-            )
-            .padding_all(tokens.spacing.l)
-            .bg(tokens.colors.surface_sunken)
-            .into()
+            TerminalUnavailable::new("Failed to start shell".to_string()).into()
         };
         #[cfg(target_arch = "wasm32")]
-        let body = Container::new(
-            Text::new("The terminal example requires native process access.")
-                .size(tokens.typography.body_medium_size)
-                .color(tokens.colors.text_primary),
-        )
-        .padding_all(tokens.spacing.l)
-        .bg(tokens.colors.surface_sunken)
-        .into();
+        let body: Widget = TerminalUnavailable::new(
+            "The terminal example requires native process access.".to_string(),
+        ).into();
 
-        Container::new(VStack {
-            spacing: Some(tokens.spacing.none),
-            children: vec![chrome, body],
-        })
-        .bg(tokens.colors.surface_sunken)
-        .into()
-    }
+    } =>
+    Container(
+        VStack(
+            spacing: tokens.spacing.none,
+            children: [chrome, body],
+        ),
+    )
+    .bg(tokens.colors.surface_sunken)
+}
+
+fission_component! {
+    TerminalChrome<()> { title: String, cwd: String } |chrome, _state, cx| {
+        let tokens = &cx.view.env().theme.tokens;
+    } => Container(
+        HStack(spacing: tokens.spacing.s, children: [
+            WindowDot(tokens.colors.error),
+            WindowDot(tokens.colors.warning),
+            WindowDot(tokens.colors.success),
+            Spacer(width: tokens.spacing.m),
+            VStack(spacing: tokens.spacing.xs, children: [
+                Text(chrome.title.clone())
+                    .size(tokens.typography.font_size_sm)
+                    .color(tokens.colors.text_primary),
+                Text(chrome.cwd.clone())
+                    .size(tokens.typography.font_size_xs)
+                    .color(tokens.colors.text_muted),
+            ]),
+            Spacer(flex_grow: 1.0_f32),
+            Text("Fission Terminal")
+                .size(tokens.typography.font_size_xs)
+                .color(tokens.colors.text_muted),
+        ])
+    )
+    .bg(tokens.colors.surface_raised)
+    .padding_all(tokens.spacing.m)
+}
+
+fission_component! {
+    TerminalUnavailable<()> { message: String } |message, _state, cx| {
+        let tokens = &cx.view.env().theme.tokens;
+    } => Container(
+        Text(message.message.clone())
+            .size(tokens.typography.body_medium_size)
+            .color(tokens.colors.text_primary)
+    )
+    .padding_all(tokens.spacing.l)
+    .bg(tokens.colors.surface_sunken)
 }
 
 fn format_terminal_title(title: &str) -> String {

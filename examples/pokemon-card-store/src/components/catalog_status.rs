@@ -2,14 +2,10 @@ use crate::app::StoreState;
 use crate::data::{CatalogResponse, StoreError};
 use fission::prelude::*;
 
-pub struct CatalogStatus {
-    pub snapshot: AsyncSnapshot<CatalogResponse, StoreError>,
-}
-
-impl From<CatalogStatus> for Widget {
-    fn from(status: CatalogStatus) -> Self {
-        let (_, view) = fission::build::current::<StoreState>();
-        let tokens = &view.env().theme.tokens;
+fission_component! {
+    pub CatalogStatus<StoreState> { snapshot: AsyncSnapshot<CatalogResponse, StoreError> }
+    |status, _state, cx| {
+        let tokens = &cx.view.env().theme.tokens;
         let typography = &tokens.typography;
         let (title, detail, accent) = if let Some(error) = status.snapshot.error() {
             (
@@ -25,9 +21,10 @@ impl From<CatalogStatus> for Widget {
             )
         };
 
-        Container::new(Column {
-            gap: Some(tokens.spacing.s),
-            children: widgets![
+    } =>
+        Container(Column(
+            gap: tokens.spacing.s,
+            children: [
                 Text::new(title)
                     .size(typography.font_size_xl)
                     .line_height(typography.font_size_xl * typography.line_height_heading)
@@ -38,12 +35,9 @@ impl From<CatalogStatus> for Widget {
                     .line_height(typography.body_medium_size * typography.line_height_normal)
                     .color(tokens.colors.text_secondary),
             ],
-            ..Default::default()
-        })
+        ))
         .padding_all(tokens.spacing.l)
         .border(accent.with_alpha(120), 1.0)
         .border_radius(tokens.radii.xxl)
         .bg(tokens.colors.surface)
-        .into()
-    }
 }

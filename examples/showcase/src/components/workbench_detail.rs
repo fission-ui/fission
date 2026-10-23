@@ -3,34 +3,23 @@ use crate::catalog::ExampleDefinition;
 use crate::state::ShowcaseState;
 use fission::prelude::*;
 
-#[derive(Clone, Copy, Debug)]
-pub(super) struct WorkbenchDetail {
-    pub(super) example: ExampleDefinition,
-}
-
-impl From<WorkbenchDetail> for Widget {
-    fn from(component: WorkbenchDetail) -> Self {
-        let (_ctx, view) = fission::build::current::<ShowcaseState>();
-        let tokens = &view.env().theme.tokens;
-        Column {
-            children: widgets![
-                Container::new(WorkbenchHeader {
-                    example: component.example,
-                })
+fission_component! {
+    #[derive(Clone, Copy, Debug)] pub(super) WorkbenchDetail<ShowcaseState> {
+        example: ExampleDefinition,
+    }
+    |component, _state, cx| { let tokens = &cx.view.env().theme.tokens; } =>
+        Column(
+            children: [
+                Container(WorkbenchHeader(component.example))
                 .padding_lengths(Length::symmetric(
                     Length::points(tokens.spacing.l),
                     Length::points(tokens.spacing.m),
                 ))
                 .bg(tokens.colors.surface),
-                PreviewToolbar,
-                PreviewFrame {
-                    example: component.example,
-                },
+                PreviewToolbar(),
+                PreviewFrame(component.example),
             ],
-            gap: Some(tokens.spacing.none),
+            gap: tokens.spacing.none,
             flex_grow: 1.0,
-            ..Default::default()
-        }
-        .into()
-    }
+        )
 }

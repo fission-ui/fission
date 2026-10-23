@@ -4,99 +4,71 @@ use crate::layout::TOOLTIP_MAX_WIDTH;
 use crate::model::*;
 use crate::palette::EditorPalette;
 use fission::prelude::*;
-use fission::widgets::Spacer;
 
-pub struct HoverTooltip;
-
-impl From<HoverTooltip> for Widget {
-    fn from(_component: HoverTooltip) -> Self {
-        let (ctx, view) = fission::build::current::<EditorState>();
-        let palette = EditorPalette::from_theme(&view.env().theme);
-        let tokens = &view.env().theme.tokens;
-        let Some(info) = view
-            .state()
+fission_component! {
+    pub HoverTooltip<EditorState> |_tooltip, state, cx| {
+        let info = state
             .hover_info
             .as_ref()
-            .filter(|_| view.state().show_hover)
-        else {
-            return Spacer {
-                height: Some(tokens.spacing.none),
-                ..Default::default()
-            }
-            .into();
-        };
-        let (hover_x, hover_y) = view.state().hover_position;
-
-        let dismiss = ctx.bind(DismissHover, reduce_with!(on_dismiss_hover));
-
-        let tooltip_card = Container::new(
-            Text::new(info.as_str())
-                .size(tokens.typography.font_size_sm)
-                .color(tokens.colors.text_primary),
-        )
-        .bg(palette.tooltip_bg)
-        .border(palette.tooltip_border, 1.0)
-        .border_radius(tokens.radii.medium)
-        .padding_all(tokens.spacing.s)
-        .max_width(TOOLTIP_MAX_WIDTH)
-        .into();
-
-        let positioned_tooltip = Positioned {
-            left: Some(hover_x),
-            top: Some(hover_y),
-            child: Some(tooltip_card),
-            ..Default::default()
+            .filter(|_| state.show_hover);
+        if let Some(info) = info {
+            cx.register_portal_with_layer(
+                PortalLayer::Flyout,
+                Some(WidgetId::explicit("hover_tooltip")),
+                HoverOverlay::new(info.clone(), state.hover_position).into(),
+            );
         }
-        .into();
+    } =>
+    Spacer(height: 0.0)
+}
 
-        let backdrop = GestureDetector {
-            on_tap: Some(dismiss),
-            child: Container::new(Spacer::default())
-                .bg(palette.transparent)
-                .flex_grow(1.0)
-                .into(),
-            ..Default::default()
-        }
-        .into();
-
-        let overlay = Container::new(ZStack {
-            children: vec![
-                Positioned {
-                    left: Some(tokens.spacing.none),
-                    right: Some(tokens.spacing.none),
-                    top: Some(tokens.spacing.none),
-                    bottom: Some(tokens.spacing.none),
-                    child: Some(backdrop),
-                    ..Default::default()
-                }
-                .into(),
-                positioned_tooltip,
-            ],
-            ..Default::default()
-        })
-        .flex_grow(1.0)
-        .into();
-
-        let portal_root = Positioned {
-            left: Some(tokens.spacing.none),
-            right: Some(tokens.spacing.none),
-            top: Some(tokens.spacing.none),
-            bottom: Some(tokens.spacing.none),
-            child: Some(overlay),
-            ..Default::default()
-        }
-        .into();
-
-        ctx.register_portal_with_layer(
-            PortalLayer::Flyout,
-            Some(WidgetId::explicit("hover_tooltip")),
-            portal_root,
-        );
-
-        Spacer {
-            height: Some(tokens.spacing.none),
-            ..Default::default()
-        }
-        .into()
-    }
+fission_component! {
+    HoverOverlay<EditorState> {
+        info: String,
+        position: (f32, f32),
+    } |tooltip, _state, cx| {
+        let palette = EditorPalette::from_theme(&cx.view.env().theme);
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Positioned(
+        left: Some(tokens.spacing.none),
+        right: Some(tokens.spacing.none),
+        top: Some(tokens.spacing.none),
+        bottom: Some(tokens.spacing.none),
+        child: Container(
+            ZStack(
+                children: [
+                    Positioned(
+                        left: Some(tokens.spacing.none),
+                        right: Some(tokens.spacing.none),
+                        top: Some(tokens.spacing.none),
+                        bottom: Some(tokens.spacing.none),
+                        child: GestureDetector(
+                            on_tap: |_tooltip, state, _cx| {
+                                state.show_hover = false;
+                                state.hover_info = None;
+                            },
+                            child: Container(Spacer())
+                                .bg(palette.transparent)
+                                .flex_grow(1.0),
+                        ),
+                    ),
+                    Positioned(
+                        left: Some(tooltip.position.0),
+                        top: Some(tooltip.position.1),
+                        child: Container(
+                            Text(tooltip.info.clone())
+                                .size(tokens.typography.font_size_sm)
+                                .color(tokens.colors.text_primary),
+                        )
+                        .bg(palette.tooltip_bg)
+                        .border(palette.tooltip_border, 1.0)
+                        .border_radius(tokens.radii.medium)
+                        .padding_all(tokens.spacing.s)
+                        .max_width(TOOLTIP_MAX_WIDTH),
+                    ),
+                ],
+            ),
+        ).flex_grow(1.0),
+    )
 }

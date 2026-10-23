@@ -16,78 +16,9 @@ use lane_dropzone::LaneDropzone;
 pub(super) const DRAG_GRID_SIZE: f32 = 24.0;
 pub(super) const DROP_PANEL_MIN_WIDTH: f32 = 190.0;
 
-#[derive(Clone)]
-pub(crate) struct DragDropSection;
-
-#[fission_action]
-pub(super) struct ToggleSnapPreview;
-
-#[fission_action]
-pub(super) struct DragStarted(pub String);
-
-#[fission_action]
-pub(super) struct DragEnded(pub String);
-
-#[fission_action]
-pub(super) struct DropOnLane(pub String);
-
-#[fission_action]
-pub(super) struct DragEntered(pub String);
-
-#[fission_action]
-pub(super) struct DragLeft(pub String);
-
-#[fission_action]
-pub(super) struct ExternalFilesDropped;
-
-pub(super) fn toggle_snap_preview(
-    state: &mut GalleryState,
-    _: ToggleSnapPreview,
-    _: &mut ReducerContext<GalleryState>,
-) {
-    state.drag_snap_preview = !state.drag_snap_preview;
-}
-
-pub(super) fn drag_started(
-    state: &mut GalleryState,
-    action: DragStarted,
-    _: &mut ReducerContext<GalleryState>,
-) {
-    push_drag_log(state, format!("Started dragging {}", action.0));
-}
-
-pub(super) fn drag_ended(
-    state: &mut GalleryState,
-    action: DragEnded,
-    _: &mut ReducerContext<GalleryState>,
-) {
-    push_drag_log(state, format!("Ended dragging {}", action.0));
-    state.drag_hover_zone = None;
-}
-
-pub(super) fn drag_entered(
-    state: &mut GalleryState,
-    action: DragEntered,
-    _: &mut ReducerContext<GalleryState>,
-) {
-    state.drag_hover_zone = Some(action.0.clone());
-    push_drag_log(state, format!("Hovering over {}", action.0));
-}
-
-pub(super) fn drag_left(
-    state: &mut GalleryState,
-    action: DragLeft,
-    _: &mut ReducerContext<GalleryState>,
-) {
-    if state.drag_hover_zone.as_deref() == Some(action.0.as_str()) {
-        state.drag_hover_zone = None;
-    }
-    push_drag_log(state, format!("Left {}", action.0));
-}
-
 pub(super) fn drop_on_lane(
     state: &mut GalleryState,
-    action: DropOnLane,
+    lane: &str,
     ctx: &mut ReducerContext<GalleryState>,
 ) {
     let Some(payload) = ctx.input.as_internal_drop() else {
@@ -95,18 +26,17 @@ pub(super) fn drop_on_lane(
     };
     let label = String::from_utf8_lossy(payload).into_owned();
     remove_task(state, &label);
-    match action.0.as_str() {
+    match lane {
         "Backlog" => state.drag_backlog.push(label.clone()),
         "Done" => state.drag_done.push(label.clone()),
         _ => state.drag_backlog.push(label.clone()),
     }
     state.drag_hover_zone = None;
-    push_drag_log(state, format!("Dropped {label} on {}", action.0));
+    push_drag_log(state, format!("Dropped {label} on {lane}"));
 }
 
 pub(super) fn external_files_dropped(
     state: &mut GalleryState,
-    _: ExternalFilesDropped,
     ctx: &mut ReducerContext<GalleryState>,
 ) {
     let Some(paths) = ctx.input.as_drop_paths() else {
@@ -131,71 +61,55 @@ fn push_drag_log(state: &mut GalleryState, message: String) {
     state.drag_log.truncate(6);
 }
 
-impl From<DragDropSection> for Widget {
-    fn from(_section: DragDropSection) -> Self {
-        let (ctx, view) = fission::build::current::<GalleryState>();
-        let state = view.state();
-        let tokens = &view.env().theme.tokens;
-
-        VStack {
-            spacing: Some(tokens.spacing.m),
-            children: widgets![
-                Row {
-                    gap: Some(tokens.spacing.s),
+fission_component! {
+    pub(crate) DragDropSection<GalleryState> {}
+    |_section, state, cx| {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+        VStack(
+            spacing: tokens.spacing.m,
+            children: [
+                Row(
+                    gap: tokens.spacing.s,
                     wrap: ir_op::FlexWrap::Wrap,
-                    children: widgets![
-                        Button {
+                    children: [
+                        Button(
                             variant: if state.drag_snap_preview {
                                 ButtonVariant::Filled
                             } else {
                                 ButtonVariant::Outline
                             },
-                            child: Some(Text::new(if state.drag_snap_preview {
+                            child: Text(if state.drag_snap_preview {
                                 "Snap preview: on"
                             } else {
                                 "Snap preview: off"
-                            })
-                            .into()),
-                            on_press: Some(ctx.bind(
-                                ToggleSnapPreview,
-                                reduce_with!(toggle_snap_preview),
-                            )),
-                            ..Default::default()
-                        }
+                            }),
+                            on_press: |_section, state, _cx| {
+                                state.drag_snap_preview = !state.drag_snap_preview;
+                            },
+                        )
                         .semantics_identifier("gallery.drag.snap_preview"),
-                        Text::new(
+                        Text(
                             "The preview follows the pointer; snapping demonstrates grid-constrained drag UX.",
                         )
                         .size(tokens.typography.body_medium_size)
                         .color(tokens.colors.text_secondary),
                     ],
-                    ..Default::default()
-                },
-                Grid {
+                ),
+                Grid(
                     columns: vec![GridTrack::auto_fit(GridTrack::minmax(
                         GridTrack::Points(DROP_PANEL_MIN_WIDTH),
                         GridTrack::Fr(1.0),
                     ))],
                     rows: vec![GridTrack::Auto],
-                    column_gap: Some(tokens.spacing.m),
-                    row_gap: Some(tokens.spacing.m),
-                    children: widgets![
-                        LaneDropzone {
-                            id: "Backlog",
-                            title: "Backlog",
-                            items: state.drag_backlog.clone(),
-                        },
-                        LaneDropzone {
-                            id: "Done",
-                            title: "Done",
-                            items: state.drag_done.clone(),
-                        },
-                        DragAuxiliaryColumn,
+                    column_gap: tokens.spacing.m,
+                    row_gap: tokens.spacing.m,
+                    children: [
+                        LaneDropzone("Backlog", "Backlog".to_string(), state.drag_backlog.clone()),
+                        LaneDropzone("Done", "Done".to_string(), state.drag_done.clone()),
+                        DragAuxiliaryColumn(),
                     ],
-                    ..Default::default()
-                },
+                ),
             ],
-        }
-        .into()
-    }
+        )
 }

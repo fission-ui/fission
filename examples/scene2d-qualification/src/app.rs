@@ -90,24 +90,21 @@ fn host_input(
     state.advance();
 }
 
-#[derive(Clone)]
-pub struct QualificationApp;
-
-impl From<QualificationApp> for Widget {
-    fn from(_app: QualificationApp) -> Self {
-        let (ctx, view) = fission::build::current::<QualificationState>();
-        let tokens = &view.env().theme.tokens;
-        let move_action = ctx.bind(
+fission_component! {
+    pub QualificationApp<QualificationState>
+    |_app, state, cx| {
+        let tokens = &cx.view.env().theme.tokens;
+        let move_action = cx.build.bind(
             MovePlayer(Direction::Up),
             move_player
                 as fn(&mut QualificationState, MovePlayer, &mut ReducerContext<QualificationState>),
         );
-        let reset = ctx.bind(
+        let reset = cx.build.bind(
             ResetGame,
             reset_game
                 as fn(&mut QualificationState, ResetGame, &mut ReducerContext<QualificationState>),
         );
-        let host_input = ctx.bind(
+        let host_input = cx.build.bind(
             GameHostInput::FocusLost,
             host_input
                 as fn(
@@ -116,73 +113,67 @@ impl From<QualificationApp> for Widget {
                     &mut ReducerContext<QualificationState>,
                 ),
         );
-        let state = view.state();
         let game = state.runtime.state();
-        let status: Widget = if let Some(error) = &game.last_error {
-            Text::new(error.clone())
-                .size(tokens.typography.body_medium_size)
-                .color(tokens.colors.error)
-                .into()
-        } else if game.beacon_collected {
-            Text::new(TextContent::Key("game.success".into()))
-                .size(tokens.typography.body_medium_size)
-                .color(tokens.colors.success)
-                .into()
-        } else {
-            Text::new(TextContent::Key("game.ready".into()))
-                .size(tokens.typography.body_medium_size)
-                .color(tokens.colors.text_secondary)
-                .into()
-        };
-
-        let content: Widget = Container::new(Column {
-            gap: Some(tokens.spacing.m),
-            children: widgets![
-                Text::new(TextContent::Key("game.title".into()))
-                    .size(tokens.typography.heading1_size)
-                    .color(tokens.colors.text_primary),
-                status,
-                SemanticsRegion::new(
-                    Container::new(
-                        Scene2D::new(state.scene.clone())
+        let scene = Scene2D::new(state.scene.clone())
+            .width(VIEWPORT_SIZE.x)
+            .height(VIEWPORT_SIZE.y);
+    } =>
+    QualificationGameRegion(
+        Container(
+            Column(
+                gap: tokens.spacing.m,
+                children: [
+                    Text(TextContent::Key("game.title".into()))
+                        .size(tokens.typography.heading1_size)
+                        .color(tokens.colors.text_primary),
+                    if let Some(error) = &game.last_error {
+                        Text(error.clone()).size(tokens.typography.body_medium_size).color(tokens.colors.error)
+                    } else if game.beacon_collected {
+                        Text(TextContent::Key("game.success".into())).size(tokens.typography.body_medium_size).color(tokens.colors.success)
+                    } else {
+                        Text(TextContent::Key("game.ready".into())).size(tokens.typography.body_medium_size).color(tokens.colors.text_secondary)
+                    },
+                    SemanticsRegion(
+                        Container(scene)
                             .width(VIEWPORT_SIZE.x)
-                            .height(VIEWPORT_SIZE.y),
+                            .height(VIEWPORT_SIZE.y)
+                            .border(tokens.colors.border, 1.0)
+                            .clip_overflow(true),
                     )
-                    .width(VIEWPORT_SIZE.x)
-                    .height(VIEWPORT_SIZE.y)
-                    .border(tokens.colors.border, 1.0)
-                    .clip_overflow(true)
-                )
-                .identifier("scene2d-qualification.viewport"),
-                Row {
-                    gap: Some(tokens.spacing.s),
-                    children: widgets![
-                        direction_button("←", Direction::Left, &move_action),
-                        direction_button("↑", Direction::Up, &move_action),
-                        direction_button("↓", Direction::Down, &move_action),
-                        direction_button("→", Direction::Right, &move_action),
-                        Button {
-                            on_press: Some(reset),
-                            child: Some(Text::new(TextContent::Key("game.restart".into())).into()),
-                            ..Default::default()
-                        }
-                        .semantics_identifier("beacon-run.restart"),
-                    ],
-                    ..Default::default()
-                },
-                Text::new(TextContent::Key("game.controls_help".into()))
-                    .size(tokens.typography.font_size_sm)
-                    .color(tokens.colors.text_muted),
-            ],
-            ..Default::default()
-        })
+                    .identifier("scene2d-qualification.viewport"),
+                    Row(
+                        gap: tokens.spacing.s,
+                        children: [
+                            DirectionButton("←", Direction::Left, move_action.clone()),
+                            DirectionButton("↑", Direction::Up, move_action.clone()),
+                            DirectionButton("↓", Direction::Down, move_action.clone()),
+                            DirectionButton("→", Direction::Right, move_action.clone()),
+                            Button(
+                                child: Text(TextContent::Key("game.restart".into())),
+                                on_press: reset,
+                            )
+                            .semantics_identifier("beacon-run.restart"),
+                        ],
+                    ),
+                    Text(TextContent::Key("game.controls_help".into()))
+                        .size(tokens.typography.font_size_sm)
+                        .color(tokens.colors.text_muted),
+                ],
+            ),
+        )
         .padding_all(tokens.spacing.xl)
-        .bg(tokens.colors.background)
-        .into();
-        GameInputRegion::for_game::<QualificationGame>(content, host_input)
+        .bg(tokens.colors.background),
+        host_input,
+    )
+}
+
+fission_component! {
+    QualificationGameRegion<QualificationState> {
+        child: Widget,
+        action: ActionEnvelope,
+    } |region, _state, _cx| {} =>
+        GameInputRegion::for_game::<QualificationGame>(region.child.clone(), region.action.clone())
             .semantics_identifier("beacon-run.game-input")
-            .into()
-    }
 }
 
 pub(crate) fn create_env() -> anyhow::Result<Env> {
@@ -200,12 +191,15 @@ pub(crate) fn create_env() -> anyhow::Result<Env> {
     Ok(env)
 }
 
-fn direction_button(label: &str, direction: Direction, action: &ActionEnvelope) -> Widget {
-    Button {
-        on_press: Some(action.with_action(&MovePlayer(direction))),
-        child: Some(Text::new(label).size(20.0).into()),
-        ..Default::default()
-    }
-    .semantics_identifier(format!("beacon-run.move-{direction:?}").to_lowercase())
-    .into()
+fission_component! {
+    DirectionButton<()> {
+        label: &'static str,
+        direction: Direction,
+        action: ActionEnvelope,
+    } |button, _state, _cx| {} =>
+    Button(
+        on_press: button.action.with_action(&MovePlayer(button.direction)),
+        child: Text(button.label).size(20.0_f32),
+    )
+    .semantics_identifier(format!("beacon-run.move-{:?}", button.direction).to_lowercase())
 }

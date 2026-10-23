@@ -21,7 +21,7 @@ pub struct TimelineItem {
 }
 
 /// Ordered vertical presentation of related events.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Timeline {
     /// Events displayed from first to last.
     pub items: Vec<TimelineItem>,

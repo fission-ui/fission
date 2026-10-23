@@ -164,6 +164,12 @@ pub enum ToastKind {
     Error,
 }
 
+impl Default for ToastKind {
+    fn default() -> Self {
+        Self::Info
+    }
+}
+
 /// How long a toast stays on screen before it asks to close.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ToastDuration {
@@ -214,6 +220,19 @@ pub struct Toast {
     /// Toast motion. `None` plays the default motion unless the app turns widget motion off.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub motion: Option<ToastMotion>,
+}
+
+impl Default for Toast {
+    fn default() -> Self {
+        Self {
+            id: WidgetId::from_u128(0),
+            kind: ToastKind::default(),
+            message: String::new(),
+            on_close: None,
+            duration: ToastDuration::default(),
+            motion: None,
+        }
+    }
 }
 
 impl From<Toast> for Widget {

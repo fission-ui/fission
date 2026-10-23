@@ -1,41 +1,30 @@
-use crate::state::{clear_completed, ClearCompleted, TodoState};
+use crate::state::TodoState;
 use fission::op::AlignItems;
 use fission::prelude::*;
 
+fission_component! {
 /// Progress so far and the action that clears finished tasks.
-pub(super) struct CompletedFooter;
-
-impl From<CompletedFooter> for Widget {
-    fn from(_footer: CompletedFooter) -> Self {
-        let (ctx, view) = fission::build::current::<TodoState>();
-        let tokens = &view.env().theme.tokens;
-        let state = view.state();
+    pub(super) CompletedFooter<TodoState> |_footer, state, cx| {
+        let tokens = &cx.view.env().theme.tokens;
         let done = state.completed_count();
-
-        Row {
-            gap: Some(tokens.spacing.m),
+    } =>
+        Row(
+            gap: tokens.spacing.m,
             align_items: AlignItems::Center,
-            children: widgets![
-                Badge {
-                    text: format!("{done}/{} {}", state.items.len(), view.tr("todo.progress")),
+            children: [
+                Badge(
+                    text: format!("{done}/{} {}", state.items.len(), cx.view.tr("todo.progress")),
                     tone: BadgeTone::Success,
-                    ..Default::default()
-                },
-                Spacer {
-                    flex_grow: 1.0,
-                    ..Default::default()
-                },
-                Button {
+                ),
+                Spacer(flex_grow: 1.0),
+                Button(
+                    key: "clear-completed",
                     variant: ButtonVariant::TertiaryGray,
-                    child: Some(Text::new(view.tr("todo.clear_completed")).into()),
-                    on_press: Some(ctx.bind(ClearCompleted, reduce_with!(clear_completed))),
+                    child: Text(cx.view.tr("todo.clear_completed")),
+                    on_press: |_footer, state, _cx| state.clear_completed(),
                     disabled: done == 0,
-                    ..Default::default()
-                }
+                )
                 .semantics_identifier("todo.clear_completed"),
             ],
-            ..Default::default()
-        }
-        .into()
-    }
+        )
 }

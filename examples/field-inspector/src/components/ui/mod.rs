@@ -14,7 +14,7 @@ pub use body_text::BodyText;
 pub use metric::Metric;
 pub use muted_text::MutedText;
 pub use panel_card::PanelCard;
-pub use responsive_grid::ResponsiveGrid;
+pub use responsive_grid::{ResponsiveGrid, DEFAULT_ITEM_MIN_WIDTH};
 pub use small_button::SmallButton;
 pub use soft_panel::SoftPanel;
 pub use status_pill::StatusPill;

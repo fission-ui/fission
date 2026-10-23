@@ -212,6 +212,16 @@ impl<S: GlobalState> ActionRegistry<S> {
             .or_insert_with(|| Self::typed_reducer(handler));
     }
 
+    pub(crate) fn register_bound_scoped<A: Action, H: IntoHandler<S, A> + Send + Sync + 'static>(
+        &mut self,
+        action_id: ActionId,
+        handler: H,
+    ) {
+        self.bound_handlers
+            .entry(action_id)
+            .or_insert_with(|| Self::typed_reducer(handler));
+    }
+
     fn typed_reducer<A: Action, H: IntoHandler<S, A> + Send + Sync + 'static>(
         handler: H,
     ) -> TypedReducer<S> {
@@ -519,6 +529,7 @@ impl JobResource {
                 effect: Effect::Job(JobRequestPayload {
                     job_name: job.name.to_string(),
                     payload,
+                    inline: None,
                 }),
                 on_ok: None,
                 on_err: None,

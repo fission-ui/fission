@@ -4,70 +4,42 @@ use crate::components::ui::{
 };
 use crate::model::{CapabilityState, FieldInspectorState};
 use fission::prelude::*;
-
-pub struct WeatherCard {
-    pub snapshot: AsyncSnapshot<WeatherSummary, ApiError>,
-}
-
-impl From<WeatherCard> for Widget {
-    fn from(card: WeatherCard) -> Self {
-        let (_, view) = fission::build::current::<FieldInspectorState>();
-        let tokens = &view.env().theme.tokens;
-
-        let content: Widget = if let Some(weather) = card.snapshot.data() {
-            ResponsiveGrid::new(widgets![
-                Metric::new("Weather", weather.label.clone()),
-                Metric::new("Temperature", format!("{:.1} C", weather.temperature_c),),
-                Metric::new("Wind", format!("{:.0} kph", weather.wind_speed_kph)),
-            ])
-            .into()
-        } else if card.snapshot.has_error() {
-            BodyText::new(
-                "Live weather is unavailable; the inspection can continue with local capability providers.",
-            )
-            .into()
-        } else {
-            Row {
-                gap: Some(tokens.spacing.s),
-                children: widgets![
-                    CircularProgress::default(),
-                    BodyText::new("Loading live site weather from Open-Meteo..."),
-                ],
-                ..Default::default()
-            }
-            .into()
-        };
-
-        PanelCard::new(Column {
-            gap: Some(tokens.spacing.s),
-            children: widgets![
-                Row {
-                    gap: Some(tokens.spacing.s),
-                    children: widgets![
-                        TitleText::new("Site context", TitleScale::Section),
-                        Spacer {
-                            flex_grow: 1.0,
-                            ..Default::default()
-                        },
-                        StatusPill::new(
-                            if card.snapshot.has_data() {
-                                "Live data"
-                            } else {
-                                "Pending"
-                            },
-                            if card.snapshot.has_data() {
-                                CapabilityState::Ready
-                            } else {
-                                CapabilityState::Pending
-                            },
-                        ),
-                    ],
-                    ..Default::default()
+fission_component! {
+    pub WeatherCard<FieldInspectorState> { snapshot: AsyncSnapshot<WeatherSummary, ApiError> }
+    |card, _state, cx| {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+        PanelCard(Column(
+            gap: tokens.spacing.s,
+            children: [
+                Row(gap: tokens.spacing.s, children: [
+                    TitleText("Site context".to_string(), TitleScale::Section),
+                    Spacer(flex_grow: 1.0),
+                    StatusPill(
+                        if card.snapshot.has_data() { "Live data" } else { "Pending" }.to_string(),
+                        if card.snapshot.has_data() { CapabilityState::Ready } else { CapabilityState::Pending },
+                    ),
+                ]),
+                if let Some(weather) = card.snapshot.data() {
+                    ResponsiveGrid(
+                        [
+                            Metric("Weather".to_string(), weather.label.clone()),
+                            Metric("Temperature".to_string(), format!("{:.1} C", weather.temperature_c)),
+                            Metric("Wind".to_string(), format!("{:.0} kph", weather.wind_speed_kph)),
+                        ],
+                        crate::components::ui::DEFAULT_ITEM_MIN_WIDTH,
+                    )
+                } else if card.snapshot.has_error() {
+                    BodyText("Live weather is unavailable; the inspection can continue with local capability providers.".to_string())
+                } else {
+                    Row(
+                        gap: tokens.spacing.s,
+                        children: [
+                            CircularProgress(),
+                            BodyText("Loading live site weather from Open-Meteo...".to_string()),
+                        ],
+                    )
                 },
-                content,
             ],
-            ..Default::default()
-        })
-        .into()
-    }
+        ))
 }

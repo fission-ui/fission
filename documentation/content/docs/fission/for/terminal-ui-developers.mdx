@@ -18,7 +18,7 @@ This page uses the same todo app shape as the React guide: a checklist with a dr
 
 Before translating syntax, decide where state belongs:
 
-- Use `#[fission_component]` and `#[local_state]` for retained UI memory owned by one widget identity.
+- Use `#[with_local_state]` and `#[local_state]` for retained UI memory owned by one widget identity.
 - Use `GlobalState` for product truth: todos, routing, persistence, sync state, user preferences, and shared filters.
 - Use reducers for named user intent and state transitions.
 - Use jobs, services, resources, capabilities, or runtime effects for outside work.

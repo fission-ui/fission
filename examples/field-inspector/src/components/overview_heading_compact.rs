@@ -1,10 +1,5 @@
 use crate::components::overview_heading_summary::OverviewHeadingSummary;
+use crate::model::FieldInspectorState;
 use fission::prelude::*;
 
-pub struct OverviewHeadingCompact;
-
-impl From<OverviewHeadingCompact> for Widget {
-    fn from(_: OverviewHeadingCompact) -> Self {
-        OverviewHeadingSummary.into()
-    }
-}
+fission_component! { pub OverviewHeadingCompact<FieldInspectorState> {} |_c, _state, _cx| {} => OverviewHeadingSummary() }

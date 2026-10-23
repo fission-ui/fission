@@ -1,24 +1,15 @@
-use crate::chrome;
+use crate::chrome::AppShell;
 use crate::state::AnimationGalleryState;
 use crate::style;
+use fission::prelude::*;
 #[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
 use fission::DesktopApp;
-use fission::{build, Container, Widget};
 
-#[derive(Clone)]
-pub struct AnimationGalleryApp;
-
-impl From<AnimationGalleryApp> for Widget {
-    fn from(_component: AnimationGalleryApp) -> Self {
-        let (ctx, view) = build::current::<AnimationGalleryState>();
-        let state = view.state().clone();
-        Container::new(chrome::AppShell {
-            ctx: &ctx,
-            state: &state,
-        })
-        .bg(style::background())
-        .into()
-    }
+fission_component! {
+    pub AnimationGalleryApp<AnimationGalleryState>
+    |_app, _state, _cx| =>
+    Container(AppShell())
+    .bg(style::background())
 }
 
 #[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]

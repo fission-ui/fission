@@ -1,6 +1,6 @@
 //! Rendering scenes on the GPU.
 
-use std::sync::Arc;
+use std::{collections::HashSet, sync::Arc};
 
 use anyhow::{anyhow, Result};
 use fission_render::{Color as RenderColor, RenderScene, Renderer};
@@ -10,10 +10,35 @@ use vello_cpu::PaintType;
 
 use crate::{GpuImageCache, GpuPainter, GpuUploader, Painter, VelloRenderer, VelloTextMeasurer};
 
-/// External GPU textures referenced by retained `DrawSurface` operations.
-pub type ExternalTextureBindings = vello_gpu::TextureBindings;
 /// Stable identifier connecting a retained surface operation to its texture.
 pub use vello_gpu::TextureId as ExternalTextureId;
+
+/// External GPU textures referenced by retained `DrawSurface` operations.
+#[derive(Debug, Default, Clone)]
+pub struct ExternalTextureBindings {
+    bindings: vello_gpu::TextureBindings,
+    ids: HashSet<ExternalTextureId>,
+}
+
+impl ExternalTextureBindings {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn insert(&mut self, texture_id: ExternalTextureId, view: wgpu::TextureView) {
+        self.ids.insert(texture_id);
+        self.bindings.insert(texture_id, view);
+    }
+
+    pub fn remove(&mut self, texture_id: ExternalTextureId) -> Option<wgpu::TextureView> {
+        self.ids.remove(&texture_id);
+        self.bindings.remove(texture_id)
+    }
+
+    pub(crate) fn contains(&self, texture_id: ExternalTextureId) -> bool {
+        self.ids.contains(&texture_id)
+    }
+}
 
 /// Renders Fission scenes into wgpu textures.
 ///
@@ -115,6 +140,7 @@ impl GpuSceneRenderer {
                 scene: &mut self.scene,
                 resources: &mut self.resources,
                 images: &mut self.images,
+                external_textures,
                 uploader: GpuUploader {
                     renderer: &mut self.renderer,
                     device,
@@ -156,7 +182,7 @@ impl GpuSceneRenderer {
                 &vello_gpu::RenderSize { width, height },
                 view,
                 None,
-                external_textures,
+                &external_textures.bindings,
                 target_init,
             )
             .map_err(|error| anyhow!("vello_gpu failed to render the scene: {error:?}"))?;

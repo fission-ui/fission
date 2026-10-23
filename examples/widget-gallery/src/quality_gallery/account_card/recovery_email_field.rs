@@ -1,33 +1,29 @@
 use super::layout_id;
+use crate::GalleryState;
 use fission::prelude::*;
 
-pub(super) struct RecoveryEmailField {
-    pub compact: bool,
-    pub value: String,
-    pub on_input: ActionEnvelope,
-}
-
-impl From<RecoveryEmailField> for Widget {
-    fn from(field: RecoveryEmailField) -> Self {
-        FormControl {
-            id: Some(layout_id("quality-gallery.recovery-email", field.compact)),
-            label: Some("Recovery email".into()),
-            child: TextInput {
-                id: Some(layout_id(
+fission_component! {
+    pub(super) RecoveryEmailField<GalleryState> {
+        compact: bool,
+        value: String,
+        on_input: ActionEnvelope,
+    }
+    |field, _state, _cx| {} =>
+        FormControl(
+            id: layout_id("quality-gallery.recovery-email", field.compact),
+            label: "Recovery email".to_string(),
+            child: TextInput(
+                id: layout_id(
                     "quality-gallery.recovery-email.input",
                     field.compact,
-                )),
-                semantics_identifier: Some("quality-gallery.input.recovery-email".into()),
-                value: field.value,
-                on_input: Some(field.on_input),
+                ),
+                semantics_identifier: "quality-gallery.input.recovery-email".to_string(),
+                value: field.value.clone(),
+                on_input: field.on_input.clone(),
                 size: ComponentSize::Md,
-                ..Default::default()
-            }
-            .into(),
-            error: Some("Enter a complete email address.".into()),
+            ),
+            error: "Enter a complete email address.".to_string(),
             helper: None,
             required: false,
-        }
-        .into()
-    }
+        )
 }

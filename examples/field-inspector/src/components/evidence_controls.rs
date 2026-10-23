@@ -4,61 +4,25 @@ use crate::model::{
     FieldInspectorState, RecordVoiceNote, ToggleTorch,
 };
 use fission::prelude::*;
-
-pub struct EvidenceControls;
-
-impl From<EvidenceControls> for Widget {
-    fn from(_: EvidenceControls) -> Self {
-        let (ctx, view) = fission::build::current::<FieldInspectorState>();
-        let capture = with_reducer!(ctx, CaptureEvidencePhoto, on_capture_evidence_photo);
-        let torch = with_reducer!(ctx, ToggleTorch, on_toggle_torch);
-        let record = with_reducer!(ctx, RecordVoiceNote, on_record_voice_note);
-        let spacing = &view.env().theme.tokens.spacing;
-
-        Column {
-            gap: Some(spacing.s),
-            children: widgets![
-                ActionButton::new(
-                    "field-inspector.evidence.capture",
-                    "Capture photo",
-                    capture,
-                    ButtonVariant::Primary,
+fission_component! {
+    pub EvidenceControls<FieldInspectorState> {}
+    |_controls, state, cx| {
+        let capture = with_reducer!(cx.build, CaptureEvidencePhoto, on_capture_evidence_photo);
+        let torch = with_reducer!(cx.build, ToggleTorch, on_toggle_torch);
+        let record = with_reducer!(cx.build, RecordVoiceNote, on_record_voice_note);
+    } =>
+        Column(
+            gap: cx.view.env().theme.tokens.spacing.s,
+            children: [
+                ActionButton("field-inspector.evidence.capture".to_string(), "Capture photo".to_string(), capture, ButtonVariant::Primary),
+                ActionButton(
+                    "field-inspector.evidence.torch".to_string(),
+                    if state.torch_on { "Turn torch off" } else { "Turn torch on" }.to_string(),
+                    torch, ButtonVariant::SecondaryGray,
                 ),
-                ActionButton::new(
-                    "field-inspector.evidence.torch",
-                    if view.state().torch_on {
-                        "Turn torch off"
-                    } else {
-                        "Turn torch on"
-                    },
-                    torch,
-                    ButtonVariant::SecondaryGray,
-                ),
-                ActionButton::new(
-                    "field-inspector.evidence.voice-note",
-                    "Record voice note",
-                    record,
-                    ButtonVariant::SecondaryColor,
-                ),
-                Metric::new(
-                    "Camera",
-                    view.state()
-                        .camera_availability
-                        .as_ref()
-                        .map(|availability| format!("{} device(s)", availability.devices.len()))
-                        .unwrap_or_else(|| "Not checked".to_string()),
-                ),
-                Metric::new(
-                    "Microphone",
-                    view.state()
-                        .microphone_availability
-                        .as_ref()
-                        .map(|availability| format!("{} input(s)", availability.devices.len()))
-                        .unwrap_or_else(|| "Not checked".to_string()),
-                ),
+                ActionButton("field-inspector.evidence.voice-note".to_string(), "Record voice note".to_string(), record, ButtonVariant::SecondaryColor),
+                Metric("Camera".to_string(), state.camera_availability.as_ref().map(|value| format!("{} device(s)", value.devices.len())).unwrap_or_else(|| "Not checked".to_string())),
+                Metric("Microphone".to_string(), state.microphone_availability.as_ref().map(|value| format!("{} input(s)", value.devices.len())).unwrap_or_else(|| "Not checked".to_string())),
             ],
-            ..Default::default()
-        }
-        .into()
-    }
+        )
 }

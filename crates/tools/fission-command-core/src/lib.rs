@@ -6167,41 +6167,45 @@ pub struct CounterState {
 
 impl GlobalState for CounterState {}
 
-#[fission_reducer(Increment)]
-fn on_increment(state: &mut CounterState) {
-    state.count += 1;
-}
-
-#[derive(Clone)]
-pub struct CounterApp;
-
-impl From<CounterApp> for Widget {
-    fn from(component: CounterApp) -> Self {
-        let (ctx, view) = fission::build::current::<CounterState>();
-        let increment = with_reducer!(ctx, Increment, on_increment);
-
-        Column {
-            gap: Some(16.0),
-            children: vec![
-                Text::new(format!("Count: {}", view.state().count)).size(28.0).into(),
-                Button {
-                    on_press: Some(increment),
-                    child: Some(Text::new("Increment").into()),
-                    ..Default::default()
-                }
-                .into(),
+fission_component! {
+    pub CounterApp<CounterState> |_, state, cx| {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Container(
+        Column(
+            gap: tokens.spacing.l,
+            children: [
+                Text(format!("Count: {}", state.count))
+                    .size(tokens.typography.heading1_size),
+                Button(
+                    child: Text("Increment"),
+                    key: "increment",
+                    on_press: |_, state, _cx| state.count += 1,
+                )
+                .semantics_identifier("counter.increment"),
             ],
-            ..Default::default()
-        }
-        .into()
-
-    }
+        ),
+    )
+    .padding_all(tokens.spacing.xl)
+    .width_length(Length::percent(100.0))
+    .height_length(Length::percent(100.0))
+    .bg(tokens.colors.background)
 }
 "#;
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn generated_starter_teaches_compose_as_the_default_authoring_api() {
+        assert!(APP_RS.contains("fission_component!"));
+        assert!(APP_RS.contains("on_press: |_, state, _cx|"));
+        assert!(APP_RS.contains("key: \"increment\""));
+        assert!(APP_RS.contains("semantics_identifier(\"counter.increment\")"));
+        assert!(!APP_RS.contains("impl From<CounterApp> for Widget"));
+        assert!(!APP_RS.contains("#[fission_reducer(Increment)]"));
+    }
 
     fn unique_dir(name: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!(

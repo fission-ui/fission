@@ -1,0 +1,294 @@
+---
+title: Compose Fission interfaces in Rust
+description: Build typed Fission components with concise Rust-like composition, local and global state, reducers, bindings, routing, internationalisation and any imported widget.
+---
+
+# Compose Fission interfaces in Rust
+
+Compose is Fission's default authoring API. It keeps the application model in Rust while removing the repetitive struct conversion, child-vector, reducer-registration and local-state wiring that used to obscure an interface.
+
+The API is deliberately not a second widget catalogue. `Button`, `Column` and every other name below are normal imported Rust types. The same is true for a component from your application or a third-party crate. Compose produces the same retained `Widget` tree, actions and effects as the lower-level API, so either form can be used at any boundary.
+
+## A complete component
+
+```rust
+use fission::prelude::*;
+
+#[derive(Default, Debug)]
+struct AppState {
+    saves: u64,
+}
+
+impl GlobalState for AppState {}
+
+fission_component! {
+    pub Editor<AppState> {
+        props {
+            title: String,
+        }
+        state {
+            draft: String = String::new(),
+        }
+    }
+    view(editor, state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Container(
+        Column(
+            gap: tokens.spacing.m,
+            children: [
+                Text(editor.title.clone())
+                    .size(tokens.typography.heading1_size),
+                TextInput(
+                    label: Some(cx.tr("editor.name").into()),
+                    bind: editor.draft,
+                    autofocus: true,
+                    required: true,
+                ),
+                Button(
+                    child: Text(cx.tr("editor.save")),
+                    key: "save",
+                    on_press: reduce {
+                        if !editor.draft.trim().is_empty() {
+                            state.saves += 1;
+                        }
+                    },
+                ),
+                Text(format!("{}", state.saves)),
+            ],
+        ),
+    )
+    .padding_all(tokens.spacing.xl)
+    .bg(tokens.colors.background)
+}
+```
+
+The three names in `view(editor, state, cx)` are available while building the tree and inside `reduce` and effect lifecycle blocks. They are named Compose scopes, not closure parameters:
+
+- `editor` contains component properties and retained local-state values.
+- `state` is the current state selected for this component.
+- `cx` provides the build handle, view, effects, environment and translated text.
+
+The optional ordinary Rust block before `=>` is for derived values, resource registration and existing APIs. It is not a separate language: `let`, `match`, function calls and the values they create behave exactly as they do elsewhere in Rust.
+
+## Imported widgets and direct fields
+
+Compose resolves widget names through normal Rust scope. Import a built-in, application or third-party widget and use it:
+
+```rust
+use fission::prelude::{Card, Column, Text};
+use my_components::AccountSummary;
+
+fission_component! {
+    pub Dashboard<AppState>
+    view(_dashboard, state, _cx) =>
+    Card(
+        child: Column(children: [
+            Text("Dashboard"),
+            AccountSummary(account: state.account.clone()),
+        ]),
+    )
+}
+```
+
+Named arguments are public struct fields and unspecified fields come from `Default::default()`. Positional arguments call the type's existing `new(...)` constructor. A chained modifier such as `.padding_all(...)` is an ordinary method call. Widget authors do not register with Compose or implement a parallel builder API.
+
+## State and bindings
+
+Use global state for durable application facts and a component's `state` section for retained memory owned by one component instance. Values in `props` are supplied by the parent and observed again on every build. A `bind` creates the current value and update action together:
+
+```rust
+TextInput(bind: state.profile.display_name)
+Switch(bind: state.settings.notifications)
+TextInput(bind: editor.search)
+```
+
+Well-known controls provide their natural binding shorthand. For another editable property, or for a control with several independent update ports, name the event field explicitly:
+
+```rust
+CustomRange(
+    lower: state.filter.lower,
+    upper: state.filter.upper,
+    bind(on_lower_change): to(state.filter.lower),
+    bind(on_upper_change): to(state.filter.upper),
+)
+```
+
+Pass `source(existing_binding)` when an application already owns a specialised binding. Read-only expressions remain ordinary Rust expressions; values such as `Some(label)`, enum variants, function results and collection lookups do not need an escape block.
+
+## Inline and reusable reducers
+
+Put a small, component-specific transition beside the control that dispatches it:
+
+```rust
+Button(
+    child: Text("Add item"),
+    key: "add-item",
+    on_press: reduce {
+        state.items.push(Item::new());
+        cx.effects.navigate("/items/latest");
+    },
+)
+```
+
+The literal `key` gives the handler a stable semantic identity. For dynamic controls, use a durable data key and an explicit literal `handler` name when required.
+
+Reusable actions and reducers remain ordinary Fission APIs. Register them in the setup block and pass the typed action to the component:
+
+```rust
+fission_component! {
+    pub Toolbar<AppState>
+    view(_toolbar, _state, cx) {
+        let refresh = with_reducer!(cx.build, Refresh, refresh);
+    } =>
+    Button(child: Text("Refresh"), on_press: refresh)
+}
+```
+
+That is the escape path for shared domain transitions and any behaviour that deserves its own Rust symbol. Compose does not replace synchronous reducers or explicitly registered jobs.
+
+## Async effects without lifecycle boilerplate
+
+Use `#[fission_effect]` for one-shot, component-owned asynchronous work. The function body is ordinary async Rust. Compose generates the typed job request plus the start, success and failure reducers while preserving Fission's rule that rendering and reducers never perform I/O directly.
+
+```rust
+use fission::prelude::*;
+use serde::Deserialize;
+
+#[derive(Deserialize)]
+struct CounterResponse {
+    count: i32,
+}
+
+#[fission_effect]
+async fn increment_counter(current: i32) -> Result<i32, String> {
+    let response = reqwest::Client::new()
+        .post("https://example.com/counter")
+        .json(&serde_json::json!({ "current": current }))
+        .send()
+        .await
+        .map_err(|error| error.to_string())?
+        .error_for_status()
+        .map_err(|error| error.to_string())?
+        .json::<CounterResponse>()
+        .await
+        .map_err(|error| error.to_string())?;
+
+    Ok(response.count)
+}
+
+fission_component! {
+    pub RemoteCounter<()> {
+        state {
+            count: i32 = 0,
+            loading: bool = false,
+            error: Option<String> = None,
+        }
+    }
+    view(counter, _state, _cx) =>
+    Column(
+        gap: 16.0,
+        children: [
+            Text(format!("Count: {}", counter.count)),
+            Button(
+                child: Text(if counter.loading {
+                    "Calling API…"
+                } else {
+                    "Increment via API"
+                }),
+                key: "remote-increment",
+                disabled: counter.loading,
+                on_press: effect increment_counter(counter.count) {
+                    on_start {
+                        counter.loading = true;
+                        counter.error = None;
+                    }
+                    on_ok(count) {
+                        counter.count = count;
+                        counter.loading = false;
+                    }
+                    on_err(error) {
+                        counter.error = Some(error);
+                        counter.loading = false;
+                    }
+                },
+            ),
+            if let Some(error) = &counter.error {
+                Text(format!("Request failed: {error}"))
+            },
+        ],
+    )
+}
+```
+
+`on_start` runs synchronously when the control is activated and is optional. `on_ok(value)` and `on_err(error)` run later with the typed job result; both are required so an effect cannot silently discard either outcome. Each block receives current access to the component, scoped application state and a fresh reducer context. A completion for a component that has since unmounted is ignored rather than recreating its local state.
+
+Effect arguments are evaluated when the event is handled and must be owned snapshots. They may select or clone declared component properties, retained local fields and scoped application-state values, and may use literals and ordinary functions. Compose rejects passing the whole component, global state, reducer context, or references into the asynchronous operation. Rust's `Serialize + Send + 'static` bounds provide a second safety layer. Temporary values from the build-time setup block are not captured; put durable inputs in a property or state, or use an explicitly registered job when the work is shared or requires a specialised host implementation.
+
+The `example.com` endpoint above documents the expected request shape; substitute an endpoint that accepts `{ "current": 4 }` and returns `{ "count": 5 }` when running it.
+
+## Conditions, matches and repeated children
+
+Composition supports `if`, `match` and `for` where a widget value is expected:
+
+```rust
+Column(children: [
+    match &state.result {
+        LoadState::Loading => Spinner(),
+        LoadState::Failed(error) => Alert(error.to_string()),
+        LoadState::Ready(items) => Column(children: [
+            for item in items {
+                ProductRow(item.clone(), key: item.id)
+            },
+        ]),
+    },
+])
+```
+
+Repeated children require a durable `key`. This preserves retained state, focus and action identity when a collection is reordered or filtered. Never use a list position for data that has its own identity.
+
+## Routes and scoped state
+
+Use Fission's native `Router` rather than introducing a second routing model. Route components are normal Compose components:
+
+```rust
+fission_component! {
+    pub App<AppState>
+    view(_app, state, _cx) =>
+    Router::<AppState>::new()
+        .with_path(state.current_path.clone())
+        .route_component("/", HomePage)
+        .route_component("/settings", SettingsPage)
+}
+```
+
+A component selects the application root by default. For an editor targeting one entity inside that state, declare a typed scope once and use its durable key:
+
+```rust
+state_scope! {
+    pub Products(AppState, u64 => Product) {
+        get: |root, key| root.products.get(key),
+        get_mut: |root, key| root.products.get_mut(key),
+    }
+}
+
+fission_component! {
+    pub ProductEditor<Product> using Products(editor.product_id) {
+        props { product_id: u64 }
+    }
+    view(editor, product, _cx) =>
+    TextInput(bind: product.name)
+}
+```
+
+If the entity disappears, the scope does not recreate it in response to a stale event. Use generation-aware keys where identifiers can be recycled.
+
+## Internationalisation and design systems
+
+Compose does not change Fission's environment model. Load translation bundles when configuring the app, render user-facing strings with `cx.tr(...)`, and read the active design-system tokens from `cx.view.env().theme.tokens`. Keep locale and theme choices in global state and mirror them into `Env` with `with_sync_env(...)`.
+
+## Use the lower-level API when it is the clearer tool
+
+Custom render objects, very low-level input adapters and reusable infrastructure may still be clearest as an explicit struct with `From<YourWidget> for Widget`. They compose in either direction: a Compose tree accepts that type, and a handwritten widget can instantiate a Compose-generated component.
+
+For a larger application using routes, local and scoped state, bindings, inline and reusable reducers, loops, conditions, internationalisation and tests, see the checked-in [`compose` example](https://github.com/fission-ui/fission/tree/main/examples/compose). Continue with the [quickstart](/docs/learn/quickstart/) to create an application, or browse the [widget catalogue](/reference/widgets/catalog/) for the controls available to import.

@@ -8,36 +8,20 @@ pub enum TitleScale {
     Display,
 }
 
-pub struct TitleText {
-    pub text: String,
-    pub scale: TitleScale,
-}
-
-impl TitleText {
-    pub fn new(text: impl Into<String>, scale: TitleScale) -> Self {
-        Self {
-            text: text.into(),
-            scale,
-        }
-    }
-}
-
-impl From<TitleText> for Widget {
-    fn from(title: TitleText) -> Self {
-        let (_, view) = fission::build::current::<FieldInspectorState>();
-        let tokens = &view.env().theme.tokens;
+fission_component! {
+    pub TitleText<FieldInspectorState> { text: String, scale: TitleScale }
+    |title, _state, cx| {
+        let tokens = &cx.view.env().theme.tokens;
         let typography = &tokens.typography;
         let size = match title.scale {
             TitleScale::Section => typography.font_size_lg,
             TitleScale::Page => typography.font_size_xl,
             TitleScale::Display => typography.heading2_size,
         };
-
-        Text::new(title.text)
+    } =>
+        Text(title.text)
             .size(size)
             .line_height(size * typography.line_height_heading)
             .weight(typography.font_weight_bold)
             .color(tokens.colors.text_primary)
-            .into()
-    }
 }

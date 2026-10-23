@@ -6,43 +6,33 @@ use crate::style;
 use fission::prelude::*;
 use fission::widgets::{Tooltip, TooltipMotion};
 
-pub(super) struct TooltipPreview<'a> {
-    pub state: &'a AnimationGalleryState,
-}
-
-impl From<TooltipPreview<'_>> for Widget {
-    fn from(preview: TooltipPreview<'_>) -> Self {
-        let (_, view) = fission::build::current::<AnimationGalleryState>();
-        let tokens = &view.env().theme.tokens;
-
-        PreviewShell {
-            child: Column {
-                gap: Some(tokens.spacing.s),
-                children: widgets![
-                    Text::new("Real Tooltip widget. Play forces it visible; hover also works.",)
+fission_component! {
+    pub(super) TooltipPreview<AnimationGalleryState> {}
+    |_preview, state, cx| {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+        PreviewShell(
+            Column(
+                gap: tokens.spacing.s,
+                children: [
+                    Text("Real Tooltip widget. Play forces it visible; hover also works.")
                         .size(tokens.typography.font_size_sm)
                         .color(style::text_muted()),
-                    Tooltip {
+                    Tooltip(
                         id: WidgetId::explicit("gallery.real.tooltip"),
-                        child: Button {
+                        child: Button(
                             variant: ButtonVariant::Outline,
-                            child: Some(Text::new("Save").into()),
-                            ..Default::default()
-                        }
-                        .into(),
-                        text: "Saved locally with deterministic motion.".into(),
-                        is_visible: preview_active(preview.state),
-                        motion: preview_active(preview.state)
-                            .then(|| tooltip_motion(preview.state))
+                            child: Text("Save"),
+                        ),
+                        text: "Saved locally with deterministic motion.".to_string(),
+                        is_visible: preview_active(state),
+                        motion: preview_active(state)
+                            .then(|| tooltip_motion(state))
                             .flatten(),
-                    },
+                    ),
                 ],
-                ..Default::default()
-            }
-            .into(),
-        }
-        .into()
-    }
+            ),
+        )
 }
 
 fn tooltip_motion(state: &AnimationGalleryState) -> Option<TooltipMotion> {

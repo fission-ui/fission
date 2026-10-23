@@ -14,21 +14,16 @@ const PROBES: [&str; 4] = [
     "Browser bridge",
 ];
 
+fission_component! {
 /// The home page inside a scroll view, the way a browser or a preview hosts it.
-#[derive(Clone)]
-struct ScrolledHome;
-
-impl From<ScrolledHome> for Widget {
-    fn from(_: ScrolledHome) -> Self {
-        Scroll {
-            id: Some(WidgetId::explicit("store.home.scroll")),
-            child: Some(StoreHomePage.into()),
+    #[derive(Clone)] ScrolledHome<StoreState> {}
+    |_home, _state, _cx| {} =>
+        Scroll(
+            id: WidgetId::explicit("store.home.scroll"),
+            child: Some(StoreHomePage),
             flex_grow: 1.0,
             flex_shrink: 1.0,
-            ..Default::default()
-        }
-        .into()
-    }
+        )
 }
 
 #[test]
@@ -40,7 +35,7 @@ fn home_sections_do_not_overlap_when_the_page_fits() {
 #[test]
 fn a_short_scrolling_preview_keeps_every_section_at_its_natural_height() {
     let tall = probe(StoreHomePage, LayoutSize::new(826.0, 1600.0));
-    let short = probe(ScrolledHome, LayoutSize::new(826.0, 660.0));
+    let short = probe(ScrolledHome::new(), LayoutSize::new(826.0, 660.0));
     assert_stacked(&short);
     for ((name, tall), (_, short)) in tall.iter().zip(&short) {
         assert!(

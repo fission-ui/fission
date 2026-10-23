@@ -1,0 +1,16 @@
+[package]
+name = "fission-compose-macros"
+version = "0.15.1"
+edition = "2021"
+license = "Apache-2.0"
+repository = "https://github.com/fission-ui/fission"
+description = "Procedural macros for Fission's declarative Compose authoring API"
+
+[lib]
+proc-macro = true
+
+[dependencies]
+proc-macro2 = "1"
+proc-macro-crate = "3"
+quote = "1"
+syn = { version = "2", features = ["full", "extra-traits", "visit", "visit-mut"] }

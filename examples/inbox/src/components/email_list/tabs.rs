@@ -1,10 +1,6 @@
 use crate::model::list::select_tab;
 use crate::model::{InboxState, SelectTab};
-use fission::core::reduce_with;
-use fission::core::ui::widgets::Spacer;
-use fission::core::ui::Widget;
-use fission::theme::ComponentSize;
-use fission::widgets::{TabItem, Tabs};
+use fission::prelude::*;
 
 /// Tab title keys with each tab's semantics identifier.
 const TABS: [(&str, &str); 3] = [
@@ -13,28 +9,17 @@ const TABS: [(&str, &str); 3] = [
     ("tabs.promotions", "inbox.tabs.promotions"),
 ];
 
+fission_component! {
 /// The Primary, Social and Promotions tabs.
-pub(super) struct FolderTabs;
-
-impl From<FolderTabs> for Widget {
-    fn from(_: FolderTabs) -> Self {
-        let (ctx, view) = fission::build::current::<InboxState>();
-
-        Tabs {
-            active_index: view.state().active_tab,
-            items: TABS
-                .iter()
-                .enumerate()
-                .map(|(index, (title, identifier))| TabItem {
-                    title: view.tr(title),
-                    content: Spacer::default().into(),
-                    on_press: Some(ctx.bind(SelectTab(index), reduce_with!(select_tab))),
-                    semantics_identifier: Some((*identifier).into()),
-                })
-                .collect(),
-            size: ComponentSize::Sm,
-            motion: None,
-        }
-        .into()
-    }
+    pub(super) FolderTabs<InboxState> |_tabs, state, cx| =>
+    Tabs(
+        active_index: state.active_tab,
+        items: TABS.iter().enumerate().map(|(index, (title, identifier))| TabItem {
+            title: cx.tr(title),
+            content: Spacer::default().into(),
+            on_press: Some(cx.bind(SelectTab(index), reduce_with!(select_tab))),
+            semantics_identifier: Some((*identifier).into()),
+        }).collect::<Vec<_>>(),
+        size: ComponentSize::Sm,
+    )
 }

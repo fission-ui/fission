@@ -2,16 +2,16 @@
 
 Procedural macros for the Fission UI framework.
 
-## `#[fission_component]`
+## `#[with_local_state]`
 
-`#[fission_component]` marks a struct as a v2 authoring component. Ordinary
-fields remain props, while `#[local_state]` fields become typed accessors used
-from `impl From<Component> for Widget`.
+`#[with_local_state]` adds retained local state to a widget or component struct.
+Ordinary fields remain constructor properties, while `#[local_state]` fields
+become typed accessors used from `impl From<Component> for Widget`.
 
 ```rust
 use fission::prelude::*;
 
-#[fission_component]
+#[with_local_state]
 struct Counter {
     title: String,
 

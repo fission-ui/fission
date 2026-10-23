@@ -1,86 +1,45 @@
 use super::palette::{rgba, BLUE, INK, LINE};
 use fission::prelude::*;
 
-pub(super) struct GuidedSidebar;
-impl From<GuidedSidebar> for Widget {
-    fn from(_sidebar: GuidedSidebar) -> Self {
-        Container::new(Column {
-            gap: Some(12.0),
+fission_component! {
+    pub(super) GuidedSidebar<()> {}
+    |_sidebar, _state, _cx| {} => Container(Column(
+            gap: 12.0_f32,
             align_items: fission::op::AlignItems::Center,
-            children: widgets![
-                Container::new(
+            children: [
+                Container(
                     Icon::svg(material::hardware::toys::regular())
                         .size(28.0)
                         .color(BLUE),
                 )
                 .size(44.0, 44.0)
                 .align_child(BoxAlignment::Center),
-                Spacer {
-                    height: Some(16.0),
-                    ..Default::default()
-                },
-                GuidedNavIcon {
-                    destination: NavDestination::Home,
-                    active: false
-                },
-                GuidedNavIcon {
-                    destination: NavDestination::Files,
-                    active: false
-                },
-                GuidedNavIcon {
-                    destination: NavDestination::Mail,
-                    active: false
-                },
-                GuidedNavIcon {
-                    destination: NavDestination::Links,
-                    active: false
-                },
-                GuidedNavIcon {
-                    destination: NavDestination::Templates,
-                    active: true
-                },
-                GuidedNavIcon {
-                    destination: NavDestination::Guides,
-                    active: false
-                },
-                Spacer {
-                    flex_grow: 1.0,
-                    ..Default::default()
-                },
+                Spacer(height: 16.0_f32),
+                GuidedNavIcon(NavDestination::Home, false),
+                GuidedNavIcon(NavDestination::Files, false),
+                GuidedNavIcon(NavDestination::Mail, false),
+                GuidedNavIcon(NavDestination::Links, false),
+                GuidedNavIcon(NavDestination::Templates, true),
+                GuidedNavIcon(NavDestination::Guides, false),
+                Spacer(flex_grow: 1.0_f32),
                 Divider::default(),
-                GuidedNavIcon {
-                    destination: NavDestination::Layers,
-                    active: false
-                },
-                GuidedNavIcon {
-                    destination: NavDestination::Settings,
-                    active: false
-                },
-                Container::new(Avatar {
-                    name: Some("Alex Stone".into()),
-                    size: Some(34.0),
-                    ..Default::default()
-                })
+                GuidedNavIcon(NavDestination::Layers, false),
+                GuidedNavIcon(NavDestination::Settings, false),
+                Container(Avatar(name: "Alex Stone".to_string(), size: 34.0_f32))
                 .border(Color::WHITE, 2.0)
                 .border_radius(17.0),
             ],
-            ..Default::default()
-        })
+        ))
         .width(80.0)
         .padding([10.0, 10.0, 18.0, 14.0])
         .border(LINE, 1.0)
-        .into()
-    }
 }
 
-pub(super) struct GuidedNavIcon {
-    destination: NavDestination,
-    active: bool,
-}
-impl From<GuidedNavIcon> for Widget {
-    fn from(item: GuidedNavIcon) -> Self {
+fission_component! {
+    pub(super) GuidedNavIcon<()> { destination: NavDestination, active: bool }
+    |item, _state, _cx| {
         let source = item.destination.icon();
-        Container::new(
+    } => Container(
             Icon::svg(source)
                 .size(21.0)
                 .color(if item.active { BLUE } else { INK }),
@@ -93,8 +52,6 @@ impl From<GuidedNavIcon> for Widget {
             Color::TRANSPARENT
         })
         .border_radius(7.0)
-        .into()
-    }
 }
 
 #[derive(Clone, Copy)]

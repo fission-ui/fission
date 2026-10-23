@@ -2,8 +2,7 @@ use super::checkbox_preview::CheckboxPreview;
 use super::common::*;
 use crate::state::AnimationGalleryState;
 use crate::style;
-use fission::build::BuildCtxHandle;
-use fission::Widget;
+use fission::prelude::*;
 
 pub const PATH: &str = "/widgets/checkbox";
 
@@ -15,26 +14,7 @@ pub const SUMMARY: WidgetSummary = WidgetSummary {
     tint: style::Tint::Success,
 };
 
-pub struct CheckboxPage<'a> {
-    pub ctx: BuildCtxHandle<AnimationGalleryState>,
-    pub state: &'a AnimationGalleryState,
-}
-
-impl From<CheckboxPage<'_>> for Widget {
-    fn from(page: CheckboxPage<'_>) -> Self {
-        WidgetPage {
-            ctx: &page.ctx,
-            state: page.state,
-            case: case(),
-            preview: CheckboxPreview {
-                ctx: &page.ctx,
-                state: page.state,
-            }
-            .into(),
-        }
-        .into()
-    }
-}
+fission_component! { pub CheckboxPage<AnimationGalleryState> {} |_page, _state, _cx| {} => WidgetPage(case(), CheckboxPreview()) }
 
 fn case() -> GalleryCase {
     GalleryCase {
@@ -56,20 +36,19 @@ fn case() -> GalleryCase {
     }
 }
 
-const SOURCE: &str = r#"Motion {
+const SOURCE: &str = r#"Motion(
     id: WidgetId::explicit("accept_terms.motion"),
     tracks: vec![MotionTrack::composite(
         MotionPropertyId::Scale,
         MotionStartValue::Explicit(scalar(0.94)),
         scalar(if state.accepted { 1.04 } else { 1.0 }),
     )],
-    child: Checkbox {
-        id: Some(WidgetId::explicit("accept_terms")),
-        semantics_identifier: Some("gallery.checkbox.accept_terms".into()),
+    child: Checkbox(
+        id: WidgetId::explicit("accept_terms"),
+        semantics_identifier: "gallery.checkbox.accept_terms".into(),
         checked: state.accepted,
-        label: Some("Accept terms".into()),
-        on_toggle: Some(toggle_terms),
+        label: "Accept terms".into(),
+        on_toggle: toggle_terms,
         disabled: false,
-    }.into(),
-    ..Default::default()
-}.into()"#;
+    ),
+)"#;

@@ -54,161 +54,107 @@ fn press_loading_button(state: &mut GalleryState) {
     state.loading_presses += 1;
 }
 
+fission_component! {
 /// The design tokens every widget draws from, plus the behaviour built on
 /// them: grown hit targets and the loading state.
-pub(crate) struct FoundationsSection;
-
-impl From<FoundationsSection> for Widget {
-    fn from(_section: FoundationsSection) -> Self {
-        let tokens = {
-            let (_, view) = fission::build::current::<GalleryState>();
-            view.env().theme.tokens.clone()
-        };
-
-        Column {
-            gap: Some(tokens.spacing.l),
-            children: widgets![
+    pub(crate) FoundationsSection<GalleryState> {}
+    |_section, _state, cx| { let tokens = cx.view.env().theme.tokens.clone(); } =>
+        Column(
+            gap: tokens.spacing.l,
+            children: [
                 // Groups sit further apart than the lines inside them, so each
                 // reads as one unit (law of proximity).
-                VStack {
-                    spacing: Some(tokens.spacing.l),
-                    children: widgets![
-                        FoundationGroup {
-                            title: "Look".into(),
-                            child: LookSwitcher.into(),
-                        },
-                        FoundationGroup {
-                            title: "Density".into(),
-                            child: DensityDemo.into(),
-                        },
-                        FoundationGroup {
-                            title: "Spacing".into(),
-                            child: SpacingScale.into(),
-                        },
-                        FoundationGroup {
-                            title: "Hit targets".into(),
-                            child: HitTargetDemo.into(),
-                        },
-                        FoundationGroup {
-                            title: "Loading".into(),
-                            child: LoadingDemo.into(),
-                        },
-                        FoundationGroup {
-                            title: "State layers".into(),
-                            child: StateLayerSwatches.into(),
-                        },
-                        FoundationGroup {
-                            title: "Colour pairs".into(),
-                            child: ColourPairSwatches.into(),
-                        },
-                        FoundationGroup {
-                            title: "Icon sizes".into(),
-                            child: IconSizeScale.into(),
-                        },
-                        FoundationGroup {
-                            title: "Window class".into(),
-                            child: WindowClassReadout.into(),
-                        },
+                VStack(
+                    spacing: tokens.spacing.l,
+                    children: [
+                        FoundationGroup("Look".into(), LookSwitcher()),
+                        FoundationGroup("Density".into(), DensityDemo()),
+                        FoundationGroup("Spacing".into(), SpacingScale()),
+                        FoundationGroup("Hit targets".into(), HitTargetDemo()),
+                        FoundationGroup("Loading".into(), LoadingDemo()),
+                        FoundationGroup("State layers".into(), StateLayerSwatches()),
+                        FoundationGroup("Colour pairs".into(), ColourPairSwatches()),
+                        FoundationGroup("Icon sizes".into(), IconSizeScale()),
+                        FoundationGroup("Window class".into(), WindowClassReadout()),
                     ],
-                },
+                ),
             ],
-            ..Default::default()
-        }
-        .into()
-    }
+        )
 }
 
+fission_component! {
 /// A labelled block inside the Foundations section.
-struct FoundationGroup {
-    title: String,
-    child: Widget,
-}
-
-impl From<FoundationGroup> for Widget {
-    fn from(group: FoundationGroup) -> Self {
-        let (_, view) = fission::build::current::<()>();
-        let tokens = &view.env().theme.tokens;
-        VStack {
-            spacing: Some(tokens.spacing.s),
-            children: widgets![
-                Text::new(group.title)
+    FoundationGroup<()> { title: String, child: Widget }
+    |group, _state, cx| { let tokens = &cx.view.env().theme.tokens; } =>
+        VStack(
+            spacing: tokens.spacing.s,
+            children: [
+                Text(group.title.clone())
                     .size(tokens.typography.font_size_base)
                     .weight(tokens.typography.font_weight_semibold)
                     .color(tokens.colors.text_primary),
-                group.child,
+                group.child.clone(),
             ],
-        }
-        .into()
-    }
+        )
 }
 
+fission_component! {
 /// Look, mode and density, pinned above the page so any section can be
 /// checked in any theme without scrolling back to Foundations.
-pub(crate) struct ThemeBar;
-
-impl From<ThemeBar> for Widget {
-    fn from(_bar: ThemeBar) -> Self {
-        let (ctx, view) = fission::build::current::<GalleryState>();
-        let state = view.state();
-        let tokens = view.env().theme.tokens.clone();
+    pub(crate) ThemeBar<GalleryState> {}
+    |_bar, state, cx| {
+        let tokens = cx.view.env().theme.tokens.clone();
         let set_look = std::sync::Arc::new({
-            let action = with_reducer!(ctx, SetLook(0), set_look);
+            let action = with_reducer!(cx.build, SetLook(0), set_look);
             move |index| action.with_action(&SetLook(index))
         });
         let set_mode = std::sync::Arc::new({
-            let action = with_reducer!(ctx, SetMode(0), set_mode);
+            let action = with_reducer!(cx.build, SetMode(0), set_mode);
             move |index| action.with_action(&SetMode(index))
         });
         let set_density = std::sync::Arc::new({
-            let action = with_reducer!(ctx, SetDensity(0), set_density);
+            let action = with_reducer!(cx.build, SetDensity(0), set_density);
             move |index| action.with_action(&SetDensity(index))
         });
         let density_index = DENSITIES
             .iter()
             .position(|density| *density == state.density)
             .unwrap_or(0);
-        // The native look replaces the theme, so the look picker says so rather
-        // than pretending a preset is active.
-        let look_control: Widget = if state.native_look {
-            Text::new("Native platform look")
-                .color(tokens.colors.text_secondary)
-                .into()
-        } else {
-            SegmentedControl {
-                options: vec!["Tidewater".into(), "Graphite".into(), "Ember".into()],
-                selected_index: state.look,
-                on_change: Some(set_look),
-            }
-            .into()
-        };
-
-        SemanticsRegion::new(
+    } =>
+        SemanticsRegion(
             // A plain row: it measures its own height, so the bar holds its controls
             // instead of collapsing and letting the page paint over them.
             // Controls wrap onto further lines when the window is too narrow for one.
-            Container::new(Row {
-                gap: Some(tokens.spacing.m),
-                line_gap: Some(tokens.spacing.s),
+            Container(Row(
+                gap: tokens.spacing.m,
+                line_gap: tokens.spacing.s,
                 wrap: fission::op::FlexWrap::Wrap,
                 align_items: fission::op::AlignItems::Center,
-                children: widgets![
-                    Text::new("Theme")
+                children: [
+                    Text("Theme")
                         .weight(tokens.typography.font_weight_semibold)
                         .color(tokens.colors.text_primary),
-                    look_control,
-                    SegmentedControl {
+                    if state.native_look {
+                        Text("Native platform look").color(tokens.colors.text_secondary)
+                    } else {
+                        SegmentedControl(
+                            options: vec!["Tidewater".into(), "Graphite".into(), "Ember".into()],
+                            selected_index: state.look,
+                            on_change: set_look,
+                        )
+                    },
+                    SegmentedControl(
                         options: vec!["Light".into(), "Dark".into()],
                         selected_index: usize::from(state.dark_mode),
-                        on_change: Some(set_mode),
-                    },
-                    SegmentedControl {
+                        on_change: set_mode,
+                    ),
+                    SegmentedControl(
                         options: vec!["Compact".into(), "Comfortable".into(), "Spacious".into()],
                         selected_index: density_index,
-                        on_change: Some(set_density),
-                    },
+                        on_change: set_density,
+                    ),
                 ],
-                ..Default::default()
-            })
+            ))
             .width_length(Length::percent(100.0))
             .padding_lengths(Length::symmetric(
                 Length::points(tokens.spacing.l),
@@ -220,101 +166,86 @@ impl From<ThemeBar> for Widget {
         .role(Role::Toolbar)
         .label("Theme")
         .identifier("gallery.theme_bar")
-        .into()
-    }
 }
 
-struct LookSwitcher;
-
-impl From<LookSwitcher> for Widget {
-    fn from(_switcher: LookSwitcher) -> Self {
-        let (ctx, view) = fission::build::current::<GalleryState>();
-        let state = view.state();
-        let tokens = view.env().theme.tokens.clone();
+fission_component! {
+    LookSwitcher<GalleryState> {}
+    |_switcher, state, cx| {
+        let tokens = cx.view.env().theme.tokens.clone();
         let set_look = std::sync::Arc::new({
-            let action = with_reducer!(ctx, SetLook(0), set_look);
+            let action = with_reducer!(cx.build, SetLook(0), set_look);
             move |index| action.with_action(&SetLook(index))
         });
         let set_mode = std::sync::Arc::new({
-            let action = with_reducer!(ctx, SetMode(0), set_mode);
+            let action = with_reducer!(cx.build, SetMode(0), set_mode);
             move |index| action.with_action(&SetMode(index))
         });
-        let toggle_native = with_reducer!(ctx, ToggleNativeLook, toggle_native_look);
+        let toggle_native = with_reducer!(cx.build, ToggleNativeLook, toggle_native_look);
         let set_native_preview = std::sync::Arc::new({
-            let action = with_reducer!(ctx, SetNativePreview(0), set_native_preview);
+            let action = with_reducer!(cx.build, SetNativePreview(0), set_native_preview);
             move |index| action.with_action(&SetNativePreview(index))
         });
-        // Progressive disclosure: the platform preview appears only once the
-        // native look is on.
-        let native_preview: Widget = if state.native_look {
-            SegmentedControl {
-                options: vec![
-                    "This device".into(),
-                    "Apple".into(),
-                    "Android".into(),
-                    "Windows".into(),
-                ],
-                selected_index: state.native_preview,
-                on_change: Some(set_native_preview),
-            }
-            .into()
-        } else {
-            Spacer::default().into()
-        };
-
-        VStack {
-            spacing: Some(tokens.spacing.ms),
-            children: widgets![
-                Text::new(
+    } =>
+        VStack(
+            spacing: tokens.spacing.ms,
+            children: [
+                Text(
                     "Tidewater is Fission's default design system. Graphite and Ember ship \
                      as presets."
                 )
                 .color(tokens.colors.text_secondary),
-                Wrap {
+                Wrap(
                     direction: FlexDirection::Row,
-                    spacing: Some(tokens.spacing.m),
-                    run_spacing: Some(tokens.spacing.s),
-                    children: widgets![
-                        SegmentedControl {
+                    spacing: tokens.spacing.m,
+                    run_spacing: tokens.spacing.s,
+                    children: [
+                        SegmentedControl(
                             options: vec!["Tidewater".into(), "Graphite".into(), "Ember".into()],
                             selected_index: state.look,
-                            on_change: Some(set_look),
-                        },
-                        SegmentedControl {
+                            on_change: set_look,
+                        ),
+                        SegmentedControl(
                             options: vec!["Light".into(), "Dark".into()],
                             selected_index: usize::from(state.dark_mode),
-                            on_change: Some(set_mode),
-                        },
+                            on_change: set_mode,
+                        ),
                     ],
-                },
-                HStack {
-                    spacing: Some(tokens.spacing.s),
-                    children: widgets![
-                        Switch {
+                ),
+                HStack(
+                    spacing: tokens.spacing.s,
+                    children: [
+                        Switch(
                             checked: state.native_look,
-                            on_toggle: Some(toggle_native),
-                            ..Default::default()
-                        }
+                            on_toggle: toggle_native,
+                        )
                         .semantics_identifier("gallery.foundations.native_look"),
-                        Text::new("Native platform look").color(tokens.colors.text_primary),
+                        Text("Native platform look").color(tokens.colors.text_primary),
                     ],
+                ),
+                if state.native_look {
+                    SegmentedControl(
+                        options: vec![
+                            "This device".into(),
+                            "Apple".into(),
+                            "Android".into(),
+                            "Windows".into(),
+                        ],
+                        selected_index: state.native_preview,
+                        on_change: set_native_preview,
+                    )
+                } else {
+                    Spacer()
                 },
-                native_preview,
             ],
-        }
-        .into()
-    }
+        )
 }
 
-struct DensityDemo;
-
-impl From<DensityDemo> for Widget {
-    fn from(_demo: DensityDemo) -> Self {
-        let (ctx, view) = fission::build::current::<GalleryState>();
-        let state = view.state();
-        let tokens = view.env().theme.tokens.clone();
+fission_component! {
+    DensityDemo<GalleryState> {}
+    |_demo, state, cx| {
+        let tokens = cx.view.env().theme.tokens.clone();
         let set_density = std::sync::Arc::new({
-            let action = with_reducer!(ctx, SetDensity(0), set_density);
+            let action = with_reducer!(cx.build, SetDensity(0), set_density);
             move |index| action.with_action(&SetDensity(index))
         });
         let selected_index = DENSITIES
@@ -323,10 +254,11 @@ impl From<DensityDemo> for Widget {
             .unwrap_or(0);
         let sizing = &tokens.sizing;
 
-        VStack {
-            spacing: Some(tokens.spacing.ms),
-            children: widgets![
-                Text::new(format!(
+    } =>
+        VStack(
+            spacing: tokens.spacing.ms,
+            children: [
+                Text(format!(
                     "Controls step {step:.0}px between densities, from the design system's \
                      comfortable sizes. Heights now: {sm:.0} / {md:.0} / {lg:.0} / {xl:.0}px.",
                     step = sizing.density_step,
@@ -336,57 +268,46 @@ impl From<DensityDemo> for Widget {
                     xl = sizing.control_xl,
                 ))
                 .color(tokens.colors.text_secondary),
-                Container::new(SegmentedControl {
+                Container(SegmentedControl(
                     options: vec!["Compact".into(), "Comfortable".into(), "Spacious".into()],
-                    selected_index,
-                    on_change: Some(set_density),
-                })
+                    selected_index: selected_index,
+                    on_change: set_density,
+                ))
                 .max_width_length(Length::points(420.0)),
-                Wrap {
+                Wrap(
                     direction: FlexDirection::Row,
-                    spacing: Some(tokens.spacing.s),
-                    run_spacing: Some(tokens.spacing.s),
-                    children: widgets![
-                        Button {
+                    spacing: tokens.spacing.s,
+                    run_spacing: tokens.spacing.s,
+                    children: [
+                        Button(
                             size: ComponentSize::Sm,
-                            child: Some(Text::new("Small").into()),
-                            ..Default::default()
-                        },
-                        Button {
-                            child: Some(Text::new("Medium").into()),
-                            ..Default::default()
-                        },
-                        Button {
+                            child: Text("Small"),
+                        ),
+                        Button(child: Text("Medium")),
+                        Button(
                             size: ComponentSize::Lg,
                             variant: ButtonVariant::Outline,
-                            child: Some(Text::new("Large").into()),
-                            ..Default::default()
-                        },
-                        Button {
+                            child: Text("Large"),
+                        ),
+                        Button(
                             size: ComponentSize::Xl,
-                            child: Some(Text::new("Extra large").into()),
-                            ..Default::default()
-                        },
+                            child: Text("Extra large"),
+                        ),
                     ],
-                },
-                Container::new(TextInput {
-                    id: Some(WidgetId::explicit("gallery.foundations.density_input")),
+                ),
+                Container(TextInput(
+                    id: WidgetId::explicit("gallery.foundations.density_input"),
                     placeholder: Some("Search messages".into()),
-                    ..Default::default()
-                })
+                ))
                 .max_width_length(Length::points(320.0)),
             ],
-        }
-        .into()
-    }
+        )
 }
 
-struct SpacingScale;
-
-impl From<SpacingScale> for Widget {
-    fn from(_scale: SpacingScale) -> Self {
-        let (_, view) = fission::build::current::<()>();
-        let tokens = &view.env().theme.tokens;
+fission_component! {
+    SpacingScale<()> {}
+    |_scale, _state, cx| {
+        let tokens = &cx.view.env().theme.tokens;
         let spacing = &tokens.spacing;
         let steps = [
             ("xxs", spacing.xxs),
@@ -399,178 +320,185 @@ impl From<SpacingScale> for Widget {
             ("xl", spacing.xl),
             ("xxl", spacing.xxl),
         ];
-        Wrap {
+    } =>
+        Wrap(
             direction: FlexDirection::Row,
-            spacing: Some(tokens.spacing.m),
-            run_spacing: Some(tokens.spacing.s),
-            children: steps
-                .into_iter()
-                .map(|(name, value)| {
-                    VStack {
-                        spacing: Some(tokens.spacing.xs),
-                        children: widgets![
-                            Container::new(Row::default())
+            spacing: tokens.spacing.m,
+            run_spacing: tokens.spacing.s,
+            children: [
+                for (name, value) in steps {
+                    VStack(
+                        key: name,
+                        spacing: tokens.spacing.xs,
+                        children: [
+                            Container(Row())
                                 .size(value.max(1.0), tokens.spacing.ms)
                                 .bg(tokens.colors.primary)
                                 .border_radius(tokens.radii.none),
-                            Text::new(format!("{name} {value:.0}"))
+                            Text(format!("{name} {value:.0}"))
                                 .size(tokens.typography.font_size_xs)
                                 .color(tokens.colors.text_secondary),
                         ],
-                    }
-                    .into()
-                })
-                .collect(),
-        }
-        .into()
-    }
+                    )
+                },
+            ],
+        )
 }
 
-struct HitTargetDemo;
-
-impl From<HitTargetDemo> for Widget {
-    fn from(_demo: HitTargetDemo) -> Self {
-        let (ctx, view) = fission::build::current::<GalleryState>();
-        let state = view.state();
-        let tokens = view.env().theme.tokens.clone();
-        let press = with_reducer!(ctx, PressHitTarget, press_hit_target);
-        let toggle = with_reducer!(ctx, ToggleHitAreas, toggle_hit_areas);
+fission_component! {
+    HitTargetDemo<GalleryState> {}
+    |_demo, state, cx| {
+        let tokens = cx.view.env().theme.tokens.clone();
+        let press = with_reducer!(cx.build, PressHitTarget, press_hit_target);
+        let toggle = with_reducer!(cx.build, ToggleHitAreas, toggle_hit_areas);
 
         let dot = tokens.sizing.icon_sm;
         let target = tokens.sizing.min_pointer_target;
         let inset = ((target - dot) / 2.0).max(0.0);
 
-        let targets = (0..HIT_TARGETS)
-            .map(|index| {
-                let button = Button {
-                    id: Some(WidgetId::explicit(&format!("gallery.hit_target.{index}"))),
-                    width: Some(dot),
-                    height: Some(dot),
-                    padding: Some([0.0; 4]),
-                    on_press: Some(press.clone()),
-                    motion: Some(ButtonMotion::None),
-                    semantics: Some(Semantics {
-                        role: Role::Button,
-                        label: Some(format!("Target {}", index + 1)),
-                        identifier: Some(format!("gallery.foundations.hit_target.{index}")),
-                        focusable: true,
-                        ..Semantics::default()
-                    }),
-                    ..Default::default()
-                };
-                let area = Container::new(button).padding_all(inset);
-                if state.show_hit_areas {
-                    area.bg(tokens.colors.primary.with_alpha(40))
-                        .border_radius(tokens.radii.small)
-                        .into()
-                } else {
-                    area.into()
-                }
-            })
-            .collect::<Vec<Widget>>();
-
-        VStack {
-            spacing: Some(tokens.spacing.s),
-            children: widgets![
-                Text::new(format!(
+    } =>
+        VStack(
+            spacing: tokens.spacing.s,
+            children: [
+                Text(format!(
                     "Each dot is {dot:.0}px but answers to a {target:.0}px pointer area and a \
                      {touch:.0}px touch area. Click just outside one.",
                     touch = tokens.sizing.min_touch_target,
                 ))
                 .color(tokens.colors.text_secondary),
-                HStack {
-                    spacing: Some(tokens.spacing.ms),
-                    children: widgets![
-                        HStack {
-                            spacing: Some(0.0),
-                            children: targets,
-                        },
-                        Text::new(format!("Pressed {} times", state.hit_target_presses))
+                HStack(
+                    spacing: tokens.spacing.ms,
+                    children: [
+                        HStack(
+                            spacing: 0.0_f32,
+                            children: [
+                                for index in 0..HIT_TARGETS {
+                                    HitTarget(index, dot, inset, press.clone(), key: index)
+                                },
+                            ],
+                        ),
+                        Text(format!("Pressed {} times", state.hit_target_presses))
                             .color(tokens.colors.text_primary),
                     ],
-                },
-                Checkbox {
+                ),
+                Checkbox(
                     checked: state.show_hit_areas,
-                    on_toggle: Some(toggle),
-                    label: Some("Show pointer hit areas".into()),
-                    ..Default::default()
-                }
+                    on_toggle: toggle,
+                    label: Some("Show pointer hit areas".to_string()),
+                )
                 .semantics_identifier("gallery.foundations.show_hit_areas"),
             ],
-        }
-        .into()
-    }
+        )
 }
 
-struct LoadingDemo;
+fission_component! {
+    HitTarget<GalleryState> { index: usize, dot: f32, inset: f32, action: ActionEnvelope }
+    |target, state, cx| {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+        if state.show_hit_areas {
+            Container(
+                Button(
+                    id: WidgetId::explicit(&format!("gallery.hit_target.{}", target.index)),
+                    width: target.dot,
+                    height: target.dot,
+                    padding: [0.0_f32, 0.0_f32, 0.0_f32, 0.0_f32],
+                    on_press: target.action.clone(),
+                    motion: ButtonMotion::None,
+                    semantics: Semantics {
+                        role: Role::Button,
+                        label: Some(format!("Target {}", target.index + 1)),
+                        identifier: Some(format!("gallery.foundations.hit_target.{}", target.index)),
+                        focusable: true,
+                        ..Semantics::default()
+                    },
+                )
+            )
+            .padding_all(target.inset)
+            .bg(tokens.colors.primary.with_alpha(40))
+            .border_radius(tokens.radii.small)
+        } else {
+            Container(
+                Button(
+                    id: WidgetId::explicit(&format!("gallery.hit_target.{}", target.index)),
+                    width: target.dot,
+                    height: target.dot,
+                    padding: [0.0_f32, 0.0_f32, 0.0_f32, 0.0_f32],
+                    on_press: target.action.clone(),
+                    motion: ButtonMotion::None,
+                    semantics: Semantics {
+                        role: Role::Button,
+                        label: Some(format!("Target {}", target.index + 1)),
+                        identifier: Some(format!("gallery.foundations.hit_target.{}", target.index)),
+                        focusable: true,
+                        ..Semantics::default()
+                    },
+                )
+            )
+            .padding_all(target.inset)
+        }
+}
 
-impl From<LoadingDemo> for Widget {
-    fn from(_demo: LoadingDemo) -> Self {
-        let (ctx, view) = fission::build::current::<GalleryState>();
-        let state = view.state();
-        let tokens = &view.env().theme.tokens;
-        let press = with_reducer!(ctx, PressLoadingButton, press_loading_button);
-        let toggle = with_reducer!(ctx, ToggleSlowWork, toggle_slow_work);
+fission_component! {
+    LoadingDemo<GalleryState> {}
+    |_demo, state, cx| {
+        let tokens = &cx.view.env().theme.tokens;
+        let press = with_reducer!(cx.build, PressLoadingButton, press_loading_button);
+        let toggle = with_reducer!(cx.build, ToggleSlowWork, toggle_slow_work);
         let loading = state.foundation_loading;
 
-        VStack {
-            spacing: Some(tokens.spacing.s),
-            children: widgets![
-                Text::new(
+    } =>
+        VStack(
+            spacing: tokens.spacing.s,
+            children: [
+                Text(
                     "A loading button keeps its size and colour, swaps its label for a spinning ring, \
                      ignores presses and reports itself busy."
                 )
                 .color(tokens.colors.text_secondary),
-                Wrap {
+                Wrap(
                     direction: FlexDirection::Row,
-                    spacing: Some(tokens.spacing.s),
+                    spacing: tokens.spacing.s,
                     run_spacing: None,
-                    children: widgets![
-                        Button {
-                            id: Some(WidgetId::explicit("gallery.foundations.save")),
-                            child: Some(Text::new("Save changes").into()),
-                            on_press: Some(press.clone()),
-                            loading,
-                            ..Default::default()
-                        }
+                    children: [
+                        Button(
+                            id: WidgetId::explicit("gallery.foundations.save"),
+                            child: Text("Save changes"),
+                            on_press: press.clone(),
+                            loading: loading,
+                        )
                         .semantics_identifier("gallery.foundations.save"),
-                        Button {
-                            id: Some(WidgetId::explicit("gallery.foundations.export")),
+                        Button(
+                            id: WidgetId::explicit("gallery.foundations.export"),
                             variant: ButtonVariant::Outline,
-                            child: Some(Text::new("Export report").into()),
-                            on_press: Some(press),
-                            loading,
-                            ..Default::default()
-                        }
+                            child: Text("Export report"),
+                            on_press: press,
+                            loading: loading,
+                        )
                         .semantics_identifier("gallery.foundations.export"),
                     ],
-                },
-                HStack {
-                    spacing: Some(tokens.spacing.m),
-                    children: widgets![
-                        Switch {
+                ),
+                HStack(
+                    spacing: tokens.spacing.m,
+                    children: [
+                        Switch(
                             checked: loading,
-                            on_toggle: Some(toggle),
-                            ..Default::default()
-                        }
+                            on_toggle: toggle,
+                        )
                         .semantics_identifier("gallery.foundations.slow_work"),
-                        Text::new("Simulate slow work").color(tokens.colors.text_primary),
-                        Text::new(format!("Presses {}", state.loading_presses))
+                        Text("Simulate slow work").color(tokens.colors.text_primary),
+                        Text(format!("Presses {}", state.loading_presses))
                             .color(tokens.colors.text_secondary),
                     ],
-                },
+                ),
             ],
-        }
-        .into()
-    }
+        )
 }
 
-struct StateLayerSwatches;
-
-impl From<StateLayerSwatches> for Widget {
-    fn from(_swatches: StateLayerSwatches) -> Self {
-        let (_, view) = fission::build::current::<()>();
-        let tokens = &view.env().theme.tokens;
+fission_component! {
+    StateLayerSwatches<()> {}
+    |_swatches, _state, cx| {
+        let tokens = &cx.view.env().theme.tokens;
         let opacity = &tokens.opacity;
         let layers = [
             ("Hover", opacity.hover_layer),
@@ -581,17 +509,18 @@ impl From<StateLayerSwatches> for Widget {
             ("Disabled", opacity.disabled),
         ];
         let swatch = tokens.sizing.control_xl;
-        Wrap {
+    } =>
+        Wrap(
             direction: FlexDirection::Row,
-            spacing: Some(tokens.spacing.m),
-            run_spacing: Some(tokens.spacing.s),
-            children: layers
-                .into_iter()
-                .map(|(name, value)| {
-                    VStack {
-                        spacing: Some(tokens.spacing.xs),
-                        children: widgets![
-                            Container::new(Row::default())
+            spacing: tokens.spacing.m,
+            run_spacing: tokens.spacing.s,
+            children: [
+                for (name, value) in layers {
+                    VStack(
+                        key: name,
+                        spacing: tokens.spacing.xs,
+                        children: [
+                            Container(Row())
                                 .size(swatch * 1.5, swatch)
                                 .bg(tokens
                                     .colors
@@ -599,27 +528,22 @@ impl From<StateLayerSwatches> for Widget {
                                     .with_alpha((value.clamp(0.0, 1.0) * 255.0).round() as u8))
                                 .border(tokens.colors.border, tokens.sizing.border_hairline)
                                 .border_radius(tokens.radii.medium),
-                            Text::new(format!("{name} {:.0}%", value * 100.0))
+                            Text(format!("{name} {:.0}%", value * 100.0))
                                 .size(tokens.typography.font_size_xs)
                                 .color(tokens.colors.text_secondary),
                         ],
-                    }
-                    .into()
-                })
-                .collect(),
-        }
-        .into()
-    }
+                    )
+                },
+            ],
+        )
 }
 
+fission_component! {
 /// Each paired role's fill with content drawn in its own foreground colour.
-struct ColourPairSwatches;
-
-impl From<ColourPairSwatches> for Widget {
-    fn from(_swatches: ColourPairSwatches) -> Self {
+    ColourPairSwatches<()> {}
+    |_swatches, _state, cx| {
         use fission::theme::ColorRole;
-        let (_, view) = fission::build::current::<()>();
-        let tokens = &view.env().theme.tokens;
+        let tokens = &cx.view.env().theme.tokens;
         let roles = [
             ("background", ColorRole::Background),
             ("surface", ColorRole::Surface),
@@ -631,45 +555,50 @@ impl From<ColourPairSwatches> for Widget {
             ("accent", ColorRole::Accent),
             ("destructive", ColorRole::Destructive),
         ];
-        Wrap {
+    } =>
+        Wrap(
             direction: FlexDirection::Row,
-            spacing: Some(tokens.spacing.s),
-            run_spacing: Some(tokens.spacing.s),
-            children: roles
-                .into_iter()
-                .map(|(name, role)| {
-                    let pair = tokens.colors.pair(role);
-                    Container::new(VStack {
-                        spacing: Some(tokens.spacing.xxs),
-                        children: widgets![
-                            Text::new("Aa")
-                                .size(tokens.typography.font_size_lg)
-                                .weight(tokens.typography.font_weight_semibold)
-                                .color(pair.on),
-                            Text::new(name)
-                                .size(tokens.typography.font_size_xs)
-                                .color(pair.on),
-                        ],
-                    })
-                    .width(tokens.sizing.control_xl * 2.0)
-                    .padding_all(tokens.spacing.s)
-                    .bg(pair.fill)
-                    .border(tokens.colors.border, tokens.sizing.border_hairline)
-                    .border_radius(tokens.radii.medium)
-                    .into()
-                })
-                .collect(),
-        }
-        .into()
-    }
+            spacing: tokens.spacing.s,
+            run_spacing: tokens.spacing.s,
+            children: [
+                for (name, role) in roles {
+                    ColourPairSwatch(name, role, key: name)
+                },
+            ],
+        )
 }
 
-struct IconSizeScale;
+fission_component! {
+    ColourPairSwatch<()> { name: &'static str, role: fission::theme::ColorRole }
+    |swatch, _state, cx| {
+        let tokens = &cx.view.env().theme.tokens;
+        let pair = tokens.colors.pair(swatch.role);
+    } =>
+        Container(
+            VStack(
+                spacing: tokens.spacing.xxs,
+                children: [
+                    Text("Aa")
+                        .size(tokens.typography.font_size_lg)
+                        .weight(tokens.typography.font_weight_semibold)
+                        .color(pair.on),
+                    Text(swatch.name)
+                        .size(tokens.typography.font_size_xs)
+                        .color(pair.on),
+                ],
+            )
+        )
+        .width(tokens.sizing.control_xl * 2.0)
+        .padding_all(tokens.spacing.s)
+        .bg(pair.fill)
+        .border(tokens.colors.border, tokens.sizing.border_hairline)
+        .border_radius(tokens.radii.medium)
+}
 
-impl From<IconSizeScale> for Widget {
-    fn from(_scale: IconSizeScale) -> Self {
-        let (_, view) = fission::build::current::<()>();
-        let tokens = &view.env().theme.tokens;
+fission_component! {
+    IconSizeScale<()> {}
+    |_scale, _state, cx| {
+        let tokens = &cx.view.env().theme.tokens;
         let sizing = &tokens.sizing;
         let sizes = [
             ("xs", sizing.icon_xs),
@@ -678,37 +607,33 @@ impl From<IconSizeScale> for Widget {
             ("lg", sizing.icon_lg),
             ("xl", sizing.icon_xl),
         ];
-        HStack {
-            spacing: Some(tokens.spacing.l),
-            children: sizes
-                .into_iter()
-                .map(|(name, size)| {
-                    VStack {
-                        spacing: Some(tokens.spacing.xs),
-                        children: widgets![
-                            Container::new(Row::default())
+    } =>
+        HStack(
+            spacing: tokens.spacing.l,
+            children: [
+                for (name, size) in sizes {
+                    VStack(
+                        key: name,
+                        spacing: tokens.spacing.xs,
+                        children: [
+                            Container(Row())
                                 .size(size, size)
                                 .bg(tokens.colors.text_secondary)
                                 .border_radius(tokens.radii.small),
-                            Text::new(format!("{name} {size:.0}"))
+                            Text(format!("{name} {size:.0}"))
                                 .size(tokens.typography.font_size_xs)
                                 .color(tokens.colors.text_secondary),
                         ],
-                    }
-                    .into()
-                })
-                .collect(),
-        }
-        .into()
-    }
+                    )
+                },
+            ],
+        )
 }
 
-struct WindowClassReadout;
-
-impl From<WindowClassReadout> for Widget {
-    fn from(_readout: WindowClassReadout) -> Self {
-        let (_, view) = fission::build::current::<()>();
-        let env = view.env();
+fission_component! {
+    WindowClassReadout<()> {}
+    |_readout, _state, cx| {
+        let env = cx.view.env();
         let tokens = &env.theme.tokens;
         let width = env.viewport_size.width;
         let class = match tokens.breakpoints.class_for(width) {
@@ -718,6 +643,7 @@ impl From<WindowClassReadout> for Widget {
             WindowClass::Large => "Large",
             WindowClass::ExtraLarge => "Extra large",
         };
+    } =>
         Text::new(format!(
             "{class}, {width:.0}px wide. Resize the window to cross a breakpoint \
              ({:.0} / {:.0} / {:.0} / {:.0}px).",
@@ -727,6 +653,4 @@ impl From<WindowClassReadout> for Widget {
             tokens.breakpoints.large_max,
         ))
         .color(tokens.colors.text_primary)
-        .into()
-    }
 }

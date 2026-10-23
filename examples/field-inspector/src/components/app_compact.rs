@@ -2,50 +2,30 @@ use crate::components::main_column::InspectorMainColumn;
 use crate::components::work_orders::WorkOrderRail;
 use crate::model::FieldInspectorState;
 use fission::prelude::*;
-
-#[derive(Clone)]
-pub struct FieldInspectorCompact;
-
-impl From<FieldInspectorCompact> for Widget {
-    fn from(_: FieldInspectorCompact) -> Self {
-        let (_ctx, view) = fission::build::current::<FieldInspectorState>();
-        let tokens = &view.env().theme.tokens;
-
-        Container::new(SafeArea {
-            id: Some(WidgetId::explicit("field-inspector.compact.safe-area")),
-            child: Scroll {
-                id: Some(WidgetId::explicit("field-inspector.compact.scroll")),
-                direction: FlexDirection::Column,
-                show_scrollbar: true,
-                flex_grow: 1.0,
-                child: Some(
-                    Column {
-                        id: Some(WidgetId::explicit("field-inspector.compact.content")),
-                        gap: Some(tokens.spacing.m),
-                        children: widgets![
-                            WorkOrderRail { compact: true },
-                            InspectorMainColumn { compact: true },
-                        ],
-                        ..Default::default()
-                    }
-                    .into(),
+fission_component! {
+    #[derive(Clone)] pub FieldInspectorCompact<FieldInspectorState> {}
+    |_app, _state, cx| { let tokens = &cx.view.env().theme.tokens; } =>
+        Container(
+            SafeArea(
+                id: WidgetId::explicit("field-inspector.compact.safe-area"),
+                child: Scroll(
+                    id: WidgetId::explicit("field-inspector.compact.scroll"),
+                    direction: FlexDirection::Column,
+                    show_scrollbar: true,
+                    flex_grow: 1.0,
+                    child: Column(
+                        id: WidgetId::explicit("field-inspector.compact.content"),
+                        gap: tokens.spacing.m,
+                        children: [WorkOrderRail(true), InspectorMainColumn(true)],
+                    ),
                 ),
-                ..Default::default()
-            }
-            .into(),
-        })
+            ),
+        )
         .height_length(Length::vh(100.0))
         .padding_lengths(Length::all(Length::points(tokens.spacing.s)))
         .bg_fill(Fill::LinearGradient {
-            start: (0.0, 0.0),
-            end: (1.0, 1.0),
-            stops: vec![
-                (0.0, tokens.colors.background),
-                (0.55, tokens.colors.surface),
-                (1.0, tokens.colors.background),
-            ],
+            start: (0.0, 0.0), end: (1.0, 1.0),
+            stops: vec![(0.0, tokens.colors.background), (0.55, tokens.colors.surface), (1.0, tokens.colors.background)],
             extend: Default::default(),
         })
-        .into()
-    }
 }

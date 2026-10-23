@@ -1,19 +1,15 @@
 use crate::app::StoreState;
 use fission::prelude::*;
 
-pub struct NotFound {
-    pub slug: String,
-}
-
-impl From<NotFound> for Widget {
-    fn from(missing: NotFound) -> Self {
-        let (_, view) = fission::build::current::<StoreState>();
-        let tokens = &view.env().theme.tokens;
+fission_component! {
+    pub NotFound<StoreState> { slug: String }
+    |missing, _state, cx| {
+        let tokens = &cx.view.env().theme.tokens;
         let typography = &tokens.typography;
-
-        Container::new(Column {
-            gap: Some(tokens.spacing.s),
-            children: widgets![
+    } =>
+        Container(Column(
+            gap: tokens.spacing.s,
+            children: [
                 Text::new("Card not found")
                     .size(typography.heading_size)
                     .line_height(typography.heading_size * typography.line_height_heading)
@@ -30,12 +26,9 @@ impl From<NotFound> for Widget {
                     .color(tokens.colors.text_link)
                     .semantics_identifier("site-route:/"),
             ],
-            ..Default::default()
-        })
+        ))
         .padding_all(tokens.spacing.l)
         .border(tokens.colors.error.with_alpha(120), 1.0)
         .border_radius(tokens.radii.xxl)
         .bg(tokens.colors.surface)
-        .into()
-    }
 }

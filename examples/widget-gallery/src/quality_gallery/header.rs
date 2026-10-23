@@ -14,31 +14,27 @@ fn close_quality_menu(state: &mut GalleryState) {
     state.menu_open = false;
 }
 
-pub(super) struct QualityHeader {
-    pub compact: bool,
-}
-
-impl From<QualityHeader> for Widget {
-    fn from(header: QualityHeader) -> Self {
-        let (ctx, view) = fission::build::current::<GalleryState>();
-        let state = view.state();
-        let tokens = &view.env().theme.tokens;
-        let close_menu = with_reducer!(ctx, CloseQualityMenu, close_quality_menu);
-        let toggle_menu = with_reducer!(ctx, ToggleQualityMenu, toggle_quality_menu);
+fission_component! {
+    pub(super) QualityHeader<GalleryState> { compact: bool }
+    |header, state, cx| {
+        let tokens = &cx.view.env().theme.tokens;
+        let close_menu = with_reducer!(cx.build, CloseQualityMenu, close_quality_menu);
+        let toggle_menu = with_reducer!(cx.build, ToggleQualityMenu, toggle_quality_menu);
         let menu_id = WidgetId::explicit(if header.compact {
             "quality-gallery.menu.mobile"
         } else {
             "quality-gallery.menu.desktop"
         });
 
-        Column {
-            gap: Some(0.0),
-            children: widgets![
-                Container::new(Row {
-                    gap: Some(tokens.spacing.s),
+    } =>
+        Column(
+            gap: 0.0_f32,
+            children: [
+                Container(Row(
+                    gap: tokens.spacing.s,
                     align_items: fission::op::AlignItems::Center,
-                    children: widgets![
-                        Container::new(
+                    children: [
+                        Container(
                             Icon::svg(material::action::settings::regular())
                                 .size(14.0)
                                 .color(tokens.colors.on_primary),
@@ -47,15 +43,12 @@ impl From<QualityHeader> for Widget {
                         .align_child(BoxAlignment::Center)
                         .bg(tokens.colors.primary)
                         .border_radius(tokens.radii.medium),
-                        Text::new("Northstar")
+                        Text("Northstar")
                             .size(tokens.typography.font_size_base)
                             .line_height(20.0)
                             .weight(tokens.typography.font_weight_medium)
                             .color(tokens.colors.text_primary),
-                        Spacer {
-                            flex_grow: 1.0,
-                            ..Default::default()
-                        },
+                        Spacer(flex_grow: 1.0_f32),
                         MenuButtonLayout::new(
                             menu_id,
                             MenuTrigger::new("Actions")
@@ -92,13 +85,9 @@ impl From<QualityHeader> for Widget {
                         .open(state.menu_open)
                         .on_toggle(toggle_menu),
                     ],
-                    ..Default::default()
-                })
+                ))
                 .height(35.0),
                 Divider::default(),
             ],
-            ..Default::default()
-        }
-        .into()
-    }
+        )
 }

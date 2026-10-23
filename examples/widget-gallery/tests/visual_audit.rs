@@ -1,4 +1,5 @@
 use fission::core::{GlobalState, WidgetId};
+use fission::fission_component;
 use fission::layout::LayoutSize;
 use fission::render::DisplayOp;
 use fission_test::prelude::*;
@@ -23,34 +24,21 @@ use serde::{Deserialize, Serialize};
 struct GS;
 impl GlobalState for GS {}
 
-struct TestSection {
-    title: &'static str,
-    children: Vec<Widget>,
-}
-
-impl TestSection {
-    fn new(title: &'static str, children: Vec<Widget>) -> Self {
-        Self { title, children }
-    }
-}
-
-impl From<TestSection> for Widget {
-    fn from(section: TestSection) -> Self {
+fission_component! {
+    TestSection<GS> { title: &'static str, children: Vec<Widget> }
+    |section, _state, _cx| {
         let mut children = widgets![Text::new(section.title).size(20.0)];
-        children.extend(section.children);
+        children.extend(section.children.clone());
+    } =>
         VStack {
             spacing: Some(8.0),
             children,
         }
-        .into()
-    }
 }
 
-#[derive(Clone)]
-struct AllWidgets;
-
-impl From<AllWidgets> for Widget {
-    fn from(_: AllWidgets) -> Self {
+fission_component! {
+    #[derive(Clone)] AllWidgets<GS> {}
+    |_widgets, _state, _cx| {
         let _noop = ActionEnvelope {
             id: fission::core::ActionId::from_u128(9999),
             payload: vec![],
@@ -397,6 +385,7 @@ impl From<AllWidgets> for Widget {
         }
         .into();
 
+    } =>
         Scroll {
             direction: FlexDirection::Column,
             child: Some(Container::new(all).padding_all(24.0).flex_grow(1.0).into()),
@@ -405,12 +394,10 @@ impl From<AllWidgets> for Widget {
             flex_shrink: 1.0,
             ..Default::default()
         }
-        .into()
-    }
 }
 #[test]
 fn all_widgets_render_without_panic() {
-    let mut harness = TestHarness::<GS>::new(GS).with_root_widget(AllWidgets);
+    let mut harness = TestHarness::<GS>::new(GS).with_root_widget(AllWidgets::new());
     harness.env.viewport_size = LayoutSize::new(900.0, 3000.0);
     harness.pump().expect("pump should succeed");
 
@@ -504,7 +491,7 @@ fn all_widgets_render_without_panic() {
 
 #[test]
 fn no_zero_size_interactive_widgets() {
-    let mut harness = TestHarness::<GS>::new(GS).with_root_widget(AllWidgets);
+    let mut harness = TestHarness::<GS>::new(GS).with_root_widget(AllWidgets::new());
     harness.env.viewport_size = LayoutSize::new(900.0, 3000.0);
     harness.pump().expect("pump");
 
@@ -527,7 +514,7 @@ fn no_zero_size_interactive_widgets() {
 
 #[test]
 fn progress_bar_partial_fill() {
-    let mut harness = TestHarness::<GS>::new(GS).with_root_widget(AllWidgets);
+    let mut harness = TestHarness::<GS>::new(GS).with_root_widget(AllWidgets::new());
     harness.env.viewport_size = LayoutSize::new(900.0, 3000.0);
     harness.pump().expect("pump");
 
@@ -581,7 +568,7 @@ fn progress_bar_partial_fill() {
 
 #[test]
 fn avatar_initials_centered() {
-    let mut harness = TestHarness::<GS>::new(GS).with_root_widget(AllWidgets);
+    let mut harness = TestHarness::<GS>::new(GS).with_root_widget(AllWidgets::new());
     harness.env.viewport_size = LayoutSize::new(900.0, 3000.0);
     harness.pump().expect("pump");
 

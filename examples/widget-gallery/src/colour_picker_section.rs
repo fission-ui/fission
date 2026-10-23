@@ -60,13 +60,10 @@ fn set_colour_variant(state: &mut GalleryState, variant: usize) {
     state.colour_variant = variant;
 }
 
-pub(crate) struct ColourPickerSection;
-
-impl From<ColourPickerSection> for Widget {
-    fn from(_section: ColourPickerSection) -> Self {
-        let (ctx, view) = fission::build::current::<GalleryState>();
-        let state = view.state();
-        let tokens = &view.env().theme.tokens;
+fission_component! {
+    pub(crate) ColourPickerSection<GalleryState> {}
+    |_section, state, cx| {
+        let tokens = &cx.view.env().theme.tokens;
         let variants = colour_variants();
         let active_variant = variants
             .get(state.colour_variant)
@@ -74,96 +71,91 @@ impl From<ColourPickerSection> for Widget {
             .unwrap_or_default();
         let colour_change = Arc::new({
             let action = with_reducer!(
-                ctx,
+                cx.build,
                 SetGalleryColour(state.colour_value),
                 set_gallery_colour
             );
             move |colour: Color| action.with_action(&SetGalleryColour(colour))
         });
 
-        VStack {
-            spacing: Some(tokens.spacing.m),
-            children: widgets![
-                HStack {
-                    spacing: Some(tokens.spacing.s),
-                    children: widgets![
-                        Container::new(Text::new(""))
+    } =>
+        VStack(
+            spacing: tokens.spacing.m,
+            children: [
+                HStack(
+                    spacing: tokens.spacing.s,
+                    children: [
+                        Container(Text(""))
                             .size(COLOUR_PREVIEW_SIZE, COLOUR_PREVIEW_SIZE)
                             .bg(state.colour_value)
                             .border(tokens.colors.border, BORDER_WIDTH)
                             .border_radius(tokens.radii.small),
-                        Text::new(format!(
+                        Text(format!(
                             "Current {}",
                             gallery_hex_string(state.colour_value)
                         ))
                         .color(tokens.colors.text_secondary),
                     ],
-                },
-                Wrap {
+                ),
+                Wrap(
                     direction: FlexDirection::Row,
-                    spacing: Some(tokens.spacing.xs),
+                    spacing: tokens.spacing.xs,
                     run_spacing: None,
-                    children: variants
-                        .iter()
-                        .enumerate()
-                        .map(|(index, (label, _))| {
-                            Button {
+                    children: [
+                        for (index, (label, _)) in variants.iter().enumerate() {
+                            Button(
+                                key: *label,
                                 variant: if index == state.colour_variant {
                                     ButtonVariant::Filled
                                 } else {
                                     ButtonVariant::Outline
                                 },
-                                child: Some(Text::new(*label).into()),
-                                on_press: Some(with_reducer!(
-                                    ctx,
+                                child: Text(*label),
+                                on_press: with_reducer!(
+                                    cx.build,
                                     SetColourVariant(index),
                                     set_colour_variant
-                                )),
-                                ..Default::default()
-                            }
+                                ),
+                            )
                             .semantics_identifier(format!("gallery.colour.variant.{label}"))
-                            .into()
-                        })
-                        .collect(),
-                },
-                ColourPicker {
-                    id: Some(WidgetId::explicit("gallery_colour_picker")),
-                    semantics_identifier: Some("gallery.colour".into()),
+                        },
+                    ],
+                ),
+                ColourPicker(
+                    id: WidgetId::explicit("gallery_colour_picker"),
+                    semantics_identifier: "gallery.colour".to_string(),
                     value: state.colour_value,
                     variant: active_variant,
                     recent: recent_colours(),
-                    on_change: Some(colour_change),
-                    on_hue_change: Some(with_reducer!(
-                        ctx,
+                    on_change: colour_change,
+                    on_hue_change: with_reducer!(
+                        cx.build,
                         SetGalleryColourHue(0.0),
                         set_gallery_colour_hue
-                    )),
-                    on_saturation_change: Some(with_reducer!(
-                        ctx,
+                    ),
+                    on_saturation_change: with_reducer!(
+                        cx.build,
                         SetGalleryColourSaturation(0.0),
                         set_gallery_colour_saturation
-                    )),
-                    on_value_change: Some(with_reducer!(
-                        ctx,
+                    ),
+                    on_value_change: with_reducer!(
+                        cx.build,
                         SetGalleryColourValue(0.0),
                         set_gallery_colour_value
-                    )),
-                    on_alpha_change: Some(with_reducer!(
-                        ctx,
+                    ),
+                    on_alpha_change: with_reducer!(
+                        cx.build,
                         SetGalleryColourAlpha(1.0),
                         set_gallery_colour_alpha
-                    )),
-                    on_hex_input: Some(with_reducer!(
-                        ctx,
+                    ),
+                    on_hex_input: with_reducer!(
+                        cx.build,
                         SetGalleryColourHex,
                         set_gallery_colour_hex
-                    )),
-                    ..Default::default()
-                },
+                    ),
+                ),
             ],
-        }
-        .into()
-    }
+        )
 }
 
 fn colour_variants() -> &'static [(&'static str, ColourPickerVariant)] {

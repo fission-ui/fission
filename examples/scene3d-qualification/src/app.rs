@@ -128,22 +128,18 @@ fn pick_viewport(state: &mut QualificationState, ctx: &mut ReducerContext<Qualif
     }
 }
 
-#[derive(Clone)]
-pub struct QualificationApp;
-
-impl From<QualificationApp> for Widget {
-    fn from(_app: QualificationApp) -> Self {
-        let (ctx, view) = fission::build::current::<QualificationState>();
-        let state = view.state();
-        let tick = with_reducer!(ctx, SimulateFrame, simulate_frame);
-        let forward = with_reducer!(ctx, MoveForward, move_forward);
-        let back = with_reducer!(ctx, MoveBack, move_back);
-        let left = with_reducer!(ctx, MoveLeft, move_left);
-        let right = with_reducer!(ctx, MoveRight, move_right);
-        let select = with_reducer!(ctx, SelectBeacon, select_beacon);
-        let restart = with_reducer!(ctx, RestartRun, restart_run);
-        let pick = with_reducer!(ctx, PickViewport, pick_viewport);
-        let host_input = ctx.bind(
+fission_component! {
+    pub QualificationApp<QualificationState>
+    |_app, state, cx| {
+        let tick = with_reducer!(cx.build, SimulateFrame, simulate_frame);
+        let forward = with_reducer!(cx.build, MoveForward, move_forward);
+        let back = with_reducer!(cx.build, MoveBack, move_back);
+        let left = with_reducer!(cx.build, MoveLeft, move_left);
+        let right = with_reducer!(cx.build, MoveRight, move_right);
+        let select = with_reducer!(cx.build, SelectBeacon, select_beacon);
+        let restart = with_reducer!(cx.build, RestartRun, restart_run);
+        let pick = with_reducer!(cx.build, PickViewport, pick_viewport);
+        let host_input = cx.build.bind(
             GameHostInput::FocusLost,
             handle_game_input
                 as fn(
@@ -153,7 +149,7 @@ impl From<QualificationApp> for Widget {
                 ),
         );
 
-        ctx.with_resources(|resources| {
+        cx.build.with_resources(|resources| {
             resources.timer(
                 TimerResource::new(
                     ResourceKey::new("scene3d-qualification-clock"),
@@ -171,82 +167,65 @@ impl From<QualificationApp> for Widget {
         } else {
             "game.ready"
         };
-        let controls = Row {
-            gap: Some(8.0),
-            children: vec![
-                ControlButton::new("game.left", "move-left", left).into(),
-                ControlButton::new("game.forward", "move-forward", forward).into(),
-                ControlButton::new("game.back", "move-back", back).into(),
-                ControlButton::new("game.right", "move-right", right).into(),
-            ],
-            ..Default::default()
-        };
-        let actions = Row {
-            gap: Some(8.0),
-            children: vec![
-                ControlButton::new("game.select", "select-beacon", select).into(),
-                ControlButton::new("game.restart", "restart-run", restart).into(),
-            ],
-            ..Default::default()
-        };
-        let viewport: Widget = Scene3D::new(state.scene.clone())
-            .height(540.0)
-            .on_pick(pick)
-            .semantic_label("Interactive Beacon Run viewport")
-            .into();
+    } =>
+    QualificationGameRegion(
+        Container(
+            Column(
+                gap: 14.0,
+                children: [
+                    Text(TextContent::Key("game.title".into())).size(30.0),
+                    Text(TextContent::Key("game.instructions".into())).size(15.0),
+                    Text(TextContent::Key(status_key.into())).size(18.0),
+                    Container(
+                        Scene3D::new(state.scene.clone())
+                            .height(540.0)
+                            .on_pick(pick)
+                            .semantic_label("Interactive Beacon Run viewport")
+                    ).height(540.0),
+                    Row(
+                        gap: 8.0,
+                        children: [
+                            ControlButton("game.left", "move-left", left),
+                            ControlButton("game.forward", "move-forward", forward),
+                            ControlButton("game.back", "move-back", back),
+                            ControlButton("game.right", "move-right", right),
+                        ],
+                    ),
+                    Row(
+                        gap: 8.0,
+                        children: [
+                            ControlButton("game.select", "select-beacon", select),
+                            ControlButton("game.restart", "restart-run", restart),
+                        ],
+                    ),
+                ],
+            ),
+        )
+        .padding_all(24.0),
+        host_input,
+    )
+}
 
-        let content: Widget = Container::new(Column {
-            gap: Some(14.0),
-            children: vec![
-                Text::new(TextContent::Key("game.title".into()))
-                    .size(30.0)
-                    .into(),
-                Text::new(TextContent::Key("game.instructions".into()))
-                    .size(15.0)
-                    .into(),
-                Text::new(TextContent::Key(status_key.into()))
-                    .size(18.0)
-                    .into(),
-                Container::new(viewport).height(540.0).into(),
-                controls.into(),
-                actions.into(),
-            ],
-            ..Default::default()
-        })
-        .padding_all(24.0)
-        .into();
-        GameInputRegion::for_game::<HarborGame>(content, host_input)
+fission_component! {
+    QualificationGameRegion<QualificationState> {
+        child: Widget,
+        action: ActionEnvelope,
+    } |region, _state, _cx| {} =>
+        GameInputRegion::for_game::<HarborGame>(region.child.clone(), region.action.clone())
             .semantics_identifier("scene3d-qualification.game-input")
-            .into()
-    }
 }
 
-struct ControlButton {
-    label: &'static str,
-    identifier: &'static str,
-    action: ActionEnvelope,
-}
-
-impl ControlButton {
-    fn new(label: &'static str, identifier: &'static str, action: ActionEnvelope) -> Self {
-        Self {
-            label,
-            identifier,
-            action,
-        }
-    }
-}
-
-impl From<ControlButton> for Widget {
-    fn from(control: ControlButton) -> Self {
-        Button {
-            child: Some(Text::new(TextContent::Key(control.label.into())).into()),
-            on_press: Some(control.action),
-            ..Default::default()
-        }
+fission_component! {
+    ControlButton<QualificationState> {
+        label: &'static str,
+        identifier: &'static str,
+        action: ActionEnvelope,
+    } |control, _state, _cx| {} =>
+        Button(
+            child: Text(TextContent::Key(control.label.into())),
+            on_press: control.action.clone(),
+        )
         .semantics_identifier(control.identifier)
-        .into()
-    }
 }
 
 pub(crate) fn create_env() -> anyhow::Result<Env> {

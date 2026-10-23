@@ -10,7 +10,7 @@ use fission_core::{
 };
 use fission_ir::op::Color;
 use fission_ir::Op;
-use fission_macros::{fission_component, fission_reducer};
+use fission_macros::{fission_reducer, with_local_state};
 
 fn resolved(widget: Widget) -> Widget {
     internal::resolve_widget_identities(&widget, WidgetId::app_root())
@@ -513,7 +513,7 @@ fn increment_counter(value: &mut u32) {
     *value += 1;
 }
 
-#[fission_component]
+#[with_local_state]
 struct StatefulItem {
     label: String,
 

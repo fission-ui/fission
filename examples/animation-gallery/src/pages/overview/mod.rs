@@ -5,49 +5,33 @@ mod overview_card;
 mod overview_grid;
 
 use crate::state::AnimationGalleryState;
-use crate::ui;
-use fission::build::BuildCtxHandle;
+use crate::ui::*;
 use fission::prelude::*;
 use hero_panel::HeroPanel;
 use matrix_card::MatrixCard;
 use overview_grid::OverviewGrid;
 
-pub struct OverviewPage<'a> {
-    pub ctx: BuildCtxHandle<AnimationGalleryState>,
-    pub state: &'a AnimationGalleryState,
-}
-
-impl From<OverviewPage<'_>> for Widget {
-    fn from(page: OverviewPage<'_>) -> Self {
-        let (_, view) = fission::build::current::<AnimationGalleryState>();
-        let spacing = &view.env().theme.tokens.spacing;
-
-        Column {
-            gap: Some(spacing.m),
-            children: widgets![
-                ui::PageHeader {
-                    title: "Overview",
-                    subtitle: "A calm workbench for real widget motion, property inspection, composition, policy, and tests.",
-                },
-                HeroPanel,
-                OverviewGrid { ctx: &page.ctx },
-                MatrixCard {
-                    title: "All animated widgets",
-                    content: WIDGET_MATRIX,
-                },
-                MatrixCard {
-                    title: "Motion properties",
-                    content: PROPERTY_MATRIX,
-                },
-                ui::PageNote {
-                    title: "Core idea",
-                    body: "Animated UI in Fission is explicit, deterministic, inspectable, and optional. Common behavior is selected ergonomically; everything lowers to MotionExpr and can be tested.",
-                },
+fission_component! {
+    pub OverviewPage<AnimationGalleryState> |_page, _state, cx| {
+        let spacing = &cx.view.env().theme.tokens.spacing;
+    } =>
+        Column(
+            gap: spacing.m,
+            children: [
+                PageHeader(
+                    "Overview".to_string(),
+                    "A calm workbench for real widget motion, property inspection, composition, policy, and tests.".to_string(),
+                ),
+                HeroPanel(),
+                OverviewGrid(),
+                MatrixCard("All animated widgets", WIDGET_MATRIX),
+                MatrixCard("Motion properties", PROPERTY_MATRIX),
+                PageNote(
+                    "Core idea".to_string(),
+                    "Animated UI in Fission is explicit, deterministic, inspectable, and optional. Common behaviour is selected ergonomically; everything lowers to MotionExpr and can be tested.".to_string(),
+                ),
             ],
-            ..Default::default()
-        }
-        .into()
-    }
+        )
 }
 
 const WIDGET_MATRIX: &str = r#"Widget      None  Default  Composition  Native  Reduced  Disabled  Tests

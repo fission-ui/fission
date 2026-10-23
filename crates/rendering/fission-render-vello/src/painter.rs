@@ -14,6 +14,8 @@ use vello_cpu::peniko::{BlendMode, Color, Compose, FontData, Mix};
 use vello_cpu::{Glyph, ImageSource, PaintType, Pixmap, Tint};
 use vello_gpu::TextureId;
 
+use crate::gpu::ExternalTextureBindings;
+
 /// The drawing operations the scene encoder needs.
 ///
 /// Every call carries its transform rather than relying on ambient state, so a backend never
@@ -216,6 +218,7 @@ pub struct GpuPainter<'a> {
     pub scene: &'a mut vello_gpu::Scene,
     pub resources: &'a mut vello_gpu::Resources,
     pub images: &'a mut GpuImageCache,
+    pub external_textures: &'a ExternalTextureBindings,
     pub uploader: GpuUploader<'a>,
 }
 
@@ -322,13 +325,35 @@ impl Painter for GpuPainter<'_> {
         width: u16,
         height: u16,
     ) -> Option<ImageSource> {
-        (width > 0 && height > 0).then(|| {
-            ImageSource::external_texture(
-                TextureId(texture_id),
-                vello_cpu::geometry::RectU16::new(0, 0, width, height),
-                true,
-            )
-        })
+        bound_external_image_source(self.external_textures, texture_id, width, height)
+    }
+}
+
+fn bound_external_image_source(
+    bindings: &ExternalTextureBindings,
+    texture_id: u64,
+    width: u16,
+    height: u16,
+) -> Option<ImageSource> {
+    let texture_id = TextureId(texture_id);
+    (width > 0 && height > 0 && bindings.contains(texture_id)).then(|| {
+        ImageSource::external_texture(
+            texture_id,
+            vello_cpu::geometry::RectU16::new(0, 0, width, height),
+            true,
+        )
+    })
+}
+
+#[cfg(test)]
+mod external_texture_tests {
+    use super::bound_external_image_source;
+
+    #[test]
+    fn unbound_external_texture_uses_the_surface_placeholder() {
+        let bindings = crate::gpu::ExternalTextureBindings::new();
+
+        assert!(bound_external_image_source(&bindings, 42, 320, 180).is_none());
     }
 }
 

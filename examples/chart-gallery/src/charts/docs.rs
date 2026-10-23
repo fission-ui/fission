@@ -2,6 +2,7 @@ use crate::charts::gallery::{
     cartesian_variants, components, coordinates, dataset_3d, deep_catalog,
 };
 use crate::data::{sample_lines, sample_tree, SIMPLE_GEOJSON};
+use crate::state::GalleryState;
 use crate::style::{amber, blue, teal};
 use fission::charts::{
     Axis, BarSeries, BoxplotSeries, CandlestickSeries, Chart, DataValue, DataZoom, Dataset,
@@ -11,17 +12,12 @@ use fission::charts::{
     ThemeRiverSeries, TreeSeries, TreemapNode, TreemapSeries, VisualMap, WordcloudSeries,
 };
 use fission::core::ui::Widget;
+use fission::prelude::*;
 
-pub(crate) struct DocChart {
-    pub slug: String,
-    pub width: f32,
-    pub height: f32,
-    pub scale: f32,
-}
-
-impl From<DocChart> for Widget {
-    fn from(doc: DocChart) -> Self {
-        let slug = doc.slug;
+fission_component! {
+    pub(crate) DocChart<GalleryState> { slug: String, width: f32, height: f32, scale: f32 }
+    |doc, _state, _cx| {} => (|| -> Widget {
+        let slug = doc.slug.clone();
         let width = doc.width;
         let height = doc.height;
         let s = doc.scale;
@@ -728,5 +724,5 @@ impl From<DocChart> for Widget {
         };
 
         chart.width(width).height(height).into()
-    }
+    })()
 }

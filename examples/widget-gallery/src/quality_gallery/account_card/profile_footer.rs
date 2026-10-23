@@ -1,35 +1,26 @@
 use fission::prelude::*;
 
-pub(super) struct ProfileFooter {
-    pub action: ActionEnvelope,
-}
+use crate::GalleryState;
 
-impl From<ProfileFooter> for CardFooter {
-    fn from(footer: ProfileFooter) -> Self {
-        CardFooter::new(widgets![
-            Button {
+fission_component! {
+    pub(super) ProfileFooter<GalleryState> { action: ActionEnvelope }
+    |footer, _state, _cx| {} =>
+        Row(children: [
+            Button(
                 variant: ButtonVariant::TertiaryGray,
                 size: ComponentSize::Md,
-                content: Some(ButtonContent::new("Cancel")),
-                on_press: Some(footer.action.clone()),
-                ..Default::default()
-            }
+                content: ButtonContent::new("Cancel"),
+                on_press: footer.action.clone(),
+            )
             .semantics_identifier("quality-gallery.profile.cancel"),
-            Spacer {
-                flex_grow: 1.0,
-                ..Default::default()
-            },
-            Button {
+            Spacer(flex_grow: 1.0_f32),
+            Button(
                 variant: ButtonVariant::Primary,
                 size: ComponentSize::Md,
-                content: Some(
-                    ButtonContent::new("Save changes")
-                        .leading_icon(Icon::svg(material::content::save::regular())),
-                ),
-                on_press: Some(footer.action),
-                ..Default::default()
-            }
+                content: ButtonContent::new("Save changes")
+                    .leading_icon(Icon::svg(material::content::save::regular())),
+                on_press: footer.action.clone(),
+            )
             .semantics_identifier("quality-gallery.profile.save"),
         ])
-    }
 }

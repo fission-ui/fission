@@ -1,61 +1,38 @@
-use crate::state::{reset_timeline, AnimationGalleryState, ResetTimeline, TogglePlay};
+use crate::state::{reset_timeline, toggle_play, AnimationGalleryState, ResetTimeline, TogglePlay};
 use crate::style;
-use crate::ui;
+use crate::ui::*;
 use crate::widgets::common::{PolicyControl, TimelineControl};
-use fission::build::BuildCtxHandle;
 use fission::prelude::*;
 
-pub(super) struct PlaybackControls<'a> {
-    pub ctx: &'a BuildCtxHandle<AnimationGalleryState>,
-    pub state: &'a AnimationGalleryState,
-}
-
-impl From<PlaybackControls<'_>> for Widget {
-    fn from(controls: PlaybackControls<'_>) -> Self {
-        let (_, view) = fission::build::current::<AnimationGalleryState>();
-        let tokens = &view.env().theme.tokens;
-
-        Container::new(Column {
-            gap: Some(tokens.spacing.s),
-            children: widgets![
-                ui::SectionTitle { title: "Playback" },
-                Row {
-                    gap: Some(tokens.spacing.s),
-                    children: widgets![
-                        ui::SmallButton {
-                            ctx: controls.ctx,
-                            label: if controls.state.playing {
-                                "Pause"
-                            } else {
-                                "Play"
-                            },
-                            action: TogglePlay,
-                            reducer: crate::state::toggle_play,
-                        },
-                        ui::SmallButton {
-                            ctx: controls.ctx,
-                            label: "Reset",
-                            action: ResetTimeline,
-                            reducer: reset_timeline,
-                        },
-                        TimelineControl {
-                            ctx: controls.ctx,
-                            state: controls.state,
-                        },
-                    ],
-                    ..Default::default()
-                },
-                PolicyControl {
-                    ctx: controls.ctx,
-                    state: controls.state,
-                },
-            ],
-            ..Default::default()
-        })
+fission_component! {
+    pub(super) PlaybackControls<AnimationGalleryState> |_controls, state, cx| {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+        Container(
+            Column(
+                gap: tokens.spacing.s,
+                children: [
+                    SectionTitle("Playback".to_string()),
+                    Row(
+                        gap: tokens.spacing.s,
+                        children: [
+                            SmallButton(
+                                (if state.playing { "Pause" } else { "Play" }).to_string(),
+                                cx.bind(TogglePlay, reduce_with!(toggle_play)),
+                            ),
+                            SmallButton(
+                                "Reset".to_string(),
+                                cx.bind(ResetTimeline, reduce_with!(reset_timeline)),
+                            ),
+                            TimelineControl(),
+                        ],
+                    ),
+                    PolicyControl(),
+                ],
+            ),
+        )
         .padding_all(tokens.spacing.s)
         .border(style::border(), 1.0)
         .border_radius(tokens.radii.xl)
         .bg(style::surface_sunken())
-        .into()
-    }
 }

@@ -141,10 +141,10 @@ If a handle is used outside an active build pass, Fission panics with a clear sc
 
 Local widget state is retained state associated with a component field and widget identity.
 
-Declare it with `#[fission_component]` and `#[local_state(default = ...)]`:
+Declare it with `#[with_local_state]` and `#[local_state(default = ...)]`:
 
 ```rust
-#[fission_component]
+#[with_local_state]
 pub struct Counter {
     #[local_state(default = 0)]
     count: i32,

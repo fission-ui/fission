@@ -12,67 +12,24 @@ use crate::showcase::ChartShowcase;
 use crate::state::{GalleryState, SHOWCASE_CATEGORY};
 use fission::prelude::*;
 
-pub(crate) struct SelectedChart {
-    pub scale: f32,
-}
-
-impl From<SelectedChart> for Widget {
-    fn from(selection: SelectedChart) -> Self {
-        let (_, view) = fission::build::current::<GalleryState>();
-        let chart = view.state().selected_chart;
-
-        match view.state().selected_category {
-            SHOWCASE_CATEGORY if chart == 0 => ChartShowcase {
-                scale: selection.scale,
-            }
-            .into(),
-            0 => CartesianChart {
-                chart,
-                scale: selection.scale,
-            }
-            .into(),
-            1 => CartesianVariantChart {
-                chart,
-                scale: selection.scale,
-            }
-            .into(),
-            2 => StatisticalChart {
-                chart,
-                scale: selection.scale,
-            }
-            .into(),
-            3 => RelationshipGeoChart {
-                chart,
-                scale: selection.scale,
-            }
-            .into(),
-            4 => DynamicChart {
-                chart,
-                scale: selection.scale,
-            }
-            .into(),
-            5 => Dataset3dChart {
-                chart,
-                scale: selection.scale,
-            }
-            .into(),
-            6 => ComponentChart {
-                chart,
-                scale: selection.scale,
-            }
-            .into(),
-            7 => CoordinateChart {
-                chart,
-                scale: selection.scale,
-            }
-            .into(),
-            category if category >= super::deep_catalog::DEEP_CATEGORY_OFFSET => DeepCatalogChart {
-                absolute_category: category,
-                chart,
-                scale: selection.scale,
-            }
-            .into(),
-            _ => ChartSelectionEmpty.into(),
+fission_component! {
+    pub(crate) SelectedChart<GalleryState> { scale: f32 }
+    |selection, state, _cx| {
+        let chart = state.selected_chart;
+    } =>
+        match state.selected_category {
+            SHOWCASE_CATEGORY if chart == 0 => ChartShowcase(selection.scale),
+            0 => CartesianChart(chart, selection.scale),
+            1 => CartesianVariantChart(chart, selection.scale),
+            2 => StatisticalChart(chart, selection.scale),
+            3 => RelationshipGeoChart(chart, selection.scale),
+            4 => DynamicChart(chart, selection.scale),
+            5 => Dataset3dChart(chart, selection.scale),
+            6 => ComponentChart(chart, selection.scale),
+            7 => CoordinateChart(chart, selection.scale),
+            category if category >= super::deep_catalog::DEEP_CATEGORY_OFFSET => {
+                Widget::from(DeepCatalogChart::new(category, chart, selection.scale))
+            },
+            _ => ChartSelectionEmpty(),
         }
-    }
 }

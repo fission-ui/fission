@@ -10,7 +10,6 @@ use fission::prelude::*;
 const MULTILINE_HEIGHT: f32 = 120.0;
 const POPUP_MAX_HEIGHT: f32 = 180.0;
 
-/// Addresses the inline combobox suggests.
 const INLINE_OPTIONS: [&str; 6] = [
     "alice@example.com",
     "bob@example.com",
@@ -20,211 +19,178 @@ const INLINE_OPTIONS: [&str; 6] = [
     "team@fission.rs",
 ];
 
+fission_component! {
 /// The text-input test harness: single-line, multiline and combobox fields, a
 /// menu, a modal launcher and a status line recording the last event.
-pub(crate) struct TextLabContent;
-
-impl From<TextLabContent> for Widget {
-    fn from(_content: TextLabContent) -> Self {
-        let (_, view) = fission::build::current::<TextLabState>();
-        VStack {
-            spacing: Some(view.env().theme.tokens.spacing.m),
-            children: widgets![
-                LabHeader,
-                SingleLineField,
-                MultilineField,
-                InlineComboboxField,
-                LabActions,
-                StatusLine,
+    pub(crate) TextLabContent<TextLabState> |_content, _state, cx| {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+        VStack(
+            spacing: tokens.spacing.m,
+            children: [
+                LabHeader(),
+                SingleLineField(),
+                MultilineField(),
+                InlineComboboxField(),
+                LabActions(),
+                StatusLine(),
             ],
-        }
-        .into()
-    }
+        )
 }
 
-struct LabHeader;
-
-impl From<LabHeader> for Widget {
-    fn from(_header: LabHeader) -> Self {
-        let (_, view) = fission::build::current::<TextLabState>();
-        let tokens = &view.env().theme.tokens;
-        VStack {
-            spacing: Some(tokens.spacing.m),
-            children: widgets![
-                Text::new("Text Lab")
+fission_component! {
+    LabHeader<TextLabState> |_header, _state, cx| {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+        VStack(
+            spacing: tokens.spacing.m,
+            children: [
+                Text("Text Lab")
                     .size(tokens.typography.heading_size)
                     .color(tokens.colors.text_primary),
-                Text::new(
-                    "Use this harness to validate text-input behavior, wrappers, and event latency traces.",
+                Text(
+                    "Use this harness to validate text-input behaviour, wrappers, and event latency traces.",
                 )
                 .size(tokens.typography.body_medium_size)
                 .color(tokens.colors.text_secondary),
             ],
-        }
-        .into()
-    }
+        )
 }
 
-struct SingleLineField;
-
-impl From<SingleLineField> for Widget {
-    fn from(_field: SingleLineField) -> Self {
-        let (ctx, view) = fission::build::current::<TextLabState>();
-        FormControl {
-            id: None,
+fission_component! {
+    SingleLineField<TextLabState> |_field, state, cx| {} =>
+        FormControl(
             label: Some("Single-line input".to_string()),
-            required: false,
-            error: None,
             helper: Some("Try rapid typing, navigation, and selection.".to_string()),
-            child: TextInput {
-                id: Some(WidgetId::explicit("text_lab_single_line")),
-                semantics_identifier: Some("text-lab.single-line".into()),
-                value: view.state().single_line.clone(),
+            child: TextInput(
+                id: WidgetId::explicit("text_lab_single_line"),
+                semantics_identifier: "text-lab.single-line".to_string(),
+                value: state.single_line.clone(),
                 placeholder: Some("Type quickly here".into()),
-                on_input: Some(with_reducer!(ctx, SetSingleLine, set_single_line)),
-                ..Default::default()
-            }
-            .into(),
-        }
-        .into()
-    }
+                on_input: with_reducer!(cx.build, SetSingleLine, set_single_line),
+            ),
+        )
 }
 
-struct MultilineField;
-
-impl From<MultilineField> for Widget {
-    fn from(_field: MultilineField) -> Self {
-        let (ctx, view) = fission::build::current::<TextLabState>();
-        FormControl {
-            id: None,
+fission_component! {
+    MultilineField<TextLabState> |_field, state, cx| {} =>
+        FormControl(
             label: Some("Multiline input".to_string()),
-            required: false,
-            error: None,
             helper: Some("Use enter, arrow keys, and drag selection.".to_string()),
-            child: TextInput {
-                id: Some(WidgetId::explicit("text_lab_multiline")),
-                semantics_identifier: Some("text-lab.multiline".into()),
-                value: view.state().multiline.clone(),
+            child: TextInput(
+                id: WidgetId::explicit("text_lab_multiline"),
+                semantics_identifier: "text-lab.multiline".to_string(),
+                value: state.multiline.clone(),
                 placeholder: Some("Multiline editing area".into()),
-                on_input: Some(with_reducer!(ctx, SetMultiline, set_multiline)),
+                on_input: with_reducer!(cx.build, SetMultiline, set_multiline),
                 multiline: true,
-                height: Some(MULTILINE_HEIGHT),
-                ..Default::default()
-            }
-            .into(),
-        }
-        .into()
-    }
+                height: MULTILINE_HEIGHT,
+            ),
+        )
 }
 
+fission_component! {
 /// Suggests addresses while typing, and closes once the value matches one exactly.
-struct InlineComboboxField;
-
-impl From<InlineComboboxField> for Widget {
-    fn from(_field: InlineComboboxField) -> Self {
-        let (ctx, view) = fission::build::current::<TextLabState>();
-        let value = view.state().inline_combobox.clone();
+    InlineComboboxField<TextLabState> |_field, state, cx| {
+        let value = state.inline_combobox.clone();
         let has_exact = INLINE_OPTIONS
             .iter()
             .any(|option| option.eq_ignore_ascii_case(value.trim()));
-        let set_value = with_reducer!(ctx, SetInlineCombobox(String::new()), set_inline_combobox);
+        let set_value = with_reducer!(
+            cx.build,
+            SetInlineCombobox(String::new()),
+            set_inline_combobox,
+        );
         let pick_suggestion = set_value.clone();
-
-        FormControl {
-            id: None,
+        let select_suggestion: Arc<dyn Fn(String) -> ActionEnvelope + Send + Sync> =
+            Arc::new(move |picked| {
+                pick_suggestion.with_action(&SetInlineCombobox(picked))
+            });
+    } =>
+        FormControl(
             label: Some("Combobox wrapper".to_string()),
-            required: false,
-            error: None,
             helper: Some("Type to open suggestions and pick via mouse/keyboard.".to_string()),
-            child: Combobox {
+            child: Combobox(
                 id: WidgetId::explicit("text_lab_inline_combobox"),
-                semantics_identifier: Some("text-lab.inline-combobox".into()),
+                semantics_identifier: "text-lab.inline-combobox".to_string(),
                 items: filtered_suggestions(&value, &INLINE_OPTIONS),
                 is_open: !value.trim().is_empty() && !has_exact,
-                value,
+                value: value,
                 placeholder: Some("Start typing an address".into()),
-                width: None,
-                max_popup_height: Some(POPUP_MAX_HEIGHT),
-                on_input: Some(set_value),
-                on_select: Some(Arc::new(move |picked| {
-                    pick_suggestion.with_action(&SetInlineCombobox(picked))
-                })),
-                on_toggle: None,
-            }
-            .into(),
-        }
-        .into()
-    }
+                max_popup_height: POPUP_MAX_HEIGHT,
+                on_input: set_value,
+                on_select: select_suggestion,
+            ),
+        )
 }
 
+fission_component! {
 /// The actions menu and the button that opens the modal text flow.
-struct LabActions;
-
-impl From<LabActions> for Widget {
-    fn from(_actions: LabActions) -> Self {
-        let (ctx, view) = fission::build::current::<TextLabState>();
-        let menu_open = view.state().menu_open;
-        let pick = with_reducer!(ctx, MenuPicked(String::new()), menu_picked);
-        HStack {
-            spacing: Some(view.env().theme.tokens.spacing.s),
-            children: widgets![
-                MenuButton {
+    LabActions<TextLabState> |_actions, state, cx| {
+        let tokens = &cx.view.env().theme.tokens;
+        let pick = with_reducer!(cx.build, MenuPicked(String::new()), menu_picked);
+    } =>
+        HStack(
+            spacing: tokens.spacing.s,
+            children: [
+                MenuButton(
                     id: WidgetId::explicit("text_lab_menu_button"),
                     label: "Actions".to_string(),
-                    is_open: menu_open,
-                    on_toggle: Some(with_reducer!(ctx, SetMenuOpen(!menu_open), set_menu_open)),
-                    trigger_semantics_identifier: Some("text-lab.actions".into()),
+                    is_open: state.menu_open,
+                    on_toggle: with_reducer!(
+                        cx.build,
+                        SetMenuOpen(!state.menu_open),
+                        set_menu_open,
+                    ),
+                    trigger_semantics_identifier: Some("text-lab.actions".to_string()),
                     items: vec![
                         MenuItem {
                             label: "Mark all as read".to_string(),
-                            icon: None,
-                            on_select: Some(pick.with_action(&MenuPicked("mark_all_read".into()))),
+                            on_select: Some(
+                                pick.with_action(&MenuPicked("mark_all_read".into())),
+                            ),
                             semantics_identifier: Some("text-lab.mark-all-read".into()),
+                            ..Default::default()
                         },
                         MenuItem {
                             label: "Archive selected".to_string(),
-                            icon: None,
                             on_select: Some(
                                 pick.with_action(&MenuPicked("archive_selected".into())),
                             ),
                             semantics_identifier: Some("text-lab.archive-selected".into()),
+                            ..Default::default()
                         },
                     ],
-                },
-                Button {
+                ),
+                Button(
                     variant: ButtonVariant::Filled,
-                    child: Some(Text::new("Open modal text flow").into()),
-                    on_press: Some(with_reducer!(ctx, SetShowModal(true), set_show_modal)),
-                    ..Default::default()
-                }
-                .semantics_identifier("text-lab.open-modal"),
+                    child: Text("Open modal text flow"),
+                    on_press: with_reducer!(
+                        cx.build,
+                        SetShowModal(true),
+                        set_show_modal,
+                    ),
+                ).semantics_identifier("text-lab.open-modal"),
             ],
-        }
-        .into()
-    }
+        )
 }
 
-/// The last event the harness recorded, below a small gap. Nothing is shown
-/// until an event arrives, so the line never reads as a label missing its value.
-struct StatusLine;
-
-impl From<StatusLine> for Widget {
-    fn from(_line: StatusLine) -> Self {
-        let (_, view) = fission::build::current::<TextLabState>();
-        let tokens = &view.env().theme.tokens;
-        let status = &view.state().status;
-        if status.is_empty() {
-            return Spacer::default().into();
+fission_component! {
+/// The last event the harness recorded. Nothing is shown until an event arrives.
+    StatusLine<TextLabState> |_line, state, cx| {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+        if state.status.is_empty() {
+            Spacer()
+        } else {
+            VStack(
+                spacing: tokens.spacing.xs,
+                children: [
+                    Spacer(),
+                    Text(format!("Status: {}", state.status))
+                        .size(tokens.typography.body_medium_size)
+                        .color(tokens.colors.text_secondary),
+                ],
+            )
         }
-        VStack {
-            spacing: Some(tokens.spacing.xs),
-            children: widgets![
-                Spacer::default(),
-                Text::new(format!("Status: {status}"))
-                    .size(tokens.typography.body_medium_size)
-                    .color(tokens.colors.text_secondary),
-            ],
-        }
-        .into()
-    }
 }

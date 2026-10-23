@@ -43,108 +43,103 @@ fn decrement_number(state: &mut GalleryState) {
 fn noop(_state: &mut GalleryState) {}
 
 pub(crate) fn button() -> Vec<Widget> {
-    let (ctx, view) = fission::build::current::<GalleryState>();
-    let tokens = &view.env().theme.tokens;
-    let noop = with_reducer!(ctx, Noop, noop);
-    let sized = |size: ComponentSize, label: &str| -> Widget {
-        Button {
-            size,
-            child: Some(Text::new(label).into()),
-            ..Default::default()
-        }
-        .into()
-    };
+    widgets![ButtonDemo::new()]
+}
 
-    widgets![
-        Wrap {
+fission_component! {
+    ButtonDemo<GalleryState> |_demo, _state, cx| {
+        let tokens = &cx.view.env().theme.tokens;
+        let noop = with_reducer!(cx.build, Noop, noop);
+    } =>
+        Column(children: [
+        Wrap(
             direction: FlexDirection::Row,
-            spacing: Some(tokens.spacing.s),
-            run_spacing: Some(tokens.spacing.s),
-            children: widgets![
-                Button {
+            spacing: tokens.spacing.s,
+            run_spacing: tokens.spacing.s,
+            children: [
+                Button(
                     variant: ButtonVariant::Filled,
-                    child: Some(Text::new("Primary").into()),
-                    on_press: Some(noop),
-                    ..Default::default()
-                }
+                    child: Text("Primary"),
+                    on_press: noop,
+                )
                 .semantics_identifier("gallery.button.filled"),
-                Button {
+                Button(
                     variant: ButtonVariant::SecondaryGray,
-                    child: Some(Text::new("Secondary").into()),
-                    ..Default::default()
-                }
+                    child: Text("Secondary"),
+                )
                 .semantics_identifier("gallery.button.secondary"),
-                Button {
+                Button(
                     variant: ButtonVariant::Outline,
-                    child: Some(Text::new("Outline").into()),
-                    ..Default::default()
-                }
+                    child: Text("Outline"),
+                )
                 .semantics_identifier("gallery.button.outline"),
-                Button {
+                Button(
                     variant: ButtonVariant::Ghost,
-                    child: Some(Text::new("Ghost").into()),
-                    ..Default::default()
-                }
+                    child: Text("Ghost"),
+                )
                 .semantics_identifier("gallery.button.ghost"),
-                Button {
+                Button(
                     variant: ButtonVariant::Destructive,
-                    child: Some(Text::new("Delete").into()),
-                    ..Default::default()
-                }
+                    child: Text("Delete"),
+                )
                 .semantics_identifier("gallery.button.destructive"),
-                Button {
+                Button(
                     variant: ButtonVariant::LinkColor,
-                    child: Some(Text::new("Link").into()),
-                    ..Default::default()
-                }
+                    child: Text("Link"),
+                )
                 .semantics_identifier("gallery.button.link"),
-                Button {
+                Button(
                     variant: ButtonVariant::Outline,
-                    icon_content: Some(ButtonIconContent::new(
+                    icon_content: ButtonIconContent::new(
                         Icon::svg(fission::icons::material::content::add::regular()),
                         "Add item",
-                    )),
-                    ..Default::default()
-                }
+                    ),
+                )
                 .semantics_identifier("gallery.button.icon"),
-                Button {
+                Button(
                     variant: ButtonVariant::Filled,
-                    child: Some(Text::new("Disabled").into()),
+                    child: Text("Disabled"),
                     disabled: true,
-                    ..Default::default()
-                }
+                )
                 .semantics_identifier("gallery.button.disabled"),
             ],
-        },
-        Wrap {
+        ),
+        Wrap(
             direction: FlexDirection::Row,
-            spacing: Some(tokens.spacing.s),
-            run_spacing: Some(tokens.spacing.s),
-            children: vec![
-                sized(ComponentSize::Sm, "Small"),
-                sized(ComponentSize::Md, "Medium"),
-                sized(ComponentSize::Lg, "Large"),
-                sized(ComponentSize::Xl, "Extra large"),
+            spacing: tokens.spacing.s,
+            run_spacing: tokens.spacing.s,
+            children: [
+                SizedButton(ComponentSize::Sm, "Small"),
+                SizedButton(ComponentSize::Md, "Medium"),
+                SizedButton(ComponentSize::Lg, "Large"),
+                SizedButton(ComponentSize::Xl, "Extra large"),
             ],
-        },
-    ]
+        ),
+    ])
+}
+
+fission_component! {
+    SizedButton<()> { size: ComponentSize, label: &'static str }
+    |button, _state, _cx| {} =>
+        Button(size: button.size, child: Text(button.label))
 }
 
 pub(crate) fn text_input() -> Vec<Widget> {
-    let (ctx, view) = fission::build::current::<GalleryState>();
-    let state = view.state();
-    let tokens = &view.env().theme.tokens;
-    let update_text = with_reducer!(ctx, UpdateText, update_text);
+    widgets![TextInputDemo::new()]
+}
 
-    widgets![
-        Container::new(TextInput {
-            id: Some(WidgetId::explicit("gallery.text_input")),
-            semantics_identifier: Some("gallery.text_input".into()),
+fission_component! {
+    TextInputDemo<GalleryState> |_demo, state, cx| {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+        Column(children: [
+        Container(TextInput(
+            id: WidgetId::explicit("gallery.text_input"),
+            semantics_identifier: "gallery.text_input".to_string(),
             value: state.text_value.clone(),
             placeholder: Some("Type something...".into()),
-            on_input: Some(update_text),
-            ..Default::default()
-        })
+            on_input: with_reducer!(cx.build, UpdateText, update_text),
+        ))
         .width_length(Length::clamp(
             Length::points(CONTROL_MIN_WIDTH),
             Length::percent(100.0),
@@ -152,116 +147,117 @@ pub(crate) fn text_input() -> Vec<Widget> {
         )),
         // Fields in a row share a top edge so their labels line up, even when
         // one grows to show an error.
-        Row {
-            gap: Some(tokens.spacing.m),
+        Row(
+            gap: tokens.spacing.m,
             align_items: fission::op::AlignItems::Start,
-            children: widgets![
-                Container::new(TextInput {
-                    id: Some(WidgetId::explicit("gallery.field.email")),
+            children: [
+                Container(TextInput(
+                    id: WidgetId::explicit("gallery.field.email"),
                     label: Some("Work email".into()),
                     placeholder: Some("ada@studio.co".into()),
                     helper_text: Some("We'll send the invite here.".into()),
-                    ..Default::default()
-                })
+                ))
                 .width(CONTROL_MIN_WIDTH),
-                Container::new(TextInput {
-                    id: Some(WidgetId::explicit("gallery.field.team")),
+                Container(TextInput(
+                    id: WidgetId::explicit("gallery.field.team"),
                     label: Some("Team name".into()),
-                    value: "Platform team!".into(),
+                    value: "Platform team!",
                     error_text: Some("Use letters, numbers and spaces only.".into()),
-                    ..Default::default()
-                })
+                ))
                 .width(CONTROL_MIN_WIDTH),
-                Container::new(TextInput {
-                    id: Some(WidgetId::explicit("gallery.field.plan")),
+                Container(TextInput(
+                    id: WidgetId::explicit("gallery.field.plan"),
                     label: Some("Plan".into()),
-                    value: "Pro".into(),
+                    value: "Pro",
                     helper_text: Some("Managed by your admin.".into()),
                     enabled: false,
-                    ..Default::default()
-                })
+                ))
                 .width(CONTROL_MIN_WIDTH),
             ],
-            ..Default::default()
-        },
-    ]
+        ),
+    ])
 }
 
 pub(crate) fn checkbox() -> Vec<Widget> {
-    let (ctx, view) = fission::build::current::<GalleryState>();
-    let state = view.state();
-    let toggle_checked = with_reducer!(ctx, ToggleChecked, toggle_checked);
-    widgets![HStack {
+    widgets![CheckboxDemo::new()]
+}
+
+fission_component! {
+    CheckboxDemo<GalleryState> |_demo, state, cx| {} =>
+    HStack(
         spacing: None,
-        children: widgets![Checkbox {
+        children: [Checkbox(
             checked: state.checked,
-            on_toggle: Some(toggle_checked),
-            label: Some("Accept terms and conditions".into()),
-            ..Default::default()
-        }
+            on_toggle: with_reducer!(cx.build, ToggleChecked, toggle_checked),
+            label: Some("Accept terms and conditions".to_string()),
+        )
         .semantics_identifier("gallery.checkbox")],
-    }]
+    )
 }
 
 pub(crate) fn switch() -> Vec<Widget> {
-    let (ctx, view) = fission::build::current::<GalleryState>();
-    let state = view.state();
-    let tokens = &view.env().theme.tokens;
-    let toggle_switch = with_reducer!(ctx, ToggleSwitch, toggle_switch);
-    widgets![HStack {
-        spacing: Some(tokens.spacing.s),
-        children: widgets![
-            Switch {
+    widgets![SwitchDemo::new()]
+}
+
+fission_component! {
+    SwitchDemo<GalleryState> |_demo, state, cx| {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    HStack(
+        spacing: tokens.spacing.s,
+        children: [
+            Switch(
                 checked: state.switch_on,
-                on_toggle: Some(toggle_switch),
-                ..Default::default()
-            }
+                on_toggle: with_reducer!(cx.build, ToggleSwitch, toggle_switch),
+            )
             .semantics_identifier("gallery.switch"),
-            Text::new("Airplane mode").color(tokens.colors.text_primary),
+            Text("Airplane mode").color(tokens.colors.text_primary),
         ],
-    }]
+    )
 }
 
 pub(crate) fn slider() -> Vec<Widget> {
-    let (ctx, view) = fission::build::current::<GalleryState>();
-    let state = view.state();
-    let tokens = &view.env().theme.tokens;
-    let set_slider = with_reducer!(ctx, SetSlider(0.0), set_slider);
-    widgets![HStack {
-        spacing: Some(tokens.spacing.s),
-        children: widgets![
-            Container::new(Slider {
-                id: Some(WidgetId::explicit("gallery.slider")),
-                semantics_identifier: Some("gallery.slider".into()),
+    widgets![SliderDemo::new()]
+}
+
+fission_component! {
+    SliderDemo<GalleryState> |_demo, state, cx| {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    HStack(
+        spacing: tokens.spacing.s,
+        children: [
+            Container(Slider(
+                id: WidgetId::explicit("gallery.slider"),
+                semantics_identifier: "gallery.slider".to_string(),
                 value: state.slider_value,
                 min: 0.0,
                 max: 100.0,
-                on_change: Some(set_slider),
-                ..Default::default()
-            })
+                on_change: with_reducer!(cx.build, SetSlider(0.0), set_slider),
+            ))
             .width_length(Length::clamp(
                 Length::points(CONTROL_MIN_WIDTH),
                 Length::percent(100.0),
                 Length::points(SLIDER_MAX_WIDTH),
             )),
-            Text::new(format!("{:.0}", state.slider_value)).color(tokens.colors.text_secondary),
+            Text(format!("{:.0}", state.slider_value)).color(tokens.colors.text_secondary),
         ],
-    }]
+    )
 }
 
 pub(crate) fn number_input() -> Vec<Widget> {
-    let (ctx, view) = fission::build::current::<GalleryState>();
-    let state = view.state();
-    let increment_number = with_reducer!(ctx, IncrementNumber, increment_number);
-    let decrement_number = with_reducer!(ctx, DecrementNumber, decrement_number);
-    widgets![HStack {
+    widgets![NumberInputDemo::new()]
+}
+
+fission_component! {
+    NumberInputDemo<GalleryState> |_demo, state, cx| {} =>
+    HStack(
         spacing: None,
-        children: widgets![NumberInput {
+        children: [NumberInput(
             value: state.number_value,
             step: 1.0,
-            on_increment: Some(increment_number),
-            on_decrement: Some(decrement_number),
-            ..Default::default()
-        }],
-    }]
+            on_increment: with_reducer!(cx.build, IncrementNumber, increment_number),
+            on_decrement: with_reducer!(cx.build, DecrementNumber, decrement_number),
+        )],
+    )
 }

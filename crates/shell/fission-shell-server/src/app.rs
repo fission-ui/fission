@@ -1187,17 +1187,26 @@ fn drain_action_effects<S: GlobalState>(
         let Effect::Job(payload) = &effect.effect else {
             continue;
         };
-        ctx.jobs.require_job(&payload.job_name)?;
-        let result = ctx.jobs.run(
-            &payload.job_name,
-            payload.payload.clone(),
-            crate::ServerJobCtx::new_runtime(
+        let result = if let Some(inline) = payload.inline.clone() {
+            run_inline_job(
+                inline,
+                payload.payload.clone(),
                 effect.req_id,
-                format!("action-effect:{}", payload.job_name),
                 ctx.jobs.data_streams(),
             )
-            .with_session(ctx.session.clone()),
-        );
+        } else {
+            ctx.jobs.require_job(&payload.job_name)?;
+            ctx.jobs.run(
+                &payload.job_name,
+                payload.payload.clone(),
+                crate::ServerJobCtx::new_runtime(
+                    effect.req_id,
+                    format!("action-effect:{}", payload.job_name),
+                    ctx.jobs.data_streams(),
+                )
+                .with_session(ctx.session.clone()),
+            )
+        };
         match result {
             Ok(result_payload) => {
                 if let Some(action) = &effect.on_ok {
@@ -1472,6 +1481,31 @@ fn drain_server_jobs<S: GlobalState>(
         }
     }
     Ok(dispatched)
+}
+
+fn run_inline_job(
+    inline: fission_core::InlineJob,
+    payload: Vec<u8>,
+    req_id: u64,
+    data_streams: fission_core::DataStreamRegistry,
+) -> std::result::Result<Vec<u8>, crate::ServerJobError> {
+    std::thread::spawn(move || {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .map_err(|error| crate::ServerJobError::message(error.to_string()))?;
+        runtime
+            .block_on(inline.run(
+                payload,
+                fission_core::JobCtx::new_runtime(req_id, data_streams),
+            ))
+            .map_err(|error| crate::ServerJobError {
+                payload: error.payload,
+                message: error.message,
+            })
+    })
+    .join()
+    .map_err(|_| crate::ServerJobError::message("app effect worker panicked"))?
 }
 
 pub(crate) fn normalize_server_path(path: &str) -> String {

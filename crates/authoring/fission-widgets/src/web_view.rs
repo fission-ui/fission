@@ -27,6 +27,26 @@ pub struct WebView {
     pub height: Option<f32>,
 }
 
+impl Default for WebView {
+    fn default() -> Self {
+        Self::new(WidgetId::from_u128(0), "")
+    }
+}
+
+impl WebView {
+    /// Creates a Web view with stable identity and the document URL to load.
+    pub fn new(id: WidgetId, url: impl Into<String>) -> Self {
+        Self {
+            id,
+            url: url.into(),
+            user_agent: None,
+            label: None,
+            width: None,
+            height: None,
+        }
+    }
+}
+
 impl From<WebView> for Widget {
     fn from(component: WebView) -> Self {
         let (ctx, _) = fission_core::build::current::<()>();

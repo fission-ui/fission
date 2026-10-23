@@ -63,6 +63,17 @@ pub struct MenuItem {
     pub semantics_identifier: Option<String>,
 }
 
+impl Default for MenuItem {
+    fn default() -> Self {
+        Self {
+            label: String::new(),
+            icon: None,
+            on_select: None,
+            semantics_identifier: None,
+        }
+    }
+}
+
 /// Visual and semantic tone of a composed menu action.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum MenuItemTone {
@@ -499,7 +510,7 @@ impl MenuContent {
 /// The menu is displayed inside a compact bordered surface. When the total item
 /// height exceeds `max_height` (default 300px), the rows scroll within that
 /// bounded surface.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Menu {
     /// Menu entries in display order.
     pub items: Vec<MenuItem>,
@@ -1619,6 +1630,19 @@ pub struct MenuButton {
     /// Stable identifier exposed on the generated trigger button.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub trigger_semantics_identifier: Option<String>,
+}
+
+impl Default for MenuButton {
+    fn default() -> Self {
+        Self {
+            id: WidgetId::explicit("menu-button"),
+            label: String::new(),
+            items: Vec::new(),
+            is_open: false,
+            on_toggle: None,
+            trigger_semantics_identifier: None,
+        }
+    }
 }
 
 #[derive(Clone, Debug)]

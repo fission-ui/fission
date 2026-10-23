@@ -1,30 +1,15 @@
-use fission::core::ui::{Text, TextContent, Widget};
+use fission::prelude::*;
 use fission::widgets::divider::Orientation;
-use fission::widgets::Divider;
 
+fission_component! {
 /// The heading that opens a settings section.
-pub(super) struct SectionHeading {
-    pub key: &'static str,
+    pub(super) SectionHeading<()> { key: &'static str } |heading, _state, cx| =>
+    Text(TextContent::Key(heading.key.into()))
+        .size(cx.view.env().theme.tokens.typography.font_size_base)
 }
 
-impl From<SectionHeading> for Widget {
-    fn from(heading: SectionHeading) -> Self {
-        let (_, view) = fission::build::current::<()>();
-        Text::new(TextContent::Key(heading.key.into()))
-            .size(view.env().theme.tokens.typography.font_size_base)
-            .into()
-    }
-}
-
+fission_component! {
 /// Separates adjacent settings sections.
-pub(super) struct SectionDivider;
-
-impl From<SectionDivider> for Widget {
-    fn from(_: SectionDivider) -> Self {
-        Divider {
-            orientation: Orientation::Horizontal,
-            ..Default::default()
-        }
-        .into()
-    }
+    pub(super) SectionDivider<()> |_divider, _state, _cx| =>
+    Divider(orientation: Orientation::Horizontal)
 }

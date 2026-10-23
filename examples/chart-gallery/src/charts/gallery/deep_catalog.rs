@@ -11,7 +11,7 @@ use fission::charts::{
     TreemapSeries, VisualMap,
 };
 use fission::core::op::Color;
-use fission::core::ui::Widget;
+use fission::prelude::*;
 use fission::three_d::Scene3D;
 
 use super::dataset_3d;
@@ -41,18 +41,15 @@ pub(crate) fn find_chart(slug: &str) -> Option<DeepChart> {
         .copied()
 }
 
-pub(crate) struct DeepChartNode {
-    pub meta: DeepChart,
-    pub width: Option<f32>,
-    pub height: Option<f32>,
-    pub scale: f32,
-    pub gallery_options: bool,
-}
-
-impl From<DeepChartNode> for Widget {
-    fn from(node: DeepChartNode) -> Self {
-        let (_, view) = fission::build::current::<GalleryState>();
-
+fission_component! {
+    pub(crate) DeepChartNode<GalleryState> {
+        meta: DeepChart,
+        width: Option<f32>,
+        height: Option<f32>,
+        scale: f32,
+        gallery_options: bool,
+    }
+    |node, _state, cx| {} => (|| -> Widget {
         match scene_for_kind(node.meta.kind, node.meta.seed, node.scale) {
             Some(scene) => {
                 let scene = if let Some(width) = node.width {
@@ -77,12 +74,12 @@ impl From<DeepChartNode> for Widget {
                     chart = chart.height(height);
                 }
                 if node.gallery_options {
-                    chart = super::configure_chart(chart, view);
+                    chart = super::configure_chart(chart, cx.view);
                 }
                 chart.into()
             }
         }
-    }
+    })()
 }
 
 fn scene_for_kind(kind: DeepKind, seed: usize, s: f32) -> Option<Scene3D> {

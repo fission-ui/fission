@@ -1,21 +1,19 @@
 use super::*;
 use crate::style;
 
-pub(super) struct PrincipleCard<'a> {
-    pub(super) title: &'a str,
-    pub(super) body: &'a str,
-    pub(super) mark: &'a str,
-}
-
-impl From<PrincipleCard<'_>> for Widget {
-    fn from(card: PrincipleCard<'_>) -> Self {
-        let (_, view) = fission::build::current::<AnimationGalleryState>();
-        let tokens = &view.env().theme.tokens;
-        Row {
-            gap: Some(tokens.spacing.m),
-            children: vec![
-                Container::new(
-                    Text::new(card.mark)
+fission_component! {
+    pub(super) PrincipleCard<AnimationGalleryState> {
+        title: &'static str,
+        body: &'static str,
+        mark: &'static str,
+    } |card, _state, cx| {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+        Row(
+            gap: tokens.spacing.m,
+            children: [
+                Container(
+                    Text(card.mark)
                         .size(tokens.typography.font_size_lg)
                         .color(style::primary()),
                 )
@@ -24,26 +22,18 @@ impl From<PrincipleCard<'_>> for Widget {
                 .padding_all(tokens.spacing.m)
                 .border_radius(tokens.radii.large)
                 .border(style::border_strong(), 1.0)
-                .bg(style::surface())
-                .into(),
-                Column {
-                    gap: Some(tokens.spacing.xs),
-                    children: vec![
-                        Text::new(card.title)
+                .bg(style::surface()),
+                Column(
+                    gap: tokens.spacing.xs,
+                    children: [
+                        Text(card.title)
                             .size(tokens.typography.font_size_sm)
-                            .color(style::text_primary())
-                            .into(),
-                        Text::new(card.body)
+                            .color(style::text_primary()),
+                        Text(card.body)
                             .size(tokens.typography.font_size_xs)
-                            .color(style::text_muted())
-                            .into(),
+                            .color(style::text_muted()),
                     ],
-                    ..Default::default()
-                }
-                .into(),
+                ),
             ],
-            ..Default::default()
-        }
-        .into()
-    }
+        )
 }

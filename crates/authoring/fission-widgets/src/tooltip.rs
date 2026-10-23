@@ -163,6 +163,18 @@ pub struct Tooltip {
     pub motion: Option<TooltipMotion>,
 }
 
+impl Default for Tooltip {
+    fn default() -> Self {
+        Self {
+            id: WidgetId::from_u128(0),
+            child: fission_core::ui::widgets::Spacer::default().into(),
+            text: String::new(),
+            is_visible: false,
+            motion: None,
+        }
+    }
+}
+
 impl From<Tooltip> for Widget {
     fn from(component: Tooltip) -> Self {
         let (ctx, view) = fission_core::build::current::<()>();

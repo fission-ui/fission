@@ -1,52 +1,31 @@
 use super::*;
 use crate::style;
 
-pub(super) struct BrandRail<'a> {
-    pub(super) ctx: &'a BuildCtxHandle<AnimationGalleryState>,
-    pub(super) state: &'a AnimationGalleryState,
-}
+const OVERVIEW_ITEM: NavItem = NavItem {
+    path: routes::OVERVIEW,
+    label: "Overview",
+};
 
-impl From<BrandRail<'_>> for Widget {
-    fn from(rail: BrandRail<'_>) -> Self {
-        let (_, view) = fission::build::current::<AnimationGalleryState>();
-        let tokens = &view.env().theme.tokens;
+fission_component! {
+    pub(super) BrandRail<AnimationGalleryState> |_rail, state, cx| {
+        let tokens = &cx.view.env().theme.tokens;
         let typography = &tokens.typography;
-        let mut nav_children = vec![NavButton {
-            ctx: rail.ctx,
-            state: rail.state,
-            item: &NavItem {
-                path: routes::OVERVIEW,
-                label: "Overview",
-            },
-        }
-        .into()];
-        for group in routes::NAV_GROUPS {
-            nav_children.push(
-                NavGroupView {
-                    ctx: rail.ctx,
-                    state: rail.state,
-                    group,
-                }
-                .into(),
-            );
-        }
-
-        Container::new(Scroll {
-            id: Some(WidgetId::explicit("animation-gallery.rail-scroll")),
-            direction: FlexDirection::Column,
-            show_scrollbar: false,
-            child: Some(
-                Container::new(Column {
-                    gap: Some(tokens.spacing.l),
-                    // Embedded, the host header names the example, so the brand goes.
-                    children: (!rail.state.embedded)
-                        .then(|| {
-                            vec![
-                                Row {
-                                    gap: Some(tokens.spacing.m),
-                                    children: vec![
-                                        Container::new(
-                                            Text::new("F")
+    } =>
+        Container(
+            Scroll(
+                id: WidgetId::explicit("animation-gallery.rail-scroll"),
+                direction: FlexDirection::Column,
+                show_scrollbar: false,
+                child: Container(
+                    Column(
+                        gap: tokens.spacing.l,
+                        children: [
+                            if !state.embedded {
+                                Row(
+                                    gap: tokens.spacing.m,
+                                    children: [
+                                        Container(
+                                            Text("F")
                                                 .size(typography.heading_size)
                                                 .color(style::on_primary()),
                                         )
@@ -54,86 +33,62 @@ impl From<BrandRail<'_>> for Widget {
                                         .height(BRAND_MARK_SIZE)
                                         .padding_all(tokens.spacing.m)
                                         .border_radius(tokens.radii.xl)
-                                        .bg(style::primary())
-                                        .into(),
-                                        Column {
-                                            gap: Some(tokens.spacing.xs),
-                                            children: vec![
-                                                Text::new("Fission")
+                                        .bg(style::primary()),
+                                        Column(
+                                            gap: tokens.spacing.xs,
+                                            children: [
+                                                Text("Fission")
                                                     .size(typography.heading_size)
-                                                    .color(style::text_primary())
-                                                    .into(),
-                                                Text::new("Animation Gallery")
+                                                    .color(style::text_primary()),
+                                                Text("Animation Gallery")
                                                     .size(typography.font_size_lg)
-                                                    .color(style::primary())
-                                                    .into(),
+                                                    .color(style::primary()),
                                             ],
-                                            ..Default::default()
-                                        }
-                                        .into(),
+                                        ),
                                     ],
-                                    ..Default::default()
-                                }
-                                .into(),
-                                Text::new(
-                                    "Explore, compose, and ship deterministic motion for your UI.",
                                 )
-                                .size(typography.body_large_size)
-                                .color(style::text_primary())
-                                .into(),
-                            ]
-                        })
-                        .into_iter()
-                        .flatten()
-                        .chain([
-                            Container::new(Column {
-                                gap: Some(tokens.spacing.s),
-                                children: vec![
-                                    Text::new("Motion principles")
-                                        .size(typography.font_size_base)
-                                        .color(style::text_primary())
-                                        .into(),
-                                    PrincipleCard {
-                                        title: "Explicit",
-                                        body: "No hidden animation.",
-                                        mark: "*",
-                                    }
-                                    .into(),
-                                    PrincipleCard {
-                                        title: "Inspectable",
-                                        body: "Everything lowers to MotionExpr.",
-                                        mark: "</>",
-                                    }
-                                    .into(),
-                                ],
-                                ..Default::default()
-                            })
+                            },
+                            if !state.embedded {
+                                Text("Explore, compose, and ship deterministic motion for your UI.")
+                                    .size(typography.body_large_size)
+                                    .color(style::text_primary())
+                            },
+                            Container(
+                                Column(
+                                    gap: tokens.spacing.s,
+                                    children: [
+                                        Text("Motion principles")
+                                            .size(typography.font_size_base)
+                                            .color(style::text_primary()),
+                                        PrincipleCard("Explicit", "No hidden animation.", "*"),
+                                        PrincipleCard("Inspectable", "Everything lowers to MotionExpr.", "</>"),
+                                    ],
+                                ),
+                            )
                             .padding_all(tokens.spacing.m)
                             .border(style::border(), 1.0)
                             .border_radius(tokens.radii.xl)
-                            .bg(style::surface())
-                            .into(),
-                            Container::new(Column {
-                                gap: Some(tokens.spacing.m),
-                                children: nav_children,
-                                ..Default::default()
-                            })
+                            .bg(style::surface()),
+                            Container(
+                                Column(
+                                    gap: tokens.spacing.m,
+                                    children: [
+                                        NavButton(&OVERVIEW_ITEM),
+                                        for group in routes::NAV_GROUPS.iter() {
+                                            NavGroupView(group, key: group.title)
+                                        },
+                                    ],
+                                ),
+                            )
                             .padding_all(tokens.spacing.m)
                             .border(style::border(), 1.0)
                             .border_radius(tokens.radii.xl)
-                            .bg(style::surface())
-                            .into(),
-                        ])
-                        .collect(),
-                    ..Default::default()
-                })
-                .padding_all(tokens.spacing.l)
-                .into(),
+                            .bg(style::surface()),
+                        ],
+                    ),
+                ).padding_all(tokens.spacing.l),
             ),
-            ..Default::default()
-        })
+        )
         .width(BRAND_RAIL_WIDTH)
         .bg(style::surface_sunken())
-        .into()
-    }
 }

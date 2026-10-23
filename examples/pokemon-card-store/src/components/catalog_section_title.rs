@@ -1,22 +1,20 @@
 use crate::app::StoreState;
 use fission::prelude::*;
 
-pub struct CatalogSectionTitle;
-
-impl From<CatalogSectionTitle> for Widget {
-    fn from(_: CatalogSectionTitle) -> Self {
-        let (_, view) = fission::build::current::<StoreState>();
-        let tokens = &view.env().theme.tokens;
+fission_component! {
+    pub CatalogSectionTitle<StoreState> {}
+    |_title, _state, cx| {
+        let tokens = &cx.view.env().theme.tokens;
         let typography = &tokens.typography;
-
-        Row {
-            gap: Some(tokens.spacing.m),
+    } =>
+        Row(
+            gap: tokens.spacing.m,
             wrap: ir_op::FlexWrap::Wrap,
-            children: widgets![
-                Column {
-                    gap: Some(tokens.spacing.xs),
+            children: [
+                Column(
+                    gap: tokens.spacing.xs,
                     flex_grow: 1.0,
-                    children: widgets![
+                    children: [
                         Text::new("Available cards")
                             .size(typography.heading_size)
                             .line_height(
@@ -32,9 +30,8 @@ impl From<CatalogSectionTitle> for Widget {
                             )
                             .color(tokens.colors.text_muted),
                     ],
-                    ..Default::default()
-                },
-                Container::new(
+                ),
+                Container(
                     Text::new("Cart updates persist through the server session")
                         .size(typography.font_size_sm)
                         .line_height(
@@ -54,8 +51,5 @@ impl From<CatalogSectionTitle> for Widget {
                 .bg(tokens.colors.success.with_alpha(34)),
             ],
             align_items: ir_op::AlignItems::Center,
-            ..Default::default()
-        }
-        .into()
-    }
+        )
 }

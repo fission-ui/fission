@@ -14,11 +14,24 @@ Build-time Design System Package code generation for Fission.
 
 ```rust,ignore
 // build.rs
-fn main() -> anyhow::Result<()> {
-    fission_design_system_codegen::generate("design/dsp.json", "design/tokens.json")?;
-    Ok(())
+use std::path::PathBuf;
+
+fn main() {
+    println!("cargo:rerun-if-changed=design/dsp.json");
+    println!("cargo:rerun-if-changed=design/tokens.json");
+
+    let manifest_dir = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
+    fission_design_system_codegen::generate(fission_design_system_codegen::Config {
+        dsp_path: manifest_dir.join("design/dsp.json"),
+        out_file: "app_design_system.rs".into(),
+        type_name: "AppDesignSystem".into(),
+        crate_path: "fission::theme".into(),
+    })
+    .expect("failed to generate AppDesignSystem");
 }
 ```
+
+Include the generated file with `include!(concat!(env!("OUT_DIR"), "/app_design_system.rs"));`, then install the generated design system on the selected shell. Keep the codegen crate version aligned with the runtime `fission` version so generated component and token contracts match.
 
 ## Documentation
 

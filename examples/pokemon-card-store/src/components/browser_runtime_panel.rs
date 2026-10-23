@@ -4,34 +4,23 @@ use crate::components::layout::CARD_GRID_MIN_WIDTH;
 use crate::components::status_chip::StatusChip;
 use fission::prelude::*;
 
-pub struct BrowserRuntimePanel;
-
-impl From<BrowserRuntimePanel> for Widget {
-    fn from(_: BrowserRuntimePanel) -> Self {
-        let (_, view) = fission::build::current::<StoreState>();
-        let tokens = &view.env().theme.tokens;
+fission_component! {
+    pub BrowserRuntimePanel<StoreState> {}
+    |_panel, _state, cx| {
+        let tokens = &cx.view.env().theme.tokens;
         let typography = &tokens.typography;
-
-        Container::new(Column {
-            gap: Some(tokens.spacing.m),
-            children: widgets![
-                Row {
-                    gap: Some(tokens.spacing.s),
+    } =>
+        Container(Column(
+            gap: tokens.spacing.m,
+            children: [
+                Row(
+                    gap: tokens.spacing.s,
                     wrap: ir_op::FlexWrap::Wrap,
-                    children: widgets![
-                        StatusChip {
-                            label: "Worker",
-                            identifier: "worker-status:catalog-filters",
-                            status: "Waiting for worker",
-                        },
-                        StatusChip {
-                            label: "Island",
-                            identifier: "island-status:cart-drawer",
-                            status: "Waiting for island",
-                        },
+                    children: [
+                        StatusChip("Worker", "worker-status:catalog-filters", "Waiting for worker"),
+                        StatusChip("Island", "island-status:cart-drawer", "Waiting for island"),
                     ],
-                    ..Default::default()
-                },
+                ),
                 Text::new("Browser bridge")
                     .size(typography.font_size_lg)
                     .line_height(
@@ -45,7 +34,7 @@ impl From<BrowserRuntimePanel> for Widget {
                         typography.font_size_base * typography.line_height_normal
                     )
                     .color(tokens.colors.text_muted),
-                Grid {
+                Grid(
                     columns: vec![GridTrack::auto_fit(GridTrack::minmax(
                         GridTrack::Points(CARD_GRID_MIN_WIDTH),
                         GridTrack::Fr(1.0),
@@ -53,10 +42,10 @@ impl From<BrowserRuntimePanel> for Widget {
                     rows: vec![GridTrack::Auto],
                     column_gap: Some(tokens.spacing.m),
                     row_gap: Some(tokens.spacing.m),
-                    children: widgets![
-                        Column {
-                            gap: Some(tokens.spacing.s),
-                            children: widgets![
+                    children: [
+                        Column(
+                            gap: tokens.spacing.s,
+                            children: [
                                 Text::new("Worker enhancement status pending")
                                     .size(typography.font_size_sm)
                                     .line_height(
@@ -73,19 +62,14 @@ impl From<BrowserRuntimePanel> for Widget {
                                     )
                                     .color(tokens.colors.text_secondary),
                             ],
-                            ..Default::default()
-                        },
-                        BrowserCartIsland,
+                        ),
+                        BrowserCartIsland(),
                     ],
-                    ..Default::default()
-                },
+                ),
             ],
-            ..Default::default()
-        })
+        ))
         .padding_all(tokens.spacing.m)
         .border(tokens.colors.border, 1.0)
         .border_radius(tokens.radii.xxl)
         .bg(tokens.colors.surface)
-        .into()
-    }
 }

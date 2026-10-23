@@ -9,17 +9,14 @@ use fission::prelude::*;
 
 const EXPANDED_BREAKPOINT: f32 = 1_100.0;
 
-#[derive(Clone)]
-pub struct FieldInspectorApp;
+fission_component! {
+    pub FieldInspectorApp<FieldInspectorState>
+    |_app, state, cx| {
+        let request = state.weather_request();
+        let weather_ok = with_reducer!(cx.build, WeatherLoaded, on_weather_loaded);
+        let weather_err = with_reducer!(cx.build, WeatherFailed, on_weather_failed);
 
-impl From<FieldInspectorApp> for Widget {
-    fn from(_: FieldInspectorApp) -> Self {
-        let (ctx, view) = fission::build::current::<FieldInspectorState>();
-        let request = view.state().weather_request();
-        let weather_ok = with_reducer!(ctx, WeatherLoaded, on_weather_loaded);
-        let weather_err = with_reducer!(ctx, WeatherFailed, on_weather_failed);
-
-        ctx.with_resources(|resources| {
+        cx.build.with_resources(|resources| {
             resources.job(
                 JobResource::new(
                     ResourceKey::new("field-inspector.weather"),
@@ -32,10 +29,11 @@ impl From<FieldInspectorApp> for Widget {
             );
         });
 
-        if view.viewport_size().width >= EXPANDED_BREAKPOINT {
-            FieldInspectorExpanded.into()
-        } else {
-            FieldInspectorCompact.into()
-        }
+        let expanded = cx.view.viewport_size().width >= EXPANDED_BREAKPOINT;
+    } =>
+    if expanded {
+        FieldInspectorExpanded
+    } else {
+        FieldInspectorCompact
     }
 }

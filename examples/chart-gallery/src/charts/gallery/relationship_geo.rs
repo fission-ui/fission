@@ -1,19 +1,16 @@
 use super::GalleryBuildExt;
 use crate::data::{sample_lines, sample_tree, SIMPLE_GEOJSON};
+use crate::state::GalleryState;
 use crate::style::teal;
 use fission::charts::{
     Chart, GraphNode, GraphSeries, Legend, LinesSeries, MapSeries, ParallelSeries, SankeySeries,
     SunburstSeries, ThemeRiverSeries, TreeSeries, TreemapNode, TreemapSeries, VisualMap,
 };
-use fission::core::ui::Widget;
+use fission::prelude::*;
 
-pub(super) struct RelationshipGeoChart {
-    pub chart: usize,
-    pub scale: f32,
-}
-
-impl From<RelationshipGeoChart> for Widget {
-    fn from(selection: RelationshipGeoChart) -> Self {
+fission_component! {
+    pub(super) RelationshipGeoChart<GalleryState> { chart: usize, scale: f32 }
+    |selection, _state, _cx| {} => (|| -> Widget {
         let chart = selection.chart;
         let s = selection.scale;
 
@@ -215,5 +212,5 @@ impl From<RelationshipGeoChart> for Widget {
                 .into(),
             _ => unreachable!("chart catalog and builder are out of sync"),
         }
-    }
+    })()
 }

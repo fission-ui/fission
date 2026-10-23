@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 /// The application owns `is_editing` and `value`; actions let reducers enter
 /// editing and accept or cancel changes. This keeps the editable value in the
 /// normal retained Fission state flow rather than hidden inside the widget.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Editable {
     /// Optional stable identity used to derive the inner text field identity.
     pub id: Option<WidgetId>,

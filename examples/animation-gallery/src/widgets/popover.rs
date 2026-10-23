@@ -2,8 +2,7 @@ use super::common::*;
 use super::popover_preview::PopoverPreview;
 use crate::state::AnimationGalleryState;
 use crate::style;
-use fission::build::BuildCtxHandle;
-use fission::Widget;
+use fission::prelude::*;
 
 pub const PATH: &str = "/widgets/popover";
 
@@ -15,26 +14,7 @@ pub const SUMMARY: WidgetSummary = WidgetSummary {
     tint: style::Tint::Success,
 };
 
-pub struct PopoverPage<'a> {
-    pub ctx: BuildCtxHandle<AnimationGalleryState>,
-    pub state: &'a AnimationGalleryState,
-}
-
-impl From<PopoverPage<'_>> for Widget {
-    fn from(page: PopoverPage<'_>) -> Self {
-        WidgetPage {
-            ctx: &page.ctx,
-            state: page.state,
-            case: case(),
-            preview: PopoverPreview {
-                ctx: &page.ctx,
-                state: page.state,
-            }
-            .into(),
-        }
-        .into()
-    }
-}
+fission_component! { pub PopoverPage<AnimationGalleryState> {} |_page, _state, _cx| {} => WidgetPage(case(), PopoverPreview()) }
 
 fn case() -> GalleryCase {
     GalleryCase {
@@ -52,11 +32,10 @@ fn case() -> GalleryCase {
     }
 }
 
-const SOURCE: &str = r#"Popover {
+const SOURCE: &str = r#"Popover(
     id: WidgetId::explicit("profile_popover"),
     trigger,
     content,
     is_open: state.profile_open,
-    motion: Some(PopoverMotion::Fade + PopoverMotion::Scale),
-    ..Default::default()
-}.into()"#;
+    motion: PopoverMotion::Fade + PopoverMotion::Scale,
+)"#;

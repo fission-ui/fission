@@ -2,23 +2,18 @@ use super::GalleryBuildExt;
 use crate::state::GalleryState;
 use fission::charts::{Axis, BarSeries, Chart, DataValue, Dataset, Encode, Legend, LineSeries};
 use fission::core::op::Color;
-use fission::core::ui::Widget;
 use fission::core::ViewHandle;
+use fission::prelude::*;
 use fission::three_d::{Point3D, Primitive3D, Scene3D};
 
-pub(super) struct Dataset3dChart {
-    pub chart: usize,
-    pub scale: f32,
-}
-
-impl From<Dataset3dChart> for Widget {
-    fn from(selection: Dataset3dChart) -> Self {
-        let (_, view) = fission::build::current::<GalleryState>();
+fission_component! {
+    pub(super) Dataset3dChart<GalleryState> { chart: usize, scale: f32 }
+    |selection, _state, cx| {} => (|| -> Widget {
         let chart = selection.chart;
         let s = selection.scale;
 
         match chart {
-            0 => dataset_demo(view, s).in_gallery().into(),
+            0 => dataset_demo(cx.view, s).in_gallery().into(),
             1 => scene3d_demo().in_gallery().into(),
             2 => bar3d_scene(s).in_gallery().into(),
             3 => scatter3d_scene(s).in_gallery().into(),
@@ -30,7 +25,7 @@ impl From<Dataset3dChart> for Widget {
             9 => terrain_scene(s).in_gallery().into(),
             _ => unreachable!("chart catalog and 3D/dataset builder are out of sync"),
         }
-    }
+    })()
 }
 
 pub(crate) fn dataset_demo(view: ViewHandle<GalleryState>, s: f32) -> Chart {

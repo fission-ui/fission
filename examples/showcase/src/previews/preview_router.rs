@@ -5,24 +5,22 @@ use super::{
     widget_gallery_example::WidgetGalleryExample,
 };
 use crate::catalog::ExampleDefinition;
+use crate::state::ShowcaseState;
 use fission::prelude::*;
 
-#[derive(Clone, Copy, Debug)]
-pub(crate) struct PreviewRouter {
-    pub(crate) example: ExampleDefinition,
-}
-
-impl From<PreviewRouter> for Widget {
-    fn from(component: PreviewRouter) -> Self {
-        match component.example.slug {
-            "animation-gallery" => AnimationGalleryExample.into(),
-            "chart-gallery" => ChartGalleryExample.into(),
-            "icons_gallery" => IconsGalleryExample.into(),
-            "inbox" => InboxExample.into(),
-            "text-lab" => TextLabExample.into(),
-            "todo-design-system" => TodoDesignSystemExample.into(),
-            "widget-gallery" => WidgetGalleryExample.into(),
-            _ => InboxExample.into(),
-        }
+fission_component! {
+    #[derive(Clone, Copy, Debug)] pub(crate) PreviewRouter<ShowcaseState> {
+        example: ExampleDefinition,
     }
+    |component, _state, _cx| {} =>
+        match component.example.slug {
+            "animation-gallery" => AnimationGalleryExample(),
+            "chart-gallery" => ChartGalleryExample(),
+            "icons_gallery" => IconsGalleryExample(),
+            "inbox" => InboxExample(),
+            "text-lab" => TextLabExample(),
+            "todo-design-system" => TodoDesignSystemExample(),
+            "widget-gallery" => WidgetGalleryExample(),
+            _ => InboxExample(),
+        }
 }

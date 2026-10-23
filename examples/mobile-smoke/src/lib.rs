@@ -16,86 +16,63 @@ pub struct SmokeState {
 
 impl GlobalState for SmokeState {}
 
-#[fission_reducer(Increment)]
-fn on_increment(state: &mut SmokeState) {
-    state.taps += 1;
-}
-
-#[derive(Clone)]
-pub struct MobileSmokeApp;
-
-impl From<MobileSmokeApp> for Widget {
-    fn from(_component: MobileSmokeApp) -> Self {
-        let (ctx, view) = fission::build::current::<SmokeState>();
-        let tokens = &view.env().theme.tokens;
-        let increment = with_reducer!(ctx, Increment, on_increment);
-
-        let content = Container::new(Column {
-            gap: Some(tokens.spacing.m),
-            children: vec![
-                Text::new("Mobile smoke")
-                    .size(tokens.typography.font_size_xl)
-                    .color(tokens.colors.text_primary)
-                    .into(),
-                Text::new("Fission shell on mobile targets.")
-                    .size(tokens.typography.body_large_size)
-                    .color(tokens.colors.text_secondary)
-                    .into(),
-                Text::new("Image probe")
-                    .size(tokens.typography.font_size_base)
-                    .color(tokens.colors.text_secondary)
-                    .into(),
-                Container::new(
-                    Image::memory(FISSION_LOGO_PNG.to_vec())
-                        .size(IMAGE_SIZE, IMAGE_SIZE)
-                        .fit(fission::core::op::ImageFit::Contain)
-                        .semantic_label("Fission logo image probe"),
+fission_component! {
+    pub MobileSmokeApp<SmokeState>
+    |_app, state, cx| {
+        let tokens = &cx.view.env().theme.tokens;
+        let logo = Image::memory(FISSION_LOGO_PNG.to_vec())
+            .size(IMAGE_SIZE, IMAGE_SIZE)
+            .fit(fission::core::op::ImageFit::Contain)
+            .semantic_label("Fission logo image probe");
+    } =>
+    Container(
+        Column(
+            gap: tokens.spacing.none,
+            children: [
+                Container(
+                    Column(
+                        gap: tokens.spacing.m,
+                        children: [
+                            Text("Mobile smoke")
+                                .size(tokens.typography.font_size_xl)
+                                .color(tokens.colors.text_primary),
+                            Text("Fission shell on mobile targets.")
+                                .size(tokens.typography.body_large_size)
+                                .color(tokens.colors.text_secondary),
+                            Text("Image probe")
+                                .size(tokens.typography.font_size_base)
+                                .color(tokens.colors.text_secondary),
+                            Container(logo)
+                                .width_length(Length::percent(100.0))
+                                .height_length(Length::points(IMAGE_PROBE_HEIGHT))
+                                .padding_lengths(Length::all(Length::points(tokens.spacing.m)))
+                                .bg(tokens.colors.surface)
+                                .border(tokens.colors.primary, 1.0)
+                                .border_radius(tokens.radii.xl),
+                            Text(format!("Taps: {}", state.taps))
+                                .size(tokens.typography.font_size_xl)
+                                .color(tokens.colors.primary),
+                            Button(
+                                child: Text("Tap"),
+                                key: "increment",
+                                on_press: |_app, state, _cx| state.taps += 1,
+                            )
+                            .semantics_identifier("mobile-smoke.increment"),
+                        ],
+                    ),
                 )
-                .width_length(Length::percent(100.0))
-                .height_length(Length::points(IMAGE_PROBE_HEIGHT))
-                .padding_lengths(Length::all(Length::points(tokens.spacing.m)))
-                .bg(tokens.colors.surface)
-                .border(tokens.colors.primary, 1.0)
-                .border_radius(tokens.radii.xl)
-                .into(),
-                Text::new(format!("Taps: {}", view.state().taps))
-                    .size(tokens.typography.font_size_xl)
-                    .color(tokens.colors.primary)
-                    .into(),
-                Button {
-                    on_press: Some(increment),
-                    child: Some(Text::new("Tap").into()),
-                    ..Default::default()
-                }
-                .semantics_identifier("mobile-smoke.increment")
-                .into(),
+                .width_length(Length::clamp(
+                    Length::points(CONTENT_MIN_WIDTH),
+                    Length::percent(100.0),
+                    Length::points(CONTENT_MAX_WIDTH),
+                )),
+                Spacer(flex_grow: 1.0_f32),
             ],
-            ..Default::default()
-        })
-        .width_length(Length::clamp(
-            Length::points(CONTENT_MIN_WIDTH),
-            Length::percent(100.0),
-            Length::points(CONTENT_MAX_WIDTH),
-        ))
-        .into();
-
-        Container::new(Column {
-            gap: Some(tokens.spacing.none),
-            children: vec![
-                content,
-                Spacer {
-                    flex_grow: 1.0,
-                    ..Default::default()
-                }
-                .into(),
-            ],
-            ..Default::default()
-        })
-        .height_length(Length::vh(100.0))
-        .padding_lengths(Length::all(Length::points(tokens.spacing.l)))
-        .bg(tokens.colors.background)
-        .into()
-    }
+        ),
+    )
+    .height_length(Length::vh(100.0))
+    .padding_lengths(Length::all(Length::points(tokens.spacing.l)))
+    .bg(tokens.colors.background)
 }
 #[cfg(any(target_os = "android", target_os = "ios"))]
 fn mobile_app() -> MobileApp<SmokeState, MobileSmokeApp> {
