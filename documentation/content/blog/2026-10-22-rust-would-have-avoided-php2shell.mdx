@@ -1,0 +1,428 @@
+---
+title: php2shell: Would Rust Have Fixed It? Yes...Yes, It Would Have.
+description: How to fix php2shell if your app is using PHP 5, 6, 7 or 8 and how Rust and Fission GUI framework can be a credible PHP alternative to migrate to
+slug: rust-would-have-avoided-php2shell
+authors:
+  - fission
+  - courtney
+tags:
+  - blog
+  - php
+  - platform
+  - fission
+  - safety
+  - vulnerabilities
+categories:
+  - Project
+  - Migration
+---
+
+
+On 21 October 2026, the PHP project released emergency fixes for two critical remote-code-execution vulnerabilities: CVE-2026-109618 (https://github.com/php/php-src/security/advisories/GHSA-w8hw-w9fx-j79w) and CVE-2026-109619
+(https://github.com/php/php-src/security/advisories/GHSA-6wmf-4rv5-p3rp).
+
+Collectively dubbed php2shell, the vulnerabilities were discovered by researchers from Calif, OpenAI and Wiz. Both received a CVSS 4.0 score of 9.2.
+
+That is bad enough. What makes php2shell particularly serious is where the vulnerabilities live and when they can be triggered.
+
+They are not mistakes in a WordPress plugin, an application’s authentication code or some forgotten upload controller. They are memory-safety bugs inside PHP itself. A specially constructed web request can reach the vulnerable code while PHP is parsing request data—before the target PHP application begins executing.
+
+The Calif technical write-up (https://calif.io/php2shell/) describes two related failure modes:
+
+- An out-of-memory condition can interrupt PHP while an internal hash-table entry is only partially initialized. Cleanup later treats stale memory as a valid object.
+- Request-owned session state can survive after its memory has been freed. A later request handled by the same worker can consume those dangling pointers.
+
+The researchers demonstrated unauthenticated remote code execution against Apache mod_php. The PHP security team considers every PHP installation serving web requests to be at risk, including PHP-FPM, php-cgi, FrankenPHP and LiteSpeed, although the demonstrated mod_php path is considered the highest risk.
+
+This matters far beyond PHP developers because WordPress alone currently powers roughly 40% of all websites measured by W3Techs. PHP is detected on approximately 70% of websites whose server-side language can be identified. Those percentages have methodological limits, but the conclusion does not: a vulnerability in PHP’s request-processing machinery has an enormous potential blast radius. W3Techs publishes the current figures and its methodology here (https://w3techs.com/technologies/comparison/pl-php).
+
+## If you run PHP, update it now
+
+A great many teams inherited PHP systems they did not originally build. Others are responsible for revenue-generating sites which cannot simply be rewritten during a security incident. The immediate job is to protect those systems.
+
+Upgrade to one of these fixed PHP releases:
+
+Branch     Fixed release
+━━━━━━━━━  ━━━━━━━━━━━━━━━
+PHP 8.5           8.5.12
+─────────  ───────────────
+PHP 8.4           8.4.27
+─────────  ───────────────
+PHP 8.3           8.3.36
+─────────  ───────────────
+PHP 8.2           8.2.35
+
+The official PHP security advisory (https://www.php.net/archive/2026.php) is explicit: updating is the only complete solution.
+
+After upgrading:
+
+1. Confirm the version used by every web-facing SAPI—not merely the version printed by php -v.
+2. Restart all Apache, PHP-FPM, LiteSpeed, FrankenPHP and other persistent PHP workers.
+3. Rebuild and redeploy containers rather than patching only a running instance.
+4. Check every pool, virtual host and application image. It is common to have more than one PHP version installed.
+5. Verify that your distribution actually includes the backported security patch when its package version differs from upstream PHP.
+6. Treat PHP 8.1 and older as unsupported unless a distribution or commercial LTS vendor explicitly confirms that it has backported both fixes.
+7. Review logs and unexpected changes as part of normal incident response. Updating prevents future exploitation; it does not prove that a previously exposed server was never attacked.
+
+The PHP team published minimal source backports for PHP 7.4, 8.0 and 8.1, but moving to a supported release or a vendor-supported patched package is preferable to maintaining a private PHP build indefinitely.
+
+### If you genuinely cannot update immediately
+
+The PHP project lists measures that reduce exposure to known attack paths:
+
+- Disable session upload progress with session.upload_progress.enabled=0.
+- Restart every worker after changing it.
+- Remove finite PHP memory limits with memory_limit=-1 at an administrator-controlled level.
+- Apply conservative request-body and upload limits at PHP and HTTP-server boundaries.
+- On PHP 8.5, set fatal_error_backtraces=0.
+- Remove attacker-reachable fatal errors and invalid per-request configuration.
+
+These are temporary risk reductions, not patches. **They do not make an affected PHP installation safe**. Don't let a mitigation become an excuse to postpone the upgrade.
+
+## This is bigger than WordPress
+
+WordPress is the obvious headline because of its reach, but php2shell sits below the application. If a system executes requests through an affected PHP runtime, application-level quality does not remove the underlying risk.
+
+Ten of the best-known PHP-based systems and frameworks are:
+
+1. WordPress
+2. WooCommerce
+3. Drupal
+4. Joomla
+5. Adobe Commerce/Magento
+6. Moodle
+7. MediaWiki
+8. PrestaShop
+9. Symfony
+10. Laravel
+
+They share PHP as a dependency and therefore share the runtime beneath their own code. Patching PHP does not require replacing any of them, but if you were already considering replacing an ageing PHP app, consolidating an expensive deployment stack or moving away from a large plugin surface, this incident provides a reasonable moment to examine the alternatives.
+
+
+## Would Rust have prevented php2shell?
+
+The provocative answer is yes.
+
+
+> Safe Rust would have prevented the specific use-after-free and stale-pointer failures behind php2shell.
+
+Rust’s ownership and borrowing rules are designed to stop memory from being used after it has been freed. Code cannot ordinarily retain a reference whose lifetime exceeds the value it points to. Partially initialised state cannot simply be published as a valid typed object and later destroyed as though initialisation succeeded. Rust’s guarantees are implemented by software too, and all software can have bugs, but there is an ongoing effort to find and eliminate any that may still be lurking in the [Rust compiler](https://github.com/rust-lang/rust/issues/164250). That is the right layer to fix them because the [Rust ownership model](https://doc.rust-lang.org/book/ch04-01-what-is-ownership.html) enforces these rules during compilation.
+
+
+## Why Rust for server-rendered applications?
+
+Memory safety is a strong reason to consider Rust, but it is not the only one.
+
+A Rust web application is normally compiled into a native executable. It does not need a PHP interpreter to load and execute application scripts for every request. Depending on the framework, the executable can accept HTTP traffic directly.
+
+That can mean:
+
+- Lower and more predictable memory use.
+- Less CPU spent repeatedly bootstrapping application code.
+- Native performance without requiring an opcode cache.
+- One typed codebase checked ahead of deployment.
+- No production PHP extension or interpreter-version mismatch.
+- No separate PHP-FPM process manager.
+- Fewer moving parts than an Apache/Nginx, PHP-FPM, OPcache and application combination.
+- Straightforward container images containing the application and its required assets.
+- Errors in data types and interfaces caught during compilation rather than after a particular request reaches production.
+
+You may still put a Rust service behind a reverse proxy, CDN, load balancer or managed ingress. Those tools remain useful for TLS termination, edge caching, rate limiting and multi-service routing but the difference is they are deployment choices, not components required to execute the application.
+
+Modern PHP 8 is significantly better than the PHP many of us remember. It has real type declarations, enums, attributes, improved error handling, better performance and a strong package ecosystem. The reasonable complaints today are more along the lines of:
+
+- Types do not cover every dynamic array or externally sourced data shape.
+- Many mistakes remain runtime errors.
+- Behaviour can differ between CLI, FPM and Apache configurations.
+- Configuration can be distributed across php.ini, pool files, virtual hosts, .user.ini, extensions and application settings.
+- Production performance often depends on coordinated worker, OPcache and web-server tuning.
+- Large plugin ecosystems increase supply-chain and compatibility exposure.
+- Long-lived systems can accumulate framework, PHP-version and extension constraints that make upgrades progressively harder.
+
+## Where Fission fits
+
+[Fission](https://fission.rs/) is a Rust application framework for building interfaces across Web, server-side rendered sites (like PHP), static sites, desktop, mobile and terminal targets.
+
+For a new server-rendered application—or a gradual replacement for an existing PHP system—it offers a familiar model:
+
+- A route produces HTML on the server.
+- Forms and actions are typed.
+- State transitions happen through reducers.
+- Fallible and asynchronous work is separated into effects.
+- Server actions are signed and validated.
+- Public pages can be cached or statically generated.
+- Session-private routes can be rendered per request.
+- Focused browser workers or WASM islands can add interactivity without turning the entire site into a client-side application.
+- The same widgets, validation rules, localisation and application state can be reused on other targets.
+
+That gives you the server-rendered development model which made PHP so effective, while retaining Rust’s compile-time checks and memory-safety guarantees.
+
+## A login page in PHP and Fission
+
+Consider a routine screen: username, password, a sign-in button and a forgotten-password link.
+
+The PHP version below uses strict types, a prepared query, password hashing, a generic authentication error, CSRF protection and session-ID rotation. Real production code still needs rate limiting, audit logging, secure cookie configuration
+and an account-recovery implementation.
+
+The Fission example uses Fission's Compose API.
+
+### PHP
+
+```php
+<?php
+
+declare(strict_types=1);
+
+session_start([
+  'cookie_httponly' => true,
+  'cookie_secure' => true,
+  'cookie_samesite' => 'Lax',
+]);
+
+$pdo = new PDO(
+  $_ENV['DATABASE_URL'],
+  $_ENV['DATABASE_USER'],
+  $_ENV['DATABASE_PASSWORD'],
+  [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION],
+);
+
+$_SESSION['csrf'] ??= bin2hex(random_bytes(32));
+
+$username = '';
+$error = null;
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+  $username = trim((string) ($_POST['username'] ?? ''));
+  $password = (string) ($_POST['password'] ?? '');
+  $csrf = (string) ($_POST['csrf'] ?? '');
+
+  if (!hash_equals($_SESSION['csrf'], $csrf)) {
+      http_response_code(400);
+      $error = 'Your session expired. Try again.';
+  } else {
+      $query = $pdo->prepare(
+          'SELECT id, password_hash
+             FROM users
+            WHERE username = :username'
+      );
+
+      $query->execute(['username' => $username]);
+      $user = $query->fetch(PDO::FETCH_ASSOC);
+
+      if ($user && password_verify(
+          $password,
+          $user['password_hash'],
+      )) {
+          session_regenerate_id(true);
+          $_SESSION['user_id'] = $user['id'];
+
+          header('Location: /account', true, 303);
+          exit;
+      }
+
+      $error = 'The username or password was incorrect.';
+  }
+}
+?>
+
+<h1>Sign in</h1>
+
+<?php if ($error !== null): ?>
+  <div role="alert">
+      <?= htmlspecialchars($error, ENT_QUOTES, 'UTF-8') ?>
+  </div>
+<?php endif ?>
+
+<form method="post">
+  <input
+      type="hidden"
+      name="csrf"
+      value="<?= htmlspecialchars(
+          $_SESSION['csrf'],
+          ENT_QUOTES,
+          'UTF-8',
+      ) ?>"
+  >
+
+  <label>
+      Username
+      <input
+          name="username"
+          value="<?= htmlspecialchars(
+              $username,
+              ENT_QUOTES,
+              'UTF-8',
+          ) ?>"
+          autocomplete="username"
+          required
+      >
+  </label>
+
+  <label>
+      Password
+      <input
+          type="password"
+          name="password"
+          autocomplete="current-password"
+          required
+      >
+  </label>
+
+  <button type="submit">Sign in</button>
+  <a href="/forgot-password">Forgot password?</a>
+</form>
+```
+
+### Fission Compose
+
+```rust
+use fission::prelude::*;
+use serde::{Deserialize, Serialize};
+
+#[derive(Default)]
+struct AppState {
+  session: Option<UserSession>,
+}
+
+impl GlobalState for AppState {}
+
+#[derive(Serialize)]
+struct LoginRequest {
+  username: String,
+  password: String,
+}
+
+#[derive(Deserialize, Serialize)]
+struct LoginResponse {
+  session: UserSession,
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+struct UserSession {
+  user_id: String,
+}
+
+#[fission_effect]
+async fn sign_in(
+  request: LoginRequest,
+) -> Result<LoginResponse, String> {
+  api::post("/api/login", &request)
+      .await
+      .map_err(|error| error.public_message())
+}
+
+fission_component! {
+  pub LoginPage<AppState> {
+      state {
+          username: String = String::new(),
+          password: String = String::new(),
+          signing_in: bool = false,
+          error: Option<String> = None,
+      }
+  }
+  view(login, state, cx) =>
+  Center(
+      child: Card(
+          child: Column(
+              gap: cx.spacing().m,
+              children: [
+                  Text(cx.tr("auth.sign_in.title")),
+
+                  TextInput(
+                      label: Some(
+                          cx.tr("auth.username").into()
+                      ),
+                      bind: login.username,
+                      autocomplete: Some(
+                          "username".into()
+                      ),
+                      required: true,
+                  ),
+
+                  TextInput(
+                      label: Some(
+                          cx.tr("auth.password").into()
+                      ),
+                      bind: login.password,
+                      obscure_text: true,
+                      autocomplete: Some(
+                          "current-password".into()
+                      ),
+                      required: true,
+                  ),
+
+                  if let Some(error) = &login.error {
+                      Alert(
+                          error.clone(),
+                          kind: AlertKind::Error,
+                      )
+                  },
+
+                  Button(
+                      child: Text(
+                          if login.signing_in {
+                              cx.tr("auth.signing_in")
+                          } else {
+                              cx.tr("auth.sign_in")
+                          }
+                      ),
+                      disabled: login.signing_in,
+
+                      on_press: effect sign_in(
+                          LoginRequest {
+                              username: login.username.clone(),
+                              password: login.password.clone(),
+                          },
+                      ) {
+                          on_start {
+                              login.signing_in = true;
+                              login.error = None;
+                          }
+
+                          on_ok(response) {
+                              login.password.clear();
+                              login.signing_in = false;
+                              state.session = Some(response.session);
+                              cx.effects.navigate("/account");
+                          }
+
+                          on_err(error) {
+                              login.password.clear();
+                              login.signing_in = false;
+                              login.error = Some(error);
+                          }
+                      },
+                  ),
+
+                  Link(
+                      href: "/forgot-password",
+                      child: Text(
+                          cx.tr("auth.forgot_password")
+                      ),
+                  ),
+              ],
+          ),
+      ),
+  )
+}
+```
+
+
+The endpoint still has responsibilities: verify the password, rate-limit attempts, issue a secure session and return a deliberately generic failure.
+The UI uses widgets and components instead of directly writing HTML, but ultimately generates standard HTML elements that match your design to the pixel.
+Importantly, if you wanted to deploy the site as a mobile app on Android or iOS, or as a desktop app on Windows, Linux or macOS, you would not need to change the shared interface code.
+
+In the end you retain the attractive parts of PHP’s model:
+
+- A request can produce complete HTML.
+- Forms work naturally.
+- Routes map cleanly to pages.
+- Server logic can live beside the application.
+
+Without requiring PHP’s runtime model, loose request globals, interpreter configuration, FPM worker layer or memory-unsafety exposure.
+
+PHP became this important because it made useful software unusually accessible. Huge parts of the web exist because a person could upload some files, connect a database and publish something valuable. Its success also means that old decisions inside the runtime now affect an extraordinary number of people.
+
+The PHP maintainers, security researchers and downstream vendors have done the right thing by coordinating and publishing fixes but once the incident is contained, it is fair to ask what we want the next twenty years of web infrastructure to look like.
+
+Clearly, I'd like Fission to play a big part in that multi-platform future. Feel free to reach out to oss@crlog.info if you want some help getting started with Fission or professional support for a potential migration.
