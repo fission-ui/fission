@@ -330,6 +330,28 @@ mod tests {
         assert!(output.contains("__widget . id ="), "{output}");
         assert!(!output.contains("WidgetIdExt :: id"), "{output}");
     }
+
+    #[test]
+    fn static_children_receive_shape_slots_and_identical_siblings_are_disambiguated() {
+        let output = expand(quote! {
+            pub Screen<State> |screen, state, cx| => Column(children: [
+                if state.first { Text("First") } else { Spacer() },
+                if state.second { Text("Second") } else { Spacer() },
+                Spacer(),
+                Spacer(),
+            ])
+        })
+        .unwrap()
+        .to_string();
+
+        assert_eq!(output.matches("duplicate:0").count(), 1, "{output}");
+        assert_eq!(output.matches("duplicate:1").count(), 1, "{output}");
+        assert_eq!(
+            output.matches("identity :: in_slot (\"child:").count(),
+            4,
+            "{output}"
+        );
+    }
     #[test]
     fn generated_components_protect_their_owned_tree_with_a_composite_boundary() {
         let output = expand(quote! {

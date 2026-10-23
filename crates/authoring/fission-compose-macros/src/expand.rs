@@ -1,7 +1,7 @@
 use crate::ast::{Call, Component, Effect, Value};
 use proc_macro2::{Span, TokenStream as Tokens, TokenTree};
 use quote::{format_ident, quote, ToTokens};
-use std::collections::{BTreeSet, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use syn::{Expr, Ident, Lit, LitStr, Member, Pat};
 
 pub fn component(input: Component) -> syn::Result<Tokens> {
@@ -252,10 +252,7 @@ impl Emitter<'_> {
                 "to(...) is only valid on the right-hand side of bind(event):",
             )),
             Value::Array(vs) => {
-                let mut pieces = Vec::new();
-                for v in vs {
-                    pieces.push(self.append(v, path)?);
-                }
+                let pieces = self.append_children(vs, path)?;
                 Ok(
                     quote!({let mut __children:Vec<#rt::core::Widget>=Vec::new();#(#pieces)* __children}),
                 )
@@ -337,10 +334,7 @@ impl Emitter<'_> {
                 quote!(for #pat in #iter{#body})
             }
             Value::Array(values) => {
-                let mut pieces = Vec::new();
-                for v in values {
-                    pieces.push(self.append(v, path)?);
-                }
+                let pieces = self.append_children(values, path)?;
                 quote!(#(#pieces)*)
             }
             Value::Optional(value) => {
@@ -357,6 +351,38 @@ impl Emitter<'_> {
             }
         })
     }
+
+    fn append_children(&mut self, values: &[Value], path: &str) -> syn::Result<Vec<Tokens>> {
+        let rt = self.rt.clone();
+        let mut totals = BTreeMap::<String, usize>::new();
+        for value in values {
+            *totals.entry(value_shape(value)).or_default() += 1;
+        }
+
+        let mut occurrences = BTreeMap::<String, usize>::new();
+        values
+            .iter()
+            .map(|value| {
+                let shape = value_shape(value);
+                let occurrence = occurrences.entry(shape.clone()).or_default();
+                let slot = if totals[&shape] == 1 {
+                    format!("child:{:016x}", stable_hash(&shape))
+                } else {
+                    let slot = format!(
+                        "child:{:016x}:duplicate:{}",
+                        stable_hash(&shape),
+                        *occurrence
+                    );
+                    *occurrence += 1;
+                    slot
+                };
+                let slot = LitStr::new(&slot, Span::call_site());
+                let piece = self.append(value, path)?;
+                Ok(quote!(#rt::identity::in_slot(#slot, || { #piece });))
+            })
+            .collect()
+    }
+
     fn value(&mut self, v: &Value, path: &str) -> syn::Result<Tokens> {
         if let Some(expr) = v.rust() {
             return Ok(borrowed_read(expr, &self.editor, &self.state));
