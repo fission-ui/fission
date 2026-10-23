@@ -53,13 +53,6 @@ members = [
 exclude = ["third_party/vello"]
 resolver = "2"
 
-# Keep the Web IME/browser-command fix reproducible on main until the next
-# fission-winit release is ready. Published Fission crates continue to declare
-# their normal version requirement; this workspace patch is deliberately
-# removed when that release is adopted.
-[patch.crates-io]
-fission-winit = { git = "https://github.com/worka-ai/winit", rev = "1e99d748234f11a0dd49a00a1ffc3cca1bb0b203" }
-
 [workspace.lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(cargo_clippy)', 'cfg(feature, values("cargo-clippy"))'] }
 
