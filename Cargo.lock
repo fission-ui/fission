@@ -2848,7 +2848,7 @@ dependencies = [
  "accesskit_macos",
  "accesskit_unix",
  "accesskit_windows",
- "fission-winit 0.30.13-fission.6 (registry+https://github.com/rust-lang/crates.io-index)",
+ "fission-winit",
  "raw-window-handle",
 ]
 
@@ -3325,7 +3325,7 @@ dependencies = [
  "fission-store",
  "fission-theme",
  "fission-widgets",
- "fission-winit 0.30.13-fission.6 (git+https://github.com/worka-ai/winit?rev=1e99d748234f11a0dd49a00a1ffc3cca1bb0b203)",
+ "fission-winit",
  "lazy_static",
  "serde",
 ]
@@ -3340,7 +3340,7 @@ dependencies = [
  "fission-shell-winit",
  "fission-store",
  "fission-theme",
- "fission-winit 0.30.13-fission.6 (git+https://github.com/worka-ai/winit?rev=1e99d748234f11a0dd49a00a1ffc3cca1bb0b203)",
+ "fission-winit",
 ]
 
 [[package]]
@@ -3459,7 +3459,7 @@ dependencies = [
  "fission-test-driver",
  "fission-theme",
  "fission-widgets",
- "fission-winit 0.30.13-fission.6 (git+https://github.com/worka-ai/winit?rev=1e99d748234f11a0dd49a00a1ffc3cca1bb0b203)",
+ "fission-winit",
  "fontique",
  "futures-core",
  "glam 0.29.3",
@@ -3645,57 +3645,6 @@ dependencies = [
  "serde_json",
  "tattoy-wezterm-surface",
  "tattoy-wezterm-term",
-]
-
-[[package]]
-name = "fission-winit"
-version = "0.30.13-fission.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6a190926b9870d28d221c6da25237ff3279a8b4fb2a3e7dcb2034102bfe406c1"
-dependencies = [
- "ahash",
- "android-activity",
- "atomic-waker",
- "bitflags 2.13.0",
- "block2 0.5.1",
- "bytemuck",
- "calloop",
- "cfg_aliases 0.2.1",
- "concurrent-queue",
- "core-foundation 0.9.4",
- "core-graphics",
- "cursor-icon",
- "dpi",
- "js-sys",
- "libc",
- "memmap2",
- "ndk",
- "objc2 0.5.2",
- "objc2-app-kit 0.2.2",
- "objc2-foundation 0.2.2",
- "objc2-ui-kit",
- "orbclient",
- "percent-encoding",
- "pin-project",
- "raw-window-handle",
- "redox_syscall 0.4.1",
- "rustix 0.38.44",
- "smithay-client-toolkit",
- "smol_str",
- "tracing",
- "unicode-segmentation",
- "wasm-bindgen",
- "wasm-bindgen-futures",
- "wayland-backend",
- "wayland-client",
- "wayland-protocols",
- "wayland-protocols-plasma",
- "web-sys",
- "web-time",
- "windows-sys 0.52.0",
- "x11-dl",
- "x11rb",
- "xkbcommon-dl",
 ]
 
 [[package]]

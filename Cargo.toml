@@ -55,6 +55,12 @@ members = [
 exclude = ["third_party/vello"]
 resolver = "2"
 
+# Dependencies such as fission-accesskit-winit still declare the published
+# fission-winit package. Keep the complete workspace on the patched revision so
+# every shell and adapter shares one winit type identity.
+[patch.crates-io]
+fission-winit = { git = "https://github.com/worka-ai/winit", rev = "1e99d748234f11a0dd49a00a1ffc3cca1bb0b203" }
+
 [workspace.lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(cargo_clippy)', 'cfg(feature, values("cargo-clippy"))'] }
 
