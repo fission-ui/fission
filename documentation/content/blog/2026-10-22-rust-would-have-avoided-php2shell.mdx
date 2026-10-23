@@ -269,7 +269,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   </label>
 
   <button type="submit">Sign in</button>
-  <a href="/forgot-password">Forgot password?</a>
+  <a href="https://example.com/forgot-password">Forgot password?</a>
 </form>
 ```
 
@@ -395,7 +395,7 @@ fission_component! {
                   ),
 
                   Link(
-                      href: "/forgot-password",
+                      href: "https://example.com/forgot-password",
                       child: Text(
                           cx.tr("auth.forgot_password")
                       ),
