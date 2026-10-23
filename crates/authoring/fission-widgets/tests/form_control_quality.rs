@@ -212,6 +212,7 @@ fn explicit_form_control_anatomy_does_not_collide_with_nested_composite_nodes() 
                 trigger_semantics_identifier: Some("collision-regression.trigger".into()),
                 placeholder: "Choose a role".into(),
                 width: Some(240.0),
+                ..Default::default()
             }
             .into(),
             error: None,
@@ -288,6 +289,7 @@ fn form_control_relates_the_actual_read_only_select_trigger() {
                 trigger_semantics_identifier: Some("country.trigger".into()),
                 placeholder: "Choose a country".into(),
                 width: Some(240.0),
+                ..Default::default()
             }
             .into(),
             error: Some("Choose a supported country.".into()),

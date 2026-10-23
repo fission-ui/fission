@@ -160,6 +160,7 @@ fission_component! {
                         icon: None,
                         on_select: on_select.clone(),
                         semantics_identifier: Some((*identifier).into()),
+                        form_value: None,
                     })
                     .collect::<Vec<_>>(),
             ),

@@ -245,14 +245,51 @@ FissionServerApp::new("Store")
 ```
 
 Set `name` and `form_id` on each `TextInput`, and call
-`.name("archived").form_id("catalog-search")` on a `Checkbox`. Associate the
-submit button with `.form_id("catalog-search")`. Fission keeps the route,
+`.name("archived").form_id("catalog-search")` on a Boolean `Checkbox`.
+Repeated checkbox options share a name and supply distinct values, for example
+`.name("tag").form_id("catalog-search").form_value(tag.slug.clone())`. A
+retained `Select` participates in the same form by setting its `name`,
+`form_id`, and current machine `form_value`; its localized `selected_label`
+remains presentation only. Associate the submit button with
+`.form_id("catalog-search")`. Fission keeps the route,
 target node, action type, expiry, nonce, and form schema inside the signed
 token; submitted controls can only populate the already-authorized action type.
 Unknown fields, duplicate scalar values, invalid booleans, malformed UTF-8 or
 percent encoding, schema violations, oversized bodies, wrong origins, and
 replayed tokens are rejected. Use `ServerFormField::repeated` only where the
 typed action deliberately accepts a sequence.
+
+The signed token also preserves the query values from the request that rendered
+the form. During the action request, Fission restores those verified values to
+`ctx.request.query`; query text supplied on the POST cannot replace them. This
+keeps request context such as OAuth state, PKCE parameters, and a sign-in
+`return_to` value available without copying it into an editable hidden input.
+
+If the action itself already carries trusted context, merge the validated form
+fields into that signed action with `form_action_with_context`:
+
+```rust
+#[derive(serde::Deserialize)]
+struct SearchFields {
+    query: String,
+    archived: bool,
+}
+
+FissionServerApp::new("Store")
+    .form_action_with_context::<SearchFields, SearchSubmitted, _>(
+        schema,
+        |mut signed_action, fields| {
+            signed_action.query = fields.query;
+            signed_action.archived = fields.archived;
+            signed_action
+        },
+    )
+```
+
+The callback receives the verified action payload created during rendering and
+the separately validated browser fields. It must return the same action type;
+the signed action identity, route, target, form schema, and original query
+remain framework-controlled.
 
 ## 6. Keep cached pages and actions separate
 

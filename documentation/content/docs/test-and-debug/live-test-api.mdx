@@ -55,6 +55,25 @@ client.simulate_resize(1280, 900)?;
 
 Web screenshots are composited Chromium page captures. The initial driver does not claim Firefox/WebKit coverage or trusted browser clipboard, file, accessibility, and IME event coverage.
 
+For any website, including a Fission Static site or SSR application, use the
+same client API with website mode. This needs no test bridge and works with
+ordinary rendered HTML, including real server navigation and browser session
+cookies:
+
+```rust
+let client = LiveTestClient::launch_browser(
+    BrowserTestOptions::new("http://127.0.0.1:3000/sign-in").website(),
+)?;
+client.fill_text_semantic_identifier("sign-in.email", "person@example.com")?;
+client.tap_selector(SelectorQuery::role_label("button", "Sign in"))?;
+client.wait_for_text("Welcome", 5_000)?;
+```
+
+Website mode uses standard HTML labels, accessible roles, element ids and
+`data-testid` attributes. It also understands Fission semantic identifiers when
+present. It drives Chromium through the test process and does not add a remotely
+accessible test endpoint to the application.
+
 Keep this client alive to resize the same page while retaining app state and
 route. Enable Web test control on the compiling command, for example
 `FISSION_WEB_TEST_CONTROL=1 ./platforms/web/build-wasm.sh`, and serve the build
@@ -66,8 +85,10 @@ the options timeout (capped at 60 seconds). A changed size must advance the
 frame acknowledgement; repeating the same size verifies the current frame.
 Raw Web bridge `SimulateResize` explicitly fails because it lacks host control.
 On failure inspect observed state and retry after repair, or drop/relaunch a
-closed client. Static DOM can use `BrowserTestOptions::new(url)` without a
-bridge for host resize and screenshots; this does not enable semantic commands.
+closed client. Plain DOM mode (`BrowserTestOptions::new(url)`) remains the
+minimal host-resize and screenshot mode. Use `.website()` when the test needs
+semantic selectors, form interaction, navigation or text assertions on any
+rendered website.
 See [SimulateResize](/reference/core/live-test-command-api/#simulateresize)
 for limits and recovery. Inspect narrow and wide PNG content after checking
 dimensions.

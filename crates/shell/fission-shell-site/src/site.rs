@@ -298,6 +298,12 @@ impl FissionSite {
         self
     }
 
+    /// Selects how Static site HTML output delivers packaged fonts.
+    pub fn with_font_delivery(mut self, delivery: crate::WebFontDelivery) -> Self {
+        self.document = self.document.with_font_delivery(delivery);
+        self
+    }
+
     /// Replaces the complete environment used while building routes.
     ///
     /// Use this to install translations and other shared environment services.

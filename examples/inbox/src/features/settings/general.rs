@@ -74,6 +74,7 @@ fission_component! {
                                     reduce_with!(set_inbox_type),
                                 ),
                                 semantics_identifier: Some((*identifier).into()),
+                                form_value: None,
                             })
                             .collect::<Vec<_>>(),
                     ),

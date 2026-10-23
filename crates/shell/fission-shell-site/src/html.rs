@@ -19,6 +19,8 @@ use fission_ir::{
 use fission_theme::{DesignMode, PackagedFont, PackagedFontStyle, Theme};
 use std::collections::{BTreeMap, HashSet};
 
+use crate::WebFontDelivery;
+
 mod path_css;
 
 #[derive(Clone, Debug)]
@@ -76,6 +78,12 @@ pub struct HtmlRenderOptions {
     pub web_registrations: BTreeMap<WidgetId, WebRegistration>,
     /// Font faces embedded by the selected design system.
     pub font_faces: &'static [PackagedFont],
+    /// Whether generated node CSS is linked as a content-addressed stylesheet.
+    ///
+    /// SSR enables this so route-specific rules never accumulate in the shared
+    /// stylesheet. Static-site builds reuse one registry and emit one complete
+    /// stylesheet after rendering every route.
+    pub separate_generated_stylesheet: bool,
 }
 
 impl Default for HtmlRenderOptions {
@@ -107,6 +115,7 @@ impl Default for HtmlRenderOptions {
             video_registrations: BTreeMap::new(),
             web_registrations: BTreeMap::new(),
             font_faces: &[],
+            separate_generated_stylesheet: false,
         }
     }
 }
@@ -145,6 +154,8 @@ pub struct RenderedHtml {
     pub body_html: String,
     /// Deduplicated CSS generated while rendering.
     pub css: String,
+    /// Content-addressed stylesheet URL when generated CSS is emitted separately.
+    pub generated_stylesheet_href: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, serde::Deserialize)]
@@ -219,15 +230,6 @@ pub fn render_ir_to_html_with_styles(
     let root = ir
         .root
         .ok_or_else(|| anyhow!("site render failed: Core IR has no root node"))?;
-    for font in options.font_faces {
-        styles.raw_rule(
-            format!(
-                "fission-font-{}-{}-{:?}",
-                font.family, font.weight, font.style
-            ),
-            packaged_font_css(font),
-        );
-    }
     let mut renderer = HtmlRenderer {
         ir,
         options,
@@ -245,15 +247,50 @@ pub fn render_ir_to_html_with_styles(
         "<div class=\"{}\"{direction_attr}>{body}</div>",
         escape_attr(&options.root_class)
     );
-    let html = render_document(&body_html, options, has_code_blocks);
+    let css = renderer.styles.to_css();
+    let generated_stylesheet_href = (options.separate_generated_stylesheet && !css.is_empty())
+        .then(|| generated_stylesheet_href(&css));
+    let html = render_document(
+        &body_html,
+        options,
+        has_code_blocks,
+        generated_stylesheet_href.as_deref(),
+    );
     Ok(RenderedHtml {
         html,
         body_html,
-        css: renderer.styles.to_css(),
+        css,
+        generated_stylesheet_href,
     })
 }
 
-fn packaged_font_css(font: &PackagedFont) -> String {
+/// Returns the relative, content-addressed URL used by generated font CSS.
+pub fn packaged_font_asset_href(font: &PackagedFont) -> String {
+    format!(
+        "__fission/fonts/{:016x}.{}",
+        stable_hash(font.data),
+        font_extension(font.format)
+    )
+}
+
+/// Returns an absolute request path for a packaged font asset.
+pub fn packaged_font_asset_path(font: &PackagedFont) -> String {
+    format!("/{}", packaged_font_asset_href(font))
+}
+
+/// Returns the MIME type served for a packaged font asset.
+pub fn packaged_font_content_type(font: &PackagedFont) -> &'static str {
+    match font_extension(font.format) {
+        "woff2" => "font/woff2",
+        "woff" => "font/woff",
+        "otf" => "font/otf",
+        "ttf" => "font/ttf",
+        _ => "application/octet-stream",
+    }
+}
+
+/// Generates one `@font-face` rule when packaged-font delivery is enabled.
+pub fn packaged_font_css(font: &PackagedFont, delivery: WebFontDelivery) -> Option<String> {
     let style = match font.style {
         PackagedFontStyle::Normal => "normal",
         PackagedFontStyle::Italic => "italic",
@@ -273,27 +310,45 @@ fn packaged_font_css(font: &PackagedFont) -> String {
             .join(",");
         format!("font-variation-settings:{settings};")
     };
-    format!(
-        "@font-face{{font-family:'{}';font-style:{style};font-weight:{};font-display:swap;{axes}src:url(data:font/{};base64,{}) format('{}')}}",
+    let source = match delivery {
+        WebFontDelivery::None => return None,
+        WebFontDelivery::External => packaged_font_asset_href(font),
+        WebFontDelivery::Inline => format!(
+            "data:{};base64,{}",
+            packaged_font_content_type(font),
+            BASE64_STANDARD.encode(font.data)
+        ),
+    };
+    Some(format!(
+        "@font-face{{font-family:'{}';font-style:{style};font-weight:{};font-display:swap;{axes}src:url('{}') format('{}')}}",
         escape_attr(font.family),
         font.weight,
-        font_mime(font.format),
-        BASE64_STANDARD.encode(font.data),
+        escape_attr(&source),
         escape_attr(font.format),
-    )
+    ))
 }
 
-fn font_mime(format: &str) -> &'static str {
+fn font_extension(format: &str) -> &'static str {
     match format.to_ascii_lowercase().as_str() {
         "woff2" => "woff2",
         "woff" => "woff",
         "opentype" | "otf" => "otf",
         "truetype" | "ttf" => "ttf",
-        _ => "octet-stream",
+        _ => "bin",
     }
 }
 
-fn render_document(body_html: &str, options: &HtmlRenderOptions, has_code_blocks: bool) -> String {
+/// Returns the content-addressed URL for generated route CSS.
+pub fn generated_stylesheet_href(css: &str) -> String {
+    format!("/__fission/styles/{:016x}.css", stable_hash(css.as_bytes()))
+}
+
+fn render_document(
+    body_html: &str,
+    options: &HtmlRenderOptions,
+    has_code_blocks: bool,
+    generated_stylesheet_href: Option<&str>,
+) -> String {
     let head_start_html = raw_page_elements(&options.head_start_html, 4);
     let head_end_html = raw_page_elements(&options.head_end_html, 4);
     let body_start_html = raw_page_elements(&options.body_start_html, 4);
@@ -377,8 +432,16 @@ fn render_document(body_html: &str, options: &HtmlRenderOptions, has_code_blocks
     let code_highlighting_assets = code_highlighting_assets(options, has_code_blocks);
     let search_script = search_script(options);
     let enhancement_script = site_enhancement_script(options);
+    let generated_stylesheet = generated_stylesheet_href
+        .map(|href| {
+            format!(
+                "\n    <link rel=\"stylesheet\" href=\"{}\">",
+                escape_attr(href)
+            )
+        })
+        .unwrap_or_default();
     format!(
-        "<!doctype html>\n<html lang=\"{}\"{theme_attr}>\n  <head>{head_start_html}\n    <meta charset=\"utf-8\">\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">{metadata}\n    <title>{}</title>\n    <link rel=\"stylesheet\" href=\"{}\">{code_highlighting_assets}{search_script}{enhancement_script}{head_end_html}\n  </head>\n  <body>{body_start_html}\n    {body_html}{body_end_html}\n  </body>\n</html>\n",
+        "<!doctype html>\n<html lang=\"{}\"{theme_attr}>\n  <head>{head_start_html}\n    <meta charset=\"utf-8\">\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">{metadata}\n    <title>{}</title>\n    <link rel=\"stylesheet\" href=\"{}\">{generated_stylesheet}{code_highlighting_assets}{search_script}{enhancement_script}{head_end_html}\n  </head>\n  <body>{body_start_html}\n    {body_html}{body_end_html}\n  </body>\n</html>\n",
         escape_attr(&options.lang),
         escape_text(&options.document_title),
         escape_attr(&options.stylesheet_href)
@@ -1658,6 +1721,8 @@ impl HtmlRenderer<'_> {
                 "fission-site-node fission-site-align",
                 vec![
                     "display:flex".to_string(),
+                    "width:100%".to_string(),
+                    "height:100%".to_string(),
                     "align-items:center".to_string(),
                     "justify-content:center".to_string(),
                 ],
@@ -1671,6 +1736,8 @@ impl HtmlRenderer<'_> {
                 "fission-site-node fission-site-align",
                 vec![
                     "display:flex".to_string(),
+                    "width:100%".to_string(),
+                    "height:100%".to_string(),
                     format!("align-items:{}", box_alignment_css(*vertical)),
                     format!("justify-content:{}", box_alignment_css(*horizontal)),
                 ],
@@ -2229,7 +2296,66 @@ impl HtmlRenderer<'_> {
                 return Ok(html);
             }
         }
-        let children = self.render_children(&node.children, &HashSet::new())?;
+        if semantics.role == Role::ComboBox
+            && semantics.text_field_name.is_some()
+            && !semantics.form_select_options.is_empty()
+        {
+            let mut native_semantics = semantics.clone();
+            native_semantics.expanded = None;
+            native_semantics.has_popup = None;
+            native_semantics.controls.clear();
+            native_semantics.active_descendant = None;
+            let mut attrs = self.native_control_attrs(node, &native_semantics);
+            if native_semantics.required {
+                attrs.push_str(" required");
+            }
+            let mut options = String::new();
+            let selected_value = semantics.form_value.as_deref();
+            let selected_value_is_present = selected_value.is_some_and(|selected| {
+                semantics
+                    .form_select_options
+                    .iter()
+                    .any(|option| option.value == selected)
+            });
+            if !selected_value_is_present {
+                options.push_str(&format!(
+                    "<option value=\"\" selected disabled>{}</option>",
+                    escape_text(semantics.value.as_deref().unwrap_or_default()),
+                ));
+            }
+            for option in &semantics.form_select_options {
+                let selected = (selected_value == Some(option.value.as_str()))
+                    .then_some(" selected")
+                    .unwrap_or_default();
+                let disabled = option.disabled.then_some(" disabled").unwrap_or_default();
+                options.push_str(&format!(
+                    "<option value=\"{}\"{selected}{disabled}>{}</option>",
+                    escape_attr(&option.value),
+                    escape_text(&option.label),
+                ));
+            }
+            return Ok(format!(
+                "<select class=\"fission-site-node fission-site-input\"{attrs}>{options}</select>"
+            ));
+        }
+        let mut children = self.render_children(&node.children, &HashSet::new())?;
+        if semantics.role == Role::ComboBox && !semantics.disabled {
+            if let (Some(name), Some(value)) = (
+                semantics.text_field_name.as_deref(),
+                semantics.form_value.as_deref(),
+            ) {
+                let form = semantics
+                    .text_form_id
+                    .as_deref()
+                    .map(|form_id| format!(" form=\"{}\"", escape_attr(form_id)))
+                    .unwrap_or_default();
+                children.push_str(&format!(
+                    "<input type=\"hidden\" name=\"{}\" value=\"{}\"{form}>",
+                    escape_attr(name),
+                    escape_attr(value),
+                ));
+            }
+        }
         Ok(format!(
             "<{tag} class=\"fission-site-node fission-site-semantics\"{attrs} data-fission-node=\"{}\">{children}</{tag}>",
             node.id
@@ -2346,16 +2472,22 @@ impl HtmlRenderer<'_> {
                 ));
             }
         }
-        // The browser range input replaces the retained slider's painted track
-        // and thumb. Rendering both creates a second, non-interactive slider.
-        let children = if semantics.role == Role::Slider {
+        // Native successful controls must own their visible state. A named
+        // checkbox or radio can change locally before its form is submitted;
+        // retaining the separately painted indicator would leave that visual
+        // frozen at the server-rendered value. As with range controls, render
+        // only the native control and its semantic label in this case.
+        let native_form_checkable = matches!(semantics.role, Role::Checkbox | Role::Radio)
+            && semantics.text_field_name.is_some();
+        let children = if semantics.role == Role::Slider || native_form_checkable {
             String::new()
         } else {
             self.render_children(&node.children, &HashSet::new())?
         };
         let retained_checkable =
             matches!(semantics.role, Role::Checkbox | Role::Radio | Role::Switch)
-                && !node.children.is_empty();
+                && !node.children.is_empty()
+                && !native_form_checkable;
         let control_class = if retained_checkable {
             "fission-site-node fission-site-control fission-site-retained-control"
         } else {
@@ -2378,6 +2510,9 @@ impl HtmlRenderer<'_> {
             Role::Checkbox | Role::Switch => {
                 if semantics.role == Role::Switch {
                     attrs.push_str(" role=\"switch\"");
+                }
+                if let Some(value) = semantics.form_value.as_deref() {
+                    attrs.push_str(&format!(" value=\"{}\"", escape_attr(value)));
                 }
                 if semantics.checked.unwrap_or(false) {
                     attrs.push_str(" checked");
@@ -4888,7 +5023,8 @@ mod tests {
         Op, Semantics, WidgetId,
     };
     use fission_widgets::{
-        FormControlLayout, FormDescription, FormError, FormLabel, MarkdownContent,
+        FormControlLayout, FormDescription, FormError, FormLabel, MarkdownContent, Select,
+        SelectItem,
     };
 
     static TEST_FONT: [PackagedFont; 1] = [PackagedFont {
@@ -5069,7 +5205,7 @@ mod tests {
     }
 
     #[test]
-    fn embeds_packaged_font_faces_in_site_css() {
+    fn packaged_fonts_are_omitted_by_default() {
         let root = WidgetId::explicit("root");
         let mut ir = CoreIR::new();
         ir.add_node(
@@ -5078,21 +5214,30 @@ mod tests {
             Vec::new(),
         );
         ir.set_root(root);
-        let rendered = render_ir_to_html(
-            &ir,
-            &HtmlRenderOptions {
-                font_faces: &TEST_FONT,
-                ..Default::default()
-            },
-        )
-        .unwrap();
+        let rendered = render_ir_to_html(&ir, &HtmlRenderOptions::default()).unwrap();
+        assert!(!rendered.css.contains("@font-face"));
 
-        assert!(rendered.css.contains("@font-face"));
-        assert!(rendered.css.contains("font-family:'Test Sans'"));
-        assert!(rendered.css.contains("font-weight:600"));
-        assert!(rendered.css.contains("font-style:italic"));
-        assert!(rendered.css.contains("font-variation-settings:'wght' 612"));
-        assert!(rendered.css.contains("base64,Zm9udC1ieXRlcw=="));
+        assert_eq!(
+            packaged_font_css(&TEST_FONT[0], WebFontDelivery::default()),
+            None
+        );
+    }
+
+    #[test]
+    fn packaged_fonts_can_use_external_cacheable_assets() {
+        let css = packaged_font_css(&TEST_FONT[0], WebFontDelivery::External).unwrap();
+        assert!(css.contains("font-family:'Test Sans'"));
+        assert!(css.contains("font-weight:600"));
+        assert!(css.contains("font-style:italic"));
+        assert!(css.contains("font-variation-settings:'wght' 612"));
+        assert!(css.contains("src:url('__fission/fonts/"));
+        assert!(!css.contains("data:"));
+    }
+
+    #[test]
+    fn packaged_fonts_embed_only_when_explicitly_requested() {
+        let css = packaged_font_css(&TEST_FONT[0], WebFontDelivery::Inline).unwrap();
+        assert!(css.contains("src:url('data:font/ttf;base64,Zm9udC1ieXRlcw==')"));
     }
 
     #[test]
@@ -5715,6 +5860,9 @@ mod tests {
         assert!(rendered
             .html
             .contains("data-fission-action-payload=\"dead\""));
+        assert!(rendered.css.contains(
+            "display:flex;width:100%;height:100%;align-items:center;justify-content:center"
+        ));
     }
 
     #[test]
@@ -5776,6 +5924,43 @@ mod tests {
         assert!(switch.contains("role=\"switch\""));
         assert!(switch.contains(" checked"));
         assert!(switch.contains(" disabled"));
+    }
+
+    #[test]
+    fn checkbox_form_values_preserve_boolean_and_repeated_field_contracts() {
+        let rendered = render_test_component(|| {
+            Column {
+                children: vec![
+                    Checkbox {
+                        name: Some("terms".into()),
+                        form_id: Some("connect".into()),
+                        checked: true,
+                        ..Default::default()
+                    }
+                    .into(),
+                    Checkbox {
+                        name: Some("regions".into()),
+                        form_id: Some("connect".into()),
+                        form_value: Some("eu-west".into()),
+                        checked: true,
+                        ..Default::default()
+                    }
+                    .into(),
+                ],
+                ..Default::default()
+            }
+            .into()
+        });
+
+        assert!(rendered.html.contains("name=\"terms\""));
+        assert!(!rendered.html.contains("name=\"terms\" value="));
+        assert!(rendered
+            .html
+            .contains("name=\"regions\" form=\"connect\" value=\"eu-west\" checked"));
+        assert!(!rendered.html.contains("fission-site-retained-control"));
+        assert!(!rendered
+            .html
+            .contains("fission-site-retained-control-input"));
     }
 
     #[test]
@@ -6464,7 +6649,7 @@ mod tests {
     }
 
     #[test]
-    fn noneditable_combobox_does_not_render_as_a_text_control() {
+    fn noneditable_combobox_uses_a_hidden_successful_form_control() {
         let node = WidgetId::explicit("noneditable-combobox");
         let mut ir = CoreIR::new();
         ir.add_node(
@@ -6473,6 +6658,9 @@ mod tests {
                 role: Role::ComboBox,
                 label: Some("Destination".into()),
                 value: Some("London".into()),
+                text_field_name: Some("destination".into()),
+                text_form_id: Some("journey".into()),
+                form_value: Some("lhr".into()),
                 ..Default::default()
             }),
             Vec::new(),
@@ -6481,8 +6669,77 @@ mod tests {
 
         let rendered = render_ir_to_html(&ir, &HtmlRenderOptions::default()).unwrap();
 
-        assert!(!rendered.html.contains("<input"));
+        assert!(rendered.html.contains(
+            "<input type=\"hidden\" name=\"destination\" value=\"lhr\" form=\"journey\">"
+        ));
         assert!(rendered.html.contains("role=\"combobox\""));
+
+        let mut disabled_ir = CoreIR::new();
+        disabled_ir.add_node(
+            node,
+            Op::Semantics(Semantics {
+                role: Role::ComboBox,
+                disabled: true,
+                text_field_name: Some("destination".into()),
+                text_form_id: Some("journey".into()),
+                form_value: Some("lhr".into()),
+                ..Default::default()
+            }),
+            Vec::new(),
+        );
+        disabled_ir.set_root(node);
+        let disabled = render_ir_to_html(&disabled_ir, &HtmlRenderOptions::default()).unwrap();
+        assert!(!disabled.html.contains("name=\"destination\""));
+    }
+
+    #[test]
+    fn retained_select_with_machine_values_renders_a_native_form_control() {
+        let rendered = render_test_component(|| {
+            Select {
+                id: WidgetId::explicit("region"),
+                selected_label: Some("Europe West".into()),
+                items: vec![
+                    SelectItem {
+                        label: "Europe West".into(),
+                        icon: None,
+                        on_select: ActionEnvelope {
+                            id: ActionId::from_name("region.eu-west"),
+                            payload: Vec::new(),
+                        },
+                        semantics_identifier: Some("region.eu-west".into()),
+                        form_value: Some("eu-west".into()),
+                    },
+                    SelectItem {
+                        label: "US East".into(),
+                        icon: None,
+                        on_select: ActionEnvelope {
+                            id: ActionId::from_name("region.us-east"),
+                            payload: Vec::new(),
+                        },
+                        semantics_identifier: Some("region.us-east".into()),
+                        form_value: Some("us-east".into()),
+                    },
+                ],
+                name: Some("default_region".into()),
+                form_id: Some("connect".into()),
+                form_value: Some("eu-west".into()),
+                ..Default::default()
+            }
+            .into()
+        });
+
+        assert!(rendered.html.contains("<select"));
+        assert!(rendered.html.contains("name=\"default_region\""));
+        assert!(rendered.html.contains("form=\"connect\""));
+        assert!(rendered
+            .html
+            .contains("<option value=\"eu-west\" selected>Europe West</option>"));
+        assert!(rendered
+            .html
+            .contains("<option value=\"us-east\">US East</option>"));
+        assert!(!rendered.html.contains("type=\"hidden\""));
+        assert!(crate::build::site_base_css()
+            .contains("select.fission-site-input {\n  appearance: auto;"));
     }
 
     #[test]

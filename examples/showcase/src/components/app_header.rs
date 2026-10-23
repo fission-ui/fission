@@ -76,6 +76,7 @@ fission_component! {
                 icon: None,
                 on_select: with_reducer!(cx.build, SetLocale((*code).to_string()), on_set_locale),
                 semantics_identifier: Some(format!("showcase.preview.locale.{code}")),
+                form_value: None,
             })
             .collect();
         let selected = LOCALES

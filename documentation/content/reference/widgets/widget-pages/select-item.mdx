@@ -26,6 +26,7 @@ let items = vec![
             payload: serde_json::to_vec(&SetDensity(Density::Compact)).unwrap(),
         },
         semantics_identifier: Some("density.compact".into()),
+        form_value: None,
     },
     SelectItem {
         label: "Comfortable".into(),
@@ -35,6 +36,7 @@ let items = vec![
             payload: serde_json::to_vec(&SetDensity(Density::Comfortable)).unwrap(),
         },
         semantics_identifier: Some("density.comfortable".into()),
+        form_value: None,
     },
 ];
 ```
@@ -49,6 +51,7 @@ Each item contains the final action for that option, so `Select` does not have t
 | `icon` | `Option<String>` | Optional icon source shown before the label. | Defaults to `None`. |
 | `on_select` | `ActionEnvelope` | Action dispatched when this option is chosen. | Required. Usually updates the selected value and closes the menu. |
 | `semantics_identifier` | `Option<String>` | Stable identifier exposed on the generated option semantic node. | Use it when visible labels may be duplicated or localized. |
+| `form_value` | `Option<String>` | Stable machine value used by native Static site and SSR options. | Set it on every item when the surrounding `Select` belongs to a server form. |
 
 ## How to think about it
 
@@ -75,7 +78,7 @@ an option look unavailable while leaving it actionable.
 
 ## Production checklist
 
-For `SelectItem`, review the fields that change behavior before treating the widget as finished: `label`, `icon`, `on_select`, and `semantics_identifier`. The goal is to make the product rule visible in state and actions, not hidden inside ad-hoc construction code.
+For `SelectItem`, review the fields that change behavior before treating the widget as finished: `label`, `icon`, `on_select`, `semantics_identifier`, and `form_value`. The goal is to make the product rule visible in state and actions, not hidden inside ad-hoc construction code.
 
 - Bind `on_select` to explicit reducer actions and test that the reducer handles unavailable, duplicate, or invalid input safely.
 - Check the semantics tree for the user-facing label or role that makes this widget understandable without relying only on pixels.

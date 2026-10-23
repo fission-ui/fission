@@ -61,6 +61,7 @@ fission_component! {
                                         "inbox.sort.{}",
                                         value.to_lowercase()
                                     )),
+                                    form_value: None,
                                 })
                                 .collect::<Vec<_>>(),
                             is_open: state.show_sort_menu,

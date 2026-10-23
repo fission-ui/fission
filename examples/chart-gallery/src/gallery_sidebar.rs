@@ -123,6 +123,7 @@ fission_component! {
             label: (*name).to_string(), icon: None,
             on_select: ActionEnvelope { id: sidebar.select_chart_id, payload: serde_json::to_vec(&SelectChart(*index, 0)).expect("serialize SelectChart action") },
             semantics_identifier: Some(if *index == SHOWCASE_CATEGORY { "chart-gallery.category.overview".to_string() } else { format!("chart-gallery.category.{index}") }),
+            form_value: None,
         }).collect();
         let charts = sidebar.categories.iter().find(|category| category.index == state.selected_category).map(|category| category.charts.clone()).unwrap_or_default();
     } => Container(Column(gap: tokens.spacing.s, children: [

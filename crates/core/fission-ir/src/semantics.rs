@@ -1017,6 +1017,18 @@ const fn default_sequential_focusable() -> bool {
     true
 }
 
+/// One machine-valued option in a server-rendered HTML select control.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct FormSelectOption {
+    /// User-facing option label after localisation has been resolved.
+    pub label: String,
+    /// Stable machine value submitted by the surrounding form.
+    pub value: String,
+    /// Whether the option remains visible but cannot be selected.
+    #[serde(default)]
+    pub disabled: bool,
+}
+
 /// Accessibility and interaction metadata for a node.
 ///
 /// `Semantics` is the IR's way of describing *what a node means* rather than how it
@@ -1212,6 +1224,17 @@ pub struct Semantics {
     /// Logical form membership for coordinated validation/submission.
     #[serde(default)]
     pub text_form_id: Option<String>,
+    /// Explicit value submitted by a successful server-rendered form control.
+    ///
+    /// Checkable controls without this value retain the HTML default of `on`.
+    /// Composite controls such as a retained select use it as the selected
+    /// machine value of their native or hidden successful control.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub form_value: Option<String>,
+    /// Native choices exposed when a retained select is rendered as an HTML
+    /// successful control.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub form_select_options: Vec<FormSelectOption>,
     /// Autofill session/group shared by related fields.
     #[serde(default)]
     pub autofill_group: Option<String>,
@@ -1309,6 +1332,8 @@ impl std::hash::Hash for Semantics {
         self.input_formatters.hash(state);
         self.text_field_name.hash(state);
         self.text_form_id.hash(state);
+        self.form_value.hash(state);
+        self.form_select_options.hash(state);
         self.autofill_group.hash(state);
         self.required.hash(state);
         self.min_length.hash(state);
@@ -1391,6 +1416,8 @@ impl Default for Semantics {
             input_formatters: Vec::new(),
             text_field_name: None,
             text_form_id: None,
+            form_value: None,
+            form_select_options: Vec::new(),
             autofill_group: None,
             required: false,
             min_length: None,

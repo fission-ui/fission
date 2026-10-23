@@ -26,6 +26,7 @@ fission_component! {
                     "showcase.preview.design_system.{}",
                     choice.slug()
                 )),
+                form_value: None,
             })
             .collect();
 
