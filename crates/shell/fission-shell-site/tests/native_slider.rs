@@ -187,6 +187,14 @@ fn number_input_retains_one_editable_field_and_both_step_buttons() {
     .unwrap();
     assert_eq!(rendered.html.matches("<input ").count(), 1);
     assert_eq!(rendered.html.matches("<button ").count(), 2);
+    let button_openings = rendered
+        .html
+        .split("<button ")
+        .skip(1)
+        .map(|button| button.split('>').next().unwrap())
+        .collect::<Vec<_>>();
+    assert!(button_openings[0].contains("aria-label=\"Decrease\""));
+    assert!(button_openings[1].contains("aria-label=\"Increase\""));
     assert!(rendered.html.contains("role=\"spinbutton\""));
     assert!(rendered
         .html

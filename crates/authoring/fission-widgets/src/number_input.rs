@@ -1,5 +1,7 @@
 use crate::Icon;
-use fission_core::ui::{Button, ButtonVariant, Container, Row, SemanticsRegion, TextInput, Widget};
+use fission_core::ui::{
+    Button, ButtonIconContent, ButtonVariant, Container, Row, SemanticsRegion, TextInput, Widget,
+};
 use fission_core::{ActionEnvelope, WidgetId};
 use fission_icons::material;
 use fission_ir::Role;
@@ -97,22 +99,18 @@ impl From<NumberInput> for Widget {
                 .gap(this.gap.or(recipe.base.gap).unwrap_or(tokens.spacing.xs))
                 .align_items(fission_ir::op::AlignItems::Center)
                 .children(vec![
-                    SemanticsRegion::new(Button {
+                    Button {
                         variant: ButtonVariant::Ghost,
-                        child: Some(
-                            Icon::svg(material::content::remove::regular())
-                                .size(icon_size)
-                                .into(),
-                        ),
+                        icon_content: Some(ButtonIconContent::new(
+                            Icon::svg(material::content::remove::regular()).size(icon_size),
+                            "Decrease",
+                        )),
                         on_press: this.on_decrement.clone(),
                         width: Some(button_size),
                         height: Some(button_size),
                         padding: Some([0.0; 4]),
                         ..Default::default()
-                    })
-                    // Icon-only controls need names; a bare glyph announces
-                    // nothing.
-                    .label("Decrease")
+                    }
                     .into(),
                     TextInput {
                         id: input_id.map(Into::into),
@@ -124,20 +122,18 @@ impl From<NumberInput> for Widget {
                         ..Default::default()
                     }
                     .into(),
-                    SemanticsRegion::new(Button {
+                    Button {
                         variant: ButtonVariant::Ghost,
-                        child: Some(
-                            Icon::svg(material::content::add::regular())
-                                .size(icon_size)
-                                .into(),
-                        ),
+                        icon_content: Some(ButtonIconContent::new(
+                            Icon::svg(material::content::add::regular()).size(icon_size),
+                            "Increase",
+                        )),
                         on_press: this.on_increment.clone(),
                         width: Some(button_size),
                         height: Some(button_size),
                         padding: Some([0.0; 4]),
                         ..Default::default()
-                    })
-                    .label("Increase")
+                    }
                     .into(),
                 ]),
         )
