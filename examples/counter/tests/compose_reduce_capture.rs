@@ -15,8 +15,7 @@ fission_component! {
             Button(
                 child: Text(format!("Credential {id}")),
                 key: id,
-                handler: "select-credential",
-                on_press: reduce(credential_id: u64 = id) {
+                on_press: reduce select_credential(credential_id: u64 = id) {
                     picker.selected = Some(credential_id);
                 },
             )

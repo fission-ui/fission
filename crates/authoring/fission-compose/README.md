@@ -68,16 +68,16 @@ that updates their parent component's retained local state:
 Button(
     child: Text(option.label.clone()),
     key: option.id,
-    handler: "select-option",
-    on_press: reduce(option_id: OptionId = option.id.clone()) {
+    on_press: reduce select_option(option_id: OptionId = option.id.clone()) {
         picker.selected = Some(option_id);
     },
 )
 ```
 
-The capture becomes part of the generated action payload. Use this for
-component-owned interaction state; keep shared domain transitions as ordinary
-typed Fission actions and reducers.
+`select_option` is the generated reducer's stable authored name; the capture
+becomes part of its action payload. Use this for component-owned interaction
+state; keep shared domain transitions as ordinary typed Fission actions and
+reducers.
 
 Handwritten `From<YourWidget> for Widget` implementations remain fully interoperable for low-level custom rendering.
 

@@ -548,10 +548,18 @@ impl Emitter<'_> {
                     )?;
                     quote!((#handler).into())
                 } else if let Value::Reduce(reducer) = &arg.value {
-                    let handler_name=c.named("handler").and_then(Value::rust).and_then(string_literal)
+                    let named_reducer = reducer.name.as_ref().map(ToString::to_string);
+                    if named_reducer.is_some() && c.named("handler").is_some() {
+                        return Err(syn::Error::new(
+                            reducer.name.as_ref().expect("checked above").span(),
+                            "a named reducer already supplies its handler identity; remove handler:",
+                        ));
+                    }
+                    let handler_name=named_reducer
+                        .or_else(||c.named("handler").and_then(Value::rust).and_then(string_literal))
                         .or_else(||static_key.clone())
                         .or_else(||c.named("key").is_none().then(||automatic_key.clone()))
-                        .ok_or_else(||syn::Error::new_spanned(&reducer.body,"a reduce handler needs a literal key: \"reset\"; with a dynamic control key, add handler: \"reset\""))?;
+                        .ok_or_else(||syn::Error::new_spanned(&reducer.body,"a reduce handler needs a stable name: use reduce reset { ... } with a dynamic control key"))?;
                     let editor = &self.editor;
                     let state = &self.state;
                     let cx = &self.cx;
@@ -1235,7 +1243,12 @@ fn value_shape(value: &Value) -> String {
                 .join(","),
         ),
         Value::Reduce(reducer) => format!(
-            "reduce:({}):{}",
+            "reduce:{}:({}):{}",
+            reducer
+                .name
+                .as_ref()
+                .map(ToString::to_string)
+                .unwrap_or_default(),
             reducer
                 .captures
                 .iter()

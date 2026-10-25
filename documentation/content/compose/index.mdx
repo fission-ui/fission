@@ -142,8 +142,7 @@ for credential in &wizard.credentials {
     Button(
         child: Text(credential.label.clone()),
         key: credential.id,
-        handler: "select-credential",
-        on_press: reduce(
+        on_press: reduce select_credential(
             credential_id: CredentialId = credential.id.clone(),
         ) {
             wizard.selected_credential = Some(credential_id);
@@ -152,8 +151,10 @@ for credential in &wizard.credentials {
 }
 ```
 
-Capture expressions are evaluated when the control is built and stored in its
-typed action. Their types must satisfy Fission's owned action-payload bounds;
+`select_credential` gives the generated reducer one stable authored name shared
+by every row, while each row carries its own captured credential ID. Capture
+expressions are evaluated when the control is built and stored in its typed
+action. Their types must satisfy Fission's owned action-payload bounds;
 do not capture references, build handles, state handles or reducer contexts.
 Use additional `name: Type = expression` entries for multiple values. Prefer an
 existing typed action when the transition is shared domain behaviour rather

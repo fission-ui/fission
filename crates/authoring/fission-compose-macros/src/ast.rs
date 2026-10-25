@@ -282,6 +282,7 @@ pub struct ReduceCapture {
 }
 #[derive(Clone)]
 pub struct Reduce {
+    pub name: Option<Ident>,
     pub captures: Vec<ReduceCapture>,
     pub body: Block,
 }
@@ -404,6 +405,18 @@ impl Parse for Value {
     fn parse(input: ParseStream<'_>) -> syn::Result<Self> {
         if input.peek(kw::reduce) {
             input.parse::<kw::reduce>()?;
+            let name = if input.peek(Ident) {
+                let name: Ident = input.parse()?;
+                if name.to_string().starts_with("__") {
+                    return Err(syn::Error::new(
+                        name.span(),
+                        "reducer names beginning __ are reserved for generated implementation details",
+                    ));
+                }
+                Some(name)
+            } else {
+                None
+            };
             let mut captures = Vec::new();
             if input.peek(syn::token::Paren) {
                 let arguments;
@@ -440,6 +453,7 @@ impl Parse for Value {
                 }
             }
             return Ok(Self::Reduce(Reduce {
+                name,
                 captures,
                 body: input.parse()?,
             }));

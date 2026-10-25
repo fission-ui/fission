@@ -633,8 +633,7 @@ mod tests {
                     Button(
                         child: Text(id.to_string()),
                         key: id,
-                        handler: "select",
-                        on_press: reduce(selected_id: u64 = id) {
+                        on_press: reduce select(selected_id: u64 = id) {
                             picker.selected = Some(selected_id);
                         },
                     )
@@ -646,6 +645,19 @@ mod tests {
         let output = output.to_string();
         assert!(output.contains("selected_id : u64"), "{output}");
         assert!(output.contains("selected_id : id"), "{output}");
+    }
+    #[test]
+    fn named_reducers_replace_separate_dynamic_handler_names() {
+        rejects(
+            quote! {
+                Picker<()> view(picker, _state, _cx) => Button(
+                    key: picker.id,
+                    handler: "select",
+                    on_press: reduce select(id: u64 = picker.id) {},
+                )
+            },
+            "named reducer already supplies its handler identity",
+        );
     }
     #[test]
     fn reducer_capture_names_are_unique_and_cannot_shadow_view_bindings() {
