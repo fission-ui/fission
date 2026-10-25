@@ -266,7 +266,10 @@
       case'blur_by_semantics': if(el&&typeof el.blur==='function')el.blur(); break;
       case'replace_children_html_by_semantics':
         if(el&&typeof op.html==='string'){
-          if(shouldDeferDomReplacement(bridge,el)){
+          var activeNode=activeControlNode(bridge,el);
+          if(activeNode&&replaceChildrenHtmlPreservingNode(bridge,el,op.html,activeNode)){
+            if(bridge.deferredDomReplacements)delete bridge.deferredDomReplacements[op.semantics];
+          }else if(shouldDeferDomReplacement(bridge,el)){
             if(!bridge.deferredDomReplacements)bridge.deferredDomReplacements=Object.create(null);
             bridge.deferredDomReplacements[op.semantics]={semantics:op.semantics,html:op.html};
           }else{
@@ -288,6 +291,79 @@
     bindFissionBrowserActions(bridge);
     restoreFocusedTextControl(el,focused);
     restoreMenuFocus(bridge,el,menuFocus);
+  }
+
+  function activeControlNode(bridge,root){
+    if(controlByNode(root,bridge.activeRangeNode))return bridge.activeRangeNode;
+    if(controlByNode(root,bridge.activeNonSelectableTextNode))return bridge.activeNonSelectableTextNode;
+    return null;
+  }
+
+  function pathToNode(parent,node){
+    if(!parent||!parent.childNodes)return null;
+    for(var index=0;index<parent.childNodes.length;index++){
+      var child=parent.childNodes[index];
+      if(!child||child.nodeType!==1)continue;
+      var nested=pathToNode(child,node);
+      if(nested)return[child].concat(nested);
+      if(child.getAttribute('data-fission-node')===node)return[child];
+    }
+    return null;
+  }
+
+  function syncElementAttributes(current,next,preserveValue){
+    if(!current||!next||typeof current.getAttributeNames!=='function'||typeof next.getAttributeNames!=='function')return false;
+    current.getAttributeNames().forEach(function(name){
+      if((preserveValue&&name==='value')||next.hasAttribute(name))return;
+      current.removeAttribute(name);
+    });
+    next.getAttributeNames().forEach(function(name){
+      if(preserveValue&&name==='value')return;
+      current.setAttribute(name,next.getAttribute(name));
+    });
+    return true;
+  }
+
+  function reconcileChildrenPreservingNode(currentParent,nextParent,node){
+    var currentPath=pathToNode(currentParent,node);
+    var nextPath=pathToNode(nextParent,node);
+    if(!currentPath||!nextPath||currentPath.length!==nextPath.length)return false;
+    for(var index=0;index<currentPath.length;index++){
+      if(currentPath[index].tagName!==nextPath[index].tagName)return false;
+      if(currentPath[index].getAttribute('data-fission-node')!==nextPath[index].getAttribute('data-fission-node'))return false;
+      if(typeof currentPath[index].getAttributeNames!=='function'||typeof nextPath[index].getAttributeNames!=='function')return false;
+    }
+
+    for(var depth=0;depth<currentPath.length;depth++){
+      var currentChild=currentPath[depth];
+      var nextChild=nextPath[depth];
+      Array.prototype.slice.call(currentParent.childNodes).forEach(function(child){
+        if(child!==currentChild)currentParent.removeChild(child);
+      });
+      var afterPath=false;
+      Array.prototype.slice.call(nextParent.childNodes).forEach(function(child){
+        if(child===nextChild){afterPath=true;return;}
+        var clone=child.cloneNode(true);
+        currentParent.insertBefore(clone,afterPath?currentChild.nextSibling:currentChild);
+      });
+      syncElementAttributes(currentChild,nextChild,depth===currentPath.length-1);
+      currentParent=currentChild;
+      nextParent=nextChild;
+    }
+    return true;
+  }
+
+  // Apply the new render around an active native control without replacing the
+  // control itself. This keeps a range drag or number editor alive while still
+  // updating labels, totals, validation, and every other dependent node.
+  function replaceChildrenHtmlPreservingNode(bridge,el,html,node){
+    if(!document||typeof document.createElement!=='function')return false;
+    var next=document.createElement('div');
+    next.innerHTML=html;
+    if(!reconcileChildrenPreservingNode(el,next,node))return false;
+    bindFissionBrowserActions(bridge);
+    positionFissionFlyouts(browserActionRoot(bridge)||document);
+    return true;
   }
 
   // Replacing an island subtree destroys the browser's in-progress native
@@ -656,7 +732,8 @@
       utf8Offset:utf8Offset,
       applyDomOp:applyDomOp,
       flushDeferredDomReplacements:flushDeferredDomReplacements,
-      shouldDeferDomReplacement:shouldDeferDomReplacement
+      shouldDeferDomReplacement:shouldDeferDomReplacement,
+      reconcileChildrenPreservingNode:reconcileChildrenPreservingNode
     };
   }
 

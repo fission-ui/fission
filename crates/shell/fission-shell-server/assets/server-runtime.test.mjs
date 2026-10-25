@@ -82,6 +82,81 @@ class MockRoot {
   }
 }
 
+class MockDomText {
+  constructor(data) {
+    this.nodeType = 3;
+    this.data = data;
+    this.parentNode = null;
+  }
+
+  cloneNode() { return new MockDomText(this.data); }
+}
+
+class MockDomElement {
+  constructor(tagName, attributes = {}, children = []) {
+    this.nodeType = 1;
+    this.tagName = tagName.toUpperCase();
+    this.attributes = new Map(Object.entries(attributes));
+    this.childNodes = [];
+    this.parentNode = null;
+    this.value = attributes.value ?? '';
+    children.forEach((child) => this.appendChild(child));
+  }
+
+  get nextSibling() {
+    if (!this.parentNode) return null;
+    const index = this.parentNode.childNodes.indexOf(this);
+    return this.parentNode.childNodes[index + 1] ?? null;
+  }
+
+  appendChild(child) {
+    child.parentNode = this;
+    this.childNodes.push(child);
+    return child;
+  }
+
+  insertBefore(child, reference) {
+    child.parentNode = this;
+    const index = reference === null ? -1 : this.childNodes.indexOf(reference);
+    if (index < 0) this.childNodes.push(child);
+    else this.childNodes.splice(index, 0, child);
+    return child;
+  }
+
+  removeChild(child) {
+    const index = this.childNodes.indexOf(child);
+    if (index >= 0) this.childNodes.splice(index, 1);
+    child.parentNode = null;
+    return child;
+  }
+
+  getAttribute(name) { return this.attributes.get(name) ?? null; }
+  getAttributeNames() { return [...this.attributes.keys()]; }
+  hasAttribute(name) { return this.attributes.has(name); }
+  setAttribute(name, value) { this.attributes.set(name, String(value)); }
+  removeAttribute(name) { this.attributes.delete(name); }
+
+  querySelector(selector) {
+    const match = selector.match(/^\[data-fission-node="(.+)"\]$/);
+    if (!match) return null;
+    const expected = match[1];
+    for (const child of this.childNodes) {
+      if (child.nodeType !== 1) continue;
+      if (child.getAttribute('data-fission-node') === expected) return child;
+      const nested = child.querySelector(selector);
+      if (nested) return nested;
+    }
+    return null;
+  }
+
+  cloneNode(deep) {
+    const clone = new MockDomElement(this.tagName, Object.fromEntries(this.attributes));
+    clone.value = this.value;
+    if (deep) this.childNodes.forEach((child) => clone.appendChild(child.cloneNode(true)));
+    return clone;
+  }
+}
+
 class MockMenuNode {
   constructor(attributes = {}) {
     this.attributes = new Map(Object.entries(attributes));
@@ -279,6 +354,40 @@ test('number input replacement waits until editing commits', async () => {
   control.emit('blur');
   await new Promise((resolve) => setTimeout(resolve, 0));
   assert.equal(root.innerHTML, '<input type="number" value="3700">');
+});
+
+test('number input stays live while dependent island content updates', () => {
+  const liveInput = new MockDomElement('input', {
+    'data-fission-node': '913',
+    type: 'number',
+    value: '370',
+  });
+  liveInput.value = '10';
+  const currentPanel = new MockDomElement('section', { 'data-fission-node': 'panel' }, [
+    new MockDomElement('label', { 'data-fission-node': '913' }, [liveInput]),
+    new MockDomElement('span', { 'data-fission-node': 'quote' }, [new MockDomText('€300')]),
+  ]);
+  const currentRoot = new MockDomElement('div', {}, [currentPanel]);
+
+  const nextInput = new MockDomElement('input', {
+    'data-fission-node': '913',
+    type: 'number',
+    value: '10',
+    'aria-valuenow': '10',
+  });
+  const nextPanel = new MockDomElement('section', { 'data-fission-node': 'panel' }, [
+    new MockDomElement('label', { 'data-fission-node': '913' }, [nextInput]),
+    new MockDomElement('span', { 'data-fission-node': 'quote' }, [new MockDomText('€1000')]),
+  ]);
+  const nextRoot = new MockDomElement('div', {}, [nextPanel]);
+
+  assert.equal(hooks.reconcileChildrenPreservingNode(currentRoot, nextRoot, '913'), true);
+  assert.equal(currentRoot.childNodes[0].childNodes[0].childNodes[0], liveInput);
+  assert.equal(liveInput.value, '10');
+  assert.equal(liveInput.getAttribute('value'), '370', 'the browser-owned live value is preserved');
+  assert.equal(liveInput.getAttribute('aria-valuenow'), '10');
+  const quote = currentRoot.querySelector('[data-fission-node="quote"]');
+  assert.equal(quote.childNodes[0].data, '€1000');
 });
 
 test('native radio dispatches once after the browser updates its checked state', () => {
