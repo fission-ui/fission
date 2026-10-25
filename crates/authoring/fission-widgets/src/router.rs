@@ -1,6 +1,6 @@
 use fission_core::build::{self, BuildCtxHandle, ViewHandle};
 use fission_core::ui::Composite;
-use fission_core::{GlobalState, Widget};
+use fission_core::{GlobalState, RouteLocation, Widget};
 use fission_ir::WidgetId;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -164,7 +164,12 @@ fn route_scoped_widget(route_key: &str, child: Widget) -> Widget {
 // Simple route matcher: "/users/:id" matches "/users/123" -> {"id": "123"}
 fn match_route(pattern: &str, path: &str) -> Option<RouteParams> {
     let pattern_parts: Vec<&str> = pattern.split('/').filter(|s| !s.is_empty()).collect();
-    let path_parts: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
+    let location = RouteLocation::from_route(path);
+    let path_parts: Vec<&str> = location
+        .pathname
+        .split('/')
+        .filter(|s| !s.is_empty())
+        .collect();
 
     if pattern_parts.len() != path_parts.len() {
         return None;
@@ -251,5 +256,27 @@ mod tests {
         let _ = fission_core::build::enter(&mut ctx, &view, || -> Widget { router.into() });
 
         assert_eq!(observed.lock().unwrap().as_deref(), Some("42"));
+    }
+
+    #[test]
+    fn static_route_matching_ignores_query_and_fragment() {
+        assert_eq!(
+            match_route(
+                "/settings/offers/new",
+                "/settings/offers/new?asset=server-42#pricing",
+            ),
+            Some(RouteParams::new()),
+        );
+    }
+
+    #[test]
+    fn dynamic_route_parameters_exclude_query_and_fragment() {
+        let params = match_route(
+            "/settings/offers/:offer_id",
+            "/settings/offers/offer-42?asset=server-42#pricing",
+        )
+        .expect("dynamic route should match its parsed pathname");
+
+        assert_eq!(params.get("offer_id").map(String::as_str), Some("offer-42"));
     }
 }
