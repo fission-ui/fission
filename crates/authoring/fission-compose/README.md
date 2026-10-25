@@ -61,6 +61,24 @@ Button(
 )
 ```
 
+Repeated controls can carry an explicitly typed, owned payload into a reducer
+that updates their parent component's retained local state:
+
+```rust,ignore
+Button(
+    child: Text(option.label.clone()),
+    key: option.id,
+    handler: "select-option",
+    on_press: reduce(option_id: OptionId = option.id.clone()) {
+        picker.selected = Some(option_id);
+    },
+)
+```
+
+The capture becomes part of the generated action payload. Use this for
+component-owned interaction state; keep shared domain transitions as ordinary
+typed Fission actions and reducers.
+
 Handwritten `From<YourWidget> for Widget` implementations remain fully interoperable for low-level custom rendering.
 
 Dynamic children use keyed Compose loops so retained state follows the logical

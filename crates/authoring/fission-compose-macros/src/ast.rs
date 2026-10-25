@@ -274,6 +274,17 @@ pub struct Effect {
     pub err_pattern: Pat,
     pub err: Block,
 }
+#[derive(Clone)]
+pub struct ReduceCapture {
+    pub name: Ident,
+    pub ty: Type,
+    pub value: Expr,
+}
+#[derive(Clone)]
+pub struct Reduce {
+    pub captures: Vec<ReduceCapture>,
+    pub body: Block,
+}
 impl Call {
     pub fn named(&self, name: &str) -> Option<&Value> {
         self.args
@@ -285,7 +296,7 @@ impl Call {
 #[derive(Clone)]
 pub enum Value {
     Effect(Effect),
-    Reduce(Block),
+    Reduce(Reduce),
     Call(Call),
     Array(Vec<Value>),
     Optional(Box<Value>),
@@ -393,7 +404,45 @@ impl Parse for Value {
     fn parse(input: ParseStream<'_>) -> syn::Result<Self> {
         if input.peek(kw::reduce) {
             input.parse::<kw::reduce>()?;
-            return Ok(Self::Reduce(input.parse()?));
+            let mut captures = Vec::new();
+            if input.peek(syn::token::Paren) {
+                let arguments;
+                syn::parenthesized!(arguments in input);
+                while !arguments.is_empty() {
+                    let name: Ident = arguments.parse()?;
+                    if name.to_string().starts_with("__") {
+                        return Err(syn::Error::new(
+                            name.span(),
+                            "capture names beginning __ are reserved for generated implementation details",
+                        ));
+                    }
+                    if matches!(name.to_string().as_str(), "key" | "incarnation" | "props") {
+                        return Err(syn::Error::new(
+                            name.span(),
+                            "key, incarnation, and props are reserved reducer capture names",
+                        ));
+                    }
+                    if captures
+                        .iter()
+                        .any(|capture: &ReduceCapture| capture.name == name)
+                    {
+                        return Err(syn::Error::new(name.span(), "duplicate reducer capture"));
+                    }
+                    arguments.parse::<Token![:]>()?;
+                    let ty = arguments.parse()?;
+                    arguments.parse::<Token![=]>()?;
+                    let value = arguments.parse()?;
+                    captures.push(ReduceCapture { name, ty, value });
+                    if arguments.is_empty() {
+                        break;
+                    }
+                    arguments.parse::<Token![,]>()?;
+                }
+            }
+            return Ok(Self::Reduce(Reduce {
+                captures,
+                body: input.parse()?,
+            }));
         }
         if input.peek(kw::effect) {
             input.parse::<kw::effect>()?;

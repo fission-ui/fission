@@ -133,6 +133,32 @@ Button(
 
 The literal `key` gives the handler a stable semantic identity. For dynamic controls, use a durable data key and an explicit literal `handler` name when required.
 
+When a repeated control must carry a render-time value into component-local
+state, declare an owned, typed reducer capture. This keeps the selection local
+to the component while making the dispatched payload explicit:
+
+```rust
+for credential in &wizard.credentials {
+    Button(
+        child: Text(credential.label.clone()),
+        key: credential.id,
+        handler: "select-credential",
+        on_press: reduce(
+            credential_id: CredentialId = credential.id.clone(),
+        ) {
+            wizard.selected_credential = Some(credential_id);
+        },
+    )
+}
+```
+
+Capture expressions are evaluated when the control is built and stored in its
+typed action. Their types must satisfy Fission's owned action-payload bounds;
+do not capture references, build handles, state handles or reducer contexts.
+Use additional `name: Type = expression` entries for multiple values. Prefer an
+existing typed action when the transition is shared domain behaviour rather
+than component-owned UI state.
+
 Reusable actions and reducers remain ordinary Fission APIs. Register them in the setup block and pass the typed action to the component:
 
 ```rust

@@ -1,4 +1,4 @@
-use crate::ast::{Call, Component, Effect, Value};
+use crate::ast::{Call, Component, Effect, ReduceCapture, Value};
 use proc_macro2::{Span, TokenStream as Tokens, TokenTree};
 use quote::{format_ident, quote, ToTokens};
 use std::collections::{BTreeMap, BTreeSet, HashSet};
@@ -240,8 +240,8 @@ impl Emitter<'_> {
                 &effect.operation,
                 "effect is only valid as an event property such as on_press:",
             )),
-            Value::Reduce(block) => Err(syn::Error::new_spanned(
-                block,
+            Value::Reduce(reducer) => Err(syn::Error::new_spanned(
+                &reducer.body,
                 "reduce is only valid as an event property such as on_press:",
             )),
             Value::Call(c) => self.call(c, path),
@@ -547,18 +547,29 @@ impl Emitter<'_> {
                         &format!("{parent_path}/{widget_name}/{handler_name}/{property}"),
                     )?;
                     quote!((#handler).into())
-                } else if let Value::Reduce(block) = &arg.value {
+                } else if let Value::Reduce(reducer) = &arg.value {
                     let handler_name=c.named("handler").and_then(Value::rust).and_then(string_literal)
                         .or_else(||static_key.clone())
                         .or_else(||c.named("key").is_none().then(||automatic_key.clone()))
-                        .ok_or_else(||syn::Error::new_spanned(block,"a reduce handler needs a literal key: \"reset\"; with a dynamic control key, add handler: \"reset\""))?;
+                        .ok_or_else(||syn::Error::new_spanned(&reducer.body,"a reduce handler needs a literal key: \"reset\"; with a dynamic control key, add handler: \"reset\""))?;
                     let editor = &self.editor;
                     let state = &self.state;
                     let cx = &self.cx;
+                    for capture in &reducer.captures {
+                        if capture.name == *editor || capture.name == *state || capture.name == *cx
+                        {
+                            return Err(syn::Error::new_spanned(
+                                &capture.name,
+                                "a reducer capture cannot shadow the component, state, or context binding",
+                            ));
+                        }
+                    }
+                    let block = &reducer.body;
                     let closure: syn::ExprClosure =
                         syn::parse_quote!(|#editor, #state, #cx| #block);
                     let handler = self.handler(
                         &closure,
+                        &reducer.captures,
                         &property,
                         &format!("{parent_path}/{widget_name}/{handler_name}/{property}"),
                     )?;
@@ -572,6 +583,7 @@ impl Emitter<'_> {
                             .ok_or_else(||syn::Error::new_spanned(closure,"an inline handler needs a literal key: \"save\"; with a dynamic control key, add handler: \"save\""))?;
                             let handler = self.handler(
                                 closure,
+                                &[],
                                 &property,
                                 &format!("{parent_path}/{widget_name}/{handler_name}/{property}"),
                             )?;
@@ -650,6 +662,7 @@ impl Emitter<'_> {
     fn handler(
         &mut self,
         closure: &syn::ExprClosure,
+        captures: &[ReduceCapture],
         port: &str,
         symbol: &str,
     ) -> syn::Result<Tokens> {
@@ -696,7 +709,12 @@ impl Emitter<'_> {
         // Extracted functions deliberately cannot capture function/loop-local variables.
         // Avoid changing meaning through shadowing the three event-time parameters.
         let mut check = HandlerCheck {
-            params: args.iter().flatten().cloned().collect(),
+            params: args
+                .iter()
+                .flatten()
+                .cloned()
+                .chain(captures.iter().map(|capture| capture.name.clone()))
+                .collect(),
             error: None,
         };
         syn::visit::Visit::visit_expr(&mut check, &closure.body);
@@ -713,7 +731,7 @@ impl Emitter<'_> {
                 ));
             }
         }
-        let captures: Vec<_> = self
+        let prop_captures: Vec<_> = self
             .fields
             .iter()
             .filter(|f| f.local.is_none() && used.contains(&f.name.to_string()))
@@ -725,14 +743,14 @@ impl Emitter<'_> {
             .collect();
         let suffix = format!("{:016x}", stable_hash(symbol));
         let action = format_ident!("__{}_Event_{}", name, suffix);
-        let capture = format_ident!("__{}_Capture_{}", name, suffix);
+        let capture_struct = format_ident!("__{}_Capture_{}", name, suffix);
         let facade = format_ident!("__{}_EventEditor_{}", name, suffix);
         let method = format_ident!("__event_{}", suffix);
         let ser_path = syn::LitStr::new(
             &format!("{}::serde", rt.to_string().replace(' ', "")),
             Span::call_site(),
         );
-        let prop_defs = captures.iter().map(|f| {
+        let prop_defs = prop_captures.iter().map(|f| {
             let id = &f.name;
             let ty = captured_field_type(f);
             quote!(#id:#ty)
@@ -742,16 +760,22 @@ impl Emitter<'_> {
             let ty = &f.ty;
             quote!(#id:#ty)
         });
+        let capture_defs = captures.iter().map(|capture| {
+            let name = &capture.name;
+            let ty = &capture.ty;
+            quote!(#name:#ty)
+        });
         self.items.push(quote!{
             #[allow(non_camel_case_types)]
             #[derive(Clone,#rt::serde::Serialize,#rt::serde::Deserialize)]
             #[serde(crate=#ser_path)]
-            struct #capture{#(#prop_defs,)*}
+            struct #capture_struct{#(#prop_defs,)*}
             #[allow(non_camel_case_types)]
             #[derive(#rt::serde::Serialize,#rt::serde::Deserialize)]
             #[serde(crate=#ser_path)]
             struct #action{
-                key:<#scope as #rt::Scope>::Key,incarnation:u64,props:#capture,
+                key:<#scope as #rt::Scope>::Key,incarnation:u64,props:#capture_struct,
+                #(#capture_defs,)*
             }
             impl ::std::fmt::Debug for #action {
                 fn fmt(&self, formatter:&mut ::std::fmt::Formatter<'_>)->::std::fmt::Result {
@@ -764,9 +788,9 @@ impl Emitter<'_> {
                 }
             }
             #[allow(non_camel_case_types)]
-            struct #facade<'a>{__props:&'a #capture,#(#local_defs,)*}
+            struct #facade<'a>{__props:&'a #capture_struct,#(#local_defs,)*}
             impl ::std::ops::Deref for #facade<'_>{
-                type Target=#capture;fn deref(&self)->&Self::Target{self.__props}
+                type Target=#capture_struct;fn deref(&self)->&Self::Target{self.__props}
             }
         });
         let editor_arg = args[0]
@@ -779,12 +803,22 @@ impl Emitter<'_> {
             .clone()
             .unwrap_or_else(|| format_ident!("__unused_context"));
         let body = &closure.body;
-        self.methods.push(quote!{
+        let capture_parameters = captures.iter().map(|capture| {
+            let name = &capture.name;
+            let ty = &capture.ty;
+            quote!(#name:#ty)
+        });
+        self.methods.push(quote! {
             #[allow(unused_variables)]
-            fn #method(#editor_arg:&mut #facade<'_>,#state_arg:&mut #target,#cx_arg:&mut #rt::core::ReducerContext<#root>){#body}
+            fn #method(
+                #editor_arg:&mut #facade<'_>,
+                #state_arg:&mut #target,
+                #cx_arg:&mut #rt::core::ReducerContext<#root>,
+                #(#capture_parameters,)*
+            ){#body}
         });
         let editor = &self.editor;
-        let props = captures.iter().map(|f| {
+        let props = prop_captures.iter().map(|f| {
             let id = &f.name;
             let value = captured_field_value(f, editor);
             quote!(#id: #value)
@@ -807,18 +841,34 @@ impl Emitter<'_> {
             let k = format_ident!("__key_{}", id);
             quote!(if !__live.replace(&#k,__editor.#id){return;})
         });
+        let capture_initializers = captures.iter().map(|capture| {
+            let name = &capture.name;
+            let value = &capture.value;
+            quote!(#name:#value)
+        });
+        let capture_moves = captures.iter().map(|capture| {
+            let name = &capture.name;
+            quote!(let #name=__event.#name;)
+        });
+        let capture_arguments = captures.iter().map(|capture| &capture.name);
         Ok(quote!({
             let __node=#rt::identity::node().id;
             let __control_mount=__mount.control(__node,#symbol);
-            let __action=#action{key:__scope_key.clone(),incarnation:__control_mount.incarnation,props:#capture{#(#props,)*}};
+            let __action=#action{
+                key:__scope_key.clone(),
+                incarnation:__control_mount.incarnation,
+                props:#capture_struct{#(#props,)*},
+                #(#capture_initializers,)*
+            };
             let __live=__control_mount.clone();let __expected_key=__scope_key.clone();
             #(#keys)*
             let __handler=#rt::events::HandlerFn(move|__root:&mut #root,__event:#action,__cx:&mut #rt::core::ReducerContext<#root>|{
                 if __event.key!=__expected_key||!__live.alive(__event.incarnation){return;}
                 let Some(__state)=<#scope as #rt::Scope>::get_mut(__root,&__event.key)else{return;};
                 #(#local_reads)*
+                #(#capture_moves)*
                 let mut __editor=#facade{__props:&__event.props,#(#local_values,)*};
-                #name::#method(&mut __editor,__state,__cx);
+                #name::#method(&mut __editor,__state,__cx,#(#capture_arguments,)*);
                 #(#local_writes)*
             });
             let __envelope=__build.bind_scoped(__node,#symbol,__action,__handler);
@@ -1184,7 +1234,21 @@ fn value_shape(value: &Value) -> String {
                 .collect::<Vec<_>>()
                 .join(","),
         ),
-        Value::Reduce(block) => format!("reduce:{}", block.to_token_stream()),
+        Value::Reduce(reducer) => format!(
+            "reduce:({}):{}",
+            reducer
+                .captures
+                .iter()
+                .map(|capture| format!(
+                    "{}:{}={}",
+                    capture.name,
+                    capture.ty.to_token_stream(),
+                    capture.value.to_token_stream(),
+                ))
+                .collect::<Vec<_>>()
+                .join(","),
+            reducer.body.to_token_stream(),
+        ),
         Value::Call(call) => call_shape(call),
         Value::Rust(expr)
         | Value::ExplicitRust(expr)

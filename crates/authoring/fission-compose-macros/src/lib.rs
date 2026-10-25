@@ -625,6 +625,56 @@ mod tests {
         );
     }
     #[test]
+    fn reducers_can_capture_typed_dynamic_payloads() {
+        let output = expand(quote! {
+            Picker<()> { state { selected: Option<u64> = None } }
+            view(picker, _state, _cx) => Column(children: [
+                for id in [7_u64, 9_u64] {
+                    Button(
+                        child: Text(id.to_string()),
+                        key: id,
+                        handler: "select",
+                        on_press: reduce(selected_id: u64 = id) {
+                            picker.selected = Some(selected_id);
+                        },
+                    )
+                },
+            ])
+        })
+        .unwrap();
+        syn::parse2::<syn::File>(output.clone()).unwrap();
+        let output = output.to_string();
+        assert!(output.contains("selected_id : u64"), "{output}");
+        assert!(output.contains("selected_id : id"), "{output}");
+    }
+    #[test]
+    fn reducer_capture_names_are_unique_and_cannot_shadow_view_bindings() {
+        rejects(
+            quote! {
+                Picker<()> view(picker, state, cx) => Button(
+                    on_press: reduce(id: u64 = 1, id: u64 = 2) {},
+                )
+            },
+            "duplicate reducer capture",
+        );
+        rejects(
+            quote! {
+                Picker<()> view(picker, state, cx) => Button(
+                    on_press: reduce(state: u64 = 1) {},
+                )
+            },
+            "cannot shadow",
+        );
+        rejects(
+            quote! {
+                Picker<()> view(picker, state, cx) => Button(
+                    on_press: reduce(props: u64 = 1) {},
+                )
+            },
+            "reserved reducer capture names",
+        );
+    }
+    #[test]
     fn handler_capture_and_async_are_rejected() {
         rejects(
             quote! { X<S> |e,s,c| => Button(child: Text("Save"), key:"save", on_press: move |_,s,_| s.save()) },
