@@ -141,6 +141,32 @@ fn write_shim(plan: &BrowserArtifactPlan, options: &BrowserArtifactBuildOptions)
     .with_context(|| format!("failed to write shim manifest for {}", plan.id))?;
     fs::write(src_dir.join("lib.rs"), shim_source(plan))
         .with_context(|| format!("failed to write shim source for {}", plan.id))?;
+    seed_shim_lockfile(plan, options)?;
+    Ok(())
+}
+
+fn project_lockfile(project_dir: &Path) -> Option<PathBuf> {
+    project_dir
+        .ancestors()
+        .map(|directory| directory.join("Cargo.lock"))
+        .find(|candidate| candidate.is_file())
+}
+
+fn seed_shim_lockfile(
+    plan: &BrowserArtifactPlan,
+    options: &BrowserArtifactBuildOptions,
+) -> Result<()> {
+    let destination = plan.shim_dir.join("Cargo.lock");
+    let Some(source) = project_lockfile(&options.project_dir) else {
+        return Ok(());
+    };
+    fs::copy(&source, &destination).with_context(|| {
+        format!(
+            "failed to seed browser artifact lockfile {} from {}",
+            destination.display(),
+            source.display()
+        )
+    })?;
     Ok(())
 }
 
@@ -279,20 +305,7 @@ fn fission_store_output(output: impl AsRef<str>) {{
 }
 
 fn compile_shim(plan: &BrowserArtifactPlan, options: &BrowserArtifactBuildOptions) -> Result<()> {
-    let mut command = Command::new("cargo");
-    command
-        .arg("build")
-        .arg("--manifest-path")
-        .arg(plan.shim_dir.join("Cargo.toml"))
-        .arg("--target")
-        .arg("wasm32-unknown-unknown")
-        .arg("--message-format=json-render-diagnostics")
-        .stdout(Stdio::piped())
-        .stderr(Stdio::inherit());
-    if options.release {
-        command.arg("--release");
-    }
-
+    let mut command = cargo_build_command(plan, options);
     let mut child = command
         .spawn()
         .with_context(|| format!("failed to compile browser artifact `{}`", plan.id))?;
@@ -325,6 +338,29 @@ fn compile_shim(plan: &BrowserArtifactPlan, options: &BrowserArtifactBuildOption
     })?;
     copy_compiled_artifact(plan, options, &compiled_wasm)?;
     Ok(())
+}
+
+fn cargo_build_command(
+    plan: &BrowserArtifactPlan,
+    options: &BrowserArtifactBuildOptions,
+) -> Command {
+    let mut command = Command::new("cargo");
+    command
+        .arg("build")
+        .arg("--manifest-path")
+        .arg(plan.shim_dir.join("Cargo.toml"))
+        .arg("--target")
+        .arg("wasm32-unknown-unknown")
+        .arg("--message-format=json-render-diagnostics")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::inherit());
+    if project_lockfile(&options.project_dir).is_some() {
+        command.arg("--locked");
+    }
+    if options.release {
+        command.arg("--release");
+    }
+    command
 }
 
 fn copy_compiled_artifact(
@@ -501,7 +537,10 @@ mod tests {
     fn writes_one_shim_per_worker_and_island() {
         let root = std::env::temp_dir().join(format!("fission-artifacts-{}", std::process::id()));
         let _ = fs::remove_dir_all(&root);
-        fs::create_dir_all(&root).unwrap();
+        let project_dir = root.join("workspace/apps/demo");
+        fs::create_dir_all(&project_dir).unwrap();
+        let lockfile = "# application dependency lock\nversion = 4\n";
+        fs::write(root.join("Cargo.lock"), lockfile).unwrap();
         let app = FissionServerApp::new("Artifacts")
             .route_widget::<State, _>(
                 "/",
@@ -519,7 +558,7 @@ mod tests {
                 WasmIsland::new("cart", "/cart.wasm", "cart-root").entry("demo::cart::boot"),
             );
         let options = BrowserArtifactBuildOptions {
-            project_dir: root.clone(),
+            project_dir,
             output_dir: root.join("target/fission/server"),
             package_name: "demo".into(),
             package_default_features: true,
@@ -548,6 +587,78 @@ mod tests {
         assert!(worker.contains("fission_worker_entry"));
         assert!(worker.contains("fission_worker_event"));
         assert!(worker.contains("fission_call_entry(ptr, len)"));
+        for plan in &build.plans {
+            assert_eq!(
+                fs::read_to_string(plan.shim_dir.join("Cargo.lock")).unwrap(),
+                lockfile,
+            );
+            let command = cargo_build_command(plan, &options);
+            assert!(command.get_args().any(|argument| argument == "--locked"));
+        }
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn seeded_application_lock_is_valid_for_generated_shim() {
+        let root =
+            std::env::temp_dir().join(format!("fission-artifacts-locked-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let project_dir = root.join("demo");
+        fs::create_dir_all(project_dir.join("src")).unwrap();
+        fs::write(
+            project_dir.join("Cargo.toml"),
+            "[package]\nname = \"demo\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+        )
+        .unwrap();
+        fs::write(
+            project_dir.join("src/lib.rs"),
+            "pub fn boot(_: &str) -> String { String::new() }\n",
+        )
+        .unwrap();
+        fs::write(
+            project_dir.join("Cargo.lock"),
+            "version = 4\n\n[[package]]\nname = \"demo\"\nversion = \"0.1.0\"\n",
+        )
+        .unwrap();
+
+        let app = FissionServerApp::new("Artifacts")
+            .route_widget::<State, _>(
+                "/",
+                "Home",
+                None,
+                WebRouteMode::Server(ServerRenderPolicy::default()),
+                Page,
+            )
+            .island(
+                "/",
+                WasmIsland::new("locked", "/locked.wasm", "locked-root").entry("demo::boot"),
+            );
+        let options = BrowserArtifactBuildOptions {
+            project_dir,
+            output_dir: root.join("target/fission/server"),
+            package_name: "demo".into(),
+            package_default_features: true,
+            package_features: Vec::new(),
+            release: false,
+            compile: false,
+        };
+        let build = BrowserArtifactBuild::from_app(&app, &options).unwrap();
+        build.write_shims(&options).unwrap();
+        let plan = &build.plans[0];
+        let status = Command::new("cargo")
+            .arg("metadata")
+            .arg("--format-version=1")
+            .arg("--no-deps")
+            .arg("--locked")
+            .arg("--manifest-path")
+            .arg(plan.shim_dir.join("Cargo.toml"))
+            .status()
+            .unwrap();
+
+        assert!(
+            status.success(),
+            "seeded lockfile must satisfy Cargo --locked"
+        );
         let _ = fs::remove_dir_all(&root);
     }
 
