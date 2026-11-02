@@ -178,7 +178,7 @@ pub fn run_app_with_serving_options(
     if !matches!(device.target, Target::Web | Target::Site)
         && (serving.mount != "/"
             || serving.stdin_control
-            || serving.startup_timeout != Duration::from_secs(300))
+            || serving.startup_timeout != Duration::from_secs(900))
     {
         bail!("--mount, --stdin-control, and --startup-timeout-seconds apply to attached browser serving");
     }

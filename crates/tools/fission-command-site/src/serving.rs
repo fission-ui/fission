@@ -336,7 +336,7 @@ impl Default for ServeOptions {
     fn default() -> Self {
         Self {
             mount: "/".into(),
-            startup_timeout: Duration::from_secs(300),
+            startup_timeout: Duration::from_secs(900),
             stdin_control: false,
         }
     }
