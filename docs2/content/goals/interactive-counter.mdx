@@ -1,0 +1,172 @@
+---
+layout: goal
+title: Build an interactive Rust counter
+description: Build and run a small interactive Fission Web app, then change retained component state with Compose.
+goal: Build a real Rust GUI that responds immediately in the browser
+path: /docs/learn/interactive-counter/
+order: 1
+difficulty: Beginner
+duration: 10 minutes
+app: interactive-counter
+prerequisites:
+  - A current Rust toolchain
+  - wasm-pack installed
+outcomes:
+  - Define a Fission component with Compose
+  - Keep UI state local to a retained component
+  - Update that state with a reducer
+aliases:
+  - /docs/quickstart/
+---
+
+You will build the first useful interaction in a Fission app: a counter whose state survives each rebuild. Every step on this page is compiled from the code shown here, and its result is running beside the explanation.
+
+<!-- fission:step id="show-count" -->
+## Show the initial count
+
+Start with a component that owns one piece of retained state. The `state` block says the count belongs to this component instance, while `view` describes what should be rendered from it.
+
+<!-- fission:file path="src/lib.rs" -->
+```rust
+use fission::prelude::*;
+use wasm_bindgen::prelude::*;
+
+fission_component! {
+    pub TutorialApp<()> {
+        state { count: i32 = 0 }
+    }
+    view(counter, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Container(
+        Center(
+            Container(
+                Column(
+                    gap: tokens.spacing.l,
+                    align_items: ir_op::AlignItems::Center,
+                    children: [
+                        Text("Interactive counter")
+                            .size(tokens.typography.heading1_size)
+                            .weight(tokens.typography.font_weight_bold),
+                        Text("Retained state, rendered by Fission")
+                            .color(tokens.colors.text_secondary),
+                        Text(format!("{}", counter.count))
+                            .size(tokens.typography.display_md_size)
+                            .weight(tokens.typography.font_weight_bold)
+                            .color(tokens.colors.primary),
+                    ],
+                ),
+            )
+            .padding_all(tokens.spacing.xl)
+            .bg(tokens.colors.surface)
+            .border(tokens.colors.border, 1.0)
+            .border_radius(tokens.radii.large),
+        ),
+    )
+    .padding_all(tokens.spacing.xl)
+    .width_length(Length::percent(100.0))
+    .height_length(Length::percent(100.0))
+    .bg(tokens.colors.background)
+}
+
+#[wasm_bindgen(start)]
+pub fn run() -> Result<(), JsValue> {
+    console_error_panic_hook::set_once();
+    WebApp::<(), _>::new(TutorialApp::new())
+        .with_title("Interactive Fission counter")
+        .mount("#fission-web-mount")
+        .run()
+        .map_err(|error| JsValue::from_str(&error.to_string()))
+}
+```
+
+<!-- fission:preview -->
+
+<!-- fission:checkpoint -->
+You should see **0** in the live app. There is no mutable global or manual redraw call: Fission owns the retained component instance.
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->
+
+<!-- fission:step id="increment" -->
+## Update state from a button
+
+Add a button and put the state transition beside the event that triggers it. `reduce` is synchronous reducer code, not an arbitrary callback: Fission runs it with fresh access to this component's retained state and rebuilds the affected UI.
+
+<!-- fission:file path="src/lib.rs" -->
+```rust
+use fission::prelude::*;
+use wasm_bindgen::prelude::*;
+
+fission_component! {
+    pub TutorialApp<()> {
+        state { count: i32 = 0 }
+    }
+    view(counter, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Container(
+        Center(
+            Container(
+                Column(
+                    gap: tokens.spacing.l,
+                    align_items: ir_op::AlignItems::Center,
+                    children: [
+                        Text("Interactive counter")
+                            .size(tokens.typography.heading1_size)
+                            .weight(tokens.typography.font_weight_bold),
+                        Text("Retained state, rendered by Fission")
+                            .color(tokens.colors.text_secondary),
+                        Text(format!("{}", counter.count))
+                            .size(tokens.typography.display_md_size)
+                            .weight(tokens.typography.font_weight_bold)
+                            .color(tokens.colors.primary),
+                        Row(gap: tokens.spacing.m, children: [
+                            Button(
+                                child: Text("Increment"),
+                                key: "increment",
+                                on_press: reduce {
+                                    counter.count += 1;
+                                },
+                            )
+                            .semantics_identifier("counter.increment"),
+                            Button(
+                                child: Text("Reset"),
+                                key: "reset",
+                                on_press: reduce {
+                                    counter.count = 0;
+                                },
+                            )
+                            .semantics_identifier("counter.reset"),
+                        ]),
+                    ],
+                ),
+            )
+            .padding_all(tokens.spacing.xl)
+            .bg(tokens.colors.surface)
+            .border(tokens.colors.border, 1.0)
+            .border_radius(tokens.radii.large),
+        ),
+    )
+    .padding_all(tokens.spacing.xl)
+    .width_length(Length::percent(100.0))
+    .height_length(Length::percent(100.0))
+    .bg(tokens.colors.background)
+}
+
+#[wasm_bindgen(start)]
+pub fn run() -> Result<(), JsValue> {
+    console_error_panic_hook::set_once();
+    WebApp::<(), _>::new(TutorialApp::new())
+        .with_title("Interactive Fission counter")
+        .mount("#fission-web-mount")
+        .run()
+        .map_err(|error| JsValue::from_str(&error.to_string()))
+}
+```
+
+<!-- fission:preview -->
+
+<!-- fission:checkpoint -->
+Press **Increment** several times. The value should advance once per press and remain visible while you interact with the app.
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->

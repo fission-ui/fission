@@ -1,0 +1,58 @@
+use crate::navigation;
+use crate::state::DocsState;
+use crate::widgets::copy;
+use fission::prelude::*;
+
+const BROWSER_CODE: &str = r#"fission_component! {
+    pub App<()> {}
+    view(_app, _state, _cx) =>
+        Center(Text("Hello, Fission!"))
+}"#;
+
+fission_component! {
+    pub BrowserCta<DocsState> {}
+    view(_cta, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    SemanticsRegion(
+        identifier: Some("home-browser".to_string()),
+        label: Some(cx.view.env().tr("home.browser.title")),
+        child: Row(
+            gap: tokens.spacing.xl,
+            align_items: ir_op::AlignItems::Center,
+            children: [
+                Column(gap: tokens.spacing.m, children: [
+                    copy("home.browser.eyebrow")
+                        .color(tokens.colors.text_secondary)
+                        .weight(tokens.typography.font_weight_semibold),
+                    copy("home.browser.title")
+                        .size(tokens.typography.heading1_size)
+                        .weight(tokens.typography.font_weight_bold),
+                    copy("home.browser.summary").color(tokens.colors.text_secondary),
+                    SemanticsRegion(
+                        Link::to(
+                            cx.view.env().tr("site.try_browser"),
+                            navigation::SHOWCASE,
+                        ),
+                        identifier: Some("home-browser-cta".to_string()),
+                    ),
+                ]),
+                SemanticsRegion(
+                    identifier: Some("home-browser-demo".to_string()),
+                    child: Row(children: [
+                        Column(children: [
+                            copy("home.filename").weight(tokens.typography.font_weight_semibold),
+                            Code(text: BROWSER_CODE.to_string()),
+                        ]),
+                        WebView(
+                            id: WidgetId::explicit("home-browser-counter"),
+                            url: "/tutorials/interactive-counter/increment/?fission_renderer=canvas2d".to_string(),
+                            label: Some(cx.view.env().tr("home.browser_demo_label")),
+                            height: Some(400.0),
+                        ),
+                    ]),
+                ),
+            ],
+        ),
+    )
+}

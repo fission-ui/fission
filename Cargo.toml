@@ -50,6 +50,7 @@ members = [
     "crates/tools/fission-test",
     "crates/tools/fission-test-driver",
     "documentation",
+    "docs2",
     "examples/*"
 ]
 exclude = ["third_party/vello"]

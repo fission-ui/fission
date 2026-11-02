@@ -1,0 +1,253 @@
+:root {
+  --ink: #0b1833;
+  --muted: #596579;
+  --paper: #fbfaf7;
+  --surface: #ffffff;
+  --wash: #edf3ff;
+  --line: #d9dee8;
+  --blue: #1458d4;
+  --blue-dark: #0f43a3;
+  --blue-soft: #e8f0ff;
+  --success: #08785e;
+  --code: #101b2a;
+  --max: 82rem;
+  --gutter: clamp(20px, 4vw, 48px);
+  --header: 62px;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; scroll-padding-top: calc(var(--header) + 20px); }
+body { margin: 0; background: radial-gradient(circle at 82% 5%, rgb(20 88 212 / 8%), transparent 28rem), linear-gradient(180deg, #fff 0, var(--paper) 44rem); color: var(--ink); font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; line-height: 1.6; text-rendering: optimizeLegibility; }
+a { color: var(--blue-dark); text-underline-offset: .2em; }
+a:hover { color: var(--blue); }
+a:focus-visible, button:focus-visible, iframe:focus-visible { outline: 3px solid #ffb000; outline-offset: 3px; }
+::selection { background: var(--blue); color: #fff; }
+
+[data-fission-semantics="site-header"] { position: sticky; z-index: 100; top: 0; min-height: var(--header); padding: 13px var(--gutter); border-bottom: 1px solid var(--line); background: rgb(251 250 247 / 96%); backdrop-filter: blur(14px); }
+[data-fission-semantics="site-header"] > * { width: min(100%, var(--max)); margin-inline: auto; }
+[data-fission-semantics="site-header"] a { color: var(--ink); font-size: 14px; font-weight: 600; text-decoration: none; }
+[data-fission-semantics="docs-brand"] { min-width: 126px; }
+[data-fission-semantics="docs-search"] { min-width: 190px; padding: 8px 11px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface); color: var(--muted); }
+[data-fission-semantics="mobile-docs-link"] { display: none; }
+
+[data-fission-semantics="home-hero"] { position: relative; width: min(100%, var(--max)); margin-inline: auto; padding: clamp(52px, 6vw, 78px) var(--gutter) 42px; overflow: hidden; }
+[data-fission-semantics="home-hero"] > * { display: grid !important; grid-template-columns: minmax(0, .82fr) minmax(520px, 1.18fr); gap: clamp(36px, 6vw, 74px) !important; }
+[data-fission-semantics="home-hero"] > * > :first-child { min-width: 0; }
+[data-fission-semantics="home-hero"] > * > :first-child > :first-child,
+[data-fission-semantics="home-goals"] > * > :first-child > :first-child,
+[data-fission-semantics="home-features"] > * > :first-child > :first-child,
+[data-fission-semantics="home-tutorials"] > * > :first-child > :first-child > :first-child,
+[data-fission-semantics="home-browser"] > * > :first-child > :first-child { font-size: 12px !important; font-weight: 750 !important; letter-spacing: .18em; text-transform: uppercase; }
+[data-fission-semantics="home-hero"] > * > :first-child > :nth-child(2) { max-width: 700px; font-family: Georgia, "Times New Roman", serif; font-size: clamp(42px, 5.2vw, 68px) !important; font-weight: 700 !important; letter-spacing: -.045em; line-height: .98 !important; }
+[data-fission-semantics="home-hero"] > * > :first-child > :nth-child(2) .fission-site-text-run { font-family: Georgia, "Times New Roman", serif !important; font-size: clamp(38px, 4vw, 58px) !important; line-height: 1.02 !important; letter-spacing: -.035em; }
+[data-fission-semantics="home-hero"] > * > :first-child > :nth-child(3) { max-width: 570px; font-size: 19px !important; }
+[data-fission-semantics="home-primary-cta"] a,
+[data-fission-semantics="home-browser-cta"] a { display: inline-flex; padding: 12px 20px; border: 1px solid var(--blue-dark); border-radius: 5px; background: var(--blue-dark); color: #fff; font-weight: 750; text-decoration: none; }
+[data-fission-semantics="home-secondary-cta"] a { display: inline-flex; padding: 12px 20px; border: 1px solid #aeb7c6; border-radius: 5px; background: var(--surface); color: var(--ink); font-weight: 750; text-decoration: none; }
+[data-fission-semantics="home-primary-cta"] a *, [data-fission-semantics="home-browser-cta"] a *, [data-fission-semantics="hub-start"] a * { color: #fff !important; text-decoration: none !important; }
+[data-fission-semantics="site-header"] a *, [data-fission-semantics="hub-sidebar"] a *, [data-fission-semantics="goal-left-nav"] a *, [data-fission-semantics="goal-right-nav"] a * { color: inherit !important; text-decoration: none !important; }
+[data-fission-semantics="home-hero-demo"] { overflow: hidden; border: 1px solid #24354d; border-radius: 14px; background: var(--code); box-shadow: 0 22px 60px rgb(11 24 51 / 20%); }
+[data-fission-semantics="home-hero-demo"] > * { display: grid !important; grid-template-columns: 1fr .95fr; gap: 0 !important; }
+[data-fission-semantics="home-hero-code"] { min-width: 0; color: #eaf0f8; }
+[data-fission-semantics="home-hero-code"] > * > :first-child,
+[data-fission-semantics="home-hero-preview"] > * > :first-child,
+[data-fission-semantics="home-browser-demo"] > * > :first-child > :first-child { min-height: 38px; padding: 9px 13px; border-bottom: 1px solid rgb(255 255 255 / 12%); background: #172638; color: #dfe8f3; font-size: 12px; }
+[data-fission-semantics="home-hero-code"] > * > :first-child .fission-site-text-run,
+[data-fission-semantics="home-hero-preview"] > * > :first-child .fission-site-text-run { color: #dfe8f3 !important; }
+[data-fission-semantics="home-hero-code"] pre,
+[data-fission-semantics="home-browser-demo"] pre { margin: 0; padding: 14px; overflow: auto; background: var(--code) !important; color: #dbe9ff !important; font-size: 11px; line-height: 1.55; }
+[data-fission-semantics="home-hero-code"] > * > :nth-child(2), [data-fission-semantics="home-compose"] .fission-site-box-stretch-auto-width, [data-fission-semantics="hub-start"] .fission-site-box-stretch-auto-width, [data-fission-semantics="goal-command"] .fission-site-box-stretch-auto-width { padding: 14px; background: var(--code) !important; border-radius: 0 0 6px 6px; }
+[data-fission-semantics="home-hero-code"] > * > :nth-child(2) .fission-site-text-run, [data-fission-semantics="home-compose"] .fission-site-box-stretch-auto-width .fission-site-text-run, [data-fission-semantics="hub-start"] .fission-site-box-stretch-auto-width .fission-site-text-run, [data-fission-semantics="goal-command"] .fission-site-box-stretch-auto-width .fission-site-text-run { color: #e7effa !important; font-family: ui-monospace, monospace !important; font-size: 12px !important; line-height: 1.45 !important; }
+[data-fission-semantics="home-hero-preview"] { min-width: 0; background: #f4f6f8; color: var(--ink); }
+[data-fission-semantics="home-hero-preview"] iframe { display: block; width: 100% !important; min-height: 400px; border: 0; background: #fff; }
+
+[data-fission-semantics="home-platforms"] { width: min(100%, var(--max)); margin-inline: auto; padding: 18px var(--gutter) 30px; }
+[data-fission-semantics="home-platforms"] > * { justify-content: space-between; }
+[data-fission-semantics="home-platforms"] > * > * { flex: 1 1 0; min-width: 0; padding: 10px 18px; border-right: 1px solid var(--line); }
+[data-fission-semantics="home-platforms"] > * > :last-child { border-right: 0; }
+
+[data-fission-semantics="home-goals"] { width: min(calc(100% - 32px), var(--max)); margin: 0 auto 34px; padding: clamp(28px, 4vw, 48px); border: 1px solid #cedbf2; border-radius: 16px; background: linear-gradient(110deg, #f3f6fb, #fffaf0 54%, var(--blue-soft)); }
+[data-fission-semantics="home-goals"] > * { display: grid !important; grid-template-columns: minmax(240px, .85fr) minmax(0, 1.75fr); }
+[data-fission-semantics="home-goals"] > * > :first-child > :nth-child(2),
+[data-fission-semantics="home-features"] > * > :first-child > :nth-child(2),
+[data-fission-semantics="home-tutorials"] > * > :first-child > :first-child > :nth-child(2),
+[data-fission-semantics="home-browser"] > * > :first-child > :nth-child(2) { font-family: Georgia, "Times New Roman", serif; font-size: clamp(30px, 3vw, 42px) !important; line-height: 1.05; }
+[data-fission-semantics="home-goals"] > * > :first-child > :nth-child(2) .fission-site-text-run,
+[data-fission-semantics="home-features"] > * > :first-child > :nth-child(2) .fission-site-text-run,
+[data-fission-semantics="home-compose"] > * > :first-child .fission-site-text-run,
+[data-fission-semantics="home-tutorials"] > * > :first-child > :first-child > :nth-child(2) .fission-site-text-run,
+[data-fission-semantics="home-browser"] > * > :first-child > :nth-child(2) .fission-site-text-run { font-family: Georgia, "Times New Roman", serif !important; font-size: clamp(26px, 2.4vw, 34px) !important; line-height: 1.1 !important; }
+[data-fission-semantics="home-goals"] > * > :nth-child(2) { display: grid !important; grid-template-columns: repeat(4, minmax(0, 1fr)); }
+[data-fission-semantics="home-goal-card"] { height: 100%; padding: 20px; border: 1px solid var(--line); border-radius: 10px; background: rgb(255 255 255 / 92%); transition: transform .18s ease, border-color .18s ease, box-shadow .18s ease; }
+[data-fission-semantics="home-goal-card"] img { border-radius: 6px; box-shadow: 0 4px 12px rgb(11 24 51 / 16%); }
+[data-fission-semantics="home-goal-card"]:hover { transform: translateY(-3px); border-color: var(--blue); box-shadow: 0 12px 30px rgb(11 24 51 / 10%); }
+[data-fission-semantics="home-goal-card"] a { font-weight: 700; text-decoration: none; }
+
+[data-fission-semantics="home-features"] { width: min(100%, var(--max)); margin-inline: auto; padding: 18px var(--gutter) 48px; }
+[data-fission-semantics="home-features"] > * { display: grid !important; grid-template-columns: 1.25fr repeat(3, 1fr); }
+[data-fission-semantics="home-features"] > * > * { min-width: 0; }
+[data-fission-semantics="home-feature-card"] { height: 100%; padding-left: 24px; border-left: 1px solid var(--line); }
+[data-fission-semantics="home-feature-card"] a { margin-top: auto; font-size: 14px; font-weight: 650; text-decoration: none; }
+
+[data-fission-semantics="home-tutorials"] { padding: 42px max(var(--gutter), calc((100vw - var(--max)) / 2 + var(--gutter))) 54px; border-top: 1px solid var(--line); }
+[data-fission-semantics="home-tutorials"] > * > :nth-child(2) { display: grid !important; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+[data-fission-semantics="home-tutorial-card"] { height: 100%; overflow: hidden; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); box-shadow: 0 3px 12px rgb(11 24 51 / 6%); transition: transform .18s ease, border-color .18s ease, box-shadow .18s ease; }
+[data-fission-semantics="home-tutorial-card"]:hover { transform: translateY(-3px); border-color: var(--blue); box-shadow: 0 14px 34px rgb(11 24 51 / 10%); }
+[data-fission-semantics="home-tutorial-card"] > * > :not(:first-child) { margin-inline: 18px; }
+[data-fission-semantics="home-tutorial-card"] > * > :last-child { margin-bottom: 18px; }
+[data-fission-semantics="home-tutorial-card"] img { width: 100% !important; }
+
+[data-fission-semantics="home-browser"] { width: min(calc(100% - 32px), var(--max)); margin: 0 auto 52px; padding: clamp(28px, 4vw, 46px); border: 1px solid #cedbf2; border-radius: 16px; background: linear-gradient(110deg, #f3f6fb, #fffaf0 54%, var(--blue-soft)); }
+[data-fission-semantics="home-browser"] > * { display: grid !important; grid-template-columns: .8fr 1.35fr; }
+[data-fission-semantics="home-browser-demo"] { overflow: hidden; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); }
+[data-fission-semantics="home-browser-demo"] > * { display: grid !important; grid-template-columns: 1fr 1fr; gap: 0 !important; }
+[data-fission-semantics="home-browser-demo"] iframe { display: block; width: 100% !important; min-height: 400px; border: 0; }
+
+[data-fission-semantics="site-footer"] { padding: 26px var(--gutter); border-top: 1px solid var(--line); background: #0b1833; color: #eef4ff; }
+[data-fission-semantics="site-footer"] > * { width: min(100%, var(--max)); margin-inline: auto; }
+[data-fission-semantics="site-footer"] a { color: #eef4ff; }
+
+[data-fission-semantics="goal-shell"] > * { display: grid !important; grid-template-columns: 220px minmax(0, 1fr) 220px; width: min(100%, 1500px); margin-inline: auto; }
+[data-fission-semantics="goal-left-nav"],
+[data-fission-semantics="goal-right-nav"] { position: sticky; top: var(--header); align-self: start; min-height: calc(100vh - var(--header)); padding: 26px 24px; background: #fff; }
+[data-fission-semantics="goal-left-nav"] { border-right: 1px solid var(--line); }
+[data-fission-semantics="goal-right-nav"] { border-left: 1px solid var(--line); }
+[data-fission-semantics="goal-left-nav"] a,
+[data-fission-semantics="goal-right-nav"] a { color: #46546b; font-size: 13px; text-decoration: none; }
+[data-fission-semantics="goal-nav-current"],
+[data-fission-semantics="goal-toc-current"] { padding: 8px 10px; border-radius: 5px; background: var(--blue-soft); }
+[data-fission-semantics="goal-nav-current"] a,
+[data-fission-semantics="goal-toc-current"] a { color: var(--blue-dark); font-weight: 750; }
+[data-fission-semantics="goal-version-card"] { padding: 14px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); }
+[data-fission-semantics="goal-main"] { width: min(100%, 980px); margin-inline: auto; padding: 32px clamp(24px, 4vw, 52px) 80px; }
+[data-fission-semantics="goal-heading"] { max-width: 700px; }
+[data-fission-semantics="goal-heading"] > * > :first-child { font-size: clamp(38px, 4vw, 54px) !important; line-height: 1.03; letter-spacing: -.035em; }
+[data-fission-semantics="goal-heading"] > * > :first-child .fission-site-text-run { font-size: clamp(30px, 2.6vw, 38px) !important; line-height: 1.12 !important; letter-spacing: -.025em; }
+[data-fission-semantics="goal-meta"] { min-width: 220px; }
+[data-fission-semantics="site-section:what-you-will-build"] > * > :first-child { flex: 1.2 1 0; min-width: 0; }
+[data-fission-semantics="site-section:what-you-will-build"] > * > :last-child { flex: .8 1 0; min-width: 0; }
+[data-fission-semantics="goal-finished-preview"] { overflow: hidden; border: 1px solid var(--line); border-radius: 7px; background: #fff; }
+[data-fission-semantics="goal-finished-preview"] > * > :first-child { padding: 8px 12px; background: #f3f6fa; color: #7a8596; }
+[data-fission-semantics="goal-finished-preview"] iframe { display: block; width: 100% !important; min-height: 300px; border: 0; }
+[data-fission-semantics="goal-outcomes"] { padding: 24px; border-radius: 7px; background: linear-gradient(135deg, #fff, #f3f7ff); }
+[data-fission-semantics="goal-outcomes"] > * > :first-child .fission-site-text-run { font-size: 21px !important; line-height: 1.2 !important; }
+[data-fission-semantics="site-section:finished-example"] { padding-bottom: 34px; border-bottom: 1px solid var(--line); }
+[data-fission-semantics="goal-command"] { flex: 1.15 1 0; }
+[data-fission-semantics="goal-command"] pre,
+[data-fission-semantics="goal-step-copy"] pre { margin: 0; padding: 18px; overflow-x: auto; border-radius: 6px; background: var(--code) !important; color: #e7effa !important; font-size: 12px; line-height: 1.55; }
+[data-fission-semantics="goal-expected"] { flex: .85 1 0; padding: 18px; border-radius: 6px; background: var(--blue-soft); }
+[data-fission-semantics^="site-section:"] { scroll-margin-top: calc(var(--header) + 24px); }
+[data-fission-semantics="goal-step-copy"] { flex: 1.1 1 0; min-width: 0; }
+[data-fission-semantics="goal-step-copy"] + * { flex: .9 1 0; min-width: 0; }
+[data-fission-semantics="goal-live-label"] { padding: 9px 12px; border: 1px solid var(--line); border-bottom: 0; border-radius: 6px 6px 0 0; background: #f4f7fb; font-size: 12px; }
+[data-fission-semantics="goal-live-preview"] { overflow: hidden; border: 1px solid var(--line); border-radius: 0 0 6px 6px; }
+[data-fission-semantics="goal-live-preview"] iframe { display: block; width: 100% !important; min-height: 360px; border: 0; background: #fff; }
+[data-fission-semantics="goal-checkpoint"] { padding: 14px; border-radius: 6px; background: var(--blue-soft); }
+
+@media (max-width: 1120px) {
+  [data-fission-semantics="site-header"] > * > :nth-child(2) { display: none !important; }
+  [data-fission-semantics="home-hero"] > * { grid-template-columns: 1fr; }
+  [data-fission-semantics="home-goals"] > * { grid-template-columns: 1fr; }
+  [data-fission-semantics="home-features"] > * { grid-template-columns: 1fr repeat(3, 1fr); }
+  [data-fission-semantics="goal-shell"] > * { grid-template-columns: 190px minmax(0, 1fr); }
+  [data-fission-semantics="goal-right-nav"] { display: none; }
+}
+@media (max-width: 780px) {
+  [data-fission-semantics="site-header"] > * { gap: 16px !important; }
+  [data-fission-semantics="docs-brand"] { flex: 0 0 auto; }
+  [data-fission-semantics="mobile-docs-link"] { display: block; flex: 0 0 auto; margin-left: 12px; }
+  [data-fission-semantics="docs-search"] { display: none; }
+  [data-fission-semantics="home-hero-demo"] > *,
+  [data-fission-semantics="home-browser-demo"] > * { grid-template-columns: 1fr; }
+  [data-fission-semantics="home-platforms"] > * { flex-wrap: wrap !important; }
+  [data-fission-semantics="home-platforms"] > * > * { flex: 1 1 30%; }
+  [data-fission-semantics="home-goals"] > * > :nth-child(2),
+  [data-fission-semantics="home-tutorials"] > * > :nth-child(2),
+  [data-fission-semantics="home-features"] > *,
+  [data-fission-semantics="home-browser"] > * { grid-template-columns: 1fr; }
+  [data-fission-semantics="goal-shell"] > * { grid-template-columns: 1fr; }
+  [data-fission-semantics="goal-left-nav"] { display: none; }
+  [data-fission-semantics="goal-meta"] { min-width: 0; }
+  [data-fission-semantics="site-section:what-you-will-build"] > *,
+  [data-fission-semantics="site-section:finished-example"] > * > :last-child,
+  .fission-site-row:has(> [data-fission-semantics="goal-step-copy"]) { display: grid !important; grid-template-columns: minmax(0, 1fr) !important; }
+  .fission-site-row:has(> [data-fission-semantics="goal-heading"]),
+  .fission-site-row:has(> [data-fission-semantics="goal-step-copy"]),
+  [data-fission-semantics="site-section:what-you-will-build"] > *,
+  [data-fission-semantics="site-section:finished-example"] > * > :last-child { flex-wrap: wrap !important; }
+  [data-fission-semantics="goal-heading"],
+  [data-fission-semantics="goal-meta"],
+  [data-fission-semantics="goal-step-copy"],
+  [data-fission-semantics="goal-step-copy"] + *,
+  [data-fission-semantics="site-section:what-you-will-build"] > * > *,
+  [data-fission-semantics="site-section:finished-example"] > * > :last-child > * { flex: 1 1 100%; }
+  [data-fission-semantics^="site-section:"] > * > :last-child { flex-wrap: wrap !important; }
+}
+@media (max-width: 540px) {
+  [data-fission-semantics="home-hero"] { padding-top: 32px; }
+  [data-fission-semantics="home-goals"] > * > :nth-child(2),
+  [data-fission-semantics="home-tutorials"] > * > :nth-child(2) { grid-template-columns: 1fr; }
+  [data-fission-semantics="home-platforms"] > * > * { flex-basis: 48%; }
+  [data-fission-semantics="site-footer"] > * { align-items: flex-start !important; }
+}
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+
+/* The documentation hub follows the same navigation and reading proportions
+   as the tutorial, with a wider canvas for the task cards. */
+[data-fission-semantics="hub-shell"] > * { display: grid !important; grid-template-columns: 240px minmax(0, 1fr); max-width: 1600px; margin: auto; }
+[data-fission-semantics="hub-sidebar"] { align-self: start !important; min-height: calc(100vh - var(--header)); padding: 28px 24px; border-right: 1px solid var(--line); background: #f8f9fb; }
+[data-fission-semantics="hub-sidebar"] a { color: var(--ink); text-decoration: none; }
+[data-fission-semantics="hub-main"] { padding: 30px clamp(24px, 4vw, 54px) 55px; min-width: 0; }
+[data-fission-semantics="hub-main"] > * > :nth-child(2) { font-size: clamp(32px, 3vw, 44px) !important; line-height: 1.1; letter-spacing: -.035em; }
+[data-fission-semantics="hub-main"] > * > :nth-child(2) .fission-site-text-run { font-size: clamp(30px, 3vw, 42px) !important; line-height: 1.1 !important; letter-spacing: -.035em; }
+[data-fission-semantics="hub-main"] > * > :nth-child(3) { max-width: 760px; }
+[data-fission-semantics="hub-path"] { padding: 10px 0 18px; }
+[data-fission-semantics="hub-path"] > * { justify-content: space-between; color: var(--muted); font-size: 14px; font-weight: 650; }
+[data-fission-semantics="hub-path"] > * > :first-child { color: var(--blue-dark); }
+[data-fission-semantics="hub-start"] { padding: 32px; border-radius: 9px; background: #eaf1fb; }
+[data-fission-semantics="hub-start"] > * { display: grid !important; grid-template-columns: 1.4fr 1fr; align-items: center; }
+[data-fission-semantics="hub-start"] a { display: inline-flex; width: fit-content; padding: 12px 20px; border-radius: 5px; background: var(--blue-dark); color: white; text-decoration: none; font-weight: 700; }
+[data-fission-semantics="hub-start"] pre { margin: 0; padding: 24px; border-radius: 6px; background: var(--code) !important; color: white !important; }
+[data-fission-semantics="hub-cards"] > *, [data-fission-semantics="hub-guides"] > * { display: grid !important; grid-template-columns: repeat(4, minmax(0, 1fr)); }
+[data-fission-semantics="hub-card"] { padding: 22px; min-height: 150px; border: 1px solid var(--line); border-radius: 7px; background: white; }
+[data-fission-semantics="hub-card"] a { font-weight: 650; text-decoration: none; }
+[data-fission-semantics="hub-reference"] { padding: 20px 24px; border-radius: 7px; background: #edf3fa; }
+
+/* Match the homepage's broad section rhythm and cool, restrained palette. */
+body { background: #fff; }
+[data-fission-semantics="home-hero"] { padding-top: 42px; padding-bottom: 38px; }
+[data-fission-semantics="home-hero"] > * { grid-template-columns: minmax(0, 1fr) minmax(460px, 1.25fr); }
+[data-fission-semantics="home-goals"] { border: 0; border-radius: 7px; background: #edf3fb; }
+[data-fission-semantics="home-goals"] > * { display: flex !important; flex-direction: column; }
+[data-fission-semantics="home-goals"] > * > :nth-child(2) { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+[data-fission-semantics="home-goal-card"] { border-radius: 6px; }
+[data-fission-semantics="home-features"] > * { display: grid !important; grid-template-columns: repeat(6, minmax(0, 1fr)); }
+[data-fission-semantics="home-features"] > * > :first-child { grid-column: 1 / -1; }
+[data-fission-semantics="home-feature-card"] { padding-left: 0; border-left: 0; }
+[data-fission-semantics="home-compose"] { width: min(100%, var(--max)); margin: 0 auto; padding: 0 var(--gutter) 42px; }
+[data-fission-semantics="home-compose"] > * > :first-child { font-family: Georgia, "Times New Roman", serif; font-size: clamp(30px, 3vw, 42px) !important; line-height: 1.1; }
+[data-fission-semantics="home-compose"] > * > :nth-child(2) { display: grid !important; grid-template-columns: 1.4fr 1fr; }
+[data-fission-semantics="home-compose"] pre { margin: 0; padding: 20px; border-radius: 6px; background: var(--code) !important; color: #e7effa !important; font-size: 12px; overflow: auto; }
+[data-fission-semantics="home-compose"] a { font-weight: 700; text-decoration: none; }
+[data-fission-semantics="home-browser"] { border: 0; border-radius: 7px; background: #eaf2fd; }
+[data-fission-semantics="site-footer"] { background: #fff; color: var(--ink); }
+[data-fission-semantics="site-footer"] a { color: var(--muted); text-decoration: none; }
+@media (max-width: 1120px) {
+  [data-fission-semantics="home-hero"] > * { grid-template-columns: 1fr; }
+  [data-fission-semantics="hub-cards"] > *, [data-fission-semantics="hub-guides"] > * { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 780px) {
+  [data-fission-semantics="hub-shell"] > * { grid-template-columns: 1fr; }
+  [data-fission-semantics="hub-sidebar"] { display: none; }
+  [data-fission-semantics="hub-start"] > * { grid-template-columns: 1fr; }
+  [data-fission-semantics="home-compose"] > * > :nth-child(2) { grid-template-columns: 1fr; }
+  [data-fission-semantics="home-features"] > * { grid-template-columns: 1fr; }
+  [data-fission-semantics="home-goals"] > * > :nth-child(2) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 540px) {
+  [data-fission-semantics="hub-cards"] > *, [data-fission-semantics="hub-guides"] > *,
+  [data-fission-semantics="home-goals"] > * > :nth-child(2) { grid-template-columns: 1fr; }
+  [data-fission-semantics="goal-finished-preview"] iframe,
+  [data-fission-semantics="goal-live-preview"] iframe,
+  [data-fission-semantics="home-hero-preview"] iframe,
+  [data-fission-semantics="home-browser-demo"] iframe { min-height: 480px !important; }
+}
