@@ -34,23 +34,30 @@ fission add-target web android ios --project-dir .
 fission add-capability filesystem --project-dir .
 ```
 
-The finished project is organised around the app boundary and the files that own each job:
+## Project layout
 
 ```text
 harbour-files/
-├── Cargo.toml
-├── fission.toml
+├── Cargo.toml                 # generated dependencies
+├── fission.toml               # app identity, targets and capabilities
 ├── src/
-│   ├── main.rs
-│   ├── lib.rs
-│   ├── app.rs
+│   ├── main.rs                 # generated desktop entrypoint
+│   ├── lib.rs                  # shared app setup
+│   ├── app.rs                  # the Fission component shown in this tutorial
 │   ├── state.rs
-│   └── components/
+│   ├── effects/filesystem.rs
+│   ├── components/file_list.rs
+├── platforms/
+│   ├── android/
+│   ├── ios/
+│   ├── linux/
+│   └── web/
+└── tests/                      # project-specific flow checks
 ```
 
-Fission generates a thin entrypoint for each target and starts the shared app from it. Keep shared UI in `src/app.rs`, and move a reusable presentation piece into `src/components/` when it has a clear job of its own. Use `GlobalState` for data read across screens and Compose `state` for retained interaction owned by one component. Keep host work such as persistence and network requests in a Fission service or effect, then show loading, success or failure in the UI.
+`fission init` generates `Cargo.toml`, `fission.toml`, `src/main.rs`, `src/lib.rs` and `src/app.rs`. Add the task modules in the tree as you build the feature. Keep data shared across routes in `GlobalState`, and keep retained interaction such as a disclosure or draft field in the owning `fission_component!`. Request database, filesystem, network and session work through a reducer effect, job or service; never run host work while a component view is being built.
 
-The `preview/lib.rs` file is a documentation-only browser harness that mounts the step in the live preview. The `src/app.rs` component is compiled into that preview. Use its Compose patterns in your project, but do not copy the harness or treat its simulated host results as production behavior.
+`preview/lib.rs` is a documentation harness. The page compiles each complete `src/app.rs` component into WebAssembly so you can use the same UI while reading. Its host results are deterministic preview states; the target-specific host work described in this tutorial runs in each target project code, not in the browser preview.
 
 <!-- fission:step id="start-screen" -->
 ## Render the folder path and its contents
@@ -222,7 +229,7 @@ Navigate with stable file identities: Use the preview control and check that the
 
 Show pending progress and a useful error when access is denied, the file disappears or storage runs out. Keep the same capability call in shared code, then verify the different permission prompts and file access rules on desktop, mobile and Web.
 
-Keep I/O outside component conversion and reducers. Send host work through an asynchronous effect or service so the UI stays responsive.
+Keep I/O outside component conversion. Use reducers for explicit state transitions, then queue host work through an asynchronous effect, capability, job or service so the UI stays responsive.
 The preview control below simulates an unsuccessful host result. It demonstrates the message and recovery path; it does not perform authentication, database, network, or filesystem work.
 <!-- fission:file path="src/app.rs" -->
 ```rust

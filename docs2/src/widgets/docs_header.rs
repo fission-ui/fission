@@ -14,7 +14,7 @@ fission_component! {
     SemanticsRegion(
         identifier: Some("docs-header".to_string()),
         label: Some(cx.view.env().tr("site.primary_nav")),
-        child: Row(align_items: ir_op::AlignItems::Center, children: [
+        child: Row(align_items: ir_op::AlignItems::Center, wrap: ir_op::FlexWrap::Wrap, children: [
             SemanticsRegion(
                 identifier: Some("docs-header-brand".to_string()),
                 child: Row(gap: tokens.spacing.s, align_items: ir_op::AlignItems::Center, children: [
@@ -25,31 +25,23 @@ fission_component! {
                 ]),
             )
             .hyperlink(Hyperlink::new(navigation::HOME)),
-            if header.hub {
-                SemanticsRegion(
-                    identifier: Some("docs-header-mobile-nav".to_string()),
-                    label: Some(cx.view.env().tr("site.primary_nav")),
-                    child: Row(gap: tokens.spacing.l, align_items: ir_op::AlignItems::Center, children: [
+            SemanticsRegion(
+                identifier: Some("docs-header-nav".to_string()),
+                label: Some(cx.view.env().tr("site.primary_nav")),
+                child: Row(
+                    gap: tokens.spacing.m,
+                    align_items: ir_op::AlignItems::Center,
+                    wrap: ir_op::FlexWrap::Wrap,
+                    children: [
                         Link::to(cx.view.env().tr("site.docs"), navigation::DOCS),
-                        Link::to(cx.view.env().tr("docs.header.components"), "/reference/widgets/catalog/"),
                         Link::to(cx.view.env().tr("site.tutorials"), navigation::TUTORIALS),
+                        Link::to(cx.view.env().tr("site.compose"), navigation::COMPOSE),
                         Link::to(cx.view.env().tr("site.examples"), navigation::EXAMPLES),
-                        Link::to(cx.view.env().tr("docs.header.community"), navigation::COMMUNITY),
-                    ]),
-                )
-            } else {
-                SemanticsRegion(
-                    identifier: Some("docs-header-nav".to_string()),
-                    label: Some(cx.view.env().tr("site.primary_nav")),
-                    child: Row(gap: tokens.spacing.l, align_items: ir_op::AlignItems::Center, children: [
-                        Link::to(cx.view.env().tr("site.docs"), navigation::DOCS),
-                        Link::to(cx.view.env().tr("docs.header.components"), "/reference/widgets/catalog/"),
-                        Link::to(cx.view.env().tr("site.tutorials"), navigation::TUTORIALS),
-                        Link::to(cx.view.env().tr("site.examples"), navigation::EXAMPLES),
-                        Link::to(cx.view.env().tr("docs.header.community"), navigation::COMMUNITY),
-                    ]),
-                )
-            },
+                        Link::to(cx.view.env().tr("site.reference"), navigation::REFERENCE_OVERVIEW),
+                        Link::to(cx.view.env().tr("site.try_browser"), navigation::TRY_IN_BROWSER),
+                    ],
+                ),
+            ),
             Spacer(flex_grow: 1.0),
             SemanticsRegion(
                 identifier: Some("site-search-trigger".to_string()),

@@ -121,6 +121,9 @@ pub fn parse_goal(source: &str) -> Result<GoalDocument> {
     if steps.is_empty() {
         bail!("a goal document must contain at least one fission:step");
     }
+    if steps[0].files.is_empty() {
+        bail!("the first fission:step must contain the initial fission:file sources");
+    }
     Ok(GoalDocument {
         meta,
         introduction,
@@ -287,9 +290,6 @@ fn parse_step(id: String, source: &str) -> Result<GoalStep> {
         .map(str::to_string)
         .with_context(|| format!("step `{id}` needs a level-two heading"))?;
     let files = parse_files(&id, source)?;
-    if files.is_empty() {
-        bail!("step `{id}` must contain at least one fission:file");
-    }
     let checkpoint = extract_marker_block(
         source,
         "<!-- fission:checkpoint -->",
@@ -454,12 +454,12 @@ mod tests {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("content/goals");
         let goals = load_goals(root).unwrap();
 
-        assert_eq!(goals.len(), 16);
+        assert_eq!(goals.len(), 118);
         assert_eq!(goals[0].meta.order, 1);
         assert_eq!(
             goals[0].meta.path,
             "/blog/build-a-rust-website-with-dropdown-navigation/"
         );
-        assert_eq!(goals[15].meta.order, 16);
+        assert_eq!(goals[117].meta.order, 118);
     }
 }

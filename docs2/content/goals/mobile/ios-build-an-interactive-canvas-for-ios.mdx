@@ -1,0 +1,336 @@
+---
+layout: goal
+title: Build an interactive canvas for iOS
+description: "Build an interactive canvas for iOS with Rust and Fission on iOS."
+goal: Use Fission’s interactive-canvas capability for touch pan, zoom, selection and stable node identity.
+path: /blog/build-an-interactive-canvas-for-ios/
+order: 105
+difficulty: Beginner
+duration: 35 minutes
+run_command: "fission run --target ios --project-dir ."
+app: ios-build-an-interactive-canvas-for-ios
+prerequisites:
+  - Basic Rust syntax and a terminal
+  - Rust and Cargo installed with rustup
+  - Xcode and the iOS Simulator from the [iOS setup tutorial](/blog/set-up-rust-ios-development-with-fission/)
+outcomes:
+  - Implement the feature in shared Rust application code
+  - Explain the state, component and host behaviour involved
+  - Verify the iOS workflow and follow physical-device checks when the task requires them
+---
+
+This tutorial shows how to use Fission’s interactive-canvas capability for touch pan, zoom, selection and stable node identity. The runnable example uses shared Rust code and Fission’s fission_component! API, then checks the parts that need a real iOS target. It assumes basic Rust syntax and explains app state, reducers and host work before using them.
+
+## What you will build
+
+You will build this workflow: use Fission’s interactive-canvas capability for touch pan, zoom, selection and stable node identity. The browser preview demonstrates the component and its state; it does not claim to run native permissions, sensors or device APIs. The final steps identify which checks need a real iOS target.
+
+
+### The Fission pieces in this example
+
+A component describes a part of the screen. fission_component! declares that component, its inputs and any retained local interaction state. GlobalState holds product data or routes used beyond one component. A typed action names something that happened; a reducer applies the state change synchronously. When an operation needs a file, database, network or operating-system API, the reducer queues an effect or capability request and a later action reports success or failure. This keeps slow work out of the UI rendering path.
+
+
+## Create the project and add the target
+
+Install the Fission command line, create the app, and add its native target. The [canonical iOS setup tutorial](/blog/set-up-rust-ios-development-with-fission/) covers SDK installation and device prerequisites.
+
+```sh
+cargo install cargo-fission
+fission init ios-build-an-interactive-canvas-for-ios
+cd ios-build-an-interactive-canvas-for-ios
+fission add-target ios --project-dir .
+```
+
+## Final project layout
+
+The commands generate the shared Rust entrypoints and the selected native host. Add the focused modules shown below as you implement the feature; keep file, database, network and operating-system work out of component conversion and queue it through reducers and asynchronous effects.
+
+```text
+ios-build-an-interactive-canvas-for-ios/
+├── Cargo.toml                    # generated Rust dependencies
+├── fission.toml                  # app identity, targets and capabilities
+├── src/
+│   ├── main.rs                   # generated desktop entrypoint
+│   ├── lib.rs                    # shared app setup
+│   ├── app.rs                    # root composition using fission_component!
+│   ├── state.rs                  # durable app state and reducer actions
+│   ├── components/
+│   │   └── feature_screen.rs     # named, reusable presentation component
+│   ├── effects/
+│   │   └── feature.rs            # asynchronous host or service work
+│   └── services/
+│       └── feature.rs            # typed host boundary when needed
+├── platforms/
+│   └── ios/                      # generated iOS host files
+└── tests/
+    └── feature_flow.rs           # reducer/provider and flow checks
+```
+
+`src/app.rs` is the shared Fission application, not a platform-specific copy. Put one reusable view in a named `fission_component!` component, keep app truth in `GlobalState`, and keep a one-screen draft or open flag in that component’s retained state. A reducer records the user’s intent; an effect, job, service or capability performs work after the view is built. Show pending, success, denied or failed outcomes in the screen.
+
+The live preview compiles the complete `src/app.rs` component to WebAssembly. It lets you try retained state and normal or unavailable UI states in the browser. The preview does not call Android or iOS hardware. Use the target commands and device checks below to verify native behaviour.
+
+
+<!-- fission:step id="start-screen" -->
+## Build the first iOS screen
+
+Start with the visible result before adding host integration. The first screen names the task, explains the next action and gives the reader a useful initial state. Keep a heading and text label visible so screen-reader users do not have to infer an icon’s meaning.
+
+The complete root component below is the small interactive checkpoint used by the later steps. It reads Fission theme tokens and owns only the temporary state needed for this example.
+
+<!-- fission:file path="src/app.rs" -->
+```rust
+use fission::prelude::*;
+
+fission_component! {
+    pub TutorialPreview<()> {
+        props {
+            title: String,
+            step: String,
+            goal: String,
+        }
+        state {
+            complete: bool = false,
+            unavailable: bool = false,
+        }
+    }
+    view(preview, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    SemanticsRegion(
+        identifier: Some("tutorial-preview".to_string()),
+        label: Some(preview.title.clone()),
+        child: Container(
+            Column(gap: tokens.spacing.m, children: [
+                Text(preview.title.clone())
+                    .size(tokens.typography.heading2_size)
+                    .weight(tokens.typography.font_weight_bold),
+                Text(preview.step.clone())
+                    .color(tokens.colors.text_secondary),
+                Text(preview.goal.clone()),
+                Button(
+                    child: Text(if preview.complete {
+                        "Reset preview state".to_string()
+                    } else {
+                        "Mark this step complete".to_string()
+                    }),
+                    key: "tutorial-complete",
+                    on_press: reduce { preview.complete = !preview.complete; },
+                ),
+                Text(if preview.complete {
+                    format!("Preview state changed. Now verify this task on its native target: {}", preview.goal)
+                } else {
+                    "This preview demonstrates the screen state. Native permissions and device operations run in the app target.".to_string()
+                }),
+                Button(
+                    child: Text(if preview.unavailable {
+                        "Clear unavailable state".to_string()
+                    } else {
+                        "Show unavailable state".to_string()
+                    }),
+                    key: "tutorial-unavailable",
+                    on_press: reduce { preview.unavailable = !preview.unavailable; },
+                ),
+                if preview.unavailable {
+                    Text(format!("Unavailable: explain why {} cannot continue and offer the next safe action.", preview.goal))
+                } else {
+                    Text("Ready: the main workflow can continue.".to_string())
+                },
+            ])
+        )
+        .padding_all(tokens.spacing.l)
+        .bg(tokens.colors.surface)
+        .border(tokens.colors.border, 1.0)
+        .border_radius(tokens.radii.large),
+    )
+}
+```
+<!-- fission:file path="preview/lib.rs" -->
+```rust
+mod app;
+
+use fission::prelude::*;
+use wasm_bindgen::prelude::*;
+
+#[wasm_bindgen(inline_js = "export function tutorial_title() { const parts = document.title.split(' — '); return parts.slice(1).join(' — ') || 'Fission tutorial'; } export function tutorial_step() { return document.title.split(' — ')[0] || 'Tutorial step'; } export function tutorial_goal() { return document.querySelector('meta[name=\"tutorial-goal\"]')?.content || 'Complete the task and verify it on the target.'; }")]
+extern "C" {
+    fn tutorial_title() -> String;
+    fn tutorial_step() -> String;
+    fn tutorial_goal() -> String;
+}
+
+#[wasm_bindgen(start)]
+pub fn run() -> Result<(), JsValue> {
+    console_error_panic_hook::set_once();
+    let preview = app::TutorialPreview::new(tutorial_title(), tutorial_step(), tutorial_goal());
+    WebApp::<(), _>::new(preview)
+        .with_title("Fission tutorial preview")
+        .mount("#fission-web-mount")
+        .run()
+        .map_err(|error| JsValue::from_str(&error.to_string()))
+}
+```
+<!-- fission:preview -->
+
+<!-- fission:checkpoint -->
+Confirm the screen names “Build an interactive canvas for iOS” and shows the next action before the user interacts.
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->
+
+<!-- fission:step id="main-flow" -->
+## Implement the main iOS workflow
+
+Treat the preview action as a user intent. In the real app, send a typed action to a reducer and let the reducer update `GlobalState` or request an asynchronous effect. Keep the view function limited to reading state and composing widgets. For **Use Fission’s interactive-canvas capability for touch pan, zoom, selection and stable node identity**, work through these files in order:
+
+1. In `src/state.rs`, define the product data and a status type with at least `Idle`, `Pending`, `Ready` and `Failed` variants. Keep durable records and active routes in `GlobalState`; keep only the current field draft or selected tab in local component state.
+2. In `src/components/feature_screen.rs`, create a named `fission_component!` view. Give controls text labels, set a semantic label where an icon needs context, and make the primary action usable with keyboard, touch and an assistive technology action.
+3. In `src/effects/feature.rs`, request slow or host-owned work after the reducer receives the action. Dispatch a typed success or error action when the effect completes. Do not block the UI thread, and attach a request id or revision when an older completion could overwrite a newer edit.
+4. In `src/app.rs`, compose the screen with the state and reducer bindings. Render a pending message while work is running, the returned value on success, and a retry or alternate action on failure.
+
+Keep one-screen interaction state in the owning `fission_component!`. Use `GlobalState` for product facts shared across routes or jobs, and use a reducer to start asynchronous host work only when the user chooses the action. Preserve distinct success, denied, cancelled and unsupported outcomes where the target exposes them.
+
+### Task-specific implementation
+
+Keep the document model separate from the camera transform: selection and node edits belong to product state, while pan and zoom describe the current viewport. Assign each drawn item a stable ID so selecting an item still selects the same item after an insert or reorder. Put keyboard and touch actions on the same semantic command path, and provide a readable list or inspector as an alternative to precise canvas gestures. Test an empty canvas, a dense canvas, zoom limits, a selected item after reorder, and a narrow screen. Use the [interactive canvas reference](/reference/widgets/infinite-canvas/) for the public widget contract.
+
+<!-- fission:file path="src/app.rs" -->
+```rust
+use fission::prelude::*;
+
+fission_component! {
+    pub TutorialPreview<()> {
+        props {
+            title: String,
+            step: String,
+            goal: String,
+        }
+        state {
+            complete: bool = false,
+            unavailable: bool = false,
+        }
+    }
+    view(preview, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    SemanticsRegion(
+        identifier: Some("tutorial-preview".to_string()),
+        label: Some(preview.title.clone()),
+        child: Container(
+            Column(gap: tokens.spacing.m, children: [
+                Text(preview.title.clone())
+                    .size(tokens.typography.heading2_size)
+                    .weight(tokens.typography.font_weight_bold),
+                Text(preview.step.clone())
+                    .color(tokens.colors.text_secondary),
+                Text(preview.goal.clone()),
+                Button(
+                    child: Text(if preview.complete {
+                        "Reset preview state".to_string()
+                    } else {
+                        "Mark this step complete".to_string()
+                    }),
+                    key: "tutorial-complete",
+                    on_press: reduce { preview.complete = !preview.complete; },
+                ),
+                Text(if preview.complete {
+                    format!("Preview state changed. Now verify this task on its native target: {}", preview.goal)
+                } else {
+                    "This preview demonstrates the screen state. Native permissions and device operations run in the app target.".to_string()
+                }),
+                Button(
+                    child: Text(if preview.unavailable {
+                        "Clear unavailable state".to_string()
+                    } else {
+                        "Show unavailable state".to_string()
+                    }),
+                    key: "tutorial-unavailable",
+                    on_press: reduce { preview.unavailable = !preview.unavailable; },
+                ),
+                if preview.unavailable {
+                    Text(format!("Unavailable: explain why {} cannot continue and offer the next safe action.", preview.goal))
+                } else {
+                    Text("Ready: the main workflow can continue.".to_string())
+                },
+            ])
+        )
+        .padding_all(tokens.spacing.l)
+        .bg(tokens.colors.surface)
+        .border(tokens.colors.border, 1.0)
+        .border_radius(tokens.radii.large),
+    )
+}
+```
+<!-- fission:file path="preview/lib.rs" -->
+```rust
+mod app;
+
+use fission::prelude::*;
+use wasm_bindgen::prelude::*;
+
+#[wasm_bindgen(inline_js = "export function tutorial_title() { const parts = document.title.split(' — '); return parts.slice(1).join(' — ') || 'Fission tutorial'; } export function tutorial_step() { return document.title.split(' — ')[0] || 'Tutorial step'; } export function tutorial_goal() { return document.querySelector('meta[name=\"tutorial-goal\"]')?.content || 'Complete the task and verify it on the target.'; }")]
+extern "C" {
+    fn tutorial_title() -> String;
+    fn tutorial_step() -> String;
+    fn tutorial_goal() -> String;
+}
+
+#[wasm_bindgen(start)]
+pub fn run() -> Result<(), JsValue> {
+    console_error_panic_hook::set_once();
+    let preview = app::TutorialPreview::new(tutorial_title(), tutorial_step(), tutorial_goal());
+    WebApp::<(), _>::new(preview)
+        .with_title("Fission tutorial preview")
+        .mount("#fission-web-mount")
+        .run()
+        .map_err(|error| JsValue::from_str(&error.to_string()))
+}
+```
+<!-- fission:preview -->
+
+<!-- fission:checkpoint -->
+Use the main action. Confirm the screen reports a completed state and that changing routes or list order would not move retained state to another record.
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->
+
+<!-- fission:step id="edge-state" -->
+## Handle errors, accessibility and target verification
+
+Test the denied, unavailable or empty path as deliberately as the success path. In the browser preview, choose **Show an unavailable state** and confirm the message explains why the action cannot continue. In the native app, distinguish permission denial, cancellation, unsupported hardware and provider failure; offer a retry only when retrying can help.
+
+Before publishing the screen, check it at a narrow phone width and a larger tablet or desktop width. Keep the primary action visible without horizontal scrolling, preserve readable focus order, and make status changes available to TalkBack or VoiceOver. For list screens, test an empty collection and give repeated stateful rows stable IDs based on durable record IDs.
+
+### Run, test and build
+
+```sh
+cargo test
+fission doctor ios --project-dir .
+fission run --target ios --project-dir .
+fission test --target ios --project-dir .
+fission build --target ios --project-dir . --release
+```
+
+Expected result: `cargo test` runs the reducer and provider tests for the app; `fission doctor` reports the selected Xcode, simulator SDK and Rust targets; `fission run` launches an iOS Simulator; `fission test` checks the generated iOS host; and the release build completes for the simulator target. The current `fission run --target ios` path is simulator-only. It does not verify iPhone signing or physical hardware.
+
+
+### Simulator and device commands
+
+The [Xcode and iOS setup guide](/blog/set-up-rust-ios-development-with-fission/) is the single setup source. Fission’s run path discovers iOS simulators only:
+
+```sh
+fission doctor ios --project-dir .
+fission devices --project-dir .
+fission run --target ios --project-dir .
+fission test --target ios --project-dir .
+```
+
+
+### Current references
+
+Once the project runs, use these pages to look up provider methods, request fields, target configuration and component details:
+
+- [Interactive Canvas](/reference/widgets/infinite-canvas/)
+- [Fission state, handles and providers guide](/docs/guides/state-handles-and-providers/)
+- [Fission component and widget reference](/reference/widgets/catalog/)
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->

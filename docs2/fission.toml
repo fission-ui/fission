@@ -33,20 +33,24 @@ title = "Docs"
 href = "/docs/"
 
 [[site.nav]]
-title = "Components"
-href = "/reference/widgets/catalog/"
+title = "Tutorials"
+href = "/blog/categories/tutorials/"
 
 [[site.nav]]
-title = "Guides"
-href = "/blog/categories/tutorials/"
+title = "Compose"
+href = "/compose/"
 
 [[site.nav]]
 title = "Examples"
 href = "https://github.com/fission-ui/fission/tree/main/examples"
 
 [[site.nav]]
-title = "Community"
-href = "https://github.com/fission-ui/fission/discussions"
+title = "Reference"
+href = "/reference/overview/overview/"
+
+[[site.nav]]
+title = "Try Fission in the browser"
+href = "/blog/build-a-single-page-web-app-in-rust/"
 
 [[site.routes]]
 path = "/docs"

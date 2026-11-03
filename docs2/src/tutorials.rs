@@ -12,6 +12,7 @@ pub fn build_all(project_dir: &Path) -> Result<()> {
         "Building {} goal tutorial(s) from documentation source...",
         documents.len()
     );
+    let mut compiled_previews = BTreeMap::<BTreeMap<String, String>, std::path::PathBuf>::new();
     for (index, document) in documents.iter().enumerate() {
         eprintln!(
             "Goal {}/{}: {}",
@@ -19,17 +20,20 @@ pub fn build_all(project_dir: &Path) -> Result<()> {
             documents.len(),
             document.meta.title
         );
-        build_goal(project_dir, document)?;
+        build_goal(project_dir, document, &mut compiled_previews)?;
     }
     Ok(())
 }
 
-fn build_goal(project_dir: &Path, document: &GoalDocument) -> Result<()> {
+fn build_goal(
+    project_dir: &Path,
+    document: &GoalDocument,
+    compiled_previews: &mut BTreeMap<BTreeMap<String, String>, std::path::PathBuf>,
+) -> Result<()> {
     let workspace_root = project_dir
         .parent()
         .context("docs2 must live below the Fission workspace")?;
     let mut files = BTreeMap::<String, String>::new();
-    let mut previous_source: Option<(BTreeMap<String, String>, std::path::PathBuf)> = None;
     let cargo_target = project_dir.join("target/tutorial-wasm");
     if !cargo_target.exists() {
         if let Some(first_step) = document.steps.first() {
@@ -58,14 +62,12 @@ fn build_goal(project_dir: &Path, document: &GoalDocument) -> Result<()> {
             step.id
         );
         files.extend(step.files.clone());
-        let stage_dir = project_dir
-            .join("target/tutorials")
-            .join(&document.meta.app)
-            .join(&step.id);
+        let stage_dir = project_dir.join("target/tutorials/shared-preview");
         if stage_dir.exists() {
             fs::remove_dir_all(&stage_dir)
                 .with_context(|| format!("failed to replace {}", stage_dir.display()))?;
         }
+        fs::create_dir_all(&stage_dir)?;
         for (relative, contents) in &files {
             let stage_path = if relative == "preview/lib.rs" {
                 Path::new("src/lib.rs")
@@ -78,7 +80,7 @@ fn build_goal(project_dir: &Path, document: &GoalDocument) -> Result<()> {
             }
             fs::write(destination, contents)?;
         }
-        let package = format!("docs2-{}", document.meta.app).replace('_', "-");
+        let package = "docs2-tutorial-preview";
         let output = project_dir
             .join("generated-assets/tutorials")
             .join(&document.meta.app)
@@ -87,21 +89,9 @@ fn build_goal(project_dir: &Path, document: &GoalDocument) -> Result<()> {
             fs::remove_dir_all(&output)?;
         }
         fs::create_dir_all(&output)?;
-        if let Some((previous_files, previous_output)) = &previous_source {
-            if previous_files == &files {
-                copy_dir(previous_output, &output)?;
-                eprintln!("  Source is unchanged; reusing the compiled Web preview.");
-            } else {
-                compile_preview(
-                    &document.meta.app,
-                    &step.id,
-                    &package,
-                    &stage_dir,
-                    &output,
-                    &workspace_root,
-                    &cargo_target,
-                )?;
-            }
+        if let Some(previous_output) = compiled_previews.get(&files) {
+            copy_dir(previous_output, &output)?;
+            eprintln!("  Source is unchanged; reusing the compiled Web preview.");
         } else {
             compile_preview(
                 &document.meta.app,
@@ -112,10 +102,11 @@ fn build_goal(project_dir: &Path, document: &GoalDocument) -> Result<()> {
                 &workspace_root,
                 &cargo_target,
             )?;
+            compiled_previews.insert(files.clone(), output.clone());
         }
         fs::write(
             output.join("index.html"),
-            tutorial_html(&document.meta.title, &step.title),
+            tutorial_html(&document.meta.title, &step.title, &document.meta.goal),
         )?;
         eprintln!(
             "  Step {}/{} `{}`: ready",
@@ -123,7 +114,6 @@ fn build_goal(project_dir: &Path, document: &GoalDocument) -> Result<()> {
             document.steps.len(),
             step.id
         );
-        previous_source = Some((files.clone(), output));
     }
     Ok(())
 }
@@ -198,11 +188,14 @@ wasm-bindgen = "0.2"
     )
 }
 
-fn tutorial_html(goal: &str, step: &str) -> String {
+fn tutorial_html(goal: &str, step: &str, task: &str) -> String {
+    let goal = html_escape(goal);
+    let step = html_escape(step);
+    let task = html_escape(task);
     format!(
         r#"<!doctype html>
 <html lang="en-GB"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>{step} — {goal}</title><style>html,body,#fission-web-mount{{width:100%;height:100%;margin:0;overflow:hidden}}body{{background:#f7f6f1}}</style></head>
+<title>{step} — {goal}</title><meta name="tutorial-goal" content="{task}"><style>html,body,#fission-web-mount{{width:100%;height:100%;margin:0;overflow:hidden}}body{{background:#f7f6f1}}</style></head>
 <body><main id="fission-web-mount" aria-label="Interactive result for {step}"></main><script>
 // A preview must not steal focus or scroll its parent when its canvas starts.
 // After the reader interacts, normal canvas focus and keyboard input resume.
@@ -215,4 +208,12 @@ HTMLCanvasElement.prototype.focus = function(...args) {{
 }};
 </script><script type="module" src="./bootstrap.mjs"></script></body></html>"#
     )
+}
+
+fn html_escape(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
+        .replace('"', "&quot;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
 }

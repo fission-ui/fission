@@ -23,6 +23,8 @@ mod site_footer;
 mod site_header;
 mod tutorial_card;
 mod tutorial_gallery;
+mod tutorial_group;
+mod tutorial_list_item;
 
 pub use browser_cta::BrowserCta;
 pub use compose_section::ComposeSection;
@@ -41,6 +43,8 @@ pub(crate) use product_link_card::ProductLinkCard;
 pub use site_footer::SiteFooter;
 pub use site_header::SiteHeader;
 pub use tutorial_gallery::TutorialGallery;
+pub(crate) use tutorial_group::TutorialGroup;
+pub(crate) use tutorial_list_item::TutorialListItem;
 
 pub(crate) use feature_card::FeatureCard;
 pub(crate) use goal_card::GoalCard;

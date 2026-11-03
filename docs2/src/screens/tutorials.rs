@@ -1,7 +1,7 @@
 use crate::content::GoalMeta;
 use crate::navigation;
 use crate::state::DocsState;
-use crate::widgets::{copy, tutorial_image, DocsHeader, SiteFooter, TutorialCard};
+use crate::widgets::{copy, DocsHeader, SiteFooter, TutorialGroup};
 use fission::prelude::*;
 
 fission_component! {
@@ -10,6 +10,7 @@ fission_component! {
     }
     view(page, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
+        let groups = tutorial_groups(&page.tutorials);
     } =>
     Container(
         Column(gap: tokens.spacing.xl, children: [
@@ -30,16 +31,12 @@ fission_component! {
                         identifier: Some("tutorials-list".to_string()),
                         label: Some(cx.view.env().tr("tutorials.region")),
                         child: Column(gap: tokens.spacing.l, children: [
-                            for tutorial in &page.tutorials {
-                                TutorialCard(
-                                    tutorial.title.clone(),
-                                    tutorial.description.clone(),
-                                    tutorial.path.clone(),
-                                    tutorial.difficulty.clone(),
-                                    tutorial.duration.clone(),
-                                    tutorial_image(tutorial.order),
-                                    false,
-                                    key: tutorial.path.clone(),
+                            for (title_key, description_key, tutorials) in groups {
+                                TutorialGroup(
+                                    title_key,
+                                    description_key,
+                                    tutorials,
+                                    key: title_key.to_string(),
                                 )
                             },
                         ]),
@@ -58,4 +55,49 @@ fission_component! {
     )
     .width_length(Length::percent(100.0))
     .bg(tokens.colors.background)
+}
+
+fn tutorial_groups(tutorials: &[GoalMeta]) -> Vec<(&'static str, &'static str, Vec<GoalMeta>)> {
+    let ranges = [
+        (
+            1..=16,
+            "tutorials.group.projects",
+            "tutorials.group.projects_description",
+        ),
+        (
+            17..=18,
+            "tutorials.group.mobile_setup",
+            "tutorials.group.mobile_setup_description",
+        ),
+        (
+            19..=63,
+            "tutorials.group.android",
+            "tutorials.group.android_description",
+        ),
+        (
+            64..=108,
+            "tutorials.group.ios",
+            "tutorials.group.ios_description",
+        ),
+        (
+            109..=118,
+            "tutorials.group.shared_mobile",
+            "tutorials.group.shared_mobile_description",
+        ),
+    ];
+
+    ranges
+        .into_iter()
+        .map(|(range, title_key, description_key)| {
+            (
+                title_key,
+                description_key,
+                tutorials
+                    .iter()
+                    .filter(|tutorial| range.contains(&tutorial.order))
+                    .cloned()
+                    .collect(),
+            )
+        })
+        .collect()
 }

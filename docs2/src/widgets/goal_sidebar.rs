@@ -13,6 +13,7 @@ fission_component! {
     }
     view(sidebar, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
+        let current = sidebar.tutorials.iter().find(|tutorial| tutorial.path == sidebar.current_path);
     } =>
     SemanticsRegion(
         identifier: Some("goal-left-nav".to_string()),
@@ -24,18 +25,14 @@ fission_component! {
             Link::to(cx.view.env().tr("goal.nav.first_app"), navigation::QUICKSTART),
             Divider(),
             copy("goal.nav.tutorials").weight(tokens.typography.font_weight_bold),
-            for tutorial in &sidebar.tutorials {
+            Link::to(cx.view.env().tr("tutorials.title"), navigation::TUTORIALS),
+            if let Some(tutorial) = current {
                 SemanticsRegion(
-                    Link::to(tutorial.title.clone(), tutorial.path.clone()),
-                    identifier: Some(if tutorial.path == sidebar.current_path {
-                        "goal-nav-current".to_string()
-                    } else {
-                        format!("goal-nav-{}", tutorial.app)
-                    }),
-                    key: tutorial.path.clone(),
+                    identifier: Some("goal-nav-current".to_string()),
+                    label: Some(tutorial.title.clone()),
+                    child: Text(tutorial.title.clone()).color(tokens.colors.text_secondary),
                 )
             },
-            Link::to(cx.view.env().tr("tutorials.title"), navigation::TUTORIALS),
             Divider(),
             copy("goal.nav.concepts").weight(tokens.typography.font_weight_bold),
             Link::to(cx.view.env().tr("goal.nav.components"), "/reference/widgets/catalog/"),
