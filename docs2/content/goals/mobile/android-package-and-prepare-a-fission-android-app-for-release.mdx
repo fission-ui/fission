@@ -1,7 +1,7 @@
 ---
 layout: goal
 title: Package and prepare a Fission Android app for release
-description: "Package and prepare a Fission Android app for release with Rust on Android."
+description: "Step-by-step Rust guide to package and prepare a Fission Android app for release."
 goal: Build and verify APK and AAB outputs, configure signing safely, set version codes and run an internal Play test.
 path: /blog/package-and-prepare-a-fission-android-app-for-release/
 order: 63
@@ -19,17 +19,13 @@ outcomes:
   - Verify the Android workflow and follow physical-device checks when the task requires them
 ---
 
-This tutorial shows how to build and verify APK and AAB outputs, configure signing safely, set version codes and run an internal Play test. The runnable example uses shared Rust code and Fission’s fission_component! API, then checks the parts that need a real Android target. It assumes basic Rust syntax and explains app state, reducers and host work before using them.
-
 ## What you will build
 
-You will build this workflow: build and verify APK and AAB outputs, configure signing safely, set version codes and run an internal Play test. The browser preview demonstrates the component and its state; it does not claim to run native permissions, sensors or device APIs. The final steps identify which checks need a real Android target.
+In this tutorial, you will build and verify APK and AAB outputs, configure signing safely, set version codes and run an internal Play test. Try the interactive screen below in your browser. It changes local component state only; it does not open Android permission prompts, use device hardware or build an Android app. Follow the emulator checks below, then use a phone for hardware behavior.
 
+### How the screen uses Fission
 
-### The Fission pieces in this example
-
-A component describes a part of the screen. fission_component! declares that component, its inputs and any retained local interaction state. GlobalState holds product data or routes used beyond one component. A typed action names something that happened; a reducer applies the state change synchronously. When an operation needs a file, database, network or operating-system API, the reducer queues an effect or capability request and a later action reports success or failure. This keeps slow work out of the UI rendering path.
-
+Throughout this guide, the screen is written as a `fission_component!`. That component owns its temporary interaction state and renders widgets from that state; a reducer changes it after a user action. Put durable facts shared across screens in `GlobalState`, and request native or service work through an effect or capability after the view is built.
 
 ## Create the project and add the target
 
@@ -42,42 +38,28 @@ cd android-package-and-prepare-a-fission-android-app-for-release
 fission add-target android --project-dir .
 ```
 
-## Final project layout
+## Files created by Fission
 
-The commands generate the shared Rust entrypoints and the selected native host. Add the focused modules shown below as you implement the feature; keep file, database, network and operating-system work out of component conversion and queue it through reducers and asynchronous effects.
+This is the starter tree after `fission init` and `fission add-target`; the component and state used for this task are additions in the steps below. Keep shared Rust behavior under `src/` and leave target launch and packaging in `platforms/android/`.
 
 ```text
 android-package-and-prepare-a-fission-android-app-for-release/
-├── Cargo.toml                    # generated Rust dependencies
-├── fission.toml                  # app identity, targets and capabilities
+├── Cargo.toml                 # Rust package and dependencies
+├── fission.toml               # app identity, targets and capabilities
 ├── src/
-│   ├── main.rs                   # generated desktop entrypoint
-│   ├── lib.rs                    # shared app setup
-│   ├── app.rs                    # root composition using fission_component!
-│   ├── state.rs                  # durable app state and reducer actions
-│   ├── components/
-│   │   └── feature_screen.rs     # named, reusable presentation component
-│   ├── effects/
-│   │   └── feature.rs            # asynchronous host or service work
-│   └── services/
-│       └── feature.rs            # typed host boundary when needed
-├── platforms/
-│   └── android/                  # generated Android host files
-└── tests/
-    └── feature_flow.rs           # reducer/provider and flow checks
+│   ├── main.rs                # generated app entrypoint
+│   ├── lib.rs                 # shared app setup
+│   └── app.rs                 # shared Fission screen
+└── platforms/
+    └── android/              # generated Android host
 ```
 
-`src/app.rs` is the shared Fission application, not a platform-specific copy. Put one reusable view in a named `fission_component!` component, keep app truth in `GlobalState`, and keep a one-screen draft or open flag in that component’s retained state. A reducer records the user’s intent; an effect, job, service or capability performs work after the view is built. Show pending, success, denied or failed outcomes in the screen.
-
-The live preview compiles the complete `src/app.rs` component to WebAssembly. It lets you try retained state and normal or unavailable UI states in the browser. The preview does not call Android or iOS hardware. Use the target commands and device checks below to verify native behaviour.
-
+Keep `src/app.rs`, shared state, reducers and reusable `fission_component!` components in the common Rust project. Add a state, service or effect module only when this feature needs that boundary, and use a name tied to the feature. The generated Android host owns launch and packaging details; shared components describe the user task without importing Android APIs.
 
 <!-- fission:step id="start-screen" -->
-## Build the first Android screen
+## Try the browser-safe interaction
 
-Start with the visible result before adding host integration. The first screen names the task, explains the next action and gives the reader a useful initial state. Keep a heading and text label visible so screen-reader users do not have to infer an icon’s meaning.
-
-The complete root component below is the small interactive checkpoint used by the later steps. It reads Fission theme tokens and owns only the temporary state needed for this example.
+The preview is a compiled Fission component with two deliberately local simulations. Press **Simulate success** to inspect the normal result, then **Simulate unavailable** to see how the screen can explain that a capability cannot proceed. These actions change only preview state: they do not request permission, access a sensor or run the target app. In the main step, compare that state boundary with the feature-specific instructions.
 
 <!-- fission:file path="src/app.rs" -->
 ```rust
@@ -91,8 +73,8 @@ fission_component! {
             goal: String,
         }
         state {
-            complete: bool = false,
-            unavailable: bool = false,
+            simulated_success: bool = false,
+            simulated_unavailable: bool = false,
         }
     }
     view(preview, _state, cx) {
@@ -110,32 +92,38 @@ fission_component! {
                     .color(tokens.colors.text_secondary),
                 Text(preview.goal.clone()),
                 Button(
-                    child: Text(if preview.complete {
-                        "Reset preview state".to_string()
+                    child: Text(if preview.simulated_success {
+                        "Reset success simulation".to_string()
                     } else {
-                        "Mark this step complete".to_string()
+                        "Simulate success".to_string()
                     }),
                     key: "tutorial-complete",
-                    on_press: reduce { preview.complete = !preview.complete; },
+                    on_press: reduce {
+                        preview.simulated_success = !preview.simulated_success;
+                        if preview.simulated_success { preview.simulated_unavailable = false; }
+                    },
                 ),
-                Text(if preview.complete {
-                    format!("Preview state changed. Now verify this task on its native target: {}", preview.goal)
+                Text(if preview.simulated_success {
+                    format!("Simulated success for {}. Only browser-local state changed. Use the target steps below to verify the real behaviour.", preview.goal)
                 } else {
-                    "This preview demonstrates the screen state. Native permissions and device operations run in the app target.".to_string()
+                    "Ready: no native request has run. Choose a simulation to see how the screen state changes.".to_string()
                 }),
                 Button(
-                    child: Text(if preview.unavailable {
-                        "Clear unavailable state".to_string()
+                    child: Text(if preview.simulated_unavailable {
+                        "Clear unavailable simulation".to_string()
                     } else {
-                        "Show unavailable state".to_string()
+                        "Simulate unavailable".to_string()
                     }),
                     key: "tutorial-unavailable",
-                    on_press: reduce { preview.unavailable = !preview.unavailable; },
+                    on_press: reduce {
+                        preview.simulated_unavailable = !preview.simulated_unavailable;
+                        if preview.simulated_unavailable { preview.simulated_success = false; }
+                    },
                 ),
-                if preview.unavailable {
-                    Text(format!("Unavailable: explain why {} cannot continue and offer the next safe action.", preview.goal))
+                if preview.simulated_unavailable {
+                    Text(format!("Simulated unavailable result for {}. No native request ran; the target app should explain the real reason and recovery action.", preview.title))
                 } else {
-                    Text("Ready: the main workflow can continue.".to_string())
+                    Text("No unavailable response is being simulated.".to_string())
                 },
             ])
         )
@@ -174,131 +162,30 @@ pub fn run() -> Result<(), JsValue> {
 <!-- fission:preview -->
 
 <!-- fission:checkpoint -->
-Confirm the screen names “Package and prepare a Fission Android app for release” and shows the next action before the user interacts.
+Press **Simulate success** and check the visible status change. Then choose **Simulate unavailable** and check that the screen explains the unavailable outcome. Both actions change browser-local state only; they do not invoke the native capability.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 
 <!-- fission:step id="main-flow" -->
-## Implement the main Android workflow
+## Package and prepare a Fission Android app for release
 
-Treat the preview action as a user intent. In the real app, send a typed action to a reducer and let the reducer update `GlobalState` or request an asynchronous effect. Keep the view function limited to reading state and composing widgets. For **Build and verify APK and AAB outputs, configure signing safely, set version codes and run an internal Play test**, work through these files in order:
+Set a stable reverse-domain Android application ID and explicit version code and version name before packaging. First run `fission readiness package --target android --format apk` to find missing SDK, identity, icon or signing inputs. Keep the signing key outside source control, build an APK for device testing, then build an AAB for an internal Play track. Inspect the artifact manifest and install the APK on a phone before uploading the AAB; a successful local install does not prove Play accepts the release.
 
-1. In `src/state.rs`, define the product data and a status type with at least `Idle`, `Pending`, `Ready` and `Failed` variants. Keep durable records and active routes in `GlobalState`; keep only the current field draft or selected tab in local component state.
-2. In `src/components/feature_screen.rs`, create a named `fission_component!` view. Give controls text labels, set a semantic label where an icon needs context, and make the primary action usable with keyboard, touch and an assistive technology action.
-3. In `src/effects/feature.rs`, request slow or host-owned work after the reducer receives the action. Dispatch a typed success or error action when the effect completes. Do not block the UI thread, and attach a request id or revision when an older completion could overwrite a newer edit.
-4. In `src/app.rs`, compose the screen with the state and reducer bindings. Render a pending message while work is running, the returned value on success, and a retry or alternate action on failure.
 
-Keep one-screen interaction state in the owning `fission_component!`. Use `GlobalState` for product facts shared across routes or jobs, and use a reducer to start asynchronous host work only when the user chooses the action. Preserve distinct success, denied, cancelled and unsupported outcomes where the target exposes them.
 
-### Task-specific implementation
-
-Set a stable reverse-domain app ID and explicit version/build numbers in fission.toml before packaging. For Android, create both APK and AAB artifacts and keep signing keys outside the repository; install the APK locally, then send the AAB to an internal Play track before public release. For iOS, select a signing team and provisioning profile, create a release IPA, install it on a registered device and validate the TestFlight processing result. Use fission package with the target's documented format, then inspect the artifact manifest and package contents. Simulator success is not a TestFlight validation.
-
-<!-- fission:file path="src/app.rs" -->
-```rust
-use fission::prelude::*;
-
-fission_component! {
-    pub TutorialPreview<()> {
-        props {
-            title: String,
-            step: String,
-            goal: String,
-        }
-        state {
-            complete: bool = false,
-            unavailable: bool = false,
-        }
-    }
-    view(preview, _state, cx) {
-        let tokens = &cx.view.env().theme.tokens;
-    } =>
-    SemanticsRegion(
-        identifier: Some("tutorial-preview".to_string()),
-        label: Some(preview.title.clone()),
-        child: Container(
-            Column(gap: tokens.spacing.m, children: [
-                Text(preview.title.clone())
-                    .size(tokens.typography.heading2_size)
-                    .weight(tokens.typography.font_weight_bold),
-                Text(preview.step.clone())
-                    .color(tokens.colors.text_secondary),
-                Text(preview.goal.clone()),
-                Button(
-                    child: Text(if preview.complete {
-                        "Reset preview state".to_string()
-                    } else {
-                        "Mark this step complete".to_string()
-                    }),
-                    key: "tutorial-complete",
-                    on_press: reduce { preview.complete = !preview.complete; },
-                ),
-                Text(if preview.complete {
-                    format!("Preview state changed. Now verify this task on its native target: {}", preview.goal)
-                } else {
-                    "This preview demonstrates the screen state. Native permissions and device operations run in the app target.".to_string()
-                }),
-                Button(
-                    child: Text(if preview.unavailable {
-                        "Clear unavailable state".to_string()
-                    } else {
-                        "Show unavailable state".to_string()
-                    }),
-                    key: "tutorial-unavailable",
-                    on_press: reduce { preview.unavailable = !preview.unavailable; },
-                ),
-                if preview.unavailable {
-                    Text(format!("Unavailable: explain why {} cannot continue and offer the next safe action.", preview.goal))
-                } else {
-                    Text("Ready: the main workflow can continue.".to_string())
-                },
-            ])
-        )
-        .padding_all(tokens.spacing.l)
-        .bg(tokens.colors.surface)
-        .border(tokens.colors.border, 1.0)
-        .border_radius(tokens.radii.large),
-    )
-}
-```
-<!-- fission:file path="preview/lib.rs" -->
-```rust
-mod app;
-
-use fission::prelude::*;
-use wasm_bindgen::prelude::*;
-
-#[wasm_bindgen(inline_js = "export function tutorial_title() { const parts = document.title.split(' — '); return parts.slice(1).join(' — ') || 'Fission tutorial'; } export function tutorial_step() { return document.title.split(' — ')[0] || 'Tutorial step'; } export function tutorial_goal() { return document.querySelector('meta[name=\"tutorial-goal\"]')?.content || 'Complete the task and verify it on the target.'; }")]
-extern "C" {
-    fn tutorial_title() -> String;
-    fn tutorial_step() -> String;
-    fn tutorial_goal() -> String;
-}
-
-#[wasm_bindgen(start)]
-pub fn run() -> Result<(), JsValue> {
-    console_error_panic_hook::set_once();
-    let preview = app::TutorialPreview::new(tutorial_title(), tutorial_step(), tutorial_goal());
-    WebApp::<(), _>::new(preview)
-        .with_title("Fission tutorial preview")
-        .mount("#fission-web-mount")
-        .run()
-        .map_err(|error| JsValue::from_str(&error.to_string()))
-}
-```
 <!-- fission:preview -->
 
 <!-- fission:checkpoint -->
-Use the main action. Confirm the screen reports a completed state and that changing routes or list order would not move retained state to another record.
+The compiled preview changes browser-local state only; it does not perform this task on an Android emulator or phone, inspect your toolchain or access native hardware. Use the commands below to verify the generated project on the target.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 
 <!-- fission:step id="edge-state" -->
-## Handle errors, accessibility and target verification
+## Inspect the Android release artifact
 
-Test the denied, unavailable or empty path as deliberately as the success path. In the browser preview, choose **Show an unavailable state** and confirm the message explains why the action cannot continue. In the native app, distinguish permission denial, cancellation, unsupported hardware and provider failure; offer a retry only when retrying can help.
+Run the readiness command below before packaging so missing identity, version, SDK or signing inputs are reported before the release build. Keep signing keys and credentials outside the repository, then build the artifact that matches the store or test track.
 
-Before publishing the screen, check it at a narrow phone width and a larger tablet or desktop width. Keep the primary action visible without horizontal scrolling, preserve readable focus order, and make status changes available to TalkBack or VoiceOver. For list screens, test an empty collection and give repeated stateful rows stable IDs based on durable record IDs.
+Install the produced package on a clean target and verify its identity, version, icon, permissions and launch path. A successful debug run does not prove that a signed release package is ready for upload.
 
 ### Run, test and build
 
@@ -310,7 +197,7 @@ fission test --target android --project-dir .
 fission build --target android --project-dir . --release
 ```
 
-Expected result: `cargo test` runs the reducer and provider tests for the app; `fission doctor` reports the Android SDK, NDK and Rust target prerequisites; `fission run` launches the selected Android emulator or device; `fission test` checks the generated Android host; and the release build completes for Android. A host smoke check does not prove a physical permission or hardware flow works.
+`cargo test` runs Rust tests you add; the generated scaffold does not create feature-specific tests. `fission doctor` reports missing Android tools, `fission run` launches the selected emulator or connected device, and `fission test` checks that the generated host can start. A release build checks packaging, but none of these commands proves a physical permission or hardware flow works.
 
 
 ### Emulator and connected-device commands
@@ -326,7 +213,7 @@ fission test --target android --project-dir .
 
 ### Current references
 
-Once the project runs, use these pages to look up provider methods, request fields, target configuration and component details:
+These references explain the API contract behind the example and the target-specific behavior to verify:
 
 - [Fission package command and release options](/reference/cli/overview/)
 - [Fission project configuration](/reference/config/fission-toml/)
