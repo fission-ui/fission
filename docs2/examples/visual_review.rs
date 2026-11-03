@@ -51,6 +51,7 @@ fn main() -> Result<()> {
         }
         let result = (|| -> Result<Value> {
             let command: Value = serde_json::from_slice(&request[header_end..header_end + length])?;
+            let mut observed = Value::Null;
             match command["cmd"].as_str().unwrap_or("") {
                 "Navigate" => {
                     let path = command["path"].as_str().context("missing path")?;
@@ -95,9 +96,14 @@ fn main() -> Result<()> {
                         "(document.querySelectorAll('iframe').forEach(frame => { const url = new URL(frame.src); url.searchParams.set('fission_renderer', 'canvas2d'); frame.src = url; }), true)",
                     )?;
                 }
+                "Evaluate" => {
+                    observed = client.browser_evaluate_json(
+                        command["script"].as_str().context("missing script")?,
+                    )?;
+                }
                 other => bail!("unsupported review command: {other}"),
             }
-            Ok(json!({"ok": true}))
+            Ok(json!({"ok": true, "result": observed}))
         })();
         let body = match result {
             Ok(value) => value,

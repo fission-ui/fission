@@ -4,7 +4,7 @@ use fission::prelude::*;
 
 fission_component! {
     pub SourceTabs<AnimationGalleryState> {}
-    |_tabs, state, cx| {
+    view(_tabs, state, cx) {
         let spacing = cx.view.env().theme.tokens.spacing.s;
     } =>
         Wrap(

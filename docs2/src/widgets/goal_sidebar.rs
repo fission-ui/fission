@@ -1,11 +1,17 @@
+use crate::content::GoalMeta;
 use crate::navigation;
 use crate::state::DocsState;
 use crate::widgets::copy;
 use fission::prelude::*;
 
 fission_component! {
-    pub GoalSidebar<DocsState> {}
-    view(_sidebar, _state, cx) {
+    pub GoalSidebar<DocsState> {
+        props {
+            current_path: String,
+            tutorials: Vec<GoalMeta>,
+        }
+    }
+    view(sidebar, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
     SemanticsRegion(
@@ -15,16 +21,30 @@ fission_component! {
             copy("goal.nav.get_started").weight(tokens.typography.font_weight_bold),
             Link::to(cx.view.env().tr("goal.nav.introduction"), navigation::REFERENCE_OVERVIEW),
             Link::to(cx.view.env().tr("goal.nav.installation"), navigation::INSTALLATION),
-            Link::to(cx.view.env().tr("goal.nav.first_app"), navigation::COUNTER_TUTORIAL),
+            Link::to(cx.view.env().tr("goal.nav.first_app"), navigation::QUICKSTART),
             Divider(),
             copy("goal.nav.tutorials").weight(tokens.typography.font_weight_bold),
-            SemanticsRegion(
-                Link::to(cx.view.env().tr("goal.nav.counter"), navigation::COUNTER_TUTORIAL),
-                identifier: Some("goal-nav-current".to_string()),
-            ),
-            Link::to(cx.view.env().tr("goal.nav.forms"), navigation::FORM_CONTROL),
+            for tutorial in &sidebar.tutorials {
+                SemanticsRegion(
+                    Link::to(tutorial.title.clone(), tutorial.path.clone()),
+                    identifier: Some(if tutorial.path == sidebar.current_path {
+                        "goal-nav-current".to_string()
+                    } else {
+                        format!("goal-nav-{}", tutorial.app)
+                    }),
+                    key: tutorial.path.clone(),
+                )
+            },
+            Link::to(cx.view.env().tr("tutorials.title"), navigation::TUTORIALS),
+            Divider(),
+            copy("goal.nav.concepts").weight(tokens.typography.font_weight_bold),
+            Link::to(cx.view.env().tr("goal.nav.components"), "/reference/widgets/catalog/"),
+            Link::to(cx.view.env().tr("goal.nav.state"), navigation::STATE_GUIDE),
             Link::to(cx.view.env().tr("goal.nav.routing"), navigation::ROUTER),
-            Link::to(cx.view.env().tr("goal.nav.data"), navigation::REFERENCE),
+            Link::to(cx.view.env().tr("goal.nav.ssr"), "/docs/guides/server-sites/"),
+            Link::to(cx.view.env().tr("goal.nav.styling"), "/docs/guides/theming-and-i18n/"),
+            Link::to(cx.view.env().tr("goal.nav.testing"), navigation::TEST_GUIDE),
+            Link::to(cx.view.env().tr("goal.nav.deployment"), navigation::PACKAGING_GUIDE),
             Divider(),
             copy("goal.nav.reference").weight(tokens.typography.font_weight_bold),
             Link::to(cx.view.env().tr("goal.nav.api"), navigation::REFERENCE),

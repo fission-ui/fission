@@ -4,7 +4,7 @@ use crate::model::{on_start_inspection, FieldInspectorState, StartInspection};
 use fission::prelude::*;
 fission_component! {
     pub OverviewHeadingExpanded<FieldInspectorState> {}
-    |_heading, state, cx| {
+    view(_heading, state, cx) {
         let start = with_reducer!(cx.build, StartInspection, on_start_inspection);
     } =>
         Row(

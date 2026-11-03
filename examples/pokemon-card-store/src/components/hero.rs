@@ -6,7 +6,7 @@ use fission::prelude::*;
 
 fission_component! {
     #[derive(Clone)] pub Hero<StoreState> {}
-    |_hero, _state, cx| { let tokens = &cx.view.env().theme.tokens; } =>
+    view(_hero, _state, cx) { let tokens = &cx.view.env().theme.tokens; } =>
         Container(Grid(
             columns: vec![GridTrack::auto_fit(GridTrack::minmax(
                 GridTrack::Points(HERO_SPOTLIGHT_WIDTH),

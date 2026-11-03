@@ -7,7 +7,7 @@ use crate::GalleryState;
 
 fission_component! {
     pub(super) QualityGeneralPanel<GalleryState> { compact: bool }
-    |panel, _state, _cx| {} =>
+    view(panel, _state, _cx) {} =>
         if panel.compact {
             Column(
                 gap: 12.0_f32,

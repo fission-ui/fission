@@ -9,7 +9,7 @@ fission_component! {
         examples: Vec<ExampleDefinition>,
         selected_slug: String,
     }
-    |component, _state, cx| { let tokens = &cx.view.env().theme.tokens; } =>
+    view(component, _state, cx) { let tokens = &cx.view.env().theme.tokens; } =>
         Column(
             children: [
                 Text::new(TextContent::Key(

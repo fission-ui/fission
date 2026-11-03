@@ -5,6 +5,6 @@ use fission::prelude::*;
 
 fission_component! {
     pub EvidenceCompact<FieldInspectorState> {}
-    |_c, _state, cx| {} =>
+    view(_c, _state, cx) {} =>
         Column(gap: cx.view.env().theme.tokens.spacing.s, children: [EvidenceControls(), EvidencePhoto(true)])
 }

@@ -1,0 +1,156 @@
+---
+title: macOS native XcodeGen
+description: Explain platforms/macos/native/project.yml and how Fission builds, tests, embeds, and signs macOS native products.
+---
+
+# macOS native XcodeGen
+
+`platforms/macos/native/project.yml` is an XcodeGen specification. It describes the native Xcode project that builds macOS app extensions, system extensions, tests, and any native framework code that must live beside the Fission app.
+
+It is not the app's Fission configuration. Fission reads `fission.toml`; XcodeGen reads `project.yml`; `xcodebuild` reads the generated `.xcodeproj`.
+
+## How the files fit together
+
+| File | Owner | Purpose |
+| --- | --- | --- |
+| `fission.toml` | Fission | Declares the native module, which Xcode project to build, which schemes are tests, which products must be embedded, and how they are signed. |
+| `platforms/macos/native/project.yml` | XcodeGen | Generates the `.xcodeproj`, target graph, sources, build settings, dependencies, Info.plist paths, and entitlements references. |
+| `platforms/macos/native/SecurityExtensions.xcodeproj` | Generated | Consumed by `xcodebuild`. Usually regenerated rather than edited by hand. |
+| `platforms/macos/native/*/*.entitlements` | Apple signing | Entitlements used by native targets. Fission can pass package/run entitlements when signing the built products. |
+
+A typical command flow is:
+
+1. Fission sees `native.modules.macos.xcodegen_spec`.
+2. Fission runs `xcodegen` to produce the configured `.xcodeproj`.
+3. Fission runs `xcodebuild` for native tests during `fission test --target macos`.
+4. Fission builds each declared product scheme during `fission package` or `fission run`.
+5. Fission embeds the built `.appex` or `.systemextension` in the containing `.app`.
+6. Fission signs nested products before signing the containing app.
+
+## fission.toml side
+
+```toml
+[[native.modules]]
+name = "security-extensions"
+path = "platforms/macos/native"
+
+[native.modules.macos]
+xcodegen_spec = "platforms/macos/native/project.yml"
+xcode_project = "platforms/macos/native/SecurityExtensions.xcodeproj"
+derived_data = ".fission/native/macos/security-extensions/DerivedData"
+test_schemes = ["SecurityExtensionsTests"]
+
+[[native.modules.macos.products]]
+scheme = "FileProvider"
+bundle = "FileProvider.appex"
+kind = "app-extension"
+entitlements = "platforms/macos/native/FileProvider/FileProvider.entitlements"
+provisioning_profile = "profiles/macos/FileProvider.provisionprofile"
+signing_identity = "Developer ID Application: Acme Software Ltd (ABCDE12345)"
+```
+
+Important details:
+
+| Field | Meaning |
+| --- | --- |
+| `xcodegen_spec` | Project-relative XcodeGen YAML file. If set, Fission regenerates the project before using it. |
+| `xcode_project` | Project-relative `.xcodeproj` path passed to `xcodebuild`. |
+| `derived_data` | Optional build output root. Use it when you want deterministic CI cache paths or easier diagnostics. |
+| `test_schemes` | Schemes run by `fission test --target macos` with code signing disabled. |
+| `products.scheme` | Xcode scheme built for packaging and local run. It should produce the named bundle. |
+| `products.bundle` | Output bundle file name, such as `FileProvider.appex` or `NetworkFilter.systemextension`. |
+| `products.kind` | Selects the embed location: `app-extension` goes to `Contents/PlugIns`; `system-extension` goes to `Contents/Library/SystemExtensions`. |
+
+## project.yml example
+
+This is a realistic app-extension project. Adjust framework dependencies, bundle ids, deployment target, and sources to match the native API you are using.
+
+```yaml
+name: SecurityExtensions
+options:
+  bundleIdPrefix: com.acme.notes
+  deploymentTarget:
+    macOS: "13.0"
+settings:
+  base:
+    MACOSX_DEPLOYMENT_TARGET: "13.0"
+    SWIFT_VERSION: "5.0"
+    CODE_SIGN_STYLE: Manual
+    DEVELOPMENT_TEAM: ABCDE12345
+
+targets:
+  FileProvider:
+    type: app-extension
+    platform: macOS
+    deploymentTarget: "13.0"
+    sources:
+      - path: FileProvider
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.acme.notes.fileprovider
+        INFOPLIST_FILE: FileProvider/Info.plist
+        CODE_SIGN_ENTITLEMENTS: FileProvider/FileProvider.entitlements
+        PRODUCT_NAME: FileProvider
+    dependencies:
+      - sdk: FileProvider.framework
+
+  SecurityExtensionsTests:
+    type: unit-test
+    platform: macOS
+    deploymentTarget: "13.0"
+    sources:
+      - path: SecurityExtensionsTests
+    dependencies:
+      - target: FileProvider
+```
+
+The Xcode target product identity must match the Fission product declaration. If the `FileProvider` scheme produces `FileProvider.appex`, use `bundle = "FileProvider.appex"` in `fission.toml`. If the bundle id is `com.acme.notes.fileprovider`, the provisioning profile and entitlements must also match that id.
+
+## Info.plist and entitlements
+
+Keep target metadata explicit in the native target directory:
+
+```text
+platforms/macos/native/
+  project.yml
+  FileProvider/
+    FileProvider.swift
+    Info.plist
+    FileProvider.entitlements
+  SecurityExtensionsTests/
+    FileProviderTests.swift
+```
+
+`Info.plist` is owned by the native target because extension points are Apple-specific. `fission.toml` should reference the built product and signing inputs, not duplicate every Xcode setting.
+
+## Testing native targets
+
+Run native tests through Fission so CI exercises the same declared module graph:
+
+```bash
+fission test --project-dir . --target macos
+```
+
+Fission runs configured `test_schemes` with signing disabled. That keeps unit tests cheap and avoids requiring distribution certificates just to test native code.
+
+## Packaging and signing checks
+
+Before packaging, check readiness:
+
+```bash
+fission readiness package --project-dir . --target macos --format app
+```
+
+Common failures and fixes:
+
+| Failure | Fix |
+| --- | --- |
+| `xcodegen` missing | Install XcodeGen and rerun readiness. |
+| Scheme not found | Make sure `project.yml` defines the target/scheme and the generated `.xcodeproj` is current. |
+| Bundle name mismatch | Align `products.bundle` with the built `.appex` or `.systemextension` file name. |
+| Provisioning profile without identity | Configure a real signing identity; profile-backed entitlements cannot be ad-hoc signed. |
+| Wrong embed location | Use `kind = "app-extension"` for `.appex` and `kind = "system-extension"` for `.systemextension`. |
+
+## Keep generated projects disposable
+
+Prefer editing `project.yml` and regenerating the `.xcodeproj`. If a team chooses to commit the generated project, treat it as derived state: review it for changes, but do not make hand edits that are not represented in `project.yml`.

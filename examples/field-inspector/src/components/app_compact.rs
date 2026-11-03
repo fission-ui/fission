@@ -4,7 +4,7 @@ use crate::model::FieldInspectorState;
 use fission::prelude::*;
 fission_component! {
     #[derive(Clone)] pub FieldInspectorCompact<FieldInspectorState> {}
-    |_app, _state, cx| { let tokens = &cx.view.env().theme.tokens; } =>
+    view(_app, _state, cx) { let tokens = &cx.view.env().theme.tokens; } =>
         Container(
             SafeArea(
                 id: WidgetId::explicit("field-inspector.compact.safe-area"),

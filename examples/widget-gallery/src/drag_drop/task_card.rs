@@ -9,7 +9,7 @@ fission_component! {
         snap_to_grid: bool,
         instance: &'static str,
     }
-    |card, _state, cx| {
+    view(card, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
         let identifier = format!("gallery.drag.card.{}.{}", card.instance, card.label);
 

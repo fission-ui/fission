@@ -1,0 +1,149 @@
+---
+title: Biometrics
+description: Ask the host to verify the current local user with fingerprint, face, or device credential fallback.
+---
+
+# Biometrics
+
+Biometrics are local device authentication. The host may use face recognition, fingerprint, iris, or the device credential fallback. The result says the current device user passed the local policy; it is not a server identity proof.
+
+By the end of this guide, you will know how to build a confirm-before-export flow that checks the local user before revealing sensitive data. The same pattern applies to larger apps: declare the capability when native configuration is needed, store the result in typed app state, request the host operation from a reducer, and test both success and failure with a memory host.
+
+Use passkeys for account sign-in. Use biometrics when the question is local: should this already-signed-in app unlock a sensitive action on this device?
+
+## 1. Start with the state the screen needs
+
+Add the smallest state fields the screen needs to render honestly. For this flow, useful state is:
+
+```rust
+#[derive(Default)]
+struct BiometricsState {
+    // Add these fields to your existing app state.
+    export_unlocked: bool,
+    biometric_error: Option<String>,
+}
+
+impl GlobalState for BiometricsState {}
+```
+
+State is the source of truth for the UI. Do not store whether the host "probably" succeeded; wait for the typed success action and store the returned value.
+
+## 2. Configure the target and host
+
+Run this once from the project root:
+
+```bash
+fission add-capability biometric --project-dir .
+```
+
+That command records the capability in [`fission.toml`](/reference/config/fission-toml/) and updates generated platform files where Fission can do so safely. It does not replace product-specific review of native manifests, usage text, entitlements, service identifiers, domains, or store policy.
+
+The CLI adds Android biometric permissions and the iOS Face ID usage string. macOS and Windows support local authentication through host providers. Web fingerprint prompts are normally passkeys/WebAuthn rather than raw biometric access.
+
+This is the difference between the Fission API, a provider, and packaging configuration:
+
+- The Fission API is the typed Rust contract your reducer calls, such as `ctx.effects.camera().capture_photo(...)`.
+- The provider is the shell-side Rust implementation that turns that typed request into the correct OS, browser, or hardware call.
+- Packaging configuration is the manifest, plist, entitlement, service-worker, protocol, domain, or store metadata that lets the platform permit that call in a real installed app.
+
+If the API exists but the provider is missing, the request returns a typed unsupported error. If the provider exists but packaging is missing, the operating system or browser may deny the request before the provider can complete it.
+
+## 3. Define reducers for success and failure
+
+Capability work finishes later, after the reducer that started it has returned. You therefore need one reducer for the successful result and one reducer for the error path.
+
+```rust
+#[fission_reducer(UserVerified)]
+fn on_user_verified(state: &mut BiometricsState, result: BiometricAuthenticateResult) {
+    state.export_unlocked = result.verified;
+    state.biometric_error = None;
+}
+
+#[fission_reducer(UserVerificationFailed)]
+fn on_user_verification_failed(state: &mut BiometricsState, error: BiometricError) {
+    state.export_unlocked = false;
+    state.biometric_error = Some(error.message);
+}
+```
+
+Keep both paths explicit. A denied permission, unavailable device, unsupported host, or cancelled prompt is not an exceptional mystery; it is normal product behavior the UI should explain.
+
+## 4. Request the capability from a reducer
+
+Call the capability from the reducer that handles the user's intent. The reducer queues a host effect and returns. The runtime later dispatches either the success reducer or the failure reducer.
+
+```rust
+ctx.effects
+    .biometrics()
+    .authenticate(BiometricAuthenticateRequest {
+        reason: "Confirm before exporting secrets".into(),
+        title: Some("Confirm export".into()),
+        allow_device_credential: true,
+        required_strength: BiometricStrength::Strong,
+        ..Default::default()
+    })
+    .on_ok(ctx.effects.bind(
+        UserVerified(BiometricAuthenticateResult::default()),
+        reduce_with!(on_user_verified),
+    ))
+    .on_err(ctx.effects.bind(
+        UserVerificationFailed(BiometricError::default()),
+        reduce_with!(on_user_verification_failed),
+    ));
+```
+
+The call does not run the OS API directly. It records a typed host request. That keeps shared app logic portable across Fission targets where the capability applies, plus static-site previews and tests.
+
+## 5. Trigger the reducer from the UI
+
+Wire the user-facing control with the normal Fission action pattern. This example uses a small widget so the binding has one clear home.
+
+```rust
+
+
+fission_component!
+{
+    pub ConfirmExportButton<BiometricsState> {
+    }
+    view(component, _state, _cx) => rust {
+        let (ctx, view) = fission::build::current::<BiometricsState>();
+                let run = with_reducer!(ctx, ConfirmExport, on_confirm_export);
+
+                Button::new("Confirm export")
+                    .disabled(false)
+                    .on_press(run)
+                    .into()
+    }
+}
+```
+Rename the widget and action for your product, but keep the shape: the widget dispatches one typed action, the reducer starts the capability request, and the success or failure reducer updates state.
+
+## 6. Provide and test the host behavior
+
+Register a `BiometricHost` with `.with_biometric_host(...)`. Use `MemoryBiometricHost` for tests. A real host should distinguish unsupported hardware, no enrollment, cancellation, denied permission, and failed verification.
+
+Test supported/enrolled, supported/not-enrolled, cancellation, and host errors. Reducer tests should prove sensitive state remains locked unless `verified` is true.
+
+A useful first test creates the app with the memory host, dispatches the start action, feeds the queued effect through the host, and asserts that the reducer updates state from the returned payload. Add a second test for the error path before you ship the screen.
+
+## Platform expectations
+
+Android, iOS, Windows, and macOS have mature local-authentication systems. Linux depends on the desktop stack and enrolled authenticators. Web should use passkeys for sign-in.
+
+For a cross-platform summary, read the [capability matrix](/docs/capabilities/matrix/). For exact request fields, provider traits, and generated configuration, see the [Biometrics reference](/reference/capabilities/biometrics/).
+
+## Finished capability flow
+
+A complete `Biometrics` integration has all of these pieces in place:
+
+| Piece | What should exist |
+| --- | --- |
+| Configuration | `fission.toml` declares the capability and generated platform files contain the permission text, manifest entry, entitlement, domain, or protocol metadata the target needs. |
+| State | App state records the in-flight flag, the successful value, and the user-facing error separately. |
+| Reducers | One reducer starts the host request, one handles success, and one handles denial, unsupported hosts, cancellation, or provider errors. |
+| Provider | The shell registers a real provider for production and a memory provider for tests. |
+| Tests | At least one test covers success and one covers permission denial or unsupported host behavior. |
+
+## Diagnose capability failures
+
+Capability failures should be safe to retry and easy to explain. Start by checking `fission.toml`, then run `fission doctor`, then inspect the generated target files. If the provider is missing, the request should return an unsupported error. If the provider exists but the platform configuration is wrong, the OS or browser will usually deny the request before the provider can complete it. Keep those cases distinct in the UI so users know whether they can retry, change settings, connect hardware, or choose another path.

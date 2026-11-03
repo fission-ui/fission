@@ -10,7 +10,7 @@ use fission::prelude::*;
 fission_component! {
     #[derive(Clone, Copy)]
     pub ActiveInspectorPanel<FieldInspectorState> {}
-    |_panel, state, _cx| {} =>
+    view(_panel, state, _cx) {} =>
         match state.panel {
             InspectorPanel::Overview => OverviewPanel(),
             InspectorPanel::Verify => VerifyPanel(),

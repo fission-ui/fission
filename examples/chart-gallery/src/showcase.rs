@@ -13,7 +13,7 @@ use fission::prelude::*;
 
 fission_component! {
     pub(crate) ChartShowcase<GalleryState> { scale: f32 }
-    |showcase, state, cx| {
+    view(showcase, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
         let s = showcase.scale;
     } => Column(children: [

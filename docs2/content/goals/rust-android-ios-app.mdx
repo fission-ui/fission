@@ -1,0 +1,335 @@
+---
+layout: goal
+title: Build Android and iOS apps in Rust
+description: Share one Rust app model across Android and iOS, then add touch-friendly layouts, a native capability and installable development builds.
+goal: Reuse one product workflow on Android and iOS while respecting each device
+path: /blog/build-android-and-ios-apps-in-rust/
+order: 13
+difficulty: Beginner
+duration: 50 minutes
+run_command: "fission run --target android --project-dir ."
+app: rust-android-ios-app
+prerequisites:
+  - Basic Rust syntax and a terminal
+  - Rust and Cargo installed with rustup
+outcomes:
+  - Build touch-friendly navigation
+  - Share state across Android and iOS
+  - Add mobile targets and check devices
+---
+
+Share one Rust app model across Android and iOS, then add touch-friendly layouts, a native capability and installable development builds. This tutorial takes you from project setup to a runnable result in three steps. Each step’s `src/app.rs` component is compiled into the WebAssembly preview shown beside its code, so you can try the same Compose UI while you read. The preview runs the shared component in a browser. Add platform capabilities through Fission services, and keep shared task data in app state so Android and iOS use the same rules.
+
+## What you will build
+
+Build a shared tasks app that runs on Android and iOS. Keep the same record and reducer logic on both platforms while changing only the presentation needed for a narrow touch screen.
+
+Install the Fission CLI and scaffold the Android and iOS project:
+
+```sh
+cargo install cargo-fission
+fission init harbour-mobile
+cd harbour-mobile
+fission add-target android ios --project-dir .
+```
+
+The finished project is organised around the app boundary and the files that own each job:
+
+```text
+harbour-mobile/
+├── Cargo.toml
+├── fission.toml
+├── src/
+│   ├── main.rs
+│   ├── lib.rs
+│   ├── app.rs
+│   ├── state.rs
+│   └── components/
+```
+
+Fission generates a thin entrypoint for each target and starts the shared app from it. Keep shared UI in `src/app.rs`, and move a reusable presentation piece into `src/components/` when it has a clear job of its own. Use `GlobalState` for data read across screens and Compose `state` for retained interaction owned by one component. Keep host work such as persistence and network requests in a Fission service or effect, then show loading, success or failure in the UI.
+
+The `preview/lib.rs` file is a documentation-only browser harness that mounts the step in the live preview. The `src/app.rs` component is compiled into that preview. Use its Compose patterns in your project, but do not copy the harness or treat its simulated host results as production behavior.
+
+<!-- fission:step id="start-screen" -->
+## Build touch-friendly navigation
+
+Begin with the screen needed for this task. The first render gives you a concrete checkpoint before you add interaction state.
+
+Use props for page copy and read theme tokens through cx.view.env(). The component below keeps presentation aligned with the active design system.
+
+<!-- fission:file path="src/app.rs" -->
+```rust
+use fission::prelude::*;
+fission_component! {
+    pub TutorialPreview<()> {
+        props {
+            title: String,
+            detail: String,
+            action: String,
+            success: String,
+            empty: String,
+        }
+    }
+    view(preview, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Container(
+        Column(
+            gap: tokens.spacing.m,
+            children: [
+                Text(preview.title.clone()).size(tokens.typography.heading2_size).weight(tokens.typography.font_weight_bold),
+                Text(preview.detail.clone()).color(tokens.colors.text_secondary),
+                Text("Today"),
+                Text("Two tasks are waiting"),
+                Row(gap: tokens.spacing.m,
+                    children: [Text("Tasks"),
+                        Text("Settings")]),
+                Text(format!("Next action: {}",
+                        preview.action)),
+                Text(preview.empty.clone()).color(tokens.colors.text_secondary),
+            ]
+        )
+    )
+    .padding_all(tokens.spacing.l)
+    .bg(tokens.colors.surface)
+    .border(tokens.colors.border, 1.0)
+    .border_radius(tokens.radii.large)
+}
+```
+<!-- fission:file path="preview/lib.rs" -->
+```rust
+mod app;
+
+use fission::prelude::*;
+use wasm_bindgen::prelude::*;
+
+#[wasm_bindgen(start)]
+pub fn run() -> Result<(), JsValue> {
+    console_error_panic_hook::set_once();
+    let preview = app::TutorialPreview::new(
+        "Shared tasks".to_string(),
+        "Complete a task from the mobile app.".to_string(),
+        "Complete a task on mobile".to_string(),
+        "The task is complete in the shared app state.".to_string(),
+        "There are no tasks yet. Add one before marking it complete.".to_string(),
+    );
+    WebApp::<(), _>::new(preview)
+        .with_title("Build Android and iOS apps in Rust")
+        .mount("#fission-web-mount")
+        .run()
+        .map_err(|error| JsValue::from_str(&error.to_string()))
+}
+```
+<!-- fission:preview -->
+
+<!-- fission:checkpoint -->
+Build touch-friendly navigation: Confirm the initial screen names the task and its next action.
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->
+
+<!-- fission:step id="main-flow" -->
+## Share state across Android and iOS
+
+Use shared state and component modules for the product workflow. Give touch targets comfortable space, make the main action reachable without precise gestures, and keep labels visible when a control is selected. Check the same route or screen with long translated text.
+
+The source below makes the main task interactive using retained component state and explicit controls.
+This state belongs to the component because it only remembers this view's interaction. Durable data shared across routes belongs in GlobalState and changes through reducers.
+<!-- fission:file path="src/app.rs" -->
+```rust
+use fission::prelude::*;
+fission_component! {
+    pub TutorialPreview<()> {
+        props {
+            title: String,
+            detail: String,
+            action: String,
+            success: String,
+            empty: String,
+        }
+        state {
+            settings_tab: bool = false,
+            task_done: bool = false,
+            has_error: bool = false,
+        }
+    }
+    view(preview, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Container(
+        Column(
+            gap: tokens.spacing.m,
+            children: [
+                Text(preview.title.clone()).size(tokens.typography.heading2_size).weight(tokens.typography.font_weight_bold),
+                Text(preview.detail.clone()).color(tokens.colors.text_secondary),
+                Row(gap: tokens.spacing.m,
+                    children: [Button(child: Text("Tasks"),
+                            key: "tasks-tab",
+                            on_press: reduce { preview.settings_tab = false; }),
+                        Button(child: Text("Settings"),
+                            key: "settings-tab",
+                            on_press: reduce { preview.settings_tab = true; })]),
+                if preview.settings_tab { Column(children: [Text("Settings"),
+                            Text("Notifications are on")]) } else { Column(children: [Text(if preview.task_done { "✓ Plan the next release" } else { "○ Plan the next release" }),
+                            Button(child: Text(preview.action.clone()),
+                                key: "complete-task",
+                                on_press: reduce { preview.task_done = !preview.task_done; })]) },
+                Button(child: Text(if preview.has_error { "Try again".to_string() } else { "Preview a missing capability".to_string() }),
+                    key: "preview-error",
+                    on_press: reduce { preview.has_error = !preview.has_error; }),
+                if preview.has_error { Text("This device cannot provide that feature. Continue with another action.") } else { Text(preview.success.clone()) },
+                Text(preview.empty.clone()).color(tokens.colors.text_secondary),
+            ]
+        )
+    )
+    .padding_all(tokens.spacing.l)
+    .bg(tokens.colors.surface)
+    .border(tokens.colors.border, 1.0)
+    .border_radius(tokens.radii.large)
+}
+```
+<!-- fission:file path="preview/lib.rs" -->
+```rust
+mod app;
+
+use fission::prelude::*;
+use wasm_bindgen::prelude::*;
+
+#[wasm_bindgen(start)]
+pub fn run() -> Result<(), JsValue> {
+    console_error_panic_hook::set_once();
+    let preview = app::TutorialPreview::new(
+        "Shared tasks".to_string(),
+        "Complete a task from the mobile app.".to_string(),
+        "Complete a task on mobile".to_string(),
+        "The task is complete in the shared app state.".to_string(),
+        "There are no tasks yet. Add one before marking it complete.".to_string(),
+    );
+    WebApp::<(), _>::new(preview)
+        .with_title("Build Android and iOS apps in Rust")
+        .mount("#fission-web-mount")
+        .run()
+        .map_err(|error| JsValue::from_str(&error.to_string()))
+}
+```
+<!-- fission:preview -->
+
+<!-- fission:checkpoint -->
+Share state across Android and iOS: Use the preview control and check that the result matches the action.
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->
+
+<!-- fission:step id="edge-state" -->
+## Add mobile targets and check devices
+
+Request a native capability through Fission's capability boundary and handle denied or unavailable access. Build each platform separately, then install the development app on a simulator or emulator and test rotation, back navigation and a real touch gesture.
+
+Keep I/O outside component conversion and reducers. Send host work through an asynchronous effect or service so the UI stays responsive.
+The preview control below simulates an unsuccessful host result. It demonstrates the message and recovery path; it does not perform authentication, database, network, or filesystem work.
+<!-- fission:file path="src/app.rs" -->
+```rust
+use fission::prelude::*;
+fission_component! {
+    pub TutorialPreview<()> {
+        props {
+            title: String,
+            detail: String,
+            action: String,
+            success: String,
+            empty: String,
+        }
+        state {
+            settings_tab: bool = false,
+            task_done: bool = false,
+            has_error: bool = false,
+        }
+    }
+    view(preview, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Container(
+        Column(
+            gap: tokens.spacing.m,
+            children: [
+                Text(preview.title.clone()).size(tokens.typography.heading2_size).weight(tokens.typography.font_weight_bold),
+                Text(preview.detail.clone()).color(tokens.colors.text_secondary),
+                Row(gap: tokens.spacing.m,
+                    children: [Button(child: Text("Tasks"),
+                            key: "tasks-tab",
+                            on_press: reduce { preview.settings_tab = false; }),
+                        Button(child: Text("Settings"),
+                            key: "settings-tab",
+                            on_press: reduce { preview.settings_tab = true; })]),
+                if preview.settings_tab { Column(children: [Text("Settings"),
+                            Text("Notifications are on")]) } else { Column(children: [Text(if preview.task_done { "✓ Plan the next release" } else { "○ Plan the next release" }),
+                            Button(child: Text(preview.action.clone()),
+                                key: "complete-task",
+                                on_press: reduce { preview.task_done = !preview.task_done; })]) },
+                Button(child: Text(if preview.has_error { "Try again".to_string() } else { "Preview a missing capability".to_string() }),
+                    key: "preview-error",
+                    on_press: reduce { preview.has_error = !preview.has_error; }),
+                if preview.has_error { Text("This device cannot provide that feature. Continue with another action.") } else { Text(preview.success.clone()) },
+                Text(preview.empty.clone()).color(tokens.colors.text_secondary),
+            ]
+        )
+    )
+    .padding_all(tokens.spacing.l)
+    .bg(tokens.colors.surface)
+    .border(tokens.colors.border, 1.0)
+    .border_radius(tokens.radii.large)
+}
+```
+<!-- fission:file path="preview/lib.rs" -->
+```rust
+mod app;
+
+use fission::prelude::*;
+use wasm_bindgen::prelude::*;
+
+#[wasm_bindgen(start)]
+pub fn run() -> Result<(), JsValue> {
+    console_error_panic_hook::set_once();
+    let preview = app::TutorialPreview::new(
+        "Shared tasks".to_string(),
+        "Complete a task from the mobile app.".to_string(),
+        "Complete a task on mobile".to_string(),
+        "The task is complete in the shared app state.".to_string(),
+        "There are no tasks yet. Add one before marking it complete.".to_string(),
+    );
+    WebApp::<(), _>::new(preview)
+        .with_title("Build Android and iOS apps in Rust")
+        .mount("#fission-web-mount")
+        .run()
+        .map_err(|error| JsValue::from_str(&error.to_string()))
+}
+```
+<!-- fission:preview -->
+
+<!-- fission:checkpoint -->
+Add mobile targets and check devices: Trigger the error preview and confirm a recovery action remains available.
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->
+
+## Run, test and build the finished project
+
+From the project root, run the checks in order:
+
+```sh
+fission doctor --project-dir .
+fission devices --project-dir .
+cargo test
+fission build --target android --project-dir .
+fission build --target ios --project-dir .
+fission test --target android --project-dir .
+fission test --target ios --project-dir .
+```
+
+Expected result: The shared app uses touch-sized controls, retains state across tabs, and builds for both mobile targets.
+
+## Related Fission reference
+
+Use these precise reference pages after the working path above is clear:
+
+- [Add Platform Targets](/docs/cookbook/add-platform-targets/)
+- [Matrix](/docs/capabilities/matrix/)
+- [Accessibility](/reference/platform/accessibility/)

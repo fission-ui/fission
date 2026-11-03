@@ -17,7 +17,7 @@ use fission::prelude::*;
 
 fission_component! {
     pub ProductBrowserApp<ProductBrowserState>
-    |_app, state, cx| {
+    view(_app, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
 
         let products_loaded = with_reducer!(cx.build, ProductsLoaded, on_products_loaded);

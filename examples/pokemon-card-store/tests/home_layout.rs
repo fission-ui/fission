@@ -17,7 +17,7 @@ const PROBES: [&str; 4] = [
 fission_component! {
 /// The home page inside a scroll view, the way a browser or a preview hosts it.
     #[derive(Clone)] ScrolledHome<StoreState> {}
-    |_home, _state, _cx| {} =>
+    view(_home, _state, _cx) {} =>
         Scroll(
             id: WidgetId::explicit("store.home.scroll"),
             child: Some(StoreHomePage),

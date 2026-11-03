@@ -3,7 +3,7 @@ use fission::prelude::*;
 
 fission_component! {
     pub SmallButton<AnimationGalleryState> { label: String, action: ActionEnvelope }
-    |button, _state, cx| {} =>
+    view(button, _state, cx) {} =>
         Button(
             variant: ButtonVariant::Outline,
             child: Text(button.label.clone())

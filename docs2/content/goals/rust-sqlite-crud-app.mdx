@@ -1,0 +1,354 @@
+---
+layout: goal
+title: Build a CRUD app with Rust and SQLite
+description: Create, list, edit and remove SQLite records in Rust with typed reducers, asynchronous storage effects and clear loading, empty and error states.
+goal: Manage a small list of records without blocking the interface or losing the latest result
+path: /blog/build-a-crud-app-with-rust-and-sqlite/
+order: 11
+difficulty: Beginner
+duration: 50 minutes
+run_command: "fission run --target web --project-dir ."
+app: rust-sqlite-crud-app
+prerequisites:
+  - Basic Rust syntax and a terminal
+  - Rust and Cargo installed with rustup
+outcomes:
+  - Render a reading list and its empty state
+  - Create, edit, and remove a book
+  - Handle asynchronous SQLite results and errors
+---
+
+Create, list, edit and remove SQLite records in Rust with typed reducers, asynchronous storage effects and clear loading, empty and error states. This tutorial takes you from project setup to a runnable result in three steps. Each step’s `src/app.rs` component is compiled into the WebAssembly preview shown beside its code, so you can try the same Compose UI while you read. The preview demonstrates create, edit, delete and error states in local component state. A real app performs SQLite queries in asynchronous service or effect code and keeps SQL out of the view.
+
+## What you will build
+
+Build a reading list that creates, lists, edits and removes books. The page shows loading while SQLite work runs, an empty state before the first record and an actionable error if a write fails.
+
+Install the Fission CLI and scaffold the Web project:
+
+```sh
+cargo install cargo-fission
+fission init reading-list
+cd reading-list
+fission add-target web --project-dir .
+fission add-capability storage --project-dir .
+```
+
+The finished project is organised around the app boundary and the files that own each job:
+
+```text
+reading-list/
+├── Cargo.toml
+├── fission.toml
+├── src/
+│   ├── main.rs
+│   ├── lib.rs
+│   ├── app.rs
+│   ├── state.rs
+│   └── components/
+```
+
+Fission generates a thin entrypoint for each target and starts the shared app from it. Keep shared UI in `src/app.rs`, and move a reusable presentation piece into `src/components/` when it has a clear job of its own. Use `GlobalState` for data read across screens and Compose `state` for retained interaction owned by one component. Keep host work such as persistence and network requests in a Fission service or effect, then show loading, success or failure in the UI.
+
+The `preview/lib.rs` file is a documentation-only browser harness that mounts the step in the live preview. The `src/app.rs` component is compiled into that preview. Use its Compose patterns in your project, but do not copy the harness or treat its simulated host results as production behavior.
+
+<!-- fission:step id="start-screen" -->
+## Render a reading list and its empty state
+
+Begin with the screen needed for this task. The first render gives you a concrete checkpoint before you add interaction state.
+
+Use props for page copy and read theme tokens through cx.view.env(). The component below keeps presentation aligned with the active design system.
+
+<!-- fission:file path="src/app.rs" -->
+```rust
+use fission::prelude::*;
+fission_component! {
+    pub TutorialPreview<()> {
+        props {
+            title: String,
+            detail: String,
+            action: String,
+            success: String,
+            empty: String,
+        }
+    }
+    view(preview, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Container(
+        Column(
+            gap: tokens.spacing.m,
+            children: [
+                Text(preview.title.clone()).size(tokens.typography.heading2_size).weight(tokens.typography.font_weight_bold),
+                Text(preview.detail.clone()).color(tokens.colors.text_secondary),
+                Text("Reading list"),
+                TextInput(label: Some("Book title".into()),
+                    placeholder: Some("Add a title".into())),
+                Text(format!("Next action: {}",
+                        preview.action)),
+                Text(preview.empty.clone()).color(tokens.colors.text_secondary),
+            ]
+        )
+    )
+    .padding_all(tokens.spacing.l)
+    .bg(tokens.colors.surface)
+    .border(tokens.colors.border, 1.0)
+    .border_radius(tokens.radii.large)
+}
+```
+<!-- fission:file path="preview/lib.rs" -->
+```rust
+mod app;
+
+use fission::prelude::*;
+use wasm_bindgen::prelude::*;
+
+#[wasm_bindgen(start)]
+pub fn run() -> Result<(), JsValue> {
+    console_error_panic_hook::set_once();
+    let preview = app::TutorialPreview::new(
+        "Reading list".to_string(),
+        "Add a book to start your list.".to_string(),
+        "Save a reading-list entry".to_string(),
+        "The saved book is in the reading list.".to_string(),
+        "Your list is empty. Add the first book to begin.".to_string(),
+    );
+    WebApp::<(), _>::new(preview)
+        .with_title("Build a CRUD app with Rust and SQLite")
+        .mount("#fission-web-mount")
+        .run()
+        .map_err(|error| JsValue::from_str(&error.to_string()))
+}
+```
+<!-- fission:preview -->
+
+<!-- fission:checkpoint -->
+Render a reading list and its empty state: Confirm the initial screen names the task and its next action.
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->
+
+<!-- fission:step id="main-flow" -->
+## Create, edit, and remove a book
+
+Use typed actions for user intent and a storage effect for database work. Keep SQL out of component views and reducers. The async effect receives owned input, performs the query away from the UI thread, then returns a typed success or error result.
+
+The source below makes the main task interactive using retained component state and explicit controls.
+This state belongs to the component because it only remembers this view's interaction. Durable data shared across routes belongs in GlobalState and changes through reducers.
+<!-- fission:file path="src/app.rs" -->
+```rust
+use fission::prelude::*;
+fission_component! {
+    pub TutorialPreview<()> {
+        props {
+            title: String,
+            detail: String,
+            action: String,
+            success: String,
+            empty: String,
+        }
+        state {
+            draft: String = String::new(),
+            book_title: String = String::new(),
+            book_count: usize = 0,
+            editing: bool = false,
+            has_error: bool = false,
+        }
+    }
+    view(preview, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Container(
+        Column(
+            gap: tokens.spacing.m,
+            children: [
+                Text(preview.title.clone()).size(tokens.typography.heading2_size).weight(tokens.typography.font_weight_bold),
+                Text(preview.detail.clone()).color(tokens.colors.text_secondary),
+                TextInput(label: Some("Book title".into()),
+                    placeholder: Some("Add a title".into()),
+                    bind: preview.draft,
+                    semantics_identifier: "tutorial.reading-list.title".to_string()),
+                Button(child: Text(if preview.editing { "Update book".to_string() } else { preview.action.clone() }),
+                    key: "save-book",
+                    disabled: preview.draft.trim().is_empty(),
+                    on_press: reduce { if !preview.draft.trim().is_empty() { preview.book_title = preview.draft.clone(); if !preview.editing { preview.book_count = 1; } preview.draft = String::new();
+                            preview.editing = false; } }),
+                if preview.book_count == 0 { Text(preview.empty.clone()) } else { Column(children: [Text(preview.book_title.clone()),
+                            Row(gap: tokens.spacing.s,
+                                children: [Button(child: Text("Edit title"),
+                                        key: "edit-book",
+                                        on_press: reduce { preview.draft = preview.book_title.clone();
+                                            preview.editing = true; }),
+                                    Button(child: Text("Delete book"),
+                                        key: "delete-book",
+                                        on_press: reduce { preview.book_count = 0;
+                                            preview.book_title = String::new();
+                                            preview.draft = String::new();
+                                            preview.editing = false; })])]) },
+                Button(child: Text(if preview.has_error { "Try again".to_string() } else { "Preview a SQLite write failure".to_string() }),
+                    key: "preview-error",
+                    on_press: reduce { preview.has_error = !preview.has_error; }),
+                if preview.has_error { Text("The book was not saved. Your title remains in the form.") } else { Text(preview.success.clone()) },
+                Text(preview.empty.clone()).color(tokens.colors.text_secondary),
+            ]
+        )
+    )
+    .padding_all(tokens.spacing.l)
+    .bg(tokens.colors.surface)
+    .border(tokens.colors.border, 1.0)
+    .border_radius(tokens.radii.large)
+}
+```
+<!-- fission:file path="preview/lib.rs" -->
+```rust
+mod app;
+
+use fission::prelude::*;
+use wasm_bindgen::prelude::*;
+
+#[wasm_bindgen(start)]
+pub fn run() -> Result<(), JsValue> {
+    console_error_panic_hook::set_once();
+    let preview = app::TutorialPreview::new(
+        "Reading list".to_string(),
+        "Add a book to start your list.".to_string(),
+        "Save a reading-list entry".to_string(),
+        "The saved book is in the reading list.".to_string(),
+        "Your list is empty. Add the first book to begin.".to_string(),
+    );
+    WebApp::<(), _>::new(preview)
+        .with_title("Build a CRUD app with Rust and SQLite")
+        .mount("#fission-web-mount")
+        .run()
+        .map_err(|error| JsValue::from_str(&error.to_string()))
+}
+```
+<!-- fission:preview -->
+
+<!-- fission:checkpoint -->
+Create, edit, and remove a book: Use the preview control and check that the result matches the action.
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->
+
+<!-- fission:step id="edge-state" -->
+## Handle asynchronous SQLite results and errors
+
+Handle stale completions by associating each request with the current list version or query. Disable duplicate submissions while a save is pending, preserve the draft after failure and refresh the list after a successful write.
+
+Keep I/O outside component conversion and reducers. Send host work through an asynchronous effect or service so the UI stays responsive.
+The preview control below simulates an unsuccessful host result. It demonstrates the message and recovery path; it does not perform authentication, database, network, or filesystem work.
+<!-- fission:file path="src/app.rs" -->
+```rust
+use fission::prelude::*;
+fission_component! {
+    pub TutorialPreview<()> {
+        props {
+            title: String,
+            detail: String,
+            action: String,
+            success: String,
+            empty: String,
+        }
+        state {
+            draft: String = String::new(),
+            book_title: String = String::new(),
+            book_count: usize = 0,
+            editing: bool = false,
+            has_error: bool = false,
+        }
+    }
+    view(preview, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Container(
+        Column(
+            gap: tokens.spacing.m,
+            children: [
+                Text(preview.title.clone()).size(tokens.typography.heading2_size).weight(tokens.typography.font_weight_bold),
+                Text(preview.detail.clone()).color(tokens.colors.text_secondary),
+                TextInput(label: Some("Book title".into()),
+                    placeholder: Some("Add a title".into()),
+                    bind: preview.draft,
+                    semantics_identifier: "tutorial.reading-list.title".to_string()),
+                Button(child: Text(if preview.editing { "Update book".to_string() } else { preview.action.clone() }),
+                    key: "save-book",
+                    disabled: preview.draft.trim().is_empty(),
+                    on_press: reduce { if !preview.draft.trim().is_empty() { preview.book_title = preview.draft.clone(); if !preview.editing { preview.book_count = 1; } preview.draft = String::new();
+                            preview.editing = false; } }),
+                if preview.book_count == 0 { Text(preview.empty.clone()) } else { Column(children: [Text(preview.book_title.clone()),
+                            Row(gap: tokens.spacing.s,
+                                children: [Button(child: Text("Edit title"),
+                                        key: "edit-book",
+                                        on_press: reduce { preview.draft = preview.book_title.clone();
+                                            preview.editing = true; }),
+                                    Button(child: Text("Delete book"),
+                                        key: "delete-book",
+                                        on_press: reduce { preview.book_count = 0;
+                                            preview.book_title = String::new();
+                                            preview.draft = String::new();
+                                            preview.editing = false; })])]) },
+                Button(child: Text(if preview.has_error { "Try again".to_string() } else { "Preview a SQLite write failure".to_string() }),
+                    key: "preview-error",
+                    on_press: reduce { preview.has_error = !preview.has_error; }),
+                if preview.has_error { Text("The book was not saved. Your title remains in the form.") } else { Text(preview.success.clone()) },
+                Text(preview.empty.clone()).color(tokens.colors.text_secondary),
+            ]
+        )
+    )
+    .padding_all(tokens.spacing.l)
+    .bg(tokens.colors.surface)
+    .border(tokens.colors.border, 1.0)
+    .border_radius(tokens.radii.large)
+}
+```
+<!-- fission:file path="preview/lib.rs" -->
+```rust
+mod app;
+
+use fission::prelude::*;
+use wasm_bindgen::prelude::*;
+
+#[wasm_bindgen(start)]
+pub fn run() -> Result<(), JsValue> {
+    console_error_panic_hook::set_once();
+    let preview = app::TutorialPreview::new(
+        "Reading list".to_string(),
+        "Add a book to start your list.".to_string(),
+        "Save a reading-list entry".to_string(),
+        "The saved book is in the reading list.".to_string(),
+        "Your list is empty. Add the first book to begin.".to_string(),
+    );
+    WebApp::<(), _>::new(preview)
+        .with_title("Build a CRUD app with Rust and SQLite")
+        .mount("#fission-web-mount")
+        .run()
+        .map_err(|error| JsValue::from_str(&error.to_string()))
+}
+```
+<!-- fission:preview -->
+
+<!-- fission:checkpoint -->
+Handle asynchronous SQLite results and errors: Trigger the error preview and confirm a recovery action remains available.
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->
+
+## Run, test and build the finished project
+
+From the project root, run the checks in order:
+
+```sh
+cargo fmt --all -- --check
+cargo test
+fission run --target web --project-dir .
+fission build --target web --project-dir .
+fission test --target web --project-dir .
+```
+
+Expected result: The list supports create, edit, delete, async storage, and a recoverable write error; confirmed records survive restart.
+
+## Related Fission reference
+
+Use these precise reference pages after the working path above is clear:
+
+- [Storage And Sqlite](/docs/guides/storage-and-sqlite/)
+- [Resources And Async](/docs/guides/resources-and-async/)
+- [Why Reducers Are Synchronous](/docs/guides/why-reducers-are-synchronous/)

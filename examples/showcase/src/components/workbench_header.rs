@@ -11,7 +11,7 @@ fission_component! {
     #[derive(Clone, Copy, Debug)] pub(crate) WorkbenchHeader<ShowcaseState> {
         example: ExampleDefinition,
     }
-    |component, _state, cx| {
+    view(component, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
         let typography = &tokens.typography;
         let source = with_reducer!(

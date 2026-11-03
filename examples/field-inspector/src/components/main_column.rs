@@ -6,7 +6,7 @@ use fission::prelude::*;
 fission_component! {
     #[derive(Clone, Copy)]
     pub InspectorMainColumn<FieldInspectorState> { compact: bool }
-    |column, _state, cx| {} =>
+    view(column, _state, cx) {} =>
         Column(
             gap: cx.view.env().theme.tokens.spacing.l,
             children: [InspectorHero(column.compact), InspectorPanelTabs(column.compact), ActiveInspectorPanel()],

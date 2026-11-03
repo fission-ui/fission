@@ -14,6 +14,7 @@ fission_component! {
         child: Row(
             gap: tokens.spacing.l,
             align_items: ir_op::AlignItems::Center,
+            wrap: ir_op::FlexWrap::Wrap,
             children: [
                 SemanticsRegion(
                     identifier: Some("docs-brand".to_string()),
@@ -25,31 +26,42 @@ fission_component! {
                     ]),
                 )
                 .hyperlink(Hyperlink::new("/")),
-                Row(
-                    gap: tokens.spacing.l,
-                    children: [
-                        Link::to(cx.view.env().tr("site.docs"), navigation::DOCS),
-                        Link::to(cx.view.env().tr("site.tutorials"), navigation::COUNTER_TUTORIAL),
-                        Link::to(cx.view.env().tr("site.compose"), navigation::COMPOSE),
-                        Link::to(cx.view.env().tr("site.examples"), navigation::SHOWCASE),
-                        Link::to(cx.view.env().tr("site.reference"), navigation::REFERENCE_OVERVIEW),
-                    ],
-                ),
-                SemanticsRegion(
-                    Link::to(cx.view.env().tr("site.docs"), navigation::DOCS),
-                    identifier: Some("mobile-docs-link".to_string()),
-                ),
                 Spacer(flex_grow: 1.0),
                 SemanticsRegion(
-                    identifier: Some("docs-search".to_string()),
+                    identifier: Some("site-primary-nav".to_string()),
+                    label: Some(cx.view.env().tr("site.primary_nav")),
+                    child: Row(
+                        gap: tokens.spacing.l,
+                        wrap: ir_op::FlexWrap::Wrap,
+                        children: [
+                            Link::to(cx.view.env().tr("site.docs"), navigation::DOCS),
+                            Link::to(cx.view.env().tr("site.tutorials"), navigation::TUTORIALS),
+                            Link::to(cx.view.env().tr("site.compose"), navigation::COMPOSE),
+                            Link::to(cx.view.env().tr("site.examples"), navigation::EXAMPLES),
+                            Link::to(cx.view.env().tr("site.reference"), navigation::REFERENCE_OVERVIEW),
+                        ],
+                    ),
+                ),
+                SemanticsRegion(
+                    identifier: Some("site-header-cta".to_string()),
+                    child: Some(Link::to(
+                        cx.view.env().tr("site.try_browser"),
+                        navigation::TRY_IN_BROWSER,
+                    ).into()),
+                ),
+                SemanticsRegion(
+                    identifier: Some("site-search-trigger".to_string()),
                     label: Some(cx.view.env().tr("site.search")),
-                    child: Row(gap: tokens.spacing.s, children: [
+                    child: Row(gap: tokens.spacing.s, align_items: ir_op::AlignItems::Center, children: [
                         Icon::svg(material::action::search::regular()).size(tokens.spacing.m),
                         copy("site.search"),
                         Kbd(text: "/".to_string()),
                     ]),
                 ),
-                Link::to(cx.view.env().tr("site.github"), navigation::GITHUB),
+                SemanticsRegion(
+                    identifier: Some("site-github-link".to_string()),
+                    child: Some(Link::to(cx.view.env().tr("site.github"), navigation::GITHUB).into()),
+                ),
             ],
         ),
     )

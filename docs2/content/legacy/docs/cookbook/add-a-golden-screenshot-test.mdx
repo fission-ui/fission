@@ -1,0 +1,32 @@
+---
+title: Add a golden screenshot test
+description: Capture and compare a Fission screen with a golden image.
+---
+
+# Add a golden screenshot test
+
+```rust
+#[test]
+#[ignore]
+fn settings_phone_matches_golden() -> anyhow::Result<()> {
+    let client = LiveTestClient::connect(control_port);
+    client.wait_for_ready(15_000)?;
+    client.simulate_resize(390, 844)?;
+    client.wait_for_idle(2_000, false)?;
+    client.tap_semantic_identifier("settings.open")?;
+
+    client.compare_golden(
+        "tests/goldens/settings-phone.png",
+        Some(".artifacts/diffs/settings-phone.png"),
+        GoldenOptions {
+            channel_tolerance: 2,
+            max_changed_percent: 0.2,
+        },
+    )?;
+    Ok(())
+}
+```
+
+Use semantic identifiers to drive the screen into the desired state before
+comparing pixels. `compare_golden` returns an error when the changed-pixel
+budget is exceeded, so a second threshold assertion is unnecessary.

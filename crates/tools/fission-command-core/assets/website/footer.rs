@@ -1,31 +1,28 @@
 use crate::design::message;
 use crate::navigation::SiteLink;
+use crate::state::WebsiteState;
 use fission::prelude::*;
 
-#[derive(Clone)]
-pub struct Footer;
+fission_component! {
+    pub Footer<WebsiteState> {}
 
-impl From<Footer> for Widget {
-    fn from(_: Footer) -> Self {
-        let (_, view) = fission::build::current::<()>();
-        let tokens = &view.env().theme.tokens;
-        SemanticsRegion::new(Column {
-            gap: Some(tokens.spacing.s),
-            children: vec![
+    view(_footer, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    SemanticsRegion(
+        Column(
+            gap: tokens.spacing.s,
+            children: [
                 Text::new(message("footer.note"))
                     .color(tokens.colors.text_secondary)
-                    .wrap(true)
-                    .into(),
-                SiteLink {
-                    key: "footer.attribution",
-                    href: "https://fission.rs".into(),
-                    identifier: "fission-attribution",
-                }
-                .into(),
+                    .wrap(true),
+                SiteLink::new(
+                    "footer.attribution",
+                    "https://fission.rs".to_string(),
+                    "fission-attribution",
+                ),
             ],
-            ..Default::default()
-        })
-        .identifier("site-footer")
-        .into()
-    }
+        ),
+        identifier: Some("site-footer".to_string()),
+    )
 }

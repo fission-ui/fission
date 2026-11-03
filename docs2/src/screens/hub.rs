@@ -1,42 +1,67 @@
+use crate::content::GoalMeta;
 use crate::navigation;
 use crate::state::DocsState;
-use crate::widgets::{copy, SiteHeader};
+use crate::widgets::{
+    copy, DocsHeader, GuideCard, HubPathStep, HubSidebar, HubStarterCode, HubTaskCard,
+};
 use fission::prelude::*;
 
 fission_component! {
-    pub DocumentationHub<DocsState> {}
-    view(_hub, _state, cx) {
+    pub DocumentationHub<DocsState> {
+        props { tutorials: Vec<GoalMeta> }
+    }
+    view(hub, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
+        let popular_orders = [6, 7, 10, 9];
+        let popular_tutorials: Vec<_> = popular_orders.iter().filter_map(|order| {
+            hub.tutorials.iter().find(|tutorial| tutorial.order == *order)
+        }).collect();
+        let guide_titles = [
+            "hub.guide.login.title",
+            "hub.guide.protected.title",
+            "hub.guide.admin.title",
+            "hub.guide.inventory.title",
+        ];
+        let guide_descriptions = [
+            "hub.guide.login.description",
+            "hub.guide.protected.description",
+            "hub.guide.admin.description",
+            "hub.guide.inventory.description",
+        ];
+        let guide_tags = [
+            vec!["Auth".to_string(), "Forms".to_string(), "Full stack".to_string()],
+            vec!["Routing".to_string(), "Auth".to_string(), "Middleware".to_string()],
+            vec!["Data".to_string(), "Tables".to_string(), "Layout".to_string()],
+            vec!["SQLite".to_string(), "Offline".to_string(), "Deployment".to_string()],
+        ];
     } =>
     Column(children: [
-        SiteHeader(),
+        DocsHeader::new(true),
         SemanticsRegion(
             identifier: Some("hub-shell".to_string()),
             child: Row(align_items: ir_op::AlignItems::Start, children: [
-                SemanticsRegion(
-                    identifier: Some("hub-sidebar".to_string()),
-                    label: Some(cx.view.env().tr("goal.nav.label")),
-                    child: Column(gap: tokens.spacing.l, children: [
-                        Link::to(cx.view.env().tr("hub.home"), navigation::DOCS),
-                        Link::to(cx.view.env().tr("goal.nav.first_app"), navigation::COUNTER_TUTORIAL),
-                        Link::to(cx.view.env().tr("site.tutorials"), navigation::COUNTER_TUTORIAL),
-                        Link::to(cx.view.env().tr("site.reference"), navigation::REFERENCE_OVERVIEW),
-                        Divider(),
-                        Link::to(cx.view.env().tr("site.examples"), navigation::SHOWCASE),
-                        Link::to(cx.view.env().tr("site.github"), navigation::GITHUB),
-                    ]),
-                ),
+                HubSidebar(),
                 SemanticsRegion(
                     identifier: Some("hub-main".to_string()),
                     child: Column(gap: tokens.spacing.l, children: [
-                        copy("hub.breadcrumb").color(tokens.colors.text_secondary),
+                        SemanticsRegion(
+                            identifier: Some("hub-breadcrumb".to_string()),
+                            child: Row(gap: tokens.spacing.s, align_items: ir_op::AlignItems::Center, children: [
+                                Icon::svg(material::action::home::regular()).size(tokens.spacing.m),
+                                copy("hub.breadcrumb"),
+                                Icon::svg(material::navigation::chevron_right::regular()).size(tokens.spacing.s),
+                            ]),
+                        ),
                         copy("hub.title").size(tokens.typography.display_md_size).weight(tokens.typography.font_weight_bold),
                         copy("hub.description").size(tokens.typography.body_large_size).color(tokens.colors.text_secondary),
                         SemanticsRegion(
                             identifier: Some("hub-path".to_string()),
                             child: Row(gap: tokens.spacing.l, wrap: ir_op::FlexWrap::Wrap, children: [
-                                copy("hub.path.first"), copy("hub.path.interface"),
-                                copy("hub.path.data"), copy("hub.path.target"), copy("hub.path.ship"),
+                                HubPathStep(1, "hub.path.first.title", "hub.path.first.detail"),
+                                HubPathStep(2, "hub.path.interface.title", "hub.path.interface.detail"),
+                                HubPathStep(3, "hub.path.data.title", "hub.path.data.detail"),
+                                HubPathStep(4, "hub.path.target.title", "hub.path.target.detail"),
+                                HubPathStep(5, "hub.path.ship.title", "hub.path.ship.detail"),
                             ]),
                         ),
                         SemanticsRegion(
@@ -46,29 +71,63 @@ fission_component! {
                                     copy("hub.start.label").color(tokens.colors.primary),
                                     copy("hub.start.title").size(tokens.typography.heading1_size).weight(tokens.typography.font_weight_bold),
                                     copy("hub.start.description").color(tokens.colors.text_secondary),
-                                    Link::to(cx.view.env().tr("hub.start.action"), navigation::COUNTER_TUTORIAL),
+                                    Link::to(cx.view.env().tr("hub.start.action"), navigation::QUICKSTART),
                                 ]),
-                                Code(text: "fission init my-app\ncd my-app\nfission run".to_string()),
+                                HubStarterCode(),
                             ]),
                         ),
                         copy("hub.tasks").size(tokens.typography.heading2_size).weight(tokens.typography.font_weight_bold),
                         SemanticsRegion(
                             identifier: Some("hub-cards".to_string()),
                             child: Row(gap: tokens.spacing.m, children: [
-                                HubCard(material::action::article::regular(), "hub.interface", "hub.interface.body", navigation::FORM_CONTROL),
-                                HubCard(material::action::verified::regular(), "hub.data", "hub.data.body", navigation::REFERENCE),
-                                HubCard(material::hardware::smartphone::regular(), "hub.targets", "hub.targets.body", navigation::REFERENCE_OVERVIEW),
-                                HubCard(material::action::rocket_launch::regular(), "hub.testing", "hub.testing.body", navigation::COOKBOOK),
+                                HubTaskCard(
+                                    material::action::article::regular(),
+                                    "hub.interface",
+                                    vec![("hub.interface.forms", navigation::FORM_CONTROL), ("hub.interface.menus", navigation::REFERENCE), ("hub.interface.layouts", navigation::REFERENCE)],
+                                ),
+                                HubTaskCard(
+                                    material::device::storage::regular(),
+                                    "hub.data",
+                                    vec![("hub.data.async", "/docs/guides/resources-and-async/"), ("hub.data.sqlite", "/blog/build-a-crud-app-with-rust-and-sqlite/"), ("hub.data.apis", "/docs/guides/resources-and-async/")],
+                                ),
+                                HubTaskCard(
+                                    material::hardware::smartphone::regular(),
+                                    "hub.targets",
+                                    vec![("hub.targets.desktop", "/docs/learn/examples-and-targets/"), ("hub.targets.mobile", "/docs/learn/examples-and-targets/"), ("hub.targets.web", "/docs/learn/examples-and-targets/"), ("hub.targets.sites", "/docs/guides/static-sites/")],
+                                ),
+                                HubTaskCard(
+                                    material::action::rocket_launch::regular(),
+                                    "hub.testing",
+                                    vec![("hub.testing.flow", navigation::TEST_GUIDE), ("hub.testing.package", navigation::PACKAGING_GUIDE), ("hub.testing.deploy", navigation::PACKAGING_GUIDE)],
+                                ),
                             ]),
                         ),
-                        copy("hub.guides").size(tokens.typography.heading2_size).weight(tokens.typography.font_weight_bold),
+                        SemanticsRegion(
+                            identifier: Some("hub-guides-heading".to_string()),
+                            child: Row(align_items: ir_op::AlignItems::Center, children: [
+                                copy("hub.guides").size(tokens.typography.heading2_size).weight(tokens.typography.font_weight_bold),
+                                Spacer(flex_grow: 1.0),
+                                Link::to(cx.view.env().tr("hub.all_guides"), navigation::TUTORIALS),
+                            ]),
+                        ),
                         SemanticsRegion(
                             identifier: Some("hub-guides".to_string()),
                             child: Row(gap: tokens.spacing.m, children: [
-                                HubCard(material::action::verified::regular(), "home.learn.counter", "home.learn.counter_body", navigation::COUNTER_TUTORIAL),
-                                HubCard(material::action::article::regular(), "goal.nav.forms", "hub.interface.body", navigation::FORM_CONTROL),
-                                HubCard(material::action::language::regular(), "goal.nav.routing", "hub.targets.body", navigation::ROUTER),
-                                HubCard(material::action::article::regular(), "site.reference", "hub.reference.body", navigation::REFERENCE),
+                                for (index, tutorial) in popular_tutorials.iter().enumerate() {
+                                    GuideCard(
+                                        match tutorial.order {
+                                            6 => material::action::lock::regular(),
+                                            7 => material::action::verified_user::regular(),
+                                            10 => material::action::dashboard::regular(),
+                                            _ => material::content::inventory_2::regular(),
+                                        },
+                                        cx.view.env().tr(guide_titles[index]),
+                                        cx.view.env().tr(guide_descriptions[index]),
+                                        tutorial.path.clone(),
+                                        guide_tags[index].clone(),
+                                        key: tutorial.path.clone(),
+                                    )
+                                },
                             ]),
                         ),
                         SemanticsRegion(
@@ -87,24 +146,4 @@ fission_component! {
             ]),
         ),
     ])
-}
-
-fission_component! {
-    HubCard<DocsState> {
-        props { icon: &'static str, title: &'static str, body: &'static str, href: &'static str }
-    }
-    view(card, _state, cx) {
-        let tokens = &cx.view.env().theme.tokens;
-    } =>
-    SemanticsRegion(
-        identifier: Some("hub-card".to_string()),
-        child: Column(gap: tokens.spacing.m, children: [
-            Row(gap: tokens.spacing.m, align_items: ir_op::AlignItems::Center, children: [
-                Icon::svg(card.icon).size(tokens.spacing.xl).color(tokens.colors.primary),
-                copy(card.title).weight(tokens.typography.font_weight_bold),
-            ]),
-            copy(card.body).color(tokens.colors.text_secondary),
-            Link::to(cx.view.env().tr("hub.open"), card.href),
-        ]),
-    )
 }

@@ -6,7 +6,7 @@ const MENU_WIDTH: f32 = 260.0;
 
 fission_component! {
     pub(super) PopoverMenu<AnimationGalleryState> { close: ActionEnvelope }
-    |menu, _state, cx| {
+    view(menu, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
         Container(

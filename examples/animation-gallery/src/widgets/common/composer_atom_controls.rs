@@ -8,7 +8,7 @@ use fission::prelude::*;
 
 fission_component! {
     pub(super) ComposerAtomControls<AnimationGalleryState> { path: String, atoms: Vec<MotionAtom> }
-    |controls, _state, cx| {
+    view(controls, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
         let mut undo = controls.atoms.clone();
         undo.pop();

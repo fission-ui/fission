@@ -3,7 +3,7 @@ use fission::prelude::*;
 
 fission_component! {
     pub(super) ColorDot<crate::state::AnimationGalleryState> { color: Color }
-    |dot, _state, _cx| {} =>
+    view(dot, _state, _cx) {} =>
         Container(Text(" "))
             .width(COLOR_DOT_SIZE)
             .height(COLOR_DOT_SIZE)

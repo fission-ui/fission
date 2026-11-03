@@ -1,0 +1,78 @@
+---
+title: DatePicker
+description: Pick a single calendar date from an explicit state-driven popup.
+slug: /widgets/date-picker
+---
+# DatePicker
+
+`DatePicker` is the single-date picker in the authoring widget set.
+
+Its value model is `Option<NaiveDate>`. That means the field can either have no date yet or one concrete calendar date. The open state is also explicit: your app decides when the popup is open, and the widget simply renders that state.
+
+## Example
+
+```rust
+use chrono::NaiveDate;
+use fission::prelude::*;
+use std::sync::Arc;
+
+let widget: Widget = DatePicker {
+id: WidgetId::explicit("publish_date"),
+value: view.state().publish_date,
+is_open: view.state().publish_date_open,
+width: Some(200.0),
+view_year: None,
+view_month: None,
+on_navigate: None,
+on_change: Some(Arc::new(move |date: NaiveDate| ActionEnvelope {
+    id: set_publish_date_id,
+    payload: serde_json::to_vec(&SetPublishDate(date)).unwrap(),
+})),
+on_toggle: Some(toggle_publish_date_action),
+on_close: Some(close_publish_date_action),
+}
+.into();
+```
+
+A common reducer flow is: `on_toggle` opens the picker, `on_change` stores the selected date, and the same reducer or a follow-up action closes the picker.
+
+## Field table
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `id` | `WidgetId` | Stable identity for the trigger and popover. | Required. |
+| `value` | `Option<NaiveDate>` | Currently selected date, or no date yet. | Controlled by app state. |
+| `is_open` | `bool` | Whether the popup calendar is visible. | Controlled by app state. |
+| `width` | `Option<f32>` | Preferred trigger width. | Defaults to `164.0`, then clamps against the viewport when needed. |
+| `view_year` | `Option<i32>` | Calendar year currently shown in the popup. | Defaults to the selected date's year, or today. |
+| `view_month` | `Option<u32>` | Calendar month currently shown in the popup. | Defaults to the selected date's month, or today. |
+| `on_navigate` | `Option<Arc<dyn Fn(i32, u32) -> ActionEnvelope + Send + Sync>>` | Closure that creates the action for previous/next month navigation. | Use with `view_year` and `view_month` for controlled month state. |
+| `on_change` | `Option<Arc<dyn Fn(NaiveDate) -> ActionEnvelope + Send + Sync>>` | Closure that creates the action for a chosen day. | Called when the user selects a date. |
+| `on_toggle` | `Option<ActionEnvelope>` | Action for opening or toggling the popup. | Usually flips `is_open`. |
+| `on_close` | `Option<ActionEnvelope>` | Action for explicit popup dismissal. | Use this to close on outside click without overloading your toggle logic. |
+
+## Value model and current behavior
+
+The checked-in `DatePicker` uses an outline [`Button`](/reference/widgets/button) as its trigger and opens a calendar popover. It does not currently parse free-form typed dates. If `value` is `None`, the trigger reads "Select Date". If a date exists, it is displayed in `YYYY-MM-DD` form.
+
+The popup calendar opens around the selected date or today unless `view_year` and `view_month` are supplied. When you provide `on_navigate`, the previous/next controls dispatch your action with the next visible year and month so app state can keep the calendar view controlled.
+
+## Product pitfalls to avoid
+
+Store a real `NaiveDate` in state, not a locale-formatted display string. A display string is for rendering, not for business logic. Also remember that a date picker chooses a calendar day, not a timezone-aware instant. If your product cares about midnight boundaries, time zones, or scheduled timestamps, keep those concerns separate from the picker's user interface value.
+
+## Production checklist
+
+For `DatePicker`, review the fields that change behavior before treating the widget as finished: `id`, `value`, `is_open`, `width`, `on_change`, `on_toggle`. The goal is to make the product rule visible in state and actions, not hidden inside ad-hoc construction code.
+
+- Bind `on_change`, `on_toggle`, `on_close` to explicit reducer actions and test that the reducer handles unavailable, duplicate, or invalid input safely.
+- Set `id` only when identity must be stable across filtering, reordering, diagnostics, or tests; otherwise let Fission derive identity from structure.
+- Check the semantics tree for the user-facing label or role that makes this widget understandable without relying only on pixels.
+- Prefer parent layout and design-system sizing first; use explicit size or spacing fields when the product layout requires that constraint on this widget specifically.
+- Add at least one component or harness test that confirms the visible text, semantic role, action dispatch, and layout constraint that matter for this widget in context.
+
+If a screen starts repeating the same `DatePicker` setup, extract a named component around this widget. That keeps the reference API small while making product code easier to read and safer for generated code to copy.
+
+## Related
+
+[`DateRangePicker`](/reference/widgets/date-range-picker), [`TimePicker`](/reference/widgets/time-picker), [`TextInput`](/reference/widgets/text-input), and [`FormControl`](/reference/widgets/form-control).

@@ -1,0 +1,1464 @@
+---
+title: fission.toml manifest
+summary: Complete reference for the Fission project manifest, including app metadata, targets, capabilities, static-site settings, package settings, release metadata, distribution providers, signing references, beta testing, and release workflows.
+description: Complete reference for every fission.toml section currently read by the Fission command-line interface and static-site shell.
+---
+
+# fission.toml manifest
+
+`fission.toml` is the project manifest read by the Fission command-line interface and the static-site shell. It is the place for stable project facts: the app identity, enabled targets, declared host capabilities, site build settings, package references, release entries, provider configuration, and release workflow commands.
+
+Keep this file human-reviewable. Short identifiers and non-secret paths belong here. Long release notes, localized store descriptions, review instructions, privacy declarations, screenshots, and videos can live in referenced files. Certificates, private keys, signing passwords, tokens, keystores, and service-account JSON must come from environment variables, provider tools, platform key stores, or CI secrets. The centralized [environment-variable reference](/reference/config/environment-variables/) lists the framework, testing, toolchain, signing, and publishing names and explains when each is read.
+
+This reference lists accepted fields. For the release reasoning behind those
+fields, use the platform guides:
+[macOS](/docs/build-and-package/macos-packages/),
+[macOS native XcodeGen](/docs/build-and-package/macos-native-xcodegen/),
+[Windows](/docs/build-and-package/windows-packages/),
+[Linux](/docs/build-and-package/linux-packages/),
+[Android](/docs/build-and-package/android-packages/), and
+[iOS](/docs/build-and-package/ios-packages/).
+
+## Minimal app manifest
+
+Most app projects need only this at the start:
+
+```toml
+targets = ["linux", "macos", "windows"]
+
+[app]
+name = "my-app"
+app_id = "com.example.my_app"
+```
+
+`fission init` writes this file for you. `fission add-target` and `fission add-capability` update it idempotently.
+
+## Parsing rules
+
+Fission commands currently read the sections they need instead of requiring one giant schema object. That has a few practical consequences:
+
+| Rule | Contract |
+| --- | --- |
+| File location | The manifest must be named `fission.toml` and live at the project root passed by `--project-dir`. |
+| Required for app commands | `fission run`, `fission build`, `fission test`, `fission package`, `fission add-target`, and `fission add-capability` require `[app]` and `targets`. |
+| Required for site commands | `fission site ...` requires `[app].name`. The `[site]` table is optional but needed for non-default site behavior. |
+| Unknown fields | Unknown fields are tolerated by current TOML deserializers, but they do not affect behavior. Do not rely on an undocumented field unless the command that reads it is listed here. |
+| Paths | Paths are project-relative unless explicitly described as absolute or provider-owned. Absolute paths are accepted in some release/package paths, but project-relative paths are easier to review and reproduce. |
+| Secrets | Do not put secrets in this file. Use environment variables, provider command-line tools, platform key stores, or CI secrets. Fission does not persist release secrets. |
+
+## Root fields
+
+Root fields appear before any table header.
+
+| Field | Type | Required | Accepted values | Meaning |
+| --- | --- | --- | --- | --- |
+| `targets` | array of strings | Yes for app/package commands | `android`, `ios`, `linux`, `macos`, `ssr`, `static-site`, `terminal`, `web`, `windows` | Declares which generated or packaged hosts belong to the project. Commands use it to reject packaging/running a configured host target that has not been added. |
+| `capabilities` | array of strings | No | `barcode-scanner`, `biometric`, `bluetooth`, `camera`, `filesystem`, `geolocation`, `haptics`, `microphone`, `nfc`, `notifications`, `passkeys`, `storage`, `volume-control`, `wifi` | Declares host capabilities the app intends to use. `fission add-capability` updates this list, optional Cargo integrations, and generated Android/iOS files where the configuration is deterministic. |
+
+Clipboard and deep-link APIs are runtime/platform capabilities, but they are not currently accepted values in the root `capabilities` array. Deep-link routes still need product-owned native or web routing configuration, and clipboard currently does not require root manifest declaration.
+
+Terminal is a public Fission target exposed through `TerminalApp`, the terminal shell crate, and `fission ui`. The root `targets` array records generated or packaged host targets, so it accepts `static-site` for Static site, `ssr` for SSR, and `terminal` for terminal-shell package workflows.
+
+## `[[native.modules]]`
+
+Native modules keep platform-owned source, dependencies, extensions, and tests
+attached to the Fission command lifecycle. Each module requires a stable `name`.
+The optional `path` records its project-relative source root; platform paths
+below remain project-relative so they are unambiguous when a module is shared
+by more than one app.
+
+| Field | Type | Required | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `name` | string | Yes | none | Stable module identity used in diagnostics and native output paths. |
+| `path` | string | No | project root | Project-relative source root used by platform module defaults. |
+| `variants` | array of strings | No | `[]` | Desktop variants that include this module. An empty array makes the module universal. Variant names use lowercase ASCII letters and digits separated by single hyphens. |
+
+`fission build`, `fission test`, `fission run`, and `fission package` accept
+`--variant <name>` for Linux, macOS, and Windows. With no selector, only
+universal modules are built. With a selector, Fission builds universal modules
+plus modules whose `variants` array contains that exact name. Selection happens
+before Cargo, MSBuild, NuGet, XcodeGen, or Xcode is invoked for a native module.
+
+```toml
+[[native.modules]]
+name = "shared-runtime"
+
+[[native.modules]]
+name = "scanner-runtime"
+variants = ["scanner"]
+
+[[native.modules]]
+name = "protection-runtime"
+variants = ["full"]
+```
+
+Selected package and development-run outputs are written below a deterministic
+`variants/<name>/` directory so variants do not replace one another. Custom
+package scripts receive the selected name in `FISSION_VARIANT`; Fission removes
+any inherited value when the command did not select a variant.
+
+Android modules declare repositories, Gradle dependencies, source directories,
+permissions, and application manifest entries under
+`[native.modules.android]`. iOS modules declare source directories, linked
+frameworks, and Swift package products under `[native.modules.ios]`.
+
+### `[native.modules.macos]`
+
+macOS native modules can build app extensions and system extensions alongside
+the Rust desktop app. `fission build`, `fission run`, and `fission package` all
+compile the declared products. `fission run` and `fission package` additionally
+embed and sign each extension before signing the containing app.
+
+| Field | Type | Required | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `xcode_project` | string | Yes when products or tests are declared | none | Project-relative `.xcodeproj` used by `xcodebuild`. |
+| `xcodegen_spec` | string | No | none | Project-relative XcodeGen specification. Fission runs `xcodegen` before using `xcode_project`. |
+| `derived_data` | string | No | `.fission/native/macos/<module>/<profile>/DerivedData` | Xcode derived-data directory. |
+| `test_schemes` | array of strings | No | `[]` | Schemes run with signing disabled by `fission test --target macos`. |
+
+Each `[[native.modules.macos.products]]` entry accepts:
+
+| Field | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `scheme` | string | Yes | Xcode scheme built with signing disabled. |
+| `bundle` | string | Yes | Full product file name. App extensions must end in `.appex`; system extensions must end in `.systemextension`. |
+| `kind` | string | Yes | `app-extension` or `system-extension`. This selects `Contents/PlugIns` or `Contents/Library/SystemExtensions` in the app bundle. |
+| `entitlements` | string | No | Project-relative package entitlements passed when signing this product. |
+| `provisioning_profile` | string | No | Project-relative package provisioning profile embedded in this product. |
+| `signing_identity` | string | No | Product signing identity. Inherits the containing app identity when omitted. |
+
+`[native.modules.macos.products.run]` accepts `entitlements`,
+`provisioning_profile`, and `signing_identity` as local-run overrides. Any field
+not overridden inherits the product package value, then the containing app's
+run identity where applicable.
+
+```toml
+[[native.modules]]
+name = "security-extensions"
+path = "platforms/macos/native"
+
+[native.modules.macos]
+xcodegen_spec = "platforms/macos/native/project.yml"
+xcode_project = "platforms/macos/native/SecurityExtensions.xcodeproj"
+test_schemes = ["SecurityExtensionsTests"]
+
+[[native.modules.macos.products]]
+scheme = "FileProvider"
+bundle = "FileProvider.appex"
+kind = "app-extension"
+entitlements = "platforms/macos/native/FileProvider.entitlements"
+provisioning_profile = "profiles/FileProvider.provisionprofile"
+
+[native.modules.macos.products.run]
+provisioning_profile = "profiles/FileProviderDevelopment.provisionprofile"
+signing_identity = "Apple Development"
+```
+
+### `[native.modules.linux]`
+
+Linux native modules attach a Cargo package to the desktop lifecycle. `fission
+build`, `fission run`, and `fission package` build the declared package;
+`fission test --target linux` runs its tests. Products are staged under their
+declared relative destinations for local runs and Linux `.run` packages.
+
+| Field | Type | Required | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `cargo_manifest_path` | string | No | `<native.modules.path>/Cargo.toml`, then the app `Cargo.toml` | Project-relative Cargo manifest used for the native package. |
+| `cargo_package` | string | Yes | none | Exact Cargo package passed with `--package`. |
+| `features` | array of strings | No | `[]` | Cargo features enabled for build and test. |
+| `no_default_features` | boolean | No | `false` | Passes `--no-default-features` to Cargo. |
+
+Each `[[native.modules.linux.products]]` entry accepts:
+
+| Field | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `name` | string | Yes | Stable product identity recorded in the native-products manifest. |
+| `path` | string | Yes | Built file or directory. Supports `{cargo_target_dir}`, `{configuration}`, `{profile}`, and `{architecture}`. `{cargo_target_dir}` resolves from `cargo metadata`, so it follows workspace and user Cargo configuration. |
+| `kind` | string | Yes | `runtime` or `privileged-helper`. Both are staged, but privileged helpers remain explicitly classified for installer policy and review. |
+| `destination` | string | No | Safe relative path under the run/package root. Defaults to the source file or directory name. |
+
+Fission preserves executable modes and rejects destination traversal and
+overwrites. It does not grant privileges to a `privileged-helper`; an installer
+must explicitly install and authorize that helper according to the product's
+platform security design.
+
+```toml
+[[native.modules]]
+name = "linux-protection"
+path = "../linux-mount-helper"
+
+[native.modules.linux]
+cargo_package = "linux-mount-helper"
+no_default_features = true
+features = ["kernel-fuse"]
+
+[[native.modules.linux.products]]
+name = "mount-helper"
+path = "{cargo_target_dir}/{profile}/linux-mount-helper"
+kind = "privileged-helper"
+destination = "libexec/linux-mount-helper"
+```
+
+### `[native.modules.windows]`
+
+Windows native modules attach either a Cargo package or an MSBuild/WDK project
+to the desktop lifecycle. A module must choose exactly one build system:
+`cargo_package` or `msbuild_project`. Fission rejects mixed configuration so
+Cargo features cannot be combined accidentally with NuGet/MSBuild/WDK settings.
+`fission build`, `fission run`, and Windows package commands build the declared
+module. `fission test --target windows` runs Cargo tests for Cargo modules and
+each declared VSTest binary for MSBuild modules.
+
+| Field | Type | Required | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `cargo_manifest_path` | string | No | `<native.modules.path>/Cargo.toml`, then app `Cargo.toml` | Project-relative Cargo manifest for Cargo modules. |
+| `cargo_package` | string | Required for Cargo modules | none | Exact Cargo package passed with `--package`. Mutually exclusive with `msbuild_project`. |
+| `features` | array of strings | No | `[]` | Cargo features enabled for Cargo module build and test. |
+| `no_default_features` | boolean | No | `false` | Passes `--no-default-features` to Cargo. |
+| `nuget_packages_config` | string | No | none | MSBuild-only project-relative `packages.config` restored before MSBuild. Restored WDK host-tool directories are added to the MSBuild environment. |
+| `nuget_packages_directory` | string | No | sibling `packages` directory | MSBuild-only project-relative restore destination. Requires `nuget_packages_config`. |
+| `msbuild_project` | string | Required for MSBuild modules | none | Project-relative `.sln`, `.slnx`, or MSBuild project passed to `msbuild`. Mutually exclusive with `cargo_package`. |
+| `platform` | string | No | `x64` | MSBuild platform, such as `x64` or `ARM64`. |
+| `build_target` | string | No | `Build` | MSBuild target invoked for the module. |
+| `test_binaries` | array of strings | No | `[]` | MSBuild/VSTest executables. Paths may contain `{configuration}`, `{profile}`, and `{platform}`. |
+
+Each `[[native.modules.windows.products]]` entry accepts:
+
+| Field | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `name` | string | Yes | Stable product identity used in package manifests. |
+| `path` | string | Yes | Built file or directory. Supports `{configuration}`, `{profile}`, and `{platform}`. Cargo products also support `{cargo_target_dir}`, resolved from `cargo metadata`. |
+| `kind` | string | Yes | `runtime` or `driver-package`. Runtime products are staged beside the app; driver packages are installer inputs and are excluded from MSIX manifests. |
+| `destination` | string | No | Safe relative path under the run/package root. Defaults to the source file or directory name. |
+
+```toml
+[[native.modules]]
+name = "windows-protection"
+path = "platforms/windows/native"
+
+[native.modules.windows]
+msbuild_project = "platforms/windows/native/Protection.sln"
+platform = "x64"
+test_binaries = ["platforms/windows/native/{platform}/{configuration}/ProtectionTests.exe"]
+
+[[native.modules.windows.products]]
+name = "cloud-files-provider"
+path = "platforms/windows/native/{platform}/{configuration}/Provider.dll"
+kind = "runtime"
+destination = "native/Provider.dll"
+
+[[native.modules.windows.products]]
+name = "filesystem-minifilter"
+path = "platforms/windows/native/{platform}/{configuration}/DriverPackage"
+kind = "driver-package"
+```
+
+Cargo-native Windows module example:
+
+```toml
+[[native.modules]]
+name = "windows-helper"
+path = "../windows-helper"
+
+[native.modules.windows]
+cargo_manifest_path = "../windows-helper/Cargo.toml"
+cargo_package = "windows-helper"
+features = ["installer"]
+no_default_features = true
+
+[[native.modules.windows.products]]
+name = "windows-helper"
+path = "{cargo_target_dir}/{profile}/windows-helper.exe"
+kind = "runtime"
+destination = "tools/windows-helper.exe"
+```
+
+## `[app]`
+
+`[app]` identifies the product and package. It is required by normal app commands.
+
+| Field | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `name` | string | Yes | Rust package/app name used by generated scripts and site fallback title. Prefer a Cargo-compatible kebab-case name such as `field-inspector`. |
+| `app_id` | string | Yes | Stable application identifier used by generated mobile/desktop package metadata. Use a reverse-domain identifier such as `com.example.field_inspector`. `id` is accepted as a shorter alias when reading config; generated files still write `app_id` for compatibility with existing projects. |
+| `version` | string | Recommended for release | Default user-facing version used by release version resolution when target/package-specific fields are absent. |
+| `build` | integer | Recommended for release | Default monotonically increasing build number used by release version resolution when target/package-specific fields are absent. |
+| `publisher` | string | Recommended for release | Publisher or legal owner shown in store/package metadata where applicable. |
+| `homepage` | string | Recommended for release | Product website used by store listings, package metadata, and support surfaces where applicable. |
+| `support_url` | string | Recommended for release | Support URL used by store listings and release checks where applicable. |
+| `privacy_url` | string | Recommended for release | Privacy-policy URL used by store listings and provider review checks where applicable. |
+| `license` | string | Recommended for release | App license or proprietary licensing label used by release metadata where applicable. |
+| `splash` | table | No | Native launch-screen configuration for iOS and Android. When omitted, generated mobile targets use `assets/app-icon.png` on a neutral background instead of showing an empty black startup window. |
+
+`app.name` should match the Cargo package name for normal generated projects. `fission init` refuses to set a conflicting name for an existing Cargo package because the generated scripts call Cargo by package name.
+
+### `[app.splash]`
+
+`[app.splash]` controls the platform-owned launch screen shown before the first Fission frame is ready. This is not an in-app loading page; it is native startup configuration generated into the Android activity theme and the iOS launch storyboard so the operating system has something branded to draw while the process, renderer, and app code start.
+
+Use it when mobile startup currently shows a blank or black screen, or when the app needs a product-specific launch mark. Keep the content simple. The launch screen should introduce the app, not perform onboarding, advertising, account selection, or any work that belongs in the real Fission widget tree.
+
+| Field | Type | Required | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `background_color` | string | No | `#F8FAFC` | Hex color in `#RRGGBB` or `#RRGGBBAA` form. Android receives the matching Android color literal; iOS receives an sRGB storyboard color. |
+| `image` | string | No | `assets/app-icon.png` | Project-relative image used as the static splash mark. Android accepts PNG, JPEG, and WebP. iOS accepts PNG and JPEG. |
+| `resize_mode` | string | No | `contain` | How the image is placed where the platform supports it: `center`, `contain`, or `cover`. Use `contain` for logos and `cover` only for artwork designed to crop safely. |
+| `android_animated_icon` | string | No | none | Project-relative Android XML drawable used for Android's native animated splash icon. This is Android-only and should be an animated vector drawable or other Android XML drawable accepted by the platform packager. |
+| `android_animation_duration_ms` | integer | No | `800` | Android native splash icon animation duration. Must be greater than zero when set. |
+
+Example:
+
+```toml
+[app.splash]
+background_color = "#06131F"
+image = "assets/splash-mark.png"
+resize_mode = "contain"
+android_animated_icon = "assets/android/splash-animated.xml"
+android_animation_duration_ms = 900
+```
+
+iOS launch screens are static by platform design. If an app needs a longer animated handoff after launch, implement that as the first route or app state in the Fission widget tree, then transition into the main screen when the required data is ready.
+
+## `[web]`
+
+`[web]` contains browser-document settings shared by SSR and Static site output. It does not configure the canvas-rendered Web SPA shell, which registers packaged fonts directly with its renderer.
+
+| Field | Type | Required | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `font_delivery` | string | No | `none` | Delivery policy for fonts registered by the active design system or `.with_fonts(...)`. `none` emits no font CSS or generated font files. `external` emits `@font-face` rules referencing content-addressed, long-cacheable font files. `inline` embeds the font bytes in CSS and should be selected only when deliberately producing self-contained output. |
+
+```toml
+[web]
+font_delivery = "external"
+```
+
+## `[site]`
+
+`[site]` configures the static-site target. It is used by `fission site ...`, `fission package --target static-site --format static`, and static-site publishing providers.
+
+| Field | Type | Required | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `entry` | string | No | none | When present, `fission site ...` delegates to the project's Rust site builder by running the Cargo package and passing `build`, `check`, `routes`, or `serve`. Use this for custom Fission-rendered marketing pages. |
+| `title` | string | No | `[app].name` | Site title used in generated document titles and the default header. |
+| `description` | string | No | none | Default SEO description used when a route does not provide front matter description. |
+| `logo` | string | No | none | Site asset path for the header logo, such as `/img/fission-mark.svg`. |
+| `favicon` | string | No | none | Site asset path for the generated `<link rel="icon">`. |
+| `base_url` | string | No | none | Absolute public origin used to generate canonical URLs and sitemap entries, such as `https://fission.rs`. |
+| `base_path` | string | No | `/` | Static package metadata base path. GitHub project pages often use `/<repo>/`; custom domains usually use `/`. |
+| `canonical_url` | string | No | none | Static package metadata canonical URL. Use this when a distributor needs the public site URL recorded in package metadata. |
+| `out_dir` | string | No | `target/fission/site` | Output directory for generated HTML, CSS, assets, search index, sitemap, and robots file. |
+| `default_locale` | string | No | `en` | Locale used for the HTML `lang` attribute and search index metadata. |
+| `asset_dirs` | array of strings | No | `[]` | Directories copied into the generated site root. This documentation site uses `static`. |
+| `css_files` | array of strings | No | `[]` | Project CSS files appended after Fission's generated CSS. Later rules can override generated rules. |
+| `generate_sitemap` | boolean | No | `false` | Writes `sitemap.xml` when enabled. `base_url` must be set for route URLs to be emitted. |
+| `generate_robots` | boolean | No | `false` | Writes `robots.txt`. If `base_url` is set, the file includes a sitemap URL. |
+| `cache_control` | string | No | `public, max-age=31536000, immutable` | Static package cache policy written into package metadata and `_headers`. |
+
+The current documentation manifest also contains `locales` and `pretty_urls`. Those fields are tolerated by the current parser but are not authoritative behavior switches today. `default_locale` is the locale field currently consumed by the static-site shell, and generated output already uses pretty route URLs.
+
+### `[[site.nav]]`
+
+Each `[[site.nav]]` entry adds one top-level navigation link to the generated documentation template. A link can also contain nested `children`, which the static-site shell renders as dropdown menus. Nested children can continue recursively, so a top-level product menu can contain a Resources item, and Resources can contain a Documentation item. Keep blog navigation on the blog landing page itself rather than stuffing every post into the global header.
+
+| Field | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `title` | string | Yes | Text shown in the header navigation. |
+| `href` | string | Yes | Site route or absolute URL. Site routes should start with `/`. |
+| `children` | array of nav entries | No | Nested dropdown entries. Each child has the same `title`, `href`, and optional `children` fields. |
+
+Example:
+
+```toml
+[[site.nav]]
+title = "Product"
+href = "/product/overview/"
+
+[[site.nav.children]]
+title = "Platform overview"
+href = "/product/overview/"
+
+[[site.nav.children]]
+title = "Resources"
+href = "/docs/intro/"
+
+[[site.nav.children.children]]
+title = "Documentation"
+href = "/docs/intro/"
+```
+
+The dropdown is generated from data, not from hand-written HTML. Keep `href` on parent items even when they have children, because keyboard users and search engines still need a normal destination for the parent item. The menu can nest beyond three levels, but a production navigation should stay shallow enough that users can scan it quickly.
+
+Blog navigation is generated from content metadata instead of global dropdown children. When a `[[site.routes]]` entry uses `path = "/blog"`, the static-site shell generates `/blog/` if you have not provided a Markdown file for it. That landing page lists recent posts, categories, and tags. Individual posts also get older/newer post links unless a post disables them in front matter.
+
+### `[[site.routes]]`
+
+Each `[[site.routes]]` entry maps a content directory to generated routes. If no routes are configured, Fission uses `content/` at `/content`.
+
+| Field | Type | Required | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `kind` | string | No | `content` | Only `content` routes are currently consumed. Other values are ignored by the content-route loader. |
+| `path` | string | Yes | none | URL prefix for generated pages, such as `/docs`, `/reference`, or `/blog`. |
+| `source` | string | Yes | none | Project-relative directory containing `.md` or `.mdx` files. The directory must exist and contain Markdown files. |
+| `template` | string | No | default documentation page | Template identity. `fission::site::documentation` selects the standard documentation layout. `fission::site::blog` enables post indexes, pagination, adjacent-post navigation, and taxonomy routes at the configured mount path. |
+| `sidebar` | string | No | none | Project-relative TOML file describing left-sidebar entries for this content route. |
+
+Example:
+
+```toml
+[[site.routes]]
+kind = "content"
+path = "/reference"
+source = "content/reference"
+template = "fission::site::documentation"
+sidebar = "site/reference-sidebar.toml"
+```
+
+### Content route front matter
+
+Markdown and MDX files may start with front matter. The static-site shell reads these fields before rendering the page body.
+
+| Field | Type | Required | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `title` | string | No | File stem converted to title case | Page title used in headings, browser metadata, search, sidebars, and blog lists. |
+| `description` | string | No | none | Page summary used in SEO metadata, search excerpts, and generated blog landing entries. |
+| `locale` | string | No | `[site].default_locale` | Locale used to resolve translated text and emit the document `lang` and `og:locale` metadata for this page. `lang` and `language` are accepted aliases. |
+| `authors` | array of strings | No | `[]` | Author identifiers for blog and release posts. |
+| `tags` | array of strings | No | `[]` | Topic labels used by the generated blog landing page, blog sidebar taxonomy, and article chips. |
+| `categories` | array of strings | No | `[]` | Higher-level group labels used by the generated blog landing page, blog sidebar taxonomy, and article chips. |
+| `show_adjacent_posts` | boolean | No | `true` for blog posts, `false` otherwise | Shows older/newer post links below a blog article. |
+| `prev_next` | boolean | No | same as `show_adjacent_posts` | Alias accepted for authors who prefer shorter front matter. |
+
+Example:
+
+```mdx
+---
+title: Fission 0.11.0
+description: A release note for the authoring API update.
+authors:
+  - fission
+categories:
+  - Releases
+tags:
+  - release
+  - authoring
+show_adjacent_posts: true
+---
+
+# Fission 0.11.0
+
+Write the post body here.
+```
+
+### `[[site.elements]]`
+
+`[[site.elements]]` inserts raw trusted document-level HTML. Use it for analytics snippets, verification tags, consent scripts, preload hints, or other document features that do not belong in a Fission widget.
+
+| Field | Type | Required | Accepted values / condition | Meaning |
+| --- | --- | --- | --- | --- |
+| `placement` | string | Yes | `head-start`, `head-end`, `body-start`, `body-end`; underscores and `head:start`/`body:end` aliases are accepted | Where the raw HTML fragment is inserted. |
+| `html` | string | Required unless `file` is set | Mutually exclusive with `file` | Inline raw HTML. |
+| `file` | string | Required unless `html` is set | Mutually exclusive with `html` | Project-relative file containing raw HTML. |
+| `routes` | array of strings | No | `[]` | Exact route filters. Empty means every route unless `route_prefixes` is set. |
+| `route_prefixes` | array of strings | No | `[]` | Prefix route filters, such as `/docs/`. |
+
+Exactly one of `html` or `file` must be set. Setting both is an error.
+
+### `[site.code_highlighting]`
+
+Code highlighting is optional and only loads highlighting assets on pages that contain code blocks.
+
+| Field | Type | Required | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `enabled` | boolean | No | `false` | Enables client-side code highlighting. |
+| `stylesheet_href` | string | No | hosted Highlight.js dark CSS URL | CSS URL inserted on pages with code blocks. |
+| `script_src` | string | No | hosted Highlight.js script URL | Script URL inserted on pages with code blocks. |
+
+### `[site.search]`
+
+Client-side search is optional. When enabled, the build writes a local search index and script into the generated site.
+
+| Field | Type | Required | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `enabled` | boolean | No | `false` | Enables generated client-side search assets. |
+| `output_path` | string | No | `search` | Output directory below the site root for `search.js`, `manifest.json`, document metadata, and shards. |
+| `min_token_len` | integer | No | `2` | Minimum token length included in the search index. |
+
+## `[server]`
+
+`[server]` configures the server-rendered web target. It is used by `fission server ...`, `fission run --target ssr`, and `fission package --target ssr --format docker-image`.
+
+| Field | Type | Required | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `entry` | string | Yes for server commands | none | Rust path to the function that returns the `FissionServerApp`, such as `pokemon_card_store::pokemon_card_store_server`. The top-level CLI reads this field and generates/runs the server binary entrypoint. |
+| `package` | string | Required for virtual Cargo workspaces | root package | Cargo workspace package that owns the server entrypoint. Server commands pass this name to Cargo explicitly and use its feature declarations when building browser artifacts. |
+| `default_locale` | string | No | `en` | Locale written to the rendered HTML `lang` attribute unless a route or future locale layer overrides it. |
+| `default_route_mode` | string | No | app default | Route mode applied to routes declared through the default server route helper. Accepted values are `static`, `server`, `dynamic`, `server_private`, `private`, `revalidated`, `client_app`, and `client`. `dynamic` is an alias for `server`; `private` is an alias for `server_private`. |
+| `render_pass_limit` | integer | No | `4` | Maximum render passes allowed while jobs/resources settle before the server returns HTML. `fission server check`, `fission server serve`, and the server binary read this value. |
+
+Route modes are intentionally explicit. Use `server_private` for pages that depend on a session or user, `server` for request-rendered public pages, and `revalidated` for public pages that can be cached and reconverted after a TTL. Fission rejects a revalidated page if the rendered HTML contains signed server action forms, because action tokens are request-specific.
+
+### `[server.http]`
+
+`[server.http]` controls public HTTP metadata used by generated pages. It does not replace the production web server, load balancer, or reverse proxy; it gives Fission enough information to produce correct canonical links.
+
+| Field | Type | Required | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `base_url` | string | No | none | Absolute public origin used for canonical URLs, such as `https://shop.example`. A trailing slash is accepted and normalized away. |
+| `trust_proxy_headers` | boolean | No | `false` | When `true` and `base_url` is absent, Fission may derive canonical URLs from `X-Forwarded-Proto` and `X-Forwarded-Host`. Enable this only behind a trusted proxy that overwrites those headers. |
+
+Example:
+
+```toml
+[server.http]
+base_url = "https://cards.example"
+trust_proxy_headers = false
+```
+
+### `[server.sessions]`
+
+`[server.sessions]` configures the built-in cookie session identifier used by `ServerPrivate` routes. The current provider stores only an opaque session id in the browser. App data still belongs in your service layer, database, cache, or other server-owned store keyed by that session id.
+
+| Field | Type | Required | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `provider` | string | No | `cookie` | Session id transport. `cookie` is the currently supported provider. |
+| `cookie_name` | string | No | `fission_session` | Name of the session cookie. It must be a valid HTTP cookie token. |
+| `signing_key_env` | string | No | none | Environment variable containing the secret used to sign session cookie values. When set, Fission rejects tampered session cookies and creates a new session. |
+| `secure` | boolean | No | `false` | Adds the `Secure` cookie flag. Set this to `true` in HTTPS production deployments. |
+| `same_site` | string | No | `lax` | Cookie SameSite mode. Accepted values are `strict`, `lax`, and `none`. `none` requires `secure = true`. |
+
+Example:
+
+```toml
+[server.sessions]
+cookie_name = "shop_session"
+signing_key_env = "SHOP_SESSION_SECRET"
+secure = true
+same_site = "lax"
+```
+
+### `[server.cache]`
+
+`[server.cache]` selects the cache used for revalidated full pages and other server cache entries. The default is an in-process Moka cache. Redis is available when the server shell is built with the Redis feature, for example through the facade feature `server-redis`.
+
+| Field | Type | Required | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `provider` | string | No | `moka` | Cache backend. Accepted values are `moka`, `redis`, and `pipeline`. |
+| `max_capacity` | integer | No | `10000` | Maximum number of entries for the Moka in-memory provider. |
+| `ttl` | duration string | No | route default | Default time-to-live used when `default_route_mode = "revalidated"` creates a route policy. Examples: `30s`, `5m`, `2h`, `1d`. `default_ttl` is accepted as an alias. |
+| `stale_while_revalidate` | duration string | No | none | Stale window used when `default_route_mode = "revalidated"` creates a route policy. A stale entry can be served inside this window while the server prepares a fresh render. |
+| `redis_url` | string | Required when Redis is selected and `url_env` is absent | none | Redis connection URL. `url` is accepted as an alias. Prefer `url_env` for production secrets. |
+| `url_env` | string | Required when Redis is selected and `redis_url` is absent | none | Environment variable that contains the Redis connection URL. |
+| `redis_prefix` | string | No | `fission` | Key prefix used by the Redis cache provider. `prefix` is accepted as an alias. |
+
+Example in-memory cache:
+
+```toml
+[server.cache]
+provider = "moka"
+max_capacity = 10000
+ttl = "5m"
+stale_while_revalidate = "1m"
+```
+
+Example Redis cache:
+
+```toml
+[server.cache]
+provider = "redis"
+url_env = "REDIS_URL"
+prefix = "shop"
+```
+
+Revalidated route tags are set in code through `RevalidationPolicy::tag(...)` or `RevalidationPolicy::tags(...)`. After a write, invalidate those tags through `ServerRenderer::invalidate_cache_tag(...)`, `ServerRenderer::invalidate_cache_tags(...)`, or the direct cache handle returned by `ServerRenderer::cache()`.
+
+### `[[server.cache.layers]]`
+
+Use a cache pipeline when you want multiple cache layers, such as a small process-local hot cache in front of Redis. The table is valid only when `[server.cache].provider = "pipeline"`.
+
+| Field | Type | Required | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `name` | string | No | `layer-<index>` | Human-readable layer name. It is also used as the Redis prefix fallback for that layer. |
+| `provider` | string | No | `moka` | Layer provider. Accepted values are `moka` and `redis`. Nested pipelines are rejected. |
+| `policy` | string | No | `write-through` | Layer write policy. Accepted values are `write-through`, `read-only`, and `hot-only`. |
+| `max_capacity` | integer | No | `10000` | Maximum number of entries for a Moka layer. |
+| `redis_url` / `url` | string | Required for Redis when `url_env` is absent | none | Redis connection URL for this layer. |
+| `url_env` | string | Required for Redis when URL is absent | none | Environment variable containing the Redis URL for this layer. |
+| `redis_prefix` / `prefix` | string | No | layer `name` | Redis key prefix for this layer. |
+
+Example layered cache:
+
+```toml
+[server.cache]
+provider = "pipeline"
+
+[[server.cache.layers]]
+name = "hot"
+provider = "moka"
+policy = "hot-only"
+max_capacity = 2048
+
+[[server.cache.layers]]
+name = "shared"
+provider = "redis"
+policy = "write-through"
+url_env = "REDIS_URL"
+prefix = "shop"
+```
+
+### `[server.workers]`
+
+`[server.workers]` controls progressive browser workers declared on server routes. Workers are compiled as separate route-local browser artifacts; the server runtime serves them from `/assets/...`.
+
+| Field | Type | Required | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `separate_artifacts` | boolean | No | `true` | Must be `true` today. Fission rejects `false` because workers are intentionally compiled as separate artifacts. |
+| `bridge` | string | No | `generated` | Browser bridge mode for generated worker shims. `generated` is the current supported value. |
+
+### `[server.islands]`
+
+`[server.islands]` controls focused browser-side WASM islands declared on server routes. Islands can be full Fission widget sub-apps with their own state, reducers, and HTML bridge output.
+
+| Field | Type | Required | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `separate_artifacts` | boolean | No | `true` | Must be `true` today. Fission rejects `false` because islands are intentionally compiled as separate artifacts. |
+| `preload` | string | No | `route` | Preload policy for island and worker artifacts. `route` emits preload links for artifacts used by the current route; `none` disables those preload links. |
+
+## `[package]`
+
+`[package]` contains packaging and signing references. It is read by `fission package`, `fission signing ...`, and readiness checks.
+
+| Field | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `icon` | string | No | Legacy shorthand for `[package.icons].source`. Prefer `[package.icons]` for new projects because it supports target-specific icon sources. |
+
+### `[package.icons]`
+
+`[package.icons]` declares the application icon sources used by generated run bundles, platform packages, and release readiness checks. `assets/app-icon.png` is only the default seed written by `fission init`; it is not the only supported icon path.
+
+Use the shared `source` when one high-resolution icon can represent the app everywhere. Add platform-specific overrides when a platform needs a different source, file format, silhouette, background plate, or store treatment. All paths are project-relative.
+
+`fission add-target`, `fission run`, and `fission package` preserve this table when they update `targets`, `capabilities`, or generated platform files. For Android and iOS, adding or syncing a mobile target copies configured platform icons into `platforms/android/res/...` or `platforms/ios/AppIcon.*` so the checked-in platform scaffold remains reproducible. Desktop development bundles resolve the same table at run/package time and copy the selected icon into the generated `.app`, Linux desktop bundle, or Windows development bundle.
+
+| Field | Type | Required | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `mode` | string | No | `generate` | Icon handling intent. `generate` means Fission may generate platform outputs from sources, `provided` means the project supplies target-ready files, and `mixed` means platform-provided outputs win while missing outputs can be generated. Current run/package flows consume the declared sources directly and validate paths early. |
+| `source` | string | No | `assets/app-icon.png` fallback | Shared full-colour launcher icon source. The file must be usable by every target that falls back to it; set platform-specific overrides when one format does not work everywhere. |
+| `monochrome` | string | No | none | Shared monochrome/silhouette source for platforms that support themed icons. |
+| `background_color` | string | No | none | Hex colour used when a target icon requires a background plate and no platform-specific background is supplied. |
+| `safe_zone` | string or number | No | `platform` | Padding/cropping intent for generated icon outputs. Accepted design values are `platform`, `none`, or a numeric fraction such as `0.72`. |
+| `allow_upscale` | boolean | No | `true` | Whether generated icon output may enlarge raster sources when a target output needs more pixels than the source provides. Current development run bundles validate and copy the selected source directly; release icon generation uses this as a quality rule. |
+
+Example:
+
+```toml
+[package.icons]
+mode = "mixed"
+source = "assets/brand/app-icon.png"
+monochrome = "assets/brand/app-icon-monochrome.svg"
+background_color = "#07111F"
+safe_zone = "platform"
+allow_upscale = false
+```
+
+### `[package.icons.android]`
+
+| Field | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `source` | string | No | Android launcher icon source. Current generated Android packages copy PNG, JPEG, WebP, or XML drawable sources into the APK resource set as `app_icon`. |
+| `foreground` | string | No | Adaptive-icon foreground source. If `source` is omitted, current generated packages use this as the launcher icon source. |
+| `background` | string | No | Adaptive-icon background source or plate. |
+| `monochrome` | string | No | Android themed-icon monochrome source. |
+
+### `[package.icons.ios]`
+
+| Field | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `source` | string | No | iOS app icon source copied into generated simulator bundles as `AppIcon.*`. Use PNG for best compatibility with the current simulator bundle flow. |
+| `dark` | string | No | Dark appearance app icon source for release icon generation. |
+| `tinted` | string | No | Tinted appearance app icon source for release icon generation. |
+
+### `[package.icons.macos]`
+
+| Field | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `source` | string | No | macOS bundle icon source. `.icns` is preferred for release packages; PNG is accepted by current development bundles. |
+
+### `[package.icons.windows]`
+
+| Field | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `source` | string | No | Windows app icon source. `.ico` is preferred for packaged release output; PNG is accepted by current development bundles. |
+| `light` | string | No | Light-theme tile/icon source for package generation. |
+| `dark` | string | No | Dark-theme tile/icon source for package generation. |
+| `unplated` | string | No | Unplated Store icon source. |
+
+### `[package.icons.linux]`
+
+| Field | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `source` | string | No | Linux desktop icon source. SVG is copied to the scalable icon directory; PNG is copied to the generated hicolor bitmap icon directory. |
+
+### `[package.icons.web]`
+
+| Field | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `source` | string | No | Web app icon source used by web packaging flows. |
+| `favicon` | string | No | Browser favicon source for web/package metadata. Static sites separately use `[site].favicon`. |
+| `maskable` | string | No | Maskable web app icon source. |
+
+### `[package.docker]`
+
+`[package.docker]` configures `fission package --format docker-image` for Static site and SSR targets.
+
+| Field | Type | Required | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `adapter` | string | No | `axum` | Static-site image server adapter. Accepted values are `axum` and `actix`. Server-rendered app images ignore this field because the app binary is the server. |
+| `port` | integer | No | `8080` | Container port exposed by the generated Dockerfile and used as the default `PORT` environment value. |
+| `base_image` | string | No | `debian:bookworm-slim` | Runtime stage base image. The builder stage uses the official Rust image because the package is compiled inside the Docker build. |
+| `tags` | array of strings | No | `<app-name>:<cargo-version>` | Docker tags applied during `docker build`. Include registry prefixes here when you want the package step to tag for publishing. |
+| `build` | boolean | No | `true` | When `true`, Fission runs `docker build`. Set to `false` to generate only the Docker context and manifest for CI to build later. |
+
+Example:
+
+```toml
+[package.docker]
+adapter = "axum"
+port = 8080
+tags = ["ghcr.io/example/pokemon-card-store:0.1.0", "ghcr.io/example/pokemon-card-store:latest"]
+```
+
+### `[package.linux.run]`
+
+`[package.linux.run]` configures `fission package --target linux --format run`.
+When no script is configured, Fission writes its built-in user-local `.run`
+installer. Configure a script when the installer must handle services,
+privileged helpers, custom layout, repair/uninstall behavior, or other
+product-owned installation policy.
+
+| Field | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `installer_script` | string | No | Project-relative executable or shell script. The script receives `FISSION_LINUX_PAYLOAD_DIR`, `LINUX_BINARY`, `FISSION_LINUX_NATIVE_PRODUCTS_MANIFEST`, and `LINUX_PROFILE` on release builds, then prints the completed `.run` path on stdout. |
+
+Example:
+
+```toml
+[package.linux.run]
+installer_script = "platforms/linux/package-run.sh"
+```
+
+### `[package.macos]`
+
+| Field | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `bundle_id` | string | No | Overrides `[app].app_id` for macOS `.app` and `.pkg` output. |
+| `marketing_version` | string | No | macOS `CFBundleShortVersionString`. If omitted, Fission falls back to the resolved release/app/Cargo version. |
+| `build_number` | string | No | macOS `CFBundleVersion`. If omitted, Fission falls back to the resolved release/app build number. |
+| `team_id` | string | No | Apple Developer Team ID used by signing/notarization readiness checks. |
+| `minimum_os` | string | No | Records the intended minimum macOS version for package metadata. |
+| `application_category` | string | No | Writes the `LSApplicationCategoryType` UTI required for Mac App Store submission, such as `public.app-category.developer-tools`. |
+| `entitlements` | string | No | Base project-relative entitlements plist passed to `codesign` when signing. |
+| `provisioning_profile` | string | No | Base project-relative provisioning profile embedded at `Contents/embedded.provisionprofile` before signing. |
+| `signing_identity` | string | No | Base application signing identity. Flat signing fields apply to debug and release packaging for backward compatibility. |
+| `installer_identity` | string | No | Base installer identity passed to `pkgbuild` for `.pkg` output. |
+| `notarize` | boolean | No | Base notarization setting. Prefer the release overlay below for production notarization. |
+| `pkg_builder` | string | No | `.pkg` construction tool: `pkgbuild` (default) or `productbuild`. Mac App Store submissions use `productbuild`. |
+| `cargo_features` | array of strings | No | Cargo features enabled while building the packaged desktop binary. |
+| `cargo_no_default_features` | boolean | No | Passes `--no-default-features` while building the packaged desktop binary. |
+
+### `[package.macos.release]`
+
+`[package.macos.release]` is applied when `fission package --release` creates a
+macOS artifact. Its app-signing values also provide the inherited package
+configuration for `fission run --release`; run-specific values can still
+override them. Each configured value overrides its matching `[package.macos]`
+value. Keep Developer ID identities, distribution entitlements, provisioning,
+and notarization in this table so debug builds and packages do not need
+production credentials.
+
+| Field | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `application_category` | string | No | Overrides the base `LSApplicationCategoryType` UTI for release packaging. |
+| `entitlements` | string | No | Project-relative release entitlements plist. |
+| `provisioning_profile` | string | No | Project-relative release provisioning profile embedded before signing. |
+| `signing_identity` | string | No | Developer ID Application identity used to sign release `.app` bundles. |
+| `installer_identity` | string | No | Developer ID Installer identity passed to `pkgbuild` for release `.pkg` output. |
+| `notarize` | boolean | No | When `true`, notarizes the signed `.app` and, for `.pkg` output, the signed installer. Requires `APP_STORE_CONNECT_KEY_ID`, `APP_STORE_CONNECT_ISSUER_ID`, and key material from `APP_STORE_CONNECT_API_KEY_PATH`, `APP_STORE_CONNECT_API_KEY`, or `APP_STORE_CONNECT_API_KEY_BASE64`. |
+| `pkg_builder` | string | No | Overrides the base `.pkg` construction tool for release packaging. |
+| `cargo_features` | array of strings | No | Replaces the base Cargo feature list for release packaging. |
+| `cargo_no_default_features` | boolean | No | Overrides the base `--no-default-features` setting for release packaging. |
+
+Fission submits an app bundle through a private temporary ZIP created with
+`ditto --keepParent`, then staples and validates the original `.app`. The ZIP
+and any API key material decoded from environment values are removed after the
+operation. `.pkg` notarization continues to submit, staple, and validate the
+signed installer itself.
+
+### `[package.macos.variants.<name>]`
+
+A selected desktop `--variant` may override the effective macOS package signing
+configuration. Fission applies `[package.macos]`, then
+`[package.macos.release]` for release packaging, then the selected variant.
+This keeps Developer ID and Mac App Store identities in one project without
+editing configuration between packages.
+
+```toml
+[package.macos.variants.app-store]
+application_category = "public.app-category.developer-tools"
+entitlements = "platforms/macos/AppStore.entitlements"
+provisioning_profile = ".fission/signing/macos/AppStore.provisionprofile"
+signing_identity = "Apple Distribution: Example Ltd"
+installer_identity = "3rd Party Mac Developer Installer: Example Ltd"
+notarize = false
+pkg_builder = "productbuild"
+cargo_features = ["macos-app-store"]
+```
+
+The variant accepts the same `application_category`, `entitlements`,
+`provisioning_profile`, `signing_identity`, `installer_identity`, `notarize`,
+`pkg_builder`, `cargo_features`, and `cargo_no_default_features` fields as the
+release overlay.
+Package it with `fission package --target macos --format pkg --release --variant
+app-store`.
+
+### `[run.macos]`
+
+`fission run --target macos` builds a development `.app` and signs it before
+launch when a signing identity is configured. Debug run signing inherits only
+the base `[package.macos]` values. A release run resolves
+`[package.macos.release]` first. `[run.macos]` then overrides either effective
+configuration, so it can keep local launch signing distinct from package
+signing.
+
+| Field | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `entitlements` | string | No | Run-specific entitlements plist. Inherits the effective package value when omitted. |
+| `provisioning_profile` | string | No | Run-specific provisioning profile. Inherits the effective package value when omitted. |
+| `signing_identity` | string | No | Run-specific signing identity. Inherits the effective package value when omitted. |
+
+Restricted entitlements still require an Apple-issued identity and matching
+provisioning. Ad-hoc signing with `"-"` can exercise unrestricted development
+entitlements, but macOS rejects ad-hoc applications that claim restricted
+entitlements.
+
+### `[package.android]`
+
+| Field | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `keystore_alias` | string | No | Alias inside the keystore. |
+| `keystore_env` | string | No | Environment variable containing a local keystore path. Defaults to `ANDROID_KEYSTORE`. |
+| `keystore_base64_env` | string | No | Environment variable containing base64 keystore bytes. Defaults to `ANDROID_KEYSTORE_BASE64`. |
+| `keystore_password_env` | string | No | Environment variable containing the keystore password. Defaults to `ANDROID_KEYSTORE_PASSWORD`. |
+| `key_password_env` | string | No | Environment variable containing the key password. Defaults to `ANDROID_KEY_PASSWORD`; falls back to `ANDROID_KEYSTORE_PASSWORD` in generated Android packaging. |
+| `package_name` | string | Required for Android signing readiness | Android package name expected by signing/release checks. Usually matches `[app].app_id`. |
+| `version_code` | integer | Recommended for store releases | Android `versionCode`. If omitted, Fission falls back to the active release or `[app].build` where available. |
+| `version_name` | string | Recommended for store releases | Android `versionName`. If omitted, Fission falls back to the active release or `[app].version` where available. |
+
+Keystore files and passwords are not stored in `fission.toml`. For local release builds, set `ANDROID_KEYSTORE` to a path outside the repo. For CI, store the keystore as a base64 secret and expose it through `ANDROID_KEYSTORE_BASE64`. Set `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEYSTORE_ALIAS`, and optionally `ANDROID_KEY_PASSWORD` through your shell or CI secret store.
+
+### `[package.ios]`
+
+| Field | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `bundle_id` | string | No | iOS bundle identifier used by signing readiness. Usually matches `[app].app_id`. |
+| `marketing_version` | string | Recommended for App Store releases | iOS marketing version. If omitted, Fission falls back to the active release or `[app].version` where available. |
+| `build_number` | string | Recommended for App Store releases | iOS build number. If omitted, Fission falls back to the active release or `[app].build` where available. |
+| `team_id` | string | No | Apple Developer Team ID for signing workflows. |
+| `entitlements` | string | No | Project-relative entitlements plist. |
+| `provisioning_profile` | string | No | Project-relative provisioning profile reference. |
+| `signing_identity` | string | No | Signing identity for release packaging. |
+
+### `[package.windows]`
+
+| Field | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `identity_name` | string | No | MSIX package identity name. |
+| `version` | string | Recommended for Store packages | Windows package version. Fission normalizes release/app version state for package output where applicable. |
+| `publisher` | string | No | Windows package publisher distinguished name. |
+| `certificate_thumbprint` | string | No | Certificate thumbprint used when signing through the Windows certificate store. |
+| `certificate_env` | string | No | Environment variable containing a local certificate path. Defaults to `WINDOWS_CERTIFICATE`. |
+| `certificate_base64_env` | string | No | Environment variable containing base64 certificate bytes. Defaults to `WINDOWS_CERTIFICATE_BASE64`. |
+| `certificate_password_env` | string | No | Environment variable containing the certificate password. Defaults to `WINDOWS_CERTIFICATE_PASSWORD`. |
+| `exe_installer_script` | string | No | Project-relative PowerShell or executable packaging script. When set, `windows/exe` passes the built app and native-products manifest through `WINDOWS_BINARY` and `FISSION_WINDOWS_NATIVE_PRODUCTS_MANIFEST`, then stages the emitted `.exe` installer. |
+
+Certificate files and passwords are not stored in `fission.toml`. Prefer `certificate_thumbprint` for certificates installed in the Windows certificate store; otherwise provide certificate file material through environment variables at package time.
+
+### `[[package.secondary_artifacts]]`, `[[package.symbols]]`, and `[[package.crash_assets]]`
+
+These entries add extra files or directories to the artifact manifest. `[[package.symbols]]` defaults `kind` to `debug_symbols`; `[[package.crash_assets]]` defaults `kind` to `crash_diagnostics`.
+
+| Field | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `path` | string | Required to include an artifact | File or directory to add. The path must exist during packaging. |
+| `kind` | string | No | Artifact kind. Defaults to `secondary_artifact`, `debug_symbols`, or `crash_diagnostics` depending on the table. |
+| `purpose` | string | No | Human-readable purpose. Defaults to `kind`. |
+| `platform` | string | No | Platform label recorded in the artifact manifest. |
+| `upload_provider` | string | Recommended for symbols/crash assets | Provider or backend that should receive this artifact. |
+
+## `[distribution]`
+
+`[distribution]` configures publishing providers. Provider names in CLI flags use kebab-case, such as `github-pages`; TOML table names use snake_case, such as `distribution.github_pages.production`.
+
+Distribution providers that support multiple profiles use `[distribution.<provider>.<profile>]`. The CLI selects a profile with `--site`, defaulting to `production`. Store providers currently use one table per provider instead of named profiles.
+
+### `[distribution.github_pages.<profile>]`
+
+| Field | Type | Required | Accepted values / default | Meaning |
+| --- | --- | --- | --- | --- |
+| `owner` | string | Required unless inferable | GitHub owner/user/org | Repository owner. If omitted, Fission tries to infer it from the `origin` remote. |
+| `repo` | string | Required unless inferable | repository name | Repository name. If omitted, Fission tries to infer it from the `origin` remote. |
+| `mode` | string | No | `actions`; publish supports `actions` and `branch`; readiness also recognizes `manual` | Publishing model. `actions` generates/follows a workflow; `branch` pushes static output to a Pages branch. |
+| `source` | string | No | `github-actions` | Pages source mode expected by readiness for Actions publishing. |
+| `source_branch` | string | No | `gh-pages` for branch mode | Branch used by branch-mode publishing. |
+| `source_path` | string | No | `/` | Subdirectory on the Pages branch used by branch-mode publishing. |
+| `site_kind` | string | No | project site | `user` or `organization` means root Pages URL; otherwise project Pages URL is assumed. |
+| `base_path` | string | No | computed from `site_kind`, `repo`, and custom domain | Expected site base path. Custom domains use `/`; project sites usually use `/<repo>/`. |
+| `custom_domain` | string | No | none | Domain written to `CNAME` in branch mode and reported in receipts. |
+| `enforce_https` | boolean | No | `true` | Recorded HTTPS policy for readiness/follow-up. |
+| `remote` | string | No | `origin` | Git remote used by branch-mode publishing. |
+| `production_branch` | string | No | `main` | Branch the generated workflow listens to. |
+| `workflow` | string | No | `fission-pages.yml` | Workflow filename under `.github/workflows/` for Actions mode. |
+
+### `[distribution.github_releases.<profile>]`
+
+| Field | Type | Required | Accepted values / default | Meaning |
+| --- | --- | --- | --- | --- |
+| `owner` | string | Required unless inferable | GitHub owner/user/org | Repository owner. If omitted, Fission tries to infer it from the `origin` remote. |
+| `repo` | string | Required unless inferable | repository name | Repository name. If omitted, Fission tries to infer it from the `origin` remote. |
+| `tag` | string | Required unless `--deploy` or Cargo version resolves one | release tag | Release tag. If omitted, Fission uses `--deploy`, then `v<package.version>` from Cargo metadata. |
+| `name` | string | No | none | Release title passed to `gh release create/edit --title`. |
+| `target_commitish` | string | No | provider default | Git ref passed as the release target. |
+| `notes` | string | No | none | Inline release notes. If set, it wins over `notes_file`. |
+| `notes_file` | string | No | none | Project-relative release notes file passed to `gh`. Used only when `notes` is absent. |
+| `draft` | boolean | No | `false` | Creates/updates a draft release. |
+| `prerelease` | boolean | No | `false` | Marks the release as a prerelease. |
+| `make_latest` | string | No | provider default | Accepted values are `true`, `false`, and `legacy`. |
+| `replace_assets` | boolean | Recommended | `false` | Uses `gh release upload --clobber` to replace assets with the same name. Readiness warns when this is omitted so republish behavior is explicit and reviewable. |
+| `upload_artifact_manifest` | boolean | No | `true` | Uploads the Fission artifact manifest JSON alongside package assets. |
+
+GitHub Releases publishing uses the GitHub CLI. A developer can authenticate with `gh auth login`, `GH_TOKEN`, or `GITHUB_TOKEN`.
+
+### `[distribution.docker_registry.<profile>]`
+
+Docker registry publishing pushes image tags produced by `fission package --format docker-image`. Fission uses the Docker CLI for authentication and push operations, so the normal setup is `docker login <registry>` before publishing.
+
+| Field | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `tags` | array of strings | Required unless `image-metadata.json` from the package contains tags | Fully qualified tags to push, such as `ghcr.io/example/app:1.0.0`. If these tags differ from the package tags, Fission tags the local image before pushing. |
+
+Example:
+
+```toml
+[distribution.docker_registry.production]
+tags = ["ghcr.io/example/pokemon-card-store:0.1.0", "ghcr.io/example/pokemon-card-store:latest"]
+```
+
+### `[distribution.cloudflare_pages.<profile>]`
+
+| Field | Type | Required | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `account_id` | string | Required unless `CLOUDFLARE_ACCOUNT_ID` is set | none | Cloudflare account id. |
+| `project_name` | string | Yes | none | Pages project name. |
+| `environment` | string | No | production | Non-production environments are passed as a branch to the provider CLI. |
+| `custom_domain` | string | No | none | Public custom domain reported in receipts. |
+| `base_path` | string | No | `/` | Should normally stay `/` for dedicated static hosting. |
+
+Cloudflare Pages upload intentionally shells out to the provider CLI. Fission does not implement a replacement deploy protocol.
+
+### `[distribution.netlify.<profile>]`
+
+| Field | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `site_id` | string | Yes | Netlify site id. |
+| `team_slug` | string | No | Team slug shown during setup/status. |
+| `production` | boolean | No | Whether the deploy should target production behavior. |
+| `custom_domain` | string | No | Public custom domain reported in receipts. |
+| `base_path` | string | No | Should normally stay `/` for dedicated static hosting. |
+
+### `[distribution.s3.<profile>]`
+
+| Field | Type | Required | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `bucket` | string | Yes | none | S3-compatible bucket name. |
+| `endpoint` | string | No | provider default | Custom endpoint for S3-compatible object stores. |
+| `region` | string | No | `us-east-1` for URL generation | Region used by the S3 client/provider. |
+| `prefix` | string | No | none | Remote object prefix. |
+| `profile` | string | No | environment/provider default | Credential/profile name for provider SDK/tooling. |
+| `path_style` | boolean | No | `false` | Enables path-style endpoint URLs. |
+| `visibility` | string | No | `private` | Use `public` when the uploaded files should produce public URLs. |
+| `presign_ttl_seconds` | integer | No | provider default | TTL for generated presigned links where used. |
+| `overwrite` | boolean | No | `false` | Existing objects are not replaced unless this is explicitly set to `true`. Set `false` explicitly when you want republish attempts to fail safely on conflicts. |
+
+### `[distribution.google_drive.<profile>]`
+
+| Field | Type | Required | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `folder_id` | string | No | root/current provider default | Parent folder id. When set, uploaded files are placed in that folder. |
+| `name_prefix` | string | No | none | Prefix applied to uploaded file names. |
+| `share` | boolean | No | `false` | Requests shareable links after upload. |
+
+### `[distribution.onedrive.<profile>]`
+
+| Field | Type | Required | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `root` | string | No | provider default | OneDrive root selector used by the Graph upload backend. |
+| `path_prefix` | string | No | none | Remote path prefix. |
+| `conflict_behavior` | string | No | `fail` | Conflict behavior sent to the provider, such as `fail`, `replace`, or `rename` depending on provider support. |
+
+### `[distribution.dropbox.<profile>]`
+
+| Field | Type | Required | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `path_prefix` | string | No | none | Remote Dropbox path prefix. |
+| `mode` | string | No | `add` | Dropbox write mode. `add` fails safely on conflicts unless `autorename` is enabled; use `overwrite` only when replacement is intentional. |
+| `autorename` | boolean | No | `false` | Allows Dropbox to rename conflicting uploads. |
+
+### `[distribution.play_store]`
+
+| Field | Type | Required | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `package_name` | string | Required for Play publish, metadata, reviews, and beta operations | none | Android package name in Google Play. |
+| `default_track` | string | No | command/provider default | Track used when `--track` is omitted. |
+| `release_status` | string | No | provider default | Track release status sent to Play publishing. |
+| `access_token_env` | string | No | `PLAY_STORE_ACCESS_TOKEN` | Environment variable containing an OAuth access token. |
+| `service_account_json_env` | string | No | `PLAY_STORE_SERVICE_ACCOUNT_JSON` | Environment variable containing service-account JSON. |
+| `service_account_json_base64_env` | string | No | `PLAY_STORE_SERVICE_ACCOUNT_JSON_BASE64` | Environment variable containing base64-encoded service-account JSON. |
+| `google_application_credentials_env` | string | No | `GOOGLE_APPLICATION_CREDENTIALS` | Environment variable containing a local credentials-file path outside the repo. |
+
+Credentials come from the configured environment-variable names. Do not put service-account JSON or paths to repo-local service-account files in `fission.toml`.
+
+### `[distribution.app_store]`
+
+| Field | Type | Required | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `app_id` | string | Required unless `bundle_id` can resolve the app through the provider API | none | App Store Connect app id. |
+| `bundle_id` | string | Required when `app_id` is omitted | none | Bundle id used to look up the app. |
+| `platform` | string | No | inferred from the upload artifact, otherwise `ios` | App Store platform. Accepted values are `ios` and `macos`. |
+| `issuer_id` | string | Required unless the configured issuer env var is set | none | App Store Connect issuer id. |
+| `key_id` | string | Required unless the configured key-id env var is set | none | App Store Connect API key id. |
+| `default_track` | string | No | command/provider default | Default release/beta track label for commands that accept tracks. |
+| `access_token_env` | string | No | `APP_STORE_CONNECT_ACCESS_TOKEN` | Environment variable containing a short-lived App Store Connect API token. |
+| `issuer_id_env` | string | No | `APP_STORE_CONNECT_ISSUER_ID` | Environment variable containing the issuer id. |
+| `key_id_env` | string | No | `APP_STORE_CONNECT_KEY_ID` | Environment variable containing the API key id. |
+| `api_key_env` | string | No | `APP_STORE_CONNECT_API_KEY` | Environment variable containing the private key text. |
+| `api_key_base64_env` | string | No | `APP_STORE_CONNECT_API_KEY_BASE64` | Environment variable containing base64-encoded private key text. |
+| `api_key_path_env` | string | No | `APP_STORE_CONNECT_API_KEY_PATH` | Environment variable containing a local private-key path outside the repo. |
+
+API key material comes from the configured environment-variable names. Use the path variable only for local files outside the repo; use base64 CI secrets for automation.
+
+App Store distribution accepts an iOS `.ipa` or a macOS `.pkg`. Fission
+validates the artifact target against `platform`, passes the matching type to
+Apple's upload tool, and uses `IOS` or `MAC_OS` for App Review operations.
+
+### `[distribution.microsoft_store]`
+
+| Field | Type | Required | Default / accepted values | Meaning |
+| --- | --- | --- | --- | --- |
+| `product_id` | string | Required | none | Microsoft Store product id. |
+| `package_identity_name` | string | No | none | Package identity name for package metadata. |
+| `tenant_id` | string | Required unless the configured tenant env var is set | none | Microsoft Entra tenant id. |
+| `client_id` | string | Required unless the configured client env var is set | none | Microsoft Entra client id. |
+| `seller_id` | string | Required unless the configured seller env var is set | none | Partner Center seller id. |
+| `token_env` | string | No | `MICROSOFT_STORE_TOKEN` | Environment variable containing a Partner Center access token. |
+| `tenant_id_env` | string | No | `AZURE_TENANT_ID` | Environment variable containing the Microsoft Entra tenant id. |
+| `client_id_env` | string | No | `AZURE_CLIENT_ID` | Environment variable containing the Microsoft Entra client id. |
+| `client_secret_env` | string | No | `MICROSOFT_STORE_CLIENT_SECRET` | Environment variable containing the client secret. |
+| `seller_id_env` | string | No | `MICROSOFT_STORE_SELLER_ID` | Environment variable containing the Partner Center seller id. |
+| `package_url` | string | Required for MSI/EXE Store submissions unless `--deploy <https-url>` supplies one | none | HTTPS URL to an uploaded package. |
+| `package_type` | string | No | `exe`, `msi`, `msix`, or `msixupload` | If omitted, Fission infers from the primary artifact extension. |
+| `flight_id` | string | Required for MSIX private flight when `--track private` is used | none | Package flight id. Passing a non-empty custom `--track` can also be treated as a flight id. |
+| `package_rollout_percentage` | integer | No | `0` to `100` | Rollout percentage for provider workflows that support it. |
+| `msstore_project` | string | No | project root | Project directory passed to Microsoft Store Developer CLI for MSIX publishing. |
+| `languages` | array of strings | No | none | Listing/package languages for provider setup. |
+| `architectures` | array of strings | No | none | Package architectures for provider setup. |
+| `is_silent_install` | boolean | No | provider default | Installer metadata for MSI/EXE submissions. |
+| `installer_parameters` | string | No | none | Installer command-line parameters for MSI/EXE submissions. |
+| `generic_doc_url` | string | No | none | Documentation/support URL for installer submissions. |
+| `submit` | boolean | No | `false` | When `true`, publishes/submits instead of creating a non-committed package submission where the backend supports that distinction. |
+
+The Microsoft Store provider supports both Store API metadata operations and MSIX-specific publishing through the platform provider tooling. Fission uses the provider tooling/API; it does not build a custom replacement for platform submission systems.
+
+## `[release]` and `[[releases]]`
+
+Release configuration keeps long content out of `fission.toml` by referencing sidecar files.
+
+### `[release]`
+
+| Field | Type | Required for `release-config validate` | Meaning |
+| --- | --- | --- | --- |
+| `active_release` | string | Yes | Id of the `[[releases]]` entry currently being edited, validated, or pushed. |
+| `metadata_root` | string | Yes | Root directory for release metadata sidecar files. |
+| `content_output_dir` | string | Yes | Output directory for generated/captured release content. |
+| `default_locales` | array of strings | Yes | Locales used when a release entry does not override `locales`. |
+| `skip_requirements` | array of strings | No | Explicit requirement ids the team reviewed and chose to skip. Only provider-optional or Fission-recommended requirements can be skipped; provider-required requirements remain blocking. |
+
+### `[release.provider_locks.<provider>]`
+
+Provider locks record the remote metadata baseline that local release files were imported from or explicitly reviewed against. Fission writes these entries through `fission release-config import ... --yes` and `fission release-config lock ... --yes`; hand editing is allowed but usually unnecessary.
+
+Provider lock keys use underscore form, for example `play_store`, `app_store`, and `microsoft_store`.
+
+| Field | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `provider` | string | Yes | Public provider id, such as `play-store`. |
+| `subject` | string | Yes | Provider object being protected, such as a package name, App Store app/version id pair, or Microsoft Store product id. |
+| `locales` | array of strings | Yes | Locale set covered by the lock. |
+| `remote_revision` | string | Yes | Fission-computed hash of the provider metadata snapshot. |
+| `locked_at_unix_seconds` | integer | Yes | Time the baseline was recorded. |
+
+Non-dry `release-config push` and store-bound `publish` verify this lock before mutating provider metadata. If the provider metadata changed, run `release-config diff`, refresh the lock, or pass `--overwrite-remote` after an explicit review.
+
+### `[[releases]]`
+
+| Field | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `id` | string | Required when referenced by `release.active_release` | Stable release id, commonly `<version>+<build>`. |
+| `version` | string | Yes for validation and App Store metadata sync | User-facing version string. |
+| `build` | integer | Yes for validation | Monotonically increasing platform build number. |
+| `status` | string | Yes for validation | Release status label, such as `candidate`, `internal`, or `production`. Fission records the string and provider-specific commands interpret tracks/status separately. |
+| `tracks` | array of strings | Yes for validation | Provider destinations, such as `play-store:internal`, `app-store:testflight`, or `microsoft-store:public`. |
+| `locales` | array of strings | No | Overrides `release.default_locales` for this release. |
+| `metadata` | string | Yes for validation | Project-relative sidecar file with provider-specific localized metadata. |
+| `release_notes` | string | Yes for validation | Project-relative directory containing localized `<locale>.md` release notes. |
+| `review` | string | No | Project-relative review-instructions sidecar file. |
+| `privacy` | string | No | Project-relative privacy sidecar file. |
+
+### `[release.store_listing.<provider>.<locale>]`
+
+Store listing tables hold short stable listing fields. Long localized paragraphs still belong in the active release metadata sidecar file referenced by `[[releases]].metadata`.
+
+Provider keys currently read from `fission.toml` are `play_store`, `app_store`, and `microsoft_store`.
+
+| Field | Providers | Type | Required condition | Meaning |
+| --- | --- | --- | --- | --- |
+| `title` | all | string | Required for Play if `name` is absent | Store title. |
+| `name` | all | string | Alternative to `title` for Play; also read by App Store/Microsoft metadata flows | Store display name. |
+| `short_description` | Play, Microsoft | string | Required for Play listing push; recommended for Microsoft | Short store summary. |
+| `subtitle` | App Store, Microsoft | string | No | Subtitle where supported. |
+| `keywords` | App Store, Microsoft | array of strings | No | Search keywords. App Store joins these for provider payloads. |
+| `support_url` | all | string | Recommended/required by some store review flows | Support URL. |
+| `marketing_url` | App Store | string | No | Marketing URL. |
+| `privacy_url` | all | string | Recommended/required by store policy | Privacy URL. |
+| `video` | Play | string | No | Play listing video URL. |
+| `video_url` | Play | string | No | Alternate video URL field accepted by the local schema. |
+
+The release metadata sidecar referenced by `[[releases]].metadata` can contain:
+
+```toml
+[play_store.en-US]
+full_description = "Long Play Store description."
+description = "Optional shorter description."
+
+[app_store.en-US]
+description = "Long App Store description."
+promotional_text = "Optional promotional text."
+
+[microsoft_store.en-US]
+description = "Long Microsoft Store description."
+features = ["Fast", "Private", "Cross-platform"]
+search_terms = ["notes", "tasks"]
+```
+
+## `[release.screenshots]` and `[release.assets]`
+
+Release-content settings live under `[release]` because screenshots, preview media, and store assets are part of the release lifecycle.
+
+### `[release.screenshots]`
+
+| Field | Type | Required | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `raw_dir` | string | No | `release-content/screenshots/raw` | Directory where raw captures are written/read. |
+| `rendered_dir` | string | No | `release-content/screenshots/rendered` | Directory where store-ready rendered assets are written. |
+
+### `[[release.screenshots.scenarios]]`
+
+| Field | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `id` | string | Yes for useful output names | Stable scenario id. |
+| `name` | string | No | Human-readable scenario name. |
+| `targets` | array of strings | No | Target labels this scenario applies to. |
+| `script` | string | Required unless `command` is set | Project-relative script started before capture. |
+| `command` | string | Required unless `script` is set | Command started before capture. |
+| `test_port` | integer | No | Test-control port. If omitted, Fission chooses a free loopback port. |
+| `timeout_ms` | integer | No | Timeout while waiting for the test-control server. |
+| `wait_for` | string | No | Reserved wait condition label for scenario orchestration. |
+
+### `[[release.screenshots.scenarios.steps]]`
+
+| Field | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `cmd` | string | Yes | One of `tap_text`, `type_text`, `press_key`, `tap`, `scroll`, `wait`, `pump`, `resize`, `screenshot`, `capture_screenshot`. |
+| `text` | string | Required for `tap_text` and `type_text` | Text to tap or type. |
+| `key` | string | Required for `press_key` | Key name. |
+| `modifiers` | integer | No | Modifier bitset for `press_key`; defaults to `0`. |
+| `ms` | integer | No | Wait duration for `wait`; defaults to `250`. |
+| `x`, `y` | numbers | Required for `tap`; optional origins for `scroll` | Coordinates. |
+| `dx`, `dy` | numbers | No | Scroll deltas; default to `0`. |
+| `width`, `height` | integers | Required for `resize` | Simulated viewport size. |
+| `name` | string | No | Screenshot filename label. |
+| `path` | string | No | Explicit screenshot path below `raw_dir`. |
+
+### `[release.assets.app_store]`, `[release.assets.play_store]`, and `[release.assets.microsoft_store]`
+
+| Table | Field | Type | Meaning |
+| --- | --- | --- | --- |
+| `[release.assets.app_store]` | `screenshot_sets_dir` | string | Directory containing App Store screenshot sets. |
+| `[release.assets.app_store]` | `app_previews_dir` | string | Directory containing App Store preview videos. |
+| `[release.assets.app_store]` | `review_attachments` | array of strings | Project-relative files attached for review workflows. |
+| `[release.assets.play_store]` | `screenshot_sets_dir` | string | Directory containing Play Store screenshot sets. |
+| `[release.assets.play_store]` | `preview_video_dir` | string | Directory containing Play preview videos. |
+| `[release.assets.play_store]` | `feature_graphic` | string | Feature graphic path. |
+| `[release.assets.microsoft_store]` | `screenshot_sets_dir` | string | Directory containing Microsoft Store screenshots. |
+| `[release.assets.microsoft_store]` | `trailers_dir` | string | Directory containing trailers. |
+| `[release.assets.microsoft_store]` | `logo_dir` | string | Directory containing Store logos. |
+
+## `[beta.play_store.tracks.<track>]`
+
+Beta group configuration currently reads Google Play track tester configuration from `fission.toml`.
+
+| Field | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `tester_source` | string | No | Source label for tester/group sync. |
+| `group` | string | No | One tester group email/name. |
+| `groups` | array of strings | No | Additional tester groups. |
+
+App Store beta operations use provider API groups and command flags today rather than a dedicated `fission.toml` beta table.
+
+## `[release_workflows.<name>]`
+
+Release workflows let a project name repeatable lifecycle command sequences.
+
+| Field | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `commands` | array of strings | Yes | Fission subcommands run by `fission release-workflow run <name>`. Each string is split with shell-like quoting and executed through the current `fission` binary. Arbitrary shell commands are rejected. Non-dry workflow execution requires `--yes`. |
+
+Example:
+
+```toml
+[release_workflows.production]
+commands = [
+  "readiness package --target static-site --format static --release",
+  "package --target static-site --format static --release",
+  "distribute publish --provider github-pages --site production --yes",
+]
+```
+
+## Complete static site example
+
+```toml
+targets = ["static-site"]
+
+[app]
+name = "example-docs"
+app_id = "com.example.docs"
+
+[site]
+entry = "crate::site_app"
+title = "Example Docs"
+description = "Documentation and marketing pages for Example."
+base_url = "https://docs.example.com"
+base_path = "/"
+canonical_url = "https://docs.example.com"
+out_dir = "dist/site"
+default_locale = "en-GB"
+generate_sitemap = true
+generate_robots = true
+logo = "/img/logo.svg"
+favicon = "/img/favicon.svg"
+asset_dirs = ["static"]
+css_files = ["site/overrides.css"]
+
+[site.code_highlighting]
+enabled = true
+
+[site.search]
+enabled = true
+output_path = "search"
+min_token_len = 2
+
+[package.docker]
+adapter = "axum"
+port = 8080
+tags = ["ghcr.io/example/example-docs:1.0.0"]
+
+[[site.nav]]
+title = "Learn"
+href = "/docs/learn/overview/"
+
+[[site.routes]]
+kind = "content"
+path = "/docs"
+source = "content/docs"
+template = "fission::site::documentation"
+sidebar = "site/docs-sidebar.toml"
+
+[[site.elements]]
+placement = "head-end"
+file = "site/analytics.html"
+route_prefixes = ["/docs/", "/reference/"]
+
+[distribution.github_pages.production]
+owner = "example"
+repo = "example-docs"
+mode = "actions"
+source = "github-actions"
+site_kind = "project"
+base_path = "/"
+custom_domain = "docs.example.com"
+enforce_https = true
+workflow = "publish-website.yml"
+production_branch = "main"
+
+[distribution.docker_registry.production]
+tags = ["ghcr.io/example/example-docs:1.0.0"]
+```
+
+## Complete server-rendered site example
+
+```toml
+targets = ["ssr"]
+
+[app]
+name = "pokemon-card-store"
+app_id = "rs.fission.examples.pokemon_card_store"
+
+[server]
+entry = "pokemon_card_store::pokemon_card_store_server"
+default_route_mode = "server_private"
+render_pass_limit = 4
+
+[server.cache]
+provider = "moka"
+max_capacity = 10000
+ttl = "5m"
+stale_while_revalidate = "1m"
+
+[server.workers]
+separate_artifacts = true
+bridge = "generated"
+
+[server.islands]
+separate_artifacts = true
+preload = "route"
+
+[package.docker]
+port = 8080
+tags = ["ghcr.io/example/pokemon-card-store:0.1.0"]
+
+[distribution.docker_registry.production]
+tags = ["ghcr.io/example/pokemon-card-store:0.1.0"]
+```
+
+## Complete release skeleton
+
+```toml
+targets = ["android", "ios", "windows", "macos", "linux"]
+capabilities = ["camera", "geolocation", "notifications"]
+
+[app]
+name = "example-app"
+app_id = "com.example.app"
+version = "1.0.0"
+build = 1
+
+[package.android]
+package_name = "com.example.app"
+version_code = 1
+version_name = "1.0.0"
+keystore_alias = "upload"
+keystore_env = "ANDROID_KEYSTORE"
+keystore_base64_env = "ANDROID_KEYSTORE_BASE64"
+keystore_password_env = "ANDROID_KEYSTORE_PASSWORD"
+key_password_env = "ANDROID_KEY_PASSWORD"
+
+[package.ios]
+bundle_id = "com.example.app"
+marketing_version = "1.0.0"
+build_number = "1"
+team_id = "ABCDE12345"
+entitlements = "platforms/ios/Entitlements.plist"
+provisioning_profile = "release-content/signing/ios/App.mobileprovision"
+
+[package.macos]
+bundle_id = "com.example.app"
+marketing_version = "1.2.3"
+build_number = "42"
+team_id = "ABCDE12345"
+
+[package.macos.release]
+signing_identity = "Developer ID Application: Example Ltd"
+installer_identity = "Developer ID Installer: Example Ltd"
+entitlements = "platforms/macos/Entitlements.plist"
+notarize = true
+
+[package.windows]
+identity_name = "Example.App"
+version = "1.0.0.0"
+publisher = "CN=Example Ltd"
+certificate_thumbprint = "0123456789ABCDEF"
+exe_installer_script = "platforms/windows/package-exe.ps1"
+
+[distribution.play_store]
+package_name = "com.example.app"
+default_track = "internal"
+release_status = "draft"
+service_account_json_env = "PLAY_STORE_SERVICE_ACCOUNT_JSON"
+service_account_json_base64_env = "PLAY_STORE_SERVICE_ACCOUNT_JSON_BASE64"
+
+[distribution.app_store]
+bundle_id = "com.example.app"
+platform = "ios"
+issuer_id = "00000000-0000-0000-0000-000000000000"
+key_id = "ABC123DEFG"
+api_key_env = "APP_STORE_CONNECT_API_KEY"
+api_key_base64_env = "APP_STORE_CONNECT_API_KEY_BASE64"
+default_track = "testflight"
+
+[distribution.microsoft_store]
+product_id = "9ABCDE12345"
+package_type = "msix"
+flight_id = "private-flight-id"
+package_rollout_percentage = 10
+tenant_id_env = "AZURE_TENANT_ID"
+client_id_env = "AZURE_CLIENT_ID"
+client_secret_env = "MICROSOFT_STORE_CLIENT_SECRET"
+seller_id_env = "MICROSOFT_STORE_SELLER_ID"
+
+[release]
+active_release = "1.0.0+1"
+metadata_root = "release-content/metadata"
+content_output_dir = "release-content"
+default_locales = ["en-US"]
+skip_requirements = []
+
+[release.store_listing.play_store.en-US]
+title = "Example App"
+short_description = "A focused app for real work."
+privacy_url = "https://example.com/privacy"
+support_url = "https://example.com/support"
+
+[[releases]]
+id = "1.0.0+1"
+version = "1.0.0"
+build = 1
+status = "candidate"
+tracks = ["play-store:internal", "app-store:testflight", "microsoft-store:private"]
+locales = ["en-US"]
+metadata = "release-content/metadata/1.0.0+1/release.toml"
+release_notes = "release-content/metadata/1.0.0+1/notes"
+review = "release-content/metadata/1.0.0+1/review.toml"
+privacy = "release-content/metadata/1.0.0+1/privacy.toml"
+```
+
+## Validation commands
+
+Use the reference above while editing, then let the CLI check the fields it can verify locally:
+
+```sh
+fission readiness package --target static-site --format static --project-dir .
+fission readiness distribute --provider github-pages --site production --project-dir .
+fission release-config validate --project-dir .
+fission release-content validate --project-dir .
+fission signing status --target android --project-dir .
+```
+
+Those commands do not replace provider review, store policy review, or platform signing setup. They catch missing paths, missing fields, unsupported target/format pairs, unavailable tools, and credentials that the local machine can see.

@@ -147,6 +147,16 @@ mod tests {
         assert_eq!(config["site"]["entry"].as_str(), Some("src/main.rs"));
         assert_eq!(config["site"]["search"]["enabled"].as_bool(), Some(false));
         assert!(root.join("design/tokens.json").exists());
+        for source in [
+            "src/lib.rs",
+            "src/page.rs",
+            "src/navigation.rs",
+            "src/footer.rs",
+        ] {
+            let contents = fs::read_to_string(root.join(source)).unwrap();
+            assert!(contents.contains("fission_component!"), "{source}");
+            assert!(!contents.contains("impl From<"), "{source}");
+        }
         add_targets(&root, &[Target::Web]).unwrap();
         assert_eq!(
             read_project_config(&root).unwrap().targets,

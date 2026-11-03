@@ -9,7 +9,7 @@ const DEFAULT_OFFSET: f32 = 18.0;
 
 fission_component! {
     pub(super) CarouselPreview<AnimationGalleryState> {}
-    |_preview, state, cx| {
+    view(_preview, state, cx) {
         let progress = if state.playing {
             1.0
         } else {

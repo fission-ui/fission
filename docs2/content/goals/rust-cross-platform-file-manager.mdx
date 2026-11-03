@@ -1,0 +1,331 @@
+---
+layout: goal
+title: Build a cross-platform file manager in Rust
+description: Build a Rust file manager that chooses a directory safely, browses entries and streams file reads and writes with progress across desktop, mobile and Web.
+goal: Let a user choose a directory and work with files safely on every supported host
+path: /blog/build-a-cross-platform-file-manager-in-rust/
+order: 14
+difficulty: Beginner
+duration: 50 minutes
+run_command: "fission run --target web --project-dir ."
+app: rust-cross-platform-file-manager
+prerequisites:
+  - Basic Rust syntax and a terminal
+  - Rust and Cargo installed with rustup
+outcomes:
+  - Render the folder path and its contents
+  - Navigate with stable file identities
+  - Handle permissions across host targets
+---
+
+Build a Rust file manager that chooses a directory safely, browses entries and streams file reads and writes with progress across desktop, mobile and Web. This tutorial takes you from project setup to a runnable result in three steps. Each step’s `src/app.rs` component is compiled into the WebAssembly preview shown beside its code, so you can try the same Compose UI while you read. The preview shows directory-selection states without reading the host filesystem. Use Fission’s filesystem capability from an asynchronous service or effect in the real app.
+
+## What you will build
+
+Build a file browser that asks the host to choose a directory, lists entries, opens a text file and saves a change with visible progress.
+
+Install the Fission CLI and scaffold the Linux, Web, Android and iOS project:
+
+```sh
+cargo install cargo-fission
+fission init harbour-files
+cd harbour-files
+fission add-target web android ios --project-dir .
+fission add-capability filesystem --project-dir .
+```
+
+The finished project is organised around the app boundary and the files that own each job:
+
+```text
+harbour-files/
+├── Cargo.toml
+├── fission.toml
+├── src/
+│   ├── main.rs
+│   ├── lib.rs
+│   ├── app.rs
+│   ├── state.rs
+│   └── components/
+```
+
+Fission generates a thin entrypoint for each target and starts the shared app from it. Keep shared UI in `src/app.rs`, and move a reusable presentation piece into `src/components/` when it has a clear job of its own. Use `GlobalState` for data read across screens and Compose `state` for retained interaction owned by one component. Keep host work such as persistence and network requests in a Fission service or effect, then show loading, success or failure in the UI.
+
+The `preview/lib.rs` file is a documentation-only browser harness that mounts the step in the live preview. The `src/app.rs` component is compiled into that preview. Use its Compose patterns in your project, but do not copy the harness or treat its simulated host results as production behavior.
+
+<!-- fission:step id="start-screen" -->
+## Render the folder path and its contents
+
+Begin with the screen needed for this task. The first render gives you a concrete checkpoint before you add interaction state.
+
+Use props for page copy and read theme tokens through cx.view.env(). The component below keeps presentation aligned with the active design system.
+
+<!-- fission:file path="src/app.rs" -->
+```rust
+use fission::prelude::*;
+fission_component! {
+    pub TutorialPreview<()> {
+        props {
+            title: String,
+            detail: String,
+            action: String,
+            success: String,
+            empty: String,
+        }
+    }
+    view(preview, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Container(
+        Column(
+            gap: tokens.spacing.m,
+            children: [
+                Text(preview.title.clone()).size(tokens.typography.heading2_size).weight(tokens.typography.font_weight_bold),
+                Text(preview.detail.clone()).color(tokens.colors.text_secondary),
+                Text("Home / Documents"),
+                Text("Projects/"),
+                Text("Photos/"),
+                Text("Readme.txt"),
+                Text(format!("Next action: {}",
+                        preview.action)),
+                Text(preview.empty.clone()).color(tokens.colors.text_secondary),
+            ]
+        )
+    )
+    .padding_all(tokens.spacing.l)
+    .bg(tokens.colors.surface)
+    .border(tokens.colors.border, 1.0)
+    .border_radius(tokens.radii.large)
+}
+```
+<!-- fission:file path="preview/lib.rs" -->
+```rust
+mod app;
+
+use fission::prelude::*;
+use wasm_bindgen::prelude::*;
+
+#[wasm_bindgen(start)]
+pub fn run() -> Result<(), JsValue> {
+    console_error_panic_hook::set_once();
+    let preview = app::TutorialPreview::new(
+        "Project files".to_string(),
+        "Choose a folder to browse its entries.".to_string(),
+        "Choose a directory".to_string(),
+        "A directory was selected and its entries are ready.".to_string(),
+        "Choose a directory to begin browsing.".to_string(),
+    );
+    WebApp::<(), _>::new(preview)
+        .with_title("Build a cross-platform file manager in Rust")
+        .mount("#fission-web-mount")
+        .run()
+        .map_err(|error| JsValue::from_str(&error.to_string()))
+}
+```
+<!-- fission:preview -->
+
+<!-- fission:checkpoint -->
+Render the folder path and its contents: Confirm the initial screen names the task and its next action.
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->
+
+<!-- fission:step id="main-flow" -->
+## Navigate with stable file identities
+
+Use the filesystem capability instead of assuming a path can be read directly. Treat the selected directory as a user-granted handle, validate each child name, and keep reads and writes in asynchronous jobs so large files do not freeze the interface.
+
+The source below makes the main task interactive using retained component state and explicit controls.
+This state belongs to the component because it only remembers this view's interaction. Durable data shared across routes belongs in GlobalState and changes through reducers.
+<!-- fission:file path="src/app.rs" -->
+```rust
+use fission::prelude::*;
+fission_component! {
+    pub TutorialPreview<()> {
+        props {
+            title: String,
+            detail: String,
+            action: String,
+            success: String,
+            empty: String,
+        }
+        state {
+            documents_open: bool = false,
+            selected_file: bool = false,
+            has_error: bool = false,
+        }
+    }
+    view(preview, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Container(
+        Column(
+            gap: tokens.spacing.m,
+            children: [
+                Text(preview.title.clone()).size(tokens.typography.heading2_size).weight(tokens.typography.font_weight_bold),
+                Text(preview.detail.clone()).color(tokens.colors.text_secondary),
+                Text(if preview.documents_open { "Home / Documents" } else { "Home" }),
+                Button(child: Text(if preview.documents_open { "Back to Home".to_string() } else { preview.action.clone() }),
+                    key: "open-documents",
+                    on_press: reduce { preview.documents_open = !preview.documents_open;
+                        preview.selected_file = false; }),
+                if preview.documents_open { Column(children: [Text("Projects/"),
+                            Button(child: Text("Readme.txt"),
+                                key: "select-readme",
+                                on_press: reduce { preview.selected_file = !preview.selected_file; }),
+                            if preview.selected_file { Text("Selected: Readme.txt") } else { Text("Choose a file to see its details.") }]) } else { Text("Documents/") },
+                Button(child: Text(if preview.has_error { "Try again".to_string() } else { "Preview denied access".to_string() }),
+                    key: "preview-error",
+                    on_press: reduce { preview.has_error = !preview.has_error; }),
+                if preview.has_error { Text("Access to this folder was denied. Return to the previous folder or choose another location.") } else { Text(preview.success.clone()) },
+                Text(preview.empty.clone()).color(tokens.colors.text_secondary),
+            ]
+        )
+    )
+    .padding_all(tokens.spacing.l)
+    .bg(tokens.colors.surface)
+    .border(tokens.colors.border, 1.0)
+    .border_radius(tokens.radii.large)
+}
+```
+<!-- fission:file path="preview/lib.rs" -->
+```rust
+mod app;
+
+use fission::prelude::*;
+use wasm_bindgen::prelude::*;
+
+#[wasm_bindgen(start)]
+pub fn run() -> Result<(), JsValue> {
+    console_error_panic_hook::set_once();
+    let preview = app::TutorialPreview::new(
+        "Project files".to_string(),
+        "Choose a folder to browse its entries.".to_string(),
+        "Choose a directory".to_string(),
+        "A directory was selected and its entries are ready.".to_string(),
+        "Choose a directory to begin browsing.".to_string(),
+    );
+    WebApp::<(), _>::new(preview)
+        .with_title("Build a cross-platform file manager in Rust")
+        .mount("#fission-web-mount")
+        .run()
+        .map_err(|error| JsValue::from_str(&error.to_string()))
+}
+```
+<!-- fission:preview -->
+
+<!-- fission:checkpoint -->
+Navigate with stable file identities: Use the preview control and check that the result matches the action.
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->
+
+<!-- fission:step id="edge-state" -->
+## Handle permissions across host targets
+
+Show pending progress and a useful error when access is denied, the file disappears or storage runs out. Keep the same capability call in shared code, then verify the different permission prompts and file access rules on desktop, mobile and Web.
+
+Keep I/O outside component conversion and reducers. Send host work through an asynchronous effect or service so the UI stays responsive.
+The preview control below simulates an unsuccessful host result. It demonstrates the message and recovery path; it does not perform authentication, database, network, or filesystem work.
+<!-- fission:file path="src/app.rs" -->
+```rust
+use fission::prelude::*;
+fission_component! {
+    pub TutorialPreview<()> {
+        props {
+            title: String,
+            detail: String,
+            action: String,
+            success: String,
+            empty: String,
+        }
+        state {
+            documents_open: bool = false,
+            selected_file: bool = false,
+            has_error: bool = false,
+        }
+    }
+    view(preview, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Container(
+        Column(
+            gap: tokens.spacing.m,
+            children: [
+                Text(preview.title.clone()).size(tokens.typography.heading2_size).weight(tokens.typography.font_weight_bold),
+                Text(preview.detail.clone()).color(tokens.colors.text_secondary),
+                Text(if preview.documents_open { "Home / Documents" } else { "Home" }),
+                Button(child: Text(if preview.documents_open { "Back to Home".to_string() } else { preview.action.clone() }),
+                    key: "open-documents",
+                    on_press: reduce { preview.documents_open = !preview.documents_open;
+                        preview.selected_file = false; }),
+                if preview.documents_open { Column(children: [Text("Projects/"),
+                            Button(child: Text("Readme.txt"),
+                                key: "select-readme",
+                                on_press: reduce { preview.selected_file = !preview.selected_file; }),
+                            if preview.selected_file { Text("Selected: Readme.txt") } else { Text("Choose a file to see its details.") }]) } else { Text("Documents/") },
+                Button(child: Text(if preview.has_error { "Try again".to_string() } else { "Preview denied access".to_string() }),
+                    key: "preview-error",
+                    on_press: reduce { preview.has_error = !preview.has_error; }),
+                if preview.has_error { Text("Access to this folder was denied. Return to the previous folder or choose another location.") } else { Text(preview.success.clone()) },
+                Text(preview.empty.clone()).color(tokens.colors.text_secondary),
+            ]
+        )
+    )
+    .padding_all(tokens.spacing.l)
+    .bg(tokens.colors.surface)
+    .border(tokens.colors.border, 1.0)
+    .border_radius(tokens.radii.large)
+}
+```
+<!-- fission:file path="preview/lib.rs" -->
+```rust
+mod app;
+
+use fission::prelude::*;
+use wasm_bindgen::prelude::*;
+
+#[wasm_bindgen(start)]
+pub fn run() -> Result<(), JsValue> {
+    console_error_panic_hook::set_once();
+    let preview = app::TutorialPreview::new(
+        "Project files".to_string(),
+        "Choose a folder to browse its entries.".to_string(),
+        "Choose a directory".to_string(),
+        "A directory was selected and its entries are ready.".to_string(),
+        "Choose a directory to begin browsing.".to_string(),
+    );
+    WebApp::<(), _>::new(preview)
+        .with_title("Build a cross-platform file manager in Rust")
+        .mount("#fission-web-mount")
+        .run()
+        .map_err(|error| JsValue::from_str(&error.to_string()))
+}
+```
+<!-- fission:preview -->
+
+<!-- fission:checkpoint -->
+Handle permissions across host targets: Trigger the error preview and confirm a recovery action remains available.
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->
+
+## Run, test and build the finished project
+
+From the project root, run the checks in order:
+
+```sh
+fission doctor --project-dir .
+cargo test
+fission build --target linux --project-dir .
+fission build --target web --project-dir .
+fission build --target android --project-dir .
+fission build --target ios --project-dir .
+fission test --target web --project-dir .
+```
+
+Expected result: The file browser navigates by stable paths and explains empty or denied folders on each host.
+
+## Related Fission reference
+
+Use these precise reference pages after the working path above is clear:
+
+- [File System](/docs/capabilities/file-system/)
+- [Platform Capabilities](/docs/guides/platform-capabilities/)
+- [Commands Services Jobs](/reference/core/commands-services-jobs/)

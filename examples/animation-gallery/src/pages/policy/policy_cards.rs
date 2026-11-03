@@ -7,7 +7,7 @@ const POLICY_CARD_MIN_WIDTH: f32 = 168.0;
 
 fission_component! {
     pub(super) PolicyCards<AnimationGalleryState> { selected: MotionPolicy }
-    |cards, _state, cx| {
+    view(cards, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
         Container(

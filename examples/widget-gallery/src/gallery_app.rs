@@ -7,7 +7,7 @@ const PAGE_MAX_WIDTH: f32 = 880.0;
 
 fission_component! {
     pub GalleryApp<GalleryState>
-    |_app, state, cx| {
+    view(_app, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
         let page = state.page;
         // A phone-width window has no room for the sidebar beside the page.
@@ -66,7 +66,7 @@ fission_component! {
 
 fission_component! {
     GalleryPageScroll<GalleryState> { padding: f32 }
-    |content, state, _cx| {} =>
+    view(content, state, _cx) {} =>
         Scroll(
             id: WidgetId::explicit(&format!("gallery.page.{}", state.page.slug())),
             direction: FlexDirection::Column,

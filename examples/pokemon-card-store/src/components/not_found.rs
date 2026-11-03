@@ -3,7 +3,7 @@ use fission::prelude::*;
 
 fission_component! {
     pub NotFound<StoreState> { slug: String }
-    |missing, _state, cx| {
+    view(missing, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
         let typography = &tokens.typography;
     } =>

@@ -4,7 +4,7 @@ use fission::prelude::*;
 
 fission_component! {
     pub PageNote<AnimationGalleryState> { title: String, body: String }
-    |note, _state, cx| {
+    view(note, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
         Container(

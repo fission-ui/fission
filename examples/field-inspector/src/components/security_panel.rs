@@ -10,7 +10,7 @@ use crate::model::{
 use fission::prelude::*;
 fission_component! {
     pub SecurityPanel<FieldInspectorState> {}
-    |_panel, state, cx| {
+    view(_panel, state, cx) {
         let unlock = with_reducer!(cx.build, SecureUnlock, on_secure_unlock);
         let register = with_reducer!(cx.build, RegisterPasskey, on_register_passkey);
         let authenticate = with_reducer!(cx.build, AuthenticatePasskey, on_authenticate_passkey);

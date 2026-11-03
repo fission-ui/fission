@@ -1,0 +1,57 @@
+---
+title: Deep links
+description: Reference for the deep links capability API, provider contract, operations, and platform configuration.
+---
+
+# Deep links
+
+Fission separates ordinary route navigation from external deep-link activation. Web pathname/hash changes enter the route contract as `ShellRouteChanged`; installed applications receive operating-system launches, notification URLs, and custom schemes as `DeepLinkReceived`. Both can update the same app route state without making `Router` mandatory.
+
+This reference is for the exact API shape. If you are wiring the feature into an app for the first time, start with the [Deep links guide](/docs/capabilities/deep-links/), then return here when you need operation names, request types, provider contracts, or platform configuration details.
+
+## Public API
+
+| Item | Value |
+| --- | --- |
+| Effect helper or entrypoint | `inbound `DeepLinkReceived` action` |
+| Provider trait or host contract | `DeepLinkConfig / shell startup` |
+| Test provider or test entrypoint | `startup deep-link tests` |
+| Primary request types | `DeepLinkConfig / DeepLink` |
+| Primary success types | `DeepLinkReceived` |
+| Error type | `route reducer errors` |
+| CLI value | `shell setup` |
+
+## Operations
+
+| Method or operation | Purpose | Request | Success |
+| --- | --- | --- | --- |
+| `DeepLinkConfig::scheme` | Accept URLs with a custom scheme. | `scheme string` | `DeepLinkConfig` |
+| `DeepLinkConfig::domain` | Accept HTTPS/app-link domains owned by the product. | `domain string` | `DeepLinkConfig` |
+| `DeepLinkConfig::path_prefix` | Limit accepted URLs to the route prefix the app understands. | `path prefix` | `DeepLinkConfig` |
+| `on_deep_link` | Register the reducer that handles accepted incoming links. | `DeepLinkReceived` | `state update` |
+| `with_startup_deep_link` | Inject a launch link from host startup or tests. | `DeepLink` | `startup action` |
+| `with_route_handler` | Observe the initial logical route and later history changes. | `ShellRouteChanged` | `state update` |
+| `ctx.effects.navigate` / `replace_route` | Push or replace a logical route. | `path` | shell navigation |
+| `Link::to` | Render and activate a genuine route hyperlink. | label and href | navigation |
+
+## Provider contract
+
+Deep links use `DeepLinkConfig`, `DeepLinkReceived`, and the shell startup path rather than a provider trait. Use `.with_startup_deep_link(...)` in tests or custom launchers to simulate a cold-start native route. Do not use it to mirror browser history: Web automatically provides the initial pathname/hash and subsequent back/forward changes through `ShellRouteChanged`.
+
+Providers should return typed errors for unsupported operations, denied permissions, unavailable hardware, cancellation, timeouts, and platform policy restrictions. Silent success is not acceptable because reducers need a truthful result to update state and explain what happened.
+
+## Platform configuration
+
+Deep links are product routes, so the app must name them explicitly. Android uses intent filters. iOS and macOS use URL schemes or associated domains. Windows uses protocol activation or package metadata. Web and static sites use ordinary URL paths. Fission can store the route intent in [`fission.toml`](/reference/config/fission-toml/), but you still review the generated native files because route names and domains are product-owned.
+
+When a CLI value exists, `fission add-capability <value> --project-dir .` records the capability in [`fission.toml`](/reference/config/fission-toml/) and updates generated target files where Fission can do that deterministically. Android generated configuration lives in `platforms/android/AndroidManifest.xml`. iOS generated configuration lives in `platforms/ios/Info.plist` and `platforms/ios/Entitlements.plist` when entitlements are required. Desktop package metadata is reviewed during packaging because Windows, macOS, and Linux use different permission and distribution systems.
+
+## Runtime behavior
+
+Capability calls are queued from reducers through `ctx.effects`. The active shell resolves the request with the registered provider and then dispatches the configured success or error action. Missing providers should produce typed unsupported errors. Packaging mistakes usually show up as denied permissions, missing entitlements, missing route registration, or provider-specific failures.
+
+## Related pages
+
+- [Deep links guide](/docs/capabilities/deep-links/)
+- [Capability matrix](/docs/capabilities/matrix/)
+- [Platform capabilities reference](/reference/core/platform-capabilities/)

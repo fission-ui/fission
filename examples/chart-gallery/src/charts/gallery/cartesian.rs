@@ -9,7 +9,7 @@ use fission::prelude::*;
 
 fission_component! {
     pub(super) CartesianChart<GalleryState> { chart: usize, scale: f32 }
-    |selection, state, _cx| {} => (|| -> Widget {
+    view(selection, state, _cx) {} => (|| -> Widget {
         let chart = selection.chart;
         let s = selection.scale;
 

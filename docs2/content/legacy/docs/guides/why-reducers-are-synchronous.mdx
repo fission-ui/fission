@@ -1,0 +1,221 @@
+---
+title: Why are reducers not async?
+description: Fission keeps reducers synchronous so state transitions are deterministic, then moves outside work into jobs, services, capabilities, commands, and resources.
+---
+
+# Why are reducers not async?
+
+Reducers are synchronous because they define the immediate state transition of the app.
+
+When an action reaches a reducer, Fission should be able to answer one question deterministically: given this previous state and this action, what is the next state and what runtime work was requested?
+
+If reducers were async, that question would become much harder. State updates could suspend halfway through. Two actions could interleave through unrelated awaits. A widget tree could be rebuilt against a partial transition. Tests would need to drive hidden scheduling decisions instead of asserting clear state changes.
+
+Fission avoids that class of bugs by making reducers finish quickly and synchronously.
+
+## The reducer contract
+
+A reducer may:
+
+- validate the action;
+- update `GlobalState`;
+- read typed returned data from `ctx.input`;
+- emit runtime effects through `ctx.effects`;
+- decide which follow-up action should handle the eventual result.
+
+A reducer must not:
+
+- wait on network I/O;
+- read large files;
+- open native pickers directly;
+- keep long-running background processes alive;
+- mutate runtime internals such as scroll offsets, sockets, or stream registries directly.
+
+That does not mean Fission avoids async work. It means async work is modeled explicitly.
+
+## Jobs handle finite async work
+
+A job is a one-shot request with one success or failure result.
+
+Use a job for tasks such as:
+
+- uploading one file;
+- importing one document;
+- fetching one page of data;
+- saving one draft;
+- computing one expensive derived result.
+
+The reducer starts the job and records immediate UI state:
+
+```rust
+fn on_save_requested(
+    state: &mut EditorState,
+    _: SaveRequested,
+    ctx: &mut ReducerContext<EditorState>,
+) {
+    if state.saving {
+        return;
+    }
+
+    state.saving = true;
+    state.error_message = None;
+
+    ctx.effects
+        .app(SAVE_DOCUMENT_JOB, SaveDocumentRequest {
+            document_id: state.document_id.clone(),
+            contents: state.buffer.clone(),
+        })
+        .on_ok(ctx.effects.bind(SaveSucceeded, reduce_with!(on_save_succeeded)))
+        .on_err(ctx.effects.bind(SaveFailed, reduce_with!(on_save_failed)));
+}
+```
+
+Later, the result returns through another reducer:
+
+```rust
+fn on_save_succeeded(
+    state: &mut EditorState,
+    _: SaveSucceeded,
+    ctx: &mut ReducerContext<EditorState>,
+) {
+    let Some(result) = ctx.input.job_ok(SAVE_DOCUMENT_JOB) else {
+        return;
+    };
+
+    state.saving = false;
+    state.last_saved_revision = Some(result.revision);
+}
+```
+
+The important point is that every state change still happens in reducers. The job performs outside work; it does not mutate UI state directly.
+
+## Services handle long-lived work
+
+A service is a long-lived async conversation.
+
+Use a service when the work has identity over time:
+
+- language server sessions;
+- background sync connections;
+- upload sessions with progress and cancellation;
+- file watchers;
+- subscriptions;
+- device sessions.
+
+A reducer starts or stops the service, and service events return through reducers. That preserves a single state-transition path even when the external process emits many events.
+
+```rust
+let slot = ServiceSlot::singleton(LANGUAGE_SERVICE);
+
+ctx.effects
+    .start_service(slot, LanguageConfig {
+        workspace_root: state.workspace_root.clone(),
+    })
+    .on_started(ctx.effects.bind(LanguageStarted, reduce_with!(on_language_started)))
+    .on_event(ctx.effects.bind(LanguageEventArrived, reduce_with!(on_language_event)))
+    .on_start_failed(ctx.effects.bind(LanguageStartFailed, reduce_with!(on_language_failed)));
+```
+
+Commands then send messages to the running service:
+
+```rust
+ctx.effects
+    .command(
+        ServiceSlot::singleton(LANGUAGE_SERVICE),
+        LanguageCommand::RequestCompletions {
+            path: state.active_path.clone(),
+            cursor: state.cursor,
+        },
+    )
+    .on_ok(ctx.effects.bind(CompletionsLoaded, reduce_with!(on_completions_loaded)))
+    .on_err(ctx.effects.bind(CompletionsFailed, reduce_with!(on_completions_failed)));
+```
+
+A command is not a service start. It is one message sent to a service that already has a lifetime.
+
+## Capabilities handle host-owned work
+
+Capabilities are for work the host owns: open a native URL, open a file picker, read geolocation, use biometrics, scan a barcode, or access platform clipboard data.
+
+Reducers ask for the capability. The shell performs it. The result returns through `ctx.input.capability_ok(...)` or `ctx.input.capability_error(...)`.
+
+This keeps host policy out of app logic. The app declares intent; the shell decides how that target can satisfy it.
+
+File uploads are the clearest example: the reducer requests `PICK_OPEN_FILES`, receives file metadata and a `DataStreamId`, then passes the stream handle to a job or service. The reducer never reads the bytes.
+
+## Resources handle mounted lifetimes
+
+Some async work should exist because a widget subtree exists, not because one event fired.
+
+That is what resources are for. A component can declare a `JobResource`, `ServiceResource`, or `TimerResource` during conversion. The declaration is data, so conversion stays side-effect free. The runtime reconciles resources after conversion and starts, preserves, restarts, or stops the work according to stable keys and dependency payloads.
+
+Use resources when lifetime follows UI structure:
+
+- poll while a panel is open;
+- scan a tree while a workspace screen is mounted;
+- keep a service alive for one route;
+- refresh data when route params change.
+
+Use reducer effects when lifetime follows a specific action.
+
+## Why this makes complex apps more reliable
+
+The separation gives Fission useful mechanical properties.
+
+### State transitions are atomic
+
+A reducer either finishes and produces the next state, or it does not. There is no `await` point where the app can render a half-updated state.
+
+### Async ordering is explicit
+
+Every async result re-enters the app as an action with typed input. You can inspect which reducer handles success, failure, progress, cancellation, and service events.
+
+### UI rendering stays side-effect free
+
+Widget conversion describes the tree. It does not accidentally start uploads, open dialogs, create sockets, or write files because a rebuild happened.
+
+### Tests become narrower
+
+You can test reducers as pure state transitions. You can test jobs and services as async units. You can test the integration path by asserting that a reducer emits a specific effect and that a later result action updates state correctly.
+
+### Backpressure and large data stay out of state
+
+Streams, files, images, and other large payloads stay behind runtime handles. Jobs and services consume them in chunks, so reducers do not become memory-management code.
+
+### Platform differences stay at the shell boundary
+
+The same reducer can ask for a file picker, geolocation, or clipboard access on every target. The shell is where platform support, permissions, native UI, and unsupported-operation errors live.
+
+## Choosing the right abstraction
+
+| Need | Use |
+| --- | --- |
+| Immediate state update | Reducer |
+| One async request and one result | Job |
+| Long-lived async conversation | Service |
+| Message to an already running service | Command |
+| Host/device operation | Capability |
+| Work mounted with a widget subtree | Resource |
+| Large binary payload | `FissionDataStream` handle consumed by a job, service, or capability |
+
+If you are unsure, ask two questions:
+
+1. Does the work have identity after the first response? If yes, it is probably a service.
+2. Does the lifetime come from a user action or from a mounted subtree? Use a reducer effect for the former and a resource for the latter.
+
+## What async reducers would make worse
+
+Async reducers look convenient at first, but they blur too many boundaries:
+
+- state updates can interleave unpredictably;
+- cancellation becomes unclear after partial mutation;
+- rendering can observe intermediate state;
+- file and network APIs leak into app state logic;
+- tests must simulate scheduler behavior instead of asserting transitions;
+- target-specific host work spreads across application reducers.
+
+Fission keeps reducers synchronous to avoid these failure modes. The async APIs are not a workaround for that rule. They are the rule made explicit.
+
+## Related
+
+Read [Resources and async](/docs/guides/resources-and-async/) for the complete tool model, [How do I do file uploads in Fission?](/docs/guides/file-uploads/) for a stream-based capability example, and [Commands, services, and jobs](/reference/core/commands-services-jobs/) for the reference-level API contract.

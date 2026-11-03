@@ -8,7 +8,7 @@ use fission::prelude::*;
 
 fission_component! {
     pub CardDetail<StoreState> { card: Card }
-    |detail, _state, cx| {
+    view(detail, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
         let typography = &tokens.typography;
         let accent = card_accent(detail.card.accent);

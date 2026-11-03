@@ -6,7 +6,7 @@ use fission::prelude::*;
 
 fission_component! {
     pub(super) SidebarPreview<AnimationGalleryState> {}
-    |_preview, state, cx| {
+    view(_preview, state, cx) {
         let progress = if state.playing {
             1.0
         } else {

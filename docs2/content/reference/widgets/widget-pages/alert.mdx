@@ -1,0 +1,120 @@
+---
+title: Alert
+description: Keep important information, warnings, failures, or confirmations visible in the page flow.
+slug: /widgets/alert
+---
+# Alert
+
+`Alert` is a persistent inline message. Use it when information changes the
+user's next decision and should remain visible with the surrounding content.
+Use [`Toast`](/reference/widgets/toast) for brief overlay feedback, and
+[`EmptyState`](/reference/widgets/empty-state) when the main condition is the
+absence of content.
+
+## Example
+
+```rust
+use fission::prelude::*;
+
+let save_error: Widget = Alert {
+    kind: AlertKind::Error,
+    title: "Could not save draft".into(),
+    description: Some("Check your connection and try again.".into()),
+}
+.into();
+```
+
+The title carries the outcome; the description adds useful context or a next
+step instead of repeating it.
+
+## Anatomy and variants
+
+The convenience `Alert` lowers through the same retained anatomy exposed by
+`AlertLayout`:
+
+- `AlertLeading` selects the tone icon, hides it, or accepts a custom retained
+  widget.
+- `AlertContent` arranges `AlertTitle`, `AlertDescription`, and custom retained
+  children.
+- `AlertLayout::action(...)` adds a trailing control or retained action group.
+
+Use `Alert` for the common title-and-description case. Use the named anatomy
+when the message needs richer content or an adjacent recovery action; do not
+rebuild the surface from generic layout widgets.
+
+```rust
+let retry_notice: Widget = AlertLayout::new(
+    AlertKind::Warning,
+    AlertContent::new(widgets![
+        AlertTitle::new("Sync paused"),
+        AlertDescription::new("Your edits are safe on this device."),
+    ]),
+)
+.action(Button {
+    child: Some(Text::new("Retry").into()),
+    on_press: Some(retry),
+    ..Default::default()
+})
+.into();
+```
+
+| Kind | Meaning | Built-in icon intent |
+| --- | --- | --- |
+| `AlertKind::Info` | Neutral information worth noticing. | Information. |
+| `AlertKind::Warning` | A potential problem that needs attention. | Warning. |
+| `AlertKind::Error` | A failed or invalid state. | Error. |
+| `AlertKind::Success` | A successful or confirmed state. | Confirmation. |
+
+The active `theme.components.alert` recipe selects the surface, border, radius,
+padding, minimum height, region gaps, icon size and visual offset, title and
+description typography, action region, and semantic tone overlays. The widget
+has no hover, focus, pressed, or disabled state because the surface is
+informational; controls supplied to the action region retain their own states.
+
+## Field reference
+
+| Field | Type | Meaning | Notes |
+| --- | --- | --- | --- |
+| `kind` | `AlertKind` | Semantic visual tone. | Required. Choose from the meaning of the message, not a preferred color. |
+| `title` | `String` | Concise primary message. | Required and always visible. |
+| `description` | `Option<String>` | Supporting explanation or next step. | Omitted when the title is sufficient. |
+
+## Semantics, composition, and targets
+
+The complete surface exposes the semantic `Alert` role. Browser output lowers
+that contract to an ARIA alert, while native accessibility output marks it as
+an assertive, atomic live region. A dynamically inserted alert can therefore be
+announced without moving keyboard focus, and its title and description are
+presented as one update. Do not repeatedly rebuild identical alerts as a way to
+force announcements; update them only when the user-facing condition changes.
+
+`Alert` itself does not dispatch an action or contain a close button. Put retry,
+repair, or dismissal controls in `AlertLayout::action(...)` so their reducer
+intent and semantics remain explicit. Do not make the whole message surface
+clickable without a clear semantic action.
+
+The message column grows within its parent width while the icon remains compact.
+Test long translations and increased text scale; the widget does not choose a
+screen breakpoint or truncate copy for you. `Alert` registers no motion itself.
+If its parent adds `Motion` or `Presence`, the global `Env::motion_preference`
+still resolves those declarations consistently.
+
+The same visual content can lower to native, Web, Terminal, Static site, and SSR
+output. A plain initial Static site or SSR document is readable and carries the
+alert role, but a live announcement still requires the alert to be inserted or
+changed by an interactive runtime.
+
+## Production checklist
+
+- Make the title understandable on its own and use the description for cause,
+  consequence, or a concrete next step.
+- Choose `kind` from meaning and test every tone in light and dark themes.
+- Verify long copy and increased text scale in the real parent width.
+- Verify dynamic insertion with the accessibility bridge on each supported
+  interactive target where immediate announcement matters.
+- Keep recovery actions explicit and adjacent rather than hiding them in the
+  alert surface.
+
+## Related
+
+[`AlertKind`](/reference/widgets/alert-kind), [`Toast`](/reference/widgets/toast), [`Badge`](/reference/widgets/badge), and [`EmptyState`](/reference/widgets/empty-state).

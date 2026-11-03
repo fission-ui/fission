@@ -8,7 +8,7 @@ fission_component! {
         value: String,
         on_input: ActionEnvelope,
     }
-    |field, _state, _cx| {} =>
+    view(field, _state, _cx) {} =>
         Container(FormControl(
             id: layout_id("quality-gallery.display-name", field.compact),
             label: "Display name".to_string(),

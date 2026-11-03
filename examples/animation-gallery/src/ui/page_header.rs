@@ -4,7 +4,7 @@ use fission::prelude::*;
 
 fission_component! {
     pub PageHeader<AnimationGalleryState> { title: String, subtitle: String }
-    |header, _state, cx| {
+    view(header, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
         Column(

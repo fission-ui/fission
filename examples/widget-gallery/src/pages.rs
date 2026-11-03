@@ -504,7 +504,7 @@ const PAGE_PICKER_MAX_HEIGHT: f32 = 480.0;
 fission_component! {
 /// Every page in a picker, which stands in for the sidebar on narrow screens.
     pub(crate) PagePicker<GalleryState> {}
-    |_picker, state, cx| {
+    view(_picker, state, cx) {
         use fission::widgets::{
             MenuLabel, SelectContent, SelectEntry, SelectLayout, SelectOption, SelectTrigger,
         };
@@ -544,7 +544,7 @@ fission_component! {
 fission_component! {
 /// Every page, grouped, with the open one highlighted.
     pub(crate) Sidebar<GalleryState> {}
-    |_sidebar, state, cx| {
+    view(_sidebar, state, cx) {
         let tokens = cx.view.env().theme.tokens.clone();
     } =>
         Container(Column(
@@ -575,7 +575,7 @@ fission_component! {
 
 fission_component! {
     SidebarGroup<GalleryState> { index: usize, title: &'static str, pages: &'static [GalleryPage] }
-    |group, _state, cx| {
+    view(group, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
         let typography = &tokens.typography;
     } =>
@@ -601,7 +601,7 @@ fission_component! {
 
 fission_component! {
     SidebarPageButton<GalleryState> { page: GalleryPage }
-    |button, state, cx| {
+    view(button, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
         let typography = &tokens.typography;
         let is_open = button.page == state.page;
@@ -626,7 +626,7 @@ fission_component! {
 fission_component! {
 /// The open page: its heading, what it is for, and its examples.
     pub(crate) PageView<GalleryState> {}
-    |_component, state, cx| {
+    view(_component, state, cx) {
         let page = state.page;
         let tokens = cx.view.env().theme.tokens.clone();
         let typography = &tokens.typography;

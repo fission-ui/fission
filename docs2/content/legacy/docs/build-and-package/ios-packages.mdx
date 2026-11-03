@@ -1,0 +1,110 @@
+---
+title: iOS packages
+description: Configure iOS bundle identity, signing, native additions, and App Store-ready Fission IPA artifacts.
+---
+
+# iOS packages
+
+iOS packaging produces an `.ipa` through Apple tooling. The important release inputs are bundle id, marketing version, build number, team id, entitlements, provisioning profile, signing identity, generated host files, icons, launch assets, privacy strings, and App Store Connect release content.
+
+## Realistic package configuration
+
+```toml
+[app]
+name = "Acme Notes"
+app_id = "com.acme.notes"
+version = "1.4.0"
+build = 37
+
+[targets.ios]
+enabled = true
+
+[package.ios]
+bundle_id = "com.acme.notes"
+marketing_version = "1.4.0"
+build_number = "37"
+team_id = "ABCDE12345"
+entitlements = "platforms/ios/AcmeNotes.entitlements"
+provisioning_profile = "profiles/ios/AcmeNotes.mobileprovision"
+signing_identity = "Apple Distribution"
+```
+
+| Field | Why it exists |
+| --- | --- |
+| `bundle_id` | iOS bundle identifier used by signing, generated host metadata, and App Store Connect. Usually matches `[app].app_id`. |
+| `marketing_version` | User-visible iOS version. |
+| `build_number` | Provider-facing build number. It must be incremented for new uploads. |
+| `team_id` | Apple Developer Team ID used by signing and readiness checks. |
+| `entitlements` | iOS entitlements plist passed into signing. |
+| `provisioning_profile` | Mobile provisioning profile for the release build. |
+| `signing_identity` | Release signing identity. |
+
+Keep Apple API keys, private signing material, and passwords outside `fission.toml`.
+
+## App Store Connect configuration
+
+Publishing to TestFlight or App Review uses provider credentials and release content in addition to the IPA.
+
+```toml
+[distribution.app_store]
+bundle_id = "com.acme.notes"
+issuer_id = "00000000-0000-0000-0000-000000000000"
+key_id = "ABC123DEFG"
+api_key_env = "APP_STORE_CONNECT_API_KEY"
+api_key_base64_env = "APP_STORE_CONNECT_API_KEY_BASE64"
+default_track = "testflight"
+```
+
+The API key value should come from the named environment variable or CI secret. Use base64 for CI when that is easier to store safely.
+
+## Native iOS additions
+
+Use native modules when the generated iOS host needs Swift source directories, linked frameworks, or Swift package dependencies.
+
+```toml
+[[native.modules]]
+name = "scanner-sdk"
+
+[native.modules.ios]
+source_dirs = ["platforms/ios/Scanner"]
+linked_frameworks = ["AVFoundation.framework", "CoreImage.framework"]
+
+[[native.modules.ios.swift_packages]]
+url = "https://github.com/example/scanner-ios"
+product = "ScannerSDK"
+from = "1.2.3"
+```
+
+Native modules supply native build inputs. Keep user-facing privacy strings, usage descriptions, and product policy in the visible target/capability configuration so reviewers and teammates can audit why the app needs each capability.
+
+## Version and build checks
+
+When provider credentials are available, check App Store state before upload:
+
+```bash
+fission release-config version-state \
+  --project-dir . \
+  --provider app-store \
+  --target ios \
+  --json
+```
+
+If the build number is already used, update release configuration and rebuild the IPA. Do not upload a known-bad artifact.
+
+## Readiness and packaging loop
+
+```bash
+fission readiness package --project-dir . --target ios --format ipa
+fission package --project-dir . --target ios --format ipa --release
+```
+
+The output contains the `.ipa` and `artifact-manifest.json`. Publish the manifest so the release command has the artifact hash, version, build number, package identity, and secondary files in one immutable handoff.
+
+## Verify on iOS
+
+Before App Store submission:
+
+- Run on simulator for layout, safe areas, keyboard, navigation, and common device sizes.
+- Run on a real device for camera, Bluetooth, file, push, health, location, or other hardware/platform capabilities.
+- Verify icons, launch screen, permission prompts, deep links, and any native module behavior.
+- Validate release notes, screenshots, privacy declarations, review notes, and TestFlight tester targeting.

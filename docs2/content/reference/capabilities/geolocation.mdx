@@ -1,0 +1,52 @@
+---
+title: Geolocation
+description: Reference for the geolocation capability API, provider contract, operations, and platform configuration.
+---
+
+# Geolocation
+
+Geolocation is sensitive because it can reveal where the user is. A good app explains the feature first, asks only when the user chooses the feature, and handles denied permission as an ordinary path.
+
+This reference is for the exact API shape. If you are wiring the feature into an app for the first time, start with the [Geolocation guide](/docs/capabilities/geolocation/), then return here when you need operation names, request types, provider contracts, or platform configuration details.
+
+## Public API
+
+| Item | Value |
+| --- | --- |
+| Effect helper or entrypoint | `ctx.effects.geolocation()` |
+| Provider trait or host contract | `GeolocationHost` |
+| Test provider or test entrypoint | `MemoryGeolocationHost` |
+| Primary request types | `GeolocationPermissionRequest / GeolocationPositionRequest` |
+| Primary success types | `GeolocationPermission / GeolocationPosition` |
+| Error type | `GeolocationError` |
+| CLI value | `geolocation` |
+
+## Operations
+
+| Method or operation | Purpose | Request | Success |
+| --- | --- | --- | --- |
+| `permission` | Read current location permission without prompting. | `()` | `GeolocationPermission` |
+| `request_permission` | Ask for location permission with precise/background intent. | `GeolocationPermissionRequest` | `GeolocationPermission` |
+| `current_position` | Request current coordinates with accuracy, timeout, and cache controls. | `GeolocationPositionRequest` | `GeolocationPosition` |
+
+## Provider contract
+
+Register a `GeolocationHost` with `.with_geolocation_host(...)`. Use `MemoryGeolocationHost` in tests. Providers should expose permission separately from current position so UI can explain blocked states before requesting again.
+
+Providers should return typed errors for unsupported operations, denied permissions, unavailable hardware, cancellation, timeouts, and platform policy restrictions. Silent success is not acceptable because reducers need a truthful result to update state and explain what happened.
+
+## Platform configuration
+
+The CLI adds Android coarse and fine location permissions and iOS when-in-use usage text. Desktop and web providers map the same contract to OS location services, browser geolocation, portals, or a typed unsupported error.
+
+When a CLI value exists, `fission add-capability <value> --project-dir .` records the capability in [`fission.toml`](/reference/config/fission-toml/) and updates generated target files where Fission can do that deterministically. Android generated configuration lives in `platforms/android/AndroidManifest.xml`. iOS generated configuration lives in `platforms/ios/Info.plist` and `platforms/ios/Entitlements.plist` when entitlements are required. Desktop package metadata is reviewed during packaging because Windows, macOS, and Linux use different permission and distribution systems.
+
+## Runtime behavior
+
+Capability calls are queued from reducers through `ctx.effects`. The active shell resolves the request with the registered provider and then dispatches the configured success or error action. Missing providers should produce typed unsupported errors. Packaging mistakes usually show up as denied permissions, missing entitlements, missing route registration, or provider-specific failures.
+
+## Related pages
+
+- [Geolocation guide](/docs/capabilities/geolocation/)
+- [Capability matrix](/docs/capabilities/matrix/)
+- [Platform capabilities reference](/reference/core/platform-capabilities/)

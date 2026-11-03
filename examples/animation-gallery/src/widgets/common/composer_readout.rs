@@ -7,7 +7,7 @@ const BODY_MAX_HEIGHT: f32 = 126.0;
 
 fission_component! {
     pub(super) ComposerReadout<AnimationGalleryState> { title: String, body: String }
-    |readout, _state, cx| {
+    view(readout, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
         let typography = &tokens.typography;
     } =>

@@ -4,7 +4,7 @@ use fission::prelude::*;
 
 fission_component! {
     pub(crate) ShowcaseApp<ShowcaseState>
-    |_app, _state, cx| {
+    view(_app, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
     Container(ShowcaseRouter)

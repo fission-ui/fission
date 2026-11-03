@@ -8,7 +8,7 @@ const TIMELINE_MIDPOINT_MS: u16 = 150;
 
 fission_component! {
     pub TimelineControl<AnimationGalleryState> {}
-    |_control, state, cx| {
+    view(_control, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
         Wrap(

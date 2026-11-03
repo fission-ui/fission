@@ -1,0 +1,42 @@
+---
+title: CI publishing
+description: Publish Fission apps from CI using explicit arguments, environment secrets, and checked release metadata.
+---
+
+# CI publishing
+
+CI publishing should be non-interactive. Every required decision must come from `fission.toml`, command arguments, generated artifacts, or environment-backed secrets.
+
+Recommended shape:
+
+```bash
+fission package \
+  --target android \
+  --format aab \
+  --project-dir . \
+  --release \
+  --json
+
+fission publish \
+  --provider play-store \
+  --artifact target/fission/release/android/aab/artifact-manifest.json \
+  --track internal \
+  --project-dir . \
+  --yes \
+  --json
+```
+
+`fission package` always requires an explicit `--format`. In CI, pass the
+resulting `artifact-manifest.json` to `fission publish` so the upload cannot
+silently select a different build. `--yes` is the non-interactive confirmation
+flag; `--non-interactive` is not a Fission option.
+
+## Secret policy
+
+Do not commit signing files or absolute local credential paths. Use CI secrets to materialize short-lived files during the job, then point Fission at those files through environment variables.
+
+For Android, a common pattern is base64-encoded keystore material plus password aliases in CI secrets. Decode into the CI workspace during the job and remove it afterwards.
+
+## Failure policy
+
+CI should fail clearly when provider-required fields are missing. Optional metadata can be skipped only when the target provider permits it and the skip is explicit in config.

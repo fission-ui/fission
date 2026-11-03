@@ -1,22 +1,25 @@
-use crate::content::GoalDocument;
+use crate::content::{GoalDocument, GoalMeta};
 use crate::state::DocsState;
-use crate::widgets::{GoalIntro, GoalSidebar, GoalStepSection, GoalToc, SiteFooter, SiteHeader};
+use crate::widgets::{DocsHeader, GoalIntro, GoalSidebar, GoalStepSection, GoalToc, SiteFooter};
 use fission::prelude::*;
 
 fission_component! {
     pub GoalPage<DocsState> {
-        props { document: GoalDocument }
+        props {
+            document: GoalDocument,
+            tutorials: Vec<GoalMeta>,
+        }
     }
     view(page, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
     Container(
         Column(children: [
-            SiteHeader(),
+            DocsHeader::new(false),
             SemanticsRegion(
                 identifier: Some("goal-shell".to_string()),
                 child: Row(align_items: ir_op::AlignItems::Start, children: [
-                    GoalSidebar(),
+                    GoalSidebar(page.document.meta.path.clone(), page.tutorials.clone()),
                     SemanticsRegion(
                         identifier: Some("goal-main".to_string()),
                         child: Column(gap: tokens.spacing.xl, children: [
@@ -31,7 +34,7 @@ fission_component! {
                             },
                         ]),
                     ),
-                    GoalToc(page.document.clone()),
+                    GoalToc(page.document.clone(), page.tutorials.clone()),
                 ]),
             ),
             SiteFooter(),

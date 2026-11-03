@@ -10,7 +10,7 @@ use fission::widgets::{Popover, PopoverMotion};
 
 fission_component! {
     pub(super) PopoverPreview<AnimationGalleryState> {}
-    |_preview, state, cx| {
+    view(_preview, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
         let close = cx.bind(ResetTimeline, reduce_with!(reset_timeline));
         let toggle = cx.bind(TogglePlay, reduce_with!(toggle_play));

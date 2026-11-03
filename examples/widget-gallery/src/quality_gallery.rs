@@ -84,7 +84,7 @@ pub(crate) fn configure_initial_state(state: &mut crate::GalleryState) {
 // responsive behaviour, and overlay treatment visible in one stable fixture.
 fission_component! {
     pub QualityGalleryApp<crate::GalleryState>
-    |_app, _state, cx| {
+    view(_app, _state, cx) {
         #[cfg(target_arch = "wasm32")]
         let show_guided_flow = quality_gallery_page() == "guided-flow";
         #[cfg(not(target_arch = "wasm32"))]
@@ -121,7 +121,7 @@ fission_component! {
 
 fission_component! {
     QualityPage<crate::GalleryState> { compact: bool }
-    |page, _state, cx| {
+    view(page, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
         let outer_padding = if page.compact {
             tokens.spacing.s + tokens.spacing.xs

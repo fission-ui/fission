@@ -40,8 +40,11 @@ assets/app-icon.png
 platforms/site/README.md
 ```
 
-`src/page.rs` contains the home/about pages; `src/navigation.rs` and `src/footer.rs`
-are reusable components. `design/dsp.json` inherits Fission's default component
+`src/page.rs` composes the home/about pages with `fission_component!`;
+`src/navigation.rs` and `src/footer.rs` define reusable Compose components. Put
+parent-supplied values in `props { ... }`, retained interface memory in a
+component's `state { ... }`, and durable product facts in `GlobalState`.
+`design/dsp.json` inherits Fission's default component
 recipes and generates a typed theme from the checked-in `design/tokens.json`.
 English and Spanish bundles are embedded in `src/design.rs`; English is the
 initial locale. Check longer translated labels when changing content.

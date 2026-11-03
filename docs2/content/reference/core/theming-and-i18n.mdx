@@ -1,0 +1,130 @@
+---
+title: Theming and internationalization
+description: The reference contract for theme values, design systems, locale, and translation bundles flowing through Env.
+---
+
+# Theming and internationalization
+
+This page is the reference contract for the app-wide presentation values that widgets read during component conversion.
+
+Theming controls how the interface looks: color, typography, spacing, radius, elevation, motion, chart palettes, and component-level styling.
+
+Internationalization, often shortened to i18n, controls how the interface supports multiple languages and locale-sensitive text selection.
+
+Both systems flow through `Env`. Widgets read the current environment through `ViewHandle`, which means theme and locale are explicit inputs to rendering rather than hidden global state.
+
+## Theme types
+
+| Type | Purpose | Notes |
+| --- | --- | --- |
+| `Theme` | Complete runtime theme | Contains primitive tokens, component themes, and the resolved design-system metadata. |
+| `Tokens` | Primitive token groups | Contains colors, spacing, typography, radius, elevation, motion, and data-visualization tokens. |
+| `ComponentTheme` | Widget-ready component styles | Contains typed styles for buttons, inputs, badges, tabs, modals, cards, tooltips, progress bars, and related components. |
+| `DesignSystem` | Trait implemented by generated design systems | Produces metadata, token records, component specs, pattern specs, asset manifests, and light/dark themes. |
+| `DesignMode` | Theme mode enum | Currently `Light` or `Dark`. |
+| `ResolvedDesignSystem` | Runtime copy of generated design-system metadata | Useful for diagnostics, tooling, docs, and theme inspection. |
+
+The normal entry points are `Theme::default()` and `Theme::dark()`. Those use Fission's bundled default design system.
+
+For a generated package, use the generated type:
+
+```rust
+use fission::theme::{DesignMode, DesignSystem, FissionDefaultDesignSystem};
+
+let light = FissionDefaultDesignSystem::theme(DesignMode::Light);
+let dark = FissionDefaultDesignSystem::theme(DesignMode::Dark);
+```
+
+## Bundled design-system presets
+
+Fission includes these build-time generated presets:
+
+| Preset | Type | Package path |
+| --- | --- | --- |
+| Fission default | `FissionDefaultDesignSystem` | `crates/core/fission-theme/design/default` |
+| Material Design 3 | `FissionMaterialDesign3DesignSystem` | `crates/core/fission-theme/design/material3` |
+| Fluent 2 | `FissionFluent2DesignSystem` | `crates/core/fission-theme/design/fluent2` |
+| Liquid Glass | `FissionLiquidGlassDesignSystem` | `crates/core/fission-theme/design/liquid-glass` |
+| Cupertino | `FissionCupertinoDesignSystem` | `crates/core/fission-theme/design/cupertino` |
+| Ember | `FissionEmberDesignSystem` | `crates/core/fission-theme/design/ember` |
+| Graphite | `FissionGraphiteDesignSystem` | `crates/core/fission-theme/design/graphite` |
+
+Each preset is a normal Design System Package JSON input. The runtime does not parse those JSON files. The `fission-theme` build script runs the same design-system generator available to application projects and compiles the resulting Rust into the crate.
+
+Use a preset when it matches the platform or brand direction you want. Copy it into your app and generate your own `AppDesignSystem` when the product needs different tokens.
+
+## Environment flow
+
+`Env` carries the active theme, internationalization registry, locale, and other app-wide presentation context. During component conversion, widgets can read those values through `view.env` or convenience helpers such as `view.theme()`.
+
+Desktop, Mobile, Web, and Terminal expose both `with_env(...)` and
+`with_sync_env(...)`. Browser islands expose the same pair. Static site and SSR
+apps expose `with_env(...)`, `i18n(...)`, `translation_bundle(...)`,
+`default_locale(...)`, and `locale_resolver(...)`. SSR additionally exposes
+`with_request_env(...)` for request-owned environment values.
+
+Use `with_env(...)` to seed a base environment before the first frame, such as one that already contains translation bundles.
+
+Use `with_sync_env(...)` when app state should update environment values every frame, such as mirroring a user-selected theme mode, locale, or window title into `Env`.
+
+Use `translation_bundle(...)` or `i18n(...)` on `FissionServerApp` to register server-side bundles. Use `default_locale(...)` for the fallback locale and `locale_resolver(...)` when request data should select the locale before SSR, such as choosing from a path prefix, route parameter, header, cookie, or session. Use `with_request_env(...)` for other request-owned `Env` values. The server shell uses the resolved request `Env` for both widget building and lowering, so `TextContent::Key` resolves consistently in rendered HTML.
+
+```rust
+DesktopApp::new(MyApp)
+    .with_env(create_env()?)
+    .with_sync_env(|state: &MyState, env: &mut Env| {
+        env.theme = AppDesignSystem::theme(state.theme_mode);
+        env.locale = state.locale.clone();
+    })
+    .run()?;
+```
+
+The setup is identical for a Web app:
+
+```rust
+WebApp::new(MyApp)
+    .with_env(create_env()?)
+    .with_sync_env(|state: &MyState, env: &mut Env| {
+        env.theme = AppDesignSystem::theme(state.theme_mode);
+        env.locale = state.locale.clone();
+    })
+    .run()?;
+```
+
+Terminal supports the same design-system and environment data. Packaged font
+registration is the deliberate exception: the terminal emulator owns the font
+used for its cell grid, so Fission cannot install an app font there.
+
+## Internationalization types
+
+| Type | Purpose | Notes |
+| --- | --- | --- |
+| `Locale` | Active language and region identifier | Examples include `en-US` and `fr-FR`. |
+| `TranslationBundle` | Translated key-value messages for one locale | Usually loaded from app-owned files at startup. |
+| `I18nRegistry` | Registry of translation bundles | Stored on `Env` so widgets can resolve keyed text. |
+| `TextContent::Key` | Text content resolved through the active locale | Use for product copy that should be translated. |
+| `TextContent::Literal` | Text content rendered exactly as given | Use for already-translated strings, user data, file names, ids, or counts. |
+
+The recommended translation file format for application code is YAML. Keep translation files in the repository, embed them with `include_str!`, parse them at startup into `TranslationBundle` values, add those bundles to `env.i18n`, and store the current locale choice in `GlobalState`.
+
+The runtime contract is still `TranslationBundle`, not YAML itself. Advanced applications may generate bundles another way, but Fission documentation and examples use YAML plus `include_str!` as the default because it is deterministic, readable, and works consistently across every target.
+
+## Practical rules
+
+Keep durable user choices such as locale preference, theme mode, and selected brand variant in `GlobalState`.
+
+Keep loaded theme objects and translation bundles in `Env` because widgets need them as app-wide presentation context.
+
+Avoid hard-coding unrelated color, spacing, and typography values inside widgets. If a value should be consistent across the product, it belongs in the design system or active theme.
+
+Use `TextContent::Key` for product copy and `TextContent::Literal` for data. A label such as `settings.title` should be keyed. A user name, file path, generated count, or pasted message should usually be literal.
+
+## Related pages
+
+For the step-by-step guide, read [Theming and internationalization](/docs/guides/theming-and-i18n/). For DSP generation and presets, read [Design system](/docs/guides/design-system/). For the exact `Env` contract, see [Environment, input, and input method editor](/reference/core/environment-input-and-ime/).
+
+## Font assets
+
+Generated design systems can expose packaged fonts through `DesignSystem::font_faces()`. Each `PackagedFont` contains the family, weight, style, format, embedded bytes, and optional variation axes. Shells register those fonts for rendering so components can use generated typography tokens without relying on platform font installation.
+
+See [Fonts](/reference/core/fonts/) for the field-level reference and [Design systems and fonts](/docs/develop/design-systems-and-fonts/) for the app setup flow.

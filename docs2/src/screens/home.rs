@@ -1,3 +1,4 @@
+use crate::content::GoalMeta;
 use crate::state::DocsState;
 use crate::widgets::{
     BrowserCta, ComposeSection, FeatureSection, GoalChooser, HomeHero, PlatformStrip, SiteFooter,
@@ -6,19 +7,25 @@ use crate::widgets::{
 use fission::prelude::*;
 
 fission_component! {
-    pub HomePage<DocsState> {}
-    view(_home, _state, cx) {
+    pub HomePage<DocsState> {
+        props {
+            tutorials: Vec<GoalMeta>,
+            hero_source: String,
+            hero_preview_url: String,
+        }
+    }
+    view(home, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
     Container(
         Column(children: [
             SiteHeader(),
-            HomeHero(),
+            HomeHero(home.hero_source.clone(), home.hero_preview_url.clone()),
             PlatformStrip(),
-            GoalChooser(),
+            GoalChooser(home.tutorials.clone()),
             FeatureSection(),
             ComposeSection(),
-            TutorialGallery(),
+            TutorialGallery(home.tutorials.clone()),
             BrowserCta(),
             SiteFooter(),
         ]),

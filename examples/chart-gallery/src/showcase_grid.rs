@@ -4,7 +4,7 @@ use fission::prelude::*;
 fission_component! {
     #[derive(Default)]
     pub ShowcaseGrid<GalleryState> { children: Vec<Widget>, min_track_width: f32, single_column: bool }
-    |grid, _state, cx| {
+    view(grid, _state, cx) {
         let spacing = &cx.view.env().theme.tokens.spacing;
         let columns = if grid.single_column {
             vec![GridTrack::Fr(1.0)]

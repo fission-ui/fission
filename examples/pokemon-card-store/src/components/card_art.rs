@@ -6,7 +6,7 @@ use fission::prelude::*;
 
 fission_component! {
     pub CardArt<StoreState> { card: Card }
-    |art, _state, cx| {
+    view(art, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
         let typography = &tokens.typography;
     } =>

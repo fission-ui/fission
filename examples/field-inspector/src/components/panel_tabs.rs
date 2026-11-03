@@ -12,7 +12,7 @@ const PANELS: [InspectorPanel; 6] = [
 ];
 fission_component! {
     #[derive(Clone, Copy)] pub InspectorPanelTabs<FieldInspectorState> { compact: bool }
-    |tabs, state, cx| {
+    view(tabs, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
         let selected_index = PANELS.iter().position(|panel| *panel == state.panel).unwrap_or(0);
         let actions = Arc::new(PANELS.iter().map(|panel| with_reducer!(cx.build, SelectPanel(*panel), on_select_panel)).collect::<Vec<_>>());

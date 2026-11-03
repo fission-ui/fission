@@ -13,7 +13,7 @@ const CHARIZARD_PRICE: f32 = 249.00;
 
 fission_component! {
     #[derive(Clone)] pub CartDrawerIsland<BrowserCartState> {}
-    |_component, state, cx| { let tokens = &cx.view.env().theme.tokens; } =>
+    view(_component, state, cx) { let tokens = &cx.view.env().theme.tokens; } =>
         Container(Column(
             gap: tokens.spacing.m,
             children: [
@@ -29,7 +29,7 @@ fission_component! {
 fission_component! {
 /// Whether the island has handled a reducer event yet.
     IslandStatus<BrowserCartState> { count: u32 }
-    |status, _state, cx| {
+    view(status, _state, cx) {
         let typography = &cx.view.env().theme.tokens.typography;
         let colors = &cx.view.env().theme.tokens.colors;
         let text = if status.count == 0 {
@@ -49,7 +49,7 @@ fission_component! {
 fission_component! {
 /// The staged line and item count, in a card outlined in the accent colour.
     IslandCartSummary<BrowserCartState> { count: u32 }
-    |summary, _state, cx| {
+    view(summary, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
         let typography = &tokens.typography;
         let count = summary.count;
@@ -86,7 +86,7 @@ fission_component! {
 fission_component! {
 /// The subtotal and the button that adds another card.
     IslandCheckoutRow<BrowserCartState> { count: u32 }
-    |row, _state, cx| {
+    view(row, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
         let typography = &tokens.typography;
         let subtotal = CHARIZARD_PRICE * row.count as f32;
@@ -143,7 +143,7 @@ fission_component! {
 fission_component! {
 /// Confirms the last update happened in the browser, without a page request.
     IslandLastEvent<BrowserCartState> { count: u32 }
-    |event, _state, cx| {
+    view(event, _state, cx) {
         let typography = &cx.view.env().theme.tokens.typography;
         let text = if event.count == 0 {
             "Ready for client-side cart edits"
@@ -163,7 +163,7 @@ fission_component! {
 /// A zero-size copy of the count, so browser tests can read the number without
 /// parsing a sentence.
     IslandCountProbe<BrowserCartState> { count: u32 }
-    |probe, _state, cx| { let tokens = &cx.view.env().theme.tokens; } =>
+    view(probe, _state, cx) { let tokens = &cx.view.env().theme.tokens; } =>
         Text(probe.count.to_string())
             .size(tokens.spacing.none)
             .line_height(tokens.spacing.none)

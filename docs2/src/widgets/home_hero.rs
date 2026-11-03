@@ -3,24 +3,13 @@ use crate::state::DocsState;
 use crate::widgets::copy;
 use fission::prelude::*;
 
-const HERO_CODE: &str = r#"fission_component! {
-    pub Counter<()> {
-        state { count: i32 = 0 }
-    }
-    view(counter, _state, _cx) =>
-        Button(
-            child: Text(format!(
-                "Clicked {} times",
-                counter.count
-            )),
-            on_press: reduce {
-                counter.count += 1;
-            },
-        )
-}"#;
-
 fission_component! {
-    pub HomeHero<DocsState> {}
+    pub HomeHero<DocsState> {
+        props {
+            source: String,
+            preview_url: String,
+        }
+    }
     view(_hero, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
@@ -47,14 +36,14 @@ fission_component! {
                             SemanticsRegion(
                                 Link::to(
                                     cx.view.env().tr("home.get_started"),
-                                    navigation::COUNTER_TUTORIAL,
+                                    navigation::QUICKSTART,
                                 ),
                                 identifier: Some("home-primary-cta".to_string()),
                             ),
                             SemanticsRegion(
                                 Link::to(
                                     cx.view.env().tr("home.see_action"),
-                                    navigation::SHOWCASE,
+                                    navigation::TRY_IN_BROWSER,
                                 ),
                                 identifier: Some("home-secondary-cta".to_string()),
                             ),
@@ -70,7 +59,7 @@ fission_component! {
                                 identifier: Some("home-hero-code".to_string()),
                                 child: Column(children: [
                                     copy("home.filename").weight(tokens.typography.font_weight_semibold),
-                                    Code(text: HERO_CODE.to_string()),
+                                    Code(text: _hero.source.clone()),
                                 ]),
                             ),
                             SemanticsRegion(
@@ -78,12 +67,22 @@ fission_component! {
                                 child: Column(children: [
                                     Row(children: [copy("site.brand"), Spacer(flex_grow: 1.0), Text("•••")]),
                                     WebView(
-                                        id: WidgetId::explicit("home-live-counter"),
-                                        url: "/tutorials/interactive-counter/increment/?fission_renderer=canvas2d".to_string(),
+                                        id: WidgetId::explicit("home-live-task-workspace"),
+                                        url: _hero.preview_url.clone(),
                                         label: Some(cx.view.env().tr("home.counter_label")),
-                                        height: Some(400.0),
+                                        height: Some(260.0),
                                     ),
                                 ]),
+                            ),
+                            SemanticsRegion(
+                                identifier: Some("home-hero-mobile".to_string()),
+                                label: Some(cx.view.env().tr("home.mobile_preview_label")),
+                                child: WebView(
+                                    id: WidgetId::explicit("home-live-task-workspace-mobile"),
+                                    url: _hero.preview_url.clone(),
+                                    label: Some(cx.view.env().tr("home.mobile_preview_label")),
+                                    height: Some(232.0),
+                                ),
                             ),
                         ],
                     ),

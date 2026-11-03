@@ -6,7 +6,7 @@ const PREVIEW_HEIGHT: f32 = 190.0;
 
 fission_component! {
     pub PreviewShell<AnimationGalleryState> { child: Widget }
-    |shell, _state, cx| {
+    view(shell, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
         Container(shell.child)

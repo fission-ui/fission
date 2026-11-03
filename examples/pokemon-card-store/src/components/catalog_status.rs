@@ -4,7 +4,7 @@ use fission::prelude::*;
 
 fission_component! {
     pub CatalogStatus<StoreState> { snapshot: AsyncSnapshot<CatalogResponse, StoreError> }
-    |status, _state, cx| {
+    view(status, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
         let typography = &tokens.typography;
         let (title, detail, accent) = if let Some(error) = status.snapshot.error() {

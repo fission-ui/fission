@@ -12,7 +12,7 @@ fission_component! {
     #[derive(Clone, Copy, Debug)] pub(crate) PreviewRouter<ShowcaseState> {
         example: ExampleDefinition,
     }
-    |component, _state, _cx| {} =>
+    view(component, _state, _cx) {} =>
         match component.example.slug {
             "animation-gallery" => AnimationGalleryExample(),
             "chart-gallery" => ChartGalleryExample(),

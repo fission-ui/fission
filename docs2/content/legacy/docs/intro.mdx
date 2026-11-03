@@ -1,0 +1,62 @@
+---
+title: Introduction
+description: Understand what Fission owns, what the platform shell owns, and how a product change moves through an application.
+---
+
+# Introduction
+
+Fission is a Rust application platform for building and shipping the same product model through macOS, Windows, Linux, Web, Android, iOS, Terminal, Static site, and SSR hosts.
+
+> **After this page**
+>
+> You should be able to identify what your application owns, what a platform shell owns, and where to look when behaviour is wrong.
+
+## Why Fission calls itself an application platform
+
+A widget library can draw controls, but a production application also needs state management, host capabilities, accessibility, testing, packaging, signing, and release workflows. If those parts follow unrelated models, sharing the interface does not prevent the product from splitting into separate platform implementations.
+
+Fission gives these parts one structure. Application code defines product state and behaviour. Retained widgets describe the current interface. Effects request work outside rendering. A shell connects that shared model to an operating system, browser, terminal, static build, or server request.
+
+> **The practical boundary:** Your product decides what should happen. The shell decides how the current platform hosts and delivers it.
+
+## The application flow
+
+A Fission application uses one-way data flow. Each part has a specific responsibility, which makes changes and failures easier to trace.
+
+1. **State stores product truth.** Plain Rust data holds the durable facts the interface and behaviour depend on.
+2. **Actions name user intent.** A raw click becomes a meaningful request such as save, select, open, close, submit, or retry.
+3. **Reducers change state.** Business rules update the authoritative state through an explicit, testable path.
+4. **Widgets describe the interface.** Retained widgets read state and environment values without performing hidden outside work.
+5. **Shells connect real platforms.** Hosts deliver input, lifecycle, accessibility, rendering, capabilities, and packaged output.
+
+## A product change in concrete terms
+
+Imagine adding “archive conversation” to a mail application. The shared state identifies conversations. An `ArchiveConversation` action names the user’s request. A reducer applies the archive rule. Desktop, Web, and mobile widgets bind the same action to the appropriate control, and shared tests prove the state transition.
+
+The target-specific work is smaller and explicit: desktop may expose a keyboard shortcut, mobile may add a swipe gesture, and Web may ensure browser history remains correct. Those differences do not create three archive implementations.
+
+```rust
+#[derive(Clone, Debug)]
+struct ArchiveConversation {
+    id: ConversationId,
+}
+
+fn archive(state: &mut AppState, action: ArchiveConversation) {
+    state.conversations.archive(action.id);
+}
+```
+
+## How the structure helps when something is wrong
+
+| Symptom | Investigate |
+| --- | --- |
+| The underlying data is wrong | State, the dispatched action, and its reducer |
+| The data is right but the screen is wrong | Widget inputs, resolved layout, semantics, and paint output |
+| Only one target fails | Its shell, provider, lifecycle, and packaging boundary |
+| Work happens at a surprising time | Check that I/O is requested by an effect, job, service, resource, or capability—not component conversion |
+
+## Run the model before learning more terminology
+
+The quickstart creates a small counter application because it exposes the complete loop with very little product code: state, action, reducer, widget, shell, and visible output.
+
+[Continue to Quickstart →](/docs/learn/quickstart/)

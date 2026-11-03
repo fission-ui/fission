@@ -11,7 +11,7 @@ use fission::prelude::*;
 
 fission_component! {
     pub(super) CompositionWorkbench<AnimationGalleryState> { path: String }
-    |workbench, state, cx| {
+    view(workbench, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
         Container(

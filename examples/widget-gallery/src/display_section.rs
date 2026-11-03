@@ -140,7 +140,7 @@ fission_component! {
 
 fission_component! {
     RatioTile<()> { width: f32, ratio: f32, label: &'static str }
-    |tile, _state, cx| { let tokens = &cx.view.env().theme.tokens; } =>
+    view(tile, _state, cx) { let tokens = &cx.view.env().theme.tokens; } =>
     Container(AspectRatio(
         ratio: tile.ratio,
         child: Container(Text(tile.label).color(tokens.colors.text_primary))
@@ -205,7 +205,7 @@ fission_component! {
 
 fission_component! {
     ImageFrame<()> { svg: String, fit: ImageFit, label: &'static str }
-    |frame, _state, cx| {
+    view(frame, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
         let colors = &tokens.colors;
     } =>

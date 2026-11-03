@@ -1,0 +1,24 @@
+---
+title: Build metadata
+description: Understand the stable app, target, package, and release metadata Fission reads from fission.toml.
+---
+
+# Build metadata
+
+`fission.toml` should hold stable facts: app id, app name, version, targets, package identifiers, release tracks, provider references, and paths to long release content.
+
+It should not hold secrets. Credentials belong in environment variables, CI secrets, or local files outside the repository.
+
+## Version fields
+
+App stores reject duplicate version codes or build numbers. Treat version metadata as part of the preflight checklist before upload.
+
+| Platform | Important fields |
+| --- | --- |
+| Android | package id, version name, version code, signing env vars, Play track. |
+| iOS | bundle id, marketing version, build number, signing team, App Store Connect provider. |
+| Windows | package identity, publisher, version, signing certificate reference. |
+| macOS | bundle id, version, signing identity, notarization settings. |
+| Static/SSR | base URL, output path, deployment provider, cache policy. |
+
+Fission commands should surface these as explicit readiness checks and concrete remediation actions, not vague publish failures.

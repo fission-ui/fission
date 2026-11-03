@@ -10,7 +10,7 @@ fission_component! {
         title: String,
         items: Vec<String>,
     }
-    |lane, _state, cx| {
+    view(lane, _state, cx) {
         let identifier = format!("gallery.drag.zone.{}", lane.id);
         // The zone shows one of its idle, active and hover panels at a time. Cards keep the same
         // identity in each, so the card being dragged is not replaced when the panel changes.

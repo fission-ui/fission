@@ -1,0 +1,319 @@
+---
+title: Server caching, jobs, and actions
+description: Use server-side jobs, cache policies, revalidation, sessions, and signed actions in Fission server-rendered apps.
+---
+
+# Server caching, jobs, and actions
+
+Server-rendered Fission routes need a clear data story. A page may be public and reusable, public but reconverted after a short time, or private to one browser session. Fission keeps those decisions explicit through route modes, cache configuration, jobs, and signed action dispatch.
+
+## 1. Choose what may be reused
+
+Start by deciding whether the complete HTML response can be shared between users.
+
+Use `ServerPrivate` for pages that contain a cart, account panel, preferences, permissions, or any other session-specific data:
+
+```rust
+.route_widget_with_state::<StoreState, _, _>(
+    "/",
+    "Pokemon Card Store",
+    Some("A server-rendered storefront.".to_string()),
+    WebRouteMode::ServerPrivate(ServerPrivatePolicy::default()),
+    StoreHomePage,
+    |ctx| Ok(StoreState::for_session(ctx.session.id())),
+)
+```
+
+The session id is opaque. It is safe to use as a key into your own cart service, database session table, or cache entry, but it should not contain user data itself.
+
+Use `Revalidated` when the full page is public and can be reused for a period:
+
+```rust
+WebRouteMode::Revalidated(
+    RevalidationPolicy::new(Duration::from_secs(300))
+        .stale_while_revalidate(Duration::from_secs(60))
+        .tag("catalog")
+        .vary("accept-language"),
+)
+```
+
+Fission includes the normalized query string, app identity, locale, theme fingerprint, build id, and declared `vary` headers in the revalidated page cache key. It does not implicitly vary on every cookie or header, because that would create accidental cache explosion. If a header changes the rendered public page, declare it with `vary`; if a cookie changes the rendered page, make the route private instead.
+
+## 2. Configure the cache provider
+
+The default cache is an in-process Moka cache. It is appropriate for local development, single-process services, and simple deployments.
+
+```toml
+[server.cache]
+provider = "moka"
+max_capacity = 10000
+ttl = "5m"
+stale_while_revalidate = "1m"
+```
+
+## What you should have working
+
+After this guide, you should be able to explain where `Server caching, jobs, and actions` fits in the Fission lifecycle, identify the file or component you changed, run the relevant `fission` command, and verify the result in a real target or test.
+
+## Common mistakes to check
+
+| Symptom | What to check first |
+| --- | --- |
+| The app compiles but nothing changes | Confirm the component is actually used by the route or shell target you are running. |
+| An action fires but state does not update | Confirm the reducer is registered with the same action value that the UI dispatches. |
+| A platform feature reports unsupported | Confirm the target has the capability in `fission.toml` and the shell registered the provider. |
+| The page works on one target but not another | Run `fission doctor`, then inspect target-specific configuration and feature flags. |
+| Tests are hard to write | Split the product rule into a reducer test first, then add a UI or shell smoke test for the integration. |
+
+For multi-process deployments, use Redis or a pipeline. The Redis URL should normally come from an environment variable rather than `fission.toml`.
+
+```toml
+[server.cache]
+provider = "pipeline"
+
+[[server.cache.layers]]
+name = "hot"
+provider = "moka"
+policy = "hot-only"
+max_capacity = 2048
+
+[[server.cache.layers]]
+name = "shared"
+provider = "redis"
+policy = "write-through"
+url_env = "REDIS_URL"
+prefix = "pokemon-store"
+```
+
+Enable Redis through the facade feature in the server app's `Cargo.toml`:
+
+```toml
+[dependencies]
+fission = { version = "0.15.1", features = ["server", "server-redis"] }
+```
+
+## Invalidate cached pages after writes
+
+Route tags are the contract between your app data and the page cache. If changing a post should refresh the blog landing page, the post page, and a topic page, tag those routes with values such as `posts`, `post:<id>`, and `topic:<slug>`.
+
+Application-owned services can use the cache handle directly when they already own the invalidation policy:
+
+```rust
+renderer
+    .cache()
+    .invalidate_tags(&[CacheTag::new("posts"), CacheTag::new("post:hello-world")])?;
+```
+
+Admin and publishing workflows can call the renderer helpers instead:
+
+```rust
+renderer.invalidate_cache_tags(["posts", "post:hello-world"])?;
+```
+
+Both paths return an `InvalidationReport` so the caller can log how many cache keys, tag indexes, and cache layers were affected.
+
+For an external publisher, register a protected invalidation endpoint on the app:
+
+```rust
+let app = FissionServerApp::new("Docs")
+    .cache_invalidation_endpoint(
+        "/admin/cache/invalidate",
+        std::env::var("CACHE_INVALIDATION_TOKEN")?,
+    )
+    .route_widget::<DocsState, _>(
+        "/posts/:slug",
+        "Post",
+        None,
+        WebRouteMode::Revalidated(
+            RevalidationPolicy::new(Duration::from_secs(300))
+                .tags(["posts", "post:hello-world"]),
+        ),
+        PostPage,
+    );
+```
+
+Then the publishing workflow can invalidate related entries without knowing whether the active provider is Moka, Redis, or a cache pipeline:
+
+```bash
+curl -X POST https://example.com/admin/cache/invalidate \
+  -H "Authorization: Bearer $CACHE_INVALIDATION_TOKEN" \
+  -H "Content-Type: application/json" \
+  --data '{"tags":["posts","post:hello-world"]}'
+```
+
+The endpoint also accepts explicit cache keys when a workflow owns the exact key:
+
+```json
+{"tags":["posts"],"keys":["page:/posts/?#app:Docs#..."]}
+```
+
+## 3. Configure sessions before using private routes
+
+`ServerPrivate` routes use a cookie-backed session id. For production HTTPS deployments, sign the cookie value and mark it secure.
+
+```toml
+[server.sessions]
+cookie_name = "shop_session"
+signing_key_env = "SHOP_SESSION_SECRET"
+secure = true
+same_site = "lax"
+```
+
+`signing_key_env` names an environment variable containing the secret. If the cookie value is tampered with, Fission rejects it and creates a new session. The cookie is always `HttpOnly`; `same_site = "none"` is accepted only with `secure = true`.
+
+## 4. Drain jobs before returning HTML
+
+Jobs are server-owned work units that produce data needed by a route. The Pokémon store registers a catalog job:
+
+```rust
+ServerJobRegistry::new().register_job(CATALOG_JOB, |_request, _ctx| {
+    Ok(catalog_response())
+})
+```
+
+A widget requests the job during rendering:
+
+```rust
+let catalog = FutureBuilder::new(
+    ResourceKey::new("pokemon-card-store.catalog"),
+    CATALOG_JOB,
+    CatalogRequest { generation: 1 },
+    view.state().catalog.clone(),
+    CardGrid {
+        snapshot: view.state().catalog.clone(),
+    },
+)
+.on_ok(with_reducer!(ctx, CatalogLoaded, on_catalog_loaded))
+.on_err(with_reducer!(ctx, CatalogFailed, on_catalog_failed))
+.into();
+```
+
+During server rendering, Fission drains registered blocking jobs, dispatches the configured success or error reducer, and renders again until the page settles or `render_pass_limit` is reached. Missing jobs fail the render instead of producing an empty page.
+
+## 5. Use signed action dispatch for mutations
+
+Server actions are HTTP-triggered reducer dispatches. They are signed because the server is accepting an external request and translating it into application state changes.
+
+The safe model is:
+
+1. render a button or form with a typed Fission action;
+2. let the server renderer emit a signed action token scoped to the route, target node, payload, expiry, and nonce;
+3. accept the HTTP request only if the body size, origin policy, signature, expiry, and replay checks pass;
+4. run the reducer on the server;
+5. return either a post/redirect/get response for normal forms or an HTML response for explicit JSON/fetch enhancement.
+
+A typical reducer remains ordinary Fission code:
+
+```rust
+#[fission_reducer(AddToCart)]
+pub fn on_add_to_cart(state: &mut StoreState, slug: String) {
+    if data::card_by_slug(&slug).is_some() {
+        state.cart_items = cart_service().add_item(&state.session_id, &slug).items;
+    }
+}
+```
+
+Do not expose arbitrary Rust functions as HTTP actions. Keep actions narrow and typed. A small action describes what happened; a reducer updates state and can request any follow-up work through jobs or services.
+
+When the action needs values entered after rendering, give its controls and
+submit button one logical form id, then register an explicit typed schema on the
+server app:
+
+```rust
+#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
+struct SearchSubmitted {
+    query: String,
+    archived: bool,
+    #[serde(default)]
+    tag: Vec<String>,
+}
+
+impl Action for SearchSubmitted {
+    fn static_id() -> ActionId {
+        ActionId::from_name("store::SearchSubmitted")
+    }
+}
+
+let schema = ServerFormSchema::new("catalog-search")
+    .field(ServerFormField::text("query").required().max_length(200))
+    .field(ServerFormField::boolean("archived"))
+    .field(ServerFormField::repeated("tag"));
+
+FissionServerApp::new("Store")
+    .form_action::<SearchSubmitted, SearchSubmitted, _>(schema, |form| form)
+    // Add routes after registering the form action.
+```
+
+Set `name` and `form_id` on each `TextInput`, and call
+`.name("archived").form_id("catalog-search")` on a Boolean `Checkbox`.
+Repeated checkbox options share a name and supply distinct values, for example
+`.name("tag").form_id("catalog-search").form_value(tag.slug.clone())`. A
+retained `Select` participates in the same form by setting its `name`,
+`form_id`, and current machine `form_value`; its localized `selected_label`
+remains presentation only. Associate the submit button with
+`.form_id("catalog-search")`. Fission keeps the route,
+target node, action type, expiry, nonce, and form schema inside the signed
+token; submitted controls can only populate the already-authorized action type.
+Unknown fields, duplicate scalar values, invalid booleans, malformed UTF-8 or
+percent encoding, schema violations, oversized bodies, wrong origins, and
+replayed tokens are rejected. Use `ServerFormField::repeated` only where the
+typed action deliberately accepts a sequence.
+
+The signed token also preserves the query values from the request that rendered
+the form. During the action request, Fission restores those verified values to
+`ctx.request.query`; query text supplied on the POST cannot replace them. This
+keeps request context such as OAuth state, PKCE parameters, and a sign-in
+`return_to` value available without copying it into an editable hidden input.
+
+If the action itself already carries trusted context, merge the validated form
+fields into that signed action with `form_action_with_context`:
+
+```rust
+#[derive(serde::Deserialize)]
+struct SearchFields {
+    query: String,
+    archived: bool,
+}
+
+FissionServerApp::new("Store")
+    .form_action_with_context::<SearchFields, SearchSubmitted, _>(
+        schema,
+        |mut signed_action, fields| {
+            signed_action.query = fields.query;
+            signed_action.archived = fields.archived;
+            signed_action
+        },
+    )
+```
+
+The callback receives the verified action payload created during rendering and
+the separately validated browser fields. It must return the same action type;
+the signed action identity, route, target, form schema, and original query
+remain framework-controlled.
+
+## 6. Keep cached pages and actions separate
+
+Do not cache a full page that contains signed server action forms. The action token is request-specific and short lived; putting it into a public revalidated cache would either replay the same token for different users or leave users with expired controls. Fission rejects that combination.
+
+If a catalogue page needs public revalidation and cart controls, use one of these shapes:
+
+| Shape | When to use it |
+| --- | --- |
+| Keep the page `ServerPrivate` | The page is simple and the cart summary is part of the main response. |
+| Split routes | The catalogue is public and the cart lives on a private route or drawer endpoint. |
+| Use a focused island | The main catalogue is reusable and a small Fission WASM island owns cart interaction. |
+
+## 7. Test the threat model
+
+Server routes should have tests for more than happy-path rendering.
+
+| Test area | What to verify |
+| --- | --- |
+| Cache expiry | Fresh entries are reused, stale entries can be reconverted, and invalidation tags clear the right routes. |
+| Cache keys | Query order is normalized and declared vary headers create distinct entries. |
+| Job draining | Missing jobs fail clearly and registered jobs produce the expected page data. |
+| Action signatures | Unsigned, expired, tampered, oversized, wrong-origin, and replayed requests are rejected. |
+| Private data | User-specific data is not cached under a public key. |
+| Generated artifacts | Worker and island artifact declarations produce the expected output paths and are served by the server. |
+
+The server shell has unit and integration tests for these protocol pieces. Your app tests should add product-specific assertions for the data, reducers, and service calls you own.

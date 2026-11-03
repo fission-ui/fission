@@ -5,7 +5,7 @@ use fission::prelude::*;
 
 fission_component! {
     pub LabelValue<AnimationGalleryState> { label: String, value: String }
-    |value, _state, cx| {
+    view(value, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
         Row(

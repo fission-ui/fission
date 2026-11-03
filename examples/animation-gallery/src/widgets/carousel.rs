@@ -38,7 +38,7 @@ fn case() -> GalleryCase {
 
 const SOURCE: &str = r#"fission_component! {
     pub AppCarousel<()> { active_index: usize, slides: Vec<Widget> }
-    |carousel, _state, cx| {} =>
+    view(carousel, _state, cx) {} =>
         Row(
             gap: cx.view.env().theme.tokens.spacing.s,
             children: [

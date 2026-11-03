@@ -92,7 +92,7 @@ fission_component! {
 
 fission_component! {
     ProductImage<ProductBrowserState> { source: String, size: f32 }
-    |image, _state, _cx| {} =>
+    view(image, _state, _cx) {} =>
         Image::network(image.source.clone())
             .size(image.size, image.size)
             .fit(ir_op::ImageFit::Contain)
@@ -100,7 +100,7 @@ fission_component! {
 
 fission_component! {
     ProductCardDetails<ProductBrowserState> { product: Product, compact: bool }
-    |details, _state, cx| {
+    view(details, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
         Column(

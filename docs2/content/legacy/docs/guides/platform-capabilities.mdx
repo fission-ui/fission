@@ -1,0 +1,240 @@
+---
+title: Platform capabilities
+description: Add host-owned features such as camera, notifications, passkeys, Bluetooth, and clipboard to a Fission app.
+---
+
+# Platform capabilities
+
+A capability is how a Fission app asks the host to do something the shared widget tree should not do directly. Camera access, clipboard writes, passkey prompts, NFC scans, notifications, Bluetooth discovery, and microphone capture all depend on operating-system, browser, hardware, or package rules. Fission keeps those rules behind typed host contracts so your reducers stay portable.
+
+By the end of this guide, you will know the full workflow:
+
+1. decide whether the feature belongs in a capability,
+2. declare the capability when native configuration is needed,
+3. add state and reducers for success and failure,
+4. request the capability from a reducer,
+5. register or rely on the host provider,
+6. test the success and error paths,
+7. review platform packaging before release.
+
+## 1. Know the three pieces
+
+A capability is not just one Rust method. Production support has three pieces:
+
+| Piece | What it means | Example |
+| --- | --- | --- |
+| Typed API | The portable Rust request your app emits from a reducer. | `ctx.effects.camera().capture_photo(...)` |
+| Provider | The shell-side implementation that maps the request to the host. | A `CameraHost` that calls the platform camera API. |
+| Packaging configuration | Native metadata that lets the platform allow the feature. | Android `CAMERA`, iOS `NSCameraUsageDescription`, macOS bundle usage text, Windows webcam capability. |
+
+This is what the capability matrix means by "the app or shell still needs a concrete provider and packaging configuration". The Fission crate may expose the typed API, but a real product still needs code in the shell that performs the host operation and native metadata that lets the installed app request the permission. If either piece is missing, the feature should fail clearly: no provider means a typed unsupported error; missing package metadata usually means the operating system or browser denies the request.
+
+## 2. Choose capability vs normal app code
+
+Use a capability when the host owns the work. Use normal app code when the work is your Rust logic. Use a widget when the feature is just UI.
+
+| Need | Use |
+| --- | --- |
+| Show a native notification, scan NFC, open a camera, authenticate with a passkey, read clipboard, scan Bluetooth, capture microphone audio | Capability |
+| Parse a file, call your HTTP API, transform data, run a search over local app data | Job, command, service, or normal Rust helper |
+| Let the user choose files from the host and process them as streams | `PICK_OPEN_FILES` capability, then a job or service |
+| Show an in-app alert, drawer, modal, toast, popover, or validation message | Fission widgets |
+
+A useful test is: if the code needs an OS permission prompt, browser permission, app-store entitlement, hardware SDK, service worker, protocol registration, or platform package metadata, it probably belongs behind a capability.
+
+## 3. Declare the capability when Fission can generate config
+
+Start from your project root:
+
+```bash
+fission add-capability camera --project-dir .
+```
+
+The command updates [`fission.toml`](/reference/config/fission-toml/) and generated target files where the configuration is deterministic. For camera, that means Android camera permission and camera feature entries, plus iOS camera usage text. For features such as passkeys, deep links, notifications, or push, Fission records the capability but cannot safely invent production domains, service identifiers, associated domains, notification categories, or push provider data.
+
+Run a readiness check before you rely on the target:
+
+```bash
+fission readiness package --project-dir . --target android --format apk
+fission readiness package --project-dir . --target ios --format ipa
+```
+
+Readiness does not replace reviewing the generated files. It tells you what is missing early, before the failure happens at release time.
+
+## 4. Add state that tells the truth
+
+Do not store optimistic success. Store the request state, the returned result, and the error you need to explain to the user.
+
+```rust
+#[derive(Default)]
+struct ProfileState {
+    photo_stream: Option<DataStreamId>,
+    camera_error: Option<String>,
+    capturing_photo: bool,
+}
+```
+
+`capturing_photo` lets the UI disable the button while the host owns the camera flow. `photo_stream` stores the returned stream handle. A job or service can consume that stream if the app needs to decode, upload, or preview the image. `camera_error` gives the UI something specific to show when permission is denied, no camera exists, or the host is unsupported.
+
+## 5. Add callback reducers
+
+Capability calls finish later. The reducer that starts the request returns immediately. The runtime later dispatches either the success action or the error action.
+
+```rust
+use fission::prelude::*;
+
+#[fission_reducer(PhotoCaptured)]
+fn on_photo_captured(state: &mut ProfileState, capture: CameraCapture) {
+    state.capturing_photo = false;
+    state.photo_stream = Some(capture.stream);
+    state.camera_error = None;
+}
+
+#[fission_reducer(PhotoCaptureFailed)]
+fn on_photo_capture_failed(state: &mut ProfileState, error: CameraError) {
+    state.capturing_photo = false;
+    state.camera_error = Some(error.message);
+}
+```
+
+Handle the error path with the same seriousness as the success path. Capability errors are often normal outcomes: the user denied permission, the host has no device, the current browser blocks the operation, or the app package is missing a required entitlement.
+
+## 6. Start the host request from the user action
+
+Create a reducer for the user's intent. This reducer sets local state, queues the capability request, and binds the result actions.
+
+```rust
+#[fission_reducer(CaptureProfilePhoto)]
+fn on_capture_profile_photo(state: &mut ProfileState, ctx: &mut ReducerContext<ProfileState>) {
+    state.capturing_photo = true;
+    state.camera_error = None;
+
+    ctx.effects
+        .camera()
+        .capture_photo(CameraCaptureRequest {
+            facing: CameraFacing::Back,
+            resolution: Some(CameraResolution { width: 1280, height: 720 }),
+            format: CameraImageFormat::Jpeg,
+            flash: CameraFlashMode::Auto,
+            quality: Some(90),
+            ..Default::default()
+        })
+        .on_ok(ctx.effects.bind(
+            PhotoCaptured(CameraCapture::default()),
+            reduce_with!(on_photo_captured),
+        ))
+        .on_err(ctx.effects.bind(
+            PhotoCaptureFailed(CameraError::default()),
+            reduce_with!(on_photo_capture_failed),
+        ));
+}
+```
+
+The reducer does not call a camera library. It records a typed request. The active shell resolves that request after the reducer returns.
+
+## 7. Wire the UI to the reducer
+
+Use the normal Fission action binding from a widget.
+
+```rust
+
+
+fission_component!
+{
+    pub CapturePhotoButton<ProfileState> {
+    }
+    view(component, _state, _cx) => rust {
+        let (ctx, view) = fission::build::current::<ProfileState>();
+                let capture = with_reducer!(ctx, CaptureProfilePhoto, on_capture_profile_photo);
+
+                Button::new(if view.state().capturing_photo { "Capturing..." } else { "Take photo" })
+                    .disabled(view.state().capturing_photo)
+                    .on_press(capture)
+                    .into()
+    }
+}
+```
+This keeps the UI readable. The widget describes what the user can do. The reducer describes what should happen. The provider describes how the host performs it.
+
+## 8. Register a provider when the default host is not enough
+
+Fission shells expose provider registration methods. Tests commonly use memory providers:
+
+```rust
+let app = DesktopApp::new(ProfileApp)
+    .with_camera_host(MemoryCameraHost::default())
+    .with_clipboard_host(MemoryClipboardHost::default())
+    .with_notification_host(MemoryNotificationHost);
+```
+
+Production shells should install real providers for the targets they support. If a provider is not registered, the default behavior must be explicit unsupported errors. Silent success is worse than failure because it lets the UI claim something happened when the host never did it.
+
+The provider boundary is also where platform-specific code belongs. A Windows notification provider, an Android camera provider, a web passkey provider, and a macOS clipboard provider can all satisfy the same typed Fission contract while using different host APIs internally.
+
+File picking follows the same rule. The portable app code uses `PICK_OPEN_FILES`; the host provider chooses the native picker and returns `PickedFile` metadata plus `DataStreamId` handles. The app then consumes those streams in jobs or services. See [How do I do file uploads in Fission?](/docs/guides/file-uploads/) for the full flow.
+
+## 9. Test the feature before testing the device
+
+Start with reducer and memory-host tests. The first test should prove your reducer queues the right effect and updates state on success. The second should prove the error path updates state correctly.
+
+```rust
+#[test]
+fn photo_failure_is_visible_to_the_ui() {
+    let mut state = ProfileState::default();
+
+    on_photo_capture_failed(
+        &mut state,
+        CameraError::new("permission_denied", "The user denied camera access"),
+    );
+
+    assert!(!state.capturing_photo);
+    assert_eq!(state.camera_error.as_deref(), Some("The user denied camera access"));
+}
+```
+
+After reducer tests pass, add a runtime or shell smoke test for the target. Device tests should cover the real permission prompt, denied permission, no-device hardware, cancellation, and the successful path.
+
+## Built-in capability guide map
+
+| Feature | CLI value | Start here | Reference |
+| --- | --- | --- | --- |
+| File picker and uploads | no generated config | [File uploads](/docs/guides/file-uploads/) | [Resources and capabilities](/reference/core/resources-and-capabilities/) |
+| Files and directories | `filesystem` | [File system](/docs/capabilities/file-system/) | [API](/reference/capabilities/file-system/) |
+| Notifications | shell setup | [Notifications](/docs/capabilities/notifications/) | [API](/reference/capabilities/notifications/) |
+| Deep links | shell setup | [Deep links](/docs/capabilities/deep-links/) | [API](/reference/capabilities/deep-links/) |
+| NFC | `nfc` | [NFC](/docs/capabilities/nfc/) | [API](/reference/capabilities/nfc/) |
+| Biometrics | `biometric` | [Biometrics](/docs/capabilities/biometrics/) | [API](/reference/capabilities/biometrics/) |
+| Passkeys | `passkeys` | [Passkeys](/docs/capabilities/passkeys/) | [API](/reference/capabilities/passkeys/) |
+| Barcode scanner | `barcode-scanner` | [Barcode scanner](/docs/capabilities/barcode-scanner/) | [API](/reference/capabilities/barcode-scanner/) |
+| Camera and flashlight | `camera` | [Camera and flashlight](/docs/capabilities/camera/) | [API](/reference/capabilities/camera/) |
+| Clipboard | no generated config | [Clipboard](/docs/capabilities/clipboard/) | [API](/reference/capabilities/clipboard/) |
+| Geolocation | `geolocation` | [Geolocation](/docs/capabilities/geolocation/) | [API](/reference/capabilities/geolocation/) |
+| Haptics | `haptics` | [Haptics](/docs/capabilities/haptics/) | [API](/reference/capabilities/haptics/) |
+| Microphone | `microphone` | [Microphone](/docs/capabilities/microphone/) | [API](/reference/capabilities/microphone/) |
+| Bluetooth | `bluetooth` | [Bluetooth](/docs/capabilities/bluetooth/) | [API](/reference/capabilities/bluetooth/) |
+| Wi-Fi | `wifi` | [Wi-Fi](/docs/capabilities/wifi/) | [API](/reference/capabilities/wifi/) |
+| Volume control | `volume-control` | [Volume control](/docs/capabilities/volume-control/) | [API](/reference/capabilities/volume-control/) |
+
+## Custom capabilities
+
+You can add app-specific capabilities without changing Fission core. Define an `OperationCapability`, give it a stable reverse-DNS name, register a provider in the shell, and keep platform configuration explicit in your project files.
+
+Use a custom capability for product-specific host work such as enterprise device enrollment, a payment handoff, a native file provider, or hardware that Fission does not ship as a built-in feature. Do not use one for normal app logic that can run as a job, command, service, or plain Rust function.
+
+## Where to go next
+
+Read [Resources and async](/docs/guides/resources-and-async/) to understand how effects return results. Use the [Capability matrix](/docs/capabilities/matrix/) to compare target support. Use [Platform capabilities reference](/reference/core/platform-capabilities/) when you need exact operation and configuration names.
+
+## What you should have working
+
+After this guide, you should be able to explain where `Platform capabilities` fits in the Fission lifecycle, identify the file or component you changed, run the relevant `fission` command, and verify the result in a real target or test.
+
+## Common mistakes to check
+
+| Symptom | What to check first |
+| --- | --- |
+| The app compiles but nothing changes | Confirm the component is actually used by the route or shell target you are running. |
+| An action fires but state does not update | Confirm the reducer is registered with the same action value that the UI dispatches. |
+| A platform feature reports unsupported | Confirm the target has the capability in `fission.toml` and the shell registered the provider. |
+| The page works on one target but not another | Run `fission doctor`, then inspect target-specific configuration and feature flags. |
+| Tests are hard to write | Split the product rule into a reducer test first, then add a UI or shell smoke test for the integration. |

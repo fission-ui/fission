@@ -120,9 +120,10 @@ tree.
 - Use `fission_component!` as the default authoring API. Its `props` block
   declares parent inputs, its `state` block declares retained component state,
   and its `view` expression composes imported core or third-party widgets.
-- Use a concrete widget struct with `From<YourWidget> for Widget` when building
-  low-level rendering infrastructure or when Compose cannot express the
-  required integration.
+- Keep app-level user interface inside named `fission_component!` components.
+  When a feature needs low-level rendering infrastructure, encapsulate the
+  infrastructure in a reusable component and keep product state and actions
+  visible in that component's `view` and state scope.
 - Add semantics to every interactive widget and to semantic regions where they
   improve navigation, testing, or accessibility.
 - In handwritten widget structs, use `#[with_local_state]` for retained local
@@ -168,11 +169,10 @@ fission_component! {
 }
 ```
 
-For a handwritten retained-state widget, use `#[with_local_state]` and
-`#[local_state(...)]`, then implement `From<YourWidget> for Widget`. Use
-`fission::build::current::<()>()` only when that widget is intentionally
-state-agnostic. Use the concrete app state type when it reads `GlobalState`,
-environment values tied to that app, or binds reducers that update app state.
+Use a Compose component's `state` block for retained interface memory and
+`GlobalState` for durable product data. In `view(component, state, cx)`, use the
+concrete app state type when the component reads product data or binds app
+reducers; use `()` only for state-independent components.
 
 ## State, Reducers, Routing and Runtime Data
 
@@ -312,20 +312,18 @@ fn main() -> anyhow::Result<()> {
 }
 ```
 
-Inside widgets, read colors, spacing, typography, radii, and component styling
-from `view.env().theme`:
+Inside components, read colors, spacing, typography, radii, and component
+styling from `cx.view.env().theme`:
 
 ```rust
-impl From<App> for Widget {
-    fn from(_app: App) -> Widget {
-        let (_ctx, view) = fission::build::current::<AppState>();
-        let tokens = &view.env().theme.tokens;
-
-        Container::new(Text::new("Dashboard"))
-            .bg(tokens.colors.background)
-            .padding_all(tokens.spacing.xl)
-            .into()
-    }
+fission_component! {
+    pub Dashboard<AppState> {}
+    view(_dashboard, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Container(Text("Dashboard"))
+        .bg(tokens.colors.background)
+        .padding_all(tokens.spacing.xl)
 }
 ```
 

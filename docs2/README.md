@@ -1,17 +1,10 @@
-# Fission documentation prototype
+# Fission website and tutorials
 
-`docs2` is the isolated, Compose-first implementation of Fission's new
-goal-oriented documentation site. It currently contains the proposed homepage
-and one learning goal so the information architecture, responsive layout, and
-interactive tutorial experience can be reviewed before the existing site is
-migrated.
+`docs2` is the Compose-first Fission website. The marketing pages, documentation
+hub, tutorial index, and tutorial screens use `fission_component!`; reference
+pages and guides are Markdown content rendered by the Fission site template.
 
-The documentation-specific parser lives in this crate. It does not extend or
-special-case Fission's Static site framework. `FissionSite` registers the
-homepage and goal routes, while the pages themselves are written with
-`fission_component!` and ordinary public Fission widgets.
-
-## Preview
+## Run the site locally
 
 From the Fission workspace root:
 
@@ -19,42 +12,40 @@ From the Fission workspace root:
 fission site serve --project-dir docs2
 ```
 
-Before Fission renders the site, the command extracts each complete
-`fission:file` block from the goal document and compiles every cumulative step
-as a Web app. A broken tutorial therefore fails the site build rather than
-publishing code that cannot run. Generated tutorial projects and Web assets are
-ignored by Git.
+The command first extracts each tutorial's complete source files and builds the
+Web previews as WASM. A tutorial with invalid Rust fails the build instead of
+showing a preview that does not match its code. Install `wasm-pack` to build the
+previews.
 
-## Goal documents
+## Tutorial authoring
 
-Goal pages live in `content/goals`. Their frontmatter supplies routing and
-learning metadata. The body uses four documentation-specific markers:
+Goal tutorials are Markdown files under `content/goals`. Their frontmatter
+defines SEO metadata, a canonical route, prerequisites, outcomes, and ordering.
+Use the content markers to define the runnable application:
 
-- `fission:step id="..."` opens a cumulative tutorial stage.
-- `fission:file path="..."` makes the following fenced block a complete file.
-- `fission:preview` marks where the compiled result belongs conceptually.
-- `fission:checkpoint` contains the behaviour the learner should verify.
+- `fission:step` creates a cumulative tutorial step.
+- `fission:file` marks a complete source file extracted for that step.
+- `fission:preview` places the compiled Web app beside the step's explanation.
+- `fission:checkpoint` gives the learner an observable result to verify.
 
-Ordinary fenced code is explanatory only. A step inherits files from preceding
-steps and replaces any complete file it declares again.
+Each later step inherits files from earlier steps and replaces files it declares
+again. Author app UI with `fission_component!`; put durable product data in
+`GlobalState`, local interaction state in the owning component, and asynchronous
+work in an effect, job, service, capability, or resource.
 
-## Application structure
+## Site structure
 
-- `src/app.rs` configures the Static site, routes, metadata, theme and locale.
-- `src/screens` owns route-level composition.
-- `src/widgets` contains small semantic Compose components.
-- `src/content.rs` parses the documentation-specific frontmatter and markers.
-- `src/tutorials.rs` extracts and compiles the interactive Web applications.
-- `design` and `i18n` are the checked-in design-system and translation sources.
+- `src/app.rs` configures routes, SEO metadata, structured data, theme, and locale.
+- `src/screens` composes the homepage, documentation hub, tutorials, and goal pages.
+- `src/widgets` contains reusable site components.
+- `src/content.rs` parses tutorial frontmatter and step markers.
+- `src/tutorials.rs` extracts tutorial source and builds its Web previews.
+- `content/legacy/docs` preserves the previous documentation URLs.
+- `content/reference` contains the reference section under the new menu structure.
+- `content/compose` explains the recommended authoring API.
+- `design` and `i18n` contain checked-in design-system and translation sources.
 
-## Design references
-
-The visual review source files are kept alongside the implementation:
-
-- `design/reference/homepage-seo-v2.png` — search-focused homepage.
-- `design/reference/documentation-hub.png` — goal-oriented documentation hub.
-- `design/reference/tutorial-login-flow.png` — interactive tutorial page layout.
-
-The executable entrypoint only validates tutorial applications and hands the
-configured site to Fission. Page composition, content parsing and build work do
-not leak into `main.rs`.
+Visual review references are in `design/reference`: the SEO homepage, the
+documentation hub, and the tutorial page. `examples/visual_review.rs` provides a
+LiveTest browser controller for inspecting real rendered routes at desktop and
+mobile sizes.

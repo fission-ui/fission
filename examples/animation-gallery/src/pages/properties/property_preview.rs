@@ -11,7 +11,7 @@ const PREVIEW_HEIGHT: f32 = 220.0;
 
 fission_component! {
     pub(super) PropertyPreview<AnimationGalleryState> { property: PropertyCase }
-    |preview, state, cx| {
+    view(preview, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
         Container(
@@ -35,7 +35,7 @@ fission_component! {
 
 fission_component! {
     PropertyDemo<AnimationGalleryState> { property: PropertyCase }
-    |demo, _state, cx| {
+    view(demo, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
         Container(

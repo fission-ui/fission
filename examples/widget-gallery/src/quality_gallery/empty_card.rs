@@ -7,7 +7,7 @@ fn add_quality_device(_state: &mut GalleryState) {}
 
 fission_component! {
     TrustedDevicesEmpty<GalleryState> { compact: bool }
-    |empty, _state, cx| {} =>
+    view(empty, _state, cx) {} =>
         Container(EmptyState(
             icon: Some(Icon::svg(material::hardware::laptop::regular()).into()),
             title: "No trusted devices".to_string(),
@@ -26,7 +26,7 @@ fission_component! {
 
 fission_component! {
     pub(super) TrustedDevicesCard<GalleryState> { compact: bool }
-    |card, _state, _cx| {} =>
+    view(card, _state, _cx) {} =>
         CardLayout::new()
             .content(CardContent::new(TrustedDevicesEmpty::new(card.compact)))
             .size(ComponentSize::Sm)

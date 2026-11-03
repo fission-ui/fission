@@ -1,0 +1,58 @@
+---
+title: Notifications
+description: Reference for the notifications capability API, provider contract, operations, and platform configuration.
+---
+
+# Notifications
+
+Notifications are for information that should reach the user outside the currently visible Fission view. A completed export, a missed message, or a scheduled reminder belongs here. A validation message inside the current screen usually does not; use `Toast`, `Modal`, or another Fission overlay for in-app feedback.
+
+This reference is for the exact API shape. If you are wiring the feature into an app for the first time, start with the [Notifications guide](/docs/capabilities/notifications/), then return here when you need operation names, request types, provider contracts, or platform configuration details.
+
+## Public API
+
+| Item | Value |
+| --- | --- |
+| Effect helper or entrypoint | `ctx.effects.notifications()` |
+| Provider trait or host contract | `NotificationHost` |
+| Test provider or test entrypoint | `MemoryNotificationHost` |
+| Primary request types | `NotificationRequest / NotificationPermissionRequest / PushRegistrationRequest` |
+| Primary success types | `NotificationReceipt / NotificationSettings / PushRegistration` |
+| Error type | `NotificationError` |
+| CLI value | `shell setup` |
+
+## Operations
+
+| Method or operation | Purpose | Request | Success |
+| --- | --- | --- | --- |
+| `request_permission` | Ask the host to show the platform permission prompt. | `NotificationPermissionRequest` | `NotificationSettings` |
+| `settings` | Read current alert, badge, sound, schedule, and push settings without prompting. | `()` | `NotificationSettings` |
+| `show` | Show an immediate local notification. | `NotificationRequest` | `NotificationReceipt` |
+| `schedule` | Schedule a future local notification. | `NotificationRequest` | `NotificationReceipt` |
+| `cancel` | Cancel one notification by stable id. | `CancelNotificationRequest` | `()` |
+| `cancel_all` | Clear all app-owned notifications where the host supports it. | `()` | `()` |
+| `set_badge_count` | Set or clear the app badge count. | `SetBadgeCountRequest` | `()` |
+| `register_push` | Register for remote push delivery. | `PushRegistrationRequest` | `PushRegistration` |
+| `unregister_push` | Remove the host push registration. | `()` | `()` |
+
+## Provider contract
+
+Register a `NotificationHost` with `.with_notification_host(...)` in shells that provide real notifications, or use `MemoryNotificationHost` in tests. If the host cannot show, schedule, badge, or register push, it must return `NotificationError` instead of pretending delivery happened.
+
+Providers should return typed errors for unsupported operations, denied permissions, unavailable hardware, cancellation, timeouts, and platform policy restrictions. Silent success is not acceptable because reducers need a truthful result to update state and explain what happened.
+
+## Platform configuration
+
+Notifications are declared through shell setup because the product owns notification categories, push identifiers, service-worker files, action ids, and deep-link routes. Fission cannot invent those values safely. Mobile targets need permission prompts. Web push usually needs a service worker and secure origin. Desktop targets need the host provider and, for packaged apps, platform-specific notification metadata where the operating system or store requires it.
+
+When a CLI value exists, `fission add-capability <value> --project-dir .` records the capability in [`fission.toml`](/reference/config/fission-toml/) and updates generated target files where Fission can do that deterministically. Android generated configuration lives in `platforms/android/AndroidManifest.xml`. iOS generated configuration lives in `platforms/ios/Info.plist` and `platforms/ios/Entitlements.plist` when entitlements are required. Desktop package metadata is reviewed during packaging because Windows, macOS, and Linux use different permission and distribution systems.
+
+## Runtime behavior
+
+Capability calls are queued from reducers through `ctx.effects`. The active shell resolves the request with the registered provider and then dispatches the configured success or error action. Missing providers should produce typed unsupported errors. Packaging mistakes usually show up as denied permissions, missing entitlements, missing route registration, or provider-specific failures.
+
+## Related pages
+
+- [Notifications guide](/docs/capabilities/notifications/)
+- [Capability matrix](/docs/capabilities/matrix/)
+- [Platform capabilities reference](/reference/core/platform-capabilities/)

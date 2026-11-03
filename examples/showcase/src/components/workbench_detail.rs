@@ -7,7 +7,7 @@ fission_component! {
     #[derive(Clone, Copy, Debug)] pub(super) WorkbenchDetail<ShowcaseState> {
         example: ExampleDefinition,
     }
-    |component, _state, cx| { let tokens = &cx.view.env().theme.tokens; } =>
+    view(component, _state, cx) { let tokens = &cx.view.env().theme.tokens; } =>
         Column(
             children: [
                 Container(WorkbenchHeader(component.example))

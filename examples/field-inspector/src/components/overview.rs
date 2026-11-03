@@ -11,7 +11,7 @@ const OVERVIEW_EXPANDED_BREAKPOINT: f32 = 760.0;
 const METRIC_MIN_WIDTH: f32 = 160.0;
 fission_component! {
     pub OverviewPanel<FieldInspectorState> {}
-    |_panel, state, cx| {
+    view(_panel, state, cx) {
         let order = state.selected_order();
         let weather_snapshot = state.weather.clone();
         let spacing = &cx.view.env().theme.tokens.spacing;

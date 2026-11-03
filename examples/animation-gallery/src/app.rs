@@ -7,7 +7,7 @@ use fission::DesktopApp;
 
 fission_component! {
     pub AnimationGalleryApp<AnimationGalleryState>
-    |_app, _state, _cx| =>
+    view(_app, _state, _cx) =>
     Container(AppShell())
     .bg(style::background())
 }

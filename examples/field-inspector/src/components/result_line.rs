@@ -3,7 +3,7 @@ use crate::model::{CapabilityState, FieldInspectorState};
 use fission::prelude::*;
 fission_component! {
     pub ResultLine<FieldInspectorState> { label: &'static str, value: Option<String>, matched: bool }
-    |result, _state, cx| { let tokens = &cx.view.env().theme.tokens; let typography = &tokens.typography; } =>
+    view(result, _state, cx) { let tokens = &cx.view.env().theme.tokens; let typography = &tokens.typography; } =>
         SoftPanel(Row(
             gap: tokens.spacing.s,
             children: [

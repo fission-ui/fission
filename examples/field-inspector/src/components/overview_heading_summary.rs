@@ -4,7 +4,7 @@ use fission::prelude::*;
 
 fission_component! {
     pub OverviewHeadingSummary<FieldInspectorState> {}
-    |_summary, state, cx| {
+    view(_summary, state, cx) {
         let order = state.selected_order();
     } =>
         Column(

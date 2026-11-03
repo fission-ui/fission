@@ -6,7 +6,7 @@ use crate::model::{CapabilityState, FieldInspectorState};
 use fission::prelude::*;
 fission_component! {
     pub WeatherCard<FieldInspectorState> { snapshot: AsyncSnapshot<WeatherSummary, ApiError> }
-    |card, _state, cx| {
+    view(card, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
         PanelCard(Column(

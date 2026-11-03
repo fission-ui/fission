@@ -24,7 +24,7 @@ fission_component! {
 /// the toolbar above the preview, which keeps that toolbar to one row. Search
 /// lives at the top of the catalog it filters.
     #[derive(Clone, Debug)] pub(crate) AppHeader<ShowcaseState> {}
-    |_component, _state, cx| {
+    view(_component, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
         Container(Row(
@@ -68,7 +68,7 @@ fission_component! {
 /// Keeps the `showcase.preview.locale` identifier the toolbar control used, so
 /// automation that switches language still finds it.
     #[derive(Clone, Copy, Debug)] LocalePicker<ShowcaseState> {}
-    |_component, state, cx| {
+    view(_component, state, cx) {
         let items: Vec<SelectItem> = LOCALES
             .iter()
             .map(|(code, name)| SelectItem {

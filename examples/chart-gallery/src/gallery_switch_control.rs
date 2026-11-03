@@ -4,7 +4,7 @@ use fission::prelude::*;
 
 fission_component! {
     pub GallerySwitchControl<GalleryState> { label: &'static str, checked: bool, action: ActionEnvelope, identifier: String }
-    |control, _state, cx| {
+    view(control, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
         Row(

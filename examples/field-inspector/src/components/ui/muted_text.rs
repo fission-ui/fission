@@ -3,7 +3,7 @@ use fission::prelude::*;
 
 fission_component! {
     pub MutedText<FieldInspectorState> { text: String }
-    |text, _state, cx| {
+    view(text, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
         let typography = &tokens.typography;
     } =>

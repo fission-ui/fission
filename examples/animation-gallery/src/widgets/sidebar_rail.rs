@@ -8,7 +8,7 @@ const RAIL_HEIGHT: f32 = 118.0;
 
 fission_component! {
     pub(super) SidebarRail<AnimationGalleryState> { width_progress: f32 }
-    |rail, _state, cx| {
+    view(rail, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
         Container(

@@ -7,7 +7,7 @@ use fission::widgets::EmptyState;
 
 fission_component! {
     #[derive(Clone, Debug)] pub(crate) CatalogPanel<ShowcaseState> { selected_slug: String }
-    |component, state, cx| {
+    view(component, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
         let query = state.search.trim().to_lowercase();
         let mut sections = Vec::new();

@@ -31,9 +31,9 @@ cargo test -p compose-example
 
 Start with `src/lib.rs`, then follow the route components into their feature
 modules. Imported built-in and application widgets use the same Compose syntax;
-there is no registration table or Compose-specific widget catalogue. Low-level
-custom widgets can still implement `From<YourWidget> for Widget` and participate
-in the same tree.
+there is no registration table or Compose-specific widget catalogue. Keep
+app-authored screens and reusable UI in named `fission_component!` components,
+and compose the existing Fission widgets directly inside their views.
 
 The public guide at [fission.rs/compose](https://fission.rs/compose/) explains
 the syntax and the boundary between inline component behaviour, reusable

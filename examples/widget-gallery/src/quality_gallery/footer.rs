@@ -16,7 +16,7 @@ fn close_quality_modal(state: &mut GalleryState) {
 
 fission_component! {
     pub(super) QualityFooter<GalleryState> { compact: bool }
-    |footer, state, cx| {
+    view(footer, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
         let close_modal = with_reducer!(cx.build, CloseQualityModal, close_quality_modal);
     } =>
@@ -91,7 +91,7 @@ fission_component! {
 
 fission_component! {
     SessionDeviceSummary<()> {}
-    |_summary, _state, cx| { let tokens = &cx.view.env().theme.tokens; } =>
+    view(_summary, _state, cx) { let tokens = &cx.view.env().theme.tokens; } =>
         Container(Row(
             gap: tokens.spacing.s + tokens.spacing.xs,
             children: [

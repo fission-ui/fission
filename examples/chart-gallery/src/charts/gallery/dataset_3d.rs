@@ -8,7 +8,7 @@ use fission::three_d::{Point3D, Primitive3D, Scene3D};
 
 fission_component! {
     pub(super) Dataset3dChart<GalleryState> { chart: usize, scale: f32 }
-    |selection, _state, cx| {} => (|| -> Widget {
+    view(selection, _state, cx) {} => (|| -> Widget {
         let chart = selection.chart;
         let s = selection.scale;
 

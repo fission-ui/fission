@@ -12,6 +12,7 @@ pub struct GoalMeta {
     pub order: u32,
     pub difficulty: String,
     pub duration: String,
+    pub run_command: String,
     pub app: String,
     pub prerequisites: Vec<String>,
     pub outcomes: Vec<String>,
@@ -23,6 +24,7 @@ pub struct GoalStep {
     pub id: String,
     pub title: String,
     pub markdown: String,
+    pub preview: bool,
     pub checkpoint: Option<String>,
     pub files: BTreeMap<String, String>,
 }
@@ -45,6 +47,71 @@ pub fn load_goal(path: impl AsRef<Path>) -> Result<GoalDocument> {
     let source = fs::read_to_string(path)
         .with_context(|| format!("failed to read goal document {}", path.display()))?;
     parse_goal(&source).with_context(|| format!("invalid goal document {}", path.display()))
+}
+
+pub fn load_goals(directory: impl AsRef<Path>) -> Result<Vec<GoalDocument>> {
+    let directory = directory.as_ref();
+    let mut pending = vec![directory.to_path_buf()];
+    let mut documents = Vec::new();
+
+    while let Some(current) = pending.pop() {
+        let entries = fs::read_dir(&current).with_context(|| {
+            format!(
+                "failed to read goal content directory {}",
+                current.display()
+            )
+        })?;
+        let mut paths = entries
+            .map(|entry| entry.map(|entry| entry.path()))
+            .collect::<std::io::Result<Vec<_>>>()?;
+        paths.sort();
+
+        for path in paths.into_iter().rev() {
+            if path.is_dir() {
+                pending.push(path);
+            } else if path.extension().and_then(|value| value.to_str()) == Some("mdx") {
+                documents.push(load_goal(path)?);
+            }
+        }
+    }
+
+    documents.sort_by(|left, right| {
+        left.meta
+            .order
+            .cmp(&right.meta.order)
+            .then_with(|| left.meta.path.cmp(&right.meta.path))
+    });
+    if documents.is_empty() {
+        bail!(
+            "goal content directory {} contains no .mdx tutorials",
+            directory.display()
+        );
+    }
+    validate_goal_collection(&documents)?;
+    Ok(documents)
+}
+
+fn validate_goal_collection(documents: &[GoalDocument]) -> Result<()> {
+    let mut routes = BTreeMap::<String, String>::new();
+    let mut apps = BTreeMap::<String, String>::new();
+
+    for document in documents {
+        let title = &document.meta.title;
+        if let Some(previous) = apps.insert(document.meta.app.clone(), title.clone()) {
+            bail!(
+                "tutorial app slug `{}` is shared by `{previous}` and `{title}`",
+                document.meta.app
+            );
+        }
+
+        for route in std::iter::once(&document.meta.path).chain(document.meta.aliases.iter()) {
+            if let Some(previous) = routes.insert(route.clone(), title.clone()) {
+                bail!("tutorial route `{route}` is shared by `{previous}` and `{title}`");
+            }
+        }
+    }
+
+    Ok(())
 }
 
 pub fn parse_goal(source: &str) -> Result<GoalDocument> {
@@ -101,7 +168,7 @@ fn parse_frontmatter(source: &str) -> Result<GoalMeta> {
         let value = value.trim();
         match key.as_str() {
             "layout" | "title" | "description" | "goal" | "path" | "order" | "difficulty"
-            | "duration" | "app" => {
+            | "duration" | "run_command" | "app" => {
                 if value.is_empty() {
                     bail!("frontmatter field `{key}` requires a value");
                 }
@@ -159,6 +226,7 @@ fn parse_frontmatter(source: &str) -> Result<GoalMeta> {
         order,
         difficulty: required("difficulty")?,
         duration: required("duration")?,
+        run_command: required("run_command")?,
         app,
         prerequisites: lists.remove("prerequisites").unwrap_or_default(),
         outcomes: lists.remove("outcomes").unwrap_or_default(),
@@ -172,12 +240,19 @@ fn parse_steps(body: &str) -> Result<(String, Vec<GoalStep>)> {
     let first = body.find(STEP_OPEN).unwrap_or(body.len());
     let introduction = body[..first].trim().to_string();
     let mut remaining = &body[first..];
-    let mut steps = Vec::new();
+    let mut steps: Vec<GoalStep> = Vec::new();
 
     while !remaining.trim().is_empty() {
-        let start = remaining
-            .find(STEP_OPEN)
-            .context("content outside a fission:step is not allowed after the first step")?;
+        let Some(start) = remaining.find(STEP_OPEN) else {
+            if let Some(last) = steps.last_mut() {
+                let trailing = remaining.trim();
+                if !trailing.is_empty() {
+                    last.markdown.push_str("\n\n");
+                    last.markdown.push_str(trailing);
+                }
+            }
+            break;
+        };
         if !remaining[..start].trim().is_empty() {
             bail!("content outside a fission:step is not allowed after the first step");
         }
@@ -221,6 +296,10 @@ fn parse_step(id: String, source: &str) -> Result<GoalStep> {
         "<!-- /fission:checkpoint -->",
     )?
     .map(|value| value.trim().to_string());
+    let preview_count = source.matches("<!-- fission:preview -->").count();
+    if preview_count > 1 {
+        bail!("step `{id}` can contain at most one fission:preview marker");
+    }
     let visible = strip_control_markers(source);
     let mut removed_title = false;
     let markdown = visible
@@ -241,6 +320,7 @@ fn parse_step(id: String, source: &str) -> Result<GoalStep> {
         id,
         title,
         markdown,
+        preview: preview_count == 1,
         checkpoint,
         files,
     })
@@ -345,21 +425,41 @@ mod tests {
 
     #[test]
     fn parses_goal_steps_and_complete_files() {
-        let document =
-            parse_goal(include_str!("../content/goals/interactive-counter.mdx")).unwrap();
-        assert_eq!(document.meta.app, "interactive-counter");
-        assert_eq!(document.steps.len(), 2);
+        let document = parse_goal(include_str!(
+            "../content/goals/single-page-web-app-rust.mdx"
+        ))
+        .unwrap();
+        assert_eq!(document.meta.app, "single-page-web-app-rust");
+        assert_eq!(document.steps.len(), 3);
+        assert!(document.steps.iter().all(|step| step.preview));
         assert!(!document.steps[0].markdown.starts_with("## "));
-        assert!(document.steps[1].files["src/lib.rs"].contains("on_press: reduce"));
+        assert!(document.steps[1].files["src/app.rs"].contains("on_press: reduce"));
+        assert!(document.steps[2]
+            .markdown
+            .contains("Run, test and build the finished project"));
     }
 
     #[test]
     fn rejects_unknown_frontmatter() {
-        let source = include_str!("../content/goals/interactive-counter.mdx")
-            .replace("order: 1", "order: 1\nmagic: true");
+        let source = include_str!("../content/goals/single-page-web-app-rust.mdx")
+            .replace("order: 16", "order: 16\nmagic: true");
         assert!(parse_goal(&source)
             .unwrap_err()
             .to_string()
             .contains("unknown goal frontmatter"));
+    }
+
+    #[test]
+    fn loads_all_goal_documents_in_stable_order() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("content/goals");
+        let goals = load_goals(root).unwrap();
+
+        assert_eq!(goals.len(), 16);
+        assert_eq!(goals[0].meta.order, 1);
+        assert_eq!(
+            goals[0].meta.path,
+            "/blog/build-a-rust-website-with-dropdown-navigation/"
+        );
+        assert_eq!(goals[15].meta.order, 16);
     }
 }

@@ -6,7 +6,7 @@ use crate::model::{
 use fission::prelude::*;
 fission_component! {
     pub EvidenceControls<FieldInspectorState> {}
-    |_controls, state, cx| {
+    view(_controls, state, cx) {
         let capture = with_reducer!(cx.build, CaptureEvidencePhoto, on_capture_evidence_photo);
         let torch = with_reducer!(cx.build, ToggleTorch, on_toggle_torch);
         let record = with_reducer!(cx.build, RecordVoiceNote, on_record_voice_note);

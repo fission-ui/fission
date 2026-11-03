@@ -5,7 +5,7 @@ const ASSET_IMAGE_WIDTH: f32 = 320.0;
 const ASSET_IMAGE_HEIGHT: f32 = 218.0;
 fission_component! {
     pub OverviewAssetCompact<FieldInspectorState> {}
-    |_c, state, cx| { let order = state.selected_order(); } =>
+    view(_c, state, cx) { let order = state.selected_order(); } =>
         Column(
             gap: cx.view.env().theme.tokens.spacing.m,
             align_items: ir_op::AlignItems::Start,

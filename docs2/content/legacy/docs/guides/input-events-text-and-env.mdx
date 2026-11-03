@@ -1,0 +1,240 @@
+---
+title: Input, text, and environment
+description: Learn how Fission normalizes input through InputEvent, exposes shared environment data through Env, and synchronizes app-driven values with with_sync_env.
+---
+
+# Input, text, and environment
+
+A user interface is not only what it draws. It is also what it hears and what context it reads while deciding what to show.
+
+In Fission, those two concerns are handled explicitly.
+
+Input arrives through a shared event model instead of raw platform callbacks. Environment data such as theme, locale, viewport size, and safe-area style insets live in `Env` instead of hiding in globals. Widgets read that environment through `ViewHandle`, and shells can synchronize app-driven environment values through `.with_sync_env(...)`.
+
+This page introduces those pieces slowly, because they are part of what makes the framework portable and testable.
+
+## `InputEvent` is the shared language for user input
+
+`InputEvent` is the platform-independent event type consumed by the runtime.
+
+Instead of making every widget or reducer understand native browser events, desktop window events, Android events, and iOS events separately, Fission normalizes them into one shared model. That model includes:
+
+- pointer events for mouse, touch, or stylus movement and presses,
+- keyboard events,
+- input method editor events,
+- gesture events such as taps and pans,
+- lifecycle events such as startup, resize, pause, and resume.
+
+Why does this exist? Because cross-platform user interface becomes much easier to reason about when the core runtime hears one consistent event language. A custom widget can respond to pointer or keyboard input without being rewritten for each host. Tests can inject events deterministically. Reducers and diagnostics can inspect event flow without touching operating-system APIs.
+
+In practical terms, this means a tap on mobile and a click on desktop can both end up in the same shared input pipeline. The shell still does the platform-specific translation work, but the app model above that point stays stable.
+
+## Input normalization is especially important for text-heavy screens
+
+Text input is where platform differences become especially sharp. A text field is not just a box that accepts characters. It needs caret management, selection, undo history, clipboard integration, and composed text input.
+
+That is why Fission owns text editing behavior inside the runtime instead of leaving each screen to assemble it ad hoc.
+
+Built-in text widgets already depend on this shared input model, and custom text-heavy widgets can do the same. The `text-lab` example is useful because it isolates the parts of user interface work that usually become fragile first: multiline editing, comboboxes, menus, focus changes, and modal text flows.
+
+## Bind text input without losing action context
+
+Every text field binds a stable application action and reads the live edit from
+`ReducerContext::input`:
+
+```rust
+#[fission_reducer(SetName)]
+fn set_name(state: &mut ProfileState, ctx: &mut ReducerContext<ProfileState>) {
+    let Some(change) = ctx.input.text_change() else {
+        return;
+    };
+    state.name = change.new_text.clone();
+}
+
+TextInput {
+    value: view.state().name.clone(),
+    on_input: Some(ctx.bind(SetName, reduce!(set_name))),
+    ..Default::default()
+}
+```
+
+A dynamic form uses the same contract. Its bound action can also carry the
+stable identity of the field while the runtime event carries the transient
+edit:
+
+```rust
+#[fission_reducer(UpdateIntegrationField)]
+fn update_integration_field(
+    draft: &mut IntegrationDraft,
+    field: FieldId,
+    ctx: &mut ReducerContext<IntegrationDraft>,
+) {
+    let Some(change) = ctx.input.text_change() else {
+        return;
+    };
+
+    draft.metadata.insert(field, change.new_text.clone());
+}
+```
+
+Bind only the stable field identity in the action:
+
+```rust
+TextInput {
+    id: Some(WidgetId::explicit(&format!("integration.{field}"))),
+    value: draft.metadata.get(&field).cloned().unwrap_or_default(),
+    on_input: Some(ctx.bind_local(
+        UpdateIntegrationField(field.clone()),
+        draft.clone(),
+        reduce!(update_integration_field),
+    )),
+    ..Default::default()
+}
+```
+
+`ctx.input.text_change()` returns one `UpdateTextInput` value containing
+`new_text`, `node_id`, `new_caret`, and `new_anchor`. Fission preserves the
+bound action exactly, so the reducer receives the same `FieldId` that the
+component bound. There is no string-replacement or numeric mode: Fission never
+inspects or rewrites arbitrary application JSON.
+
+This contract is shared by native keyboard and input-method edits, desktop
+accessibility actions, Web input, and interactive browser islands. Static site
+and plain SSR output remain inert HTML; a browser island is required when a
+retained reducer must run in the browser.
+
+## Input method editor support, in beginner terms
+
+An input method editor is the system tool that lets a user compose text before it is committed. This is essential for many writing systems, including Japanese, Chinese, and Korean, and it also matters for accents, emoji pickers, and other composed-text workflows.
+
+In practice, an input method editor often shows a temporary preedit string before the final text is committed. Fission models that explicitly through `ImeEvent::Preedit { text }` and `ImeEvent::Commit { text }`.
+
+Why does that matter? Because a serious text input system cannot treat every key press as immediately final text. The runtime needs to understand composition state, and widgets need to react correctly without breaking the editing experience.
+
+If you are not building a custom text surface yourself, you usually benefit from this without handling the events directly. If you are building a custom editor, terminal-like widget, or drawing surface with text entry, you need to know that input method editor composition is a first-class part of the input model.
+
+## Clipboard support is explicit too
+
+Clipboard behavior is another place where operating systems differ, so Fission keeps it behind an explicit shell contract.
+
+The core environment defines a `Clipboard` trait with `get_text()` and `set_text()` methods. Shells implement that trait and provide the real platform clipboard backend. This makes copy and paste predictable to test and easier to isolate when something goes wrong.
+
+As with input method editor support, most application code does not call the clipboard backend directly. The point is that the capability exists in a named contract instead of hiding in widget-local platform code.
+
+## `Env` is the shared read-only context for widgets
+
+`Env` holds environment values that many widgets need but that are not the same thing as your product state.
+
+Today, the public `Env` type includes these important values:
+
+- `theme`,
+- `i18n`, the internationalization registry,
+- `locale`,
+- `window_insets`,
+- `viewport_size`,
+- and an optional text measurer.
+
+A useful rule is this: if the value describes the current host or app-wide presentation context, it probably belongs in `Env`. If the value describes the product's durable business data, it probably belongs in `GlobalState` instead.
+
+Widgets do not reach into process-wide globals to read these values. They read them through `ViewHandle`, which is why you see methods such as `view.viewport_size()` and direct environment access such as `view.env.theme`.
+
+That design matters because it keeps dependencies visible. A widget can say, in code, "I need the viewport width" or "I need the current locale." Tests can then provide that same context explicitly.
+
+## Why widgets read environment through `ViewHandle`
+
+`ViewHandle` exists so `component conversion` can stay a pure function of its inputs.
+
+When a widget reads from `ViewHandle`, the reader can see where the information came from: app state, runtime state, or environment data. That makes responsive layout, theme-aware styling, and translated text much easier to reason about.
+
+It also prevents a class of subtle bugs. If widgets were free to look up viewport information or locale from arbitrary globals, tests would become harder to control and platform differences would leak into random parts of the app.
+
+## `.with_sync_env(...)` keeps app-driven environment values in sync
+
+Sometimes the environment is not only host-driven. The app itself may decide parts of it.
+
+A user may toggle dark mode. They may choose a locale from a settings screen. You may want a compact-density mode stored in state and reflected in theming or layout decisions. Those values still belong in the environment seen by widgets, but the source of truth may live in `GlobalState` because the user can change it.
+
+That is what `.with_sync_env(...)` is for.
+
+The public `DesktopApp`, `MobileApp`, `WebApp`, and `TerminalApp` builders all
+expose `.with_env(...)` and `.with_sync_env(...)`. Browser islands do as well.
+The sync hook receives the current app state and a mutable `Env`, and runs
+before widgets build so the environment reflects the latest state.
+
+A typical example looks like this:
+
+```rust
+DesktopApp::new(MyApp)
+    .with_sync_env(|state: &MyState, env: &mut Env| {
+        env.locale = state.locale.clone();
+        env.theme = if state.dark_mode {
+            Theme::dark()
+        } else {
+            Theme::default()
+        };
+    })
+    .run()?;
+```
+
+This is the right tool when an environment value should mirror app state in a predictable, frame-friendly way.
+
+## What belongs in environment sync, and what does not
+
+Good values for `.with_sync_env(...)` are values that shape presentation or interpretation across the user interface.
+
+Theme choice belongs there. Locale belongs there. A compact or comfortable density mode may belong there if the whole user interface needs to react to it consistently. In some apps, a small set of global feature flags that affect presentation can also belong there.
+
+What does not belong there is ordinary product data. Do not mirror your inbox messages, shopping cart items, editor buffers, or save-in-progress flags into `Env`. Those are application state and should stay in `GlobalState`.
+
+Also avoid using `.with_sync_env(...)` as a hidden side-effect hook. It is for synchronizing environment values, not for starting network work, writing files, or mutating unrelated global state.
+
+## `BuildCtxHandle` is not a replacement for `Env`
+
+Because `BuildCtxHandle` and `Env` both show up during component conversion, beginners sometimes blur their roles.
+
+`Env`, accessed through `ViewHandle`, answers questions like these:
+
+- What is the viewport size?
+- What locale is active?
+- What theme should this widget style against?
+- What safe-area style insets does the host report?
+
+`BuildCtxHandle` answers different questions:
+
+- How do I bind this button to an action?
+- How do I register a portal, animation, web view, or resource?
+- How do I tell the runtime about behavior that should persist beyond this one call to `component conversion`?
+
+When you keep those roles separate, layout and input code stay much easier to read.
+
+## A practical way to think about all of this together
+
+Suppose you are building a message composer.
+
+The text inputs rely on the shared input system for keyboard events, selection, clipboard support, and input method editor composition. The widget tree reads `view.viewport_size()` to choose between a narrow phone layout and a wider desktop layout. The current locale and theme come from `Env`, so the same widgets can render translated labels and theme-correct colors. If the user changes locale in settings, `.with_sync_env(...)` mirrors that state into `Env` before the next build.
+
+Nothing about that flow requires the widgets to reach into native browser or mobile APIs directly. That is the payoff of the shared input and environment model.
+
+## Where to go next
+
+If you want the full explanation of locale, translation bundles, and theme loading, continue to [Theming and internationalization](/docs/guides/theming-and-i18n). If you need to decide whether a value belongs in `GlobalState`, local widget state, `Env`, or a provider, read [State, handles, and providers](/docs/guides/state-handles-and-providers/). If you want the deeper explanation of resources, jobs, services, and reducer-side effects, read [Resources and async](/docs/guides/resources-and-async/).
+
+## What you should have working
+
+After this guide, you should be able to explain where `Input, text, and environment` fits in the Fission lifecycle, identify the file or component you changed, run the relevant `fission` command, and verify the result in a real target or test.
+
+## Common mistakes to check
+
+| Symptom | What to check first |
+| --- | --- |
+| The app compiles but nothing changes | Confirm the component is actually used by the route or shell target you are running. |
+| An action fires but state does not update | Confirm the reducer is registered with the same action value that the UI dispatches. |
+| A platform feature reports unsupported | Confirm the target has the capability in `fission.toml` and the shell registered the provider. |
+| The page works on one target but not another | Run `fission doctor`, then inspect target-specific configuration and feature flags. |
+| Tests are hard to write | Split the product rule into a reducer test first, then add a UI or shell smoke test for the integration. |
+
+## Responsive input layout
+
+Input-heavy screens should normally use [`Responsive`](/reference/widgets/responsive/) and [`Length`](/reference/core/length/) for layout changes. Keep `ViewHandle::viewport_size()` for cases where input behavior depends on measured geometry, IME state, safe-area insets, or product state that cannot be represented as a simple responsive case.
+
+For example, a settings form can switch from one column to two columns with `ResponsiveCase`, while an autocomplete popup may still use previous layout rectangles to anchor itself to the field. That split keeps normal responsive design declarative and reserves imperative geometry for the places that genuinely need it.

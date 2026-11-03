@@ -64,7 +64,7 @@ fn edit_verification_code(state: &mut CounterState, ctx: &mut ReducerContext<Cou
 
 fission_component! {
     pub CounterApp<CounterState>
-    |_app, _state, cx| {
+    view(_app, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
     Container(
@@ -172,7 +172,7 @@ fission_component! {
 fission_component! {
 /// A field followed by a line echoing its value, which the browser test reads.
     EchoedField<CounterState> { field: Widget, echo: String }
-    |echoed, _state, cx| {} =>
+    view(echoed, _state, cx) {} =>
         Column(
             gap: cx.view.env().theme.tokens.spacing.m,
             children: [echoed.field, Text(echoed.echo)],

@@ -1,0 +1,141 @@
+---
+title: Testing
+description: The target-level testing reference for macOS, Windows, Linux, Web, Android, iOS, Terminal, Static site, and SSR hosts and how that differs from headless runtime testing.
+---
+
+# Testing
+
+This page covers target-level testing: the point where you stop asking only "does the shared app logic work?" and start asking "does this host actually launch, present, and behave correctly on this platform?"
+
+That distinction matters because Fission gives you two different testing layers.
+
+The first layer is the shared runtime. It can be tested headlessly and deterministically without opening a real browser, window, mobile host, terminal, static build, or server process.
+
+The second layer is the platform shell. That is where packaging, launch, presentation, host input, screenshots, accessibility bridges, browser integration, mobile lifecycle details, terminal constraints, static HTML output, and SSR request behavior need to be validated on a real target.
+
+A strong test strategy uses both.
+
+## What can be tested without a real host
+
+Use `fission-test` for the shared runtime whenever the question is about app behavior rather than shell behavior.
+
+That is the right place to validate reducer logic, selectors, widget output, layout intent, semantics, many interaction paths, and deterministic frame behavior. Those tests apply equally across macOS, Windows, Linux, Web, Android, iOS, Terminal, Static site, and SSR because they are proving the shared app model itself.
+
+For many browser-facing features, this is already a large part of the confidence story. If the behavior is truly shared, headless runtime tests are still a first-class answer even when the final shipped product runs in a browser.
+
+## What needs a real target host
+
+Use a real target host when the platform boundary is part of the question.
+
+That includes launcher correctness, browser serving and presentation, Android emulator installation, iOS simulator launch, host screenshots, viewport behavior, accessibility bridging, clipboard behavior, drag-and-drop integration, and other shell-managed details.
+
+This is where smoke scripts, live-driver tests, and platform-specific manual checks each have a role.
+
+## Desktop
+
+Desktop currently offers the broadest public live-shell testing API.
+
+`DesktopApp` exposes `with_test_control_port(...)`, and the desktop shell can also be launched with `FISSION_TEST_CONTROL_PORT` so `LiveTestClient` can drive a running app. That makes desktop a strong host for automated end-to-end interaction, semantic-tree inspection, screenshots, and visible-text assertions.
+
+This is a tooling advantage, not a statement that desktop is the only serious target. It simply means the current desktop shell exposes the richest live-control hook.
+
+## Web
+
+The browser target supports checked-in smoke coverage, generated browser host output, and first-party Chromium live control. `fission test --target web` builds the application with a test-only bridge, launches an isolated Chromium session, pumps the running Fission shell, and queries its semantic tree.
+
+Application-specific browser tests can use the same `LiveTestClient` methods and semantic selectors as native tests:
+
+```rust
+use fission_test_driver::{BrowserTestOptions, LiveTestClient, SelectorQuery};
+
+let client = LiveTestClient::launch_browser(
+    BrowserTestOptions::new("http://127.0.0.1:8123/platforms/web/")
+        .fission_canvas(),
+)?;
+client.tap_selector(SelectorQuery::test_id("settings.save"))?;
+client.assert_text_visible("Saved")?;
+```
+
+The application must be served before `launch_browser` is called and must have been built by `fission test --target web`, or with `FISSION_WEB_TEST_CONTROL=1` set on the command that compiles the WASM application. The variable is read by `option_env!` at compile time. Setting it only on the server or browser-test process is too late; rebuild the WASM output. Ordinary Web builds do not expose the bridge.
+
+The complete process-variable reference, including test, renderer, diagnostics, storage, packaging, and provider variables, is at [Environment variables](/reference/config/environment-variables/).
+
+Browser tests cover:
+
+- shared app behavior through headless deterministic tests
+- semantic selectors, visible text, the semantic tree, Fission input, resize, pump, waits, and deterministic time through `LiveTestClient`
+- browser build, serving, canvas presentation, renderer readiness, console errors, and page screenshots through Chromium
+
+The initial implementation deliberately uses Chromium and Fission's deterministic `TestEvent` input path. Firefox, WebKit, trusted browser input, browser clipboard permissions, browser `File` objects, and the browser accessibility tree are deferred. Web screenshots capture the composited browser page rather than renderer texture readback.
+
+## Android
+
+Android currently has a verified emulator host path plus generated target output.
+
+Use headless tests first for shared runtime behavior. Then use the Android host path to validate packaging, installation, launch, presentation, and platform-facing mobile behavior. The public mobile shell also exposes `with_test_control_port(...)`, which matters for live-driver scenarios where that host path is part of the question.
+
+## iOS
+
+The checked-in iOS target path is currently the simulator host path.
+
+As with Android, shared runtime behavior belongs in headless tests first. Then the iOS simulator host validates launch, presentation, and shell integration through the documented simulator route. If the product depends on iOS-specific host behavior, direct validation there still matters because simulator success and shared-runtime correctness are not the same claim.
+
+## Terminal
+
+Terminal validation should prove terminal-cell layout, keyboard navigation, pointer behavior where supported, bounded scrollback, command sessions, log rendering, and screenshots from the terminal renderer.
+
+## Static site
+
+Static site validation should use `fission site check` for route rendering and internal links, then inspect generated HTML, metadata, search data, sitemap, robots output, assets, and any configured page elements.
+
+## SSR
+
+SSR validation should use `fission server check` for route rendering, then exercise request-time behavior for sessions, signed actions, jobs, cache policy, progressive workers, and islands.
+
+Use the same `LiveTestClient` interaction API as native and Web canvas tests to
+drive an SSR site—or any other website—in Chromium. Select website mode when
+launching the browser; it resolves standard test ids, element ids, accessible
+roles and labels against the rendered HTML and sends real Chromium pointer and
+keyboard input. Fission semantic identifiers remain available when the page
+provides them:
+
+```rust
+let client = LiveTestClient::launch_browser(
+    BrowserTestOptions::new("http://127.0.0.1:3000/sign-in").website(),
+)?;
+
+client.fill_text_selector(
+    SelectorQuery::semantic_identifier("sign-in.email"),
+    "person@example.com",
+)?;
+client.tap_selector(SelectorQuery::role_label("button", "Sign in"))?;
+client.wait_for_text("Welcome", 5_000)?;
+```
+
+The browser retains cookies and session state across server navigation.
+Website mode requires no Fission markup, test endpoint, production JavaScript
+bridge or `FISSION_WEB_TEST_CONTROL` build. Prefer `data-testid`, ordinary
+element ids, labelled controls and accessible roles for stable selectors.
+Commands tied specifically to a retained render loop, such as deterministic
+animation clock advancement, remain canvas/native capabilities rather than
+website capabilities.
+
+## Smoke scripts and live-driver tests answer different questions
+
+A smoke script answers, "can this target build and launch correctly?"
+
+A live-driver test answers, "can I drive this running shell and assert on real interactive behavior?"
+
+You often want both. They are complementary rather than competing tools.
+
+## Practical target workflow
+
+Start with headless tests for shared behavior.
+
+Add live-driver tests where the current shell exposes that API and the interaction really needs a running host.
+
+Use Web, Android, iOS, Terminal, Static site, and SSR host paths to validate the target-specific behavior only those hosts can prove.
+
+## Related reference pages
+
+For the shared testing stack and diagnostics model, see [Testing and diagnostics](/reference/core/testing-and-diagnostics). For generated host output and target expectations, continue to [Targets](/reference/platform/targets).

@@ -49,7 +49,7 @@ fission_component! {
         scale: f32,
         gallery_options: bool,
     }
-    |node, _state, cx| {} => (|| -> Widget {
+    view(node, _state, cx) {} => (|| -> Widget {
         match scene_for_kind(node.meta.kind, node.meta.seed, node.scale) {
             Some(scene) => {
                 let scene = if let Some(width) = node.width {

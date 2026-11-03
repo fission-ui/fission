@@ -1,0 +1,219 @@
+---
+title: Platform shells, command-line interface, and testing
+description: Learn how Fission's shell wrappers and generated host projects fit into real cross-platform app development.
+---
+
+# Platform shells, command-line interface, and testing
+
+Fission is suitable for production macOS, Windows, Linux, Web, Android, iOS, Terminal, Static site, and SSR work today. The clearest way to understand that claim is to separate three different questions that often get mixed together.
+
+The first question is whether the shared app model is ready for real product work. In Fission, that answer is yes. Your app state, actions, reducers, widgets, layout rules, semantics, and rendering model live in one shared runtime that is meant to power real macOS, Windows, Linux, Web, Android, iOS, Terminal, Static site, and SSR targets.
+
+The second question is whether every shell wrapper and every testing convenience is equally mature today. That answer is more nuanced. The shells expose slightly different wrapper methods, and the current live-testing hooks are not identical on every target.
+
+The third question is whether a specific target still needs direct validation. That answer is always yes, because serious cross-platform work always has host-specific behavior to prove. Browser packaging, mobile safe areas, soft keyboards, accessibility bridges, terminal cell constraints, static route output, SSR cache policy, and simulator versus device differences are real host concerns even when the shared runtime is stable.
+
+Keeping those three questions separate makes the rest of the page easier to read. Tooling gaps do not mean the app model is not ready. Host validation needs do not mean one platform is the only real target. They simply mean cross-platform work still has a real platform boundary.
+
+## What a shell is in Fission
+
+A shell is the thin platform-facing layer that boots the shared runtime inside a real host.
+
+On macOS, Windows, and Linux, that means a native window. On Web, it means a browser entrypoint and browser renderer. On Android and iOS, it means the mobile host that packages, launches, and presents the same shared app on that platform. For Terminal, it means a terminal cell renderer. For Static site, it means a build-time shell that renders Fission widget output into semantic HTML. For SSR, it means a server process that renders routes at request time or through cache policy.
+
+The shell is not where your product architecture should live. Your reducers, selectors, widgets, and explicit side effects stay in shared Rust code. The shell's job is narrower: it starts the app, forwards input, presents frames, connects platform services such as clipboard and accessibility, and exposes the host-specific hooks needed for launch and validation.
+
+That boundary is one of the reasons Fission can aim for strong cross-platform parity. The framework keeps the meaning of the interface in the shared runtime and keeps platform differences near the host edge where they belong.
+
+## Shells available today
+
+Fission now has shell families that map onto the public target set.
+
+| Shell family | Targets | Use it when | Main API |
+| --- | --- | --- |
+| Desktop | macOS, Windows, Linux | You want a native window. | `DesktopApp` |
+| Web | Web | You want a browser app compiled to WebAssembly. | `WebApp` |
+| Mobile | Android, iOS | You want mobile hosts for the same shared app. | `MobileApp` |
+| Terminal | Terminal | You want an interactive terminal user interface. | `TerminalApp` |
+| Static site | Static site | You want generated HTML routes from Fission widgets and Markdown content. | `FissionSite` and `fission site ...` |
+| SSR | SSR | You want request-time HTML, cache revalidation, server jobs, signed actions, workers, or islands. | `FissionServerApp` and `fission server ...` |
+| Test driver | Supported live hosts | You want automated shell control for supported live hosts. | `fission-test` and `fission-test-driver` |
+
+Desktop, web, and mobile are runtime shells: they keep the app running in a host event loop. The terminal shell is also a runtime shell, but its renderer targets terminal cells instead of a GPU-backed window. The Static site shell is build-time output: it lowers real Fission widgets to Core IR and emits static HTML, CSS, and site assets. The SSR shell is request-time output: it renders routes on demand, drains server jobs, manages route cache policy, verifies signed actions, and serves generated workers or islands when a page needs focused browser behavior.
+
+Those differences are host differences, not app-model differences. The same state, reducers, selectors, widgets, design system, and environment model stay at the center.
+
+## Native desktop window startup
+
+Desktop windows use the platform's normal initial window state by default. An
+app that should open maximized can opt in without changing other Fission apps:
+
+```rust
+DesktopApp::<AppState, _>::new(App)
+    .with_title("Project overview")
+    .with_initial_maximized(true)
+    .run()
+```
+
+The desktop window manager receives this as an initial-state request and may
+apply platform policy when deciding how the window is presented.
+
+## Desktop tray switcher policy
+
+Desktop tray apps should behave like tray apps by default. When you configure `DesktopApp::with_tray(...)`, Fission now defaults `TrayConfig::app_switcher_policy` to `TrayAppSwitcherPolicy::Hidden`. That is a breaking default: on macOS the app uses an accessory activation policy, on Windows the window asks winit to skip the taskbar, and on Linux the behavior is best-effort because window managers do not expose one portable switcher contract through winit.
+
+Use the explicit policy when your product needs the old foreground-app behavior:
+
+```rust
+use fission::prelude::*;
+use fission::{TrayAppSwitcherPolicy, TrayConfig, TrayIconSource};
+
+DesktopApp::<AppState, _>::new(App)
+    .with_tray(
+        TrayConfig::new(TrayIconSource::path("assets/tray.png"))
+            .app_switcher_policy(TrayAppSwitcherPolicy::Visible),
+    )
+    .run()
+```
+
+`TrayAppSwitcherPolicy::HiddenWhenWindowHidden` keeps the app visible in normal switchers while the main window is open, then switches to the tray-first behavior after `WindowCloseBehavior::HideToTray` or a tray action hides the window.
+
+## The shared runtime is the same, even when wrappers differ
+
+When you choose `DesktopApp`, `WebApp`, `MobileApp`, or `TerminalApp`, you are not choosing a different application model. You are choosing which shell wrapper should boot the same runtime for the host you care about.
+
+These runtime wrappers revolve around the same product questions. What is the initial state? Should the app dispatch a startup action? Which values should be synchronized into `Env` each frame? Which jobs, services, or capabilities should the host know how to run outside pure reducers?
+
+That shared shape is the important part. It means the same mental model travels with you across platforms.
+
+The stateful wrappers deliberately share the same core setup vocabulary.
+`DesktopApp`, `MobileApp`, `WebApp`, and `TerminalApp` all accept a prepared
+environment with `with_env(...)`, synchronize it with `with_sync_env(...)`,
+prepare state, dispatch a startup action, install a host key handler and frame
+hook, and register persistent host-owned reducers. The setup used to install
+translations therefore does not change merely because an app moves from a
+desktop entrypoint to Web.
+
+`DesktopApp` and `MobileApp` can open the native live test-control port with
+`with_test_control_port(...)` and protect it with
+`with_test_control_token(...)`. Web testing uses the browser control bridge
+instead of opening a TCP listener inside WebAssembly. `MobileApp` also includes
+the Android-specific `run_with_android_app(...)` entrypoint used when the host
+activity hands control to Fission.
+
+`WebApp` adds browser-owned configuration such as its mount selector, selective
+browser defaults, and pathname/hash navigation strategy. Those methods do not
+appear on native wrappers because there is no DOM or browser history to
+configure there.
+
+`TerminalApp` runs the same build, lower, layout, verify, and render pipeline inside a terminal. It is useful for command tools, dashboards, setup flows, and developer workflows where the user already lives in a terminal. It verifies terminal compatibility from Core IR and semantics rather than from hard-coded widget names. Continue to [Terminal user interfaces](/docs/guides/terminal-user-interfaces/) for a full guide.
+
+`FissionSite` is the static site shell. It is not an interactive app loop. It renders configured routes at conversion time, turns Markdown and custom Fission page widgets into semantic HTML, writes shared CSS, generates search data when enabled, and copies configured assets. Continue to [Static sites](/docs/guides/static-sites/) for the site workflow.
+
+`FissionServerApp` is the SSR shell. It runs as an HTTP process, renders Fission routes per request or cache policy, drains server jobs before responding, signs server actions, and can attach progressive workers or focused WASM islands to pages that need browser-side behavior. Continue to [SSR guide](/docs/guides/server-sites/) for the server workflow.
+
+## How developers actually use shell wrappers
+
+A good rule is to use the wrapper for host startup concerns and keep product behavior in the shared app.
+
+`with_state_init(...)` is for synchronous state preparation before the first frame. `with_startup_action(...)` is for entering the normal reducer flow as soon as the runtime is ready. `with_sync_env(...)` is for values that belong in `Env`, such as theme, locale, translation bundles, or other read-only context widgets should consume during component conversion.
+
+`with_async(...)` is where graphical shells register jobs, services, and
+capabilities that the host may need to run outside pure reducers. Terminal
+currently hosts storage operations but does not yet expose the general async
+job/service builder; use its frame hook for terminal-specific polling rather
+than assuming a background service registration exists. `with_frame_hook(...)`
+should remain a narrow host-level helper instead of becoming your primary
+application architecture.
+
+The practical lesson is simple: the shell should prepare the platform around your app, not become the place where your app logic drifts.
+
+## What the command-line interface is for
+
+The command-line interface exists so you do not have to hand-assemble those host layers yourself.
+
+When you run:
+
+```bash
+fission init my-app
+```
+
+you get the shared app files, the initial desktop entrypoint, the [`fission.toml`](/reference/config/fission-toml/) manifest, and the baseline project structure.
+
+When you later run:
+
+```bash
+fission add-target web ios android --project-dir my-app
+```
+
+you are not cloning your product into separate codebases. You are generating additional host wrappers for the same shared app.
+
+That is the right way to think about the command-line interface. It creates and extends the host boundary. It does not change the core architecture of your app.
+
+A generated host project is simply the platform-specific wrapper around the shared runtime. The command-line interface is the normal front door for that wrapper: `fission devices` shows where the app can run, `fission run --target <target>` builds and launches it, `fission logs` reconnects to supported log streams, and `fission test --target <target>` runs the generated smoke test. The lower-level scripts remain checked in under `platforms/<target>/` for continuous integration and advanced debugging, but day-to-day development should not require memorizing platform-specific script names.
+
+On the web, that means building the WebAssembly output, serving it locally, and opening the browser when requested. On Android and iOS, that means packaging, installing, launching, and attaching to the device or simulator logs by default.
+
+## Readiness, tooling, and target caveats are not the same thing
+
+This is the most important distinction on the page.
+
+Fission's cross-platform production story rests on the shared runtime and real host paths that already exist across the public target set. That is the framework-readiness claim.
+
+Testing transport differs by host. Desktop and mobile expose `with_test_control_port(...)`, which opens a loopback live shell-control endpoint. Web test builds expose the same LiveTest command contract through a test-only Chromium bridge without opening another network listener.
+
+Target caveats are a third category. Browser clipboard behavior, drag-and-drop details, and input method editor edge cases still need direct browser validation. Mobile touch handling, safe-area behavior, soft-keyboard behavior, and some mobile lifecycle integration still deserve direct Android and iOS validation. Terminal layout must be checked against terminal cells and supported interaction modes. Static site output must be checked as static HTML. SSR output must be checked under request, cache, action, worker, and island behavior. Those caveats are about proving host-specific behavior where it actually lives.
+
+When those categories stay separate, the platform story becomes much clearer. The shared runtime is ready to build real apps. Tooling around that runtime still has room to improve on some targets. Specific targets still need the same kind of platform-aware testing any serious app would need.
+
+## What differs by target in practice
+
+Desktop is a strong host for fast iteration because it offers native windows, a short local run loop, and the richest current live-testing API. That makes it convenient, but convenience is not the same thing as legitimacy.
+
+Web runs through the browser shell and WebAssembly, which is the compiled format that lets Rust run in the browser. The checked-in Web shell, browser smoke example, generated browser target, and Chromium LiveTest path are real host paths today. Richer browser integration around clipboard, drag-and-drop, trusted browser input, and input method editor handling remains host-specific work.
+
+Android runs through generated or checked-in mobile hosts and currently has a verified emulator path. Android development adds the usual host setup, including the Android software development kit (SDK) for platform tooling and the Android native development kit (NDK) for the native toolchain used by this Rust-based path. Those are normal Android-host concerns, not signs that the shared runtime is less serious there.
+
+iOS also runs through a real host path and currently has a verified simulator flow in the repository. The simulator can fall back to a software renderer when CoreSimulator cannot satisfy the normal graphics path, which keeps the simulator useful for development and validation. That is a current host-environment detail, not a downgrade of the platform story. As with any production iOS app, simulator runs and device validation answer different questions.
+
+Terminal runs through the terminal shell. It uses the same app model, but output must be compatible with terminal cells, keyboard-first interaction, bounded scrollback, and the capabilities of the terminal emulator the user actually runs.
+
+Static site runs through the site shell. It is not an app event loop; it is a target for crawlable HTML, CSS, metadata, search assets, sitemap output, robots output, and copied assets generated from Fission routes and content.
+
+SSR runs through the server shell. It is the target for request-time HTML, sessions, signed actions, jobs, route cache policy, progressive workers, and focused browser islands.
+
+## A practical validation strategy that treats every target seriously
+
+A good validation strategy starts from the behavior you are trying to prove.
+
+If you are testing reducer logic, selector logic, view derivation, layout intent, semantics, and other shared runtime behavior, lean hard on deterministic tests. They are fast, repeatable, and reflect Fission's architecture well.
+
+If you are testing host interaction through a real shell, use live shell testing where the wrapper supports it today. Desktop and mobile currently provide the strongest public live-control path.
+
+If you are testing browser packaging, browser viewport behavior, clipboard rules, drag-and-drop, accessibility bridges, mobile safe areas, soft keyboards, simulator launch, emulator installation, or device-specific presentation, validate in that actual host. That is not a fallback after “real development.” That is the correct place to prove host behavior.
+
+So the practical strategy is not "desktop first, everyone else later." It is "use the fastest tool for shared behavior, and use the real host whenever the host is part of the question."
+
+## What to keep in mind as you ship
+
+Fission's public promise is one shared app model across macOS, Windows, Linux, Web, Android, iOS, Terminal, Static site, and SSR targets. The implementation supports that promise now. What varies by platform is the surrounding shell tooling, packaging path, and host-specific validation work, not whether the framework's core model applies.
+
+That is exactly the boundary a serious cross-platform framework should draw. The runtime stays shared. The shells stay thin. Tooling can keep improving without changing the truth of the app model underneath.
+
+## Where to go next
+
+For the broader testing strategy, continue to [Testing and diagnostics](/docs/guides/testing-and-diagnostics). For the beginner guide to examples, targets, and when to branch into host validation, read [Examples and targets](/docs/learn/examples-and-targets). For the first-run setup flow, go back to [Quickstart](/docs/learn/quickstart).
+
+## What you should have working
+
+After this guide, you should be able to explain where `Platform shells, command-line interface, and testing` fits in the Fission lifecycle, identify the file or component you changed, run the relevant `fission` command, and verify the result in a real target or test.
+
+## Common mistakes to check
+
+| Symptom | What to check first |
+| --- | --- |
+| The app compiles but nothing changes | Confirm the component is actually used by the route or shell target you are running. |
+| An action fires but state does not update | Confirm the reducer is registered with the same action value that the UI dispatches. |
+| A platform feature reports unsupported | Confirm the target has the capability in `fission.toml` and the shell registered the provider. |
+| The page works on one target but not another | Run `fission doctor`, then inspect target-specific configuration and feature flags. |
+| Tests are hard to write | Split the product rule into a reducer test first, then add a UI or shell smoke test for the integration. |

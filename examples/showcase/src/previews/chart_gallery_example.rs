@@ -5,7 +5,7 @@ use fission::prelude::*;
 
 fission_component! {
     #[derive(Clone, Copy, Debug)] pub(crate) ChartGalleryExample<ShowcaseState> {}
-    |_component, state, _cx| {} =>
+    view(_component, state, _cx) {} =>
         MountedExample::<GalleryState, _>::new(
             "showcase.example.chart-gallery",
             state.preview_generation,
@@ -13,4 +13,5 @@ fission_component! {
         )
         // The showcase header already names the example, so the gallery drops its title.
         .with_state(chart_gallery_example::embedded_state)
+        .into_component()
 }

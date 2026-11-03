@@ -1,0 +1,144 @@
+---
+title: InfiniteCanvas
+description: Build a declarative, pannable node-and-edge editor with ports, routed connections, selection, snapping, overlays, and resize interactions.
+slug: /widgets/infinite-canvas
+---
+# InfiniteCanvas
+
+`InfiniteCanvas` is Fission's declarative node-and-edge editing surface. It is built on [`InteractiveViewer`](/reference/widgets/interactive-viewer), while nodes, edges, selection, and committed geometry remain ordinary application state.
+
+The widget is available with the `desktop`, `android`, `ios`, `mobile`, and `web` Fission features. Static site, SSR, and Terminal-only builds do not expose it.
+
+## Example
+
+```rust
+use fission::prelude::*;
+use fission::op::{Color, Fill, LineCap, LineJoin, Stroke};
+
+let source = InfiniteCanvasNode::new(
+    CanvasNodeId::explicit("source"),
+    LayoutRect::new(-160.0, 40.0, 140.0, 72.0),
+    Card {
+        child: Text::new("Source").into(),
+        ..Default::default()
+    },
+);
+let output = InfiniteCanvasNode::new(
+    CanvasNodeId::explicit("output"),
+    LayoutRect::new(120.0, 40.0, 140.0, 72.0),
+    Card {
+        child: Text::new("Output").into(),
+        ..Default::default()
+    },
+);
+
+let canvas: Widget = InfiniteCanvas {
+    id: Some(WidgetId::explicit("pipeline")),
+    nodes: vec![source.clone(), output.clone()],
+    edges: vec![InfiniteCanvasEdge {
+        id: CanvasEdgeId::explicit("source-output"),
+        from: CanvasEdgeEndpoint::Node {
+            node: source.id,
+            anchor: CanvasNodeAnchor::Right,
+        },
+        to: CanvasEdgeEndpoint::Node {
+            node: output.id,
+            anchor: CanvasNodeAnchor::Left,
+        },
+        route: CanvasEdgeRoute::Straight,
+        stroke: Stroke {
+            fill: Fill::Solid(Color::BLACK),
+            width: 2.0,
+            dash_array: None,
+            line_cap: LineCap::Round,
+            line_join: LineJoin::Round,
+        },
+        start_marker: None,
+        end_marker: None,
+        label: Some(CanvasEdgeLabel::new(Text::new("records"))),
+    }],
+    selection_policy: CanvasSelectionPolicy::Marquee,
+    snap: CanvasSnap {
+        enabled: true,
+        spacing: 16.0,
+        threshold: 4.0,
+    },
+    ..Default::default()
+}
+.into();
+```
+
+## Declarative ownership
+
+Fission does not introduce a mutable canvas controller as a second source of truth. Supply the current `nodes`, `edges`, `selected_nodes`, `selected_edges`, and optional controlled camera on every build. Reducers commit interaction results to that state.
+
+`InfiniteCanvasActions` binds callbacks for selection, node movement, node resizing, edge selection, connection dragging, and camera interaction. Each envelope preserves its application payload. Use `ctx.input.canvas_interaction()` to read the target canvas and node, edge, or port ID; lifecycle phase; screen and world coordinates; deltas; before/after bounds; marquee rectangle; input kind; and modifiers.
+
+When a selected group moves, `node_changes` contains every affected node with the primary node first. Fission snaps the primary node once and applies the same effective world-space delta to every movable selected member. Commit those bounds in one reducer transition so the application remains the authority for placement.
+
+## Ports and controlled connections
+
+Ports belong to a node and use node-local bounds. Their IDs are stable within that node, while `CanvasPortRef` identifies a port unambiguously across the canvas. Edge endpoints can reference a port directly, and Fission resolves the endpoint from the current node and port geometry.
+
+```rust
+let output_id = CanvasPortId::explicit("output");
+let mut source = InfiniteCanvasNode::new(
+    CanvasNodeId::explicit("source"),
+    LayoutRect::new(0.0, 0.0, 160.0, 80.0),
+    Text::new("Source"),
+);
+source.ports.push(InfiniteCanvasPort::new(
+    output_id,
+    LayoutRect::new(152.0, 32.0, 16.0, 16.0),
+    CanvasNodeAnchor::Right,
+    Container::new(Spacer::default()).bg(Color::BLACK),
+));
+```
+
+`on_connection_drag` receives `CanvasInteractionKind::Connect`. The payload always includes the source port and reports the port currently under the pointer as `hovered_target`. The application validates compatible ports, owns the pending connection, and commits an edge when the drag ends. Supply `connection_preview` to render that pending route without creating a second mutable canvas model.
+
+## Routes, labels, and markers
+
+`CanvasEdgeRoute` supports straight, cubic, and caller-supplied polyline routes. Polyline points are world-space intermediate waypoints; the resolved source and destination remain the first and last points. This lets an application run any placement or routing algorithm outside the widget and render its result declaratively.
+
+An edge label is a retained widget in `CanvasEdgeLabel`, not a string-only annotation. `position` selects a normalized location along the route, `offset` applies a world-space adjustment, and `anchor` selects which fraction of the label's intrinsic size is aligned to that point. Optional endpoint markers follow the route tangent and can inherit the edge fill.
+
+## Application overlay slots
+
+The canvas exposes three explicit composition slots:
+
+- `world_background` is transformed with the canvas and paints below the grid.
+- `world_foreground` is transformed with the canvas and paints above nodes and ports.
+- `viewport_overlay` stays in screen space above the built-in resize and marquee overlay.
+
+Wrap content with `CanvasOverlayLayer::pass_through(...)` when it is visual only. Its whole retained subtree is excluded from pointer hit testing, so it cannot obscure nodes or canvas gestures. Use `CanvasOverlayLayer::interactive(...)` only for controls that intentionally own input.
+
+## Built-in behavior
+
+- Stable node and edge identities scoped to the canvas.
+- Negative and positive world coordinates.
+- Stable z-order by `z_index` and declaration order.
+- Straight, cubic, and application-routed polyline edges.
+- Retained widget labels and optional tangent-oriented endpoint markers.
+- Node-local connection ports with coordinate-based drag targeting.
+- A controlled connection preview owned by application state.
+- Explicit world-background, world-foreground, and screen-space overlay slots.
+- Style-batched grid and edge paths bounded to the visible world region.
+- Line or dot grids with independently styled major intervals.
+- Single, toggle, or marquee selection policies.
+- Node movement and eight constant-screen-size resize handles.
+- Group movement with deterministic, primary-first bounds changes.
+- Optional symmetric grid snapping for negative and positive coordinates.
+- Precise edge hit testing rather than rectangular edge hit regions.
+- Screen-space marquee and resize overlays over the transformed world.
+- Controlled or runtime-owned camera state inherited from `InteractiveViewer`.
+
+Nodes remain normal Fission widgets, so their own retained identity, semantics, and child interactions continue to work. A node drag wins over single-pointer canvas pan; a two-contact gesture promotes to viewport pan and zoom.
+
+## Accessibility
+
+Node semantics remain the semantics of their ordinary child widgets. Fission transforms descendant accessibility bounds with the active camera and clips nodes outside a clipped viewport. Provide ordinary accessible zoom controls when a product needs keyboard or assistive-technology zoom commands; the platform accessibility API does not define one portable zoom action.
+
+## Related
+
+[`InteractiveViewer`](/reference/widgets/interactive-viewer), [`ZStack`](/reference/widgets/z-stack), [`Positioned`](/reference/widgets/positioned), and [`CustomWidget`](/reference/widgets/custom-widget).

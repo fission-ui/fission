@@ -3,7 +3,7 @@ use fission::prelude::*;
 
 fission_component! {
     pub CatalogSectionTitle<StoreState> {}
-    |_title, _state, cx| {
+    view(_title, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
         let typography = &tokens.typography;
     } =>

@@ -1,0 +1,49 @@
+---
+title: Pressable
+description: A neutral accessible interaction surface for custom buttons, links, and menu items.
+slug: /widgets/pressable
+---
+
+# Pressable
+
+`Pressable` is the low-level interaction surface for custom controls. It contributes no visual chrome unless you provide style, but it does provide focus handling, activation, semantics, pointer state, optional transitions, and optional ripple feedback.
+
+Use built-in widgets such as `Button`, `Link`, `MenuItem`, `Checkbox`, and `Switch` when they fit. Use `Pressable` when the visual shape is custom but the interaction is still a button, link, or menu item.
+
+```rust
+let (_ctx, view) = fission::build::current::<ReportsState>();
+let spacing = &view.env().theme.tokens.spacing;
+let open_report_label = view
+    .env()
+    .i18n
+    .get(&view.env().locale, "reports.open")
+    .unwrap_or("reports.open")
+    .to_string();
+
+Pressable::new(Text::new(TextContent::Key("reports.open".into())))
+    .id(WidgetId::explicit("report.open"))
+    .semantics_identifier("report.open")
+    .label(open_report_label)
+    .role(PressableRole::Button)
+    .on_press(open_report)
+    .layout(BoxStyle::default().padding_symmetric(
+        Length::points(spacing.m),
+        Length::points(spacing.s),
+    ))
+    .into()
+```
+
+## Important fields
+
+| Field | Meaning |
+| --- | --- |
+| `child` | Content displayed inside the interaction surface. |
+| `on_press` | Action dispatched for pointer, keyboard, or accessibility activation. |
+| `label` | Accessible label. |
+| `semantics_identifier` | Stable automation and accessibility identifier. |
+| `role` | `Button`, `Link`, or `MenuItem`. |
+| `focus_policy` | How pointer activation affects current focus. |
+| `layout` | Shared `BoxStyle` sizing and placement contract. |
+| `style` / state styles | Base, hover, pressed, focused, and disabled visual overlays. |
+
+Always set a semantic identifier for product-important controls.

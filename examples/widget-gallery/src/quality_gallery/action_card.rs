@@ -7,7 +7,7 @@ fn quality_hierarchy_action(_state: &mut GalleryState) {}
 
 fission_component! {
     ActionHierarchyContent<GalleryState> { action: ActionEnvelope }
-    |content, _state, cx| {
+    view(content, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
         Wrap(
@@ -63,7 +63,7 @@ fission_component! {
 
 fission_component! {
     pub(super) ActionHierarchyCard<GalleryState> { compact: bool }
-    |card, _state, cx| {
+    view(card, _state, cx) {
         let action = with_reducer!(cx.build, QualityHierarchyAction, quality_hierarchy_action);
         let mut header = CardHeader::new(CardTitle::new("Action hierarchy"));
         if !card.compact {

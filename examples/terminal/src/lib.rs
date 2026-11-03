@@ -128,7 +128,7 @@ fn poll_terminal(
 
 fission_component! {
     pub TerminalExampleApp<TerminalExampleState>
-    |_app, state, cx| {
+    view(_app, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
         cx.build.register(
             start_terminal

@@ -18,7 +18,7 @@ impl GlobalState for SmokeState {}
 
 fission_component! {
     pub MobileSmokeApp<SmokeState>
-    |_app, state, cx| {
+    view(_app, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
         let logo = Image::memory(FISSION_LOGO_PNG.to_vec())
             .size(IMAGE_SIZE, IMAGE_SIZE)

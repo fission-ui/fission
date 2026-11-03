@@ -73,7 +73,7 @@ fission_component! {
 
 fission_component! {
     ReplyModeOption<InboxState> { mode: usize, label_key: &'static str }
-    |option, state, cx| =>
+    view(option, state, cx) =>
         Radio(
             checked: state.reply_mode == option.mode,
             label: cx.tr(option.label_key),

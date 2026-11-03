@@ -1,0 +1,259 @@
+---
+title: Design system
+sidebar_label: Design system
+description: Use a Design System Package JSON file to generate typed Fission themes at conversion time.
+---
+
+# Design system
+
+A design system is the set of decisions that makes an application feel coherent: color, typography, spacing, radius, elevation, motion, chart palettes, and the component styles that turn those tokens into real buttons, inputs, badges, cards, tabs, modals, tooltips, and progress indicators.
+
+Fission supports Design System Package JSON files as a build-time input. The app does not parse JSON while it is running. Instead, a build script reads `dsp.json` and `tokens.json`, resolves the token references, and generates ordinary Rust code. Your app then chooses one of the generated themes and writes it into `Env`.
+
+That keeps the hot path simple. Widgets read typed Rust values from `view.env.theme`; they do not search JSON, hash token names, or do string lookups while drawing a frame.
+
+## What gets generated
+
+A DSP package contains two important files:
+
+- `dsp.json`, which describes the package, components, patterns, assets, and where the token file lives.
+- `tokens.json`, which contains primitive and semantic values such as colors, font sizes, spacing, radius, shadows, motion, and chart palettes.
+
+Fission's generator turns those files into a Rust type that implements `DesignSystem`.
+
+```rust
+include!(concat!(env!("OUT_DIR"), "/app_design_system.rs"));
+
+DesktopApp::new(MyApp)
+    .with_design_system::<AppDesignSystem>(DesignMode::Light)
+    .run()?;
+```
+
+`AppDesignSystem` is not hand-written. It is generated during `cargo build`, compiled into your app, and used like any other Rust type.
+
+## Add a DSP package to an app
+
+Create a `design/` folder in your app and place the package files inside it:
+
+```text
+my-app/
+  Cargo.toml
+  build.rs
+  design/
+    dsp.json
+    tokens.json
+  src/
+    main.rs
+```
+
+Once the package is in `design/`, generate the Rust theme from that app-local input:
+
+```rust title="build.rs"
+use std::path::PathBuf;
+
+fn main() {
+    let manifest_dir = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
+    let dsp_path = manifest_dir.join("design/dsp.json");
+
+    fission_design_system_codegen::generate(
+        fission_design_system_codegen::Config::new(dsp_path)
+            .out_file("app_design_system.rs")
+            .type_name("AppDesignSystem")
+            .crate_path("fission::theme"),
+    )
+    .expect("failed to generate design system");
+}
+```
+
+`Config` is built with methods rather than a struct literal, so new options can be added without
+breaking your `build.rs`:
+
+| Method | Default | Purpose |
+| --- | --- | --- |
+| `Config::new(dsp_path)` | — | The `dsp.json` to generate from. |
+| `.out_file(name)` | `app_design_system.rs` | File written under `OUT_DIR`. |
+| `.type_name(name)` | `AppDesignSystem` | Name of the generated design system type. |
+| `.crate_path(path)` | `fission_theme` | Path the generated code uses to reach the theme crate. Use `fission::theme` through the `fission` facade. |
+| `.inherit_from(path)` | `{crate_path}::FissionDefaultDesignSystem` | Design system whose component recipes fill in any recipe this one omits. |
+| `.require_complete_components()` | off | Fail the build when a required component recipe is missing instead of inheriting it. |
+
+An application design system only needs to declare the components it changes. Every recipe it
+leaves out is taken from the system named by `inherit_from`, so widgets never fall back to empty
+styling. Call `require_complete_components()` when the design system must stand alone.
+
+### Migrating from the `Config` struct literal
+
+Earlier releases constructed `Config` with a struct literal. `Config` is now `#[non_exhaustive]`,
+so replace the literal with the builder:
+
+```rust
+// Before
+fission_design_system_codegen::Config {
+    dsp_path,
+    out_file: "app_design_system.rs".into(),
+    type_name: "AppDesignSystem".into(),
+    crate_path: "fission::theme".into(),
+}
+
+// After
+fission_design_system_codegen::Config::new(dsp_path)
+    .out_file("app_design_system.rs")
+    .type_name("AppDesignSystem")
+    .crate_path("fission::theme")
+```
+
+Add the generator as a build dependency:
+
+```toml title="Cargo.toml"
+[dependencies]
+fission = { version = "0.15.1", default-features = false, features = ["desktop"] }
+
+[build-dependencies]
+fission-design-system-codegen = "0.15.1"
+```
+
+## What you should have working
+
+After this guide, you should be able to explain where `Design system` fits in the Fission lifecycle, identify the file or component you changed, run the relevant `fission` command, and verify the result in a real target or test.
+
+## Common mistakes to check
+
+| Symptom | What to check first |
+| --- | --- |
+| The app compiles but nothing changes | Confirm the component is actually used by the route or shell target you are running. |
+| An action fires but state does not update | Confirm the reducer is registered with the same action value that the UI dispatches. |
+| A platform feature reports unsupported | Confirm the target has the capability in `fission.toml` and the shell registered the provider. |
+| The page works on one target but not another | Run `fission doctor`, then inspect target-specific configuration and feature flags. |
+| Tests are hard to write | Split the product rule into a reducer test first, then add a UI or shell smoke test for the integration. |
+
+The generated code uses the public Fission theme API. Your application still imports Fission normally:
+
+```rust title="src/main.rs"
+use fission::prelude::*;
+
+include!(concat!(env!("OUT_DIR"), "/app_design_system.rs"));
+```
+
+## Let the user choose light or dark
+
+Theme choice is product state. If the user can choose light mode or dark mode, keep that choice in `GlobalState`, then mirror it into `Env` with `.with_sync_env(...)`.
+
+```rust
+DesktopApp::new(MyApp)
+    .with_design_system::<AppDesignSystem>(DesignMode::Light)
+    .with_sync_env(|state: &MyState, env: &mut Env| {
+        env.theme = AppDesignSystem::theme(state.theme_mode);
+        env.window.title = WindowTitle::plain("My Fission App");
+    })
+    .run()?;
+```
+
+`Env` is the environment shared with widgets during component conversion. Putting the generated `Theme` there means every widget sees the same colors, typography, component sizes, shadows, and motion settings for the current frame.
+
+## What Fission consumes today
+
+The generated theme is not just a bag of metadata. Fission resolves DSP component styles into typed runtime structs.
+
+Buttons consume hierarchy styles such as `primary`, `secondary_color`, `secondary_gray`, `tertiary_color`, `link_color`, and `destructive`. Button sizes such as `sm`, `md`, `lg`, and `xl` map to first-class component size slots. State tables such as `default`, `hover`, `active`, `focus`, and `disabled` resolve into typed style values before the widget renders.
+
+Inputs, badges, tabs, cards, modals, tooltips, and progress bars follow the same model. They read generated component styles for background fills, text colors, borders, radius, padding, font sizes, font weights, line heights, shadows, and state-specific overrides. Charts read the generated data-visualization palette from the theme instead of inventing a separate chart palette.
+
+The important rule is that JSON stops at conversion time. Runtime code sees Rust values.
+
+### Colour pairs
+
+Every fill a component paints comes with the colour for text and icons drawn on it. Ask for both at once, so text is never paired with the wrong ground:
+
+```rust
+use fission::theme::ColorRole;
+
+let card = tokens.colors.pair(ColorRole::Card);
+Container::new(Text::new("Invoice").color(card.on)).bg(card.fill)
+```
+
+| Role | Fill | Content on it | Falls back to |
+| --- | --- | --- | --- |
+| `Background` | `background` | `on_background` | Declared |
+| `Surface` | `surface` | `on_surface` | Declared |
+| `Card` | `card` | `on_card` | `surface`, `on_surface` |
+| `Popover` | `popover` | `on_popover` | `surface_raised`, `on_surface` |
+| `Muted` | `muted` | `on_muted` | `surface_sunken`, `text_muted` |
+| `Primary` | `primary` | `on_primary` | Declared |
+| `Secondary` | `secondary` | `on_secondary` | Declared |
+| `Accent` | `accent` | `on_accent` | `primary`, `on_primary` |
+| `Destructive` | `destructive` | `on_destructive` | `error`, `on_error` |
+
+`input`, the border of text fields, falls back to `border`.
+
+The newer roles are optional. A DSP file that leaves one out gets the existing role in the last column, both at runtime and in references, so `{color.light.card}` works in a recipe even when `tokens.json` never declares `card`. Declare the role under `color.light` and `color.dark` to give it its own value. Each bundled look keeps every pair at WCAG AA contrast (4.5:1).
+
+## Start from a bundled system when it fits
+
+Fission ships several bundled DSP packages for common product directions. They are not magic modes inside the renderer. Each one is a normal `dsp.json` and `tokens.json` package under `crates/core/fission-theme/design`, generated into a Rust `DesignSystem` implementation at conversion time.
+
+| Preset | Generated Rust type | Use when |
+| --- | --- | --- |
+| Fission default (Tidewater) | `FissionDefaultDesignSystem` | You want Fission's own look: teal actions on a faintly teal-tinted canvas, with compact controls. |
+| Material Design 3 | `FissionMaterialDesign3DesignSystem` | You want an Android-oriented, role-based design system with Material-style color, shape, and component density. |
+| Fluent 2 | `FissionFluent2DesignSystem` | You want a Microsoft productivity-app feel with Fluent-style density, neutral surfaces, Segoe-style typography, and restrained radius. |
+| Liquid Glass | `FissionLiquidGlassDesignSystem` | You want layered translucent surfaces, luminous tint, larger radius, and depth-forward presentation. |
+| Cupertino | `FissionCupertinoDesignSystem` | You want UIKit-style iOS conventions while using the cross-platform Cupertino naming convention. |
+| Ember | `FissionEmberDesignSystem` | You want a warmer Fission look: the orange of the Fission logo on stone neutrals, with slightly rounder corners. |
+| Graphite | `FissionGraphiteDesignSystem` | You want a restrained Fission look: ink-black primary actions, zinc neutrals, one blue accent for focus, links and selection controls. |
+
+Use a preset exactly the same way you use a generated app design system:
+
+```rust
+use fission::prelude::*;
+use fission::theme::{DesignMode, FissionCupertinoDesignSystem};
+
+DesktopApp::new(MyApp)
+    .with_design_system::<FissionCupertinoDesignSystem>(DesignMode::Light)
+    .with_sync_env(|state: &MyState, env: &mut Env| {
+        env.theme = FissionCupertinoDesignSystem::theme(state.theme_mode);
+    })
+    .run()?;
+```
+
+Presets are a good starting point, not a cage. If your product needs a slightly different brand color, radius scale, chart palette, or component state table, copy the preset package into your app's `design/` folder and edit the JSON there. Your app's build script can then generate `AppDesignSystem` from that copy.
+
+That keeps the same architecture: design information enters as DSP JSON at conversion time, and widgets consume typed Rust theme values at runtime.
+
+## Where to get DSP and token files
+
+You can start from Fission's default package, export from a design tool, or use public token systems as reference material.
+
+- Adobe introduced Design System Package as an open package format for sharing design-system information across tools, including tokens, documentation, snippets, and examples.
+- Google's Material token repository documents Material Design DSP usage and can be used as a reference for a real DSP-style token package.
+- Adobe Spectrum publishes structured design-token data for colors, layout, typography, and component tokens.
+- Tokens Studio and Style Dictionary are useful when your team already manages design tokens in Figma or JSON and needs to transform them for engineering.
+- Token generators such as Tokenry can produce a first pass of primitive and semantic tokens when you are starting from a brand color instead of an existing system.
+
+Useful links:
+
+- [Adobe XD and Design System Package announcement](https://blog.adobe.com/en/publish/2020/10/20/xd-october-2020-update-3d-transforms-libraries-panel-more)
+- [Material Design DSP token repository](https://github.com/material-foundation/material-tokens)
+- [Adobe Spectrum design data tokens](https://opensource.adobe.com/spectrum-design-data/tokens/)
+- [Tokens Studio](https://tokens.studio/)
+- [Style Dictionary design token docs](https://styledictionary.com/info/tokens/)
+- [Tokenry design token generator](https://tokenry.app/)
+
+## Example app
+
+The repository includes `examples/todo-design-system`. It is intentionally small: a todo list, a text input, buttons, badges, a card surface, and a light/dark toggle.
+
+The example's `build.rs` points at Fission's bundled DSP package so the example does not carry a large local copy of the JSON files. In your own app, copy the default package, replace it with your design team's package, or point the generator at a package produced by your design tooling.
+
+Run it with:
+
+```bash
+cargo run -p todo-design-system
+```
+
+## Packaged fonts and design fidelity
+
+Design-system packages can declare font files in `assets.fonts`. Codegen validates those files at build time and emits packaged font faces through `DesignSystem::font_faces()`. The runtime shell registers those fonts before rendering, so app widgets can use generated typography tokens without depending on system-installed fonts.
+
+Pair design tokens with typed layout and paint primitives. Use `Length` for responsive dimensions, `Fill` for gradients, `BoxShadow` for elevation, and `BackdropFilter` for glass or blur effects. That keeps visual fidelity inspectable and testable instead of being hidden in target-specific code.
+
+Read [Design systems and fonts](/docs/develop/design-systems-and-fonts/) for the full flow and [Visual fidelity](/docs/learn/visual-fidelity/) for testing guidance.

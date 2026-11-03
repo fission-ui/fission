@@ -1,4 +1,4 @@
-use crate::content::{load_goal, GoalDocument};
+use crate::content::{load_goals, GoalDocument};
 use anyhow::{bail, Context, Result};
 use std::collections::BTreeMap;
 use std::fs;
@@ -7,16 +7,7 @@ use std::process::Command;
 
 pub fn build_all(project_dir: &Path) -> Result<()> {
     let content_dir = project_dir.join("content/goals");
-    let mut documents = Vec::new();
-    for entry in fs::read_dir(&content_dir)
-        .with_context(|| format!("failed to read {}", content_dir.display()))?
-    {
-        let path = entry?.path();
-        if path.extension().and_then(|value| value.to_str()) == Some("mdx") {
-            documents.push(load_goal(path)?);
-        }
-    }
-    documents.sort_by_key(|document| document.meta.order);
+    let documents = load_goals(&content_dir)?;
     eprintln!(
         "Building {} goal tutorial(s) from documentation source...",
         documents.len()
@@ -38,6 +29,7 @@ fn build_goal(project_dir: &Path, document: &GoalDocument) -> Result<()> {
         .parent()
         .context("docs2 must live below the Fission workspace")?;
     let mut files = BTreeMap::<String, String>::new();
+    let mut previous_source: Option<(BTreeMap<String, String>, std::path::PathBuf)> = None;
     let cargo_target = project_dir.join("target/tutorial-wasm");
     if !cargo_target.exists() {
         if let Some(first_step) = document.steps.first() {
@@ -75,17 +67,18 @@ fn build_goal(project_dir: &Path, document: &GoalDocument) -> Result<()> {
                 .with_context(|| format!("failed to replace {}", stage_dir.display()))?;
         }
         for (relative, contents) in &files {
-            let destination = stage_dir.join(relative);
+            let stage_path = if relative == "preview/lib.rs" {
+                Path::new("src/lib.rs")
+            } else {
+                Path::new(relative)
+            };
+            let destination = stage_dir.join(stage_path);
             if let Some(parent) = destination.parent() {
                 fs::create_dir_all(parent)?;
             }
             fs::write(destination, contents)?;
         }
-        let package = format!("docs2-{}-{}", document.meta.app, step.id).replace('_', "-");
-        fs::write(
-            stage_dir.join("Cargo.toml"),
-            tutorial_manifest(&package, workspace_root),
-        )?;
+        let package = format!("docs2-{}", document.meta.app).replace('_', "-");
         let output = project_dir
             .join("generated-assets/tutorials")
             .join(&document.meta.app)
@@ -94,26 +87,32 @@ fn build_goal(project_dir: &Path, document: &GoalDocument) -> Result<()> {
             fs::remove_dir_all(&output)?;
         }
         fs::create_dir_all(&output)?;
-        let status = Command::new("wasm-pack")
-            .arg("build")
-            .arg(&stage_dir)
-            .args(["--target", "web", "--dev", "--out-dir"])
-            .arg(output.join("pkg"))
-            .env("CARGO_TARGET_DIR", &cargo_target)
-            .status()
-            .context("failed to launch wasm-pack; install it before building goal tutorials")?;
-        if !status.success() {
-            bail!(
-                "tutorial `{}` step `{}` failed to compile",
-                document.meta.app,
-                step.id
-            );
+        if let Some((previous_files, previous_output)) = &previous_source {
+            if previous_files == &files {
+                copy_dir(previous_output, &output)?;
+                eprintln!("  Source is unchanged; reusing the compiled Web preview.");
+            } else {
+                compile_preview(
+                    &document.meta.app,
+                    &step.id,
+                    &package,
+                    &stage_dir,
+                    &output,
+                    &workspace_root,
+                    &cargo_target,
+                )?;
+            }
+        } else {
+            compile_preview(
+                &document.meta.app,
+                &step.id,
+                &package,
+                &stage_dir,
+                &output,
+                &workspace_root,
+                &cargo_target,
+            )?;
         }
-        let module = package.replace('-', "_");
-        fs::write(
-            output.join("bootstrap.mjs"),
-            format!("import init from './pkg/{module}.js';\nawait init();\n"),
-        )?;
         fs::write(
             output.join("index.html"),
             tutorial_html(&document.meta.title, &step.title),
@@ -124,6 +123,54 @@ fn build_goal(project_dir: &Path, document: &GoalDocument) -> Result<()> {
             document.steps.len(),
             step.id
         );
+        previous_source = Some((files.clone(), output));
+    }
+    Ok(())
+}
+
+fn compile_preview(
+    app: &str,
+    step: &str,
+    package: &str,
+    stage_dir: &Path,
+    output: &Path,
+    workspace_root: &Path,
+    cargo_target: &Path,
+) -> Result<()> {
+    fs::write(
+        stage_dir.join("Cargo.toml"),
+        tutorial_manifest(package, workspace_root),
+    )?;
+    let status = Command::new("wasm-pack")
+        .arg("build")
+        .arg(stage_dir)
+        .args(["--target", "web", "--dev", "--out-dir"])
+        .arg(output.join("pkg"))
+        .env("CARGO_TARGET_DIR", cargo_target)
+        .status()
+        .context("failed to launch wasm-pack; install it before building goal tutorials")?;
+    if !status.success() {
+        bail!("tutorial `{app}` step `{step}` failed to compile");
+    }
+    let module = package.replace('-', "_");
+    fs::write(
+        output.join("bootstrap.mjs"),
+        format!("import init from './pkg/{module}.js';\nawait init();\n"),
+    )?;
+    Ok(())
+}
+
+fn copy_dir(source: &Path, destination: &Path) -> Result<()> {
+    fs::create_dir_all(destination)?;
+    for entry in fs::read_dir(source)? {
+        let entry = entry?;
+        let source_path = entry.path();
+        let destination_path = destination.join(entry.file_name());
+        if source_path.is_dir() {
+            copy_dir(&source_path, &destination_path)?;
+        } else {
+            fs::copy(source_path, destination_path)?;
+        }
     }
     Ok(())
 }

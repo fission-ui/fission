@@ -1,0 +1,50 @@
+---
+title: ContextMenuRegion
+description: Attach a widget-backed context menu to any subtree.
+slug: /widgets/context-menu-region
+---
+# ContextMenuRegion
+
+`ContextMenuRegion` gives a widget subtree an explicit secondary-click context menu.
+
+The menu model accepts child widgets, not only strings. That lets applications render translated text, icons, badges, shortcuts, or product-specific rows while Fission handles the right-click activation and menu positioning.
+
+## Example
+
+```rust
+use fission::prelude::*;
+
+let menu = ContextMenu::with_items([
+    ContextMenuEntry::Item(
+        ContextMenuItem::new(
+            "copy-link",
+            Text::new(TextContent::KeyWithFallback {
+                key: "menu.copy_link".into(),
+                fallback: "Copy link".into(),
+            }),
+        )
+        .on_select(copy_link),
+    ),
+]);
+
+let widget: Widget = ContextMenuRegion::new(
+    Text::new("Right-click for actions"),
+    menu,
+)
+.id(WidgetId::explicit("example.context_menu"))
+.into();
+```
+
+## Fields
+
+| Field | Type | Meaning | Notes / default behavior |
+| --- | --- | --- | --- |
+| `id` | `Option<WidgetId>` | Stable owner identity for the region and popup state. | Use an explicit id for menus in dynamic lists. |
+| `child` | `Widget` | The visible subtree that can open the menu. | Any widget can be wrapped. |
+| `menu` | `ContextMenu` | The menu entries and visual configuration. | Items can contain arbitrary child widgets. |
+| `enabled` | `bool` | Whether secondary-click opens the menu. | Defaults to `true`. |
+| `semantics` | `Option<Semantics>` | Optional semantics for the menu region owner. | Fission sets `context_menu = true` when enabled. |
+
+## Related
+
+[`Text`](/reference/widgets/text), [`RichText`](/reference/widgets/rich-text), [`TextContent`](/reference/widgets/text-content), and [`Button`](/reference/widgets/button).

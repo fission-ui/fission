@@ -11,7 +11,7 @@ const MOBILE_DRAWER_WIDTH: f32 = 280.0;
 
 fission_component! {
     pub InboxApp<InboxState>
-    |_app, state, cx| {
+    view(_app, state, cx) {
         if state.show_settings {
             cx.build.register_portal(SettingsModal.into());
         }

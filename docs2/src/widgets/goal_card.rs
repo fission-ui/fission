@@ -8,8 +8,9 @@ fission_component! {
             icon: &'static str,
             title_key: &'static str,
             body_key: &'static str,
+            action_key: &'static str,
             image: &'static str,
-            href: &'static str,
+            href: String,
         }
     }
     view(card, _state, cx) {
@@ -23,7 +24,7 @@ fission_component! {
                 copy(card.title_key).weight(tokens.typography.font_weight_bold),
                 copy(card.body_key).color(tokens.colors.text_secondary),
                 Spacer(flex_grow: 1.0),
-                Link::to(cx.view.env().tr("home.goal.open"), card.href),
+                Link::to(cx.view.env().tr(card.action_key), card.href.clone()),
             ]),
             Image::asset(card.image).size(110.0, 150.0).fit(ir_op::ImageFit::Cover).semantic_label(""),
         ]),

@@ -1,0 +1,158 @@
+---
+title: Platform runtime
+description: The boundary between Fission's shared runtime and the public target shell wrappers.
+---
+
+# Platform runtime
+
+This page explains one of the most important boundaries in Fission: the line between the shared runtime and the platform shell that hosts it.
+
+The short version is this:
+
+- the core runtime decides what the user interface means,
+- the shell decides how that user interface is attached to a real host.
+
+That host might be a macOS, Windows, Linux, Web, Android, iOS, Terminal, Static site, or SSR target. Fission keeps the shell layer thin on purpose so that the shared app model stays the same across those targets.
+
+## What the shared runtime owns
+
+The shared runtime owns the behavior that should not change when you switch platforms.
+
+That includes action dispatch, reducer execution, runtime state, resource reconciliation, component conversion, lowering, layout, semantics, display-list generation, and the internal structures that make deterministic testing possible.
+
+In plainer language, the runtime owns the meaning of the app. If a button press should increment a counter, open a modal, update a form field, or request a save job, that rule belongs to the shared runtime and app model. It should not become different simply because the app is running in a browser instead of a native window.
+
+This is why Fission can talk seriously about cross-platform parity. The important user interface rules are not copied into each host. They stay in one shared core.
+
+## What the shell owns
+
+A shell owns the platform-facing work that depends on a real host environment.
+
+That includes creating the host output, forwarding input, presenting rendered output, bridging clipboard and input method editor behavior, running the shell-owned async host, and exposing host-level testing hooks where supported.
+
+So when the app is launched in a browser, the shell deals with the browser host. When the app is launched in an Android or iOS host project, the shell deals with that mobile host. When the app runs on macOS, Windows, or Linux, the shell owns the native window and desktop-specific integration. When the app runs as Terminal, Static site, or SSR output, the matching shell owns terminal cells, static HTML generation, or request-time rendering.
+
+The shell is not where product logic is supposed to leak. It is the adapter around the shared runtime, not the place where your app gets redefined.
+
+## Why Fission keeps this boundary thin
+
+The boundary is strict because it protects the rest of the architecture.
+
+If shells started inventing layout rules, mutating product state directly, or deciding business behavior on their own, the framework would stop being one app model with multiple hosts. It would become several slightly different apps that happened to share some widget names.
+
+Keeping the shell thin has practical benefits:
+
+- shared behavior stays easier to test,
+- bugs stay easier to reproduce,
+- the same reducer logic can be trusted across targets,
+- platform-specific work stays isolated at the edge where it belongs.
+
+That does not mean the shell is unimportant. It means the shell should do real host work without secretly becoming a second application architecture.
+
+## The public shell wrappers
+
+The current public app and document builders are:
+
+- `DesktopApp<S, W>`
+- `MobileApp<S, W>`
+- `WebApp<S, W>`
+- `TerminalApp<S, W>`
+- `FissionSite`
+- `FissionServerApp`
+- `BrowserIslandApp<S, W>`
+
+They host the same shared runtime model. Where a wrapper has type parameters, they mean:
+
+- `S` is your app state type,
+- `W` is your root widget type.
+
+If you are new to Rust generics, you can read those wrappers more simply as "desktop shell for my app," "mobile shell for my app," "web shell for my app," "terminal shell for my app," "static site shell," and "SSR shell for my app."
+
+The important thing they share is more valuable than the differences: each wrapper keeps product behavior in the shared app model. You still provide root widgets or routes. You still have app state where the target needs runtime state. You still use reducers, actions, selectors, and widgets the same way.
+
+## How the wrappers are meant to be used
+
+The wrappers configure the host; they are not alternate application models.
+
+In practice, that means their methods mostly answer questions like:
+
+- what is the app title for this host?
+- how should initial state be adjusted before the first frame?
+- should one startup action be dispatched when the runtime is ready?
+- which app-owned values should be synchronized into `Env` each frame?
+- which async jobs, services, and capabilities should the shell host know about?
+- should the shell expose a live test-control port?
+
+That is why builder methods such as `with_state_init(...)`, `with_startup_action(...)`, `with_sync_env(...)`, `with_async(...)`, and `with_frame_hook(...)` exist across multiple wrappers. They are host-configuration hooks around the same shared app model.
+
+## The common wrapper concepts
+
+Even though the wrappers do not expose identical method sets, several concepts repeat and are worth understanding first.
+
+`new(root_widget)` creates the shell wrapper around your root widget.
+
+`with_state_init(...)` lets you mutate the initial app state before the first frame. This is for cheap synchronous setup, not for long-running work.
+
+`with_startup_action(...)` dispatches one action after the runtime is ready. This is the usual place to kick off startup flows without hiding them in the shell.
+
+`with_sync_env(...)` mirrors app-driven values into `Env`. This is the main public hook for things like theme, locale, and other app-wide presentation inputs.
+
+`with_async(...)` registers typed async jobs, services, and capability handlers on the shell-owned async host.
+
+`with_frame_hook(...)` gives you a per-frame hook when you genuinely need host-side polling or wakeups. It exists, but it should stay the exception rather than becoming your primary app architecture.
+
+Those concepts matter more than memorizing every wrapper method immediately, because they tell you how the shell participates in the runtime boundary.
+
+## Builder parity and intentional differences
+
+The continuously running Desktop, Mobile, Web, and Terminal shells share the
+same environment and startup vocabulary. They all accept a complete base
+`Env`, can synchronize it from `GlobalState`, can prepare initial state, can
+dispatch a startup action, can install an app-wide key handler and frame hook,
+and can register host-owned reducers. This means i18n and design-system setup do
+not need a target-specific workaround.
+
+| Capability | Desktop | Mobile | Web | Terminal | Static site | SSR |
+| --- | --- | --- | --- | --- | --- | --- |
+| Seed a complete environment with `with_env` | Yes | Yes | Yes | Yes | Yes | Yes |
+| Install a design system | Yes | Yes | Yes | Yes | Yes | Yes |
+| Synchronize environment from live app state | `with_sync_env` | `with_sync_env` | `with_sync_env` | `with_sync_env` | Not applicable | `with_request_env` uses request context |
+| Prepare live app state | Yes | Yes | Yes | Yes | Per-route state factory | Per-route state factory |
+| Dispatch a startup action | Yes | Yes | Yes | Yes | Not applicable | Not applicable |
+| Register packaged fonts | Yes | Yes | Yes | No; terminal emulator owns fonts | Yes | Yes |
+| Configure browser history/path strategy | Not applicable | Host deep links | `with_navigation` | In-memory navigation | Route output paths | Request routes |
+| Native live-test TCP port | Yes | Yes | No; browser control bridge | No | Not applicable | Not applicable |
+
+Static site and SSR builders intentionally do not pretend to have a persistent
+frame loop. A static route is built once, while an SSR route is built for an
+HTTP request. Their locale resolvers and SSR's `with_request_env` therefore
+express real build/request inputs instead of imitating `with_sync_env` with the
+wrong lifetime.
+
+Browser-only methods such as `with_mount_selector`, `with_browser_defaults`,
+and `with_navigation` stay on `WebApp`. Desktop window, tray, and AppUserModelID
+configuration stays on `DesktopApp`. Android host injection stays on Mobile.
+Those are host capabilities, not gaps in the shared app model.
+
+## Practical boundary guidance
+
+If you are deciding where code belongs, ask one question:
+
+Should this rule change because the host changed?
+
+If the answer is no, it probably belongs in the shared runtime or app model.
+
+If the answer is yes because the work depends on a real target, operating-system lifecycle, browser environment, terminal environment, server request, or shell-side integration, it belongs in the shell layer.
+
+For example:
+
+- a reducer rule for saving a draft belongs in the shared app model,
+- a browser launch script belongs in the host project,
+- the current theme choice belongs in app state and is mirrored through `with_sync_env(...)`,
+- the existence of a live test-control port belongs to the shell wrapper.
+
+That is the runtime boundary in practice.
+
+## Related reference pages
+
+For generated targets and host folders, continue to [Targets](/reference/platform/targets). For shell-side testing expectations, see [Platform testing](/reference/platform/testing). For the teaching-oriented explanation of this same boundary, read [Platform shells, command-line interface, and testing](/docs/guides/platform-shells-cli-and-testing).

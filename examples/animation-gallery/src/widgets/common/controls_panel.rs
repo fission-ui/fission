@@ -9,7 +9,7 @@ use fission::prelude::*;
 
 fission_component! {
     pub ControlsPanel<AnimationGalleryState> { motions: Vec<MotionChoice> }
-    |panel, state, cx| {
+    view(panel, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
         Container(

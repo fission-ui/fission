@@ -4,43 +4,34 @@ use fission::prelude::*;
 
 fission_component! {
     pub(super) GuidedAgentTimeline<()> {}
-    |_timeline, _state, _cx| {
+    view(_timeline, _state, _cx) {
         let root_id = WidgetId::explicit("quality-gallery.guided.agent-timeline");
         let timeline = TimelineLayout::new(vec![
             TimelineEntry::new(
                 WidgetId::derived(root_id.as_u128(), &[1]),
                 GuidedAgentCard::new("Inbox Listener", "Find and read new customer feedback.", "email", Some("intake"), "Can read email using 2 mailbox actions", "mail::list_messages", "mail::get_message", "3 rules   ·   2 examples", AgentTone::Intake, true),
             )
-            .marker(GuidedTimelineMarker::Step {
-                number: "1",
-                selected: true,
-            }),
+            .marker(GuidedTimelineStepMarker::new("1", true)),
             TimelineEntry::new(
                 WidgetId::derived(root_id.as_u128(), &[2]),
                 GuidedConnector::new(false),
             )
-            .marker(GuidedTimelineMarker::Transition),
+            .marker(GuidedTimelineTransitionMarker),
             TimelineEntry::new(
                 WidgetId::derived(root_id.as_u128(), &[3]),
                 GuidedAgentCard::new("Feedback Analyst", "Group recurring themes and identify urgency.", "analysis", None, "Can organise feedback using 2 project actions", "project::read_feedback", "project::write_analysis", "4 rules   ·   3 examples", AgentTone::Analysis, false),
             )
-            .marker(GuidedTimelineMarker::Step {
-                number: "2",
-                selected: false,
-            }),
+            .marker(GuidedTimelineStepMarker::new("2", false)),
             TimelineEntry::new(
                 WidgetId::derived(root_id.as_u128(), &[4]),
                 GuidedConnector::new(true),
             )
-            .marker(GuidedTimelineMarker::Transition),
+            .marker(GuidedTimelineTransitionMarker),
             TimelineEntry::new(
                 WidgetId::derived(root_id.as_u128(), &[5]),
                 GuidedAgentCard::new("Product Planner", "Turn approved themes into a weekly priorities brief.", "planning", Some("weekly"), "Can view projects and create proposed issues using 2 actions", "projects::list_projects", "projects::create_issue", "3 rules   ·   2 examples", AgentTone::Planning, false),
             )
-            .marker(GuidedTimelineMarker::Step {
-                number: "3",
-                selected: false,
-            }),
+            .marker(GuidedTimelineStepMarker::new("3", false)),
         ])
         .id(root_id)
         .marker_geometry(42.0, 42.0)
@@ -49,53 +40,51 @@ fission_component! {
     } => timeline
 }
 
-pub(super) enum GuidedTimelineMarker {
-    Step {
-        number: &'static str,
-        selected: bool,
-    },
-    Transition,
+fission_component! {
+    #[derive(Default)]
+    pub(super) GuidedTimelineStepMarker<()> {
+        props {
+            number: &'static str,
+            selected: bool,
+        }
+    }
+
+    view(marker, _state, _cx) =>
+        Container(Text(marker.number).size(16.0).weight(600).color(if marker.selected {
+            Color::WHITE
+        } else {
+            INK
+        }))
+        .size(42.0, 42.0)
+        .align_child(BoxAlignment::Center)
+        .bg(if marker.selected { BLUE } else { SOFT })
+        .border(
+            if marker.selected {
+                BLUE
+            } else {
+                rgba(155, 172, 225, 255)
+            },
+            1.0,
+        )
+        .border_radius(21.0)
 }
-impl From<GuidedTimelineMarker> for Widget {
-    fn from(marker: GuidedTimelineMarker) -> Self {
-        match marker {
-            GuidedTimelineMarker::Step { number, selected } => {
-                Container::new(Text::new(number).size(16.0).weight(600).color(if selected {
-                    Color::WHITE
-                } else {
-                    INK
-                }))
-                .size(42.0, 42.0)
-                .align_child(BoxAlignment::Center)
-                .bg(if selected { BLUE } else { SOFT })
-                .border(
-                    if selected {
-                        BLUE
-                    } else {
-                        rgba(155, 172, 225, 255)
-                    },
-                    1.0,
-                )
-                .border_radius(21.0)
-                .into()
-            }
-            GuidedTimelineMarker::Transition => Container::new(
-                Icon::svg(material::navigation::arrow_downward::regular())
-                    .size(18.0)
-                    .color(BLUE),
-            )
+
+fission_component! {
+    pub(super) GuidedTimelineTransitionMarker<()> {}
+
+    view(_marker, _state, _cx) =>
+        Container(Icon::svg(material::navigation::arrow_downward::regular())
+            .size(18.0)
+            .color(BLUE))
             .size(42.0, 42.0)
             .align_child(BoxAlignment::Center)
             .bg(PALE_BLUE)
             .border_radius(21.0)
-            .into(),
-        }
-    }
 }
 
 fission_component! {
     pub(super) GuidedConnector<()> { analysis: bool }
-    |connector, _state, _cx| {} =>
+    view(connector, _state, _cx) {} =>
         Container(Row(
             gap: 12.0_f32,
             align_items: fission::op::AlignItems::Center,

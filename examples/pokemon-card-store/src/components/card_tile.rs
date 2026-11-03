@@ -6,7 +6,7 @@ use fission::prelude::*;
 
 fission_component! {
     pub CardTile<StoreState> { card: Card }
-    |tile, _state, cx| {
+    view(tile, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
         let typography = &tokens.typography;
         let accent = card_accent(tile.card.accent);

@@ -26,12 +26,13 @@ fission_component! {
             Text(heading)
                 .size(tokens.typography.heading1_size)
                 .weight(tokens.typography.font_weight_bold),
-            Row(gap: tokens.spacing.l, align_items: ir_op::AlignItems::Stretch, children: [
-                SemanticsRegion(
-                    MarkdownContent::new(section.step.markdown.clone()),
-                    identifier: Some("goal-step-copy".to_string()),
-                ),
-                Column(gap: tokens.spacing.s, children: [
+            if section.step.preview {
+                Row(gap: tokens.spacing.l, align_items: ir_op::AlignItems::Stretch, children: [
+                    SemanticsRegion(
+                        MarkdownContent::new(section.step.markdown.clone()),
+                        identifier: Some("goal-step-copy".to_string()),
+                    ),
+                    Column(gap: tokens.spacing.s, children: [
                     SemanticsRegion(
                         identifier: Some("goal-live-label".to_string()),
                         child: Row(gap: tokens.spacing.s, children: [
@@ -64,8 +65,14 @@ fission_component! {
                             ]),
                         )
                     },
-                ]),
-            ]),
+                    ]),
+                ])
+            } else {
+                SemanticsRegion(
+                    MarkdownContent::new(section.step.markdown.clone()),
+                    identifier: Some("goal-step-copy".to_string()),
+                )
+            },
         ]),
         key: section.step.id.clone(),
     )

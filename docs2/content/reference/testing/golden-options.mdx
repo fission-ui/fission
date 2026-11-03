@@ -1,0 +1,24 @@
+---
+title: GoldenOptions
+description: Configure golden image comparisons for LiveTest screenshots.
+---
+
+# GoldenOptions
+
+`GoldenOptions` configures screenshot comparison for `fission-test-driver`.
+
+Use it when a visual output should remain stable across changes.
+
+```rust
+let report = client.compare_golden(
+    "tests/goldens/home-desktop.png",
+    Some(".artifacts/diffs/home-desktop.png"),
+    GoldenOptions {
+        channel_tolerance: 8,
+        max_changed_percent: 0.2,
+    },
+)?;
+assert!(report.changed_percent <= 0.2);
+```
+
+A golden report should include whether the comparison passed, summary diagnostics, changed-pixel counts, and paths to useful diff artifacts where supported.

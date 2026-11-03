@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 fission_component! {
     #[derive(Clone, Debug)] pub(crate) ShowcaseRouter<ShowcaseState> {}
-    |_component, state, _cx| {
+    view(_component, state, _cx) {
         let router = Router::<ShowcaseState> {
             current_path: state.current_path.clone(),
             routes: vec![

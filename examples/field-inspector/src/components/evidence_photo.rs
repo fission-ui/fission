@@ -7,7 +7,7 @@ const EXPANDED_IMAGE_HEIGHT: f32 = 320.0;
 const COMPACT_RESERVED_WIDTH: f32 = 96.0;
 fission_component! {
     pub EvidencePhoto<FieldInspectorState> { compact: bool }
-    |photo, state, cx| {
+    view(photo, state, cx) {
         let order = state.selected_order();
         let width = if photo.compact { (cx.view.viewport_size().width - COMPACT_RESERVED_WIDTH).clamp(0.0, COMPACT_IMAGE_MAX_WIDTH) } else { EXPANDED_IMAGE_WIDTH };
         let height = if photo.compact { width * COMPACT_IMAGE_ASPECT_RATIO } else { EXPANDED_IMAGE_HEIGHT };

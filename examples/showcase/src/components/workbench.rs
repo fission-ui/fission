@@ -37,7 +37,7 @@ fission_component! {
     #[derive(Clone, Copy, Debug)] pub(crate) Workbench<ShowcaseState> {
         example: ExampleDefinition,
     }
-    |component, state, cx| {
+    view(component, state, cx) {
         let compact = cx.view.viewport_size().width
             < cx.view.env().theme.tokens.breakpoints.medium_max;
     } =>
@@ -54,7 +54,7 @@ fission_component! {
     #[derive(Clone, Copy, Debug)] WorkbenchExpanded<ShowcaseState> {
         example: ExampleDefinition,
     }
-    |component, _state, cx| { let tokens = &cx.view.env().theme.tokens; } =>
+    view(component, _state, cx) { let tokens = &cx.view.env().theme.tokens; } =>
         SplitView(
             id: WidgetId::explicit("showcase.workbench.split"),
             direction: SplitDirection::Horizontal,
@@ -73,7 +73,7 @@ fission_component! {
     #[derive(Clone, Copy, Debug)] CatalogPage<ShowcaseState> {
         selected_slug: &'static str,
     }
-    |component, _state, cx| { let tokens = &cx.view.env().theme.tokens; } =>
+    view(component, _state, cx) { let tokens = &cx.view.env().theme.tokens; } =>
         Scroll(
             id: WidgetId::explicit("showcase.catalog.compact.scroll"),
             child: Container(CatalogPanel(component.selected_slug.into()))
@@ -89,7 +89,7 @@ fission_component! {
     #[derive(Clone, Copy, Debug)] ExamplePage<ShowcaseState> {
         example: ExampleDefinition,
     }
-    |component, _state, cx| {
+    view(component, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
         let back = with_reducer!(cx.build, Navigate("/".into()), on_navigate);
     } =>

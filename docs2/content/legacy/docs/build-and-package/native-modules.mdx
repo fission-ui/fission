@@ -1,0 +1,297 @@
+---
+title: Native modules
+description: Attach platform-owned native code, helpers, extensions, drivers, and tests to the Fission build, run, test, package, and release lifecycle.
+---
+
+# Native modules
+
+Most Fission code should stay in the shared Rust app: state, reducers, widgets, resources, and capabilities. Native modules are for the smaller set of work that must live beside a platform host: app extensions, system extensions, drivers, privileged helpers, existing platform SDK code, or platform-owned test binaries.
+
+Declare native modules in [`fission.toml`](/reference/config/fission-toml/) so the same configuration is used by `fission build`, `fission run`, `fission test`, and `fission package`. Do not duplicate native build steps in ad-hoc scripts unless the package format explicitly asks for an installer script.
+
+Use this page for the cross-platform native module model. Use the platform
+pages for packaging policy and realistic release values:
+[macOS packages](/docs/build-and-package/macos-packages/),
+[macOS native XcodeGen](/docs/build-and-package/macos-native-xcodegen/),
+[Windows packages](/docs/build-and-package/windows-packages/),
+[Linux packages](/docs/build-and-package/linux-packages/),
+[Android packages](/docs/build-and-package/android-packages/), and
+[iOS packages](/docs/build-and-package/ios-packages/).
+
+## When to add a native module
+
+Use a native module when the code is platform-owned and must be built, staged, signed, or tested with the app.
+
+| Need | Native module fit | Reason |
+| --- | --- | --- |
+| macOS app extension or system extension | Yes | The product must be embedded in a specific bundle location and signed with the app. |
+| Windows helper DLL, service runtime, or driver package | Yes | The package needs explicit runtime files or installer-only driver inputs. |
+| Linux helper executable or privileged helper | Yes | The package needs predictable staging and an audit trail for installer policy. |
+| Android Gradle dependency, source directory, or manifest entry | Yes | The generated Android host needs the native dependency in its platform build. |
+| iOS Swift package, linked framework, or native source directory | Yes | The generated iOS host needs native package/source/linkage metadata. |
+| Normal Fission UI logic | No | Keep it in shared Rust app code. |
+| A shell command that only uploads the final artifact | No | Use `fission distribute`, `fission publish`, or a release workflow. |
+
+A native module can be shared by more than one platform, but each platform section remains explicit. That keeps review simple: a macOS extension cannot accidentally become part of the Windows package because both entries happen to share a directory.
+
+## Basic shape
+
+Each module has a stable `name`, an optional project-relative `path`, and platform-specific configuration under `[native.modules.<target>]`.
+
+```toml
+[[native.modules]]
+name = "device-protection"
+path = "platforms/native/device-protection"
+
+[native.modules.macos]
+xcode_project = "platforms/native/device-protection/DeviceProtection.xcodeproj"
+
+[native.modules.windows]
+msbuild_project = "platforms/native/device-protection/DeviceProtection.sln"
+platform = "x64"
+
+[native.modules.linux]
+cargo_package = "device-protection-helper"
+```
+
+The module `path` is only a source-root hint. Platform paths still resolve from the project root unless the field says otherwise in the [`fission.toml` reference](/reference/config/fission-toml/). Prefer project-relative paths so CI, teammates, and release reviewers see the same structure.
+
+## macOS extensions
+
+macOS native modules build Xcode schemes with signing disabled, then Fission embeds and signs the produced extension inside the containing app.
+
+```toml
+[[native.modules]]
+name = "security-extensions"
+path = "platforms/macos/native"
+
+[native.modules.macos]
+xcodegen_spec = "platforms/macos/native/project.yml"
+xcode_project = "platforms/macos/native/SecurityExtensions.xcodeproj"
+test_schemes = ["SecurityExtensionsTests"]
+
+[[native.modules.macos.products]]
+scheme = "FileProvider"
+bundle = "FileProvider.appex"
+kind = "app-extension"
+entitlements = "platforms/macos/native/FileProvider.entitlements"
+provisioning_profile = "profiles/FileProvider.provisionprofile"
+
+[native.modules.macos.products.run]
+provisioning_profile = "profiles/FileProviderDevelopment.provisionprofile"
+signing_identity = "Apple Development"
+```
+
+| Product kind | Bundle requirement | Embedded into |
+| --- | --- | --- |
+| `app-extension` | `*.appex` | `Contents/PlugIns` |
+| `system-extension` | `*.systemextension` | `Contents/Library/SystemExtensions` |
+
+Run and package signing can differ. Product-level `run` overrides let development use an Apple Development identity while package output uses the distribution identity from `[package.macos]`.
+
+Important signing rules:
+
+- If a provisioning profile is configured, Fission requires a signing identity.
+- Ad-hoc signing with `-` can be useful for unrestricted local app testing, but it cannot satisfy restricted profile-backed entitlements.
+- Fission signs nested native products before signing the containing `.app`.
+
+## Linux helper products
+
+Linux modules currently use Cargo. The module package is built and tested through the same lifecycle as the app, then declared products are staged into local run/package roots.
+
+```toml
+[[native.modules]]
+name = "linux-file-helper"
+path = "platforms/linux/native"
+
+[native.modules.linux]
+cargo_manifest_path = "platforms/linux/native/Cargo.toml"
+cargo_package = "linux-file-helper"
+features = ["fuse"]
+no_default_features = true
+
+[[native.modules.linux.products]]
+name = "file-helper"
+path = "target/{profile}/linux-file-helper"
+kind = "runtime"
+destination = "libexec/linux-file-helper"
+
+[[native.modules.linux.products]]
+name = "mount-helper"
+path = "target/{profile}/mount-helper"
+kind = "privileged-helper"
+destination = "libexec/mount-helper"
+```
+
+| Product kind | What Fission does | What Fission does not do |
+| --- | --- | --- |
+| `runtime` | Stages the file or directory into the run/package root. | It does not install system services or grant privileges. |
+| `privileged-helper` | Stages and records the helper in the native-products manifest. | It does not add setuid bits, capabilities, polkit rules, or elevation policy. |
+
+Use `privileged-helper` as metadata for your installer and reviewer. The package script or operating-system installer must still perform an explicit, auditable privilege transaction.
+
+Linux product `path` supports `{profile}`, `{configuration}`, and `{architecture}` placeholders. `destination` must stay inside the application or installer root; traversal and overwrites are rejected.
+
+## Windows native products
+
+Windows supports two build systems. A module must choose exactly one:
+
+- Cargo, by setting `cargo_package`; or
+- MSBuild/WDK, by setting `msbuild_project`.
+
+Fission rejects mixed module configuration because Cargo features and NuGet/MSBuild/WDK settings belong to different toolchains.
+
+### Windows Cargo module
+
+Use a Cargo module for Rust helper binaries or DLLs that should be built with the workspace.
+
+```toml
+[[native.modules]]
+name = "windows-helper"
+path = "platforms/windows/helper"
+
+[native.modules.windows]
+cargo_manifest_path = "platforms/windows/helper/Cargo.toml"
+cargo_package = "windows-helper"
+features = ["installer"]
+no_default_features = true
+
+[[native.modules.windows.products]]
+name = "helper"
+path = "target/{profile}/windows-helper.exe"
+kind = "runtime"
+destination = "native/windows-helper.exe"
+```
+
+Cargo modules may use `features` and `no_default_features`. They may not set `msbuild_project`, `nuget_packages_config`, `nuget_packages_directory`, `build_target`, or `test_binaries`.
+
+### Windows MSBuild or WDK module
+
+Use an MSBuild module for Visual Studio projects, WDK driver packages, native tests, or projects that require NuGet-restored build tools.
+
+```toml
+[[native.modules]]
+name = "windows-protection"
+path = "platforms/windows/native"
+
+[native.modules.windows]
+nuget_packages_config = "platforms/windows/native/packages.config"
+nuget_packages_directory = "platforms/windows/native/packages"
+msbuild_project = "platforms/windows/native/Protection.sln"
+platform = "x64"
+build_target = "Build"
+test_binaries = ["platforms/windows/native/{platform}/{configuration}/ProtectionTests.exe"]
+
+[[native.modules.windows.products]]
+name = "cloud-files-provider"
+path = "platforms/windows/native/{platform}/{configuration}/Provider.dll"
+kind = "runtime"
+destination = "native/Provider.dll"
+
+[[native.modules.windows.products]]
+name = "filesystem-minifilter"
+path = "platforms/windows/native/{platform}/{configuration}/DriverPackage"
+kind = "driver-package"
+```
+
+| Product kind | Package behavior |
+| --- | --- |
+| `runtime` | Staged beside the app for local runs and package outputs. |
+| `driver-package` | Written to the native-products manifest for installer scripts; excluded from MSIX app manifests. |
+
+MSBuild product `path` and `test_binaries` support `{configuration}`, `{profile}`, and `{platform}`. Fission restores configured NuGet packages before MSBuild and prepends discovered native build-tool paths for the build process.
+
+## Android and iOS native additions
+
+Android and iOS module sections are host-scaffold inputs. They do not replace platform app code; they tell the generated host what to include.
+
+```toml
+[[native.modules]]
+name = "scanner-sdk"
+
+[native.modules.android]
+repositories = ["https://maven.example.com/releases"]
+gradle_dependencies = ["com.example:scanner:1.2.3"]
+source_dirs = ["platforms/android/scanner/src/main/java"]
+permissions = ["android.permission.CAMERA"]
+manifest_application_entries = ["<meta-data android:name=\"scanner\" android:value=\"enabled\" />"]
+
+[native.modules.ios]
+source_dirs = ["platforms/ios/Scanner"]
+linked_frameworks = ["AVFoundation.framework"]
+
+[[native.modules.ios.swift_packages]]
+url = "https://github.com/example/scanner-ios"
+product = "ScannerSDK"
+from = "1.2.3"
+```
+
+Keep privacy strings, usage descriptions, entitlements, and capability declarations in the normal target/capability configuration. Native modules should supply native source/dependency information, not hide product policy.
+
+## How native modules flow through commands
+
+| Command | Native module behavior |
+| --- | --- |
+| `fission build --target <target>` | Builds native modules for the selected target before the host build needs their products. |
+| `fission run --target <target>` | Builds and stages runtime native products into the local run root. macOS also embeds/signs native products in the development `.app`. |
+| `fission test --target <target>` | Runs native module tests where configured: Xcode schemes, Linux Cargo tests, Windows Cargo tests, or VSTest binaries. |
+| `fission package --target <target> --format <format>` | Builds/stages package products and writes native-products manifests where installers need structured input. |
+| `fission readiness package ...` | Checks missing scripts, package paths, signing references, and target/format-specific native requirements that can be known before packaging. |
+
+The artifact manifest produced by `fission package` remains the release handoff. Native product manifests are package-internal inputs or secondary metadata that explain what native outputs were staged.
+
+## Custom installer scripts
+
+Native products often need an installer stage that a raw application bundle cannot express. Fission supports project-defined package scripts for the formats that need that escape hatch.
+
+### Linux `.run`
+
+```toml
+[package.linux.run]
+installer_script = "platforms/linux/package-run.sh"
+```
+
+The script receives:
+
+| Environment variable | Meaning |
+| --- | --- |
+| `FISSION_LINUX_PAYLOAD_DIR` | Directory containing the app binary, assets, and staged native products. |
+| `LINUX_BINARY` | Path to the app binary inside the payload. |
+| `FISSION_LINUX_NATIVE_PRODUCTS_MANIFEST` | JSON manifest describing staged Linux native products. |
+| `LINUX_PROFILE` | `release` when the package command runs with `--release`. |
+
+The script must print the path to the completed `.run` installer on stdout. Fission copies that installer into the normal package output and records it in `artifact-manifest.json`.
+
+### Windows `.exe`
+
+```toml
+[package.windows]
+exe_installer_script = "platforms/windows/package-exe.ps1"
+```
+
+The script receives:
+
+| Environment variable | Meaning |
+| --- | --- |
+| `WINDOWS_BINARY` | Path to the built app executable. |
+| `FISSION_WINDOWS_NATIVE_PRODUCTS_MANIFEST` | JSON manifest describing Windows native products. |
+| `WINDOWS_PROFILE` | `release` when the package command runs with `--release`. |
+
+The script must print the path to the completed `.exe` installer on stdout. Use this when the release installer must install services, drivers, helper processes, repair/uninstall logic, or machine-level integration that a simple staged executable cannot express.
+
+## Review checklist
+
+Before merging a native module change, verify these points:
+
+- The shared app still owns product behavior; native code is only the platform edge.
+- All paths are project-relative unless they intentionally name provider or environment-owned state.
+- The module chooses one build system per platform.
+- Runtime products have deterministic `destination` values and cannot overwrite each other.
+- Privileged helpers and driver packages are classified explicitly.
+- Signing and provisioning references are non-secret; secret material comes from environment variables, provider tools, key stores, or local `~/.fission/<app-name>/` state.
+- `fission test --target <target>` covers native tests where the platform supports them.
+- `fission package ... --release` writes an artifact manifest that includes the native package output you expect.
+
+## Next steps
+
+Use [Desktop packages](/docs/build-and-package/desktop-packages/) for target-specific packaging commands and [Release lifecycle details](/docs/release-and-distribute/post-build-lifecycle/) for how the native-aware package artifact moves into provider readiness, publish, and receipts.

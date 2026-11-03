@@ -1,0 +1,322 @@
+---
+layout: goal
+title: Build a desktop application in Rust
+description: Build a practical Rust desktop app with a native shell, application menus, keyboard shortcuts, file access and saved preferences on macOS, Windows and Linux.
+goal: Give desktop users a familiar way to open, edit and save their work
+path: /blog/build-a-desktop-application-in-rust/
+order: 12
+difficulty: Beginner
+duration: 50 minutes
+run_command: "fission run --project-dir ."
+app: rust-desktop-application
+prerequisites:
+  - Basic Rust syntax and a terminal
+  - Rust and Cargo installed with rustup
+outcomes:
+  - Create a resizable desktop workspace
+  - Open a project and update a task
+  - Keep unsaved work safe and build for desktop
+---
+
+Build a practical Rust desktop app with a native shell, application menus, keyboard shortcuts, file access and saved preferences on macOS, Windows and Linux. This tutorial takes you from project setup to a runnable result in three steps. Each step’s `src/app.rs` component is compiled into the WebAssembly preview shown beside its code, so you can try the same Compose UI while you read. The preview demonstrates editor state in a browser. Persist documents through a filesystem service in the desktop target so file work never blocks the interface.
+
+## What you will build
+
+Build Harbour Notes as a small desktop editor with a document list, an editor area, menu actions and a remembered window preference.
+
+Install the Fission CLI and scaffold the Linux project:
+
+```sh
+cargo install cargo-fission
+fission init harbour-notes
+cd harbour-notes
+```
+
+The finished project is organised around the app boundary and the files that own each job:
+
+```text
+harbour-notes/
+├── Cargo.toml
+├── fission.toml
+├── src/
+│   ├── main.rs
+│   ├── lib.rs
+│   ├── app.rs
+│   ├── state.rs
+│   └── components/
+└── src/main.rs
+```
+
+Fission generates a thin entrypoint for each target and starts the shared app from it. Keep shared UI in `src/app.rs`, and move a reusable presentation piece into `src/components/` when it has a clear job of its own. Use `GlobalState` for data read across screens and Compose `state` for retained interaction owned by one component. Keep host work such as persistence and network requests in a Fission service or effect, then show loading, success or failure in the UI.
+
+The `preview/lib.rs` file is a documentation-only browser harness that mounts the step in the live preview. The `src/app.rs` component is compiled into that preview. Use its Compose patterns in your project, but do not copy the harness or treat its simulated host results as production behavior.
+
+<!-- fission:step id="start-screen" -->
+## Create a resizable desktop workspace
+
+Begin with the screen needed for this task. The first render gives you a concrete checkpoint before you add interaction state.
+
+Use props for page copy and read theme tokens through cx.view.env(). The component below keeps presentation aligned with the active design system.
+
+<!-- fission:file path="src/app.rs" -->
+```rust
+use fission::prelude::*;
+fission_component! {
+    pub TutorialPreview<()> {
+        props {
+            title: String,
+            detail: String,
+            action: String,
+            success: String,
+            empty: String,
+        }
+    }
+    view(preview, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Container(
+        Column(
+            gap: tokens.spacing.m,
+            children: [
+                Text(preview.title.clone()).size(tokens.typography.heading2_size).weight(tokens.typography.font_weight_bold),
+                Text(preview.detail.clone()).color(tokens.colors.text_secondary),
+                Text("No project is open"),
+                Text("Create or open a project to begin."),
+                Text(format!("Next action: {}",
+                        preview.action)),
+                Text(preview.empty.clone()).color(tokens.colors.text_secondary),
+            ]
+        )
+    )
+    .padding_all(tokens.spacing.l)
+    .bg(tokens.colors.surface)
+    .border(tokens.colors.border, 1.0)
+    .border_radius(tokens.radii.large)
+}
+```
+<!-- fission:file path="preview/lib.rs" -->
+```rust
+mod app;
+
+use fission::prelude::*;
+use wasm_bindgen::prelude::*;
+
+#[wasm_bindgen(start)]
+pub fn run() -> Result<(), JsValue> {
+    console_error_panic_hook::set_once();
+    let preview = app::TutorialPreview::new(
+        "Harbour Notes".to_string(),
+        "Create, edit and save a desktop note.".to_string(),
+        "Save the current note".to_string(),
+        "The note was saved and remains selected.".to_string(),
+        "No note is open. Create a note or open a document.".to_string(),
+    );
+    WebApp::<(), _>::new(preview)
+        .with_title("Build a desktop application in Rust")
+        .mount("#fission-web-mount")
+        .run()
+        .map_err(|error| JsValue::from_str(&error.to_string()))
+}
+```
+<!-- fission:preview -->
+
+<!-- fission:checkpoint -->
+Create a resizable desktop workspace: Confirm the initial screen names the task and its next action.
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->
+
+<!-- fission:step id="main-flow" -->
+## Open a project and update a task
+
+Put document state in the shared app model and keep operating-system calls behind capabilities or shell-owned actions. Add menu items and keyboard shortcuts for the same commands as the visible toolbar so users can choose mouse or keyboard input.
+
+The source below makes the main task interactive using retained component state and explicit controls.
+This state belongs to the component because it only remembers this view's interaction. Durable data shared across routes belongs in GlobalState and changes through reducers.
+<!-- fission:file path="src/app.rs" -->
+```rust
+use fission::prelude::*;
+fission_component! {
+    pub TutorialPreview<()> {
+        props {
+            title: String,
+            detail: String,
+            action: String,
+            success: String,
+            empty: String,
+        }
+        state {
+            project_open: bool = false,
+            task_done: bool = false,
+            has_error: bool = false,
+        }
+    }
+    view(preview, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Container(
+        Column(
+            gap: tokens.spacing.m,
+            children: [
+                Text(preview.title.clone()).size(tokens.typography.heading2_size).weight(tokens.typography.font_weight_bold),
+                Text(preview.detail.clone()).color(tokens.colors.text_secondary),
+                Button(child: Text(if preview.project_open { "Close project".to_string() } else { preview.action.clone() }),
+                    key: "open-project",
+                    on_press: reduce { preview.project_open = !preview.project_open; }),
+                if preview.project_open { Column(children: [Text("Harbour Desktop"),
+                            Text(if preview.task_done { "✓ Review the release notes" } else { "○ Review the release notes" }),
+                            Button(child: Text("Complete task"),
+                                key: "complete-task",
+                                on_press: reduce { preview.task_done = !preview.task_done; })]) } else { Text(preview.empty.clone()) },
+                Button(child: Text(if preview.has_error { "Try again".to_string() } else { "Preview a failed save".to_string() }),
+                    key: "preview-error",
+                    on_press: reduce { preview.has_error = !preview.has_error; }),
+                if preview.has_error { Text("The project could not be saved. Your changes are still in the editor.") } else { Text(preview.success.clone()) },
+                Text(preview.empty.clone()).color(tokens.colors.text_secondary),
+            ]
+        )
+    )
+    .padding_all(tokens.spacing.l)
+    .bg(tokens.colors.surface)
+    .border(tokens.colors.border, 1.0)
+    .border_radius(tokens.radii.large)
+}
+```
+<!-- fission:file path="preview/lib.rs" -->
+```rust
+mod app;
+
+use fission::prelude::*;
+use wasm_bindgen::prelude::*;
+
+#[wasm_bindgen(start)]
+pub fn run() -> Result<(), JsValue> {
+    console_error_panic_hook::set_once();
+    let preview = app::TutorialPreview::new(
+        "Harbour Notes".to_string(),
+        "Create, edit and save a desktop note.".to_string(),
+        "Save the current note".to_string(),
+        "The note was saved and remains selected.".to_string(),
+        "No note is open. Create a note or open a document.".to_string(),
+    );
+    WebApp::<(), _>::new(preview)
+        .with_title("Build a desktop application in Rust")
+        .mount("#fission-web-mount")
+        .run()
+        .map_err(|error| JsValue::from_str(&error.to_string()))
+}
+```
+<!-- fission:preview -->
+
+<!-- fission:checkpoint -->
+Open a project and update a task: Use the preview control and check that the result matches the action.
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->
+
+<!-- fission:step id="edge-state" -->
+## Keep unsaved work safe and build for desktop
+
+Make file access failures visible and keep unsaved edits available after a failed save. Store preferences such as the last selected document in durable local storage, but do not treat a remembered path as proof that the file is still available.
+
+Keep I/O outside component conversion and reducers. Send host work through an asynchronous effect or service so the UI stays responsive.
+The preview control below simulates an unsuccessful host result. It demonstrates the message and recovery path; it does not perform authentication, database, network, or filesystem work.
+<!-- fission:file path="src/app.rs" -->
+```rust
+use fission::prelude::*;
+fission_component! {
+    pub TutorialPreview<()> {
+        props {
+            title: String,
+            detail: String,
+            action: String,
+            success: String,
+            empty: String,
+        }
+        state {
+            project_open: bool = false,
+            task_done: bool = false,
+            has_error: bool = false,
+        }
+    }
+    view(preview, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Container(
+        Column(
+            gap: tokens.spacing.m,
+            children: [
+                Text(preview.title.clone()).size(tokens.typography.heading2_size).weight(tokens.typography.font_weight_bold),
+                Text(preview.detail.clone()).color(tokens.colors.text_secondary),
+                Button(child: Text(if preview.project_open { "Close project".to_string() } else { preview.action.clone() }),
+                    key: "open-project",
+                    on_press: reduce { preview.project_open = !preview.project_open; }),
+                if preview.project_open { Column(children: [Text("Harbour Desktop"),
+                            Text(if preview.task_done { "✓ Review the release notes" } else { "○ Review the release notes" }),
+                            Button(child: Text("Complete task"),
+                                key: "complete-task",
+                                on_press: reduce { preview.task_done = !preview.task_done; })]) } else { Text(preview.empty.clone()) },
+                Button(child: Text(if preview.has_error { "Try again".to_string() } else { "Preview a failed save".to_string() }),
+                    key: "preview-error",
+                    on_press: reduce { preview.has_error = !preview.has_error; }),
+                if preview.has_error { Text("The project could not be saved. Your changes are still in the editor.") } else { Text(preview.success.clone()) },
+                Text(preview.empty.clone()).color(tokens.colors.text_secondary),
+            ]
+        )
+    )
+    .padding_all(tokens.spacing.l)
+    .bg(tokens.colors.surface)
+    .border(tokens.colors.border, 1.0)
+    .border_radius(tokens.radii.large)
+}
+```
+<!-- fission:file path="preview/lib.rs" -->
+```rust
+mod app;
+
+use fission::prelude::*;
+use wasm_bindgen::prelude::*;
+
+#[wasm_bindgen(start)]
+pub fn run() -> Result<(), JsValue> {
+    console_error_panic_hook::set_once();
+    let preview = app::TutorialPreview::new(
+        "Harbour Notes".to_string(),
+        "Create, edit and save a desktop note.".to_string(),
+        "Save the current note".to_string(),
+        "The note was saved and remains selected.".to_string(),
+        "No note is open. Create a note or open a document.".to_string(),
+    );
+    WebApp::<(), _>::new(preview)
+        .with_title("Build a desktop application in Rust")
+        .mount("#fission-web-mount")
+        .run()
+        .map_err(|error| JsValue::from_str(&error.to_string()))
+}
+```
+<!-- fission:preview -->
+
+<!-- fission:checkpoint -->
+Keep unsaved work safe and build for desktop: Trigger the error preview and confirm a recovery action remains available.
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->
+
+## Run, test and build the finished project
+
+From the project root, run the checks in order:
+
+```sh
+cargo fmt --all -- --check
+cargo test
+fission run --project-dir .
+fission build --target linux --project-dir .
+fission test --target linux --project-dir .
+```
+
+Expected result: The desktop app has an empty state, project view, task action, and recoverable save error.
+
+## Related Fission reference
+
+Use these precise reference pages after the working path above is clear:
+
+- [Quickstart](/docs/learn/quickstart/)
+- [Platform Capabilities](/docs/guides/platform-capabilities/)
+- [Testing And Diagnostics](/docs/guides/testing-and-diagnostics/)

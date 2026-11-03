@@ -16,7 +16,7 @@ use fission::prelude::*;
 
 fission_component! {
     pub(crate) DocChart<GalleryState> { slug: String, width: f32, height: f32, scale: f32 }
-    |doc, _state, _cx| {} => (|| -> Widget {
+    view(doc, _state, _cx) {} => (|| -> Widget {
         let slug = doc.slug.clone();
         let width = doc.width;
         let height = doc.height;

@@ -3,7 +3,7 @@ use fission::prelude::*;
 
 fission_component! {
     pub(super) GuidedAssistant<()> {}
-    |_assistant, _state, _cx| {} => Container(Column(
+    view(_assistant, _state, _cx) {} => Container(Column(
             gap: 0.0_f32,
             children: [
                 Text("Build with Fission").size(23.0).line_height(28.0).weight(700).color(INK),
@@ -64,7 +64,7 @@ fission_component! {
 
 fission_component! {
     pub(super) GuidedAssistantMessage<()> { text: &'static str }
-    |message, _state, _cx| {} =>
+    view(message, _state, _cx) {} =>
         Row(
             gap: 12.0_f32,
             align_items: fission::op::AlignItems::Start,
@@ -94,7 +94,7 @@ fission_component! {
 
 fission_component! {
     pub(super) GuidedProposal<()> {}
-    |_proposal, _state, _cx| {} =>
+    view(_proposal, _state, _cx) {} =>
         Row(
             gap: 12.0_f32,
             align_items: fission::op::AlignItems::Start,

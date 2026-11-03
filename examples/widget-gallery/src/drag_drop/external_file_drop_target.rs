@@ -6,7 +6,7 @@ use crate::GalleryState;
 
 fission_component! {
     pub(super) ExternalFileDropTarget<GalleryState> {}
-    |_target, _state, cx| {} =>
+    view(_target, _state, cx) {} =>
         DragTarget(
             id: WidgetId::explicit("gallery.drag.external_files"),
             semantics_identifier: "gallery.drag.external_files".to_string(),

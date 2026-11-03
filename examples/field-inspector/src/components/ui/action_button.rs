@@ -3,7 +3,7 @@ use fission::prelude::*;
 
 fission_component! {
     pub ActionButton<FieldInspectorState> { identifier: String, label: String, action: ActionEnvelope, variant: ButtonVariant }
-    |button, _state, cx| {
+    view(button, _state, cx) {
         let typography = &cx.view.env().theme.tokens.typography;
     } =>
         Button(

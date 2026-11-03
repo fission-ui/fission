@@ -1,0 +1,330 @@
+---
+layout: goal
+title: Build a single-page web app in Rust
+description: Build an accessible Rust web app with client-side routing, shared state, forms, loading feedback, browser history and a production Web build.
+goal: Build an interactive browser application whose routes and forms stay understandable
+path: /blog/build-a-single-page-web-app-in-rust/
+order: 16
+difficulty: Beginner
+duration: 35 minutes
+run_command: "fission run --target web --project-dir ."
+app: single-page-web-app-rust
+prerequisites:
+  - Basic Rust syntax and a terminal
+  - Rust and Cargo installed with rustup
+outcomes:
+  - Render a task workspace and empty state
+  - Create tasks and open a detail route
+  - Handle invalid drafts and browser history
+aliases:
+  - /docs/learn/interactive-counter/
+---
+
+Build an accessible Rust web app with client-side routing, shared state, forms, loading feedback, browser history and a production Web build. This tutorial takes you from project setup to a runnable result in three steps. Each step’s `src/app.rs` component is compiled into the WebAssembly preview shown beside its code, so you can try the same Compose UI while you read. The preview demonstrates task and detail states in one browser view. Use Fission’s Router for real page transitions and app state for data shared between routes.
+
+## What you will build
+
+Build a small workspace with a task list, a detail route and a form that creates a task. The browser back and forward buttons should follow the same navigation history as links inside the app.
+
+Install the Fission CLI and scaffold the Web project:
+
+```sh
+cargo install cargo-fission
+fission init harbour-workspace
+cd harbour-workspace
+fission add-target web --project-dir .
+```
+
+The finished project is organised around the app boundary and the files that own each job:
+
+```text
+harbour-workspace/
+├── Cargo.toml
+├── fission.toml
+├── src/
+│   ├── main.rs
+│   ├── lib.rs
+│   ├── app.rs
+│   ├── state.rs
+│   └── components/
+```
+
+Fission generates a thin entrypoint for each target and starts the shared app from it. Keep shared UI in `src/app.rs`, and move a reusable presentation piece into `src/components/` when it has a clear job of its own. Use `GlobalState` for data read across screens and Compose `state` for retained interaction owned by one component. Keep host work such as persistence and network requests in a Fission service or effect, then show loading, success or failure in the UI.
+
+The `preview/lib.rs` file is a documentation-only browser harness that mounts the step in the live preview. The `src/app.rs` component is compiled into that preview. Use its Compose patterns in your project, but do not copy the harness or treat its simulated host results as production behavior.
+
+<!-- fission:step id="start-screen" -->
+## Render a task workspace and empty state
+
+Begin with the screen needed for this task. The first render gives you a concrete checkpoint before you add interaction state.
+
+Use props for page copy and read theme tokens through cx.view.env(). The component below keeps presentation aligned with the active design system.
+
+<!-- fission:file path="src/app.rs" -->
+```rust
+use fission::prelude::*;
+fission_component! {
+    pub TutorialPreview<()> {
+        props {
+            title: String,
+            detail: String,
+            action: String,
+            success: String,
+            empty: String,
+        }
+    }
+    view(preview, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Container(
+        Column(
+            gap: tokens.spacing.m,
+            children: [
+                Text(preview.title.clone()).size(tokens.typography.heading2_size).weight(tokens.typography.font_weight_bold),
+                Text(preview.detail.clone()).color(tokens.colors.text_secondary),
+                Row(gap: tokens.spacing.m,
+                    children: [Text("Tasks"),
+                        Text("Projects"),
+                        Text("Settings")]),
+                Text("Your workspace is empty."),
+                Text(format!("Next action: {}",
+                        preview.action)),
+                Text(preview.empty.clone()).color(tokens.colors.text_secondary),
+            ]
+        )
+    )
+    .padding_all(tokens.spacing.l)
+    .bg(tokens.colors.surface)
+    .border(tokens.colors.border, 1.0)
+    .border_radius(tokens.radii.large)
+}
+```
+<!-- fission:file path="preview/lib.rs" -->
+```rust
+mod app;
+
+use fission::prelude::*;
+use wasm_bindgen::prelude::*;
+
+#[wasm_bindgen(start)]
+pub fn run() -> Result<(), JsValue> {
+    console_error_panic_hook::set_once();
+    let preview = app::TutorialPreview::new(
+        "Task workspace".to_string(),
+        "Create a task and open its detail view.".to_string(),
+        "Create a task".to_string(),
+        "The task is saved and its detail route is ready.".to_string(),
+        "Your workspace is empty. Create the first task to continue.".to_string(),
+    );
+    WebApp::<(), _>::new(preview)
+        .with_title("Build a single-page web app in Rust")
+        .mount("#fission-web-mount")
+        .run()
+        .map_err(|error| JsValue::from_str(&error.to_string()))
+}
+```
+<!-- fission:preview -->
+
+<!-- fission:checkpoint -->
+Render a task workspace and empty state: Confirm the initial screen names the task and its next action.
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->
+
+<!-- fission:step id="main-flow" -->
+## Create tasks and open a detail route
+
+Use Fission's native Router and RouterParams for route state. Keep shared product data in GlobalState and keep short-lived form drafts close to the form component. Use an effect for work that can take time, with a visible pending state and both success and failure outcomes.
+
+The source below makes the main task interactive using retained component state and explicit controls.
+This state belongs to the component because it only remembers this view's interaction. Durable data shared across routes belongs in GlobalState and changes through reducers.
+<!-- fission:file path="src/app.rs" -->
+```rust
+use fission::prelude::*;
+fission_component! {
+    pub TutorialPreview<()> {
+        props {
+            title: String,
+            detail: String,
+            action: String,
+            success: String,
+            empty: String,
+        }
+        state {
+            detail_open: bool = false,
+            task_count: usize = 0,
+            has_error: bool = false,
+        }
+    }
+    view(preview, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Container(
+        Column(
+            gap: tokens.spacing.m,
+            children: [
+                Text(preview.title.clone()).size(tokens.typography.heading2_size).weight(tokens.typography.font_weight_bold),
+                Text(preview.detail.clone()).color(tokens.colors.text_secondary),
+                Button(child: Text(if preview.detail_open { "Back to tasks".to_string() } else { "Open task detail".to_string() }),
+                    key: "task-route",
+                    on_press: reduce { preview.detail_open = !preview.detail_open; }),
+                if preview.detail_open { Column(children: [Text("Task detail"),
+                            Text("Review the release notes")]) } else { Column(children: [Text(format!("{} task(s)",
+                                    preview.task_count)),
+                            Button(child: Text(preview.action.clone()),
+                                key: "create-task",
+                                on_press: reduce { preview.task_count += 1; })]) },
+                Button(child: Text(if preview.has_error { "Try again".to_string() } else { "Preview a blank task".to_string() }),
+                    key: "preview-error",
+                    on_press: reduce { preview.has_error = !preview.has_error; }),
+                if preview.has_error { Text("A task title is required. Add a title before saving.") } else { Text(preview.success.clone()) },
+                Text(preview.empty.clone()).color(tokens.colors.text_secondary),
+            ]
+        )
+    )
+    .padding_all(tokens.spacing.l)
+    .bg(tokens.colors.surface)
+    .border(tokens.colors.border, 1.0)
+    .border_radius(tokens.radii.large)
+}
+```
+<!-- fission:file path="preview/lib.rs" -->
+```rust
+mod app;
+
+use fission::prelude::*;
+use wasm_bindgen::prelude::*;
+
+#[wasm_bindgen(start)]
+pub fn run() -> Result<(), JsValue> {
+    console_error_panic_hook::set_once();
+    let preview = app::TutorialPreview::new(
+        "Task workspace".to_string(),
+        "Create a task and open its detail view.".to_string(),
+        "Create a task".to_string(),
+        "The task is saved and its detail route is ready.".to_string(),
+        "Your workspace is empty. Create the first task to continue.".to_string(),
+    );
+    WebApp::<(), _>::new(preview)
+        .with_title("Build a single-page web app in Rust")
+        .mount("#fission-web-mount")
+        .run()
+        .map_err(|error| JsValue::from_str(&error.to_string()))
+}
+```
+<!-- fission:preview -->
+
+<!-- fission:checkpoint -->
+Create tasks and open a detail route: Use the preview control and check that the result matches the action.
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->
+
+<!-- fission:step id="edge-state" -->
+## Handle invalid drafts and browser history
+
+Add semantic names to controls, preserve the user's draft after a validation error and make the empty task list actionable. Test direct route loads, browser back and forward, a narrow viewport, keyboard-only navigation and a failed request.
+
+Keep I/O outside component conversion and reducers. Send host work through an asynchronous effect or service so the UI stays responsive.
+The preview control below simulates an unsuccessful host result. It demonstrates the message and recovery path; it does not perform authentication, database, network, or filesystem work.
+<!-- fission:file path="src/app.rs" -->
+```rust
+use fission::prelude::*;
+fission_component! {
+    pub TutorialPreview<()> {
+        props {
+            title: String,
+            detail: String,
+            action: String,
+            success: String,
+            empty: String,
+        }
+        state {
+            detail_open: bool = false,
+            task_count: usize = 0,
+            has_error: bool = false,
+        }
+    }
+    view(preview, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Container(
+        Column(
+            gap: tokens.spacing.m,
+            children: [
+                Text(preview.title.clone()).size(tokens.typography.heading2_size).weight(tokens.typography.font_weight_bold),
+                Text(preview.detail.clone()).color(tokens.colors.text_secondary),
+                Button(child: Text(if preview.detail_open { "Back to tasks".to_string() } else { "Open task detail".to_string() }),
+                    key: "task-route",
+                    on_press: reduce { preview.detail_open = !preview.detail_open; }),
+                if preview.detail_open { Column(children: [Text("Task detail"),
+                            Text("Review the release notes")]) } else { Column(children: [Text(format!("{} task(s)",
+                                    preview.task_count)),
+                            Button(child: Text(preview.action.clone()),
+                                key: "create-task",
+                                on_press: reduce { preview.task_count += 1; })]) },
+                Button(child: Text(if preview.has_error { "Try again".to_string() } else { "Preview a blank task".to_string() }),
+                    key: "preview-error",
+                    on_press: reduce { preview.has_error = !preview.has_error; }),
+                if preview.has_error { Text("A task title is required. Add a title before saving.") } else { Text(preview.success.clone()) },
+                Text(preview.empty.clone()).color(tokens.colors.text_secondary),
+            ]
+        )
+    )
+    .padding_all(tokens.spacing.l)
+    .bg(tokens.colors.surface)
+    .border(tokens.colors.border, 1.0)
+    .border_radius(tokens.radii.large)
+}
+```
+<!-- fission:file path="preview/lib.rs" -->
+```rust
+mod app;
+
+use fission::prelude::*;
+use wasm_bindgen::prelude::*;
+
+#[wasm_bindgen(start)]
+pub fn run() -> Result<(), JsValue> {
+    console_error_panic_hook::set_once();
+    let preview = app::TutorialPreview::new(
+        "Task workspace".to_string(),
+        "Create a task and open its detail view.".to_string(),
+        "Create a task".to_string(),
+        "The task is saved and its detail route is ready.".to_string(),
+        "Your workspace is empty. Create the first task to continue.".to_string(),
+    );
+    WebApp::<(), _>::new(preview)
+        .with_title("Build a single-page web app in Rust")
+        .mount("#fission-web-mount")
+        .run()
+        .map_err(|error| JsValue::from_str(&error.to_string()))
+}
+```
+<!-- fission:preview -->
+
+<!-- fission:checkpoint -->
+Handle invalid drafts and browser history: Trigger the error preview and confirm a recovery action remains available.
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->
+
+## Run, test and build the finished project
+
+From the project root, run the checks in order:
+
+```sh
+fission doctor --project-dir .
+cargo fmt --all -- --check
+cargo test
+fission run --target web --project-dir .
+fission build --target web --project-dir .
+fission test --target web --project-dir .
+```
+
+Expected result: The app creates tasks, opens detail routes, follows browser history, and recovers from invalid drafts.
+
+## Related Fission reference
+
+Use these precise reference pages after the working path above is clear:
+
+- [Router](/reference/widgets/router/)
+- [State Handles And Providers](/docs/guides/state-handles-and-providers/)
+- [Accessibility](/docs/learn/accessibility/)

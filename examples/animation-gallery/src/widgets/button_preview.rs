@@ -8,7 +8,7 @@ use fission::widgets::ButtonMotion;
 
 fission_component! {
     pub(super) ButtonPreview<AnimationGalleryState> {}
-    |_preview, state, cx| {} =>
+    view(_preview, state, cx) {} =>
         PreviewShell(
             Button(
                 id: WidgetId::explicit("gallery.preview.button"),

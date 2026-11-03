@@ -5,7 +5,7 @@ use crate::model::FieldInspectorState;
 use fission::prelude::*;
 fission_component! {
     pub DeviceList<FieldInspectorState> {}
-    |_list, state, cx| {} => Column(gap: cx.view.env().theme.tokens.spacing.s, children: [
+    view(_list, state, cx) {} => Column(gap: cx.view.env().theme.tokens.spacing.s, children: [
         if state.bluetooth_devices.is_empty() && state.wifi_networks.is_empty() {
             BodyText("No nearby device data yet. Run a sensor scan.".to_string())
         }

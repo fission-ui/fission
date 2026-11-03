@@ -1,0 +1,78 @@
+---
+title: Analytics
+sidebar_label: Overview
+description: Fission Charts reference for the Analytics family.
+---
+
+# Analytics
+
+The Analytics family contains 20 renderer-backed chart variants. Use this page as the entry point for choosing the right variant, then open the variant page for the screenshot, data shape, Rust API notes, and example code.
+
+The chart family is still ordinary Fission UI. Each variant is constructed from typed Rust data, participates in layout and theme decisions, and can be driven by app state, reducers, resources, jobs, or services just like any other widget.
+
+![Acquisition trend screenshot](/img/charts/analytics-acquisition-line.png)
+
+## Variants
+
+| Chart | Data shape | Use when |
+| --- | --- | --- |
+| [Acquisition trend](./analytics-acquisition-line) | Acquisition values over time. | Use it for growth dashboards. |
+| [Analytics score gauge](./analytics-gauge-score) | One score value in a bounded range. | Use it for primary scorecards. |
+| [Channel stack](./analytics-channel-stack) | Channel values stacked by category. | Use it for acquisition mix. |
+| [Cohort heatmap](./analytics-cohort-heatmap) | Cohort matrix values. | Use it for retention and cohort intensity. |
+| [Conversion funnel](./analytics-conversion-funnel) | Ordered conversion stage values. | Use it for product funnel analysis. |
+| [Device mix donut](./analytics-device-donut) | Device values in a donut chart. | Use it when device share matters. |
+| [Engagement calendar](./analytics-calendar-engagement) | Daily engagement values. | Use it for engagement consistency over time. |
+| [Engagement routes](./analytics-route-engagement) | Map plus route lines. | Use it for spatial engagement flows. |
+| [Feature treemap](./analytics-treemap-features) | Feature values in a hierarchy. | Use it for feature usage share. |
+| [Journey graph](./analytics-journey-graph) | Journey nodes and links. | Use it for relationship-heavy behavior views. |
+| [Journey sankey](./analytics-journey-sankey) | Journey stages and flow links. | Use it for user movement between stages. |
+| [Market share pie](./analytics-market-pie) | Label/value market share pairs. | Use it for small whole comparisons. |
+| [Portfolio sunburst](./analytics-sunburst-portfolio) | Portfolio hierarchy in radial layers. | Use it for hierarchical portfolio composition. |
+| [Product radar](./analytics-radar-product) | Product dimensions as profile vectors. | Use it to compare product health dimensions. |
+| [Region sales map](./analytics-region-sales) | Sales values by named region. | Use it for geographic sales analysis. |
+| [Report toolbox chart](./analytics-toolbox-report) | Chart with report actions. | Use it when analytics views need built-in controls. |
+| [Retention area](./analytics-retention-area) | Retention values with area fill. | Use it when volume and trend both matter. |
+| [Segment bubbles](./analytics-segment-bubbles) | Segment x, y, and value triples. | Use it for multidimensional segment comparison. |
+| [Segment parallel](./analytics-parallel-segments) | Segment rows across several dimensions. | Use it for segment tradeoff analysis. |
+| [Source theme river](./analytics-source-river) | Source values over time. | Use it for changing source composition. |
+
+## Choosing within this family
+
+Start with the user's question, not the visual effect. Pick the simplest variant that makes the answer clear, add interaction only when it reduces work for the user, and keep animation purposeful enough that it explains a change rather than decorating the page.
+
+## Authoring from a Fission component
+
+Use this reference page as the chart expression inside ordinary Fission component conversion. The chart is a `Widget`, so it can sit inside a `Card`, `Grid`, `Scroll`, responsive page section, or any other layout container.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, Chart, LineSeries};
+
+
+
+fission_component!
+{
+    pub AnalyticsChart<()> {
+    }
+    view(_component, _state, _cx) => rust {
+        Chart::new()
+                    .title("Analytics")
+                    .x_axis(Axis::category(vec!["A", "B", "C"]))
+                    .y_axis(Axis::value())
+                    .series(vec![LineSeries::new("Series").data(vec![1.0, 2.0, 3.0]).into()])
+                    .into()
+    }
+}
+```
+Keep expensive data loading outside component conversion. A reducer, job, service, or server route should prepare the typed chart data, then the component should read that state and construct the chart deterministically.
+
+## Options, accessibility, and diagnostics
+
+| Area | What to decide | How to verify |
+| --- | --- | --- |
+| Data shape | Keep source rows in typed Rust structs, then map them into the series type shown in the example. | Unit test the mapping separately from rendering. |
+| Options | Choose axes, legends, labels, animation, and interaction based on the user's task. | Add a screenshot test when changing visual behavior. |
+| Accessibility | Provide a clear title and adjacent summary text for important trends or outliers. | Inspect the generated semantics and make sure the chart is understandable without color alone. |
+| Failure handling | Render an empty, loading, or error state before constructing the chart if data is unavailable. | Test empty data, partial data, and failed fetches. |
+| Performance | Prefer summarized or windowed data for very large datasets; keep full raw history in the data layer. | Profile frame time and interaction latency with representative data volumes. |

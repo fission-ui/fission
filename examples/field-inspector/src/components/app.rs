@@ -11,7 +11,7 @@ const EXPANDED_BREAKPOINT: f32 = 1_100.0;
 
 fission_component! {
     pub FieldInspectorApp<FieldInspectorState>
-    |_app, state, cx| {
+    view(_app, state, cx) {
         let request = state.weather_request();
         let weather_ok = with_reducer!(cx.build, WeatherLoaded, on_weather_loaded);
         let weather_err = with_reducer!(cx.build, WeatherFailed, on_weather_failed);

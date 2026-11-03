@@ -1,0 +1,166 @@
+---
+title: Workers and islands
+description: Add progressive enhancement workers and focused WASM islands to Fission server-rendered pages.
+---
+
+# Workers and islands
+
+A server-rendered page should not become a giant browser app by accident. Fission uses two smaller enhancement models so each piece of interactivity has a clear cost and boundary.
+
+A worker is for progressive enhancement. It runs as a small Rust-to-WASM module, receives browser events or boot messages, and sends constrained DOM commands to the generated bridge. It is useful for behaviour that does not need a full Fission widget app.
+
+An island is for a focused interactive surface that does need Fission widgets, state, and reducers in the browser. It is useful for a cart drawer, configurator, chart editor, media control, or any section where normal Fission reducer behaviour is worth a route-local WASM artifact.
+
+## 1. Declare workers on the route that needs them
+
+```rust
+.worker(
+    "/",
+    ProgressiveWorker::new("catalog-filters", "/assets/workers/catalog-filters.wasm")
+        .entry("pokemon_card_store::workers::catalog_filters_boot")
+        .root_node_id("catalog-grid")
+        .description("Client-side filtering and sort controls over server-rendered cards."),
+)
+```
+
+The worker id should be stable. The artifact path is the browser path the generated page loads. The entry path identifies the Rust function used by the generated shim crate.
+
+A worker entry receives a JSON bridge message and returns bridge output. Keep the output constrained to the semantic targets the worker owns.
+
+```rust
+pub fn catalog_filters_boot(input: &str) -> String {
+    let message: serde_json::Value = serde_json::from_str(input)
+        .unwrap_or_else(|_| serde_json::json!({ "type": "boot" }));
+
+    serde_json::json!({
+        "messages": [{
+            "type": "dom_batch",
+            "sequence": message.get("sequence").and_then(|v| v.as_u64()).unwrap_or(1),
+            "transaction_id": "catalog-filters",
+            "ops": [
+                {
+                    "op": "set_text_by_semantics",
+                    "semantics": "worker-status:catalog-filters",
+                    "text": "Worker bridge ready"
+                }
+            ]
+        }],
+        "bindings": []
+    }).to_string()
+}
+```
+
+Use workers for small DOM-oriented behaviour: expanding filters, sorting already-rendered cards, toggling comparison rows, or coordinating keyboard shortcuts. Do not put core business state in a worker if that state belongs on the server or in an island.
+
+## 2. Declare islands for focused app-like areas
+
+```rust
+.island(
+    "/",
+    WasmIsland::new(
+        "cart-drawer",
+        "/assets/islands/cart-drawer.wasm",
+        "cart-drawer",
+    )
+    .entry("pokemon_card_store::islands::cart_drawer_boot")
+    .description("Focused Fission island for cart state, checkout totals, and item edits."),
+)
+```
+
+The mount id should match the semantic region rendered by the server page. The island receives its own artifact so the browser only downloads it where the route needs it.
+
+On the server-rendered page, render a fallback region that remains readable if JavaScript or WASM fails:
+
+```rust
+SemanticsRegion::new(
+    Container::new(Text::new("Island booting").into())
+        .padding_all(18.0)
+        .into(),
+)
+.id(fission::WidgetId::explicit("cart-drawer"))
+.identifier("cart-drawer")
+.into()
+```
+
+The island itself is a normal Fission widget app with state and reducers:
+
+```rust
+#[derive(Debug, Default, Clone)]
+pub struct BrowserCartState {
+    count: u32,
+}
+
+impl GlobalState for BrowserCartState {}
+
+fission_component!
+{
+    pub CartDrawerIsland<BrowserCartState> {
+    }
+    view(component, _state, _cx) => rust {
+        let (ctx, view) = fission::build::current::<BrowserCartState>();
+                let add = ctx.bind(IslandAddToCart, reduce_with!(on_island_add_to_cart));
+
+                SemanticsRegion::new(
+                    Container::new(Text::new(format!("{} items", view.state().count)).into())
+                        .padding_all(12.0)
+                        .into(),
+                )
+                .identifier("island-action:add-card")
+                .role(fission::Role::Button)
+                .default_action(add)
+                .into()
+    }
+}
+
+#[fission_reducer(IslandAddToCart)]
+pub fn on_island_add_to_cart(state: &mut BrowserCartState) {
+    state.count += 1;
+}
+
+pub fn cart_drawer_boot(input: &str) -> String {
+    run_browser_island("cart-drawer", input, || {
+        BrowserIslandApp::new(
+            "cart-drawer",
+            "cart-drawer",
+            BrowserCartState::default(),
+            CartDrawerIsland,
+        )
+    })
+}
+```
+The generated browser bridge binds default actions in the island's rendered semantics. When the user activates one, the island dispatches the reducer, rerenders the island widget tree, and replaces only the owned semantic region.
+
+## 3. Generate artifacts
+
+```sh
+fission server artifacts --project-dir examples/pokemon-card-store
+```
+
+The command writes generated shim crates and compiles one WASM output per worker and island. The compiled outputs are served from `target/fission/server/assets/...` in development and copied into the server Docker image when packaging.
+
+`fission server check` also builds the route-local browser artifacts so broken worker or island entries fail before deployment.
+
+## 4. Prefer the smallest enhancement that works
+
+| Need | Use |
+| --- | --- |
+| Collapse a menu, toggle a filter, sort visible rows | Worker |
+| Cart drawer, live editor, rich control panel | Island |
+| Whole app runs in browser and owns the canvas/runtime | Web target |
+| Page has no runtime behavior beyond links | Static site or server-rendered HTML |
+
+This split keeps server pages fast and crawlable while still allowing rich interaction where it earns its cost.
+
+## What you should have working
+
+After this guide, you should be able to explain where `Workers and islands` fits in the Fission lifecycle, identify the file or component you changed, run the relevant `fission` command, and verify the result in a real target or test.
+
+## Common mistakes to check
+
+| Symptom | What to check first |
+| --- | --- |
+| The app compiles but nothing changes | Confirm the component is actually used by the route or shell target you are running. |
+| An action fires but state does not update | Confirm the reducer is registered with the same action value that the UI dispatches. |
+| A platform feature reports unsupported | Confirm the target has the capability in `fission.toml` and the shell registered the provider. |
+| The page works on one target but not another | Run `fission doctor`, then inspect target-specific configuration and feature flags. |
+| Tests are hard to write | Split the product rule into a reducer test first, then add a UI or shell smoke test for the integration. |

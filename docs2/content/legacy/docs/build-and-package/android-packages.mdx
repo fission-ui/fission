@@ -1,0 +1,120 @@
+---
+title: Android packages
+description: Configure Android package identity, versioning, signing, native additions, and Play Store-ready Fission artifacts.
+---
+
+# Android packages
+
+Android packaging produces an `.apk` for device testing or an `.aab` for store distribution. The important release inputs are package name, version code, version name, signing source, target scaffold, icons, permissions, and Play Store release content.
+
+## Choose the artifact format
+
+| Format | Use it for |
+| --- | --- |
+| `apk` | Emulator/device install, QA, and direct testing. |
+| `aab` | Google Play and most Android store distribution workflows. |
+
+Use `apk` while validating behavior on devices. Use `aab` for Play Store release.
+
+## Realistic package configuration
+
+```toml
+[app]
+name = "Acme Notes"
+app_id = "com.acme.notes"
+version = "1.4.0"
+build = 37
+
+[targets.android]
+enabled = true
+
+[package.android]
+package_name = "com.acme.notes"
+version_code = 37
+version_name = "1.4.0"
+keystore_alias = "upload"
+keystore_env = "ANDROID_KEYSTORE"
+keystore_base64_env = "ANDROID_KEYSTORE_BASE64"
+keystore_password_env = "ANDROID_KEYSTORE_PASSWORD"
+key_password_env = "ANDROID_KEY_PASSWORD"
+```
+
+| Field | Why it exists |
+| --- | --- |
+| `package_name` | Android application id expected by signing, packaging, and Play Store provider checks. Usually matches `[app].app_id`. |
+| `version_code` | Monotonic integer used by Google Play. Reusing it causes upload rejection. |
+| `version_name` | User-visible version string. |
+| `keystore_alias` | Alias inside the upload keystore. |
+| `keystore_env` | Local path to the keystore, read from an environment variable. |
+| `keystore_base64_env` | CI-friendly keystore bytes, read from an environment variable. |
+| `keystore_password_env` | Password source for the keystore. |
+| `key_password_env` | Optional key password source. Defaults/falls back to the keystore password in generated Android packaging. |
+
+Keystore files and passwords do not belong in `fission.toml`. For local publishing, set `ANDROID_KEYSTORE` to a file outside the repository, commonly under `~/.fission/<app-name>/`. For CI, store the keystore as a base64 secret and expose it through `ANDROID_KEYSTORE_BASE64`.
+
+## Version codes and provider checks
+
+Before upload, ask the provider whether the version code is already used:
+
+```bash
+fission release-config version-state \
+  --project-dir . \
+  --provider play-store \
+  --target android \
+  --track internal \
+  --json
+```
+
+If the version code is used, bump the build and rebuild:
+
+```bash
+fission release-config bump-build --project-dir . --target android --yes
+fission package --project-dir . --target android --format aab --release
+```
+
+The package manifest records the resolved version and build. Publish the manifest, not a guessed `.aab` path.
+
+## Native Android additions
+
+Use native modules for Gradle dependencies, repositories, permissions, Java/Kotlin source directories, or manifest application entries that the generated Android host must include.
+
+```toml
+[[native.modules]]
+name = "scanner-sdk"
+
+[native.modules.android]
+repositories = ["https://maven.example.com/releases"]
+gradle_dependencies = ["com.example:scanner:1.2.3"]
+source_dirs = ["platforms/android/scanner/src/main/java"]
+permissions = ["android.permission.CAMERA"]
+manifest_application_entries = ["<meta-data android:name=\"scanner\" android:value=\"enabled\" />"]
+```
+
+Keep privacy and product policy visible. Native modules should add native build inputs; they should not hide why a permission is requested or what capability the app exposes.
+
+## Readiness and packaging loop
+
+```bash
+fission readiness package --project-dir . --target android --format apk
+fission package --project-dir . --target android --format apk --release
+
+fission readiness package --project-dir . --target android --format aab
+fission package --project-dir . --target android --format aab --release
+```
+
+For Play Store release content:
+
+```bash
+fission release-content validate --project-dir . --provider play-store
+```
+
+That validation covers release notes, screenshots, metadata, and provider-facing content where configured. Packaging still produces the artifact; publishing/distribution submits it.
+
+## Verify on Android
+
+Before upload:
+
+- Install the APK on an emulator and at least one physical device when the app uses hardware features.
+- Verify app icon, label, splash, safe areas, keyboard behavior, permissions, back navigation, and deep links.
+- Verify the AAB upload key is the intended key, not a debug key.
+- Verify Play Store track, testers, release notes, screenshots, and privacy declarations before submission.

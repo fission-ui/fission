@@ -4,7 +4,7 @@ use fission::prelude::*;
 
 fission_component! {
     pub(super) HeroMetric<AnimationGalleryState> { value: &'static str, label: &'static str }
-    |metric, _state, cx| {
+    view(metric, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
         Container(

@@ -8,7 +8,7 @@ use crate::model::{
 use fission::prelude::*;
 fission_component! {
     #[derive(Clone, Copy)] pub InspectorHero<FieldInspectorState> { compact: bool }
-    |hero, _state, cx| {
+    view(hero, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
         PanelCard(
@@ -29,7 +29,7 @@ fission_component! {
 
 fission_component! {
     HeroSummary<FieldInspectorState> { compact: bool }
-    |summary, state, cx| {
+    view(summary, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
         let order = state.selected_order();
     } =>
@@ -57,7 +57,7 @@ fission_component! {
 
 fission_component! {
     HeroActions<FieldInspectorState> { compact: bool }
-    |actions, state, cx| {
+    view(actions, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
         let (complete, total) = state.checklist_progress();
     } =>

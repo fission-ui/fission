@@ -1,14 +1,27 @@
 use crate::state::DocsState;
-use crate::widgets::copy;
 use fission::prelude::*;
+
+pub(crate) fn tutorial_image(order: u32) -> &'static str {
+    match order {
+        10 => "/img/examples/chart-gallery.png",
+        13 => "/img/examples/inbox-compact.png",
+        9 => "/img/examples/inbox.png",
+        6 => "/img/examples/inbox-compose.png",
+        12 => "/img/examples/editor.png",
+        _ => "/img/examples/widget-gallery.png",
+    }
+}
 
 fission_component! {
     pub TutorialCard<DocsState> {
         props {
+            title: String,
+            description: String,
+            href: String,
+            difficulty: String,
+            duration: String,
             image: &'static str,
-            title_key: &'static str,
-            body_key: &'static str,
-            href: &'static str,
+            compact: bool,
         }
     }
     view(card, _state, cx) {
@@ -18,14 +31,25 @@ fission_component! {
         identifier: Some("home-tutorial-card".to_string()),
         child: Column(gap: tokens.spacing.m, children: [
             Image::asset(card.image)
-                .height(180.0)
+                .size(320.0, 112.0)
                 .fit(ir_op::ImageFit::Cover)
-                .semantic_label(cx.view.env().tr(card.title_key)),
-            copy(card.title_key)
+                .semantic_label(card.title.clone()),
+            Text(card.title.clone())
                 .size(tokens.typography.heading2_size)
                 .weight(tokens.typography.font_weight_bold),
-            copy(card.body_key).color(tokens.colors.text_secondary),
-            Link::to(cx.view.env().tr("home.learn.start"), card.href),
+            Text(card.description.clone()).color(tokens.colors.text_secondary),
+            SemanticsRegion(
+                identifier: Some(if card.compact {
+                    "home-tutorial-meta".to_string()
+                } else {
+                    "tutorial-card-meta".to_string()
+                }),
+                child: Row(gap: tokens.spacing.s, children: [
+                    Badge(text: card.difficulty.clone()),
+                    Badge(text: card.duration.clone()),
+                ]),
+            ),
+            Link::to(cx.view.env().tr("home.learn.start"), card.href.clone()),
         ]),
     )
 }

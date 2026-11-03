@@ -10,7 +10,7 @@ use fission::widgets::{Toast, ToastKind, ToastMotion};
 
 fission_component! {
     pub(super) ToastPreview<AnimationGalleryState> {}
-    |_preview, state, cx| {
+    view(_preview, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
         PreviewShell(

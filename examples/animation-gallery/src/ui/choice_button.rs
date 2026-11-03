@@ -7,7 +7,7 @@ fission_component! {
         active: bool,
         action: ActionEnvelope,
     }
-    |button, _state, cx| {} =>
+    view(button, _state, cx) {} =>
         Button(
             variant: if button.active {
                 ButtonVariant::Filled

@@ -3,7 +3,7 @@ use crate::model::{CapabilityLog, FieldInspectorState};
 use fission::prelude::*;
 fission_component! {
     pub ActivityLogRow<FieldInspectorState> { log: CapabilityLog }
-    |row, _state, cx| {
+    view(row, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
         let typography = &tokens.typography;
     } =>

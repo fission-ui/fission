@@ -1,0 +1,53 @@
+---
+title: Passkeys
+description: Reference for the passkeys capability API, provider contract, operations, and platform configuration.
+---
+
+# Passkeys
+
+Passkeys are account credentials. The host may unlock the credential with fingerprint, face, device PIN, password manager, phone, or hardware key, but the app receives WebAuthn registration or authentication data that the server must verify.
+
+This reference is for the exact API shape. If you are wiring the feature into an app for the first time, start with the [Passkeys guide](/docs/capabilities/passkeys/), then return here when you need operation names, request types, provider contracts, or platform configuration details.
+
+## Public API
+
+| Item | Value |
+| --- | --- |
+| Effect helper or entrypoint | `ctx.effects.passkeys()` |
+| Provider trait or host contract | `PasskeyHost` |
+| Test provider or test entrypoint | `MemoryPasskeyHost` |
+| Primary request types | `PasskeyRegistrationRequest / PasskeyAuthenticationRequest` |
+| Primary success types | `PasskeyAvailability / PasskeyRegistrationResult / PasskeyAuthenticationResult` |
+| Error type | `PasskeyError` |
+| CLI value | `passkeys` |
+
+## Operations
+
+| Method or operation | Purpose | Request | Success |
+| --- | --- | --- | --- |
+| `availability` | Check secure context, platform authenticator, cross-platform authenticator, and conditional UI support. | `()` | `PasskeyAvailability` |
+| `register` | Create a new credential from a server registration challenge. | `PasskeyRegistrationRequest` | `PasskeyRegistrationResult` |
+| `authenticate` | Create an assertion from a server authentication challenge. | `PasskeyAuthenticationRequest` | `PasskeyAuthenticationResult` |
+| `cancel` | Cancel an active credential prompt where possible. | `()` | `()` |
+
+## Provider contract
+
+Register a `PasskeyHost` with `.with_passkey_host(...)`. Use `MemoryPasskeyHost` for reducer tests. A real provider only gathers credential data; the relying-party server must verify registration and authentication results before the app treats the user as signed in.
+
+Providers should return typed errors for unsupported operations, denied permissions, unavailable hardware, cancellation, timeouts, and platform policy restrictions. Silent success is not acceptable because reducers need a truthful result to update state and explain what happened.
+
+## Platform configuration
+
+The CLI records the capability, but domain association is product-specific. Web needs a secure origin and relying-party id. iOS and macOS usually need associated domains such as `webcredentials:example.com`. Android usually needs Digital Asset Links. Fission cannot invent those because they must match the production domain and app identifiers.
+
+When a CLI value exists, `fission add-capability <value> --project-dir .` records the capability in [`fission.toml`](/reference/config/fission-toml/) and updates generated target files where Fission can do that deterministically. Android generated configuration lives in `platforms/android/AndroidManifest.xml`. iOS generated configuration lives in `platforms/ios/Info.plist` and `platforms/ios/Entitlements.plist` when entitlements are required. Desktop package metadata is reviewed during packaging because Windows, macOS, and Linux use different permission and distribution systems.
+
+## Runtime behavior
+
+Capability calls are queued from reducers through `ctx.effects`. The active shell resolves the request with the registered provider and then dispatches the configured success or error action. Missing providers should produce typed unsupported errors. Packaging mistakes usually show up as denied permissions, missing entitlements, missing route registration, or provider-specific failures.
+
+## Related pages
+
+- [Passkeys guide](/docs/capabilities/passkeys/)
+- [Capability matrix](/docs/capabilities/matrix/)
+- [Platform capabilities reference](/reference/core/platform-capabilities/)

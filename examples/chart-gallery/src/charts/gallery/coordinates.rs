@@ -8,7 +8,7 @@ use fission::prelude::*;
 
 fission_component! {
     pub(super) CoordinateChart<GalleryState> { chart: usize, scale: f32 }
-    |selection, _state, _cx| {} => (|| -> Widget {
+    view(selection, _state, _cx) {} => (|| -> Widget {
         let chart = selection.chart;
         let s = selection.scale;
 

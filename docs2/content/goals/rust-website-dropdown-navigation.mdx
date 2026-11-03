@@ -1,0 +1,330 @@
+---
+layout: goal
+title: Build a Rust website with accessible dropdown navigation
+description: Create a responsive Rust website with a keyboard-accessible dropdown menu, crawlable page routes and a production-ready static build using Fission.
+goal: Publish a responsive Rust website with an accessible Products menu
+path: /blog/build-a-rust-website-with-dropdown-navigation/
+order: 1
+difficulty: Beginner
+duration: 35 minutes
+run_command: "fission site serve --project-dir ."
+app: rust-website-dropdown-navigation
+prerequisites:
+  - Basic Rust syntax and a terminal
+  - Rust and Cargo installed with rustup
+outcomes:
+  - Render product links in the site header
+  - Add an open and close state
+  - Handle missing destinations and test keyboard use
+---
+
+Create a responsive Rust website with a keyboard-accessible dropdown menu, crawlable page routes and a production-ready static build using Fission. This tutorial takes you from project setup to a runnable result in three steps. Each step’s `src/app.rs` component is compiled into the WebAssembly preview shown beside its code, so you can try the same Compose UI while you read. The menu interaction runs in the browser preview. The finished site renders its pages as static HTML and keeps pointer, keyboard and touch navigation accessible.
+
+## What you will build
+
+The finished Harbour site has a Products menu with direct destinations for desktop and mobile products. A visitor can open the menu with a pointer or keyboard, select a destination and still follow ordinary page links when the menu is closed.
+
+Install the Fission CLI and scaffold the Static site project:
+
+```sh
+cargo install cargo-fission
+fission init harbour-site --template website
+cd harbour-site
+```
+
+The finished project is organised around the app boundary and the files that own each job:
+
+```text
+harbour-site/
+├── Cargo.toml
+├── fission.toml
+├── src/
+│   ├── main.rs
+│   ├── lib.rs
+│   ├── app.rs
+│   ├── state.rs
+│   └── components/
+└── content/index.mdx
+```
+
+Fission generates a thin entrypoint for each target and starts the shared app from it. Keep shared UI in `src/app.rs`, and move a reusable presentation piece into `src/components/` when it has a clear job of its own. Use `GlobalState` for data read across screens and Compose `state` for retained interaction owned by one component. Keep host work such as persistence and network requests in a Fission service or effect, then show loading, success or failure in the UI.
+
+The `preview/lib.rs` file is a documentation-only browser harness that mounts the step in the live preview. The `src/app.rs` component is compiled into that preview. Use its Compose patterns in your project, but do not copy the harness or treat its simulated host results as production behavior.
+
+<!-- fission:step id="start-screen" -->
+## Render product links in the site header
+
+Begin with the screen needed for this task. The first render gives you a concrete checkpoint before you add interaction state.
+
+Use props for page copy and read theme tokens through cx.view.env(). The component below keeps presentation aligned with the active design system.
+
+<!-- fission:file path="src/app.rs" -->
+```rust
+use fission::prelude::*;
+fission_component! {
+    pub TutorialPreview<()> {
+        props {
+            title: String,
+            detail: String,
+            action: String,
+            success: String,
+            empty: String,
+        }
+    }
+    view(preview, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Container(
+        Column(
+            gap: tokens.spacing.m,
+            children: [
+                Text(preview.title.clone()).size(tokens.typography.heading2_size).weight(tokens.typography.font_weight_bold),
+                Text(preview.detail.clone()).color(tokens.colors.text_secondary),
+                Row(gap: tokens.spacing.m,
+                    children: [Text("Harbour"),
+                        Text("Products"),
+                        Text("Desktop apps"),
+                        Text("Mobile apps")]),
+                Text(format!("Next action: {}",
+                        preview.action)),
+                Text(preview.empty.clone()).color(tokens.colors.text_secondary),
+            ]
+        )
+    )
+    .padding_all(tokens.spacing.l)
+    .bg(tokens.colors.surface)
+    .border(tokens.colors.border, 1.0)
+    .border_radius(tokens.radii.large)
+}
+```
+<!-- fission:file path="preview/lib.rs" -->
+```rust
+mod app;
+
+use fission::prelude::*;
+use wasm_bindgen::prelude::*;
+
+#[wasm_bindgen(start)]
+pub fn run() -> Result<(), JsValue> {
+    console_error_panic_hook::set_once();
+    let preview = app::TutorialPreview::new(
+        "Harbour products".to_string(),
+        "Choose a destination from the Products menu.".to_string(),
+        "Open Products".to_string(),
+        "The Products menu is open. Choose a destination to continue.".to_string(),
+        "No product destination is selected yet.".to_string(),
+    );
+    WebApp::<(), _>::new(preview)
+        .with_title("Build a Rust website with accessible dropdown navigation")
+        .mount("#fission-web-mount")
+        .run()
+        .map_err(|error| JsValue::from_str(&error.to_string()))
+}
+```
+<!-- fission:preview -->
+
+<!-- fission:checkpoint -->
+Render product links in the site header: Confirm the initial screen names the task and its next action.
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->
+
+<!-- fission:step id="main-flow" -->
+## Add an open and close state
+
+Give the Products button retained open and closed state inside its component. Use a real Fission Button so focus, Enter and Space work through the same input path as pointer activation. Keep the parent Products link pointed at a useful overview page; this avoids making the menu toggle the only way to reach product content.
+
+The source below makes the main task interactive using retained component state and explicit controls.
+This state belongs to the component because it only remembers this view's interaction. Durable data shared across routes belongs in GlobalState and changes through reducers.
+<!-- fission:file path="src/app.rs" -->
+```rust
+use fission::prelude::*;
+fission_component! {
+    pub TutorialPreview<()> {
+        props {
+            title: String,
+            detail: String,
+            action: String,
+            success: String,
+            empty: String,
+        }
+        state {
+            menu_open: bool = false,
+            active_page: usize = 0,
+            has_error: bool = false,
+        }
+    }
+    view(preview, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Container(
+        Column(
+            gap: tokens.spacing.m,
+            children: [
+                Text(preview.title.clone()).size(tokens.typography.heading2_size).weight(tokens.typography.font_weight_bold),
+                Text(preview.detail.clone()).color(tokens.colors.text_secondary),
+                Button(child: Text(if preview.menu_open { "Close Products".to_string() } else { preview.action.clone() }),
+                    key: "products-menu",
+                    on_press: reduce { preview.menu_open = !preview.menu_open; }),
+                if preview.menu_open { Column(children: [Button(child: Text("Desktop apps"),
+                                key: "desktop-link",
+                                on_press: reduce { preview.active_page = 1;
+                                    preview.menu_open = false; }),
+                            Button(child: Text("Mobile apps"),
+                                key: "mobile-link",
+                                on_press: reduce { preview.active_page = 2;
+                                    preview.menu_open = false; })]) } else { Text(if preview.active_page == 1 { "Desktop apps" } else if preview.active_page == 2 { "Mobile apps" } else { "Product overview" }) },
+                Button(child: Text(if preview.has_error { "Try again".to_string() } else { "Preview a missing destination".to_string() }),
+                    key: "preview-error",
+                    on_press: reduce { preview.has_error = !preview.has_error; }),
+                if preview.has_error { Text("That destination is unavailable. Return to Products and choose a current page.") } else { Text(preview.success.clone()) },
+                Text(preview.empty.clone()).color(tokens.colors.text_secondary),
+            ]
+        )
+    )
+    .padding_all(tokens.spacing.l)
+    .bg(tokens.colors.surface)
+    .border(tokens.colors.border, 1.0)
+    .border_radius(tokens.radii.large)
+}
+```
+<!-- fission:file path="preview/lib.rs" -->
+```rust
+mod app;
+
+use fission::prelude::*;
+use wasm_bindgen::prelude::*;
+
+#[wasm_bindgen(start)]
+pub fn run() -> Result<(), JsValue> {
+    console_error_panic_hook::set_once();
+    let preview = app::TutorialPreview::new(
+        "Harbour products".to_string(),
+        "Choose a destination from the Products menu.".to_string(),
+        "Open Products".to_string(),
+        "The Products menu is open. Choose a destination to continue.".to_string(),
+        "No product destination is selected yet.".to_string(),
+    );
+    WebApp::<(), _>::new(preview)
+        .with_title("Build a Rust website with accessible dropdown navigation")
+        .mount("#fission-web-mount")
+        .run()
+        .map_err(|error| JsValue::from_str(&error.to_string()))
+}
+```
+<!-- fission:preview -->
+
+<!-- fission:checkpoint -->
+Add an open and close state: Use the preview control and check that the result matches the action.
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->
+
+<!-- fission:step id="edge-state" -->
+## Handle missing destinations and test keyboard use
+
+Create the nested Markdown routes and verify the whole route set before building. Every page should have a unique title, a useful search description, a descriptive first heading and a link to a next action. The compact layout stacks the menu entries so they do not overflow a phone-sized viewport.
+
+Keep I/O outside component conversion and reducers. Send host work through an asynchronous effect or service so the UI stays responsive.
+The preview control below simulates an unsuccessful host result. It demonstrates the message and recovery path; it does not perform authentication, database, network, or filesystem work.
+<!-- fission:file path="src/app.rs" -->
+```rust
+use fission::prelude::*;
+fission_component! {
+    pub TutorialPreview<()> {
+        props {
+            title: String,
+            detail: String,
+            action: String,
+            success: String,
+            empty: String,
+        }
+        state {
+            menu_open: bool = false,
+            active_page: usize = 0,
+            has_error: bool = false,
+        }
+    }
+    view(preview, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Container(
+        Column(
+            gap: tokens.spacing.m,
+            children: [
+                Text(preview.title.clone()).size(tokens.typography.heading2_size).weight(tokens.typography.font_weight_bold),
+                Text(preview.detail.clone()).color(tokens.colors.text_secondary),
+                Button(child: Text(if preview.menu_open { "Close Products".to_string() } else { preview.action.clone() }),
+                    key: "products-menu",
+                    on_press: reduce { preview.menu_open = !preview.menu_open; }),
+                if preview.menu_open { Column(children: [Button(child: Text("Desktop apps"),
+                                key: "desktop-link",
+                                on_press: reduce { preview.active_page = 1;
+                                    preview.menu_open = false; }),
+                            Button(child: Text("Mobile apps"),
+                                key: "mobile-link",
+                                on_press: reduce { preview.active_page = 2;
+                                    preview.menu_open = false; })]) } else { Text(if preview.active_page == 1 { "Desktop apps" } else if preview.active_page == 2 { "Mobile apps" } else { "Product overview" }) },
+                Button(child: Text(if preview.has_error { "Try again".to_string() } else { "Preview a missing destination".to_string() }),
+                    key: "preview-error",
+                    on_press: reduce { preview.has_error = !preview.has_error; }),
+                if preview.has_error { Text("That destination is unavailable. Return to Products and choose a current page.") } else { Text(preview.success.clone()) },
+                Text(preview.empty.clone()).color(tokens.colors.text_secondary),
+            ]
+        )
+    )
+    .padding_all(tokens.spacing.l)
+    .bg(tokens.colors.surface)
+    .border(tokens.colors.border, 1.0)
+    .border_radius(tokens.radii.large)
+}
+```
+<!-- fission:file path="preview/lib.rs" -->
+```rust
+mod app;
+
+use fission::prelude::*;
+use wasm_bindgen::prelude::*;
+
+#[wasm_bindgen(start)]
+pub fn run() -> Result<(), JsValue> {
+    console_error_panic_hook::set_once();
+    let preview = app::TutorialPreview::new(
+        "Harbour products".to_string(),
+        "Choose a destination from the Products menu.".to_string(),
+        "Open Products".to_string(),
+        "The Products menu is open. Choose a destination to continue.".to_string(),
+        "No product destination is selected yet.".to_string(),
+    );
+    WebApp::<(), _>::new(preview)
+        .with_title("Build a Rust website with accessible dropdown navigation")
+        .mount("#fission-web-mount")
+        .run()
+        .map_err(|error| JsValue::from_str(&error.to_string()))
+}
+```
+<!-- fission:preview -->
+
+<!-- fission:checkpoint -->
+Handle missing destinations and test keyboard use: Trigger the error preview and confirm a recovery action remains available.
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->
+
+## Run, test and build the finished project
+
+From the project root, run the checks in order:
+
+```sh
+fission site routes --project-dir .
+fission site check --project-dir .
+fission site build --project-dir .
+fission test --target static-site --project-dir .
+```
+
+Expected result: The menu opens and closes, destination selection updates the view, and each linked page exists in the static build.
+
+## Related Fission reference
+
+Use these precise reference pages after the working path above is clear:
+
+- [Static Sites](/docs/guides/static-sites/)
+- [Static Site Content Routes](/docs/guides/static-site-content-routes/)
+- [Accessibility](/reference/platform/accessibility/)

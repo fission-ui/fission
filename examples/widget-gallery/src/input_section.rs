@@ -120,7 +120,7 @@ fission_component! {
 
 fission_component! {
     SizedButton<()> { size: ComponentSize, label: &'static str }
-    |button, _state, _cx| {} =>
+    view(button, _state, _cx) {} =>
         Button(size: button.size, child: Text(button.label))
 }
 

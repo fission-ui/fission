@@ -3,7 +3,7 @@ use fission::prelude::*;
 
 fission_component! {
     pub(crate) ViewerScene<CanvasExampleState> { instance: &'static str }
-    |scene, _state, cx| {
+    view(scene, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
         Container(

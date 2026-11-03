@@ -1,0 +1,336 @@
+---
+layout: goal
+title: Build a server-rendered contact form in Rust
+description: Build a progressively enhanced Rust contact form with native HTML submission, server-side validation, an async job and returned feedback.
+goal: Collect a useful contact request even when JavaScript is unavailable
+path: /blog/build-a-server-rendered-form-in-rust/
+order: 8
+difficulty: Beginner
+duration: 50 minutes
+run_command: "fission run --target ssr --project-dir ."
+app: server-rendered-contact-form
+prerequisites:
+  - Basic Rust syntax and a terminal
+  - Rust and Cargo installed with rustup
+outcomes:
+  - Create labelled contact fields
+  - Validate and confirm a submission
+  - Recover from server failure without losing the draft
+---
+
+Build a progressively enhanced Rust contact form with native HTML submission, server-side validation, an async job and returned feedback. This tutorial takes you from project setup to a runnable result in three steps. Each step’s `src/app.rs` component is compiled into the WebAssembly preview shown beside its code, so you can try the same Compose UI while you read. The preview simulates the submitted and rejected states. In the finished app, post the form to its owning SSR route and handle validation and delivery through asynchronous server work.
+
+## What you will build
+
+Build a contact page whose form belongs to its route, validates on the server and returns the same page with clear success or correction feedback.
+
+Install the Fission CLI and scaffold the SSR project:
+
+```sh
+cargo install cargo-fission
+fission init harbour-contact
+cd harbour-contact
+fission add-target ssr --project-dir .
+```
+
+The finished project is organised around the app boundary and the files that own each job:
+
+```text
+harbour-contact/
+├── Cargo.toml
+├── fission.toml
+├── src/
+│   ├── main.rs
+│   ├── lib.rs
+│   ├── app.rs
+│   ├── state.rs
+│   └── components/
+```
+
+Fission generates a thin entrypoint for each target and starts the shared app from it. Keep shared UI in `src/app.rs`, and move a reusable presentation piece into `src/components/` when it has a clear job of its own. Use `GlobalState` for data read across screens and Compose `state` for retained interaction owned by one component. Keep host work such as persistence and network requests in a Fission service or effect, then show loading, success or failure in the UI.
+
+The `preview/lib.rs` file is a documentation-only browser harness that mounts the step in the live preview. The `src/app.rs` component is compiled into that preview. Use its Compose patterns in your project, but do not copy the harness or treat its simulated host results as production behavior.
+
+<!-- fission:step id="start-screen" -->
+## Create labelled contact fields
+
+Begin with the screen needed for this task. The first render gives you a concrete checkpoint before you add interaction state.
+
+Use props for page copy and read theme tokens through cx.view.env(). The component below keeps presentation aligned with the active design system.
+
+<!-- fission:file path="src/app.rs" -->
+```rust
+use fission::prelude::*;
+fission_component! {
+    pub TutorialPreview<()> {
+        props {
+            title: String,
+            detail: String,
+            action: String,
+            success: String,
+            empty: String,
+        }
+    }
+    view(preview, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Container(
+        Column(
+            gap: tokens.spacing.m,
+            children: [
+                Text(preview.title.clone()).size(tokens.typography.heading2_size).weight(tokens.typography.font_weight_bold),
+                Text(preview.detail.clone()).color(tokens.colors.text_secondary),
+                TextInput(label: Some("Your name".into()),
+                    placeholder: Some("Name".into())),
+                TextInput(label: Some("Reply email".into()),
+                    placeholder: Some("you@example.com".into())),
+                Text(format!("Next action: {}",
+                        preview.action)),
+                Text(preview.empty.clone()).color(tokens.colors.text_secondary),
+            ]
+        )
+    )
+    .padding_all(tokens.spacing.l)
+    .bg(tokens.colors.surface)
+    .border(tokens.colors.border, 1.0)
+    .border_radius(tokens.radii.large)
+}
+```
+<!-- fission:file path="preview/lib.rs" -->
+```rust
+mod app;
+
+use fission::prelude::*;
+use wasm_bindgen::prelude::*;
+
+#[wasm_bindgen(start)]
+pub fn run() -> Result<(), JsValue> {
+    console_error_panic_hook::set_once();
+    let preview = app::TutorialPreview::new(
+        "Contact Harbour".to_string(),
+        "Send a message to the team.".to_string(),
+        "Send a contact request".to_string(),
+        "Your message was accepted. The team can follow up by email.".to_string(),
+        "Add your email address and a short message before sending.".to_string(),
+    );
+    WebApp::<(), _>::new(preview)
+        .with_title("Build a server-rendered contact form in Rust")
+        .mount("#fission-web-mount")
+        .run()
+        .map_err(|error| JsValue::from_str(&error.to_string()))
+}
+```
+<!-- fission:preview -->
+
+<!-- fission:checkpoint -->
+Create labelled contact fields: Confirm the initial screen names the task and its next action.
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->
+
+<!-- fission:step id="main-flow" -->
+## Validate and confirm a submission
+
+Use labelled fields and native form submission. Validate the name, email and message on the server before requesting the send job. Keep submitted values that are safe to preserve when validation fails, and put the error next to the field it describes.
+
+The source below makes the main task interactive using retained component state and explicit controls.
+This state belongs to the component because it only remembers this view's interaction. Durable data shared across routes belongs in GlobalState and changes through reducers.
+<!-- fission:file path="src/app.rs" -->
+```rust
+use fission::prelude::*;
+fission_component! {
+    pub TutorialPreview<()> {
+        props {
+            title: String,
+            detail: String,
+            action: String,
+            success: String,
+            empty: String,
+        }
+        state {
+            name: String = String::new(),
+            email: String = String::new(),
+            submitted: bool = false,
+            has_error: bool = false,
+        }
+    }
+    view(preview, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Container(
+        Column(
+            gap: tokens.spacing.m,
+            children: [
+                Text(preview.title.clone()).size(tokens.typography.heading2_size).weight(tokens.typography.font_weight_bold),
+                Text(preview.detail.clone()).color(tokens.colors.text_secondary),
+                TextInput(label: Some("Your name".into()),
+                    placeholder: Some("Name".into()),
+                    bind: preview.name,
+                    semantics_identifier: "tutorial.contact.name".to_string()),
+                TextInput(label: Some("Reply email".into()),
+                    placeholder: Some("you@example.com".into()),
+                    bind: preview.email,
+                    semantics_identifier: "tutorial.contact.email".to_string()),
+                Button(child: Text(preview.action.clone()),
+                    key: "send-message",
+                    disabled: preview.name.trim().is_empty() || !preview.email.contains('@'),
+                    on_press: reduce { preview.submitted = true; }),
+                if preview.submitted { Text(preview.success.clone()) } else { Text(preview.empty.clone()) },
+                Button(child: Text(if preview.has_error { "Try again".to_string() } else { "Preview delivery failure".to_string() }),
+                    key: "preview-error",
+                    on_press: reduce { preview.has_error = !preview.has_error; }),
+                if preview.has_error { Text("The message could not be sent. Your draft is still here; try again.") } else { Text(preview.success.clone()) },
+                Text(preview.empty.clone()).color(tokens.colors.text_secondary),
+            ]
+        )
+    )
+    .padding_all(tokens.spacing.l)
+    .bg(tokens.colors.surface)
+    .border(tokens.colors.border, 1.0)
+    .border_radius(tokens.radii.large)
+}
+```
+<!-- fission:file path="preview/lib.rs" -->
+```rust
+mod app;
+
+use fission::prelude::*;
+use wasm_bindgen::prelude::*;
+
+#[wasm_bindgen(start)]
+pub fn run() -> Result<(), JsValue> {
+    console_error_panic_hook::set_once();
+    let preview = app::TutorialPreview::new(
+        "Contact Harbour".to_string(),
+        "Send a message to the team.".to_string(),
+        "Send a contact request".to_string(),
+        "Your message was accepted. The team can follow up by email.".to_string(),
+        "Add your email address and a short message before sending.".to_string(),
+    );
+    WebApp::<(), _>::new(preview)
+        .with_title("Build a server-rendered contact form in Rust")
+        .mount("#fission-web-mount")
+        .run()
+        .map_err(|error| JsValue::from_str(&error.to_string()))
+}
+```
+<!-- fission:preview -->
+
+<!-- fission:checkpoint -->
+Validate and confirm a submission: Use the preview control and check that the result matches the action.
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->
+
+<!-- fission:step id="edge-state" -->
+## Recover from server failure without losing the draft
+
+Represent the job as pending, complete or failed, and never block the UI while it runs. The no-JavaScript submission must follow the same validation path and return a complete HTML response with a status message announced to assistive technology.
+
+Keep I/O outside component conversion and reducers. Send host work through an asynchronous effect or service so the UI stays responsive.
+The preview control below simulates an unsuccessful host result. It demonstrates the message and recovery path; it does not perform authentication, database, network, or filesystem work.
+<!-- fission:file path="src/app.rs" -->
+```rust
+use fission::prelude::*;
+fission_component! {
+    pub TutorialPreview<()> {
+        props {
+            title: String,
+            detail: String,
+            action: String,
+            success: String,
+            empty: String,
+        }
+        state {
+            name: String = String::new(),
+            email: String = String::new(),
+            submitted: bool = false,
+            has_error: bool = false,
+        }
+    }
+    view(preview, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Container(
+        Column(
+            gap: tokens.spacing.m,
+            children: [
+                Text(preview.title.clone()).size(tokens.typography.heading2_size).weight(tokens.typography.font_weight_bold),
+                Text(preview.detail.clone()).color(tokens.colors.text_secondary),
+                TextInput(label: Some("Your name".into()),
+                    placeholder: Some("Name".into()),
+                    bind: preview.name,
+                    semantics_identifier: "tutorial.contact.name".to_string()),
+                TextInput(label: Some("Reply email".into()),
+                    placeholder: Some("you@example.com".into()),
+                    bind: preview.email,
+                    semantics_identifier: "tutorial.contact.email".to_string()),
+                Button(child: Text(preview.action.clone()),
+                    key: "send-message",
+                    disabled: preview.name.trim().is_empty() || !preview.email.contains('@'),
+                    on_press: reduce { preview.submitted = true; }),
+                if preview.submitted { Text(preview.success.clone()) } else { Text(preview.empty.clone()) },
+                Button(child: Text(if preview.has_error { "Try again".to_string() } else { "Preview delivery failure".to_string() }),
+                    key: "preview-error",
+                    on_press: reduce { preview.has_error = !preview.has_error; }),
+                if preview.has_error { Text("The message could not be sent. Your draft is still here; try again.") } else { Text(preview.success.clone()) },
+                Text(preview.empty.clone()).color(tokens.colors.text_secondary),
+            ]
+        )
+    )
+    .padding_all(tokens.spacing.l)
+    .bg(tokens.colors.surface)
+    .border(tokens.colors.border, 1.0)
+    .border_radius(tokens.radii.large)
+}
+```
+<!-- fission:file path="preview/lib.rs" -->
+```rust
+mod app;
+
+use fission::prelude::*;
+use wasm_bindgen::prelude::*;
+
+#[wasm_bindgen(start)]
+pub fn run() -> Result<(), JsValue> {
+    console_error_panic_hook::set_once();
+    let preview = app::TutorialPreview::new(
+        "Contact Harbour".to_string(),
+        "Send a message to the team.".to_string(),
+        "Send a contact request".to_string(),
+        "Your message was accepted. The team can follow up by email.".to_string(),
+        "Add your email address and a short message before sending.".to_string(),
+    );
+    WebApp::<(), _>::new(preview)
+        .with_title("Build a server-rendered contact form in Rust")
+        .mount("#fission-web-mount")
+        .run()
+        .map_err(|error| JsValue::from_str(&error.to_string()))
+}
+```
+<!-- fission:preview -->
+
+<!-- fission:checkpoint -->
+Recover from server failure without losing the draft: Trigger the error preview and confirm a recovery action remains available.
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->
+
+## Run, test and build the finished project
+
+From the project root, run the checks in order:
+
+```sh
+fission doctor --project-dir .
+fission run --target ssr --project-dir .
+cargo test
+fission build --target ssr --project-dir .
+fission test --target ssr --project-dir .
+```
+
+Expected result: The form explains field errors, confirms accepted messages, and keeps the draft after failure.
+
+## Related Fission reference
+
+Use these precise reference pages after the working path above is clear:
+
+- [Server Sites](/docs/guides/server-sites/)
+- [File Uploads](/docs/guides/file-uploads/)
+- [Form Control](/reference/widgets/form-control/)

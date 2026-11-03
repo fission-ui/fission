@@ -1,0 +1,92 @@
+---
+title: 3D surface
+sidebar_label: 3D surface
+description: Fission Charts reference for 3D surface.
+---
+
+# 3D surface
+
+![3D surface screenshot](/img/charts/surface3d-basic.png)
+
+A gridded surface lowered into a native 3D mesh. Use it for terrain, response surfaces, and continuous two-variable functions. The screenshot is captured from the native Fission chart gallery.
+
+## What the chart is for
+
+3D surface is part of the **3D and GL** chart family and is intended for `Mesh vertices and triangle indices generated from sampled z values`. Use it when the visual form makes the user's question faster to answer than a table or a simpler chart would.
+
+Avoid it when a two-dimensional chart answers the question more directly; 3D should clarify spatial data, not decorate ordinary comparisons.
+
+## Data model
+
+`Mesh vertices and triangle indices generated from sampled z values.` Keep the data close to the type that describes it. Fission Charts is typed Rust, so a line uses `LineSeries`, a calendar heatmap uses `CalendarHeatmapSeries`, and chart components such as zoom, marks, and graphics are explicit fields on `Chart` rather than hidden string configuration.
+
+## Rust API
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `title` | `&str` | Names the chart for the screen, accessibility tree, and test output. |
+| `scene` | `Scene3D` | Owns retained native 3D primitives for the chart viewport. |
+| `primitive` | `Primitive3D` | Uses cuboids, spheres, or meshes for the chart geometry. |
+| `width / height` | `f32` | Optional fixed size; omit them when the chart should flex inside Fission layout. |
+
+## Example
+
+```rust
+use fission::three_d::{Point3D, Primitive3D, Scene3D};
+use fission::core::op::Color;
+
+let scene = Scene3D::new()
+    .add_primitive(Primitive3D::Sphere {
+        center: Point3D::new(0.0, 0.0, 0.0),
+        radius: 0.4,
+        color: Color { r: 20, g: 184, b: 166, a: 255 },
+    });
+```
+
+## Interaction and animation
+
+Charts can emit typed `ChartInteractionEvent` values when interaction is enabled. Handle those events in a reducer when the app needs hover, press, release, scroll, selection, or brush behavior. `ChartAnimation` stores duration, delay, stagger, easing, and reduced-motion behavior as deterministic chart data, so animation timing can be tested instead of being hidden in ad-hoc timers.
+
+## Testing guidance
+
+For this chart, test the data mapping first, then test lowering, then capture a live screenshot when visual output changes. The screenshot for this page is refreshed by running the ignored chart-gallery screenshot capture test with `FISSION_UPDATE_CHART_DOCS=1`, which updates `documentation/static/img/charts` before the static site build.
+
+## Authoring from a Fission component
+
+Use this reference page as the chart expression inside ordinary Fission component conversion. The chart is a `Widget`, so it can sit inside a `Card`, `Grid`, `Scroll`, responsive page section, or any other layout container.
+
+```rust
+use fission::prelude::*;
+use fission::charts::{Axis, Chart, LineSeries};
+
+
+
+fission_component!
+{
+    pub Fission3DSurfaceChart<()> {
+    }
+    view(_component, _state, _cx) => rust {
+        Chart::new()
+                    .title("3D surface")
+                    .x_axis(Axis::category(vec!["A", "B", "C"]))
+                    .y_axis(Axis::value())
+                    .series(vec![LineSeries::new("Series").data(vec![1.0, 2.0, 3.0]).into()])
+                    .into()
+    }
+}
+```
+Keep expensive data loading outside component conversion. A reducer, job, service, or server route should prepare the typed chart data, then the component should read that state and construct the chart deterministically.
+
+## Options, accessibility, and diagnostics
+
+| Area | What to decide | How to verify |
+| --- | --- | --- |
+| Data shape | Keep source rows in typed Rust structs, then map them into the series type shown in the example. | Unit test the mapping separately from rendering. |
+| Options | Choose axes, legends, labels, animation, and interaction based on the user's task. | Add a screenshot test when changing visual behavior. |
+| Accessibility | Provide a clear title and adjacent summary text for important trends or outliers. | Inspect the generated semantics and make sure the chart is understandable without color alone. |
+| Failure handling | Render an empty, loading, or error state before constructing the chart if data is unavailable. | Test empty data, partial data, and failed fetches. |
+| Performance | Prefer summarized or windowed data for very large datasets; keep full raw history in the data layer. | Profile frame time and interaction latency with representative data volumes. |
+
+Tags: `3d`, `surface`.
+
+[3D and GL family overview](./overview)

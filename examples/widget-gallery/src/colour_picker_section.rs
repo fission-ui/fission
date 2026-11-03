@@ -62,7 +62,7 @@ fn set_colour_variant(state: &mut GalleryState, variant: usize) {
 
 fission_component! {
     pub(crate) ColourPickerSection<GalleryState> {}
-    |_section, state, cx| {
+    view(_section, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
         let variants = colour_variants();
         let active_variant = variants

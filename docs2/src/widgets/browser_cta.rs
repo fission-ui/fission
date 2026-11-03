@@ -32,7 +32,7 @@ fission_component! {
                     SemanticsRegion(
                         Link::to(
                             cx.view.env().tr("site.try_browser"),
-                            navigation::SHOWCASE,
+                            navigation::TRY_IN_BROWSER,
                         ),
                         identifier: Some("home-browser-cta".to_string()),
                     ),
@@ -46,7 +46,7 @@ fission_component! {
                         ]),
                         WebView(
                             id: WidgetId::explicit("home-browser-counter"),
-                            url: "/tutorials/interactive-counter/increment/?fission_renderer=canvas2d".to_string(),
+                            url: "/tutorials/single-page-web-app-rust/start-screen/?fission_renderer=canvas2d".to_string(),
                             label: Some(cx.view.env().tr("home.browser_demo_label")),
                             height: Some(400.0),
                         ),

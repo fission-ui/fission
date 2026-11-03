@@ -86,7 +86,7 @@ fn database_failed(state: &mut AppState, ctx: &mut ReducerContext<AppState>) {
 
 fission_component! {
     StoreExample<AppState>
-    |_app, state, cx| {
+    view(_app, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
         let add = cx.build.bind(AddProject, reduce!(add_project));
         cx.build.register::<PrepareDatabase, _>(reduce!(prepare_database));

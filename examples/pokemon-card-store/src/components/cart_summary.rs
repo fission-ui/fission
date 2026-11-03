@@ -4,7 +4,7 @@ use fission::prelude::*;
 
 fission_component! {
     pub CartSummary<StoreState> {}
-    |_summary, state, cx| {
+    view(_summary, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
         let typography = &tokens.typography;
         let cart_count = state.cart_items.len();

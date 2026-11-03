@@ -16,7 +16,7 @@ impl GlobalState for WebViewEmbedState {}
 
 fission_component! {
     pub WebViewEmbedApp<WebViewEmbedState>
-    |_app, _state, cx| {
+    view(_app, _state, cx) {
         let colours = &cx.view.env().theme.tokens.colors;
     } =>
     Container(

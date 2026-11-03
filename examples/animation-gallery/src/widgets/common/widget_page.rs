@@ -6,7 +6,7 @@ use fission::prelude::*;
 
 fission_component! {
     pub WidgetPage<AnimationGalleryState> { case: GalleryCase, preview: Widget }
-    |page, _state, cx| {
+    view(page, _state, cx) {
         let spacing = cx.view.env().theme.tokens.spacing.s;
     } =>
         Column(

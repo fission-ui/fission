@@ -1,0 +1,91 @@
+---
+title: Accessibility and internationalization
+sidebar_label: Accessibility and i18n
+description: Reference contract for semantic output, translated text, locale, and platform accessibility expectations.
+---
+
+# Accessibility and internationalization
+
+Accessibility and internationalization are not finishing touches. They affect how the runtime describes the interface, how text is selected, how layout adapts, and how platform shells expose the app to operating-system services.
+
+In Fission, both concerns start in the shared app model. Widgets produce semantic information as part of the normal tree. Text can come from translation keys. Locale and translation bundles live in `Env`. Shells then bridge the resolved result to the host platform.
+
+For the dedicated accessibility support matrix, native bridge contract, role mapping, and screen-reader compatibility targets, use [Accessibility reference](/reference/platform/accessibility/). This page keeps accessibility and locale together because platform shells often need to validate both at the same time.
+
+## Accessibility contract
+
+Fission widgets can carry semantic metadata. That metadata is used by tests, diagnostics, and platform shells.
+
+| Concept | Purpose | Practical guidance |
+| --- | --- | --- |
+| Semantic role | Describes what a node is | Buttons, inputs, links, headings, dialogs, and status messages should expose the right role. |
+| Semantic label | Describes what the user should hear or discover | Icon-only controls need explicit labels because visual icons are not enough. |
+| Semantic value | Describes current value or state | Use for controls such as sliders, progress indicators, selected rows, or toggles. |
+| Focus behavior | Determines keyboard and assistive navigation | Keep focus order close to visual order unless there is a strong reason not to. |
+| Disabled state | Communicates that an action is unavailable | Pair disabled state with visible explanation when the reason is not obvious. |
+
+Accessibility should be visible in tests. A test that finds a button by semantic label is usually stronger than a test that depends on an internal node path.
+
+## Current shell support
+
+The winit shell exposes Fission semantics through AccessKit on supported native targets. The bridge is built from the same `CoreIR` and layout snapshot used for rendering, so the accessibility tree follows the rendered widget tree instead of being maintained as a separate app-specific model.
+
+The bridge currently exports:
+
+| Fission semantic data | AccessKit output |
+| --- | --- |
+| Roles | Buttons, labels, text inputs, password inputs, multiline inputs, email/number/phone/URL inputs, images, checkboxes, switches, dialogs, sliders, lists, and list items. |
+| Labels and values | Explicit semantic labels, descendant text labels, text input values, numeric values, and toggle state. |
+| Bounds | Layout bounds converted into platform accessibility coordinates. |
+| Focus | Runtime focus is mirrored into the accessibility tree. Focus and blur actions update Fission focus. |
+| Text input actions | Replace selected text, set value, and set text selection dispatch through Fission's text input pipeline. |
+| Control actions | Click/default action, increment/decrement, set numeric value, and scroll actions dispatch through semantics and runtime state. |
+
+Android uses the generated AndroidX GameActivity host and the AccessKit Android adapter, so the same Fission semantic tree is available to TalkBack and other Android accessibility services. Web, Static site, SSR, and Terminal targets do not use the winit AccessKit bridge; they use target-specific accessibility output. The Web canvas text adapter exposes its focused native input, while Static site and SSR produce semantic HTML for the complete rendered document.
+
+The native bridge is best understood as a shell integration. App code should still use normal Fission widgets and semantics. The shell translates those semantics into the host accessibility tree.
+
+## Internationalization contract
+
+Internationalization, often shortened to i18n, means making the app capable of supporting multiple languages and locale-sensitive behavior. Localization means providing the actual translated content for a locale.
+
+Fission uses these core types:
+
+| Type | Purpose |
+| --- | --- |
+| `Locale` | Active language and region identifier. |
+| `TranslationBundle` | Key-value messages for one locale. |
+| `I18nRegistry` | Registry of available bundles. |
+| `TextContent::Key` | Text that should be resolved from the active registry. |
+| `TextContent::Literal` | Text that should render exactly as provided. |
+
+Locale-sensitive text can affect more than visible strings. It can change semantic labels, text width, wrapping, line height pressure, truncation, and layout decisions. That is why the locale belongs in `Env` and should be part of testing.
+
+## Platform responsibilities
+
+The shared runtime should produce meaningful semantics and translated text. The shell should expose those results to the host platform where the host provides an accessibility or language integration path.
+
+| Target | What to validate |
+| --- | --- |
+| Desktop | Keyboard focus, labels, roles, text scaling, screen-reader exposure, menus, dialogs, and high-contrast expectations. |
+| Web | Semantic HTML output where applicable, focus order, keyboard access, browser accessibility tree, language metadata, and translated page content. |
+| Android | TalkBack labels, touch target sizes, system font scale, locale changes, permission prompts, and text input behavior. |
+| iOS | VoiceOver labels, Dynamic Type expectations, safe-area layout, locale changes, and input method behavior. |
+| Terminal | Keyboard navigation, visible focus, readable contrast, screen-reader terminal behavior, and non-color-only status. |
+| Static sites | Semantic HTML headings, links, tables, language metadata, alternate language routing, and crawlable translated content. |
+
+No shell should invent product meaning that the widget tree did not provide. The shell bridges semantics; it does not decide that a random rectangle is a button.
+
+## Common mistakes
+
+Do not rely on placeholder text as a label for text inputs. Placeholders disappear once the user types and can be hard for assistive technology to treat as a durable name.
+
+Do not use color as the only indicator of status. Pair color with text, iconography, semantic state, or structure.
+
+Do not build translated strings by concatenating fragments in the widget. Different languages have different word order. Prefer whole translation keys with parameters handled by the app's translation layer.
+
+Do not treat English text length as the layout truth. Test longer translated strings, right-to-left languages if your product supports them, and mobile widths.
+
+## Related pages
+
+Read [Theming and internationalization](/docs/guides/theming-and-i18n/) for a step-by-step translation setup, [Environment, input, and input method editor](/reference/core/environment-input-and-ime/) for the `Env` contract, and [Testing and diagnostics](/docs/guides/testing-and-diagnostics/) for accessibility-oriented testing practice.

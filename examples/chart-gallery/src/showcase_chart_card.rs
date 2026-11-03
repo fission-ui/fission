@@ -6,7 +6,7 @@ use fission::prelude::*;
 
 fission_component! {
     pub ShowcaseChartCard<GalleryState> { title: &'static str, subtitle: &'static str, chart: Chart, accent: Color }
-    |card, _state, cx| {
+    view(card, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
         let chart = configure_chart(card.chart.clone(), cx.view).height(SHOWCASE_CHART_HEIGHT);
     } =>

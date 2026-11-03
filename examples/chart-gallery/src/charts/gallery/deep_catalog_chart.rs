@@ -6,7 +6,7 @@ use fission::prelude::*;
 
 fission_component! {
     pub(crate) DeepCatalogChart<GalleryState> { absolute_category: usize, chart: usize, scale: f32 }
-    |selection, _state, _cx| {} => (|| -> Widget {
+    view(selection, _state, _cx) {} => (|| -> Widget {
         let Some(meta) = chart_at(selection.absolute_category, selection.chart) else {
             return ChartSelectionEmpty::new().into();
         };
