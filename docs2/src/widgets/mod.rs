@@ -1,6 +1,5 @@
 mod browser_cta;
 mod compose_section;
-mod docs_header;
 mod feature_card;
 mod feature_section;
 mod goal_card;
@@ -28,7 +27,6 @@ mod tutorial_list_item;
 
 pub use browser_cta::BrowserCta;
 pub use compose_section::ComposeSection;
-pub use docs_header::DocsHeader;
 pub use feature_section::FeatureSection;
 pub use goal_chooser::GoalChooser;
 pub use goal_intro::GoalIntro;

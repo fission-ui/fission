@@ -2,7 +2,7 @@ use crate::content::GoalMeta;
 use crate::navigation;
 use crate::state::DocsState;
 use crate::widgets::{
-    copy, DocsHeader, GuideCard, HubPathStep, HubSidebar, HubStarterCode, HubTaskCard,
+    copy, GuideCard, HubPathStep, HubSidebar, HubStarterCode, HubTaskCard, SiteHeader,
 };
 use fission::prelude::*;
 
@@ -36,7 +36,7 @@ fission_component! {
         ];
     } =>
     Column(children: [
-        DocsHeader::new(true),
+        SiteHeader(),
         SemanticsRegion(
             identifier: Some("hub-shell".to_string()),
             child: Row(align_items: ir_op::AlignItems::Start, children: [
@@ -57,11 +57,11 @@ fission_component! {
                         SemanticsRegion(
                             identifier: Some("hub-path".to_string()),
                             child: Row(gap: tokens.spacing.l, wrap: ir_op::FlexWrap::Wrap, children: [
-                                HubPathStep(1, "hub.path.first.title", "hub.path.first.detail"),
-                                HubPathStep(2, "hub.path.interface.title", "hub.path.interface.detail"),
-                                HubPathStep(3, "hub.path.data.title", "hub.path.data.detail"),
-                                HubPathStep(4, "hub.path.target.title", "hub.path.target.detail"),
-                                HubPathStep(5, "hub.path.ship.title", "hub.path.ship.detail"),
+                                HubPathStep(1, "hub.path.first.title", "hub.path.first.detail", navigation::FIRST_APP),
+                                HubPathStep(2, "hub.path.interface.title", "hub.path.interface.detail", navigation::LOGIN_PAGE),
+                                HubPathStep(3, "hub.path.data.title", "hub.path.data.detail", navigation::CRUD_APP),
+                                HubPathStep(4, "hub.path.target.title", "hub.path.target.detail", navigation::MOBILE_APPS),
+                                HubPathStep(5, "hub.path.ship.title", "hub.path.ship.detail", navigation::ANDROID_RELEASE),
                             ]),
                         ),
                         SemanticsRegion(
@@ -71,7 +71,7 @@ fission_component! {
                                     copy("hub.start.label").color(tokens.colors.primary),
                                     copy("hub.start.title").size(tokens.typography.heading1_size).weight(tokens.typography.font_weight_bold),
                                     copy("hub.start.description").color(tokens.colors.text_secondary),
-                                    Link::to(cx.view.env().tr("hub.start.action"), navigation::QUICKSTART),
+                                    Link::to(cx.view.env().tr("hub.start.action"), navigation::FIRST_APP),
                                 ]),
                                 HubStarterCode(),
                             ]),
@@ -83,22 +83,22 @@ fission_component! {
                                 HubTaskCard(
                                     material::action::article::regular(),
                                     "hub.interface",
-                                    vec![("hub.interface.forms", navigation::FORM_CONTROL), ("hub.interface.menus", navigation::REFERENCE), ("hub.interface.layouts", navigation::REFERENCE)],
+                                    vec![("hub.interface.forms", navigation::LOGIN_PAGE), ("hub.interface.menus", navigation::WEBSITE_NAVIGATION), ("hub.interface.layouts", navigation::ANDROID_RESPONSIVE_LAYOUTS)],
                                 ),
                                 HubTaskCard(
                                     material::device::storage::regular(),
                                     "hub.data",
-                                    vec![("hub.data.async", "/docs/guides/resources-and-async/"), ("hub.data.sqlite", "/blog/build-a-crud-app-with-rust-and-sqlite/"), ("hub.data.apis", "/docs/guides/resources-and-async/")],
+                                    vec![("hub.data.async", navigation::CRUD_APP), ("hub.data.sqlite", navigation::CRUD_APP), ("hub.data.apis", navigation::PRODUCT_INVENTORY)],
                                 ),
                                 HubTaskCard(
                                     material::hardware::smartphone::regular(),
                                     "hub.targets",
-                                    vec![("hub.targets.desktop", "/docs/learn/examples-and-targets/"), ("hub.targets.mobile", "/docs/learn/examples-and-targets/"), ("hub.targets.web", "/docs/learn/examples-and-targets/"), ("hub.targets.sites", "/docs/guides/static-sites/")],
+                                    vec![("hub.targets.desktop", navigation::DESKTOP_APP), ("hub.targets.mobile", navigation::MOBILE_APPS), ("hub.targets.web", navigation::FIRST_APP), ("hub.targets.sites", navigation::DOCUMENTATION_SITE)],
                                 ),
                                 HubTaskCard(
                                     material::action::rocket_launch::regular(),
                                     "hub.testing",
-                                    vec![("hub.testing.flow", navigation::TEST_GUIDE), ("hub.testing.package", navigation::PACKAGING_GUIDE), ("hub.testing.deploy", navigation::PACKAGING_GUIDE)],
+                                    vec![("hub.testing.flow", navigation::LIVE_TEST), ("hub.testing.package", navigation::ANDROID_RELEASE), ("hub.testing.deploy", navigation::ANDROID_RELEASE)],
                                 ),
                             ]),
                         ),

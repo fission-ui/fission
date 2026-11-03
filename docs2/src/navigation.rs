@@ -3,6 +3,18 @@ pub const DOCS: &str = "/docs/";
 pub const TUTORIALS: &str = "/blog/categories/tutorials/";
 pub const PRODUCTS: &str = "/product/overview/";
 pub const QUICKSTART: &str = "/docs/learn/quickstart/";
+pub const FIRST_APP: &str = "/blog/build-a-single-page-web-app-in-rust/";
+pub const WEBSITE_NAVIGATION: &str = "/blog/build-a-rust-website-with-dropdown-navigation/";
+pub const LOGIN_PAGE: &str = "/blog/build-a-login-page-in-rust/";
+pub const CRUD_APP: &str = "/blog/build-a-crud-app-with-rust-and-sqlite/";
+pub const DESKTOP_APP: &str = "/blog/build-a-desktop-application-in-rust/";
+pub const MOBILE_APPS: &str = "/blog/build-android-and-ios-apps-in-rust/";
+pub const DOCUMENTATION_SITE: &str = "/blog/build-a-documentation-website-in-rust/";
+pub const PRODUCT_INVENTORY: &str = "/blog/build-a-product-inventory-website-in-rust/";
+pub const ANDROID_RESPONSIVE_LAYOUTS: &str =
+    "/blog/make-an-android-layout-adapt-to-phones-tablets-and-changing-window-sizes/";
+pub const LIVE_TEST: &str = "/blog/drive-a-real-mobile-app-with-fission-livetest/";
+pub const ANDROID_RELEASE: &str = "/blog/package-and-prepare-a-fission-android-app-for-release/";
 pub const TRY_IN_BROWSER: &str = "/blog/build-a-single-page-web-app-in-rust/";
 
 pub const COMPOSE: &str = "/compose/";

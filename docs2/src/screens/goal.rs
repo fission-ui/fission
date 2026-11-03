@@ -1,6 +1,6 @@
 use crate::content::{GoalDocument, GoalMeta};
 use crate::state::DocsState;
-use crate::widgets::{DocsHeader, GoalIntro, GoalSidebar, GoalStepSection, GoalToc, SiteFooter};
+use crate::widgets::{GoalIntro, GoalSidebar, GoalStepSection, GoalToc, SiteFooter, SiteHeader};
 use fission::prelude::*;
 
 fission_component! {
@@ -15,7 +15,7 @@ fission_component! {
     } =>
     Container(
         Column(children: [
-            DocsHeader::new(false),
+            SiteHeader(),
             SemanticsRegion(
                 identifier: Some("goal-shell".to_string()),
                 child: Row(align_items: ir_op::AlignItems::Start, children: [

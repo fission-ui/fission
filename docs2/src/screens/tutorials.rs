@@ -1,7 +1,7 @@
 use crate::content::GoalMeta;
 use crate::navigation;
 use crate::state::DocsState;
-use crate::widgets::{copy, DocsHeader, SiteFooter, TutorialGroup};
+use crate::widgets::{copy, SiteFooter, SiteHeader, TutorialGroup};
 use fission::prelude::*;
 
 fission_component! {
@@ -14,7 +14,7 @@ fission_component! {
     } =>
     Container(
         Column(gap: tokens.spacing.xl, children: [
-            DocsHeader::new(false),
+            SiteHeader(),
             Container(
                 SemanticsRegion(
                 identifier: Some("tutorials-main".to_string()),

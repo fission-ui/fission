@@ -20,9 +20,9 @@ fission_component! {
         label: Some(cx.view.env().tr("goal.nav.label")),
         child: Column(gap: tokens.spacing.m, children: [
             copy("goal.nav.get_started").weight(tokens.typography.font_weight_bold),
-            Link::to(cx.view.env().tr("goal.nav.introduction"), navigation::REFERENCE_OVERVIEW),
+            Link::to(cx.view.env().tr("goal.nav.introduction"), navigation::TUTORIALS),
             Link::to(cx.view.env().tr("goal.nav.installation"), navigation::INSTALLATION),
-            Link::to(cx.view.env().tr("goal.nav.first_app"), navigation::QUICKSTART),
+            Link::to(cx.view.env().tr("goal.nav.first_app"), navigation::FIRST_APP),
             Divider(),
             copy("goal.nav.tutorials").weight(tokens.typography.font_weight_bold),
             Link::to(cx.view.env().tr("tutorials.title"), navigation::TUTORIALS),

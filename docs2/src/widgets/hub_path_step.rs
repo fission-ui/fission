@@ -8,6 +8,7 @@ fission_component! {
             number: u8,
             title: &'static str,
             detail: &'static str,
+            href: &'static str,
         }
     }
     view(step, _state, cx) {
@@ -26,7 +27,7 @@ fission_component! {
                 }),
             ),
             Column(gap: tokens.spacing.xs, children: [
-                copy(step.title).weight(tokens.typography.font_weight_bold),
+                Link::to(cx.view.env().tr(step.title), step.href),
                 copy(step.detail).color(tokens.colors.text_secondary),
             ]),
         ]),

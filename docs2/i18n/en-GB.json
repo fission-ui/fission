@@ -16,6 +16,7 @@
   "site.footer_tutorial_login": "Build a login page",
   "site.footer_tutorial_admin": "Build an admin panel",
   "site.try_browser": "Try Fission in the browser",
+  "site.header_try": "Try in browser",
   "site.footer_tagline": "One Rust codebase. Every platform that matters.",
   "home.eyebrow": "Rust GUI and UI framework",
   "home.title": "Build desktop, mobile and web apps in Rust",
@@ -305,5 +306,6 @@
   "hub.guide.admin.title": "Build an admin panel",
   "hub.guide.admin.description": "A CRUD interface with navigation and data tables.",
   "hub.guide.inventory.title": "Build an inventory site",
-  "hub.guide.inventory.description": "A multi-page site with search, filters and offline support."
+  "hub.guide.inventory.description": "A multi-page site with search, filters and offline support.",
+  "hub.guide.read": "Read this tutorial →"
 }

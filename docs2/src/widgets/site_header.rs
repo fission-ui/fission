@@ -45,7 +45,7 @@ fission_component! {
                 SemanticsRegion(
                     identifier: Some("site-header-cta".to_string()),
                     child: Some(Link::to(
-                        cx.view.env().tr("site.try_browser"),
+                        cx.view.env().tr("site.header_try"),
                         navigation::TRY_IN_BROWSER,
                     ).into()),
                 ),

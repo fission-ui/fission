@@ -1,4 +1,5 @@
 use crate::state::DocsState;
+use crate::widgets::copy;
 use fission::prelude::*;
 
 fission_component! {
@@ -32,6 +33,10 @@ fission_component! {
                             )
                         },
                     ]),
+                    SemanticsRegion(
+                        copy("hub.guide.read").color(tokens.colors.primary).weight(tokens.typography.font_weight_bold),
+                        identifier: Some("hub-guide-read".to_string()),
+                    ),
                 ]),
             ]),
         ]),

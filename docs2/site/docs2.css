@@ -1308,6 +1308,132 @@ body { background: #fff; }
     overflow-wrap: normal !important;
   }
 }
+
+/* Learning pages share the marketing header and its calmer link treatment. */
+:root { --header: 56px; }
+[data-fission-semantics="site-header"] {
+  min-height: var(--header);
+  padding: 9px var(--gutter);
+  background: rgb(251 250 247 / 96%);
+}
+[data-fission-semantics="site-header"] > * { min-height: 36px; }
+[data-fission-semantics="site-header"] a {
+  padding: 7px 9px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  transition: background-color .16s ease, color .16s ease;
+}
+[data-fission-semantics="site-header"] a:hover {
+  background: #eaf0ec;
+  color: #075450;
+}
+[data-fission-semantics="site-header"] [data-fission-semantics="docs-brand"] a {
+  padding-inline: 0;
+  font-size: 16px;
+}
+[data-fission-semantics="site-primary-nav"] > * { gap: 4px !important; }
+[data-fission-semantics="site-header-cta"] {
+  flex: 0 0 auto;
+  width: max-content;
+  min-width: 0;
+  align-self: center;
+}
+[data-fission-semantics="site-header-cta"] a {
+  display: inline-flex !important;
+  align-items: center;
+  width: max-content;
+  min-height: 36px;
+  padding: 8px 12px;
+  border: 1px solid #075450;
+  border-radius: 6px;
+  background: #075450;
+  color: white !important;
+  line-height: 1.15 !important;
+  white-space: nowrap !important;
+}
+[data-fission-semantics="site-header-cta"] a * { white-space: nowrap !important; }
+[data-fission-semantics="site-header-cta"] a:hover { background: #063f3c; }
+[data-fission-semantics="site-header-cta"] a * { color: white !important; }
+[data-fission-search-trigger] {
+  display: flex !important;
+  align-items: center;
+  flex: 0 0 176px;
+  width: 176px;
+  min-width: 176px !important;
+  min-height: 34px;
+  padding: 5px 9px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--surface);
+  color: var(--muted);
+}
+[data-fission-semantics="site-github-link"] a {
+  padding-inline: 6px;
+  color: #536171;
+  font-size: 12px;
+}
+[data-fission-semantics="hub-sidebar"] a {
+  display: block;
+  padding: 7px 10px;
+  border-radius: 6px;
+  color: #46546b;
+  font-size: 13px;
+  line-height: 1.35;
+  transition: background-color .16s ease, color .16s ease;
+}
+[data-fission-semantics="hub-sidebar"] a:hover,
+[data-fission-semantics="goal-left-nav"] a:hover,
+[data-fission-semantics="goal-right-nav"] a:hover {
+  background: #eaf0ec;
+  color: #075450;
+}
+[data-fission-semantics="hub-path-step"] a {
+  color: #075450;
+  font-weight: 700;
+  text-decoration: none;
+  text-underline-offset: 3px;
+}
+[data-fission-semantics="hub-path-step"] a:hover { text-decoration: underline; }
+[data-fission-semantics="hub-task-card"] a {
+  min-height: 32px;
+  padding: 6px 8px;
+  border-radius: 5px;
+  color: #075450;
+  text-decoration: none !important;
+}
+[data-fission-semantics="hub-task-card"] a:hover { background: #f0f6f4; }
+[data-fission-semantics="hub-guide-read"] { color: #075450; font-weight: 700; }
+[data-fission-semantics="hub-guides"] a:focus-visible,
+[data-fission-semantics="hub-task-card"] a:focus-visible,
+[data-fission-semantics="hub-path-step"] a:focus-visible { outline-offset: 2px; }
+@media (max-width: 780px) {
+  [data-fission-semantics="site-header"] > * { gap: 6px 10px !important; }
+  [data-fission-semantics="site-header"] > * > :nth-child(2),
+  [data-fission-semantics="site-github-link"] { display: none !important; }
+  [data-fission-semantics="site-header"] > * > :first-child { order: 1; }
+  [data-fission-semantics="site-header-cta"] { order: 2; flex: 0 0 auto; }
+  [data-fission-semantics="site-primary-nav"] { order: 3; flex: 1 0 100%; overflow-x: auto; }
+  [data-fission-semantics="site-primary-nav"] > * {
+    flex-wrap: nowrap !important;
+    gap: 4px !important;
+    width: max-content;
+  }
+  [data-fission-semantics="site-header"] a { font-size: 12px; }
+  [data-fission-search-trigger] {
+    flex: 0 0 38px;
+    width: 38px;
+    min-width: 38px !important;
+    min-height: 34px;
+    justify-content: center;
+    padding: 5px;
+  }
+  [data-fission-search-trigger] > * > :not(:first-child) { display: none !important; }
+}
+@media (max-width: 620px) {
+  [data-fission-semantics="hub-path"] > * { flex-wrap: wrap !important; }
+  [data-fission-semantics="hub-path"] > * > * { flex: 1 1 42%; }
+}
 @media (max-width: 900px) {
   [data-fission-semantics="hub-path-step"]::after { display: none; }
 }

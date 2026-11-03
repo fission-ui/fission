@@ -16,6 +16,7 @@
   "site.footer_tutorial_login": "Crear una página de inicio de sesión",
   "site.footer_tutorial_admin": "Crear un panel de administración",
   "site.try_browser": "Prueba Fission en el navegador",
+  "site.header_try": "Probar en navegador",
   "site.footer_tagline": "Un código Rust. Todas las plataformas importantes.",
   "home.eyebrow": "Framework de interfaz gráfica Rust",
   "home.title": "Crea aplicaciones de escritorio, móviles y web con Rust",
@@ -305,5 +306,6 @@
   "hub.guide.admin.title": "Crea un panel de administración",
   "hub.guide.admin.description": "Una interfaz CRUD con navegación y tablas de datos.",
   "hub.guide.inventory.title": "Crea un sitio de inventario",
-  "hub.guide.inventory.description": "Un sitio con varias páginas, búsqueda, filtros y modo sin conexión."
+  "hub.guide.inventory.description": "Un sitio con varias páginas, búsqueda, filtros y modo sin conexión.",
+  "hub.guide.read": "Leer este tutorial →"
 }
