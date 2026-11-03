@@ -15,15 +15,22 @@ fission_component! {
     }
     view(group, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
+        let heading_identifier = format!(
+            "site-heading-2:{}",
+            group.title_key.replace('.', "-")
+        );
     } =>
     SemanticsRegion(
         identifier: Some("tutorial-group".to_string()),
         label: Some(cx.view.env().tr(group.title_key)),
         child: Column(gap: tokens.spacing.l, children: [
             Column(gap: tokens.spacing.xs, children: [
-                copy(group.title_key)
-                    .size(tokens.typography.heading2_size)
-                    .weight(tokens.typography.font_weight_bold),
+                SemanticsRegion(
+                    copy(group.title_key)
+                        .size(tokens.typography.heading2_size)
+                        .weight(tokens.typography.font_weight_bold),
+                    identifier: Some(heading_identifier),
+                ),
                 copy(group.description_key).color(tokens.colors.text_secondary),
             ]),
             SemanticsRegion(

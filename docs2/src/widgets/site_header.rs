@@ -43,6 +43,15 @@ fission_component! {
                     ),
                 ),
                 SemanticsRegion(
+                    identifier: Some("site-sidebar-toggle".to_string()),
+                    label: Some(cx.view.env().tr("site.primary_nav")),
+                    child: Some(
+                        copy("site.menu")
+                            .weight(tokens.typography.font_weight_semibold)
+                            .into(),
+                    ),
+                ),
+                SemanticsRegion(
                     identifier: Some("site-header-cta".to_string()),
                     child: Some(Link::to(
                         cx.view.env().tr("site.header_try"),
@@ -61,6 +70,19 @@ fission_component! {
                 SemanticsRegion(
                     identifier: Some("site-github-link".to_string()),
                     child: Some(Link::to(cx.view.env().tr("site.github"), navigation::GITHUB).into()),
+                ),
+                SemanticsRegion(
+                    identifier: Some("site-mobile-menu".to_string()),
+                    label: Some(cx.view.env().tr("site.primary_nav")),
+                    child: Column(gap: tokens.spacing.xs, children: [
+                        Link::to(cx.view.env().tr("site.docs"), navigation::DOCS),
+                        Link::to(cx.view.env().tr("site.tutorials"), navigation::TUTORIALS),
+                        Link::to(cx.view.env().tr("site.compose"), navigation::COMPOSE),
+                        Link::to(cx.view.env().tr("site.examples"), navigation::EXAMPLES),
+                        Link::to(cx.view.env().tr("site.reference"), navigation::REFERENCE_OVERVIEW),
+                        Link::to(cx.view.env().tr("site.header_try"), navigation::TRY_IN_BROWSER),
+                        Link::to(cx.view.env().tr("site.github"), navigation::GITHUB),
+                    ]),
                 ),
             ],
         ),

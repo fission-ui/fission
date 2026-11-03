@@ -9,6 +9,7 @@
   --blue-dark: #0f43a3;
   --blue-soft: #e8f0ff;
   --success: #08785e;
+  --teal: #075450;
   --code: #101b2a;
   --max: 82rem;
   --gutter: clamp(20px, 4vw, 48px);
@@ -25,11 +26,15 @@ a:focus-visible, button:focus-visible, iframe:focus-visible { outline: 3px solid
 [data-fission-semantics="site-header"] { position: sticky; z-index: 100; top: 0; min-height: var(--header); padding: 13px var(--gutter); border-bottom: 1px solid var(--line); background: rgb(251 250 247 / 96%); backdrop-filter: blur(14px); }
 [data-fission-semantics="site-header"] > * { width: min(100%, var(--max)); margin-inline: auto; }
 [data-fission-semantics="site-header"] a { color: var(--ink); font-size: 14px; font-weight: 600; text-decoration: none; }
+[data-fission-semantics="site-primary-nav"] a .fission-site-text-run,
+[data-fission-semantics="site-header-cta"] a .fission-site-text-run,
+[data-fission-semantics="site-github-link"] a .fission-site-text-run { font-size: 14px !important; line-height: 1.3 !important; }
 [data-fission-semantics="docs-brand"] { min-width: 126px; }
 [data-fission-semantics="site-search-trigger"] { min-width: 190px; padding: 8px 11px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface); color: var(--muted); }
 [data-fission-search-trigger] { min-width: 190px; padding: 8px 11px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); color: var(--muted); }
 [data-fission-semantics="site-menu-toggle"] { display: none; }
 [data-fission-semantics="site-mobile-menu"] { display: none; }
+.fission-site-sidebar-toggle .fission-site-text-run { font-size: 13px !important; line-height: 1.3 !important; }
 
 [data-fission-semantics="home-hero"] { position: relative; width: min(100%, var(--max)); margin-inline: auto; padding: clamp(52px, 6vw, 78px) var(--gutter) 42px; overflow: hidden; }
 [data-fission-semantics="home-hero"] > * { display: grid !important; grid-template-columns: minmax(0, .82fr) minmax(520px, 1.18fr); gap: clamp(36px, 6vw, 74px) !important; }
@@ -95,7 +100,9 @@ a:focus-visible, button:focus-visible, iframe:focus-visible { outline: 3px solid
 [data-fission-semantics="home-tutorial-card"] { height: 100%; overflow: hidden; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); box-shadow: 0 3px 12px rgb(11 24 51 / 6%); transition: transform .18s ease, border-color .18s ease, box-shadow .18s ease; }
 [data-fission-semantics="home-tutorial-card"]:hover { transform: translateY(-3px); border-color: var(--blue); box-shadow: 0 14px 34px rgb(11 24 51 / 10%); }
 [data-fission-semantics="home-tutorial-card"] > * > :not(:first-child) { margin-inline: 18px; }
-[data-fission-semantics="home-tutorial-card"] > * > :last-child { margin-bottom: 18px; }
+[data-fission-semantics="home-tutorial-card"] > * > :last-child { margin-top: auto; margin-bottom: 18px; }
+[data-fission-semantics="home-tutorial-card"]:focus-within,
+[data-fission-semantics="home-goal-card"]:focus-within { outline: 3px solid #ffb000; outline-offset: 3px; }
 [data-fission-semantics="home-tutorial-card"] img { width: 100% !important; }
 
 [data-fission-semantics="home-browser"] { width: min(calc(100% - 32px), var(--max)); margin: 0 auto 52px; padding: clamp(28px, 4vw, 46px); border: 1px solid #cedbf2; border-radius: 16px; background: linear-gradient(110deg, #f3f6fb, #fffaf0 54%, var(--blue-soft)); }
@@ -202,6 +209,10 @@ a:focus-visible, button:focus-visible, iframe:focus-visible { outline: 3px solid
 [data-fission-semantics="tutorials-main"] > * > :first-child > :first-child { font-family: Georgia, "Times New Roman", serif; font-size: clamp(36px, 4vw, 54px) !important; line-height: 1.05; letter-spacing: -.035em; }
 [data-fission-semantics="tutorials-main"] > * > :first-child > :first-child .fission-site-text-run { font-size: clamp(34px, 3.6vw, 50px) !important; line-height: 1.05 !important; }
 [data-fission-semantics^="tutorial-list-"] { height: 100%; padding: 20px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+[data-fission-semantics^="tutorial-list-"] { color: inherit; cursor: pointer; text-decoration: none; transition: border-color .16s ease, box-shadow .16s ease, transform .16s ease; }
+[data-fission-semantics^="tutorial-list-"]:hover { border-color: var(--teal); box-shadow: 0 8px 22px rgb(11 24 51 / 8%); transform: translateY(-2px); }
+[data-fission-semantics^="tutorial-list-"]:focus-visible { outline: 3px solid #ffb000; outline-offset: 3px; }
+[data-fission-semantics^="tutorial-list-"] .fission-site-text-run:first-child { text-decoration: underline; text-underline-offset: .2em; }
 [data-fission-semantics="home-tutorial-card"] { height: 100%; padding: 20px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); box-shadow: 0 3px 12px rgb(11 24 51 / 6%); }
 [data-fission-semantics="home-tutorial-card"] a { margin-top: auto; font-weight: 700; text-decoration: none; }
 @media (max-width: 900px) { [data-fission-semantics="tutorials-list"] > * { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
@@ -956,6 +967,37 @@ body { background: #fff; }
 [data-fission-semantics="hub-start"] pre::before { display: none; }
 [data-fission-semantics="hub-main"] > * > :nth-child(6) { margin-top: 1px; }
 [data-fission-semantics="hub-cards"] { margin-top: -5px; }
+
+/* Give tutorial context, code and compiled examples enough room to read. */
+[data-fission-semantics="goal-prerequisites"] {
+  padding: 13px 16px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--teal);
+  border-radius: 7px;
+  background: var(--surface);
+}
+[data-fission-semantics="goal-prerequisites"] ul { margin: 4px 0 0; padding-inline-start: 20px; }
+[data-fission-semantics="goal-prerequisites"] li { margin-block: 3px; line-height: 1.45; }
+[data-fission-semantics="goal-outcomes"] > * > :nth-child(2) { line-height: 1.55; }
+[data-fission-semantics="goal-outcomes"] > * > :nth-child(3) { margin-top: 6px; line-height: 1.5; }
+[data-fission-semantics="goal-finished-preview"] iframe { min-height: 400px; }
+[data-fission-semantics="goal-live-preview"] iframe { min-height: 460px; }
+[data-fission-semantics="goal-step-copy"] { line-height: 1.55; }
+[data-fission-semantics="goal-command"] pre,
+[data-fission-semantics="goal-step-copy"] pre { padding: 17px; font-size: 12px; line-height: 1.65; }
+[data-fission-semantics="goal-checkpoint"] {
+  padding: 17px 18px;
+  border: 1px solid #d8e5fa;
+  border-radius: 7px;
+  background: var(--blue-soft);
+  line-height: 1.5;
+}
+@media (max-width: 620px) {
+  [data-fission-semantics="goal-finished-preview"] iframe { min-height: 400px !important; }
+  [data-fission-semantics="goal-live-preview"] iframe { min-height: 460px !important; }
+  [data-fission-semantics="goal-command"] pre,
+  [data-fission-semantics="goal-step-copy"] pre { padding: 14px; font-size: 12px; }
+}
 [data-fission-semantics="hub-guides"] { margin-top: -5px; }
 [data-fission-semantics="hub-guides"] > * > * { min-width: 0; }
 [data-fission-semantics="hub-guides"] a {
@@ -1135,6 +1177,7 @@ body { background: #fff; }
   white-space: nowrap !important;
 }
 [data-fission-semantics="hub-guides"] .fission-site-badge { color: #52616f; }
+
 [data-fission-semantics="hub-guides"] a > .fission-site-column > .fission-site-row > :first-child svg path { fill: #075450 !important; }
 @media (max-width: 620px) {
   [data-fission-semantics="hub-main"] > * > :first-child { min-height: 0; margin: 0; }
@@ -1469,4 +1512,76 @@ body { background: #fff; }
     min-width: 0 !important;
     white-space: nowrap !important;
   }
+}
+
+/* Final order and visibility for the custom marketing header on phone layouts. */
+@media (max-width: 1120px) {
+  [data-fission-semantics="site-header"] > * > :first-child { order: 1 !important; }
+  [data-fission-semantics="site-header"] > * > :nth-child(2) { display: none !important; }
+  [data-fission-semantics="site-primary-nav"] { display: none !important; }
+  .fission-site-sidebar-toggle { display: inline-flex !important; order: 2 !important; }
+  [data-fission-search-trigger] { order: 3 !important; }
+  [data-fission-semantics="site-header-cta"] { order: 3 !important; }
+  [data-fission-semantics="site-github-link"] { display: none !important; }
+  [data-fission-semantics="site-mobile-menu"] {
+    display: none !important;
+    order: 4 !important;
+    flex: 1 0 100%;
+    width: 100%;
+  }
+  [data-fission-semantics="site-mobile-menu"] a {
+    display: flex !important;
+    align-items: center;
+    min-height: 44px;
+    padding: 10px 12px !important;
+    border-radius: 6px;
+    font-size: 15px !important;
+    line-height: 1.4 !important;
+    color: var(--ink) !important;
+    transition: background-color .16s ease, color .16s ease;
+  }
+  [data-fission-semantics="site-mobile-menu"] a .fission-site-text-run { font-size: 15px !important; line-height: 1.4 !important; }
+  [data-fission-semantics="site-mobile-menu"] a:hover { background: #edf3ff; color: var(--blue-dark) !important; }
+  html.fission-site-sidebar-open [data-fission-semantics="site-mobile-menu"] {
+    display: block !important;
+    padding: 9px 0 4px;
+    border-top: 1px solid var(--line);
+  }
+  html.fission-site-sidebar-open [data-fission-semantics="site-header"] { z-index: 1002; }
+}
+@media (max-width: 780px) {
+  [data-fission-semantics="site-header"] { padding: 10px 16px; }
+  [data-fission-semantics="site-header"] > * { gap: 8px !important; }
+  [data-fission-semantics="site-header-cta"] { display: none !important; }
+  .fission-site-sidebar-toggle { margin-left: auto; }
+  [data-fission-search-trigger] { order: 3 !important; }
+  [data-fission-semantics="site-mobile-menu"] { flex-basis: 100%; }
+}
+
+/* Keep the homepage's code and live examples tall enough to read. */
+[data-fission-semantics="home-hero-code"] > * > :nth-child(2) { max-height: 252px !important; }
+[data-fission-semantics="home-hero-code"] pre { max-height: 250px !important; }
+[data-fission-semantics="home-hero-preview"] iframe { height: 280px !important; min-height: 280px !important; }
+[data-fission-semantics="home-compose"] > * > :nth-child(2) > :first-child {
+  height: 240px !important;
+  min-height: 240px !important;
+  max-height: 240px !important;
+}
+[data-fission-semantics="home-browser-demo"] iframe { height: 360px !important; min-height: 360px !important; }
+[data-fission-semantics="home-browser-demo"] > * > :first-child > :nth-child(2) {
+  height: 160px !important;
+  max-height: 160px !important;
+  overflow: auto !important;
+}
+[data-fission-semantics="home-browser-demo"] > * > :first-child > :first-child {
+  height: auto !important;
+  min-height: 36px !important;
+  padding: 8px 12px !important;
+  font-size: 12px !important;
+  line-height: 20px !important;
+}
+[data-fission-semantics="home-browser-demo"] > * { align-items: start !important; }
+[data-fission-semantics="home-hero-mobile"] { display: none !important; }
+@media (max-width: 540px) {
+  [data-fission-semantics="home-hero-preview"] iframe { height: 320px !important; min-height: 320px !important; }
 }

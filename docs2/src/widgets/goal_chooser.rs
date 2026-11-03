@@ -22,9 +22,12 @@ fission_component! {
         child: Column(
             gap: tokens.spacing.m,
             children: [
-                copy("home.goal.title")
-                    .size(tokens.typography.heading1_size)
-                    .weight(tokens.typography.font_weight_bold),
+                SemanticsRegion(
+                    copy("home.goal.title")
+                        .size(tokens.typography.heading1_size)
+                        .weight(tokens.typography.font_weight_bold),
+                    identifier: Some("site-heading-2:choose-a-project".to_string()),
+                ),
                 Row(gap: tokens.spacing.m, align_items: ir_op::AlignItems::Stretch, children: [
                     GoalCard(material::hardware::desktop_windows::regular(), "home.goal.desktop", "home.goal.desktop_body", "home.goal.desktop_action", "/img/examples/widget-gallery.png", desktop.path.clone()),
                     GoalCard(material::hardware::smartphone::regular(), "home.goal.mobile", "home.goal.mobile_body", "home.goal.mobile_action", "/img/examples/inbox-compact.png", mobile.path.clone()),

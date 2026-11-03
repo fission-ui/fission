@@ -93,6 +93,9 @@ fn build_goal(
             copy_dir(previous_output, &output)?;
             eprintln!("  Source is unchanged; reusing the compiled Web preview.");
         } else {
+            let include_charts = files
+                .values()
+                .any(|source| source.contains("use fission::charts"));
             compile_preview(
                 &document.meta.app,
                 &step.id,
@@ -101,6 +104,7 @@ fn build_goal(
                 &output,
                 &workspace_root,
                 &cargo_target,
+                include_charts,
             )?;
             compiled_previews.insert(files.clone(), output.clone());
         }
@@ -126,15 +130,16 @@ fn compile_preview(
     output: &Path,
     workspace_root: &Path,
     cargo_target: &Path,
+    include_charts: bool,
 ) -> Result<()> {
     fs::write(
         stage_dir.join("Cargo.toml"),
-        tutorial_manifest(package, workspace_root),
+        tutorial_manifest(package, workspace_root, include_charts),
     )?;
     let status = Command::new("wasm-pack")
         .arg("build")
         .arg(stage_dir)
-        .args(["--target", "web", "--dev", "--out-dir"])
+        .args(["--target", "web", "--release", "--out-dir"])
         .arg(output.join("pkg"))
         .env("CARGO_TARGET_DIR", cargo_target)
         .status()
@@ -165,8 +170,13 @@ fn copy_dir(source: &Path, destination: &Path) -> Result<()> {
     Ok(())
 }
 
-fn tutorial_manifest(package: &str, workspace_root: &Path) -> String {
+fn tutorial_manifest(package: &str, workspace_root: &Path, include_charts: bool) -> String {
     let fission = workspace_root.join("crates/authoring/fission");
+    let fission_features = if include_charts {
+        "\"web\", \"charts\""
+    } else {
+        "\"web\""
+    };
     format!(
         r#"[workspace]
 
@@ -181,7 +191,7 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 anyhow = "1"
 console_error_panic_hook = "0.1"
-fission = {{ path = "{}", default-features = false, features = ["web"] }}
+fission = {{ path = "{}", default-features = false, features = [{fission_features}] }}
 wasm-bindgen = "0.2"
 "#,
         fission.display()

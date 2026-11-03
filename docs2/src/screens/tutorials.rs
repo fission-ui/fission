@@ -20,9 +20,12 @@ fission_component! {
                 identifier: Some("tutorials-main".to_string()),
                 child: Column(gap: tokens.spacing.xl, children: [
                     Column(gap: tokens.spacing.m, children: [
-                        copy("tutorials.title")
-                            .size(tokens.typography.display_md_size)
-                            .weight(tokens.typography.font_weight_bold),
+                        SemanticsRegion(
+                            copy("tutorials.title")
+                                .size(tokens.typography.display_md_size)
+                                .weight(tokens.typography.font_weight_bold),
+                            identifier: Some("site-heading-1:tutorials".to_string()),
+                        ),
                         copy("tutorials.description")
                             .size(tokens.typography.body_large_size)
                             .color(tokens.colors.text_secondary),

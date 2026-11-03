@@ -123,6 +123,8 @@
   "goal.latest": "Latest stable release",
   "goal.changelog": "View changelog →",
   "goal.build_title": "What you will build",
+  "goal.build_body": "The preview is compiled from the Rust source shown in this tutorial. Try it to understand the interface; use the target commands below to verify behavior that needs a native device.",
+  "goal.prerequisites": "Before you start",
   "goal.finished_title": "Run the finished example",
   "goal.finished_summary": "The interactive preview is running above. Follow the steps and project commands to build the app for its target.",
   "goal.expected": "Expected result",

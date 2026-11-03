@@ -22,11 +22,17 @@ fission_component! {
     SemanticsRegion(
         identifier: Some("home-compose".to_string()),
         child: Column(gap: tokens.spacing.m, children: [
-            copy("home.compose.title").size(tokens.typography.heading1_size).weight(tokens.typography.font_weight_bold),
+            SemanticsRegion(
+                copy("home.compose.title").size(tokens.typography.heading1_size).weight(tokens.typography.font_weight_bold),
+                identifier: Some("site-heading-2:compose".to_string()),
+            ),
             Row(gap: tokens.spacing.xl, align_items: ir_op::AlignItems::Start, children: [
                 Code(text: EXAMPLE.to_string()),
                 Column(gap: tokens.spacing.m, children: [
-                    copy("home.compose.subtitle").size(tokens.typography.heading2_size).weight(tokens.typography.font_weight_bold),
+                    SemanticsRegion(
+                        copy("home.compose.subtitle").size(tokens.typography.heading2_size).weight(tokens.typography.font_weight_bold),
+                        identifier: Some("site-heading-3:compose-subtitle".to_string()),
+                    ),
                     copy("home.compose.body").color(tokens.colors.text_secondary),
                     Link::to(cx.view.env().tr("home.compose.link"), navigation::COMPOSE),
                 ]),

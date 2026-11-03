@@ -123,6 +123,8 @@
   "goal.latest": "Última versión estable",
   "goal.changelog": "Ver cambios →",
   "goal.build_title": "Lo que construirás",
+  "goal.build_body": "La vista previa se compila a partir del código Rust de este tutorial. Pruébala para entender la interfaz y usa los comandos de destino para comprobar lo que necesite un dispositivo nativo.",
+  "goal.prerequisites": "Antes de empezar",
   "goal.finished_title": "Ejecuta el ejemplo terminado",
   "goal.finished_summary": "La vista previa interactiva está arriba. Sigue los pasos y los comandos del proyecto para compilar la aplicación para su plataforma.",
   "goal.expected": "Resultado esperado",

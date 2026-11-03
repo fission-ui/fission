@@ -14,6 +14,13 @@ fission_component! {
         let preview_key = format!("goal-finished-{}", document.meta.app);
         let preview_id = WidgetId::explicit(&preview_key);
         let run_command = &document.meta.run_command;
+        let prerequisite_markdown = document
+            .meta
+            .prerequisites
+            .iter()
+            .map(|prerequisite| format!("- {prerequisite}"))
+            .collect::<Vec<_>>()
+            .join("\n");
         let target_label = if run_command.contains("site serve") {
             cx.view.env().tr("goal.target.static")
         } else if run_command.contains("--target ssr") {
@@ -35,9 +42,12 @@ fission_component! {
             SemanticsRegion(
                 identifier: Some("goal-heading".to_string()),
                 child: Column(gap: tokens.spacing.s, children: [
-                    Text(document.meta.title.clone())
-                        .size(tokens.typography.display_md_size)
-                        .weight(tokens.typography.font_weight_bold),
+                    SemanticsRegion(
+                        Text(document.meta.title.clone())
+                            .size(tokens.typography.display_md_size)
+                            .weight(tokens.typography.font_weight_bold),
+                        identifier: Some("site-heading-1:goal".to_string()),
+                    ),
                     Text(document.meta.description.clone())
                         .size(tokens.typography.body_large_size)
                         .color(tokens.colors.text_secondary),
@@ -60,6 +70,20 @@ fission_component! {
             ),
         ]),
         SemanticsRegion(
+            identifier: Some("goal-prerequisites".to_string()),
+            label: Some(cx.view.env().tr("goal.prerequisites")),
+            child: Row(gap: tokens.spacing.m, align_items: ir_op::AlignItems::Start, children: [
+                Icon::svg(material::action::info::regular())
+                    .size(tokens.spacing.m)
+                    .color(tokens.colors.primary),
+                Column(gap: tokens.spacing.xs, children: [
+                    copy("goal.prerequisites")
+                        .weight(tokens.typography.font_weight_bold),
+                    MarkdownContent::new(prerequisite_markdown),
+                ]),
+            ]),
+        ),
+        SemanticsRegion(
             identifier: Some("site-section:what-you-will-build".to_string()),
             child: Row(gap: tokens.spacing.l, align_items: ir_op::AlignItems::Stretch, children: [
                     if finished.preview {
@@ -71,7 +95,7 @@ fission_component! {
                                     id: preview_id,
                                     url: finished.preview_url(&document.meta.app),
                                     label: Some(format!("Finished {} app", document.meta.title)),
-                                    height: Some(300.0),
+                                    height: Some(400.0),
                                 ),
                             ]),
                         )
@@ -79,19 +103,17 @@ fission_component! {
                 SemanticsRegion(
                     identifier: Some("goal-outcomes".to_string()),
                     child: Column(gap: tokens.spacing.m, children: [
-                        copy("goal.build_title")
-                            .size(tokens.typography.heading1_size)
-                            .weight(tokens.typography.font_weight_bold),
-                        for outcome in &document.meta.outcomes {
-                            Row(gap: tokens.spacing.m, children: [
-                                Icon::svg(material::navigation::check::regular()).size(tokens.spacing.m).color(tokens.colors.primary),
-                                Text(outcome.clone()),
-                            ], key: outcome.clone())
-                        },
-                        Row(gap: tokens.spacing.m, children: [
-                            Icon::svg(material::navigation::check::regular()).size(tokens.spacing.m).color(tokens.colors.primary),
-                            copy("goal.browser_outcome"),
-                        ]),
+                        SemanticsRegion(
+                            copy("goal.build_title")
+                                .size(tokens.typography.heading1_size)
+                                .weight(tokens.typography.font_weight_bold),
+                            identifier: Some("site-heading-2:what-you-will-build-heading".to_string()),
+                        ),
+                        Text(document.meta.goal.clone())
+                            .size(tokens.typography.body_large_size)
+                            .color(tokens.colors.text_primary),
+                        copy("goal.build_body")
+                            .color(tokens.colors.text_secondary),
                     ]),
                 ),
             ]),
@@ -99,9 +121,12 @@ fission_component! {
         SemanticsRegion(
             identifier: Some("site-section:finished-example".to_string()),
             child: Column(gap: tokens.spacing.m, children: [
-                copy("goal.finished_title")
-                    .size(tokens.typography.heading1_size)
-                    .weight(tokens.typography.font_weight_bold),
+                SemanticsRegion(
+                    copy("goal.finished_title")
+                        .size(tokens.typography.heading1_size)
+                        .weight(tokens.typography.font_weight_bold),
+                    identifier: Some("site-heading-2:finished-example-heading".to_string()),
+                ),
                 copy("goal.finished_summary").color(tokens.colors.text_secondary),
                 Row(gap: tokens.spacing.l, align_items: ir_op::AlignItems::Stretch, children: [
                     SemanticsRegion(

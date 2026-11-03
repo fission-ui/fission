@@ -41,7 +41,7 @@ The bridge currently exports:
 | Text input actions | Replace selected text, set value, and set text selection dispatch through Fission's text input pipeline. |
 | Control actions | Click/default action, increment/decrement, set numeric value, and scroll actions dispatch through semantics and runtime state. |
 
-Android uses the generated AndroidX GameActivity host and the AccessKit Android adapter, so the same Fission semantic tree is available to TalkBack and other Android accessibility services. Web, Static site, SSR, and Terminal targets do not use the winit AccessKit bridge; they use target-specific accessibility output. The Web canvas text adapter exposes its focused native input, while Static site and SSR produce semantic HTML for the complete rendered document.
+Android uses the generated AndroidX GameActivity host and the AccessKit Android adapter, but native TalkBack navigation is not complete yet. Keep Fission semantics accurate and verify the controls you ship with TalkBack on a target device. Web, Static site, SSR, and Terminal targets do not use the winit AccessKit bridge; they use target-specific accessibility output. The Web canvas text adapter exposes its focused native input, while Static site and SSR produce semantic HTML for the complete rendered document.
 
 The native bridge is best understood as a shell integration. App code should still use normal Fission widgets and semantics. The shell translates those semantics into the host accessibility tree.
 

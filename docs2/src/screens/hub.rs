@@ -52,7 +52,10 @@ fission_component! {
                                 Icon::svg(material::navigation::chevron_right::regular()).size(tokens.spacing.s),
                             ]),
                         ),
-                        copy("hub.title").size(tokens.typography.display_md_size).weight(tokens.typography.font_weight_bold),
+                        SemanticsRegion(
+                            copy("hub.title").size(tokens.typography.display_md_size).weight(tokens.typography.font_weight_bold),
+                            identifier: Some("site-heading-1:docs-hub".to_string()),
+                        ),
                         copy("hub.description").size(tokens.typography.body_large_size).color(tokens.colors.text_secondary),
                         SemanticsRegion(
                             identifier: Some("hub-path".to_string()),
@@ -69,14 +72,20 @@ fission_component! {
                             child: Row(gap: tokens.spacing.xl, children: [
                                 Column(gap: tokens.spacing.m, children: [
                                     copy("hub.start.label").color(tokens.colors.primary),
-                                    copy("hub.start.title").size(tokens.typography.heading1_size).weight(tokens.typography.font_weight_bold),
+                                    SemanticsRegion(
+                                        copy("hub.start.title").size(tokens.typography.heading1_size).weight(tokens.typography.font_weight_bold),
+                                        identifier: Some("site-heading-2:hub-start".to_string()),
+                                    ),
                                     copy("hub.start.description").color(tokens.colors.text_secondary),
                                     Link::to(cx.view.env().tr("hub.start.action"), navigation::FIRST_APP),
                                 ]),
                                 HubStarterCode(),
                             ]),
                         ),
-                        copy("hub.tasks").size(tokens.typography.heading2_size).weight(tokens.typography.font_weight_bold),
+                        SemanticsRegion(
+                            copy("hub.tasks").size(tokens.typography.heading2_size).weight(tokens.typography.font_weight_bold),
+                            identifier: Some("site-heading-2:hub-tasks".to_string()),
+                        ),
                         SemanticsRegion(
                             identifier: Some("hub-cards".to_string()),
                             child: Row(gap: tokens.spacing.m, children: [
@@ -105,7 +114,10 @@ fission_component! {
                         SemanticsRegion(
                             identifier: Some("hub-guides-heading".to_string()),
                             child: Row(align_items: ir_op::AlignItems::Center, children: [
-                                copy("hub.guides").size(tokens.typography.heading2_size).weight(tokens.typography.font_weight_bold),
+                                SemanticsRegion(
+                                    copy("hub.guides").size(tokens.typography.heading2_size).weight(tokens.typography.font_weight_bold),
+                                    identifier: Some("site-heading-2:hub-guides".to_string()),
+                                ),
                                 Spacer(flex_grow: 1.0),
                                 Link::to(cx.view.env().tr("hub.all_guides"), navigation::TUTORIALS),
                             ]),

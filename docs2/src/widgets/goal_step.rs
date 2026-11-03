@@ -16,6 +16,7 @@ fission_component! {
         let preview_key = format!("goal-preview-{}", section.step.id);
         let preview_id = WidgetId::explicit(&preview_key);
         let section_identifier = format!("site-section:{}", section.step.id);
+        let heading_identifier = format!("site-heading-2:{}-heading", section.step.id);
         let heading = format!("{}. {}", section.index + 1, section.step.title);
         let preview_label = format!("{}: {}", cx.view.env().tr("goal.live"), section.step.title);
     } =>
@@ -23,9 +24,12 @@ fission_component! {
         identifier: Some(section_identifier),
         label: Some(heading.clone()),
         child: Column(gap: tokens.spacing.m, children: [
-            Text(heading)
-                .size(tokens.typography.heading1_size)
-                .weight(tokens.typography.font_weight_bold),
+            SemanticsRegion(
+                Text(heading)
+                    .size(tokens.typography.heading1_size)
+                    .weight(tokens.typography.font_weight_bold),
+                identifier: Some(heading_identifier),
+            ),
             if section.step.preview {
                 Row(gap: tokens.spacing.l, align_items: ir_op::AlignItems::Stretch, children: [
                     SemanticsRegion(
@@ -50,7 +54,7 @@ fission_component! {
                             id: preview_id,
                             url: section.step.preview_url(&section.app),
                             label: Some(preview_label),
-                            height: Some(360.0),
+                            height: Some(460.0),
                         ),
                     ),
                     if let Some(checkpoint) = &section.step.checkpoint {

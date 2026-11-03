@@ -25,9 +25,12 @@ fission_component! {
                     copy("home.browser.eyebrow")
                         .color(tokens.colors.text_secondary)
                         .weight(tokens.typography.font_weight_semibold),
-                    copy("home.browser.title")
-                        .size(tokens.typography.heading1_size)
-                        .weight(tokens.typography.font_weight_bold),
+                    SemanticsRegion(
+                        copy("home.browser.title")
+                            .size(tokens.typography.heading1_size)
+                            .weight(tokens.typography.font_weight_bold),
+                        identifier: Some("site-heading-2:browser-playground".to_string()),
+                    ),
                     copy("home.browser.summary").color(tokens.colors.text_secondary),
                     SemanticsRegion(
                         Link::to(

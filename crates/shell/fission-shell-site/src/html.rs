@@ -2184,8 +2184,13 @@ impl HtmlRenderer<'_> {
             }
             if identifier == "site-sidebar-toggle" {
                 let children = self.render_children(&node.children, &HashSet::new())?;
+                let label = semantics
+                    .label
+                    .as_deref()
+                    .unwrap_or("Open documentation navigation");
                 return Ok(format!(
-                    "<button class=\"fission-site-node fission-site-sidebar-toggle\" type=\"button\" aria-label=\"Open documentation navigation\" aria-expanded=\"false\" data-fission-sidebar-toggle data-fission-node=\"{}\">{children}</button>",
+                    "<button class=\"fission-site-node fission-site-sidebar-toggle\" type=\"button\" aria-label=\"{}\" aria-expanded=\"false\" data-fission-sidebar-toggle data-fission-node=\"{}\">{children}</button>",
+                    escape_attr(label),
                     node.id
                 ));
             }

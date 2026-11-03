@@ -18,6 +18,10 @@ fission_component! {
             .iter()
             .filter(|item| item.slug != "overview")
             .collect();
+        let title_heading_identifier = format!(
+            "site-heading-1:product-{}",
+            page.product.slug
+        );
     } =>
     Container(
         Column(gap: tokens.spacing.xl, children: [
@@ -37,10 +41,13 @@ fission_component! {
                                     copy(page.product.eyebrow_key)
                                         .color(tokens.colors.primary)
                                         .weight(tokens.typography.font_weight_semibold),
-                                    copy(page.product.title_key)
-                                        .size(tokens.typography.display_md_size)
-                                        .weight(tokens.typography.font_weight_bold)
-                                        .wrap(true),
+                                    SemanticsRegion(
+                                        copy(page.product.title_key)
+                                            .size(tokens.typography.display_md_size)
+                                            .weight(tokens.typography.font_weight_bold)
+                                            .wrap(true),
+                                        identifier: Some(title_heading_identifier),
+                                    ),
                                     copy(page.product.summary_key)
                                         .size(tokens.typography.body_large_size)
                                         .color(tokens.colors.text_secondary)
@@ -66,9 +73,12 @@ fission_component! {
                     SemanticsRegion(
                         identifier: Some("product-benefits".to_string()),
                         child: Column(gap: tokens.spacing.l, children: [
-                            copy("product.benefits.title")
-                                .size(tokens.typography.heading1_size)
-                                .weight(tokens.typography.font_weight_bold),
+                            SemanticsRegion(
+                                copy("product.benefits.title")
+                                    .size(tokens.typography.heading1_size)
+                                    .weight(tokens.typography.font_weight_bold),
+                                identifier: Some("site-heading-2:product-benefits".to_string()),
+                            ),
                             Row(gap: tokens.spacing.l, wrap: ir_op::FlexWrap::Wrap, children: [
                                 for benefit_key in &page.product.benefits {
                                     ProductBenefit(*benefit_key, key: (*benefit_key).to_string())
@@ -80,9 +90,12 @@ fission_component! {
                         SemanticsRegion(
                             identifier: Some("product-catalog".to_string()),
                             child: Column(gap: tokens.spacing.l, children: [
-                                copy("product.catalog.title")
-                                    .size(tokens.typography.heading1_size)
-                                    .weight(tokens.typography.font_weight_bold),
+                                SemanticsRegion(
+                                    copy("product.catalog.title")
+                                        .size(tokens.typography.heading1_size)
+                                        .weight(tokens.typography.font_weight_bold),
+                                    identifier: Some("site-heading-2:product-catalog".to_string()),
+                                ),
                                 Row(gap: tokens.spacing.m, wrap: ir_op::FlexWrap::Wrap, children: [
                                     for item in &product_items {
                                         ProductLinkCard(

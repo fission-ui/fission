@@ -16,9 +16,12 @@ fission_component! {
             align_items: ir_op::AlignItems::Stretch,
             children: [
                 Column(gap: tokens.spacing.m, children: [
-                    copy("home.ready.title")
-                        .size(tokens.typography.heading1_size)
-                        .weight(tokens.typography.font_weight_bold),
+                    SemanticsRegion(
+                        copy("home.ready.title")
+                            .size(tokens.typography.heading1_size)
+                            .weight(tokens.typography.font_weight_bold),
+                        identifier: Some("site-heading-2:ready-to-build".to_string()),
+                    ),
                     copy("home.ready.summary").color(tokens.colors.text_secondary),
                 ]),
                 FeatureCard(material::action::article::regular(), "home.ready.widgets", "home.ready.widgets_body", "home.ready.widgets_link", navigation::WIDGETS_GUIDE),

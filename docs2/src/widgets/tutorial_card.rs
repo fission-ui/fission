@@ -26,17 +26,26 @@ fission_component! {
     }
     view(card, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
+        let heading_identifier = format!(
+            "site-heading-3:{}",
+            card.href.trim_matches('/').replace('/', "-")
+        );
     } =>
     SemanticsRegion(
         identifier: Some("home-tutorial-card".to_string()),
+        label: Some(card.title.clone()),
         child: Column(gap: tokens.spacing.m, children: [
             Image::asset(card.image)
                 .size(320.0, 112.0)
                 .fit(ir_op::ImageFit::Cover)
-                .semantic_label(card.title.clone()),
-            Text(card.title.clone())
-                .size(tokens.typography.heading2_size)
-                .weight(tokens.typography.font_weight_bold),
+                .semantic_label(""),
+            SemanticsRegion(
+                Text(card.title.clone())
+                    .color(tokens.colors.primary)
+                    .size(tokens.typography.heading2_size)
+                    .weight(tokens.typography.font_weight_bold),
+                identifier: Some(heading_identifier),
+            ),
             Text(card.description.clone()).color(tokens.colors.text_secondary),
             SemanticsRegion(
                 identifier: Some(if card.compact {
@@ -49,7 +58,10 @@ fission_component! {
                     Badge(text: card.duration.clone()),
                 ]),
             ),
-            Link::to(cx.view.env().tr("home.learn.start"), card.href.clone()),
+            Text(cx.view.env().tr("home.learn.start"))
+                .color(tokens.colors.primary)
+                .weight(tokens.typography.font_weight_bold),
         ]),
     )
+    .hyperlink(Hyperlink::new(card.href.clone()))
 }

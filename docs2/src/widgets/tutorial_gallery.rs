@@ -35,9 +35,12 @@ fission_component! {
             children: [
                 Row(children: [
                     Column(gap: tokens.spacing.s, children: [
-                        copy("home.learn.title")
-                            .size(tokens.typography.heading1_size)
-                            .weight(tokens.typography.font_weight_bold),
+                        SemanticsRegion(
+                            copy("home.learn.title")
+                                .size(tokens.typography.heading1_size)
+                                .weight(tokens.typography.font_weight_bold),
+                            identifier: Some("site-heading-2:tutorial-highlights".to_string()),
+                        ),
                         copy("home.learn.summary").color(tokens.colors.text_secondary),
                     ]),
                     Spacer(flex_grow: 1.0),

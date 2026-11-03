@@ -14,6 +14,10 @@ fission_component! {
     }
     view(card, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
+        let heading_identifier = format!(
+            "site-heading-3:{}",
+            card.href.trim_matches('/').replace('/', "-")
+        );
     } =>
     SemanticsRegion(
         identifier: Some("hub-guide-card".to_string()),
@@ -21,7 +25,10 @@ fission_component! {
             Row(gap: tokens.spacing.m, align_items: ir_op::AlignItems::Start, children: [
                 Icon::svg(card.icon).size(tokens.spacing.xl).color(tokens.colors.primary),
                 Column(gap: tokens.spacing.xs, children: [
-                    Text(card.title.clone()).weight(tokens.typography.font_weight_bold),
+                    SemanticsRegion(
+                        Text(card.title.clone()).weight(tokens.typography.font_weight_bold),
+                        identifier: Some(heading_identifier),
+                    ),
                     Text(card.description.clone()).color(tokens.colors.text_secondary),
                     Row(gap: tokens.spacing.s, children: [
                         for tag in &card.tags {

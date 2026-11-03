@@ -10,12 +10,21 @@ fission_component! {
     }
     view(item, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
+        let heading_identifier = format!(
+            "site-heading-3:{}",
+            item.tutorial.app
+        );
     } =>
     SemanticsRegion(
         identifier: Some(format!("tutorial-list-{}", item.tutorial.app)),
         label: Some(item.tutorial.title.clone()),
         child: Column(gap: tokens.spacing.xs, children: [
-            Link::to(item.tutorial.title.clone(), item.tutorial.path.clone()),
+            SemanticsRegion(
+                Text(item.tutorial.title.clone())
+                    .color(tokens.colors.primary)
+                    .weight(tokens.typography.font_weight_bold),
+                identifier: Some(heading_identifier),
+            ),
             Text(item.tutorial.description.clone()).color(tokens.colors.text_secondary),
             Row(gap: tokens.spacing.s, children: [
                 Badge(text: item.tutorial.difficulty.clone()),
@@ -23,4 +32,5 @@ fission_component! {
             ]),
         ]),
     )
+    .hyperlink(Hyperlink::new(item.tutorial.path.clone()))
 }
