@@ -1,102 +1,161 @@
 ---
 layout: goal
 title: Build a CRUD app with Rust and SQLite
-description: Create, list, edit and remove SQLite records in Rust with typed reducers, asynchronous storage effects and clear loading, empty and error states.
-goal: Manage a small list of records without blocking the interface or losing the latest result
+description: Build a Rust and SQLite reading list with parameterized queries, asynchronous Fission effects, validated progress, and recoverable storage errors.
+goal: Keep a useful reading list, record page progress, and reopen it with the latest data after the app restarts
 path: /blog/build-a-crud-app-with-rust-and-sqlite/
 order: 11
 difficulty: Beginner
-duration: 50 minutes
+duration: 55 minutes
 run_command: "fission run --target web --project-dir ."
 app: rust-sqlite-crud-app
 outcomes:
-  - Render a reading list and its empty state
-  - Create, edit, and remove a book
-  - Handle asynchronous SQLite results and errors
+  - Create a book with a title, author, and valid page count
+  - Search a library and filter books by reading status
+  - Record reading progress and remove a book with parameterized SQLite statements
+  - Load saved records asynchronously and explain database failures without losing the draft
 ---
 
-Create, list, edit and remove SQLite records in Rust with typed reducers, asynchronous storage effects and clear loading, empty and error states. This tutorial takes you from project setup to a runnable result in three steps. Each step’s `src/app.rs` component is compiled into the WebAssembly preview shown beside its code, so you can try the same Fission component while you read. The preview demonstrates create, edit, delete and error states in local component state. A real app performs SQLite queries in asynchronous service or effect code and keeps SQL out of the view.
+A useful reading list answers everyday questions: what did I mean to read next, where did I stop, and which books have I finished? We will build Harbour Reads, a small library for a book club that tracks those details without turning the screen into a spreadsheet. Each entry stores its title, author, total pages, and pages read. From that record the app derives “Want to read”, “Reading”, or “Finished”.
 
-## What you will build
+The screen begins with four sample books so you can see a believable library before entering anything. You will add a book, search and filter the list, record progress, and remove an entry. Then we will move each change behind Fission’s asynchronous SQLite effects. The interactive article preview uses in-memory records so you can exercise the workflow in a browser; the runnable Web app uses SQLite reducers shown in the final step, with the same fields and actions.
 
-Build a reading list that creates, lists, edits and removes books. The page shows loading while SQLite work runs, an empty state before the first record and an actionable error if a write fails.
+## Create the Web project and enable storage
 
-Install the Fission CLI and scaffold the Web project:
+Scaffold the Web target and ask Fission to install its storage capability. The capability selects SQLite for Web, adds the worker and browser assets, and configures the headers used by the local server.
 
+<Tabs>
+<TabItem label="Commands">
 ```sh
 cargo install cargo-fission
-fission init reading-list
-cd reading-list
+fission init harbour-reads
+cd harbour-reads
 fission add-target web --project-dir .
 fission add-capability storage --project-dir .
 ```
-
-## Project layout
-
+</TabItem>
+<TabItem label="Where the code goes">
 ```text
-reading-list/
-├── Cargo.toml                 # generated dependencies
-├── fission.toml               # app identity, targets and capabilities
+harbour-reads/
+├── Cargo.toml
+├── fission.toml
 ├── src/
-│   ├── main.rs                 # generated desktop entrypoint
-│   ├── lib.rs                  # shared app setup
-│   ├── app.rs                  # the Fission component shown in this tutorial
-│   ├── state.rs
-│   ├── store/migrations.rs
-│   ├── effects/books.rs
-│   └── components/book_list.rs
-├── platforms/                  # generated host files after add-target
-└── tests/                      # project-specific flow checks
+│   ├── main.rs
+│   ├── lib.rs
+│   ├── app.rs
+│   ├── models/reading_book.rs
+│   ├── state/reading_list.rs
+│   └── storage/
+│       ├── migrations.rs
+│       └── books.rs
+└── platforms/
+    └── web/
 ```
+</TabItem>
+</Tabs>
 
-`fission init` generates `Cargo.toml`, `fission.toml`, `src/main.rs`, `src/lib.rs` and `src/app.rs`. Add the task modules in the tree as you build the feature. Keep data shared across routes in `GlobalState`, and keep retained interaction such as a disclosure or draft field in the owning `fission_component!`. Request database, filesystem, network and session work through a reducer effect, job or service; never run host work while a component view is being built.
+In the article preview, the library starts with sample records so the screen is immediately useful. Storage work in your project belongs in reducers and effects: a reducer validates the user’s request and queues the SQL operation; a later reducer handles its result.
 
-`preview/lib.rs` is a documentation harness. The page compiles each complete `src/app.rs` component into WebAssembly so you can use the same UI while reading. Its host results are deterministic preview states; the target-specific host work described in this tutorial runs in each target project code, not in the browser preview.
+<!-- fission:step id="library" -->
+## Shape the library around a reader’s next decision
 
-<!-- fission:step id="start-screen" -->
-## Render a reading list and its empty state
+Start with the book record and the information a reader needs to choose what to read next. A page count makes progress measurable, while keeping title and author together helps distinguish books with similar names. “Finished” is derived from the page counters; there is no separate status value that could disagree with them.
 
-Begin with the screen needed for this task. The first render gives you a concrete checkpoint before you add interaction state.
-
-Use props for page copy and read theme tokens through cx.view.env(). The component below keeps presentation aligned with the active design system.
+The migration below also protects the data if another screen or job writes to the same table. It rejects blank names, zero-page records, negative progress, and progress beyond the final page. The title index gives larger libraries a useful starting point for title lookup.
 
 <Tabs>
 <TabItem label="src/app.rs">
 <!-- fission:file path="src/app.rs" -->
 ```rust
 use fission::prelude::*;
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ReadingBook {
+    pub id: u32,
+    pub title: String,
+    pub author: String,
+    pub total_pages: u32,
+    pub pages_read: u32,
+}
+
+pub fn sample_books() -> Vec<ReadingBook> {
+    vec![
+        ReadingBook { id: 101, title: "The Left Hand of Darkness".into(), author: "Ursula K. Le Guin".into(), total_pages: 304, pages_read: 126 },
+        ReadingBook { id: 102, title: "The Design of Everyday Things".into(), author: "Don Norman".into(), total_pages: 368, pages_read: 0 },
+        ReadingBook { id: 103, title: "The Staff Engineer's Path".into(), author: "Tanya Reilly".into(), total_pages: 256, pages_read: 256 },
+        ReadingBook { id: 104, title: "The Dispossessed".into(), author: "Ursula K. Le Guin".into(), total_pages: 387, pages_read: 74 },
+    ]
+}
+
+fn book_count(count: usize) -> String {
+    format!("{} {}", count, if count == 1 { "book" } else { "books" })
+}
+
+fn reading_status(book: &ReadingBook) -> &'static str {
+    if book.pages_read == 0 { "Want to read" }
+    else if book.pages_read >= book.total_pages { "Finished" }
+    else { "Reading" }
+}
+
 fission_component! {
-    pub CustomerRecords<()> {
-        props {
-            title: String,
-            detail: String,
-            action: String,
-            success: String,
-            empty: String,
-        }
-    }
-    view(preview, _state, cx) {
+    pub ReadingBookCard<()> { book: ReadingBook }
+    view(card, _app, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
     Container(
-        Column(
-            gap: tokens.spacing.m,
-            children: [
-                Text(preview.title.clone()).weight(tokens.typography.font_weight_bold),
-                Text(preview.detail.clone()).color(tokens.colors.text_secondary),
-                Text("Reading list"),
-                TextInput(label: Some("Book title".into()),
-                    placeholder: Some("Add a title".into())),
-                Text(format!("Next action: {}",
-                        preview.action)),
-                Text(preview.empty.clone()).color(tokens.colors.text_secondary),
-            ]
-        )
+        Column(gap: tokens.spacing.s, children: [
+            Text(card.book.title.clone()).weight(tokens.typography.font_weight_semibold),
+            Text(format!("by {}", card.book.author)).color(tokens.colors.text_secondary),
+            Row(gap: tokens.spacing.m, wrap: ir_op::FlexWrap::Wrap, children: [
+                Text(reading_status(&card.book)),
+                Text(format!("{} of {} pages", card.book.pages_read, card.book.total_pages)),
+            ]),
+        ]),
     )
-    .padding_all(tokens.spacing.l)
+    .padding_all(tokens.spacing.m)
     .bg(tokens.colors.surface)
     .border(tokens.colors.border, 1.0)
-    .border_radius(tokens.radii.large)
+    .border_radius(tokens.radii.medium)
+}
+
+fission_component! {
+    pub ReadingListDashboard<()> {}
+    view(_dashboard, _app, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let books = sample_books();
+        let reading_count = books.iter().filter(|book| book.pages_read > 0 && book.pages_read < book.total_pages).count();
+        let queued_count = books.iter().filter(|book| book.pages_read == 0).count();
+        let finished_count = books.iter().filter(|book| book.pages_read >= book.total_pages).count();
+    } =>
+    Container(
+        Column(gap: tokens.spacing.l, children: [
+            Column(gap: tokens.spacing.xs, children: [
+                Text("Harbour Reads").weight(tokens.typography.font_weight_bold),
+                Text("A personal library for the books you are reading now.")
+                    .color(tokens.colors.text_secondary),
+            ]),
+            Grid(
+                columns: vec![GridTrack::auto_fit(GridTrack::minmax(GridTrack::Points(160.0), GridTrack::Fr(1.0)))],
+                rows: vec![GridTrack::Auto],
+                column_gap: tokens.spacing.m,
+                row_gap: tokens.spacing.s,
+                children: [
+                    Column(children: [Text(book_count(books.len())), Text("In your library")]),
+                    Column(children: [Text(book_count(reading_count)), Text("Currently reading")]),
+                    Column(children: [Text(book_count(queued_count)), Text("On your list")]),
+                    Column(children: [Text(book_count(finished_count)), Text("Finished")]),
+                ],
+            ),
+            Column(gap: tokens.spacing.s, children: [
+                Text("Your books").weight(tokens.typography.font_weight_semibold),
+                for book in books.iter() {
+                    ReadingBookCard(book.clone(), key: book.id)
+                },
+            ]),
+        ]),
+    )
+    .padding_all(tokens.spacing.l)
+    .bg(tokens.colors.background)
 }
 ```
 </TabItem>
@@ -111,18 +170,36 @@ use wasm_bindgen::prelude::*;
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::CustomerRecords::new(
-        "Reading list".to_string(),
-        "Add a book to start your list.".to_string(),
-        "Save a reading-list entry".to_string(),
-        "The saved book is in the reading list.".to_string(),
-        "Your list is empty. Add the first book to begin.".to_string(),
-    );
-    WebApp::<(), _>::new(preview)
-        .with_title("Build a CRUD app with Rust and SQLite")
+    WebApp::<(), _>::new(app::ReadingListDashboard::new())
+        .with_title("Harbour Reads reading list")
         .mount("#fission-web-mount")
         .run()
         .map_err(|error| JsValue::from_str(&error.to_string()))
+}
+```
+</TabItem>
+<TabItem label="src/storage/migrations.rs">
+```rust
+use fission::sql::{SqlMigration, SqlMigrations};
+
+pub fn reading_list_migrations() -> anyhow::Result<SqlMigrations> {
+    let mut migrations = SqlMigrations::new();
+    migrations.add(SqlMigration::new(
+        1,
+        "create reading books",
+        "CREATE TABLE reading_books (
+            id INTEGER PRIMARY KEY,
+            title TEXT NOT NULL CHECK (length(trim(title)) > 0),
+            author TEXT NOT NULL CHECK (length(trim(author)) > 0),
+            total_pages INTEGER NOT NULL CHECK (total_pages > 0),
+            pages_read INTEGER NOT NULL DEFAULT 0
+                CHECK (pages_read >= 0 AND pages_read <= total_pages),
+            added_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX reading_books_title_idx
+            ON reading_books(title COLLATE NOCASE);",
+    ))?;
+    Ok(migrations)
 }
 ```
 </TabItem>
@@ -130,81 +207,302 @@ pub fn run() -> Result<(), JsValue> {
 <!-- fission:preview -->
 
 <!-- fission:checkpoint -->
-Render a reading list and its empty state: Confirm the initial screen names the task and its next action.
+Find “The Left Hand of Darkness” and compare its current page count with its total. Its status comes from those values, so the same record can move through the list without a manually edited status field.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 
-<!-- fission:step id="main-flow" -->
-## Create, edit, and remove a book
+<!-- fission:step id="daily-workflow" -->
+## Add books, search the library, and log a reading session
 
-Use typed actions for user intent and a storage effect for database work. Keep SQL out of component views and reducers. The async effect receives owned input, performs the query away from the UI thread, then returns a typed success or error result.
+A create form needs enough information to make a useful record. The title and author stay in app state while a book is being added; the page-count field is parsed as a positive integer before the reducer accepts it. An invalid value leaves the library unchanged and explains which input needs attention.
 
-The source below makes the main task interactive using retained component state and explicit controls.
-This state belongs to the component because it only remembers this view's interaction. Durable data shared across routes belongs in GlobalState and changes through reducers.
+Search and status filters are local to the dashboard because they only change what this screen shows. The library itself lives in app state. Every row uses a stable book ID, so adding or removing a record does not make Fission treat another book as the same widget. The progress action records a reading session and caps the count at the last page. A finished book cannot advance beyond its total. Removing an entry changes the list and confirms which title was removed.
+
+This step uses in-memory reducers so the article preview responds to each action. In the runnable app, keep these action names and replace their in-memory updates with the parameterized SQL effects in the next step.
+
 <Tabs>
 <TabItem label="src/app.rs">
 <!-- fission:file path="src/app.rs" -->
 ```rust
 use fission::prelude::*;
-fission_component! {
-    pub CustomerRecords<()> {
-        props {
-            title: String,
-            detail: String,
-            action: String,
-            success: String,
-            empty: String,
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ReadingBook {
+    pub id: u32,
+    pub title: String,
+    pub author: String,
+    pub total_pages: u32,
+    pub pages_read: u32,
+}
+
+fn sample_books() -> Vec<ReadingBook> {
+    vec![
+        ReadingBook { id: 101, title: "The Left Hand of Darkness".into(), author: "Ursula K. Le Guin".into(), total_pages: 304, pages_read: 126 },
+        ReadingBook { id: 102, title: "The Design of Everyday Things".into(), author: "Don Norman".into(), total_pages: 368, pages_read: 0 },
+        ReadingBook { id: 103, title: "The Staff Engineer's Path".into(), author: "Tanya Reilly".into(), total_pages: 256, pages_read: 256 },
+        ReadingBook { id: 104, title: "The Dispossessed".into(), author: "Ursula K. Le Guin".into(), total_pages: 387, pages_read: 74 },
+    ]
+}
+
+fn book_count(count: usize) -> String {
+    format!("{} {}", count, if count == 1 { "book" } else { "books" })
+}
+
+fn reading_status(book: &ReadingBook) -> &'static str {
+    if book.pages_read == 0 { "Want to read" }
+    else if book.pages_read >= book.total_pages { "Finished" }
+    else { "Reading" }
+}
+
+fn matches_book(book: &ReadingBook, query: &str, filter: &str) -> bool {
+    let status = reading_status(book);
+    (query.is_empty()
+        || book.title.to_lowercase().contains(query)
+        || book.author.to_lowercase().contains(query))
+        && (filter == "All books" || filter == status)
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ReadingListState {
+    pub books: Vec<ReadingBook>,
+    pub next_book_id: u32,
+    pub title_draft: String,
+    pub author_draft: String,
+    pub page_count_draft: String,
+    pub notice: String,
+    pub has_error: bool,
+    pub is_loading: bool,
+    pub is_saving: bool,
+}
+
+impl Default for ReadingListState {
+    fn default() -> Self {
+        Self {
+            books: sample_books(),
+            next_book_id: 105,
+            title_draft: String::new(),
+            author_draft: String::new(),
+            page_count_draft: String::new(),
+            notice: "Your reading progress is up to date.".into(),
+            has_error: false,
+            is_loading: false,
+            is_saving: false,
         }
+    }
+}
+impl GlobalState for ReadingListState {}
+
+#[fission_reducer(AddBook)]
+pub fn on_add_book(state: &mut ReadingListState) {
+    let title = state.title_draft.trim().to_string();
+    let author = state.author_draft.trim().to_string();
+    let total_pages = match state.page_count_draft.trim().parse::<u32>() {
+        Ok(value) if value > 0 => value,
+        _ => {
+            state.notice = "Enter a page count greater than zero.".into();
+            state.has_error = true;
+            return;
+        }
+    };
+    if title.is_empty() || author.is_empty() {
+        state.notice = "Add both the book title and its author.".into();
+        state.has_error = true;
+        return;
+    }
+
+    let id = state.next_book_id;
+    state.next_book_id = state.next_book_id.saturating_add(1);
+    state.books.push(ReadingBook { id, title, author, total_pages, pages_read: 0 });
+    state.title_draft.clear();
+    state.author_draft.clear();
+    state.page_count_draft.clear();
+    state.notice = "Book added to your reading list.".into();
+    state.has_error = false;
+}
+
+#[fission_reducer(LogPages)]
+pub fn on_log_pages(state: &mut ReadingListState, book_id: u32, pages: u32) {
+    let Some(book) = state.books.iter_mut().find(|book| book.id == book_id) else {
+        state.notice = "That book is no longer in your library.".into();
+        state.has_error = true;
+        return;
+    };
+    book.pages_read = book.pages_read.saturating_add(pages).min(book.total_pages);
+    state.notice = format!(
+        "{}: now at {} of {} pages.", book.title, book.pages_read, book.total_pages
+    );
+    state.has_error = false;
+}
+
+#[fission_reducer(RemoveBook)]
+pub fn on_remove_book(state: &mut ReadingListState, book_id: u32) {
+    let title = state.books.iter().find(|book| book.id == book_id).map(|book| book.title.clone());
+    state.books.retain(|book| book.id != book_id);
+    if let Some(title) = title {
+        state.notice = format!("{} was removed from your reading list.", title);
+        state.has_error = false;
+    }
+}
+
+fission_component! {
+    pub ReadingBookCard<ReadingListState> { book: ReadingBook }
+    view(card, _app, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let status = reading_status(&card.book);
+        let finished = card.book.pages_read >= card.book.total_pages;
+    } =>
+    Container(
+        Column(gap: tokens.spacing.s, children: [
+            Row(gap: tokens.spacing.s, wrap: ir_op::FlexWrap::Wrap, children: [
+                Column(gap: tokens.spacing.xs, children: [
+                    Text(card.book.title.clone()).weight(tokens.typography.font_weight_semibold),
+                    Text(format!("by {}", card.book.author)).color(tokens.colors.text_secondary),
+                ]),
+                Spacer(flex_grow: 1.0),
+                Text(status),
+            ]),
+            Row(gap: tokens.spacing.m, wrap: ir_op::FlexWrap::Wrap, children: [
+                Text(format!("{} of {} pages", card.book.pages_read, card.book.total_pages)),
+                Text(format!("{}% complete", card.book.pages_read.saturating_mul(100) / card.book.total_pages)),
+            ]),
+            Row(gap: tokens.spacing.s, wrap: ir_op::FlexWrap::Wrap, children: [
+                Button(
+                    child: Text(if finished { "Finished" } else { "Log 20 pages" }),
+                    key: "log-reading-progress",
+                    disabled: finished,
+                    on_press: with_reducer!(cx.build, LogPages(card.book.id, 20), on_log_pages),
+                ),
+                Button(
+                    child: Text("Remove from list"),
+                    key: "remove-reading-book",
+                    variant: ButtonVariant::Outline,
+                    on_press: with_reducer!(cx.build, RemoveBook(card.book.id), on_remove_book),
+                ),
+            ]),
+        ]),
+    )
+    .padding_all(tokens.spacing.m)
+    .bg(tokens.colors.surface)
+    .border(tokens.colors.border, 1.0)
+    .border_radius(tokens.radii.medium)
+}
+
+fission_component! {
+    pub ReadingListDashboard<ReadingListState> {
         state {
-            draft: String = String::new(),
-            book_title: String = String::new(),
-            book_count: usize = 0,
-            editing: bool = false,
-            has_error: bool = false,
+            search: String = String::new(),
+            filter: String = "All books".to_string(),
         }
     }
-    view(preview, _state, cx) {
+    view(dashboard, app, cx) {
         let tokens = &cx.view.env().theme.tokens;
+        let query = dashboard.search.trim().to_lowercase();
+        let filter = dashboard.filter.as_str();
+        let books: Vec<ReadingBook> = app.books.iter()
+            .filter(|book| matches_book(book, &query, filter))
+            .cloned()
+            .collect();
+        let reading = app.books.iter().filter(|book| book.pages_read > 0 && book.pages_read < book.total_pages).count();
+        let queued = app.books.iter().filter(|book| book.pages_read == 0).count();
+        let finished = app.books.iter().filter(|book| book.pages_read >= book.total_pages).count();
     } =>
     Container(
-        Column(
-            gap: tokens.spacing.m,
-            children: [
-                Text(preview.title.clone()).weight(tokens.typography.font_weight_bold),
-                Text(preview.detail.clone()).color(tokens.colors.text_secondary),
-                TextInput(label: Some("Book title".into()),
-                    placeholder: Some("Add a title".into()),
-                    bind: preview.draft,
-                    semantics_identifier: "tutorial.reading-list.title".to_string()),
-                Button(child: Text(if preview.editing { "Update book".to_string() } else { preview.action.clone() }),
-                    key: "save-book",
-                    disabled: preview.draft.trim().is_empty(),
-                    on_press: reduce { if !preview.draft.trim().is_empty() { preview.book_title = preview.draft.clone(); if !preview.editing { preview.book_count = 1; } preview.draft = String::new();
-                            preview.editing = false; } }),
-                if preview.book_count == 0 { Text(preview.empty.clone()) } else { Column(children: [Text(preview.book_title.clone()),
-                            Row(gap: tokens.spacing.s,
-                                children: [Button(child: Text("Edit title"),
-                                        key: "edit-book",
-                                        on_press: reduce { preview.draft = preview.book_title.clone();
-                                            preview.editing = true; }),
-                                    Button(child: Text("Delete book"),
-                                        key: "delete-book",
-                                        on_press: reduce { preview.book_count = 0;
-                                            preview.book_title = String::new();
-                                            preview.draft = String::new();
-                                            preview.editing = false; })])]) },
-                Button(child: Text(if preview.has_error { "Try again".to_string() } else { "Preview a SQLite write failure".to_string() }),
-                    key: "preview-error",
-                    on_press: reduce { preview.has_error = !preview.has_error; }),
-                if preview.has_error { Text("The book was not saved. Your title remains in the form.") } else { Text(preview.success.clone()) },
-                Text(preview.empty.clone()).color(tokens.colors.text_secondary),
-            ]
-        )
+        Column(gap: tokens.spacing.l, children: [
+            Column(gap: tokens.spacing.xs, children: [
+                Text("Harbour Reads").weight(tokens.typography.font_weight_bold),
+                Text("Keep your next read, current progress and finished books in one place.")
+                    .color(tokens.colors.text_secondary),
+            ]),
+            Grid(
+                columns: vec![GridTrack::auto_fit(GridTrack::minmax(GridTrack::Points(160.0), GridTrack::Fr(1.0)))],
+                rows: vec![GridTrack::Auto],
+                column_gap: tokens.spacing.m,
+                row_gap: tokens.spacing.s,
+                children: [
+                    Column(children: [Text(book_count(app.books.len())), Text("In your library")]),
+                    Column(children: [Text(book_count(reading)), Text("Currently reading")]),
+                    Column(children: [Text(book_count(queued)), Text("On your list")]),
+                    Column(children: [Text(book_count(finished)), Text("Finished")]),
+                ],
+            ),
+            Container(
+                Column(gap: tokens.spacing.s, children: [
+                    Text("Add a book").weight(tokens.typography.font_weight_semibold),
+                    Text("Start at page zero, then record a session as you read.")
+                        .color(tokens.colors.text_secondary),
+                    TextInput(label: Some("Book title".into()),
+                        placeholder: Some("The name on the cover".into()),
+                        bind: app.title_draft,
+                        semantics_identifier: "reading-list.book-title".to_string()),
+                    TextInput(label: Some("Author".into()),
+                        placeholder: Some("Author name".into()),
+                        bind: app.author_draft,
+                        semantics_identifier: "reading-list.book-author".to_string()),
+                    TextInput(label: Some("Total pages".into()),
+                        placeholder: Some("For example, 320".into()),
+                        bind: app.page_count_draft,
+                        semantics_identifier: "reading-list.total-pages".to_string()),
+                    Button(
+                        child: Text(if app.is_saving { "Saving book…" } else { "Add to reading list" }),
+                        key: "add-reading-book",
+                        disabled: app.is_saving,
+                        on_press: with_reducer!(cx.build, AddBook, on_add_book),
+                    ),
+                ]),
+            )
+            .padding_all(tokens.spacing.m)
+            .bg(tokens.colors.surface)
+            .border(tokens.colors.border, 1.0)
+            .border_radius(tokens.radii.medium),
+            TextInput(label: Some("Search your books".into()),
+                placeholder: Some("Title or author".into()),
+                bind: dashboard.search,
+                semantics_identifier: "reading-list.search".to_string()),
+            Row(gap: tokens.spacing.s, wrap: ir_op::FlexWrap::Wrap, children: [
+                Button(child: Text("All books"), key: "filter-all-books",
+                    variant: if dashboard.filter == "All books" { ButtonVariant::Primary } else { ButtonVariant::Outline },
+                    on_press: reduce { dashboard.filter = "All books".to_string(); }),
+                Button(child: Text("Reading"), key: "filter-reading",
+                    variant: if dashboard.filter == "Reading" { ButtonVariant::Primary } else { ButtonVariant::Outline },
+                    on_press: reduce { dashboard.filter = "Reading".to_string(); }),
+                Button(child: Text("Want to read"), key: "filter-want-to-read",
+                    variant: if dashboard.filter == "Want to read" { ButtonVariant::Primary } else { ButtonVariant::Outline },
+                    on_press: reduce { dashboard.filter = "Want to read".to_string(); }),
+                Button(child: Text("Finished"), key: "filter-finished",
+                    variant: if dashboard.filter == "Finished" { ButtonVariant::Primary } else { ButtonVariant::Outline },
+                    on_press: reduce { dashboard.filter = "Finished".to_string(); }),
+            ]),
+            Text(format!("{} of {} books shown", books.len(), app.books.len()))
+                .color(tokens.colors.text_secondary),
+            if app.is_loading {
+                Text("Loading your reading list…")
+            } else if books.is_empty() {
+                Column(gap: tokens.spacing.s, children: [
+                    Text(if app.books.is_empty() {
+                        "Your library is empty. Add a book above to start your list."
+                    } else {
+                        "No books match this search and status filter."
+                    }),
+                    Button(child: Text("Show all books"), key: "reset-reading-list-filter",
+                        variant: ButtonVariant::Outline,
+                        on_press: reduce {
+                            dashboard.search = String::new();
+                            dashboard.filter = "All books".to_string();
+                        }),
+                ])
+            } else {
+                Column(gap: tokens.spacing.s, children: [
+                    for book in books.iter() {
+                        ReadingBookCard(book.clone(), key: book.id)
+                    },
+                ])
+            },
+            Text(if app.has_error { format!("Needs attention: {}", app.notice) } else { app.notice.clone() })
+                .color(tokens.colors.text_secondary),
+        ]),
     )
     .padding_all(tokens.spacing.l)
-    .bg(tokens.colors.surface)
-    .border(tokens.colors.border, 1.0)
-    .border_radius(tokens.radii.large)
+    .bg(tokens.colors.background)
 }
 ```
 </TabItem>
@@ -213,21 +511,15 @@ fission_component! {
 ```rust
 mod app;
 
+use app::ReadingListState;
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::CustomerRecords::new(
-        "Reading list".to_string(),
-        "Add a book to start your list.".to_string(),
-        "Save a reading-list entry".to_string(),
-        "The saved book is in the reading list.".to_string(),
-        "Your list is empty. Add the first book to begin.".to_string(),
-    );
-    WebApp::<(), _>::new(preview)
-        .with_title("Build a CRUD app with Rust and SQLite")
+    WebApp::<ReadingListState, _>::new(app::ReadingListDashboard::new())
+        .with_title("Harbour Reads reading list")
         .mount("#fission-web-mount")
         .run()
         .map_err(|error| JsValue::from_str(&error.to_string()))
@@ -238,81 +530,300 @@ pub fn run() -> Result<(), JsValue> {
 <!-- fission:preview -->
 
 <!-- fission:checkpoint -->
-Create, edit, and remove a book: Use the preview control and check that the result matches the action.
+Add “A Wizard of Earthsea” by Ursula K. Le Guin and enter its page count. Search for “Le Guin”, filter to “Reading”, log a session on an unfinished book, then remove the new entry. Watch the counts and confirmation text update with the list.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 
-<!-- fission:step id="edge-state" -->
-## Handle asynchronous SQLite results and errors
+<!-- fission:step id="persist-and-recover" -->
+## Persist each change and recover from storage errors
 
-Handle stale completions by associating each request with the current list version or query. Disable duplicate submissions while a save is pending, preserve the draft after failure and refresh the list after a successful write.
+A database call can outlast a render, so reducers must not wait for it. Validate the submitted values, mark the save as pending, and queue an insert effect. A later reducer receives success or failure. Only a successful insert clears the draft and reloads the library; if SQLite reports an error, the app stops the loading state, keeps the reader’s draft, and displays the provider’s message.
 
-Keep I/O outside component conversion. Use reducers for explicit state transitions, then queue host work through an asynchronous effect, capability, job or service so the UI stays responsive.
-The preview control below simulates an unsuccessful host result. It demonstrates the message and recovery path; it does not perform authentication, database, network, or filesystem work.
+The code tabs show the migration, read, progress, delete, and insert operations. Bind every value as a parameter so a title such as <em>The Book: Volume 2</em> remains data rather than becoming part of the SQL statement. Progress and deletion use the database ID because titles can repeat or change.
+
 <Tabs>
 <TabItem label="src/app.rs">
 <!-- fission:file path="src/app.rs" -->
 ```rust
 use fission::prelude::*;
-fission_component! {
-    pub CustomerRecords<()> {
-        props {
-            title: String,
-            detail: String,
-            action: String,
-            success: String,
-            empty: String,
-        }
-        state {
-            draft: String = String::new(),
-            book_title: String = String::new(),
-            book_count: usize = 0,
-            editing: bool = false,
-            has_error: bool = false,
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ReadingBook {
+    pub id: u32,
+    pub title: String,
+    pub author: String,
+    pub total_pages: u32,
+    pub pages_read: u32,
+}
+
+fn sample_books() -> Vec<ReadingBook> {
+    vec![
+        ReadingBook { id: 101, title: "The Left Hand of Darkness".into(), author: "Ursula K. Le Guin".into(), total_pages: 304, pages_read: 126 },
+        ReadingBook { id: 102, title: "The Design of Everyday Things".into(), author: "Don Norman".into(), total_pages: 368, pages_read: 0 },
+        ReadingBook { id: 103, title: "The Staff Engineer's Path".into(), author: "Tanya Reilly".into(), total_pages: 256, pages_read: 256 },
+        ReadingBook { id: 104, title: "The Dispossessed".into(), author: "Ursula K. Le Guin".into(), total_pages: 387, pages_read: 74 },
+    ]
+}
+
+fn book_count(count: usize) -> String {
+    format!("{} {}", count, if count == 1 { "book" } else { "books" })
+}
+
+fn reading_status(book: &ReadingBook) -> &'static str {
+    if book.pages_read == 0 { "Want to read" }
+    else if book.pages_read >= book.total_pages { "Finished" }
+    else { "Reading" }
+}
+
+fn matches_book(book: &ReadingBook, query: &str, filter: &str) -> bool {
+    let status = reading_status(book);
+    (query.is_empty()
+        || book.title.to_lowercase().contains(query)
+        || book.author.to_lowercase().contains(query))
+        && (filter == "All books" || filter == status)
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ReadingListState {
+    pub books: Vec<ReadingBook>,
+    pub next_book_id: u32,
+    pub title_draft: String,
+    pub author_draft: String,
+    pub page_count_draft: String,
+    pub notice: String,
+    pub has_error: bool,
+    pub is_loading: bool,
+    pub is_saving: bool,
+}
+
+impl Default for ReadingListState {
+    fn default() -> Self {
+        Self {
+            books: sample_books(),
+            next_book_id: 105,
+            title_draft: String::new(),
+            author_draft: String::new(),
+            page_count_draft: String::new(),
+            notice: "Your reading progress is up to date.".into(),
+            has_error: false,
+            is_loading: false,
+            is_saving: false,
         }
     }
-    view(preview, _state, cx) {
+}
+impl GlobalState for ReadingListState {}
+
+#[fission_reducer(AddBook)]
+pub fn on_add_book(state: &mut ReadingListState) {
+    let title = state.title_draft.trim().to_string();
+    let author = state.author_draft.trim().to_string();
+    let total_pages = match state.page_count_draft.trim().parse::<u32>() {
+        Ok(value) if value > 0 => value,
+        _ => {
+            state.notice = "Enter a page count greater than zero.".into();
+            state.has_error = true;
+            return;
+        }
+    };
+    if title.is_empty() || author.is_empty() {
+        state.notice = "Add both the book title and its author.".into();
+        state.has_error = true;
+        return;
+    }
+
+    let id = state.next_book_id;
+    state.next_book_id = state.next_book_id.saturating_add(1);
+    state.books.push(ReadingBook { id, title, author, total_pages, pages_read: 0 });
+    state.title_draft.clear();
+    state.author_draft.clear();
+    state.page_count_draft.clear();
+    state.notice = "Book added to your reading list.".into();
+    state.has_error = false;
+}
+
+#[fission_reducer(LogPages)]
+pub fn on_log_pages(state: &mut ReadingListState, book_id: u32, pages: u32) {
+    let Some(book) = state.books.iter_mut().find(|book| book.id == book_id) else {
+        state.notice = "That book is no longer in your library.".into();
+        state.has_error = true;
+        return;
+    };
+    book.pages_read = book.pages_read.saturating_add(pages).min(book.total_pages);
+    state.notice = format!(
+        "{}: now at {} of {} pages.", book.title, book.pages_read, book.total_pages
+    );
+    state.has_error = false;
+}
+
+#[fission_reducer(RemoveBook)]
+pub fn on_remove_book(state: &mut ReadingListState, book_id: u32) {
+    let title = state.books.iter().find(|book| book.id == book_id).map(|book| book.title.clone());
+    state.books.retain(|book| book.id != book_id);
+    if let Some(title) = title {
+        state.notice = format!("{} was removed from your reading list.", title);
+        state.has_error = false;
+    }
+}
+
+fission_component! {
+    pub ReadingBookCard<ReadingListState> { book: ReadingBook }
+    view(card, _app, cx) {
         let tokens = &cx.view.env().theme.tokens;
+        let status = reading_status(&card.book);
+        let finished = card.book.pages_read >= card.book.total_pages;
     } =>
     Container(
-        Column(
-            gap: tokens.spacing.m,
-            children: [
-                Text(preview.title.clone()).weight(tokens.typography.font_weight_bold),
-                Text(preview.detail.clone()).color(tokens.colors.text_secondary),
-                TextInput(label: Some("Book title".into()),
-                    placeholder: Some("Add a title".into()),
-                    bind: preview.draft,
-                    semantics_identifier: "tutorial.reading-list.title".to_string()),
-                Button(child: Text(if preview.editing { "Update book".to_string() } else { preview.action.clone() }),
-                    key: "save-book",
-                    disabled: preview.draft.trim().is_empty(),
-                    on_press: reduce { if !preview.draft.trim().is_empty() { preview.book_title = preview.draft.clone(); if !preview.editing { preview.book_count = 1; } preview.draft = String::new();
-                            preview.editing = false; } }),
-                if preview.book_count == 0 { Text(preview.empty.clone()) } else { Column(children: [Text(preview.book_title.clone()),
-                            Row(gap: tokens.spacing.s,
-                                children: [Button(child: Text("Edit title"),
-                                        key: "edit-book",
-                                        on_press: reduce { preview.draft = preview.book_title.clone();
-                                            preview.editing = true; }),
-                                    Button(child: Text("Delete book"),
-                                        key: "delete-book",
-                                        on_press: reduce { preview.book_count = 0;
-                                            preview.book_title = String::new();
-                                            preview.draft = String::new();
-                                            preview.editing = false; })])]) },
-                Button(child: Text(if preview.has_error { "Try again".to_string() } else { "Preview a SQLite write failure".to_string() }),
-                    key: "preview-error",
-                    on_press: reduce { preview.has_error = !preview.has_error; }),
-                if preview.has_error { Text("The book was not saved. Your title remains in the form.") } else { Text(preview.success.clone()) },
-                Text(preview.empty.clone()).color(tokens.colors.text_secondary),
-            ]
-        )
+        Column(gap: tokens.spacing.s, children: [
+            Row(gap: tokens.spacing.s, wrap: ir_op::FlexWrap::Wrap, children: [
+                Column(gap: tokens.spacing.xs, children: [
+                    Text(card.book.title.clone()).weight(tokens.typography.font_weight_semibold),
+                    Text(format!("by {}", card.book.author)).color(tokens.colors.text_secondary),
+                ]),
+                Spacer(flex_grow: 1.0),
+                Text(status),
+            ]),
+            Row(gap: tokens.spacing.m, wrap: ir_op::FlexWrap::Wrap, children: [
+                Text(format!("{} of {} pages", card.book.pages_read, card.book.total_pages)),
+                Text(format!("{}% complete", card.book.pages_read.saturating_mul(100) / card.book.total_pages)),
+            ]),
+            Row(gap: tokens.spacing.s, wrap: ir_op::FlexWrap::Wrap, children: [
+                Button(
+                    child: Text(if finished { "Finished" } else { "Log 20 pages" }),
+                    key: "log-reading-progress",
+                    disabled: finished,
+                    on_press: with_reducer!(cx.build, LogPages(card.book.id, 20), on_log_pages),
+                ),
+                Button(
+                    child: Text("Remove from list"),
+                    key: "remove-reading-book",
+                    variant: ButtonVariant::Outline,
+                    on_press: with_reducer!(cx.build, RemoveBook(card.book.id), on_remove_book),
+                ),
+            ]),
+        ]),
     )
-    .padding_all(tokens.spacing.l)
+    .padding_all(tokens.spacing.m)
     .bg(tokens.colors.surface)
     .border(tokens.colors.border, 1.0)
-    .border_radius(tokens.radii.large)
+    .border_radius(tokens.radii.medium)
+}
+
+fission_component! {
+    pub ReadingListDashboard<ReadingListState> {
+        state {
+            search: String = String::new(),
+            filter: String = "All books".to_string(),
+        }
+    }
+    view(dashboard, app, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let query = dashboard.search.trim().to_lowercase();
+        let filter = dashboard.filter.as_str();
+        let books: Vec<ReadingBook> = app.books.iter()
+            .filter(|book| matches_book(book, &query, filter))
+            .cloned()
+            .collect();
+        let reading = app.books.iter().filter(|book| book.pages_read > 0 && book.pages_read < book.total_pages).count();
+        let queued = app.books.iter().filter(|book| book.pages_read == 0).count();
+        let finished = app.books.iter().filter(|book| book.pages_read >= book.total_pages).count();
+    } =>
+    Container(
+        Column(gap: tokens.spacing.l, children: [
+            Column(gap: tokens.spacing.xs, children: [
+                Text("Harbour Reads").weight(tokens.typography.font_weight_bold),
+                Text("Keep your next read, current progress and finished books in one place.")
+                    .color(tokens.colors.text_secondary),
+            ]),
+            Grid(
+                columns: vec![GridTrack::auto_fit(GridTrack::minmax(GridTrack::Points(160.0), GridTrack::Fr(1.0)))],
+                rows: vec![GridTrack::Auto],
+                column_gap: tokens.spacing.m,
+                row_gap: tokens.spacing.s,
+                children: [
+                    Column(children: [Text(book_count(app.books.len())), Text("In your library")]),
+                    Column(children: [Text(book_count(reading)), Text("Currently reading")]),
+                    Column(children: [Text(book_count(queued)), Text("On your list")]),
+                    Column(children: [Text(book_count(finished)), Text("Finished")]),
+                ],
+            ),
+            Container(
+                Column(gap: tokens.spacing.s, children: [
+                    Text("Add a book").weight(tokens.typography.font_weight_semibold),
+                    Text("Start at page zero, then record a session as you read.")
+                        .color(tokens.colors.text_secondary),
+                    TextInput(label: Some("Book title".into()),
+                        placeholder: Some("The name on the cover".into()),
+                        bind: app.title_draft,
+                        semantics_identifier: "reading-list.book-title".to_string()),
+                    TextInput(label: Some("Author".into()),
+                        placeholder: Some("Author name".into()),
+                        bind: app.author_draft,
+                        semantics_identifier: "reading-list.book-author".to_string()),
+                    TextInput(label: Some("Total pages".into()),
+                        placeholder: Some("For example, 320".into()),
+                        bind: app.page_count_draft,
+                        semantics_identifier: "reading-list.total-pages".to_string()),
+                    Button(
+                        child: Text(if app.is_saving { "Saving book…" } else { "Add to reading list" }),
+                        key: "add-reading-book",
+                        disabled: app.is_saving,
+                        on_press: with_reducer!(cx.build, AddBook, on_add_book),
+                    ),
+                ]),
+            )
+            .padding_all(tokens.spacing.m)
+            .bg(tokens.colors.surface)
+            .border(tokens.colors.border, 1.0)
+            .border_radius(tokens.radii.medium),
+            TextInput(label: Some("Search your books".into()),
+                placeholder: Some("Title or author".into()),
+                bind: dashboard.search,
+                semantics_identifier: "reading-list.search".to_string()),
+            Row(gap: tokens.spacing.s, wrap: ir_op::FlexWrap::Wrap, children: [
+                Button(child: Text("All books"), key: "filter-all-books",
+                    variant: if dashboard.filter == "All books" { ButtonVariant::Primary } else { ButtonVariant::Outline },
+                    on_press: reduce { dashboard.filter = "All books".to_string(); }),
+                Button(child: Text("Reading"), key: "filter-reading",
+                    variant: if dashboard.filter == "Reading" { ButtonVariant::Primary } else { ButtonVariant::Outline },
+                    on_press: reduce { dashboard.filter = "Reading".to_string(); }),
+                Button(child: Text("Want to read"), key: "filter-want-to-read",
+                    variant: if dashboard.filter == "Want to read" { ButtonVariant::Primary } else { ButtonVariant::Outline },
+                    on_press: reduce { dashboard.filter = "Want to read".to_string(); }),
+                Button(child: Text("Finished"), key: "filter-finished",
+                    variant: if dashboard.filter == "Finished" { ButtonVariant::Primary } else { ButtonVariant::Outline },
+                    on_press: reduce { dashboard.filter = "Finished".to_string(); }),
+            ]),
+            Text(format!("{} of {} books shown", books.len(), app.books.len()))
+                .color(tokens.colors.text_secondary),
+            if app.is_loading {
+                Text("Loading your reading list…")
+            } else if books.is_empty() {
+                Column(gap: tokens.spacing.s, children: [
+                    Text(if app.books.is_empty() {
+                        "Your library is empty. Add a book above to start your list."
+                    } else {
+                        "No books match this search and status filter."
+                    }),
+                    Button(child: Text("Show all books"), key: "reset-reading-list-filter",
+                        variant: ButtonVariant::Outline,
+                        on_press: reduce {
+                            dashboard.search = String::new();
+                            dashboard.filter = "All books".to_string();
+                        }),
+                ])
+            } else {
+                Column(gap: tokens.spacing.s, children: [
+                    for book in books.iter() {
+                        ReadingBookCard(book.clone(), key: book.id)
+                    },
+                ])
+            },
+            Text(if app.has_error { format!("Needs attention: {}", app.notice) } else { app.notice.clone() })
+                .color(tokens.colors.text_secondary),
+        ]),
+    )
+    .padding_all(tokens.spacing.l)
+    .bg(tokens.colors.background)
 }
 ```
 </TabItem>
@@ -321,53 +832,260 @@ fission_component! {
 ```rust
 mod app;
 
+use app::ReadingListState;
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::CustomerRecords::new(
-        "Reading list".to_string(),
-        "Add a book to start your list.".to_string(),
-        "Save a reading-list entry".to_string(),
-        "The saved book is in the reading list.".to_string(),
-        "Your list is empty. Add the first book to begin.".to_string(),
-    );
-    WebApp::<(), _>::new(preview)
-        .with_title("Build a CRUD app with Rust and SQLite")
+    WebApp::<ReadingListState, _>::new(app::ReadingListDashboard::new())
+        .with_title("Harbour Reads reading list")
         .mount("#fission-web-mount")
         .run()
         .map_err(|error| JsValue::from_str(&error.to_string()))
 }
 ```
 </TabItem>
+<TabItem label="src/storage/migrations.rs">
+```rust
+use fission::prelude::*;
+use crate::state::ReadingListState;
+
+#[fission_reducer(PrepareReadingList)]
+pub fn prepare_reading_list(
+    _state: &mut ReadingListState,
+    ctx: &mut ReducerContext<ReadingListState>,
+) {
+    let mut migrations = SqlMigrations::new();
+    migrations.add(SqlMigration::new(
+        1,
+        "create reading books",
+        "CREATE TABLE reading_books (
+            id INTEGER PRIMARY KEY,
+            title TEXT NOT NULL CHECK (length(trim(title)) > 0),
+            author TEXT NOT NULL CHECK (length(trim(author)) > 0),
+            total_pages INTEGER NOT NULL CHECK (total_pages > 0),
+            pages_read INTEGER NOT NULL DEFAULT 0
+                CHECK (pages_read >= 0 AND pages_read <= total_pages),
+            added_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX reading_books_title_idx
+            ON reading_books(title COLLATE NOCASE);",
+    )).expect("migration versions are unique");
+
+    ctx.effects.sql().migrate(migrations)
+        .on_ok(ActionEnvelope::from(LoadBooks))
+        .on_err(ActionEnvelope::from(DatabaseFailed));
+}
+```
+</TabItem>
+<TabItem label="src/storage/books.rs">
+```rust
+use fission::prelude::*;
+use fission::sql::SqlStatement;
+use crate::models::ReadingBook;
+use crate::state::ReadingListState;
+
+#[fission_reducer(LoadBooks)]
+pub fn load_books(
+    state: &mut ReadingListState,
+    ctx: &mut ReducerContext<ReadingListState>,
+) {
+    state.is_loading = true;
+    ctx.effects.sql().query(SqlStatement::new(
+        "SELECT id, title, author, total_pages, pages_read
+         FROM reading_books ORDER BY added_at DESC, id DESC",
+    ))
+    .on_ok(ActionEnvelope::from(BooksLoaded))
+    .on_err(ActionEnvelope::from(DatabaseFailed));
+}
+
+#[fission_reducer(AddBook)]
+pub fn on_add_book(
+    state: &mut ReadingListState,
+    ctx: &mut ReducerContext<ReadingListState>,
+) {
+    let title = state.title_draft.trim().to_string();
+    let author = state.author_draft.trim().to_string();
+    let total_pages = match state.page_count_draft.trim().parse::<u32>() {
+        Ok(value) if value > 0 => value,
+        _ => {
+            state.notice = "Enter a page count greater than zero.".into();
+            state.has_error = true;
+            return;
+        }
+    };
+    if title.is_empty() || author.is_empty() {
+        state.notice = "Add both the book title and its author.".into();
+        state.has_error = true;
+        return;
+    }
+
+    state.is_saving = true;
+    state.has_error = false;
+    let statement = SqlStatement::new(
+        "INSERT INTO reading_books (title, author, total_pages)
+         VALUES (?1, ?2, ?3)",
+    )
+    .bind(title)
+    .bind(author)
+    .bind(i64::from(total_pages));
+
+    ctx.effects.sql().execute(statement)
+        .on_ok(ActionEnvelope::from(BookInserted))
+        .on_err(ActionEnvelope::from(DatabaseFailed));
+}
+
+#[fission_reducer(BookInserted)]
+pub fn book_inserted(
+    state: &mut ReadingListState,
+    ctx: &mut ReducerContext<ReadingListState>,
+) {
+    state.is_saving = false;
+    state.title_draft.clear();
+    state.author_draft.clear();
+    state.page_count_draft.clear();
+    state.notice = "Book added to your reading list.".into();
+    ctx.effects.sql().query(SqlStatement::new(
+        "SELECT id, title, author, total_pages, pages_read
+         FROM reading_books ORDER BY added_at DESC, id DESC",
+    ))
+    .on_ok(ActionEnvelope::from(BooksLoaded))
+    .on_err(ActionEnvelope::from(DatabaseFailed));
+}
+
+#[fission_reducer(BooksLoaded)]
+pub fn books_loaded(
+    state: &mut ReadingListState,
+    ctx: &mut ReducerContext<ReadingListState>,
+) {
+    let Some(rows) = ctx.input.sql_rows() else { return; };
+    state.books = rows.rows.iter().filter_map(|row| Some(ReadingBook {
+        id: u32::try_from(row.get::<i64>("id").ok()?).ok()?,
+        title: row.get::<String>("title").ok()?,
+        author: row.get::<String>("author").ok()?,
+        total_pages: u32::try_from(row.get::<i64>("total_pages").ok()?).ok()?,
+        pages_read: u32::try_from(row.get::<i64>("pages_read").ok()?).ok()?,
+    })).collect();
+    state.is_loading = false;
+    state.is_saving = false;
+    state.has_error = false;
+    state.notice = format!("{} books in your library.", state.books.len());
+}
+
+#[fission_reducer(LogPages)]
+pub fn on_log_pages(
+    state: &mut ReadingListState,
+    book_id: u32,
+    pages: u32,
+    ctx: &mut ReducerContext<ReadingListState>,
+) {
+    state.is_saving = true;
+    let statement = SqlStatement::new(
+        "UPDATE reading_books
+         SET pages_read = MIN(pages_read + ?1, total_pages)
+         WHERE id = ?2",
+    )
+    .bind(i64::from(pages))
+    .bind(i64::from(book_id));
+    ctx.effects.sql().execute(statement)
+        .on_ok(ActionEnvelope::from(LoadBooks))
+        .on_err(ActionEnvelope::from(DatabaseFailed));
+}
+
+#[fission_reducer(RemoveBook)]
+pub fn on_remove_book(
+    state: &mut ReadingListState,
+    book_id: u32,
+    ctx: &mut ReducerContext<ReadingListState>,
+) {
+    state.is_saving = true;
+    let statement = SqlStatement::new("DELETE FROM reading_books WHERE id = ?1")
+        .bind(i64::from(book_id));
+    ctx.effects.sql().execute(statement)
+        .on_ok(ActionEnvelope::from(LoadBooks))
+        .on_err(ActionEnvelope::from(DatabaseFailed));
+}
+
+#[fission_reducer(DatabaseFailed)]
+pub fn database_failed(
+    state: &mut ReadingListState,
+    ctx: &mut ReducerContext<ReadingListState>,
+) {
+    state.is_loading = false;
+    state.is_saving = false;
+    state.has_error = true;
+    state.notice = ctx.input.sql_error().map(|error| error.message)
+        .unwrap_or_else(|| "The library could not be updated. Your draft is still here.".into());
+}
+```
+</TabItem>
+<TabItem label="Production default state">
+```rust
+impl Default for ReadingListState {
+    fn default() -> Self {
+        Self {
+            books: Vec::new(),
+            next_book_id: 1,
+            title_draft: String::new(),
+            author_draft: String::new(),
+            page_count_draft: String::new(),
+            notice: "Loading your reading list…".to_string(),
+            has_error: false,
+            is_loading: true,
+            is_saving: false,
+        }
+    }
+}
+```
+</TabItem>
+<TabItem label="Connect startup">
+```rust
+WebApp::<ReadingListState, _>::new(ReadingListDashboard::new())
+    .with_title("Harbour Reads")
+    .with_startup_action(PrepareReadingList)
+    .mount("#fission-web-mount")
+    .run()?;
+```
+</TabItem>
 </Tabs>
 <!-- fission:preview -->
 
+Run <code>PrepareReadingList</code> at app startup. The storage capability configures the local Web server’s cross-origin isolation headers; production hosting needs the same headers for SQLite WebAssembly and OPFS. The [Storage and SQLite guide](/docs/guides/storage-and-sqlite/) explains the provider and target requirements.
+
 <!-- fission:checkpoint -->
-Handle asynchronous SQLite results and errors: Trigger the error preview and confirm a recovery action remains available.
+Restart the Web app after adding a book. The saved title and page count should return from SQLite. Then submit a blank title or zero pages and confirm that validation leaves the existing library unchanged.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 
-## Run, test and build the finished project
+## Run the reading list
 
-From the project root, run the checks in order:
+Start the app from its project root:
 
+<Tabs>
+<TabItem label="Run in a browser">
+```sh
+fission run --target web --project-dir .
+```
+</TabItem>
+<TabItem label="Build the Web target">
+```sh
+fission build --target web --project-dir .
+```
+</TabItem>
+<TabItem label="Check the project">
 ```sh
 cargo fmt --all -- --check
 cargo test
-fission run --target web --project-dir .
-fission build --target web --project-dir .
-fission test --target web --project-dir .
 ```
+</TabItem>
+</Tabs>
 
-Expected result: The list supports create, edit, delete, async storage, and a recoverable write error; confirmed records survive restart.
+In the running app, create an entry and record a few pages before restarting. The values should still be there because the database, not the widget tree, owns the saved library.
 
-## Related Fission reference
+## Continue learning
 
-Use these precise reference pages after the working path above is clear:
-
-- [Storage And Sqlite](/docs/guides/storage-and-sqlite/)
-- [Resources And Async](/docs/guides/resources-and-async/)
-- [Why Reducers Are Synchronous](/docs/guides/why-reducers-are-synchronous/)
+- [Storage and SQLite](/docs/guides/storage-and-sqlite/) covers migrations, SQL effects, Web persistence, and provider setup.
+- [Resources and Async](/docs/guides/resources-and-async/) explains how Fission schedules work outside component conversion.
+- [Reducers are synchronous](/docs/guides/why-reducers-are-synchronous/) explains why effect results return through later actions.
