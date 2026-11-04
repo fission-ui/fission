@@ -9,9 +9,6 @@ difficulty: Beginner
 duration: 50 minutes
 run_command: "fission site serve --project-dir ."
 app: static-blog-rust
-prerequisites:
-  - Basic Rust syntax and a terminal
-  - Rust and Cargo installed with rustup
 outcomes:
   - Create article index and full post pages
   - Filter by category and move between pages
@@ -137,11 +134,13 @@ Begin with the screen needed for this task. The first render gives you a concret
 
 Use props for page copy and read theme tokens through cx.view.env(). The component below keeps presentation aligned with the active design system.
 
+<Tabs>
+<TabItem label="src/app.rs">
 <!-- fission:file path="src/app.rs" -->
 ```rust
 use fission::prelude::*;
 fission_component! {
-    pub TutorialPreview<()> {
+    pub StaticBlog<()> {
         props {
             title: String,
             detail: String,
@@ -157,7 +156,7 @@ fission_component! {
         Column(
             gap: tokens.spacing.m,
             children: [
-                Text(preview.title.clone()).size(tokens.typography.heading2_size).weight(tokens.typography.font_weight_bold),
+                Text(preview.title.clone()).weight(tokens.typography.font_weight_bold),
                 Text(preview.detail.clone()).color(tokens.colors.text_secondary),
                 Text("Latest articles"),
                 Text("Build a Rust website"),
@@ -174,6 +173,8 @@ fission_component! {
     .border_radius(tokens.radii.large)
 }
 ```
+</TabItem>
+<TabItem label="preview/lib.rs">
 <!-- fission:file path="preview/lib.rs" -->
 ```rust
 mod app;
@@ -184,7 +185,7 @@ use wasm_bindgen::prelude::*;
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::TutorialPreview::new(
+    let preview = app::StaticBlog::new(
         "Field Journal".to_string(),
         "Browse recent posts by category.".to_string(),
         "View the next posts".to_string(),
@@ -198,6 +199,8 @@ pub fn run() -> Result<(), JsValue> {
         .map_err(|error| JsValue::from_str(&error.to_string()))
 }
 ```
+</TabItem>
+</Tabs>
 <!-- fission:preview -->
 
 <!-- fission:checkpoint -->
@@ -212,11 +215,13 @@ Give each post a date-based filename, a useful title and summary, one author, ca
 
 The source below makes the main task interactive using retained component state and explicit controls.
 This state belongs to the component because it only remembers this view's interaction. Durable data shared across routes belongs in GlobalState and changes through reducers.
+<Tabs>
+<TabItem label="src/app.rs">
 <!-- fission:file path="src/app.rs" -->
 ```rust
 use fission::prelude::*;
 fission_component! {
-    pub TutorialPreview<()> {
+    pub StaticBlog<()> {
         props {
             title: String,
             detail: String,
@@ -237,7 +242,7 @@ fission_component! {
         Column(
             gap: tokens.spacing.m,
             children: [
-                Text(preview.title.clone()).size(tokens.typography.heading2_size).weight(tokens.typography.font_weight_bold),
+                Text(preview.title.clone()).weight(tokens.typography.font_weight_bold),
                 Text(preview.detail.clone()).color(tokens.colors.text_secondary),
                 Button(child: Text(if preview.guides_only { "Show all posts".to_string() } else { preview.action.clone() }),
                     key: "category-filter",
@@ -262,6 +267,8 @@ fission_component! {
     .border_radius(tokens.radii.large)
 }
 ```
+</TabItem>
+<TabItem label="preview/lib.rs">
 <!-- fission:file path="preview/lib.rs" -->
 ```rust
 mod app;
@@ -272,7 +279,7 @@ use wasm_bindgen::prelude::*;
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::TutorialPreview::new(
+    let preview = app::StaticBlog::new(
         "Field Journal".to_string(),
         "Browse recent posts by category.".to_string(),
         "View the next posts".to_string(),
@@ -286,6 +293,8 @@ pub fn run() -> Result<(), JsValue> {
         .map_err(|error| JsValue::from_str(&error.to_string()))
 }
 ```
+</TabItem>
+</Tabs>
 <!-- fission:preview -->
 
 <!-- fission:checkpoint -->
@@ -300,11 +309,13 @@ Set `show_adjacent_posts = true` in the post front matter and publish enough art
 
 Keep I/O outside component conversion. Use reducers for explicit state transitions, then queue host work through an asynchronous effect, capability, job or service so the UI stays responsive.
 The preview control below simulates an unsuccessful host result. It demonstrates the message and recovery path; it does not perform authentication, database, network, or filesystem work.
+<Tabs>
+<TabItem label="src/app.rs">
 <!-- fission:file path="src/app.rs" -->
 ```rust
 use fission::prelude::*;
 fission_component! {
-    pub TutorialPreview<()> {
+    pub StaticBlog<()> {
         props {
             title: String,
             detail: String,
@@ -325,7 +336,7 @@ fission_component! {
         Column(
             gap: tokens.spacing.m,
             children: [
-                Text(preview.title.clone()).size(tokens.typography.heading2_size).weight(tokens.typography.font_weight_bold),
+                Text(preview.title.clone()).weight(tokens.typography.font_weight_bold),
                 Text(preview.detail.clone()).color(tokens.colors.text_secondary),
                 Button(child: Text(if preview.guides_only { "Show all posts".to_string() } else { preview.action.clone() }),
                     key: "category-filter",
@@ -350,6 +361,8 @@ fission_component! {
     .border_radius(tokens.radii.large)
 }
 ```
+</TabItem>
+<TabItem label="preview/lib.rs">
 <!-- fission:file path="preview/lib.rs" -->
 ```rust
 mod app;
@@ -360,7 +373,7 @@ use wasm_bindgen::prelude::*;
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::TutorialPreview::new(
+    let preview = app::StaticBlog::new(
         "Field Journal".to_string(),
         "Browse recent posts by category.".to_string(),
         "View the next posts".to_string(),
@@ -374,6 +387,8 @@ pub fn run() -> Result<(), JsValue> {
         .map_err(|error| JsValue::from_str(&error.to_string()))
 }
 ```
+</TabItem>
+</Tabs>
 <!-- fission:preview -->
 
 <!-- fission:checkpoint -->

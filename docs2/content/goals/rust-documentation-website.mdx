@@ -9,9 +9,6 @@ difficulty: Beginner
 duration: 50 minutes
 run_command: "fission site serve --project-dir ."
 app: rust-documentation-website
-prerequisites:
-  - Basic Rust syntax and a terminal
-  - Rust and Cargo installed with rustup
 outcomes:
   - Organize guides around reader tasks
   - Add search beside explanations and code
@@ -133,11 +130,13 @@ Begin with the screen needed for this task. The first render gives you a concret
 
 Use props for page copy and read theme tokens through cx.view.env(). The component below keeps presentation aligned with the active design system.
 
+<Tabs>
+<TabItem label="src/app.rs">
 <!-- fission:file path="src/app.rs" -->
 ```rust
 use fission::prelude::*;
 fission_component! {
-    pub TutorialPreview<()> {
+    pub DocumentationSite<()> {
         props {
             title: String,
             detail: String,
@@ -153,7 +152,7 @@ fission_component! {
         Column(
             gap: tokens.spacing.m,
             children: [
-                Text(preview.title.clone()).size(tokens.typography.heading2_size).weight(tokens.typography.font_weight_bold),
+                Text(preview.title.clone()).weight(tokens.typography.font_weight_bold),
                 Text(preview.detail.clone()).color(tokens.colors.text_secondary),
                 Row(gap: tokens.spacing.m,
                     children: [Text("Getting started"),
@@ -172,6 +171,8 @@ fission_component! {
     .border_radius(tokens.radii.large)
 }
 ```
+</TabItem>
+<TabItem label="preview/lib.rs">
 <!-- fission:file path="preview/lib.rs" -->
 ```rust
 mod app;
@@ -182,7 +183,7 @@ use wasm_bindgen::prelude::*;
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::TutorialPreview::new(
+    let preview = app::DocumentationSite::new(
         "Atlas Docs".to_string(),
         "Search guides from the documentation sidebar.".to_string(),
         "Search documentation".to_string(),
@@ -196,6 +197,8 @@ pub fn run() -> Result<(), JsValue> {
         .map_err(|error| JsValue::from_str(&error.to_string()))
 }
 ```
+</TabItem>
+</Tabs>
 <!-- fission:preview -->
 
 <!-- fission:checkpoint -->
@@ -210,11 +213,13 @@ Mount Markdown directories at explicit paths and define sidebars in TOML. Keep t
 
 The source below makes the main task interactive using retained component state and explicit controls.
 This state belongs to the component because it only remembers this view's interaction. Durable data shared across routes belongs in GlobalState and changes through reducers.
+<Tabs>
+<TabItem label="src/app.rs">
 <!-- fission:file path="src/app.rs" -->
 ```rust
 use fission::prelude::*;
 fission_component! {
-    pub TutorialPreview<()> {
+    pub DocumentationSite<()> {
         props {
             title: String,
             detail: String,
@@ -234,7 +239,7 @@ fission_component! {
         Column(
             gap: tokens.spacing.m,
             children: [
-                Text(preview.title.clone()).size(tokens.typography.heading2_size).weight(tokens.typography.font_weight_bold),
+                Text(preview.title.clone()).weight(tokens.typography.font_weight_bold),
                 Text(preview.detail.clone()).color(tokens.colors.text_secondary),
                 TextInput(label: Some("Search guides".into()),
                     placeholder: Some("Try state or routing".into()),
@@ -258,6 +263,8 @@ fission_component! {
     .border_radius(tokens.radii.large)
 }
 ```
+</TabItem>
+<TabItem label="preview/lib.rs">
 <!-- fission:file path="preview/lib.rs" -->
 ```rust
 mod app;
@@ -268,7 +275,7 @@ use wasm_bindgen::prelude::*;
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::TutorialPreview::new(
+    let preview = app::DocumentationSite::new(
         "Atlas Docs".to_string(),
         "Search guides from the documentation sidebar.".to_string(),
         "Search documentation".to_string(),
@@ -282,6 +289,8 @@ pub fn run() -> Result<(), JsValue> {
         .map_err(|error| JsValue::from_str(&error.to_string()))
 }
 ```
+</TabItem>
+</Tabs>
 <!-- fission:preview -->
 
 <!-- fission:checkpoint -->
@@ -296,11 +305,13 @@ Enable code highlighting and search, then inspect keyboard order and narrow-scre
 
 Keep I/O outside component conversion. Use reducers for explicit state transitions, then queue host work through an asynchronous effect, capability, job or service so the UI stays responsive.
 The preview control below simulates an unsuccessful host result. It demonstrates the message and recovery path; it does not perform authentication, database, network, or filesystem work.
+<Tabs>
+<TabItem label="src/app.rs">
 <!-- fission:file path="src/app.rs" -->
 ```rust
 use fission::prelude::*;
 fission_component! {
-    pub TutorialPreview<()> {
+    pub DocumentationSite<()> {
         props {
             title: String,
             detail: String,
@@ -320,7 +331,7 @@ fission_component! {
         Column(
             gap: tokens.spacing.m,
             children: [
-                Text(preview.title.clone()).size(tokens.typography.heading2_size).weight(tokens.typography.font_weight_bold),
+                Text(preview.title.clone()).weight(tokens.typography.font_weight_bold),
                 Text(preview.detail.clone()).color(tokens.colors.text_secondary),
                 TextInput(label: Some("Search guides".into()),
                     placeholder: Some("Try state or routing".into()),
@@ -344,6 +355,8 @@ fission_component! {
     .border_radius(tokens.radii.large)
 }
 ```
+</TabItem>
+<TabItem label="preview/lib.rs">
 <!-- fission:file path="preview/lib.rs" -->
 ```rust
 mod app;
@@ -354,7 +367,7 @@ use wasm_bindgen::prelude::*;
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::TutorialPreview::new(
+    let preview = app::DocumentationSite::new(
         "Atlas Docs".to_string(),
         "Search guides from the documentation sidebar.".to_string(),
         "Search documentation".to_string(),
@@ -368,6 +381,8 @@ pub fn run() -> Result<(), JsValue> {
         .map_err(|error| JsValue::from_str(&error.to_string()))
 }
 ```
+</TabItem>
+</Tabs>
 <!-- fission:preview -->
 
 <!-- fission:checkpoint -->

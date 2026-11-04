@@ -9,9 +9,6 @@ difficulty: Beginner
 duration: 50 minutes
 run_command: "fission run --target web --project-dir ."
 app: rust-offline-app
-prerequisites:
-  - Basic Rust syntax and a terminal
-  - Rust and Cargo installed with rustup
 outcomes:
   - Show connection and local queue state
   - Accept edits while offline
@@ -63,11 +60,13 @@ Begin with the screen needed for this task. The first render gives you a concret
 
 Use props for page copy and read theme tokens through cx.view.env(). The component below keeps presentation aligned with the active design system.
 
+<Tabs>
+<TabItem label="src/app.rs">
 <!-- fission:file path="src/app.rs" -->
 ```rust
 use fission::prelude::*;
 fission_component! {
-    pub TutorialPreview<()> {
+    pub OfflineNotes<()> {
         props {
             title: String,
             detail: String,
@@ -83,7 +82,7 @@ fission_component! {
         Column(
             gap: tokens.spacing.m,
             children: [
-                Text(preview.title.clone()).size(tokens.typography.heading2_size).weight(tokens.typography.font_weight_bold),
+                Text(preview.title.clone()).weight(tokens.typography.font_weight_bold),
                 Text(preview.detail.clone()).color(tokens.colors.text_secondary),
                 Text("Sync status: Offline"),
                 Text("1 change waiting to sync"),
@@ -100,6 +99,8 @@ fission_component! {
     .border_radius(tokens.radii.large)
 }
 ```
+</TabItem>
+<TabItem label="preview/lib.rs">
 <!-- fission:file path="preview/lib.rs" -->
 ```rust
 mod app;
@@ -110,7 +111,7 @@ use wasm_bindgen::prelude::*;
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::TutorialPreview::new(
+    let preview = app::OfflineNotes::new(
         "Offline tasks".to_string(),
         "Save changes locally and sync when online.".to_string(),
         "Save an offline change".to_string(),
@@ -124,6 +125,8 @@ pub fn run() -> Result<(), JsValue> {
         .map_err(|error| JsValue::from_str(&error.to_string()))
 }
 ```
+</TabItem>
+</Tabs>
 <!-- fission:preview -->
 
 <!-- fission:checkpoint -->
@@ -146,11 +149,13 @@ Render four distinct states: **Saved on this device**, **Syncing**, **Synced**, 
 
 For deterministic tests, use a fake service that completes requests out of order: make revision 1 finish after revision 2, and assert that revision 2 stays visible. Also test no network, a successful retry and an app restart with an unsent edit.
 
+<Tabs>
+<TabItem label="src/app.rs">
 <!-- fission:file path="src/app.rs" -->
 ```rust
 use fission::prelude::*;
 fission_component! {
-    pub TutorialPreview<()> {
+    pub OfflineNotes<()> {
         props {
             title: String,
             detail: String,
@@ -171,7 +176,7 @@ fission_component! {
         Column(
             gap: tokens.spacing.m,
             children: [
-                Text(preview.title.clone()).size(tokens.typography.heading2_size).weight(tokens.typography.font_weight_bold),
+                Text(preview.title.clone()).weight(tokens.typography.font_weight_bold),
                 Text(preview.detail.clone()).color(tokens.colors.text_secondary),
                 Text(if preview.online { "Connection: Online" } else { "Connection: Offline" }),
                 Button(child: Text(preview.action.clone()),
@@ -199,6 +204,8 @@ fission_component! {
     .border_radius(tokens.radii.large)
 }
 ```
+</TabItem>
+<TabItem label="preview/lib.rs">
 <!-- fission:file path="preview/lib.rs" -->
 ```rust
 mod app;
@@ -209,7 +216,7 @@ use wasm_bindgen::prelude::*;
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::TutorialPreview::new(
+    let preview = app::OfflineNotes::new(
         "Offline tasks".to_string(),
         "Save changes locally and sync when online.".to_string(),
         "Save an offline change".to_string(),
@@ -223,6 +230,8 @@ pub fn run() -> Result<(), JsValue> {
         .map_err(|error| JsValue::from_str(&error.to_string()))
 }
 ```
+</TabItem>
+</Tabs>
 <!-- fission:preview -->
 
 <!-- fission:checkpoint -->
@@ -237,11 +246,13 @@ Give every local change a stable id and version. When local and remote writes fi
 
 Keep I/O outside component conversion. Use reducers for explicit state transitions, then queue host work through an asynchronous effect, capability, job or service so the UI stays responsive.
 The preview control below simulates an unsuccessful host result. It demonstrates the message and recovery path; it does not perform authentication, database, network, or filesystem work.
+<Tabs>
+<TabItem label="src/app.rs">
 <!-- fission:file path="src/app.rs" -->
 ```rust
 use fission::prelude::*;
 fission_component! {
-    pub TutorialPreview<()> {
+    pub OfflineNotes<()> {
         props {
             title: String,
             detail: String,
@@ -262,7 +273,7 @@ fission_component! {
         Column(
             gap: tokens.spacing.m,
             children: [
-                Text(preview.title.clone()).size(tokens.typography.heading2_size).weight(tokens.typography.font_weight_bold),
+                Text(preview.title.clone()).weight(tokens.typography.font_weight_bold),
                 Text(preview.detail.clone()).color(tokens.colors.text_secondary),
                 Text(if preview.online { "Connection: Online" } else { "Connection: Offline" }),
                 Button(child: Text(preview.action.clone()),
@@ -290,6 +301,8 @@ fission_component! {
     .border_radius(tokens.radii.large)
 }
 ```
+</TabItem>
+<TabItem label="preview/lib.rs">
 <!-- fission:file path="preview/lib.rs" -->
 ```rust
 mod app;
@@ -300,7 +313,7 @@ use wasm_bindgen::prelude::*;
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::TutorialPreview::new(
+    let preview = app::OfflineNotes::new(
         "Offline tasks".to_string(),
         "Save changes locally and sync when online.".to_string(),
         "Save an offline change".to_string(),
@@ -314,6 +327,8 @@ pub fn run() -> Result<(), JsValue> {
         .map_err(|error| JsValue::from_str(&error.to_string()))
 }
 ```
+</TabItem>
+</Tabs>
 <!-- fission:preview -->
 
 <!-- fission:checkpoint -->

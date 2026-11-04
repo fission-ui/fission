@@ -1427,6 +1427,7 @@ fn section_prefix(path: &str) -> &str {
         "docs" => "/docs/",
         "reference" => "/reference/",
         "blog" => "/blog/",
+        "compose" => "/compose/",
         _ => "/",
     }
 }

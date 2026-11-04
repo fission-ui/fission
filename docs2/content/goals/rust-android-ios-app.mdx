@@ -9,9 +9,6 @@ difficulty: Beginner
 duration: 50 minutes
 run_command: "fission run --target android --project-dir ."
 app: rust-android-ios-app
-prerequisites:
-  - Basic Rust syntax and a terminal
-  - Rust and Cargo installed with rustup
 outcomes:
   - Build touch-friendly navigation
   - Share state across Android and iOS
@@ -63,11 +60,13 @@ Begin with the screen needed for this task. The first render gives you a concret
 
 Use props for page copy and read theme tokens through cx.view.env(). The component below keeps presentation aligned with the active design system.
 
+<Tabs>
+<TabItem label="src/app.rs">
 <!-- fission:file path="src/app.rs" -->
 ```rust
 use fission::prelude::*;
 fission_component! {
-    pub TutorialPreview<()> {
+    pub MobileTaskPlanner<()> {
         props {
             title: String,
             detail: String,
@@ -83,7 +82,7 @@ fission_component! {
         Column(
             gap: tokens.spacing.m,
             children: [
-                Text(preview.title.clone()).size(tokens.typography.heading2_size).weight(tokens.typography.font_weight_bold),
+                Text(preview.title.clone()).weight(tokens.typography.font_weight_bold),
                 Text(preview.detail.clone()).color(tokens.colors.text_secondary),
                 Text("Today"),
                 Text("Two tasks are waiting"),
@@ -102,6 +101,8 @@ fission_component! {
     .border_radius(tokens.radii.large)
 }
 ```
+</TabItem>
+<TabItem label="preview/lib.rs">
 <!-- fission:file path="preview/lib.rs" -->
 ```rust
 mod app;
@@ -112,7 +113,7 @@ use wasm_bindgen::prelude::*;
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::TutorialPreview::new(
+    let preview = app::MobileTaskPlanner::new(
         "Shared tasks".to_string(),
         "Complete a task from the mobile app.".to_string(),
         "Complete a task on mobile".to_string(),
@@ -126,6 +127,8 @@ pub fn run() -> Result<(), JsValue> {
         .map_err(|error| JsValue::from_str(&error.to_string()))
 }
 ```
+</TabItem>
+</Tabs>
 <!-- fission:preview -->
 
 <!-- fission:checkpoint -->
@@ -140,11 +143,13 @@ Use shared state and component modules for the product workflow. Give touch targ
 
 The source below makes the main task interactive using retained component state and explicit controls.
 This state belongs to the component because it only remembers this view's interaction. Durable data shared across routes belongs in GlobalState and changes through reducers.
+<Tabs>
+<TabItem label="src/app.rs">
 <!-- fission:file path="src/app.rs" -->
 ```rust
 use fission::prelude::*;
 fission_component! {
-    pub TutorialPreview<()> {
+    pub MobileTaskPlanner<()> {
         props {
             title: String,
             detail: String,
@@ -165,7 +170,7 @@ fission_component! {
         Column(
             gap: tokens.spacing.m,
             children: [
-                Text(preview.title.clone()).size(tokens.typography.heading2_size).weight(tokens.typography.font_weight_bold),
+                Text(preview.title.clone()).weight(tokens.typography.font_weight_bold),
                 Text(preview.detail.clone()).color(tokens.colors.text_secondary),
                 Row(gap: tokens.spacing.m,
                     children: [Button(child: Text("Tasks"),
@@ -193,6 +198,8 @@ fission_component! {
     .border_radius(tokens.radii.large)
 }
 ```
+</TabItem>
+<TabItem label="preview/lib.rs">
 <!-- fission:file path="preview/lib.rs" -->
 ```rust
 mod app;
@@ -203,7 +210,7 @@ use wasm_bindgen::prelude::*;
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::TutorialPreview::new(
+    let preview = app::MobileTaskPlanner::new(
         "Shared tasks".to_string(),
         "Complete a task from the mobile app.".to_string(),
         "Complete a task on mobile".to_string(),
@@ -217,6 +224,8 @@ pub fn run() -> Result<(), JsValue> {
         .map_err(|error| JsValue::from_str(&error.to_string()))
 }
 ```
+</TabItem>
+</Tabs>
 <!-- fission:preview -->
 
 <!-- fission:checkpoint -->
@@ -231,11 +240,13 @@ Request a native capability through Fission's capability boundary and handle den
 
 Keep I/O outside component conversion. Use reducers for explicit state transitions, then queue host work through an asynchronous effect, capability, job or service so the UI stays responsive.
 The preview control below simulates an unsuccessful host result. It demonstrates the message and recovery path; it does not perform authentication, database, network, or filesystem work.
+<Tabs>
+<TabItem label="src/app.rs">
 <!-- fission:file path="src/app.rs" -->
 ```rust
 use fission::prelude::*;
 fission_component! {
-    pub TutorialPreview<()> {
+    pub MobileTaskPlanner<()> {
         props {
             title: String,
             detail: String,
@@ -256,7 +267,7 @@ fission_component! {
         Column(
             gap: tokens.spacing.m,
             children: [
-                Text(preview.title.clone()).size(tokens.typography.heading2_size).weight(tokens.typography.font_weight_bold),
+                Text(preview.title.clone()).weight(tokens.typography.font_weight_bold),
                 Text(preview.detail.clone()).color(tokens.colors.text_secondary),
                 Row(gap: tokens.spacing.m,
                     children: [Button(child: Text("Tasks"),
@@ -284,6 +295,8 @@ fission_component! {
     .border_radius(tokens.radii.large)
 }
 ```
+</TabItem>
+<TabItem label="preview/lib.rs">
 <!-- fission:file path="preview/lib.rs" -->
 ```rust
 mod app;
@@ -294,7 +307,7 @@ use wasm_bindgen::prelude::*;
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::TutorialPreview::new(
+    let preview = app::MobileTaskPlanner::new(
         "Shared tasks".to_string(),
         "Complete a task from the mobile app.".to_string(),
         "Complete a task on mobile".to_string(),
@@ -308,6 +321,8 @@ pub fn run() -> Result<(), JsValue> {
         .map_err(|error| JsValue::from_str(&error.to_string()))
 }
 ```
+</TabItem>
+</Tabs>
 <!-- fission:preview -->
 
 <!-- fission:checkpoint -->

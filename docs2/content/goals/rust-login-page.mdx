@@ -9,9 +9,6 @@ difficulty: Beginner
 duration: 50 minutes
 run_command: "fission run --target ssr --project-dir ."
 app: rust-login-page
-prerequisites:
-  - Basic Rust syntax and a terminal
-  - Rust and Cargo installed with rustup
 outcomes:
   - Add labelled email and password fields
   - Validate input and show submission state
@@ -62,11 +59,13 @@ Begin with the screen needed for this task. The first render gives you a concret
 
 Use props for page copy and read theme tokens through cx.view.env(). The component below keeps presentation aligned with the active design system.
 
+<Tabs>
+<TabItem label="src/app.rs">
 <!-- fission:file path="src/app.rs" -->
 ```rust
 use fission::prelude::*;
 fission_component! {
-    pub TutorialPreview<()> {
+    pub LoginForm<()> {
         props {
             title: String,
             detail: String,
@@ -82,7 +81,7 @@ fission_component! {
         Column(
             gap: tokens.spacing.m,
             children: [
-                Text(preview.title.clone()).size(tokens.typography.heading2_size).weight(tokens.typography.font_weight_bold),
+                Text(preview.title.clone()).weight(tokens.typography.font_weight_bold),
                 Text(preview.detail.clone()).color(tokens.colors.text_secondary),
                 TextInput(label: Some("Email address".into()),
                     placeholder: Some("you@example.com".into())),
@@ -101,6 +100,8 @@ fission_component! {
     .border_radius(tokens.radii.large)
 }
 ```
+</TabItem>
+<TabItem label="preview/lib.rs">
 <!-- fission:file path="preview/lib.rs" -->
 ```rust
 mod app;
@@ -111,7 +112,7 @@ use wasm_bindgen::prelude::*;
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::TutorialPreview::new(
+    let preview = app::LoginForm::new(
         "Sign in".to_string(),
         "Enter your email address and password.".to_string(),
         "Sign in securely".to_string(),
@@ -125,6 +126,8 @@ pub fn run() -> Result<(), JsValue> {
         .map_err(|error| JsValue::from_str(&error.to_string()))
 }
 ```
+</TabItem>
+</Tabs>
 <!-- fission:preview -->
 
 <!-- fission:checkpoint -->
@@ -139,11 +142,13 @@ Keep credential checks on the server. Validate the submitted fields there, sign 
 
 The source below makes the main task interactive using retained component state and explicit controls.
 This state belongs to the component because it only remembers this view's interaction. Durable data shared across routes belongs in GlobalState and changes through reducers.
+<Tabs>
+<TabItem label="src/app.rs">
 <!-- fission:file path="src/app.rs" -->
 ```rust
 use fission::prelude::*;
 fission_component! {
-    pub TutorialPreview<()> {
+    pub LoginForm<()> {
         props {
             title: String,
             detail: String,
@@ -165,7 +170,7 @@ fission_component! {
         Column(
             gap: tokens.spacing.m,
             children: [
-                Text(preview.title.clone()).size(tokens.typography.heading2_size).weight(tokens.typography.font_weight_bold),
+                Text(preview.title.clone()).weight(tokens.typography.font_weight_bold),
                 Text(preview.detail.clone()).color(tokens.colors.text_secondary),
                 TextInput(label: Some("Email address".into()),
                     placeholder: Some("you@example.com".into()),
@@ -195,6 +200,8 @@ fission_component! {
     .border_radius(tokens.radii.large)
 }
 ```
+</TabItem>
+<TabItem label="preview/lib.rs">
 <!-- fission:file path="preview/lib.rs" -->
 ```rust
 mod app;
@@ -205,7 +212,7 @@ use wasm_bindgen::prelude::*;
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::TutorialPreview::new(
+    let preview = app::LoginForm::new(
         "Sign in".to_string(),
         "Enter your email address and password.".to_string(),
         "Sign in securely".to_string(),
@@ -219,6 +226,8 @@ pub fn run() -> Result<(), JsValue> {
         .map_err(|error| JsValue::from_str(&error.to_string()))
 }
 ```
+</TabItem>
+</Tabs>
 <!-- fission:preview -->
 
 <!-- fission:checkpoint -->
@@ -246,11 +255,13 @@ same_site = "lax"
 ```
 
 Fission signs and protects the session cookie. Your authentication service still verifies credentials and stores the authenticated user id server-side; the cookie does not prove who the user is by itself.
+<Tabs>
+<TabItem label="src/app.rs">
 <!-- fission:file path="src/app.rs" -->
 ```rust
 use fission::prelude::*;
 fission_component! {
-    pub TutorialPreview<()> {
+    pub LoginForm<()> {
         props {
             title: String,
             detail: String,
@@ -272,7 +283,7 @@ fission_component! {
         Column(
             gap: tokens.spacing.m,
             children: [
-                Text(preview.title.clone()).size(tokens.typography.heading2_size).weight(tokens.typography.font_weight_bold),
+                Text(preview.title.clone()).weight(tokens.typography.font_weight_bold),
                 Text(preview.detail.clone()).color(tokens.colors.text_secondary),
                 TextInput(label: Some("Email address".into()),
                     placeholder: Some("you@example.com".into()),
@@ -302,6 +313,8 @@ fission_component! {
     .border_radius(tokens.radii.large)
 }
 ```
+</TabItem>
+<TabItem label="preview/lib.rs">
 <!-- fission:file path="preview/lib.rs" -->
 ```rust
 mod app;
@@ -312,7 +325,7 @@ use wasm_bindgen::prelude::*;
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::TutorialPreview::new(
+    let preview = app::LoginForm::new(
         "Sign in".to_string(),
         "Enter your email address and password.".to_string(),
         "Sign in securely".to_string(),
@@ -326,6 +339,8 @@ pub fn run() -> Result<(), JsValue> {
         .map_err(|error| JsValue::from_str(&error.to_string()))
 }
 ```
+</TabItem>
+</Tabs>
 <!-- fission:preview -->
 
 <!-- fission:checkpoint -->

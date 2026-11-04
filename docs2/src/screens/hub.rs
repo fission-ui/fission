@@ -53,10 +53,10 @@ fission_component! {
                             ]),
                         ),
                         SemanticsRegion(
-                            copy("hub.title").size(tokens.typography.display_md_size).weight(tokens.typography.font_weight_bold),
+                            copy("hub.title").weight(tokens.typography.font_weight_bold),
                             identifier: Some("site-heading-1:docs-hub".to_string()),
                         ),
-                        copy("hub.description").size(tokens.typography.body_large_size).color(tokens.colors.text_secondary),
+                        copy("hub.description").color(tokens.colors.text_secondary),
                         SemanticsRegion(
                             identifier: Some("hub-path".to_string()),
                             child: Row(gap: tokens.spacing.l, wrap: ir_op::FlexWrap::Wrap, children: [
@@ -73,7 +73,7 @@ fission_component! {
                                 Column(gap: tokens.spacing.m, children: [
                                     copy("hub.start.label").color(tokens.colors.primary),
                                     SemanticsRegion(
-                                        copy("hub.start.title").size(tokens.typography.heading1_size).weight(tokens.typography.font_weight_bold),
+                                        copy("hub.start.title").weight(tokens.typography.font_weight_bold),
                                         identifier: Some("site-heading-2:hub-start".to_string()),
                                     ),
                                     copy("hub.start.description").color(tokens.colors.text_secondary),
@@ -83,7 +83,7 @@ fission_component! {
                             ]),
                         ),
                         SemanticsRegion(
-                            copy("hub.tasks").size(tokens.typography.heading2_size).weight(tokens.typography.font_weight_bold),
+                            copy("hub.tasks").weight(tokens.typography.font_weight_bold),
                             identifier: Some("site-heading-2:hub-tasks".to_string()),
                         ),
                         SemanticsRegion(
@@ -115,7 +115,7 @@ fission_component! {
                             identifier: Some("hub-guides-heading".to_string()),
                             child: Row(align_items: ir_op::AlignItems::Center, children: [
                                 SemanticsRegion(
-                                    copy("hub.guides").size(tokens.typography.heading2_size).weight(tokens.typography.font_weight_bold),
+                                    copy("hub.guides").weight(tokens.typography.font_weight_bold),
                                     identifier: Some("site-heading-2:hub-guides".to_string()),
                                 ),
                                 Spacer(flex_grow: 1.0),

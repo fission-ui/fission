@@ -9,11 +9,6 @@ difficulty: Beginner
 duration: 35 minutes
 run_command: "fission run --target ios --project-dir ."
 app: set-up-rust-ios-development-with-fission
-prerequisites:
-  - Basic Rust syntax and a terminal
-  - Rust and Cargo installed with rustup
-  - macOS with Xcode installed from Apple
-  - An iOS Simulator runtime available in Xcode
 outcomes:
   - Implement the feature in shared Rust application code
   - Explain the state, component and host behaviour involved
@@ -91,12 +86,14 @@ Keep `src/app.rs`, shared state, reducers and reusable `fission_component!` comp
 
 The toolchain cannot run inside this browser. This small compiled component demonstrates the Fission screen syntax used by the app you will launch after setup. Its buttons change local preview state only; they do not install Xcode, start a Simulator or sign an iPhone app.
 
+<Tabs>
+<TabItem label="src/app.rs">
 <!-- fission:file path="src/app.rs" -->
 ```rust
 use fission::prelude::*;
 
 fission_component! {
-    pub TutorialPreview<()> {
+    pub IosDevelopmentSetup<()> {
         props {
             title: String,
             step: String,
@@ -116,7 +113,7 @@ fission_component! {
         child: Container(
             Column(gap: tokens.spacing.m, children: [
                 Text(preview.title.clone())
-                    .size(tokens.typography.heading2_size)
+
                     .weight(tokens.typography.font_weight_bold),
                 Text(preview.step.clone())
                     .color(tokens.colors.text_secondary),
@@ -164,6 +161,8 @@ fission_component! {
     )
 }
 ```
+</TabItem>
+<TabItem label="preview/lib.rs">
 <!-- fission:file path="preview/lib.rs" -->
 ```rust
 mod app;
@@ -181,7 +180,7 @@ extern "C" {
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::TutorialPreview::new(tutorial_title(), tutorial_step(), tutorial_goal());
+    let preview = app::IosDevelopmentSetup::new(tutorial_title(), tutorial_step(), tutorial_goal());
     WebApp::<(), _>::new(preview)
         .with_title("Fission tutorial preview")
         .mount("#fission-web-mount")
@@ -189,6 +188,8 @@ pub fn run() -> Result<(), JsValue> {
         .map_err(|error| JsValue::from_str(&error.to_string()))
 }
 ```
+</TabItem>
+</Tabs>
 <!-- fission:preview -->
 
 <!-- fission:checkpoint -->

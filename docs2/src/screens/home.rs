@@ -17,19 +17,22 @@ fission_component! {
     view(home, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
-    Container(
-        Column(children: [
-            SiteHeader(),
-            HomeHero(home.hero_source.clone(), home.hero_preview_url.clone()),
-            PlatformStrip(),
-            GoalChooser(home.tutorials.clone()),
-            FeatureSection(),
-            ComposeSection(),
-            TutorialGallery(home.tutorials.clone()),
-            BrowserCta(),
-            SiteFooter(),
-        ]),
+    SemanticsRegion(
+        identifier: Some("home-page".to_string()),
+        child: Container(
+            Column(children: [
+                SiteHeader(),
+                HomeHero(home.hero_source.clone(), home.hero_preview_url.clone()),
+                PlatformStrip(),
+                GoalChooser(home.tutorials.clone()),
+                FeatureSection(),
+                ComposeSection(),
+                TutorialGallery(home.tutorials.clone()),
+                BrowserCta(),
+                SiteFooter(),
+            ]),
+        )
+        .width_length(Length::percent(100.0))
+        .bg(tokens.colors.background),
     )
-    .width_length(Length::percent(100.0))
-    .bg(tokens.colors.background)
 }

@@ -50,7 +50,7 @@ href = "/reference/overview/overview/"
 
 [[site.nav]]
 title = "Try Fission in the browser"
-href = "/blog/build-a-single-page-web-app-in-rust/"
+href = "/try/"
 
 [[site.routes]]
 path = "/docs"
@@ -62,6 +62,7 @@ sidebar = "site/reference-sidebar.toml"
 path = "/compose"
 source = "content/compose"
 template = "fission::site::documentation"
+sidebar = "site/compose-sidebar.toml"
 
 [[site.routes]]
 path = "/reference"

@@ -18,7 +18,6 @@ fission_component! {
                 Column(gap: tokens.spacing.m, children: [
                     SemanticsRegion(
                         copy("home.ready.title")
-                            .size(tokens.typography.heading1_size)
                             .weight(tokens.typography.font_weight_bold),
                         identifier: Some("site-heading-2:ready-to-build".to_string()),
                     ),

@@ -9,10 +9,6 @@ difficulty: Beginner
 duration: 35 minutes
 run_command: "fission run --target ios --project-dir ."
 app: ios-schedule-local-notifications-on-ios
-prerequisites:
-  - Basic Rust syntax and a terminal
-  - Rust and Cargo installed with rustup
-  - Xcode and the iOS Simulator from the [iOS setup tutorial](/blog/set-up-rust-ios-development-with-fission/)
 outcomes:
   - Implement the feature in shared Rust application code
   - Explain the state, component and host behaviour involved
@@ -62,12 +58,14 @@ Keep `src/app.rs`, shared state, reducers and reusable `fission_component!` comp
 
 The preview is a compiled Fission component with two deliberately local simulations. Press **Simulate success** to inspect the normal result, then **Simulate unavailable** to see how the screen can explain that a capability cannot proceed. These actions change only preview state: they do not request permission, access a sensor or run the target app. In the main step, compare that state boundary with the feature-specific instructions.
 
+<Tabs>
+<TabItem label="src/app.rs">
 <!-- fission:file path="src/app.rs" -->
 ```rust
 use fission::prelude::*;
 
 fission_component! {
-    pub TutorialPreview<()> {
+    pub IosLocalNotifications<()> {
         props {
             title: String,
             step: String,
@@ -87,7 +85,7 @@ fission_component! {
         child: Container(
             Column(gap: tokens.spacing.m, children: [
                 Text(preview.title.clone())
-                    .size(tokens.typography.heading2_size)
+
                     .weight(tokens.typography.font_weight_bold),
                 Text(preview.step.clone())
                     .color(tokens.colors.text_secondary),
@@ -135,6 +133,8 @@ fission_component! {
     )
 }
 ```
+</TabItem>
+<TabItem label="preview/lib.rs">
 <!-- fission:file path="preview/lib.rs" -->
 ```rust
 mod app;
@@ -152,7 +152,7 @@ extern "C" {
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::TutorialPreview::new(tutorial_title(), tutorial_step(), tutorial_goal());
+    let preview = app::IosLocalNotifications::new(tutorial_title(), tutorial_step(), tutorial_goal());
     WebApp::<(), _>::new(preview)
         .with_title("Fission tutorial preview")
         .mount("#fission-web-mount")
@@ -160,6 +160,8 @@ pub fn run() -> Result<(), JsValue> {
         .map_err(|error| JsValue::from_str(&error.to_string()))
 }
 ```
+</TabItem>
+</Tabs>
 <!-- fission:preview -->
 
 <!-- fission:checkpoint -->
@@ -247,12 +249,14 @@ Keep platform-only code behind the generated target boundary or a typed provider
 
 
 
+<Tabs>
+<TabItem label="src/app.rs">
 <!-- fission:file path="src/app.rs" -->
 ```rust
 use fission::prelude::*;
 
 fission_component! {
-    pub CapabilityResultPreview<()> {
+    pub IosLocalNotificationsResult<()> {
         props {
             title: String,
             step: String,
@@ -271,7 +275,7 @@ fission_component! {
         child: Container(
             Column(gap: tokens.spacing.m, children: [
                 Text(preview.title.clone())
-                    .size(tokens.typography.heading2_size)
+
                     .weight(tokens.typography.font_weight_bold),
                 Text(preview.step.clone())
                     .color(tokens.colors.text_secondary),
@@ -304,6 +308,8 @@ fission_component! {
     )
 }
 ```
+</TabItem>
+<TabItem label="preview/lib.rs">
 <!-- fission:file path="preview/lib.rs" -->
 ```rust
 mod app;
@@ -321,7 +327,7 @@ extern "C" {
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::CapabilityResultPreview::new(tutorial_title(), tutorial_step(), tutorial_goal());
+    let preview = app::IosLocalNotificationsResult::new(tutorial_title(), tutorial_step(), tutorial_goal());
     WebApp::<(), _>::new(preview)
         .with_title("Fission tutorial preview")
         .mount("#fission-web-mount")
@@ -329,6 +335,8 @@ pub fn run() -> Result<(), JsValue> {
         .map_err(|error| JsValue::from_str(&error.to_string()))
 }
 ```
+</TabItem>
+</Tabs>
 <!-- fission:preview -->
 
 <!-- fission:checkpoint -->

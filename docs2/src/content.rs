@@ -1,4 +1,5 @@
 use anyhow::{bail, Context, Result};
+use fission::site::expand_mdx_tabs;
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
@@ -14,7 +15,6 @@ pub struct GoalMeta {
     pub duration: String,
     pub run_command: String,
     pub app: String,
-    pub prerequisites: Vec<String>,
     pub outcomes: Vec<String>,
     pub aliases: Vec<String>,
 }
@@ -178,7 +178,7 @@ fn parse_frontmatter(source: &str) -> Result<GoalMeta> {
                 scalars.insert(key, unquote(value));
                 active_list = None;
             }
-            "prerequisites" | "outcomes" | "aliases" => {
+            "outcomes" | "aliases" => {
                 if !value.is_empty() && value != "[]" {
                     bail!("frontmatter list `{key}` must use indented `- item` entries");
                 }
@@ -231,7 +231,6 @@ fn parse_frontmatter(source: &str) -> Result<GoalMeta> {
         duration: required("duration")?,
         run_command: required("run_command")?,
         app,
-        prerequisites: lists.remove("prerequisites").unwrap_or_default(),
         outcomes: lists.remove("outcomes").unwrap_or_default(),
         aliases,
     })
@@ -241,7 +240,7 @@ fn parse_steps(body: &str) -> Result<(String, Vec<GoalStep>)> {
     const STEP_OPEN: &str = "<!-- fission:step";
     const STEP_CLOSE: &str = "<!-- /fission:step -->";
     let first = body.find(STEP_OPEN).unwrap_or(body.len());
-    let introduction = body[..first].trim().to_string();
+    let introduction = expand_mdx_tabs(body[..first].trim())?;
     let mut remaining = &body[first..];
     let mut steps: Vec<GoalStep> = Vec::new();
 
@@ -316,6 +315,7 @@ fn parse_step(id: String, source: &str) -> Result<GoalStep> {
         .join("\n")
         .trim()
         .to_string();
+    let markdown = expand_mdx_tabs(&markdown)?;
     Ok(GoalStep {
         id,
         title,

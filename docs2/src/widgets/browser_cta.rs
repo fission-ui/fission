@@ -13,6 +13,7 @@ fission_component! {
     pub BrowserCta<DocsState> {}
     view(_cta, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
+        let highlighted_example = format!("```rust\n{}\n```", BROWSER_CODE);
     } =>
     SemanticsRegion(
         identifier: Some("home-browser".to_string()),
@@ -27,7 +28,6 @@ fission_component! {
                         .weight(tokens.typography.font_weight_semibold),
                     SemanticsRegion(
                         copy("home.browser.title")
-                            .size(tokens.typography.heading1_size)
                             .weight(tokens.typography.font_weight_bold),
                         identifier: Some("site-heading-2:browser-playground".to_string()),
                     ),
@@ -45,7 +45,7 @@ fission_component! {
                     child: Row(children: [
                         Column(children: [
                             copy("home.filename").weight(tokens.typography.font_weight_semibold),
-                            Code(text: BROWSER_CODE.to_string()),
+                            MarkdownContent::new(highlighted_example),
                         ]),
                         WebView(
                             id: WidgetId::explicit("home-browser-counter"),

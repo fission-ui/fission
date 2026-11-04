@@ -4,9 +4,8 @@ use fission::prelude::*;
 fission_component! {
     pub HubStarterCode<DocsState> {}
     view(_panel, _state, cx) {
-        let commands = [
-            "fission init my-app\ncd my-app\nfission run",
-        ];
+        let commands = "fission init my-app\ncd my-app\nfission run";
+        let highlighted_commands = format!("```sh\n{commands}\n```");
     } =>
     SemanticsRegion(
         identifier: Some("hub-starter-code".to_string()),
@@ -17,7 +16,7 @@ fission_component! {
                 SemanticsRegion(Text(cx.view.env().tr("hub.target.web")), identifier: Some("hub-target-tab".to_string())),
                 SemanticsRegion(Text(cx.view.env().tr("hub.target.mobile")), identifier: Some("hub-target-tab".to_string())),
             ]),
-            Code(text: commands[0].to_string()),
+            MarkdownContent::new(highlighted_commands),
         ]),
     )
 }

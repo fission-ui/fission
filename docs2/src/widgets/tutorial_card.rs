@@ -42,7 +42,6 @@ fission_component! {
             SemanticsRegion(
                 Text(card.title.clone())
                     .color(tokens.colors.primary)
-                    .size(tokens.typography.heading2_size)
                     .weight(tokens.typography.font_weight_bold),
                 identifier: Some(heading_identifier),
             ),

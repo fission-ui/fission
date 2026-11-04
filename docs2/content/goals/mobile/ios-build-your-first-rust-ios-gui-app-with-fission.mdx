@@ -9,10 +9,6 @@ difficulty: Beginner
 duration: 35 minutes
 run_command: "fission run --target ios --project-dir ."
 app: ios-build-your-first-rust-ios-gui-app-with-fission
-prerequisites:
-  - Basic Rust syntax and a terminal
-  - Rust and Cargo installed with rustup
-  - Xcode and the iOS Simulator from the [iOS setup tutorial](/blog/set-up-rust-ios-development-with-fission/)
 outcomes:
   - Implement the feature in shared Rust application code
   - Explain the state, component and host behaviour involved
@@ -64,12 +60,14 @@ Start with a counter whose value begins at zero. The text label and count are vi
 
 The complete root component below is the small interactive checkpoint used by the later steps. It reads Fission theme tokens and owns only the temporary state needed for this example.
 
+<Tabs>
+<TabItem label="src/app.rs">
 <!-- fission:file path="src/app.rs" -->
 ```rust
 use fission::prelude::*;
 
 fission_component! {
-    pub TutorialPreview<()> {
+    pub IosStarterApp<()> {
         props {
             title: String,
             step: String,
@@ -88,7 +86,7 @@ fission_component! {
         child: Container(
             Column(gap: tokens.spacing.m, children: [
                 Text(preview.title.clone())
-                    .size(tokens.typography.heading2_size)
+
                     .weight(tokens.typography.font_weight_bold),
                 Text(preview.step.clone()).color(tokens.colors.text_secondary),
                 Text(format!("Count: {}", preview.count)),
@@ -117,6 +115,8 @@ fission_component! {
     )
 }
 ```
+</TabItem>
+<TabItem label="preview/lib.rs">
 <!-- fission:file path="preview/lib.rs" -->
 ```rust
 mod app;
@@ -134,7 +134,7 @@ extern "C" {
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::TutorialPreview::new(tutorial_title(), tutorial_step(), tutorial_goal());
+    let preview = app::IosStarterApp::new(tutorial_title(), tutorial_step(), tutorial_goal());
     WebApp::<(), _>::new(preview)
         .with_title("Fission tutorial preview")
         .mount("#fission-web-mount")
@@ -142,6 +142,8 @@ pub fn run() -> Result<(), JsValue> {
         .map_err(|error| JsValue::from_str(&error.to_string()))
 }
 ```
+</TabItem>
+</Tabs>
 
 <!-- fission:preview -->
 
@@ -157,12 +159,14 @@ The counter belongs to one screen, so keeping its value in this component avoids
 
 
 
+<Tabs>
+<TabItem label="src/app.rs">
 <!-- fission:file path="src/app.rs" -->
 ```rust
 use fission::prelude::*;
 
 fission_component! {
-    pub TutorialPreview<()> {
+    pub IosStarterApp<()> {
         props {
             title: String,
             step: String,
@@ -181,7 +185,7 @@ fission_component! {
         child: Container(
             Column(gap: tokens.spacing.m, children: [
                 Text(preview.title.clone())
-                    .size(tokens.typography.heading2_size)
+
                     .weight(tokens.typography.font_weight_bold),
                 Text(preview.step.clone()).color(tokens.colors.text_secondary),
                 Text(format!("Count: {}", preview.count)),
@@ -210,6 +214,8 @@ fission_component! {
     )
 }
 ```
+</TabItem>
+<TabItem label="preview/lib.rs">
 <!-- fission:file path="preview/lib.rs" -->
 ```rust
 mod app;
@@ -227,7 +233,7 @@ extern "C" {
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::TutorialPreview::new(tutorial_title(), tutorial_step(), tutorial_goal());
+    let preview = app::IosStarterApp::new(tutorial_title(), tutorial_step(), tutorial_goal());
     WebApp::<(), _>::new(preview)
         .with_title("Fission tutorial preview")
         .mount("#fission-web-mount")
@@ -235,6 +241,8 @@ pub fn run() -> Result<(), JsValue> {
         .map_err(|error| JsValue::from_str(&error.to_string()))
 }
 ```
+</TabItem>
+</Tabs>
 
 <!-- fission:preview -->
 

@@ -1,6 +1,5 @@
 use crate::content::GoalStep;
 use crate::state::DocsState;
-use crate::widgets::copy;
 use fission::prelude::*;
 
 fission_component! {
@@ -10,72 +9,77 @@ fission_component! {
             index: usize,
             step: GoalStep,
         }
+        state {
+            preview_open: bool = false,
+        }
     }
     view(section, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
-        let preview_key = format!("goal-preview-{}", section.step.id);
+        let preview_key = format!("goal-preview-{}-{}", section.app, section.step.id);
         let preview_id = WidgetId::explicit(&preview_key);
         let section_identifier = format!("site-section:{}", section.step.id);
         let heading_identifier = format!("site-heading-2:{}-heading", section.step.id);
         let heading = format!("{}. {}", section.index + 1, section.step.title);
         let preview_label = format!("{}: {}", cx.view.env().tr("goal.live"), section.step.title);
+        let preview_action = if section.preview_open {
+            "goal.preview.hide"
+        } else {
+            "goal.preview.show"
+        };
     } =>
     SemanticsRegion(
         identifier: Some(section_identifier),
         label: Some(heading.clone()),
         child: Column(gap: tokens.spacing.m, children: [
             SemanticsRegion(
-                Text(heading)
-                    .size(tokens.typography.heading1_size)
-                    .weight(tokens.typography.font_weight_bold),
+                Text(heading).weight(tokens.typography.font_weight_bold),
                 identifier: Some(heading_identifier),
             ),
+            SemanticsRegion(
+                MarkdownContent::new(section.step.markdown.clone()),
+                identifier: Some("goal-step-copy".to_string()),
+            ),
+            if let Some(checkpoint) = &section.step.checkpoint {
+                SemanticsRegion(
+                    identifier: Some("goal-checkpoint".to_string()),
+                    label: Some(cx.view.env().tr("goal.checkpoint")),
+                    child: Row(gap: tokens.spacing.m, align_items: ir_op::AlignItems::Start, children: [
+                        Icon::svg(material::action::info::regular())
+                            .size(tokens.spacing.l)
+                            .color(tokens.colors.primary),
+                        MarkdownContent::new(checkpoint.clone()),
+                    ]),
+                )
+            },
             if section.step.preview {
-                Row(gap: tokens.spacing.l, align_items: ir_op::AlignItems::Stretch, children: [
+                Column(gap: tokens.spacing.m, children: [
                     SemanticsRegion(
-                        MarkdownContent::new(section.step.markdown.clone()),
-                        identifier: Some("goal-step-copy".to_string()),
-                    ),
-                    Column(gap: tokens.spacing.s, children: [
-                    SemanticsRegion(
-                        identifier: Some("goal-live-label".to_string()),
-                        child: Row(gap: tokens.spacing.s, children: [
-                            Icon::svg(material::av::play_arrow::regular())
-                                .size(tokens.spacing.m)
-                                .color(tokens.colors.primary),
-                            copy("goal.live").weight(tokens.typography.font_weight_bold),
-                            Spacer(flex_grow: 1.0),
-                            copy("goal.compiled").color(tokens.colors.text_secondary),
-                        ]),
-                    ),
-                    SemanticsRegion(
-                        identifier: Some("goal-live-preview".to_string()),
-                        child: WebView(
-                            id: preview_id,
-                            url: section.step.preview_url(&section.app),
-                            label: Some(preview_label),
-                            height: Some(460.0),
+                        identifier: Some("goal-preview-toggle".to_string()),
+                        child: Button(
+                            child: Row(gap: tokens.spacing.s, align_items: ir_op::AlignItems::Center, children: [
+                                Icon::svg(material::av::play_arrow::regular())
+                                    .size(tokens.spacing.m)
+                                    .color(tokens.colors.primary),
+                                Text(cx.view.env().tr(preview_action)),
+                            ]),
+                            key: "toggle-step-preview",
+                            on_press: reduce {
+                                section.preview_open = !section.preview_open;
+                            },
                         ),
                     ),
-                    if let Some(checkpoint) = &section.step.checkpoint {
+                    if section.preview_open {
                         SemanticsRegion(
-                            identifier: Some("goal-checkpoint".to_string()),
-                            label: Some(cx.view.env().tr("goal.checkpoint")),
-                            child: Row(gap: tokens.spacing.m, align_items: ir_op::AlignItems::Start, children: [
-                                Icon::svg(material::action::info::regular())
-                                    .size(tokens.spacing.l)
-                                    .color(tokens.colors.primary),
-                                MarkdownContent::new(checkpoint.clone()),
-                            ]),
+                            identifier: Some("goal-live-preview".to_string()),
+                            child: WebView(
+                                id: preview_id,
+                                url: section.step.preview_url(&section.app),
+                                label: Some(preview_label),
+                                height: Some(560.0),
+                            ),
                         )
                     },
-                    ]),
                 ])
-            } else {
-                SemanticsRegion(
-                    MarkdownContent::new(section.step.markdown.clone()),
-                    identifier: Some("goal-step-copy".to_string()),
-                )
             },
         ]),
         key: section.step.id.clone(),

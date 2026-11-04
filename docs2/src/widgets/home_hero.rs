@@ -12,6 +12,7 @@ fission_component! {
     }
     view(_hero, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
+        let highlighted_source = format!("```rust\n{}\n```", _hero.source);
     } =>
     SemanticsRegion(
         identifier: Some("home-hero".to_string()),
@@ -28,12 +29,10 @@ fission_component! {
                             .weight(tokens.typography.font_weight_semibold),
                         SemanticsRegion(
                             copy("home.title")
-                                .size(tokens.typography.display_md_size)
                                 .weight(tokens.typography.font_weight_bold),
                             identifier: Some("site-heading-1:home".to_string()),
                         ),
                         copy("home.summary")
-                            .size(tokens.typography.body_large_size)
                             .color(tokens.colors.text_secondary),
                         Row(gap: tokens.spacing.m, children: [
                             SemanticsRegion(
@@ -62,7 +61,7 @@ fission_component! {
                                 identifier: Some("home-hero-code".to_string()),
                                 child: Column(children: [
                                     copy("home.filename").weight(tokens.typography.font_weight_semibold),
-                                    Code(text: _hero.source.clone()),
+                                    MarkdownContent::new(highlighted_source),
                                 ]),
                             ),
                             SemanticsRegion(

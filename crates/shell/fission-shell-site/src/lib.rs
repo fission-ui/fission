@@ -35,3 +35,4 @@ pub use site::{
     build_from_cli, ContentTransform, CustomRoute, FissionSite, SiteLocaleContext, SitePageElement,
     SitePageElementFilter, SitePageElementPlacement, SiteRenderContext,
 };
+pub use tabs::expand_mdx_tabs;

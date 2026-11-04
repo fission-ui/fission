@@ -43,13 +43,11 @@ fission_component! {
                                         .weight(tokens.typography.font_weight_semibold),
                                     SemanticsRegion(
                                         copy(page.product.title_key)
-                                            .size(tokens.typography.display_md_size)
                                             .weight(tokens.typography.font_weight_bold)
                                             .wrap(true),
                                         identifier: Some(title_heading_identifier),
                                     ),
                                     copy(page.product.summary_key)
-                                        .size(tokens.typography.body_large_size)
                                         .color(tokens.colors.text_secondary)
                                         .wrap(true),
                                     Row(gap: tokens.spacing.m, wrap: ir_op::FlexWrap::Wrap, children: [
@@ -75,7 +73,6 @@ fission_component! {
                         child: Column(gap: tokens.spacing.l, children: [
                             SemanticsRegion(
                                 copy("product.benefits.title")
-                                    .size(tokens.typography.heading1_size)
                                     .weight(tokens.typography.font_weight_bold),
                                 identifier: Some("site-heading-2:product-benefits".to_string()),
                             ),
@@ -92,7 +89,6 @@ fission_component! {
                             child: Column(gap: tokens.spacing.l, children: [
                                 SemanticsRegion(
                                     copy("product.catalog.title")
-                                        .size(tokens.typography.heading1_size)
                                         .weight(tokens.typography.font_weight_bold),
                                     identifier: Some("site-heading-2:product-catalog".to_string()),
                                 ),

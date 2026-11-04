@@ -27,7 +27,6 @@ fission_component! {
             Column(gap: tokens.spacing.xs, children: [
                 SemanticsRegion(
                     copy(group.title_key)
-                        .size(tokens.typography.heading2_size)
                         .weight(tokens.typography.font_weight_bold),
                     identifier: Some(heading_identifier),
                 ),

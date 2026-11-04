@@ -18,19 +18,20 @@ fission_component! {
     pub ComposeSection<DocsState> {}
     view(_section, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
+        let highlighted_example = format!("```rust\n{}\n```", EXAMPLE);
     } =>
     SemanticsRegion(
         identifier: Some("home-compose".to_string()),
         child: Column(gap: tokens.spacing.m, children: [
             SemanticsRegion(
-                copy("home.compose.title").size(tokens.typography.heading1_size).weight(tokens.typography.font_weight_bold),
+                copy("home.compose.title").weight(tokens.typography.font_weight_bold),
                 identifier: Some("site-heading-2:compose".to_string()),
             ),
             Row(gap: tokens.spacing.xl, align_items: ir_op::AlignItems::Start, children: [
-                Code(text: EXAMPLE.to_string()),
+                MarkdownContent::new(highlighted_example),
                 Column(gap: tokens.spacing.m, children: [
                     SemanticsRegion(
-                        copy("home.compose.subtitle").size(tokens.typography.heading2_size).weight(tokens.typography.font_weight_bold),
+                        copy("home.compose.subtitle").weight(tokens.typography.font_weight_bold),
                         identifier: Some("site-heading-3:compose-subtitle".to_string()),
                     ),
                     copy("home.compose.body").color(tokens.colors.text_secondary),

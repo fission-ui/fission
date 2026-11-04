@@ -24,7 +24,6 @@ fission_component! {
             children: [
                 SemanticsRegion(
                     copy("home.goal.title")
-                        .size(tokens.typography.heading1_size)
                         .weight(tokens.typography.font_weight_bold),
                     identifier: Some("site-heading-2:choose-a-project".to_string()),
                 ),
