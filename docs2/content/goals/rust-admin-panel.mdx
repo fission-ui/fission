@@ -1,104 +1,253 @@
 ---
 layout: goal
 title: Build an admin panel in Rust
-description: Compose a responsive Rust administration panel with task-focused navigation, summary cards, selectable tables, validated forms and permission-aware actions.
-goal: Let an administrator review a record and make an authorised change without losing context
+description: Build a customer support admin panel in Rust with a searchable ticket queue, ticket details, internal notes and permission-aware resolution.
+goal: Help a support supervisor find a customer issue, understand its history and resolve it with a documented action
 path: /blog/build-an-admin-panel-in-rust/
 order: 10
 difficulty: Beginner
-duration: 50 minutes
+duration: 55 minutes
 run_command: "fission run --target web --project-dir ."
 app: rust-admin-panel
 outcomes:
-  - Build a task-focused dashboard and record list
-  - Select a record and edit a draft
-  - Check permissions and explain save failures
+  - Read a support queue without losing ticket context
+  - Search and filter tickets while keeping the selected issue visible
+  - Require an internal note and a supervisor role before resolving a ticket
 ---
 
-Compose a responsive Rust administration panel with task-focused navigation, summary cards, selectable tables, validated forms and permission-aware actions. This tutorial takes you from project setup to a runnable result in three steps. Each step’s `src/app.rs` component is compiled into the WebAssembly preview shown beside its code, so you can try the same Fission component while you read. The preview keeps selection and filter state in the component. Load records and check permissions through your app state and server service in the finished admin panel.
+A support supervisor opening an admin panel needs to answer a few connected questions: which customer is waiting, what happened, who owns the issue, and what action is safe to take? A table of labels does not answer those questions. We will build a small support workspace that keeps the ticket queue and the selected conversation in view, then adds the checks that make a resolution understandable to the next person.
 
-## What you will build
+The example follows a fictional team at Harbour Support. Its records are sample data held in the browser for this lesson, so the preview can be used without an account or server. The same screen structure can connect to a ticket service later. Search, filters, the role demonstration and the unfinished note belong to this screen, so the component retains them locally. The selected ticket ID belongs in shared app state because the queue and detail pane both read it. In a real application, ticket records come from a service and permission decisions are made on the server.
 
-Build an admin workspace with a responsive sidebar, summary counts, a read-only records table and an edit flow with a timeline of recent changes.
+## Create the Web project
 
-Install the Fission CLI and scaffold the Web project:
+Install the Fission command line tool if it is not already available, then scaffold the browser target. The generated shell starts the app; the screen we build below lives in shared Rust code.
 
+<Tabs>
+<TabItem label="Create the project">
 ```sh
 cargo install cargo-fission
-fission init harbour-admin
-cd harbour-admin
+fission init harbour-support
+cd harbour-support
 fission add-target web --project-dir .
 ```
-
-## Project layout
-
+</TabItem>
+<TabItem label="Where the code goes">
 ```text
-harbour-admin/
-├── Cargo.toml                 # generated dependencies
-├── fission.toml               # app identity, targets and capabilities
+harbour-support/
+├── Cargo.toml
+├── fission.toml
 ├── src/
-│   ├── main.rs                 # generated desktop entrypoint
-│   ├── lib.rs                  # shared app setup
-│   ├── app.rs                  # the Fission component shown in this tutorial
-│   ├── state.rs
-│   ├── models/task.rs
-│   ├── components/task_table.rs
-│   └── effects/tasks.rs
-├── platforms/                  # generated host files after add-target
-└── tests/                      # project-specific flow checks
+│   ├── main.rs
+│   ├── lib.rs
+│   ├── app.rs             # SupportOperationsDashboard and ticket records
+│   ├── state.rs           # shared ticket data in the finished app
+│   └── services/
+│       └── tickets.rs     # server calls in the finished app
+└── platforms/
+    └── web/
 ```
+</TabItem>
+</Tabs>
 
-`fission init` generates `Cargo.toml`, `fission.toml`, `src/main.rs`, `src/lib.rs` and `src/app.rs`. Add the task modules in the tree as you build the feature. Keep data shared across routes in `GlobalState`, and keep retained interaction such as a disclosure or draft field in the owning `fission_component!`. Request database, filesystem, network and session work through a reducer effect, job or service; never run host work while a component view is being built.
+The generated project already contains the entry point and shared app setup. Put the first screen in app.rs so we can understand the user task before splitting data loading or actions into other modules.
 
-`preview/lib.rs` is a documentation harness. The page compiles each complete `src/app.rs` component into WebAssembly so you can use the same UI while reading. Its host results are deterministic preview states; the target-specific host work described in this tutorial runs in each target project code, not in the browser preview.
+<!-- fission:step id="queue" -->
+## Start with the support queue
 
-<!-- fission:step id="start-screen" -->
-## Build a task-focused dashboard and record list
+Start from the queue a supervisor sees when opening the workspace. Each row answers a different part of the triage question: the customer and subject explain the issue, the category and priority describe its impact, and the assignee shows who should act next. The summary cards give a quick sense of the backlog, but the ticket list remains the main content.
 
-Begin with the screen needed for this task. The first render gives you a concrete checkpoint before you add interaction state.
-
-Use props for page copy and read theme tokens through cx.view.env(). The component below keeps presentation aligned with the active design system.
+Notice that the queue is a reusable screen component with a domain name. The sample records are kept near the screen for now because they are only preview data; when records are loaded from a service, move the model and shared state into their own modules.
 
 <Tabs>
 <TabItem label="src/app.rs">
 <!-- fission:file path="src/app.rs" -->
 ```rust
 use fission::prelude::*;
-fission_component! {
-    pub AdminPanel<()> {
-        props {
-            title: String,
-            detail: String,
-            action: String,
-            success: String,
-            empty: String,
-        }
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct SupportState {
+    pub selected_ticket: u32,
+}
+
+impl Default for SupportState {
+    fn default() -> Self {
+        Self { selected_ticket: 301 }
     }
-    view(preview, _state, cx) {
+}
+
+impl GlobalState for SupportState {}
+
+#[fission_reducer(TicketSelected)]
+pub fn on_ticket_selected(state: &mut SupportState, ticket_id: u32) {
+    state.selected_ticket = ticket_id;
+}
+
+#[derive(Clone)]
+pub struct SupportTicket {
+    id: u32,
+    reference: &'static str,
+    subject: &'static str,
+    customer: &'static str,
+    category: &'static str,
+    priority: &'static str,
+    status: &'static str,
+    assignee: &'static str,
+    age: &'static str,
+}
+
+fn sample_tickets() -> Vec<SupportTicket> {
+    vec![
+        SupportTicket {
+            id: 301,
+            reference: "HS-4301",
+            subject: "The annual plan renewed twice",
+            customer: "Maya Chen",
+            category: "Billing",
+            priority: "Urgent",
+            status: "Open",
+            assignee: "Alex Chen",
+            age: "12 min ago",
+        },
+        SupportTicket {
+            id: 302,
+            reference: "HS-4298",
+            subject: "Export stops at 80 percent",
+            customer: "Theo Martin",
+            category: "Data export",
+            priority: "High",
+            status: "Open",
+            assignee: "Priya Shah",
+            age: "36 min ago",
+        },
+        SupportTicket {
+            id: 303,
+            reference: "HS-4291",
+            subject: "Invite link says it has expired",
+            customer: "Jordan Lee",
+            category: "Team access",
+            priority: "Normal",
+            status: "Open",
+            assignee: "Alex Chen",
+            age: "1 hr ago",
+        },
+        SupportTicket {
+            id: 304,
+            reference: "HS-4287",
+            subject: "Need an invoice with our tax number",
+            customer: "Sam Rivera",
+            category: "Billing",
+            priority: "Normal",
+            status: "Waiting",
+            assignee: "Priya Shah",
+            age: "2 hrs ago",
+        },
+        SupportTicket {
+            id: 305,
+            reference: "HS-4279",
+            subject: "Cannot remove a former teammate",
+            customer: "Avery Wilson",
+            category: "Team access",
+            priority: "High",
+            status: "Open",
+            assignee: "Alex Chen",
+            age: "3 hrs ago",
+        },
+    ]
+}
+
+fission_component! {
+    pub SupportQueueRow<()> { ticket: SupportTicket }
+    view(row, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
     Container(
-        Column(
-            gap: tokens.spacing.m,
-            children: [
-                Text(preview.title.clone()).weight(tokens.typography.font_weight_bold),
-                Text(preview.detail.clone()).color(tokens.colors.text_secondary),
-                Row(gap: tokens.spacing.m,
-                    children: [Text("Overview"),
-                        Text("Orders"),
-                        Text("Customers")]),
-                Text("Orders today: 18"),
-                Text("Order 1042 — awaiting review"),
-                Text(format!("Next action: {}",
-                        preview.action)),
-                Text(preview.empty.clone()).color(tokens.colors.text_secondary),
-            ]
-        )
+        Column(gap: tokens.spacing.xs, children: [
+            Row(gap: tokens.spacing.m, wrap: ir_op::FlexWrap::Wrap,
+                children: [
+                    Text(row.ticket.subject)
+                        .weight(tokens.typography.font_weight_semibold),
+                    Text(row.ticket.priority),
+                ]),
+            Text(format!("{} · {} · {}",
+                row.ticket.reference, row.ticket.customer, row.ticket.category)),
+            Row(gap: tokens.spacing.m, wrap: ir_op::FlexWrap::Wrap,
+                children: [
+                    Text(format!("{} · {}", row.ticket.status, row.ticket.assignee))
+                        .color(tokens.colors.text_secondary),
+                    Text(row.ticket.age).color(tokens.colors.text_secondary),
+                ]),
+        ]),
     )
-    .padding_all(tokens.spacing.l)
+    .padding_all(tokens.spacing.m)
     .bg(tokens.colors.surface)
     .border(tokens.colors.border, 1.0)
-    .border_radius(tokens.radii.large)
+    .border_radius(tokens.radii.medium)
+}
+
+fission_component! {
+    pub SupportOperationsDashboard<SupportState> {
+        props {
+            team_name: String,
+        }
+    }
+    view(page, state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let tickets = sample_tickets();
+        let open_count = tickets.iter().filter(|ticket| ticket.status == "Open").count();
+        let urgent_count = tickets.iter().filter(|ticket| ticket.priority == "Urgent").count();
+        let waiting_count = tickets.iter().filter(|ticket| ticket.status == "Waiting").count();
+    } =>
+    Container(
+        Column(gap: tokens.spacing.l, children: [
+            Row(gap: tokens.spacing.m, wrap: ir_op::FlexWrap::Wrap, children: [
+                Column(gap: tokens.spacing.xs, children: [
+                    Text(page.team_name.clone())
+                        .weight(tokens.typography.font_weight_bold),
+                    Text("Customer operations · North America")
+                        .color(tokens.colors.text_secondary),
+                ]),
+                Text("Alex Chen · Supervisor"),
+            ]),
+            Grid(
+                columns: vec![GridTrack::auto_fit(GridTrack::minmax(
+                    GridTrack::Points(180.0),
+                    GridTrack::Fr(1.0),
+                ))],
+                rows: vec![GridTrack::Auto],
+                column_gap: tokens.spacing.m,
+                row_gap: tokens.spacing.s,
+                children: [
+                    Column(children: [
+                        Text(format!("{} tickets", open_count))
+                            .weight(tokens.typography.font_weight_semibold),
+                        Text("Open").color(tokens.colors.text_secondary),
+                    ]),
+                    Column(children: [
+                        Text(format!("{} ticket", urgent_count))
+                            .weight(tokens.typography.font_weight_semibold),
+                        Text("Needs urgent attention")
+                            .color(tokens.colors.text_secondary),
+                    ]),
+                    Column(children: [
+                        Text(format!("{} ticket", waiting_count))
+                            .weight(tokens.typography.font_weight_semibold),
+                        Text("Waiting on a customer")
+                            .color(tokens.colors.text_secondary),
+                    ]),
+                ],
+            ),
+            Column(gap: tokens.spacing.s, children: [
+                Text("Tickets assigned to the team")
+                    .weight(tokens.typography.font_weight_semibold),
+                for ticket in tickets.iter() {
+                    SupportQueueRow(ticket.clone(), key: ticket.id)
+                },
+            ]),
+        ]),
+    )
+    .padding_all(tokens.spacing.l)
+    .bg(tokens.colors.background)
 }
 ```
 </TabItem>
@@ -113,15 +262,13 @@ use wasm_bindgen::prelude::*;
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::AdminPanel::new(
-        "Admin workspace".to_string(),
-        "Review records, activity and account access.".to_string(),
-        "Review a record".to_string(),
-        "The record is selected and its activity is visible.".to_string(),
-        "No records are available. Create a record or change the filter.".to_string(),
+
+    let dashboard = app::SupportOperationsDashboard::new(
+        "Harbour Support".to_string(),
     );
-    WebApp::<(), _>::new(preview)
-        .with_title("Build an admin panel in Rust")
+
+    WebApp::<app::SupportState, _>::new(dashboard)
+        .with_title("Harbour Support ticket queue")
         .mount("#fission-web-mount")
         .run()
         .map_err(|error| JsValue::from_str(&error.to_string()))
@@ -132,67 +279,251 @@ pub fn run() -> Result<(), JsValue> {
 <!-- fission:preview -->
 
 <!-- fission:checkpoint -->
-Build a task-focused dashboard and record list: Confirm the initial screen names the task and its next action.
+Before adding controls, read one row aloud as a complete handoff: customer, issue, urgency, status and owner should all be visible without opening a second screen.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 
-<!-- fission:step id="main-flow" -->
-## Select a record and edit a draft
+<!-- fission:step id="find-and-inspect" -->
+The list is useful for scanning, but a supervisor still needs to find one customer’s case and inspect its details. We will add search and queue filters next. Search text and the active filter only affect this screen, so the component retains them locally. The selected ticket ID lives in SupportState because the queue and detail pane both depend on it.
 
-Keep navigation, selected record and form draft in the smallest state scope that owns them. On a narrow screen, replace the permanent sidebar with a compact section picker and keep the record's important fields visible before secondary details.
+## Find a ticket and inspect its history
 
-The source below makes the main task interactive using retained component state and explicit controls.
-This state belongs to the component because it only remembers this view's interaction. Durable data shared across routes belongs in GlobalState and changes through reducers.
+The supervisor’s work usually begins with a name, a ticket number or a queue such as “urgent” or “assigned to me.” Search across both customer and issue text so a partial name still finds the right conversation. When a row is selected, keep the detail panel visible even while filters change; otherwise the user can lose the issue they were reading.
+
+This step gives every selectable row a stable key based on its ticket id. That key matters because these rows are generated from data and their order may change as the query or filter changes.
+
 <Tabs>
 <TabItem label="src/app.rs">
 <!-- fission:file path="src/app.rs" -->
 ```rust
 use fission::prelude::*;
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct SupportState {
+    pub selected_ticket: u32,
+}
+
+impl Default for SupportState {
+    fn default() -> Self {
+        Self { selected_ticket: 301 }
+    }
+}
+
+impl GlobalState for SupportState {}
+
+#[fission_reducer(TicketSelected)]
+pub fn on_ticket_selected(state: &mut SupportState, ticket_id: u32) {
+    state.selected_ticket = ticket_id;
+}
+
+#[derive(Clone)]
+struct SupportTicket {
+    id: u32,
+    reference: &'static str,
+    subject: &'static str,
+    customer: &'static str,
+    category: &'static str,
+    priority: &'static str,
+    status: &'static str,
+    assignee: &'static str,
+    age: &'static str,
+    summary: &'static str,
+    customer_message: &'static str,
+    agent_message: &'static str,
+}
+
+fn sample_tickets() -> Vec<SupportTicket> {
+    vec![
+        SupportTicket {
+            id: 301, reference: "HS-4301",
+            subject: "The annual plan renewed twice",
+            customer: "Maya Chen", category: "Billing",
+            priority: "Urgent", status: "Open",
+            assignee: "Alex Chen", age: "12 min ago",
+            summary: "Maya changed her workspace from monthly to annual yesterday. Her bank shows two annual charges, and she needs confirmation before the finance team closes today's books.",
+            customer_message: "My bank shows two annual charges after I switched the workspace to annual.",
+            agent_message: "I’m comparing the billing events and will confirm what happened before I close this.",
+        },
+        SupportTicket {
+            id: 302, reference: "HS-4298",
+            subject: "Export stops at 80 percent",
+            customer: "Theo Martin", category: "Data export",
+            priority: "High", status: "Open",
+            assignee: "Priya Shah", age: "36 min ago",
+            summary: "Theo is exporting a 14-month report for an audit. The browser shows no error, but the download never starts. He can still export a shorter date range.",
+            customer_message: "The 14-month export stops at 80 percent, but a shorter range downloads.",
+            agent_message: "Thanks, I’ve added the date range and browser details for the export team.",
+        },
+        SupportTicket {
+            id: 303, reference: "HS-4291",
+            subject: "Invite link says it has expired",
+            customer: "Jordan Lee", category: "Team access",
+            priority: "Normal", status: "Open",
+            assignee: "Alex Chen", age: "1 hr ago",
+            summary: "Jordan invited a new finance colleague. The invite was opened the next morning and the link had expired. The colleague has not joined the workspace yet.",
+            customer_message: "The invitation worked yesterday, but now my colleague sees an expired link.",
+            agent_message: "I’m checking the invitation age and workspace access settings.",
+        },
+        SupportTicket {
+            id: 304, reference: "HS-4287",
+            subject: "Need an invoice with our tax number",
+            customer: "Sam Rivera", category: "Billing",
+            priority: "Normal", status: "Waiting",
+            assignee: "Priya Shah", age: "2 hrs ago",
+            summary: "Sam sent the company tax number and is waiting for a corrected invoice. The billing team has the details needed to prepare it.",
+            customer_message: "I sent our tax number this morning. Could you resend the invoice with it?",
+            agent_message: "I’ve passed the tax details to billing and will update you when the invoice is ready.",
+        },
+        SupportTicket {
+            id: 305, reference: "HS-4279",
+            subject: "Cannot remove a former teammate",
+            customer: "Avery Wilson", category: "Team access",
+            priority: "High", status: "Open",
+            assignee: "Alex Chen", age: "3 hrs ago",
+            summary: "Avery is a workspace owner and needs to remove a former contractor before the next access review. The member still appears in the workspace list.",
+            customer_message: "The contractor’s account is still listed after their project ended.",
+            agent_message: "I’m checking the member’s role and the workspace’s ownership rules.",
+        },
+    ]
+}
+
 fission_component! {
-    pub AdminPanel<()> {
+    pub SupportOperationsDashboard<SupportState> {
         props {
-            title: String,
-            detail: String,
-            action: String,
-            success: String,
-            empty: String,
+            team_name: String,
         }
         state {
-            selected: bool = false,
-            editing: bool = false,
-            has_error: bool = false,
+            query: String = String::new(),
+            active_filter: String = "All open".to_string(),
         }
     }
-    view(preview, _state, cx) {
+    view(page, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
+        let tickets = sample_tickets();
+        let query = page.query.trim().to_lowercase();
+        let visible_tickets: Vec<SupportTicket> = tickets.iter()
+            .filter(|ticket| {
+                let matches_query = query.is_empty()
+                    || ticket.customer.to_lowercase().contains(&query)
+                    || ticket.subject.to_lowercase().contains(&query)
+                    || ticket.reference.to_lowercase().contains(&query);
+                let matches_filter = match page.active_filter.as_str() {
+                    "Urgent" => ticket.priority == "Urgent",
+                    "Assigned to me" => ticket.assignee == "Alex Chen",
+                    _ => ticket.status == "Open",
+                };
+                matches_query && matches_filter
+            })
+            .cloned()
+            .collect();
+        let selected = tickets.iter()
+            .find(|ticket| ticket.id == state.selected_ticket)
+            .expect("the selected ticket is in the sample queue");
+        let open_count = tickets.iter().filter(|ticket| ticket.status == "Open").count();
+        let urgent_count = tickets.iter().filter(|ticket| ticket.priority == "Urgent").count();
     } =>
     Container(
-        Column(
-            gap: tokens.spacing.m,
-            children: [
-                Text(preview.title.clone()).weight(tokens.typography.font_weight_bold),
-                Text(preview.detail.clone()).color(tokens.colors.text_secondary),
-                Button(child: Text(if preview.selected { "Close order".to_string() } else { preview.action.clone() }),
-                    key: "select-order",
-                    on_press: reduce { preview.selected = !preview.selected; }),
-                if preview.selected { Column(children: [Text("Order 1042 — awaiting review"),
-                            Text("Customer: Mira Patel"),
-                            Button(child: Text("Edit order"),
-                                key: "edit-order",
-                                on_press: reduce { preview.editing = !preview.editing; }),
-                            if preview.editing { Text("Draft status: Ready to ship") } else { Text("Status: Awaiting review") }]) } else { Text(preview.empty.clone()) },
-                Button(child: Text(if preview.has_error { "Try again".to_string() } else { "Preview denied permission".to_string() }),
-                    key: "preview-error",
-                    on_press: reduce { preview.has_error = !preview.has_error; }),
-                if preview.has_error { Text("You do not have permission to edit this order. The record has not changed.") } else { Text(preview.success.clone()) },
-                Text(preview.empty.clone()).color(tokens.colors.text_secondary),
-            ]
-        )
+        Column(gap: tokens.spacing.l, children: [
+            Row(gap: tokens.spacing.m, wrap: ir_op::FlexWrap::Wrap, children: [
+                Column(gap: tokens.spacing.xs, children: [
+                    Text(page.team_name.clone()).weight(tokens.typography.font_weight_bold),
+                    Text("Customer operations · North America")
+                        .color(tokens.colors.text_secondary),
+                ]),
+                Text("Alex Chen · Supervisor"),
+            ]),
+            Grid(
+                columns: vec![GridTrack::auto_fit(GridTrack::minmax(
+                    GridTrack::Points(180.0), GridTrack::Fr(1.0),
+                ))],
+                rows: vec![GridTrack::Auto],
+                column_gap: tokens.spacing.m,
+                row_gap: tokens.spacing.s,
+                children: [
+                    Column(children: [
+                        Text(format!("{} open", open_count)),
+                        Text("Team queue").color(tokens.colors.text_secondary),
+                    ]),
+                    Column(children: [
+                        Text(format!("{} urgent", urgent_count)),
+                        Text("Needs attention").color(tokens.colors.text_secondary),
+                    ]),
+                ],
+            ),
+            TextInput(
+                label: Some("Search tickets".into()),
+                placeholder: Some("Customer, subject or ticket number".into()),
+                bind: page.query,
+                semantics_identifier: "support.search".to_string(),
+            ),
+            Row(gap: tokens.spacing.s, wrap: ir_op::FlexWrap::Wrap, children: [
+                Button(child: Text("All open"), key: "filter-open",
+                    on_press: reduce { page.active_filter = "All open".to_string(); }),
+                Button(child: Text("Urgent"), key: "filter-urgent",
+                    on_press: reduce { page.active_filter = "Urgent".to_string(); }),
+                Button(child: Text("Assigned to me"), key: "filter-mine",
+                    on_press: reduce { page.active_filter = "Assigned to me".to_string(); }),
+            ]),
+            Text(format!("{} tickets match this view", visible_tickets.len()))
+                .color(tokens.colors.text_secondary),
+            Grid(
+                columns: vec![GridTrack::auto_fit(GridTrack::minmax(
+                    GridTrack::Points(270.0), GridTrack::Fr(1.0),
+                ))],
+                rows: vec![GridTrack::Auto],
+                column_gap: tokens.spacing.l,
+                row_gap: tokens.spacing.m,
+                children: [
+                    Column(gap: tokens.spacing.s, children: [
+                        Text("Queue").weight(tokens.typography.font_weight_semibold),
+                        for ticket in visible_tickets.iter() {
+                            Button(
+                                child: Container(Column(gap: tokens.spacing.xs, children: [
+                                    Text(ticket.subject)
+                                        .weight(tokens.typography.font_weight_semibold),
+                                    Text(format!("{} · {}", ticket.reference, ticket.customer)),
+                                    Text(format!("{} · {} · {}",
+                                        ticket.priority, ticket.status, ticket.assignee))
+                                        .color(tokens.colors.text_secondary),
+                                ]))
+                                .padding_all(tokens.spacing.m)
+                                .bg(tokens.colors.surface)
+                                .border(tokens.colors.border, 1.0)
+                                .border_radius(tokens.radii.medium),
+                                key: format!("ticket-{}", ticket.id),
+                                on_press: with_reducer!(
+                                    cx.build,
+                                    TicketSelected(ticket.id),
+                                    on_ticket_selected,
+                                ),
+                            )
+                        },
+                    ]),
+                    Container(Column(gap: tokens.spacing.s, children: [
+                        Text(format!("{} · {}", selected.reference, selected.status))
+                            .color(tokens.colors.text_secondary),
+                        Text(selected.subject)
+                            .weight(tokens.typography.font_weight_bold),
+                        Text(format!("{} · {}", selected.customer, selected.category)),
+                        Text(selected.summary),
+                        Text("Conversation"),
+                        Text("Customer · 9:14 AM"),
+                        Text("“I changed the plan yesterday, and my bank now shows two annual charges.”"),
+                        Text("Alex · 9:22 AM"),
+                        Text("“I’m checking the billing record and will confirm before I close this request.”"),
+                        Text(format!("Assigned to {}", selected.assignee))
+                            .color(tokens.colors.text_secondary),
+                    ]))
+                    .padding_all(tokens.spacing.l)
+                    .bg(tokens.colors.surface)
+                    .border(tokens.colors.border, 1.0)
+                    .border_radius(tokens.radii.medium),
+                ],
+            ),
+        ]),
     )
     .padding_all(tokens.spacing.l)
-    .bg(tokens.colors.surface)
-    .border(tokens.colors.border, 1.0)
-    .border_radius(tokens.radii.large)
+    .bg(tokens.colors.background)
 }
 ```
 </TabItem>
@@ -207,15 +538,13 @@ use wasm_bindgen::prelude::*;
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::AdminPanel::new(
-        "Admin workspace".to_string(),
-        "Review records, activity and account access.".to_string(),
-        "Review a record".to_string(),
-        "The record is selected and its activity is visible.".to_string(),
-        "No records are available. Create a record or change the filter.".to_string(),
+
+    let dashboard = app::SupportOperationsDashboard::new(
+        "Harbour Support".to_string(),
     );
-    WebApp::<(), _>::new(preview)
-        .with_title("Build an admin panel in Rust")
+
+    WebApp::<app::SupportState, _>::new(dashboard)
+        .with_title("Harbour Support ticket queue")
         .mount("#fission-web-mount")
         .run()
         .map_err(|error| JsValue::from_str(&error.to_string()))
@@ -226,67 +555,299 @@ pub fn run() -> Result<(), JsValue> {
 <!-- fission:preview -->
 
 <!-- fission:checkpoint -->
-Select a record and edit a draft: Use the preview control and check that the result matches the action.
+Search for “Maya” and select ticket HS-4301. Then choose Urgent and Assigned to me. The detail stays on the same customer even if a filter hides the row, so the person reading the case does not lose their place.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 
-<!-- fission:step id="edge-state" -->
-## Check permissions and explain save failures
+<!-- fission:step id="resolve-with-context" -->
+Selection and search solve the “find the case” part of the task. A realistic admin screen also needs an accountable change. Resolving a customer issue should leave an internal note describing what the supervisor checked, and it should be unavailable to an agent who lacks that permission.
 
-Treat permissions as data checked before an action runs. Keep read-only records visually distinct from controls, explain why an action is unavailable, and preserve the selected row when the edit form returns an error.
+The note field below belongs to this screen as an unfinished draft. The resolved status shown in the preview is also local demonstration state; an application should send the action to an authorised service, which verifies the role again before changing the stored ticket.
 
-Keep I/O outside component conversion. Use reducers for explicit state transitions, then queue host work through an asynchronous effect, capability, job or service so the UI stays responsive.
-The preview control below simulates an unsuccessful host result. It demonstrates the message and recovery path; it does not perform authentication, database, network, or filesystem work.
+## Resolve the issue with a documented action
+
+A disabled button needs an explanation beside it. Here, the supervisor must write at least eight characters of internal context, and the role switch lets you see why an agent cannot resolve tickets. The button becomes available only when both conditions are met. After resolving, the right pane displays the note in the activity history so the next operator can see why the case was closed.
+
+The preview keeps that draft and role in component-local state because neither should survive leaving this screen. In a real application, the server must authorize the current user and append an audit event atomically with the status change. A disabled browser button improves the interaction; it does not provide security.
+
 <Tabs>
 <TabItem label="src/app.rs">
 <!-- fission:file path="src/app.rs" -->
 ```rust
 use fission::prelude::*;
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct SupportState {
+    pub selected_ticket: u32,
+}
+
+impl Default for SupportState {
+    fn default() -> Self {
+        Self { selected_ticket: 301 }
+    }
+}
+
+impl GlobalState for SupportState {}
+
+#[fission_reducer(TicketSelected)]
+pub fn on_ticket_selected(state: &mut SupportState, ticket_id: u32) {
+    state.selected_ticket = ticket_id;
+}
+
+#[derive(Clone)]
+struct SupportTicket {
+    id: u32,
+    reference: &'static str,
+    subject: &'static str,
+    customer: &'static str,
+    category: &'static str,
+    priority: &'static str,
+    status: &'static str,
+    assignee: &'static str,
+    age: &'static str,
+    summary: &'static str,
+    customer_message: &'static str,
+    agent_message: &'static str,
+}
+
+fn sample_tickets() -> Vec<SupportTicket> {
+    vec![
+        SupportTicket {
+            id: 301, reference: "HS-4301",
+            subject: "The annual plan renewed twice",
+            customer: "Maya Chen", category: "Billing",
+            priority: "Urgent", status: "Open",
+            assignee: "Alex Chen", age: "12 min ago",
+            summary: "Maya changed her workspace from monthly to annual yesterday. Her bank shows two annual charges, and she needs confirmation before the finance team closes today's books.",
+            customer_message: "My bank shows two annual charges after I switched the workspace to annual.",
+            agent_message: "I’m comparing the billing events and will confirm what happened before I close this.",
+        },
+        SupportTicket {
+            id: 302, reference: "HS-4298",
+            subject: "Export stops at 80 percent",
+            customer: "Theo Martin", category: "Data export",
+            priority: "High", status: "Open",
+            assignee: "Priya Shah", age: "36 min ago",
+            summary: "Theo is exporting a 14-month report for an audit. The browser shows no error, but the download never starts. He can still export a shorter date range.",
+            customer_message: "The 14-month export stops at 80 percent, but a shorter range downloads.",
+            agent_message: "Thanks, I’ve added the date range and browser details for the export team.",
+        },
+        SupportTicket {
+            id: 303, reference: "HS-4291",
+            subject: "Invite link says it has expired",
+            customer: "Jordan Lee", category: "Team access",
+            priority: "Normal", status: "Open",
+            assignee: "Alex Chen", age: "1 hr ago",
+            summary: "Jordan invited a new finance colleague. The invite was opened the next morning and the link had expired. The colleague has not joined the workspace yet.",
+            customer_message: "The invitation worked yesterday, but now my colleague sees an expired link.",
+            agent_message: "I’m checking the invitation age and workspace access settings.",
+        },
+        SupportTicket {
+            id: 304, reference: "HS-4287",
+            subject: "Need an invoice with our tax number",
+            customer: "Sam Rivera", category: "Billing",
+            priority: "Normal", status: "Waiting",
+            assignee: "Priya Shah", age: "2 hrs ago",
+            summary: "Sam sent the company tax number and is waiting for a corrected invoice. The billing team has the details needed to prepare it.",
+            customer_message: "I sent our tax number this morning. Could you resend the invoice with it?",
+            agent_message: "I’ve passed the tax details to billing and will update you when the invoice is ready.",
+        },
+        SupportTicket {
+            id: 305, reference: "HS-4279",
+            subject: "Cannot remove a former teammate",
+            customer: "Avery Wilson", category: "Team access",
+            priority: "High", status: "Open",
+            assignee: "Alex Chen", age: "3 hrs ago",
+            summary: "Avery is a workspace owner and needs to remove a former contractor before the next access review. The member still appears in the workspace list.",
+            customer_message: "The contractor’s account is still listed after their project ended.",
+            agent_message: "I’m checking the member’s role and the workspace’s ownership rules.",
+        },
+    ]
+}
+
 fission_component! {
-    pub AdminPanel<()> {
+    pub SupportOperationsDashboard<SupportState> {
         props {
-            title: String,
-            detail: String,
-            action: String,
-            success: String,
-            empty: String,
+            team_name: String,
         }
         state {
-            selected: bool = false,
-            editing: bool = false,
-            has_error: bool = false,
+            query: String = String::new(),
+            active_filter: String = "All open".to_string(),
+            role_is_supervisor: bool = true,
+            note: String = String::new(),
+            resolved: bool = false,
         }
     }
-    view(preview, _state, cx) {
+    view(page, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
+        let tickets = sample_tickets();
+        let query = page.query.trim().to_lowercase();
+        let visible_tickets: Vec<SupportTicket> = tickets.iter()
+            .filter(|ticket| {
+                let matches_query = query.is_empty()
+                    || ticket.customer.to_lowercase().contains(&query)
+                    || ticket.subject.to_lowercase().contains(&query)
+                    || ticket.reference.to_lowercase().contains(&query);
+                let matches_filter = match page.active_filter.as_str() {
+                    "Urgent" => ticket.priority == "Urgent",
+                    "Assigned to me" => ticket.assignee == "Alex Chen",
+                    _ => ticket.status == "Open",
+                };
+                matches_query && matches_filter
+            })
+            .cloned()
+            .collect();
+        let selected = tickets.iter()
+            .find(|ticket| ticket.id == state.selected_ticket)
+            .expect("the selected ticket is in the sample queue");
+        let open_count = tickets.iter().filter(|ticket| ticket.status == "Open").count();
+        let urgent_count = tickets.iter().filter(|ticket| ticket.priority == "Urgent").count();
+        let can_resolve = page.role_is_supervisor && page.note.trim().chars().count() >= 8 && !page.resolved;
     } =>
     Container(
-        Column(
-            gap: tokens.spacing.m,
-            children: [
-                Text(preview.title.clone()).weight(tokens.typography.font_weight_bold),
-                Text(preview.detail.clone()).color(tokens.colors.text_secondary),
-                Button(child: Text(if preview.selected { "Close order".to_string() } else { preview.action.clone() }),
-                    key: "select-order",
-                    on_press: reduce { preview.selected = !preview.selected; }),
-                if preview.selected { Column(children: [Text("Order 1042 — awaiting review"),
-                            Text("Customer: Mira Patel"),
-                            Button(child: Text("Edit order"),
-                                key: "edit-order",
-                                on_press: reduce { preview.editing = !preview.editing; }),
-                            if preview.editing { Text("Draft status: Ready to ship") } else { Text("Status: Awaiting review") }]) } else { Text(preview.empty.clone()) },
-                Button(child: Text(if preview.has_error { "Try again".to_string() } else { "Preview denied permission".to_string() }),
-                    key: "preview-error",
-                    on_press: reduce { preview.has_error = !preview.has_error; }),
-                if preview.has_error { Text("You do not have permission to edit this order. The record has not changed.") } else { Text(preview.success.clone()) },
-                Text(preview.empty.clone()).color(tokens.colors.text_secondary),
-            ]
-        )
+        Column(gap: tokens.spacing.l, children: [
+            Row(gap: tokens.spacing.m, wrap: ir_op::FlexWrap::Wrap, children: [
+                Column(gap: tokens.spacing.xs, children: [
+                    Text(page.team_name.clone()).weight(tokens.typography.font_weight_bold),
+                    Text("Customer operations · North America")
+                        .color(tokens.colors.text_secondary),
+                ]),
+                Button(
+                    child: Text(if page.role_is_supervisor {
+                        "Supervisor access".to_string()
+                    } else {
+                        "Agent · read only".to_string()
+                    }),
+                    key: "change-role",
+                    on_press: reduce {
+                        page.role_is_supervisor = !page.role_is_supervisor;
+                    },
+                ),
+            ]),
+            Grid(
+                columns: vec![GridTrack::auto_fit(GridTrack::minmax(
+                    GridTrack::Points(180.0), GridTrack::Fr(1.0),
+                ))],
+                rows: vec![GridTrack::Auto],
+                column_gap: tokens.spacing.m,
+                row_gap: tokens.spacing.s,
+                children: [
+                    Column(children: [
+                        Text(format!("{} open", open_count)),
+                        Text("Team queue").color(tokens.colors.text_secondary),
+                    ]),
+                    Column(children: [
+                        Text(format!("{} urgent", urgent_count)),
+                        Text("Needs attention").color(tokens.colors.text_secondary),
+                    ]),
+                ],
+            ),
+            TextInput(
+                label: Some("Search tickets".into()),
+                placeholder: Some("Customer, subject or ticket number".into()),
+                bind: page.query,
+                semantics_identifier: "support.search".to_string(),
+            ),
+            Row(gap: tokens.spacing.s, wrap: ir_op::FlexWrap::Wrap, children: [
+                Button(child: Text("All open"), key: "filter-open",
+                    on_press: reduce { page.active_filter = "All open".to_string(); }),
+                Button(child: Text("Urgent"), key: "filter-urgent",
+                    on_press: reduce { page.active_filter = "Urgent".to_string(); }),
+                Button(child: Text("Assigned to me"), key: "filter-mine",
+                    on_press: reduce { page.active_filter = "Assigned to me".to_string(); }),
+            ]),
+            Grid(
+                columns: vec![GridTrack::auto_fit(GridTrack::minmax(
+                    GridTrack::Points(270.0), GridTrack::Fr(1.0),
+                ))],
+                rows: vec![GridTrack::Auto],
+                column_gap: tokens.spacing.l,
+                row_gap: tokens.spacing.m,
+                children: [
+                    Column(gap: tokens.spacing.s, children: [
+                        Text(format!("{} tickets", visible_tickets.len()))
+                            .weight(tokens.typography.font_weight_semibold),
+                        for ticket in visible_tickets.iter() {
+                            Button(
+                                child: Container(Column(gap: tokens.spacing.xs, children: [
+                                    Text(ticket.subject)
+                                        .weight(tokens.typography.font_weight_semibold),
+                                    Text(format!("{} · {}", ticket.reference, ticket.customer)),
+                                    Text(format!("{} · {} · {}",
+                                        ticket.priority, ticket.status, ticket.assignee))
+                                        .color(tokens.colors.text_secondary),
+                                ]))
+                                .padding_all(tokens.spacing.m)
+                                .bg(tokens.colors.surface)
+                                .border(tokens.colors.border, 1.0)
+                                .border_radius(tokens.radii.medium),
+                                key: format!("ticket-{}", ticket.id),
+                                on_press: with_reducer!(
+                                    cx.build,
+                                    TicketSelected(ticket.id),
+                                    on_ticket_selected,
+                                ),
+                            )
+                        },
+                    ]),
+                    Container(Column(gap: tokens.spacing.s, children: [
+                        Text(format!("{} · {}", selected.reference,
+                            if page.resolved { "Resolved" } else { selected.status }))
+                            .color(tokens.colors.text_secondary),
+                        Text(selected.subject)
+                            .weight(tokens.typography.font_weight_bold),
+                        Text(format!("{} · {} · {}",
+                            selected.customer, selected.category, selected.priority)),
+                        Text(selected.summary),
+                        Text("Conversation").weight(tokens.typography.font_weight_semibold),
+                        Text(format!("{} · Customer", selected.customer)),
+                        Text(format!("“{}”", selected.customer_message)),
+                        Text(format!("{} · Alex Chen", selected.assignee)),
+                        Text(format!("“{}”", selected.agent_message)),
+                        Text("Internal note")
+                            .weight(tokens.typography.font_weight_semibold),
+                        TextInput(
+                            label: Some("Why is this issue resolved?".into()),
+                            placeholder: Some("Describe what you checked and what changed".into()),
+                            bind: page.note,
+                            semantics_identifier: "support.resolution-note".to_string(),
+                        ),
+                        Text(if !page.role_is_supervisor {
+                            "An agent can read the ticket but cannot resolve it."
+                        } else if page.note.trim().chars().count() < 8 {
+                            "Add at least eight characters so the next operator can understand this decision."
+                        } else if page.resolved {
+                            "This ticket is resolved in the browser preview."
+                        } else {
+                            "The note will be added to the activity history."
+                        })
+                        .color(tokens.colors.text_secondary),
+                        Button(
+                            child: Text(if page.resolved { "Ticket resolved" } else { "Resolve ticket" }),
+                            key: "resolve-ticket",
+                            disabled: !can_resolve,
+                            on_press: reduce { page.resolved = true; },
+                        ),
+                        if page.resolved {
+                            Column(gap: tokens.spacing.xs, children: [
+                                Text("Alex Chen · Internal note · just now"),
+                                Text(page.note.clone()),
+                            ])
+                        } else {
+                            Text("No resolution activity yet.")
+                                .color(tokens.colors.text_secondary)
+                        },
+                    ]))
+                    .padding_all(tokens.spacing.l)
+                    .bg(tokens.colors.surface)
+                    .border(tokens.colors.border, 1.0)
+                    .border_radius(tokens.radii.medium),
+                ],
+            ),
+        ]),
     )
     .padding_all(tokens.spacing.l)
-    .bg(tokens.colors.surface)
-    .border(tokens.colors.border, 1.0)
-    .border_radius(tokens.radii.large)
+    .bg(tokens.colors.background)
 }
 ```
 </TabItem>
@@ -301,15 +862,13 @@ use wasm_bindgen::prelude::*;
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::AdminPanel::new(
-        "Admin workspace".to_string(),
-        "Review records, activity and account access.".to_string(),
-        "Review a record".to_string(),
-        "The record is selected and its activity is visible.".to_string(),
-        "No records are available. Create a record or change the filter.".to_string(),
+
+    let dashboard = app::SupportOperationsDashboard::new(
+        "Harbour Support".to_string(),
     );
-    WebApp::<(), _>::new(preview)
-        .with_title("Build an admin panel in Rust")
+
+    WebApp::<app::SupportState, _>::new(dashboard)
+        .with_title("Harbour Support ticket queue")
         .mount("#fission-web-mount")
         .run()
         .map_err(|error| JsValue::from_str(&error.to_string()))
@@ -319,29 +878,23 @@ pub fn run() -> Result<(), JsValue> {
 </Tabs>
 <!-- fission:preview -->
 
-<!-- fission:checkpoint -->
-Check permissions and explain save failures: Trigger the error preview and confirm a recovery action remains available.
-<!-- /fission:checkpoint -->
-<!-- /fission:step -->
+## Connect the screen to real application data
 
-## Run, test and build the finished project
+The browser preview uses a fixed ticket set so the workbench is immediately usable. In your own project, move SupportTicket and its data loading to a model or service module, and put records shared by multiple routes in GlobalState. Search text, the selected row and an unfinished note still belong to this screen.
 
-From the project root, run the checks in order:
+A production resolution should follow this sequence: the UI dispatches an action, an asynchronous effect calls the ticket service, the service checks the signed-in user’s permission, and a reducer records the returned status and activity event. Keep the screen in a loading state while that work runs; if the service rejects it, retain the note and selected ticket and explain how the operator can recover. The client-side role switch in this lesson only demonstrates the interaction, and must never be used as the permission check.
+
+## Run the application
+
+The command starts the generated Web target from the project root:
 
 ```sh
-fission doctor --project-dir .
 fission run --target web --project-dir .
-cargo test
-fission build --target web --project-dir .
-fission test --target web --project-dir .
 ```
 
-Expected result: An administrator can find a record, edit permitted fields, and understand each save result.
+To continue, read the guides on [shared app state](/docs/guides/state-handles-and-providers/) and [responsive user interfaces](/docs/learn/responsive-ui/), then compare the accessible behavior of the [Button widget](/reference/widgets/button/).
 
-## Related Fission reference
-
-Use these precise reference pages after the working path above is clear:
-
-- [Responsive Ui](/docs/learn/responsive-ui/)
-- [State Handles And Providers](/docs/guides/state-handles-and-providers/)
-- [Accessibility](/reference/platform/accessibility/)
+<!-- fission:checkpoint -->
+Select the urgent billing ticket. Try to resolve it with an empty note; the screen explains what is missing and keeps the conversation open. Add a short note, resolve it, then switch to Agent · read only. The audit line is visible in this browser preview only; the server must perform and record the real resolution.
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->
