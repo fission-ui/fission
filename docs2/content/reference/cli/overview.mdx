@@ -374,10 +374,10 @@ Builds the static site into the output directory configured by `[site].out_dir` 
 ### `fission site serve`
 
 ```sh
-fission site serve [--project-dir <dir>] [--host <host>] [--port <port>] [--release] [--no-open]
+fission site serve [--project-dir <dir>] [--host <host>] [--port <port>] [--release] [--no-open] [--startup-timeout-seconds <seconds>]
 ```
 
-Builds the static site and serves the generated output with a local static file server. By default it binds to `127.0.0.1:8123` and opens the browser. Use `--no-open` for scripts or remote development environments.
+Builds the static site and serves the generated output with a local static file server. By default it binds to `127.0.0.1:8123` and opens the browser. Use `--no-open` for scripts or remote development environments. The build and local asset readiness deadline defaults to 900 seconds. Set `FISSION_SERVING_STARTUP_TIMEOUT_SECONDS` or pass `--startup-timeout-seconds` to change it; accepted values are 1–3600 seconds.
 
 ### `fission server check`
 

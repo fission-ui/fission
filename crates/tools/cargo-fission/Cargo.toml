@@ -28,7 +28,7 @@ path = "src/lib.rs"
 
 [dependencies]
 anyhow = "1.0"
-clap = { version = "4.5", features = ["derive"] }
+clap = { version = "4.5", features = ["derive", "env"] }
 fission-command-core = { path = "../fission-command-core", version = "0.15.1" }
 fission-command-package = { path = "../fission-command-package", version = "0.15.1" }
 fission-command-release = { path = "../fission-command-release", version = "0.15.1" }
