@@ -303,6 +303,7 @@ fn compile_preview(
         .args(["--target", "web", "--release", "--out-dir"])
         .arg(output.join("pkg"))
         .env("CARGO_TARGET_DIR", cargo_target)
+        .env("CARGO_BUILD_JOBS", "1")
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .output()

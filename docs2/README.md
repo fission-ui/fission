@@ -19,8 +19,9 @@ previews.
 
 Unique tutorial previews compile concurrently, with a default of ten workers.
 Each worker has its own Cargo target directory so concurrent `wasm-pack` builds
-do not contend over one build lock. Set `FISSION_TUTORIAL_BUILD_PARALLELISM` to
-a value from `1` to `64` to tune CPU and memory use. The site serving startup
+do not contend over one build lock, and each worker limits Cargo to one compiler
+job. Set `FISSION_TUTORIAL_BUILD_PARALLELISM` to a value from `1` to `64` to tune
+CPU and memory use. The site serving startup
 deadline defaults to 900 seconds; set `FISSION_SERVING_STARTUP_TIMEOUT_SECONDS`
 to a value from `1` to `3600` when a complete site build needs more time. The
 same timeout can be set with `--startup-timeout-seconds` on the CLI.
