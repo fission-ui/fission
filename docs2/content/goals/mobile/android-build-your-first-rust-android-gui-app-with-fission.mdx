@@ -103,6 +103,7 @@ fission_component! {
     .bg(tokens.colors.surface)
     .border(tokens.colors.border, 1.0)
     .border_radius(tokens.radii.medium)
+    .width_length(Length::percent(100.0))
 }
 
 fission_component! {
@@ -117,27 +118,41 @@ fission_component! {
         identifier: Some("packing-checklist".to_string()),
         label: Some("Harbour trail packing checklist".to_string()),
         child: Container(
-            Column(gap: tokens.spacing.l, children: [
-                Column(gap: tokens.spacing.xs, children: [
-                    Text("Harbour Trail · Weekend pack")
-                        .weight(tokens.typography.font_weight_bold),
-                    Text("A five-item essentials check before leaving the trailhead.")
-                        .color(tokens.colors.text_secondary),
-                ]),
-                Column(gap: tokens.spacing.xs, children: [
-                    Text(format!("{} of {} packed", packed, items.len()))
-                        .weight(tokens.typography.font_weight_semibold),
-                    Text(format!("{} still to pack", remaining))
-                        .color(tokens.colors.text_secondary),
-                ]),
-                Column(gap: tokens.spacing.s, children: [
-                    for item in items.iter() {
-                        PackItemRow(item.clone(), key: item.id)
-                    },
-                ]),
-            ]),
+            Column(
+                align_items: ir_op::AlignItems::Center,
+                children: [
+                    Container(
+                        Column(gap: tokens.spacing.l, children: [
+                            Column(gap: tokens.spacing.xs, children: [
+                                Text("Harbour Trail · Weekend pack")
+                                    .weight(tokens.typography.font_weight_bold),
+                                Text("A five-item essentials check before leaving the trailhead.")
+                                    .color(tokens.colors.text_secondary),
+                            ]),
+                            Column(gap: tokens.spacing.xs, children: [
+                                Text(format!("{} of {} packed", packed, items.len()))
+                                    .weight(tokens.typography.font_weight_semibold),
+                                Text(format!("{} still to pack", remaining))
+                                    .color(tokens.colors.text_secondary),
+                            ]),
+                            Column(gap: tokens.spacing.s, children: [
+                                for item in items.iter() {
+                                    PackItemRow(item.clone(), key: item.id)
+                                },
+                            ]),
+                        ]),
+                    )
+                    .padding_all(tokens.spacing.l)
+                    .bg(tokens.colors.background)
+                    .width_length(Length::clamp(
+                        Length::points(0.0),
+                        Length::percent(100.0),
+                        Length::points(900.0),
+                    )),
+                ],
+            ),
         )
-        .padding_all(tokens.spacing.l)
+        .width_length(Length::percent(100.0))
         .bg(tokens.colors.background),
     )
 }
@@ -239,7 +254,7 @@ fission_component! {
         let tokens = &cx.view.env().theme.tokens;
     } =>
     Container(
-        Row(gap: tokens.spacing.m, wrap: ir_op::FlexWrap::Wrap, children: [
+        Column(gap: tokens.spacing.s, align_items: ir_op::AlignItems::Start, children: [
             Column(gap: tokens.spacing.xs, children: [
                 Text(row.item.name).weight(tokens.typography.font_weight_semibold),
                 Text(format!(
@@ -250,11 +265,14 @@ fission_component! {
                 )).color(tokens.colors.text_secondary),
                 Text(if row.item.packed { "Packed" } else { "Still to pack" }),
             ]),
-            Spacer(flex_grow: 1.0),
             Button(
                 child: Text(if row.item.packed { "Unpack item" } else { "Mark packed" }),
                 key: "toggle-packed",
-                variant: if row.item.packed { ButtonVariant::Outline } else { ButtonVariant::Primary },
+                variant: if row.item.packed {
+                    ButtonVariant::Outline
+                } else {
+                    ButtonVariant::Primary
+                },
                 on_press: with_reducer!(
                     cx.build,
                     TogglePacked(row.item.id),
@@ -267,6 +285,7 @@ fission_component! {
     .bg(tokens.colors.surface)
     .border(tokens.colors.border, 1.0)
     .border_radius(tokens.radii.medium)
+    .width_length(Length::percent(100.0))
 }
 
 fission_component! {
@@ -288,44 +307,58 @@ fission_component! {
         identifier: Some("packing-checklist".to_string()),
         label: Some("Harbour trail packing checklist".to_string()),
         child: Container(
-            Column(gap: tokens.spacing.l, children: [
-                Column(gap: tokens.spacing.xs, children: [
-                    Text("Harbour Trail · Weekend pack")
-                        .weight(tokens.typography.font_weight_bold),
-                    Text("Check the essentials before leaving the trailhead.")
-                        .color(tokens.colors.text_secondary),
-                ]),
-                Column(gap: tokens.spacing.xs, children: [
-                    Text(format!("{} of {} packed", packed, app.items.len()))
-                        .weight(tokens.typography.font_weight_semibold),
-                    Text(format!("{} still to pack", remaining))
-                        .color(tokens.colors.text_secondary),
-                ]),
-                Button(
-                    child: Text(if checklist.only_unpacked {
-                        "Show the full checklist"
-                    } else {
-                        "Show only what is left"
-                    }),
-                    key: "toggle-remaining-filter",
-                    variant: ButtonVariant::Outline,
-                    on_press: reduce {
-                        checklist.only_unpacked = !checklist.only_unpacked;
-                    },
-                ),
-                if visible_items.is_empty() {
-                    Text("Everything on this checklist is packed.")
-                } else {
-                    Column(gap: tokens.spacing.s, children: [
-                        for item in visible_items.iter() {
-                            PackItemRow(item.clone(), key: item.id)
-                        },
-                    ])
-                },
-                Text(app.feedback.clone()).color(tokens.colors.text_secondary),
-            ]),
+            Column(
+                align_items: ir_op::AlignItems::Center,
+                children: [
+                    Container(
+                        Column(gap: tokens.spacing.l, children: [
+                            Column(gap: tokens.spacing.xs, children: [
+                                Text("Harbour Trail · Weekend pack")
+                                    .weight(tokens.typography.font_weight_bold),
+                                Text("Check the essentials before leaving the trailhead.")
+                                    .color(tokens.colors.text_secondary),
+                            ]),
+                            Column(gap: tokens.spacing.xs, children: [
+                                Text(format!("{} of {} packed", packed, app.items.len()))
+                                    .weight(tokens.typography.font_weight_semibold),
+                                Text(format!("{} still to pack", remaining))
+                                    .color(tokens.colors.text_secondary),
+                            ]),
+                            Button(
+                                child: Text(if checklist.only_unpacked {
+                                    "Show the full checklist"
+                                } else {
+                                    "Show only what is left"
+                                }),
+                                key: "toggle-remaining-filter",
+                                variant: ButtonVariant::Outline,
+                                on_press: reduce {
+                                    checklist.only_unpacked = !checklist.only_unpacked;
+                                },
+                            ),
+                            if visible_items.is_empty() {
+                                Text("Everything on this checklist is packed.")
+                            } else {
+                                Column(gap: tokens.spacing.s, children: [
+                                    for item in visible_items.iter() {
+                                        PackItemRow(item.clone(), key: item.id)
+                                    },
+                                ])
+                            },
+                            Text(app.feedback.clone()).color(tokens.colors.text_secondary),
+                        ]),
+                    )
+                    .padding_all(tokens.spacing.l)
+                    .bg(tokens.colors.background)
+                    .width_length(Length::clamp(
+                        Length::points(0.0),
+                        Length::percent(100.0),
+                        Length::points(900.0),
+                    )),
+                ],
+            ),
         )
-        .padding_all(tokens.spacing.l)
+        .width_length(Length::percent(100.0))
         .bg(tokens.colors.background),
     )
 }
@@ -373,6 +406,59 @@ fission doctor android --project-dir .
 fission run --target android --project-dir .
 fission test --target android --project-dir .
 fission build --target android --project-dir . --release
+```
+</TabItem>
+<TabItem label="Wire the shared app">
+`fission init` generated `src/lib.rs` with `CounterApp` as its root. Replace that app wiring with the checklist so Android and the other targets start the same component and state:
+
+```rust
+pub mod app;
+
+use crate::app::{PackListState, PackingChecklist};
+use fission::prelude::*;
+
+#[cfg(target_os = "android")]
+const ANDROID_TEST_CONTROL_PORT: u16 = 48761;
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+fn mobile_app() -> MobileApp<PackListState, PackingChecklist> {
+    let app = MobileApp::<PackListState, _>::new(PackingChecklist::new())
+        .with_title("Harbour Trail packing checklist");
+    #[cfg(target_os = "android")]
+    let app = app.with_test_control_port(ANDROID_TEST_CONTROL_PORT);
+    app
+}
+
+#[cfg(target_arch = "wasm32")]
+fn web_app() -> WebApp<PackListState, PackingChecklist> {
+    WebApp::<PackListState, _>::new(PackingChecklist::new())
+        .with_title("Harbour Trail packing checklist")
+}
+
+#[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
+pub fn run_desktop() -> anyhow::Result<()> {
+    DesktopApp::<PackListState, _>::new(PackingChecklist::new()).run()
+}
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub fn run_mobile() -> anyhow::Result<()> {
+    mobile_app().run()
+}
+
+#[cfg(target_os = "android")]
+#[no_mangle]
+fn android_main(app_handle: AndroidApp) {
+    let _ = mobile_app().run_with_android_app(app_handle);
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen::prelude::wasm_bindgen(start)]
+pub fn run_web() -> Result<(), wasm_bindgen::JsValue> {
+    console_error_panic_hook::set_once();
+    web_app()
+        .run()
+        .map_err(|error| wasm_bindgen::JsValue::from_str(&error.to_string()))
+}
 ```
 </TabItem>
 <TabItem label="Choose a connected device">
