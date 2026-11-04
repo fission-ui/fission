@@ -2,7 +2,7 @@
 //! Run `build --project-dir docs2` to render the site, then serve the output
 //! and run `control URL PORT` to drive the browser through POST /cmd.
 use anyhow::{bail, Context, Result};
-use fission_test_driver::{BrowserTestOptions, LiveTestClient};
+use fission_test_driver::{BrowserTestOptions, LiveTestClient, SelectorQuery};
 use serde_json::{json, Value};
 use std::io::{Read, Write};
 use std::net::TcpListener;
@@ -85,6 +85,21 @@ fn main() -> Result<()> {
                     command["x"].as_f64().context("missing x")? as f32,
                     command["y"].as_f64().context("missing y")? as f32,
                 )?,
+                "Wheel" => {
+                    let query = if let Some(identifier) = command["semantic_id"].as_str() {
+                        SelectorQuery::semantic_identifier(identifier)
+                    } else {
+                        SelectorQuery::widget_id(
+                            command["widget_id"].as_str().context("missing widget_id")?,
+                        )
+                    };
+                    client.hover_selector(query.clone())?;
+                    client.wheel_selector(
+                        query,
+                        command["dx"].as_f64().context("missing dx")?,
+                        command["dy"].as_f64().context("missing dy")?,
+                    )?
+                }
                 "Scroll" => {
                     client.browser_evaluate_json(&format!(
                         "(window.scrollTo(0, {}), true)",
