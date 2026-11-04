@@ -44,7 +44,8 @@
   "home.get_started": "Get started →",
   "home.see_action": "See it in action",
   "home.filename": "main.rs",
-  "home.demo_label": "Rust component source beside its running Fission task workspace on desktop and mobile",
+  "home.source": "View the component source",
+  "home.demo_label": "Live Harbour Supply inventory dashboard",
   "home.counter_label": "Interactive task workspace compiled from the Rust tutorial component",
   "home.mobile_preview_label": "Responsive Fission task workspace on a mobile screen",
   "home.browser_demo_label": "Interactive Fission Web application",
@@ -334,6 +335,7 @@
   "playground.description": "Choose a working Fission app, explore its interactive screen and read the Rust component that builds it. Switch examples to see how the same framework supports very different products.",
   "playground.examples": "Choose a Fission app example",
   "playground.source": "Rust component",
+  "playground.source.show": "View the Rust component",
   "playground.preview": "Interactive app preview",
   "playground.tutorials": "Learn how these apps are built →"
 }

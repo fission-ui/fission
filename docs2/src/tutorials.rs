@@ -31,6 +31,8 @@ struct PreviewBuild {
 struct PreparedPreview {
     package: String,
     stage_dir: std::path::PathBuf,
+    cache_marker: std::path::PathBuf,
+    cache_key: String,
     outputs: Vec<PreviewOutput>,
 }
 
@@ -38,6 +40,7 @@ struct PreviewWorkspace {
     manifest_path: std::path::PathBuf,
     preview_count: usize,
     include_charts: bool,
+    preview_indices: Vec<usize>,
 }
 
 pub fn build_all(project_dir: &Path) -> Result<()> {
@@ -107,6 +110,7 @@ pub fn build_all(project_dir: &Path) -> Result<()> {
     let workspace_root = project_dir
         .parent()
         .context("docs2 must live below the Fission workspace")?;
+    let cache_context = preview_cache_context(workspace_root, project_dir)?;
 
     let first_target = project_dir.join("target/tutorial-wasm");
     if !first_target.exists() {
@@ -130,9 +134,9 @@ pub fn build_all(project_dir: &Path) -> Result<()> {
     }
 
     let (previews, workspaces) =
-        prepare_preview_workspaces(project_dir, &workspace_root, previews)?;
+        prepare_preview_workspaces(project_dir, workspace_root, previews, &cache_context)?;
     let cargo_target = project_dir.join("target/tutorial-wasm");
-    compile_preview_workspaces(&workspaces, &cargo_target, parallelism)?;
+    compile_preview_workspaces(&workspaces, &previews, &cargo_target, parallelism)?;
     let workers = parallelism.min(previews.len());
     eprintln!(
         "Packaging {} unique Web preview(s) with {workers} worker(s); set {TUTORIAL_BUILD_PARALLELISM_ENV} to change concurrency.",
@@ -145,6 +149,7 @@ fn prepare_preview_workspaces(
     project_dir: &Path,
     workspace_root: &Path,
     mut previews: Vec<PreviewBuild>,
+    cache_context: &str,
 ) -> Result<(Vec<PreparedPreview>, Vec<PreviewWorkspace>)> {
     let mut prepared = (0..previews.len())
         .map(|_| None)
@@ -170,10 +175,6 @@ fn prepare_preview_workspaces(
             } else {
                 "preview-workspace-web"
             });
-        if workspace_dir.exists() {
-            fs::remove_dir_all(&workspace_dir)
-                .with_context(|| format!("failed to replace {}", workspace_dir.display()))?;
-        }
         fs::create_dir_all(&workspace_dir)?;
         let members = indices
             .iter()
@@ -181,9 +182,9 @@ fn prepare_preview_workspaces(
             .collect::<Vec<_>>()
             .join(",\n    ");
         let manifest_path = workspace_dir.join("Cargo.toml");
-        fs::write(
+        write_if_changed(
             &manifest_path,
-            format!("[workspace]\nmembers = [\n    {members}\n]\nresolver = \"2\"\n"),
+            format!("[workspace]\nmembers = [\n    {members}\n]\nresolver = \"2\"\n").as_bytes(),
         )?;
 
         for index in &indices {
@@ -202,15 +203,21 @@ fn prepare_preview_workspaces(
                 if let Some(parent) = destination.parent() {
                     fs::create_dir_all(parent)?;
                 }
-                fs::write(destination, contents)?;
+                write_if_changed(&destination, contents.as_bytes())?;
             }
-            fs::write(
-                stage_dir.join("Cargo.toml"),
-                tutorial_manifest(&package, workspace_root, include_charts),
+            write_if_changed(
+                &stage_dir.join("Cargo.toml"),
+                tutorial_manifest(&package, workspace_root, include_charts).as_bytes(),
             )?;
+            let cache_key = preview_cache_key(&stage_dir, cache_context)?;
+            let cache_marker = project_dir
+                .join("target/tutorial-preview-cache")
+                .join(format!("{package}.fingerprint"));
             prepared[*index] = Some(PreparedPreview {
                 package,
                 stage_dir,
+                cache_marker,
+                cache_key,
                 outputs: std::mem::take(&mut preview.outputs),
             });
         }
@@ -218,6 +225,7 @@ fn prepare_preview_workspaces(
             manifest_path,
             preview_count: indices.len(),
             include_charts,
+            preview_indices: indices,
         });
     }
 
@@ -231,12 +239,40 @@ fn prepare_preview_workspaces(
     Ok((prepared, workspaces))
 }
 
+fn write_if_changed(path: &Path, contents: &[u8]) -> Result<()> {
+    if fs::read(path).is_ok_and(|existing| existing == contents) {
+        return Ok(());
+    }
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    fs::write(path, contents)?;
+    Ok(())
+}
+
 fn compile_preview_workspaces(
     workspaces: &[PreviewWorkspace],
+    previews: &[PreparedPreview],
     cargo_target: &Path,
     parallelism: usize,
 ) -> Result<()> {
     for workspace in workspaces {
+        if workspace
+            .preview_indices
+            .iter()
+            .all(|index| previews.get(*index).is_some_and(preview_package_is_cached))
+        {
+            eprintln!(
+                "Reusing all {} compiled tutorial app(s) {}.",
+                workspace.preview_count,
+                if workspace.include_charts {
+                    "with charts"
+                } else {
+                    "without charts"
+                }
+            );
+            continue;
+        }
         let feature_label = if workspace.include_charts {
             "with charts"
         } else {
@@ -278,6 +314,16 @@ fn compile_preview_workspaces(
         );
     }
     Ok(())
+}
+
+fn preview_package_is_cached(preview: &PreparedPreview) -> bool {
+    let Some(first) = preview.outputs.first() else {
+        return false;
+    };
+    let module = preview.package.replace('-', "_");
+    fs::read_to_string(&preview.cache_marker)
+        .is_ok_and(|cached_key| cached_key == preview.cache_key)
+        && preview_package_exists(&first.path, &module)
 }
 
 fn package_previews(
@@ -377,19 +423,31 @@ fn build_preview(
         first.step
     );
     let output = &first.path;
-    if output.exists() {
+    let package_is_current = preview_package_is_cached(preview);
+    if !package_is_current && output.exists() {
         fs::remove_dir_all(output)
             .with_context(|| format!("failed to replace {}", output.display()))?;
     }
-    fs::create_dir_all(output)?;
-    compile_preview(
-        &first.app,
-        &first.step,
-        &preview.package,
-        &preview.stage_dir,
-        output,
-        cargo_target,
-    )?;
+    if package_is_current {
+        eprintln!(
+            "  Reusing current WebAssembly package for {} / {}",
+            first.app, first.step
+        );
+    } else {
+        fs::create_dir_all(output)?;
+        compile_preview(
+            &first.app,
+            &first.step,
+            &preview.package,
+            &preview.stage_dir,
+            output,
+            cargo_target,
+        )?;
+        if let Some(parent) = preview.cache_marker.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        fs::write(&preview.cache_marker, &preview.cache_key)?;
+    }
 
     for step in &preview.outputs {
         if step.path != *output {
@@ -406,6 +464,147 @@ fn build_preview(
         eprintln!("  Ready: {} / {}", step.app, step.step);
     }
     Ok(())
+}
+
+fn preview_package_exists(output: &Path, module: &str) -> bool {
+    let package = output.join("pkg");
+    let packaged_wasm = package.join(format!("{module}_bg.wasm"));
+    let packaged_js = package.join(format!("{module}.js"));
+    let bootstrap = output.join("bootstrap.mjs");
+    packaged_wasm.is_file() && packaged_js.is_file() && bootstrap.is_file()
+}
+
+fn preview_cache_context(workspace_root: &Path, project_dir: &Path) -> Result<String> {
+    let mut hasher = PreviewCacheHasher::default();
+    hasher.field(b"fission-tutorial-preview-cache-v1");
+    for relative in [
+        "Cargo.toml",
+        "Cargo.lock",
+        "rust-toolchain.toml",
+        ".cargo/config.toml",
+    ] {
+        let path = workspace_root.join(relative);
+        if path.is_file() {
+            hasher.field(relative.as_bytes());
+            hasher.field(&fs::read(&path)?);
+        }
+    }
+    let docs_manifest = project_dir.join("Cargo.toml");
+    hasher.field(b"docs2/Cargo.toml");
+    hasher.field(&fs::read(docs_manifest)?);
+
+    for (program, args) in [
+        ("rustc", vec!["--version"]),
+        ("cargo", vec!["--version"]),
+        ("wasm-pack", vec!["--version"]),
+    ] {
+        let output = Command::new(program)
+            .args(&args)
+            .output()
+            .with_context(|| format!("failed to query {program} version for tutorial cache"))?;
+        if !output.status.success() {
+            bail!("failed to query {program} version for tutorial cache");
+        }
+        hasher.field(program.as_bytes());
+        hasher.field(&output.stdout);
+        hasher.field(&output.stderr);
+    }
+
+    let dependency_dirs = [
+        "crates/authoring/fission",
+        "crates/authoring/fission-compose",
+        "crates/authoring/fission-compose-macros",
+        "crates/authoring/fission-widgets",
+        "crates/authoring/fission-macros",
+        "crates/authoring/fission-icons",
+        "crates/authoring/fission-charts",
+        "crates/core/fission-core",
+        "crates/core/fission-ir",
+        "crates/core/fission-layout",
+        "crates/core/fission-text-engine",
+        "crates/core/fission-theme",
+        "crates/core/fission-i18n",
+        "crates/rendering/fission-render",
+        "crates/shell/fission-shell-web",
+        "crates/tools/fission-diagnostics",
+    ];
+    for relative in dependency_dirs {
+        let path = workspace_root.join(relative);
+        if path.is_dir() {
+            hasher.field(relative.as_bytes());
+            hash_directory(&mut hasher, workspace_root, &path)?;
+        }
+    }
+
+    if let Some(home) = std::env::var_os("HOME") {
+        let wasm_pack_cache = Path::new(&home).join(".cache/.wasm-pack");
+        if let Ok(entries) = fs::read_dir(wasm_pack_cache) {
+            let mut versions = entries
+                .filter_map(std::result::Result::ok)
+                .filter_map(|entry| {
+                    let name = entry.file_name();
+                    name.to_str()
+                        .filter(|name| name.starts_with("wasm-opt-"))
+                        .map(str::to_owned)
+                })
+                .collect::<Vec<_>>();
+            versions.sort();
+            for version in versions {
+                hasher.field(version.as_bytes());
+            }
+        }
+    }
+
+    Ok(format!("{:016x}", hasher.finish()))
+}
+
+fn preview_cache_key(stage_dir: &Path, context: &str) -> Result<String> {
+    let mut hasher = PreviewCacheHasher::default();
+    hasher.field(context.as_bytes());
+    hash_directory(&mut hasher, stage_dir, stage_dir)?;
+    Ok(format!("{:016x}", hasher.finish()))
+}
+
+fn hash_directory(hasher: &mut PreviewCacheHasher, base: &Path, directory: &Path) -> Result<()> {
+    let mut entries = fs::read_dir(directory)?.collect::<std::io::Result<Vec<_>>>()?;
+    entries.sort_by_key(std::fs::DirEntry::file_name);
+    for entry in entries {
+        let path = entry.path();
+        let file_type = entry.file_type()?;
+        if file_type.is_dir() {
+            hash_directory(hasher, base, &path)?;
+        } else if file_type.is_file() {
+            let relative = path
+                .strip_prefix(base)
+                .context("tutorial cache input escaped its source directory")?
+                .to_string_lossy()
+                .replace('\\', "/");
+            hasher.field(relative.as_bytes());
+            hasher.field(&fs::read(path)?);
+        }
+    }
+    Ok(())
+}
+
+struct PreviewCacheHasher(u64);
+
+impl Default for PreviewCacheHasher {
+    fn default() -> Self {
+        Self(0xcbf29ce484222325)
+    }
+}
+
+impl PreviewCacheHasher {
+    fn field(&mut self, bytes: &[u8]) {
+        for byte in bytes.iter().copied().chain([0xff]) {
+            self.0 ^= u64::from(byte);
+            self.0 = self.0.wrapping_mul(0x100000001b3);
+        }
+    }
+
+    fn finish(&self) -> u64 {
+        self.0
+    }
 }
 
 fn compile_preview(

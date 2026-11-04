@@ -1,8 +1,8 @@
 ---
 layout: goal
-title: Build a product inventory website in Rust
-description: Build a Rust inventory catalogue with server-rendered product routes, stock filters, accessible forms, persistent updates and cache invalidation.
-goal: Help staff find a product, understand its stock and make a safe inventory update
+title: Build a product inventory dashboard in Rust
+description: Build a Rust inventory dashboard with searchable SKUs, reorder filters, stock receiving, safe sales adjustments and clear empty states.
+goal: Help warehouse staff find a product, spot a reorder risk and record a stock change without losing track of its SKU or location
 path: /blog/build-a-product-inventory-website-in-rust/
 order: 9
 difficulty: Beginner
@@ -10,91 +10,258 @@ duration: 50 minutes
 run_command: "fission run --target ssr --project-dir ."
 app: rust-product-inventory
 outcomes:
-  - List products with useful stock information
-  - Update stock through explicit actions
-  - Show low-stock and failed-save states
+  - Find products by name, SKU or supplier
+  - See which products are at or below their reorder point
+  - Record received stock and sales without allowing negative quantities
+  - Recover from invalid quantities and searches with no matches
 ---
 
-Build a Rust inventory catalogue with server-rendered product routes, stock filters, accessible forms, persistent updates and cache invalidation. This tutorial takes you from project setup to a runnable result in three steps. Each step’s `src/app.rs` component is compiled into the WebAssembly preview shown beside its code, so you can try the same Fission component while you read. The preview demonstrates filter and stock-status interactions in the browser. Load and update real product records through the SSR app’s data service.
+A warehouse team needs more than a list of product names. Before placing an order or packing a shipment, staff need to know which item they are handling, where it is stored, how many units remain and when the team should reorder it.
 
-## What you will build
+In this tutorial, you will build a Rust inventory dashboard for a small outdoor shop. It starts with four recognisable products, then gains search, stock filters and actions for receiving goods and recording a sale. The sample catalogue stays in memory so we can focus on the screen and its state transitions. At the end, we will trace where persistent storage belongs when the dashboard connects to a real inventory service.
 
-Create a server-rendered product catalogue with product detail routes, a stock filter and an edit form that records inventory changes.
+The page uses an `InventoryProduct` model and a `ProductInventoryDashboard` component. The component owns search text and filter selection because those values only affect this screen. Stock changes are explicit actions, and the interface always shows quantities and reorder points as text so status does not depend on colour alone.
 
-Install the Fission CLI and scaffold the SSR project:
+## Create the server-rendered project
 
+Install the Fission command line tool if it is not already on your machine, then create an SSR project. The generated shell gives the site a server-rendered entry point; the dashboard itself stays in shared Rust code.
+
+<Tabs>
+<TabItem label="Create the project">
 ```sh
 cargo install cargo-fission
 fission init harbour-inventory
 cd harbour-inventory
 fission add-target ssr --project-dir .
 ```
-
-## Project layout
-
+</TabItem>
+<TabItem label="Files for this tutorial">
 ```text
 harbour-inventory/
-├── Cargo.toml                 # generated dependencies
-├── fission.toml               # app identity, targets and capabilities
+├── Cargo.toml
+├── fission.toml
 ├── src/
-│   ├── main.rs                 # generated desktop entrypoint
-│   ├── lib.rs                  # shared app setup
-│   ├── app.rs                  # the Fission component shown in this tutorial
-│   ├── state.rs
-│   ├── models/product.rs
-│   ├── effects/inventory.rs
-│   └── components/product_table.rs
-├── platforms/                  # generated host files after add-target
-└── tests/                      # project-specific flow checks
+│   ├── main.rs       # generated SSR entry point
+│   ├── lib.rs        # app setup and server shell
+│   ├── app.rs        # ProductInventoryDashboard
+│   ├── models.rs     # InventoryProduct and sample records
+│   └── state.rs      # inventory data and reducers
+└── platforms/
+    └── server/       # generated server target files
 ```
+</TabItem>
+</Tabs>
 
-`fission init` generates `Cargo.toml`, `fission.toml`, `src/main.rs`, `src/lib.rs` and `src/app.rs`. Add the task modules in the tree as you build the feature. Keep data shared across routes in `GlobalState`, and keep retained interaction such as a disclosure or draft field in the owning `fission_component!`. Request database, filesystem, network and session work through a reducer effect, job or service; never run host work while a component view is being built.
+The generated files have different jobs. `main.rs` starts the server target, while `lib.rs` configures the shared app. We will keep the page component in `app.rs` and the product fields in `models.rs`, so changing a row later does not require searching through the server setup.
 
-`preview/lib.rs` is a documentation harness. The page compiles each complete `src/app.rs` component into WebAssembly so you can use the same UI while reading. Its host results are deterministic preview states; the target-specific host work described in this tutorial runs in each target project code, not in the browser preview.
+<!-- fission:step id="catalogue" -->
+## Start with a useful stock catalogue
 
-<!-- fission:step id="start-screen" -->
-## List products with useful stock information
+First decide what a staff member needs to know before acting on a product. This dashboard shows the SKU, supplier, storage bin, current quantity, reorder point and unit cost together. A quantity of zero is labelled “Out of stock”; a positive quantity at or below the reorder point is labelled “Reorder soon”.
 
-Begin with the screen needed for this task. The first render gives you a concrete checkpoint before you add interaction state.
-
-Use props for page copy and read theme tokens through cx.view.env(). The component below keeps presentation aligned with the active design system.
+Keeping those values together makes the next interaction easier to understand: when we add a filter, it can use the same reorder threshold the person can already see. Define the product model once, then render each record from the sample catalogue.
 
 <Tabs>
+<TabItem label="src/models.rs">
+<!-- fission:file path="src/models.rs" -->
+```rust
+#[derive(Clone, Debug, PartialEq)]
+pub struct InventoryProduct {
+    pub id: u32,
+    pub sku: &'static str,
+    pub name: &'static str,
+    pub category: &'static str,
+    pub supplier: &'static str,
+    pub bin: &'static str,
+    pub stock: u32,
+    pub reorder_point: u32,
+    pub unit_cost: u32,
+}
+
+pub fn sample_products() -> Vec<InventoryProduct> {
+    vec![
+        InventoryProduct {
+            id: 104,
+            sku: "MUG-104",
+            name: "Trail mug, 350 ml",
+            category: "Drinkware",
+            supplier: "Alpine Metalworks",
+            bin: "A-12",
+            stock: 4,
+            reorder_point: 6,
+            unit_cost: 18,
+        },
+        InventoryProduct {
+            id: 208,
+            sku: "NOTE-208",
+            name: "Weatherproof field notebook",
+            category: "Stationery",
+            supplier: "North Shore Paper",
+            bin: "B-03",
+            stock: 22,
+            reorder_point: 8,
+            unit_cost: 12,
+        },
+        InventoryProduct {
+            id: 31,
+            sku: "STOVE-031",
+            name: "Compact camp stove",
+            category: "Cooking",
+            supplier: "Summit Gear",
+            bin: "C-07",
+            stock: 0,
+            reorder_point: 3,
+            unit_cost: 64,
+        },
+        InventoryProduct {
+            id: 115,
+            sku: "FILTER-115",
+            name: "Replacement water filter",
+            category: "Water treatment",
+            supplier: "Clear Creek",
+            bin: "A-09",
+            stock: 7,
+            reorder_point: 5,
+            unit_cost: 16,
+        },
+    ]
+}
+
+pub fn matches_inventory_filter(
+    product: &InventoryProduct,
+    query: &str,
+    filter: &str,
+) -> bool {
+    let query = query.trim().to_lowercase();
+    let matches_query = query.is_empty()
+        || product.name.to_lowercase().contains(&query)
+        || product.sku.to_lowercase().contains(&query)
+        || product.supplier.to_lowercase().contains(&query);
+    let matches_stock = match filter {
+        "Needs reorder" => product.stock <= product.reorder_point,
+        "Out of stock" => product.stock == 0,
+        _ => true,
+    };
+
+    matches_query && matches_stock
+}
+```
+</TabItem>
+<TabItem label="src/state.rs">
+<!-- fission:file path="src/state.rs" -->
+```rust
+use crate::models::{sample_products, InventoryProduct};
+use fission::prelude::*;
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct InventoryState {
+    pub products: Vec<InventoryProduct>,
+    pub feedback: String,
+    pub feedback_is_error: bool,
+}
+
+impl Default for InventoryState {
+    fn default() -> Self {
+        Self {
+            products: sample_products(),
+            feedback: "Stock movements are in memory for this session.".to_string(),
+            feedback_is_error: false,
+        }
+    }
+}
+
+impl GlobalState for InventoryState {}
+```
+</TabItem>
 <TabItem label="src/app.rs">
 <!-- fission:file path="src/app.rs" -->
 ```rust
+use crate::models::InventoryProduct;
+use crate::state::InventoryState;
 use fission::prelude::*;
+
 fission_component! {
-    pub ProductInventory<()> {
-        props {
-            title: String,
-            detail: String,
-            action: String,
-            success: String,
-            empty: String,
-        }
-    }
-    view(preview, _state, cx) {
+    pub InventoryProductRow<InventoryState> { product: InventoryProduct }
+    view(row, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
     Container(
-        Column(
-            gap: tokens.spacing.m,
-            children: [
-                Text(preview.title.clone()).weight(tokens.typography.font_weight_bold),
-                Text(preview.detail.clone()).color(tokens.colors.text_secondary),
-                Text("Trail mug — 4 available"),
-                Text("Field notebook — 0 available"),
-                Text(format!("Next action: {}",
-                        preview.action)),
-                Text(preview.empty.clone()).color(tokens.colors.text_secondary),
-            ]
-        )
+        Column(gap: tokens.spacing.xs, children: [
+            Text(row.product.name)
+                .weight(tokens.typography.font_weight_semibold),
+            Text(format!("{} · {}", row.product.sku, row.product.category)),
+            Text(format!("{} · Bin {}", row.product.supplier, row.product.bin))
+                .color(tokens.colors.text_secondary),
+            Row(gap: tokens.spacing.m, wrap: ir_op::FlexWrap::Wrap, children: [
+                Text(format!("{} units", row.product.stock)),
+                Text(format!("Reorder at {}", row.product.reorder_point))
+                    .color(tokens.colors.text_secondary),
+                Text(if row.product.stock == 0 {
+                    "Out of stock"
+                } else if row.product.stock <= row.product.reorder_point {
+                    "Reorder soon"
+                } else {
+                    "In stock"
+                }),
+            ]),
+            Text(format!("{} USD / unit", row.product.unit_cost)),
+        ]),
     )
-    .padding_all(tokens.spacing.l)
+    .padding_all(tokens.spacing.m)
     .bg(tokens.colors.surface)
     .border(tokens.colors.border, 1.0)
-    .border_radius(tokens.radii.large)
+    .border_radius(tokens.radii.medium)
+}
+
+fission_component! {
+    pub ProductInventoryDashboard<InventoryState> {}
+    view(_dashboard, state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let total_units: u32 = state.products.iter().map(|product| product.stock).sum();
+        let reorder_count = state.products.iter()
+            .filter(|product| product.stock <= product.reorder_point)
+            .count();
+    } =>
+    Container(
+        Column(gap: tokens.spacing.l, children: [
+            Column(gap: tokens.spacing.xs, children: [
+                Text("Harbour Supply").weight(tokens.typography.font_weight_bold),
+                Text("Inventory · Main warehouse")
+                    .color(tokens.colors.text_secondary),
+            ]),
+            Grid(
+                columns: vec![GridTrack::auto_fit(GridTrack::minmax(
+                    GridTrack::Points(180.0),
+                    GridTrack::Fr(1.0),
+                ))],
+                rows: vec![GridTrack::Auto],
+                column_gap: tokens.spacing.m,
+                row_gap: tokens.spacing.s,
+                children: [
+                Column(children: [
+                    Text(format!("{} products", state.products.len())),
+                    Text("Active SKUs").color(tokens.colors.text_secondary),
+                ]),
+                Column(children: [
+                    Text(format!("{} units", total_units)),
+                    Text("Across all bins").color(tokens.colors.text_secondary),
+                ]),
+                Column(children: [
+                    Text(format!("{} products", reorder_count)),
+                    Text("At or below reorder point")
+                        .color(tokens.colors.text_secondary),
+                ]),
+            ]),
+            Column(gap: tokens.spacing.s, children: [
+                Text("Product"),
+                for product in state.products.iter().cloned() {
+                    InventoryProductRow(product.clone(), key: product.id)
+                },
+            ]),
+        ]),
+    )
+    .padding_all(tokens.spacing.l)
+    .bg(tokens.colors.background)
 }
 ```
 </TabItem>
@@ -102,6 +269,8 @@ fission_component! {
 <!-- fission:file path="preview/lib.rs" -->
 ```rust
 mod app;
+mod models;
+mod state;
 
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
@@ -109,15 +278,9 @@ use wasm_bindgen::prelude::*;
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::ProductInventory::new(
-        "Inventory".to_string(),
-        "Review products that need restocking.".to_string(),
-        "Filter low stock".to_string(),
-        "Low-stock products are shown.".to_string(),
-        "All inventory is visible.".to_string(),
-    );
-    WebApp::<(), _>::new(preview)
-        .with_title("Build a product inventory website in Rust")
+
+    WebApp::<state::InventoryState, _>::new(app::ProductInventoryDashboard::new())
+        .with_title("Harbour Supply inventory")
         .mount("#fission-web-mount")
         .run()
         .map_err(|error| JsValue::from_str(&error.to_string()))
@@ -128,69 +291,368 @@ pub fn run() -> Result<(), JsValue> {
 <!-- fission:preview -->
 
 <!-- fission:checkpoint -->
-List products with useful stock information: Confirm the initial screen names the task and its next action.
+Find the compact camp stove and check its stock, reorder point, supplier and warehouse bin before adding any controls.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 
-<!-- fission:step id="main-flow" -->
-## Update stock through explicit actions
+<!-- fission:step id="search-and-adjust" -->
+## Find products and record stock movements
 
-Give each product a stable id and use it in the route. Filter on the server from a validated query value, then show a clear empty result when no product matches. Display stock as text as well as colour so a user can understand the status without relying on colour vision.
+A catalogue becomes useful when staff can narrow it to the work in front of them. Add a search field that checks product names, SKUs and suppliers, plus filters for all products, reorder candidates and items that are out of stock. The filter uses the same `reorder_point` field shown on every row, so “Needs reorder” has a clear meaning.
 
-The source below makes the main task interactive using retained component state and explicit controls.
-This state belongs to the component because it only remembers this view's interaction. Durable data shared across routes belongs in GlobalState and changes through reducers.
+Receiving goods and recording a sale are separate actions. Receiving five units changes the selected product’s count; recording a sale subtracts one and is disabled when the count is already zero. The update message names the product so a fast click still gives the person useful feedback.
+
 <Tabs>
+<TabItem label="src/models.rs">
+<!-- fission:file path="src/models.rs" -->
+```rust
+#[derive(Clone, Debug, PartialEq)]
+pub struct InventoryProduct {
+    pub id: u32,
+    pub sku: &'static str,
+    pub name: &'static str,
+    pub category: &'static str,
+    pub supplier: &'static str,
+    pub bin: &'static str,
+    pub stock: u32,
+    pub reorder_point: u32,
+    pub unit_cost: u32,
+}
+
+pub fn sample_products() -> Vec<InventoryProduct> {
+    vec![
+        InventoryProduct {
+            id: 104,
+            sku: "MUG-104",
+            name: "Trail mug, 350 ml",
+            category: "Drinkware",
+            supplier: "Alpine Metalworks",
+            bin: "A-12",
+            stock: 4,
+            reorder_point: 6,
+            unit_cost: 18,
+        },
+        InventoryProduct {
+            id: 208,
+            sku: "NOTE-208",
+            name: "Weatherproof field notebook",
+            category: "Stationery",
+            supplier: "North Shore Paper",
+            bin: "B-03",
+            stock: 22,
+            reorder_point: 8,
+            unit_cost: 12,
+        },
+        InventoryProduct {
+            id: 31,
+            sku: "STOVE-031",
+            name: "Compact camp stove",
+            category: "Cooking",
+            supplier: "Summit Gear",
+            bin: "C-07",
+            stock: 0,
+            reorder_point: 3,
+            unit_cost: 64,
+        },
+        InventoryProduct {
+            id: 115,
+            sku: "FILTER-115",
+            name: "Replacement water filter",
+            category: "Water treatment",
+            supplier: "Clear Creek",
+            bin: "A-09",
+            stock: 7,
+            reorder_point: 5,
+            unit_cost: 16,
+        },
+    ]
+}
+
+pub fn matches_inventory_filter(
+    product: &InventoryProduct,
+    query: &str,
+    filter: &str,
+) -> bool {
+    let query = query.trim().to_lowercase();
+    let matches_query = query.is_empty()
+        || product.name.to_lowercase().contains(&query)
+        || product.sku.to_lowercase().contains(&query)
+        || product.supplier.to_lowercase().contains(&query);
+    let matches_stock = match filter {
+        "Needs reorder" => product.stock <= product.reorder_point,
+        "Out of stock" => product.stock == 0,
+        _ => true,
+    };
+
+    matches_query && matches_stock
+}
+```
+</TabItem>
+<TabItem label="src/state.rs">
+<!-- fission:file path="src/state.rs" -->
+```rust
+use crate::models::{sample_products, InventoryProduct};
+use fission::prelude::*;
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct InventoryState {
+    pub products: Vec<InventoryProduct>,
+    pub feedback: String,
+    pub feedback_is_error: bool,
+}
+
+impl Default for InventoryState {
+    fn default() -> Self {
+        Self {
+            products: sample_products(),
+            feedback: "Stock movements are in memory for this session.".to_string(),
+            feedback_is_error: false,
+        }
+    }
+}
+
+impl GlobalState for InventoryState {}
+
+#[fission_reducer(ReceiveStock)]
+pub fn on_receive_stock(
+    state: &mut InventoryState,
+    product_id: u32,
+    quantity: u32,
+) {
+    let result = if quantity == 0 {
+        Err("Enter a quantity greater than zero.".to_string())
+    } else if let Some(product) = state.products.iter_mut()
+        .find(|product| product.id == product_id)
+    {
+        match product.stock.checked_add(quantity) {
+            Some(next_stock) => {
+                product.stock = next_stock;
+                Ok(format!(
+                    "Received {} units for {} ({}).",
+                    quantity, product.name, product.sku
+                ))
+            }
+            None => Err("That receipt exceeds the supported stock quantity.".to_string()),
+        }
+    } else {
+        Err("The product is no longer in this catalogue.".to_string())
+    };
+
+    match result {
+        Ok(message) => {
+            state.feedback = message;
+            state.feedback_is_error = false;
+        }
+        Err(message) => {
+            state.feedback = message;
+            state.feedback_is_error = true;
+        }
+    }
+}
+
+#[fission_reducer(RecordSale)]
+pub fn on_record_sale(state: &mut InventoryState, product_id: u32) {
+    let result = if let Some(product) = state.products.iter_mut()
+        .find(|product| product.id == product_id)
+    {
+        if product.stock > 0 {
+            product.stock -= 1;
+            Ok(format!(
+                "Recorded one sale for {} ({}).",
+                product.name, product.sku
+            ))
+        } else {
+            Err(format!("{} is already out of stock.", product.name))
+        }
+    } else {
+        Err("The product is no longer in this catalogue.".to_string())
+    };
+
+    match result {
+        Ok(message) => {
+            state.feedback = message;
+            state.feedback_is_error = false;
+        }
+        Err(message) => {
+            state.feedback = message;
+            state.feedback_is_error = true;
+        }
+    }
+}
+
+#[fission_reducer(ResetInventory)]
+pub fn on_reset_inventory(state: &mut InventoryState) {
+    state.products = sample_products();
+    state.feedback = "Sample inventory has been restored.".to_string();
+    state.feedback_is_error = false;
+}
+```
+</TabItem>
 <TabItem label="src/app.rs">
 <!-- fission:file path="src/app.rs" -->
 ```rust
+use crate::models::{matches_inventory_filter, InventoryProduct};
+use crate::state::{on_receive_stock, on_record_sale, InventoryState, ReceiveStock, RecordSale};
 use fission::prelude::*;
+
 fission_component! {
-    pub ProductInventory<()> {
-        props {
-            title: String,
-            detail: String,
-            action: String,
-            success: String,
-            empty: String,
-        }
+    pub InventoryProductRow<InventoryState> { product: InventoryProduct }
+    view(row, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Container(
+        Column(gap: tokens.spacing.s, children: [
+            Column(gap: tokens.spacing.xs, children: [
+                Text(row.product.name)
+                    .weight(tokens.typography.font_weight_semibold),
+                Text(format!("{} · {}", row.product.sku, row.product.category)),
+                Text(format!("{} · Bin {}", row.product.supplier, row.product.bin))
+                    .color(tokens.colors.text_secondary),
+                Row(gap: tokens.spacing.m, wrap: ir_op::FlexWrap::Wrap, children: [
+                    Text(format!("{} units", row.product.stock)),
+                    Text(format!("Reorder at {}", row.product.reorder_point))
+                        .color(tokens.colors.text_secondary),
+                    Text(if row.product.stock == 0 {
+                        "Out of stock"
+                    } else if row.product.stock <= row.product.reorder_point {
+                        "Reorder soon"
+                    } else {
+                        "In stock"
+                    }),
+                ]),
+                Text(format!("{} USD / unit", row.product.unit_cost)),
+            ]),
+            Row(gap: tokens.spacing.s, wrap: ir_op::FlexWrap::Wrap, children: [
+                Button(
+                    child: Text("Receive five units"),
+                    key: "receive-stock",
+                    on_press: with_reducer!(
+                        cx.build,
+                        ReceiveStock(row.product.id, 5),
+                        on_receive_stock,
+                    ),
+                ),
+                Button(
+                    child: Text("Record one sale"),
+                    key: "record-sale",
+                    variant: ButtonVariant::Outline,
+                    disabled: row.product.stock == 0,
+                    on_press: with_reducer!(
+                        cx.build,
+                        RecordSale(row.product.id),
+                        on_record_sale,
+                    ),
+                ),
+            ]),
+        ]),
+    )
+    .padding_all(tokens.spacing.m)
+    .bg(tokens.colors.surface)
+    .border(tokens.colors.border, 1.0)
+    .border_radius(tokens.radii.medium)
+}
+
+fission_component! {
+    pub ProductInventoryDashboard<InventoryState> {
         state {
-            stock: usize = 4,
-            has_error: bool = false,
+            search: String = String::new(),
+            filter: String = "All products".to_string(),
         }
     }
-    view(preview, _state, cx) {
+    view(dashboard, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
+        let query = dashboard.search.to_lowercase();
+        let filter = dashboard.filter.as_str();
+        let total_units: u32 = state.products.iter().map(|product| product.stock).sum();
+        let reorder_count = state.products.iter()
+            .filter(|product| product.stock <= product.reorder_point)
+            .count();
+        let visible_count = state.products.iter()
+            .filter(|product| matches_inventory_filter(product, &query, filter))
+            .count();
     } =>
     Container(
-        Column(
-            gap: tokens.spacing.m,
-            children: [
-                Text(preview.title.clone()).weight(tokens.typography.font_weight_bold),
-                Text(preview.detail.clone()).color(tokens.colors.text_secondary),
-                Text("Trail mug — current stock"),
-                Row(gap: tokens.spacing.m,
-                    children: [Button(child: Text("Receive one"),
-                            key: "receive-stock",
-                            on_press: reduce { preview.stock += 1; }),
-                        Button(child: Text(preview.action.clone()),
-                            key: "sell-stock",
-                            disabled: preview.stock == 0,
-                            on_press: reduce { if preview.stock > 0 { preview.stock -= 1; } })]),
-                Text(format!("{} available",
-                        preview.stock)),
-                if preview.stock == 0 { Text("Out of stock") } else { Text("In stock") },
-                Button(child: Text(if preview.has_error { "Try again".to_string() } else { "Preview a failed stock update".to_string() }),
-                    key: "preview-error",
-                    on_press: reduce { preview.has_error = !preview.has_error; }),
-                if preview.has_error { Text("The stock update was not saved. The displayed quantity is unchanged.") } else { Text(preview.success.clone()) },
-                Text(preview.empty.clone()).color(tokens.colors.text_secondary),
-            ]
-        )
+        Column(gap: tokens.spacing.l, children: [
+            Column(gap: tokens.spacing.xs, children: [
+                Text("Harbour Supply").weight(tokens.typography.font_weight_bold),
+                Text("Search the catalogue, check stock and record a movement.")
+                    .color(tokens.colors.text_secondary),
+            ]),
+            Grid(
+                columns: vec![GridTrack::auto_fit(GridTrack::minmax(
+                    GridTrack::Points(180.0),
+                    GridTrack::Fr(1.0),
+                ))],
+                rows: vec![GridTrack::Auto],
+                column_gap: tokens.spacing.m,
+                row_gap: tokens.spacing.s,
+                children: [
+                    Column(children: [
+                        Text(format!("{} products", state.products.len())),
+                        Text("Active SKUs").color(tokens.colors.text_secondary),
+                    ]),
+                    Column(children: [
+                        Text(format!("{} units", total_units)),
+                        Text("Across all bins").color(tokens.colors.text_secondary),
+                    ]),
+                    Column(children: [
+                        Text(format!("{} products", reorder_count)),
+                        Text("At or below reorder point")
+                            .color(tokens.colors.text_secondary),
+                    ]),
+                ],
+            ),
+            TextInput(
+                label: Some("Search by name, SKU or supplier".into()),
+                placeholder: Some("Try MUG-104 or Alpine".into()),
+                bind: dashboard.search,
+                semantics_identifier: "inventory.search".to_string(),
+            ),
+            Row(gap: tokens.spacing.s, wrap: ir_op::FlexWrap::Wrap, children: [
+                Button(
+                    child: Text("All products"),
+                    key: "filter-all",
+                    variant: if dashboard.filter == "All products" {
+                        ButtonVariant::Primary
+                    } else {
+                        ButtonVariant::Outline
+                    },
+                    on_press: reduce { dashboard.filter = "All products".to_string(); },
+                ),
+                Button(
+                    child: Text("Needs reorder"),
+                    key: "filter-reorder",
+                    variant: if dashboard.filter == "Needs reorder" {
+                        ButtonVariant::Primary
+                    } else {
+                        ButtonVariant::Outline
+                    },
+                    on_press: reduce { dashboard.filter = "Needs reorder".to_string(); },
+                ),
+                Button(
+                    child: Text("Out of stock"),
+                    key: "filter-empty",
+                    variant: if dashboard.filter == "Out of stock" {
+                        ButtonVariant::Primary
+                    } else {
+                        ButtonVariant::Outline
+                    },
+                    on_press: reduce { dashboard.filter = "Out of stock".to_string(); },
+                ),
+            ]),
+            Text(format!("{} products shown", visible_count)),
+            Column(gap: tokens.spacing.s, children: [
+                for product in state.products.iter()
+                    .filter(|product| matches_inventory_filter(product, &query, filter))
+                {
+                    InventoryProductRow(product.clone(), key: product.id)
+                },
+            ]),
+            Text(state.feedback.clone()).color(tokens.colors.text_secondary),
+        ]),
     )
     .padding_all(tokens.spacing.l)
-    .bg(tokens.colors.surface)
-    .border(tokens.colors.border, 1.0)
-    .border_radius(tokens.radii.large)
+    .bg(tokens.colors.background)
 }
 ```
 </TabItem>
@@ -198,6 +660,8 @@ fission_component! {
 <!-- fission:file path="preview/lib.rs" -->
 ```rust
 mod app;
+mod models;
+mod state;
 
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
@@ -205,15 +669,9 @@ use wasm_bindgen::prelude::*;
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::ProductInventory::new(
-        "Inventory".to_string(),
-        "Review products that need restocking.".to_string(),
-        "Filter low stock".to_string(),
-        "Low-stock products are shown.".to_string(),
-        "All inventory is visible.".to_string(),
-    );
-    WebApp::<(), _>::new(preview)
-        .with_title("Build a product inventory website in Rust")
+
+    WebApp::<state::InventoryState, _>::new(app::ProductInventoryDashboard::new())
+        .with_title("Harbour Supply inventory")
         .mount("#fission-web-mount")
         .run()
         .map_err(|error| JsValue::from_str(&error.to_string()))
@@ -224,69 +682,253 @@ pub fn run() -> Result<(), JsValue> {
 <!-- fission:preview -->
 
 <!-- fission:checkpoint -->
-Update stock through explicit actions: Use the preview control and check that the result matches the action.
+Search for `MUG-104`, select “Needs reorder”, receive five units, and record one sale. Confirm the quantity and feedback both name the product that changed.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 
-<!-- fission:step id="edge-state" -->
-## Show low-stock and failed-save states
+<!-- fission:step id="validate-and-recover" -->
+## Validate receipts and make empty results recoverable
 
-Persist a stock adjustment only after validating the submitted quantity and the user's permission. Invalidate or refresh cached product data after a successful write so the catalogue does not keep showing an old count.
+A receiving form must not accept blank text, zero or a quantity that would overflow the stock counter. Add a quantity field and validate it when the person chooses a product. Keep the old stock value when validation fails, then explain what needs to change. This keeps the rule beside the action that depends on it.
 
-Keep I/O outside component conversion. Use reducers for explicit state transitions, then queue host work through an asynchronous effect, capability, job or service so the UI stays responsive.
-The preview control below simulates an unsuccessful host result. It demonstrates the message and recovery path; it does not perform authentication, database, network, or filesystem work.
+Search and filters also need a useful recovery path. If nothing matches, say which conditions are active and offer a one-click way back to the full catalogue. The reset action restores the sample stock as well, which makes it easy to try the tutorial again without refreshing the page.
+
+Product records live in `GlobalState`, so reducers can update stock and feedback in one place. Search text, the active filter and the receipt draft belong to the dashboard component because they are temporary choices for this screen. Nothing is persisted in this tutorial: reloading starts the sample catalogue again. In a production inventory site, load and save records through an asynchronous service, then let reducers publish loading, success or failure for the view to render.
+
 <Tabs>
 <TabItem label="src/app.rs">
 <!-- fission:file path="src/app.rs" -->
 ```rust
+use crate::models::{
+    matches_inventory_filter, InventoryProduct,
+};
+use crate::state::{
+    on_receive_stock, on_record_sale, on_reset_inventory, InventoryState,
+    ReceiveStock, RecordSale, ResetInventory,
+};
 use fission::prelude::*;
+
 fission_component! {
-    pub ProductInventory<()> {
-        props {
-            title: String,
-            detail: String,
-            action: String,
-            success: String,
-            empty: String,
-        }
-        state {
-            stock: usize = 4,
-            has_error: bool = false,
-        }
+    pub InventoryProductRow<InventoryState> {
+        product: InventoryProduct,
+        receive_quantity: u32,
     }
-    view(preview, _state, cx) {
+    view(row, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
     Container(
-        Column(
-            gap: tokens.spacing.m,
-            children: [
-                Text(preview.title.clone()).weight(tokens.typography.font_weight_bold),
-                Text(preview.detail.clone()).color(tokens.colors.text_secondary),
-                Text("Trail mug — current stock"),
-                Row(gap: tokens.spacing.m,
-                    children: [Button(child: Text("Receive one"),
-                            key: "receive-stock",
-                            on_press: reduce { preview.stock += 1; }),
-                        Button(child: Text(preview.action.clone()),
-                            key: "sell-stock",
-                            disabled: preview.stock == 0,
-                            on_press: reduce { if preview.stock > 0 { preview.stock -= 1; } })]),
-                Text(format!("{} available",
-                        preview.stock)),
-                if preview.stock == 0 { Text("Out of stock") } else { Text("In stock") },
-                Button(child: Text(if preview.has_error { "Try again".to_string() } else { "Preview a failed stock update".to_string() }),
-                    key: "preview-error",
-                    on_press: reduce { preview.has_error = !preview.has_error; }),
-                if preview.has_error { Text("The stock update was not saved. The displayed quantity is unchanged.") } else { Text(preview.success.clone()) },
-                Text(preview.empty.clone()).color(tokens.colors.text_secondary),
-            ]
-        )
+        Column(gap: tokens.spacing.s, children: [
+            Column(gap: tokens.spacing.xs, children: [
+                Text(row.product.name)
+                    .weight(tokens.typography.font_weight_semibold),
+                Text(format!("{} · {}", row.product.sku, row.product.category)),
+                Text(format!("{} · Bin {}", row.product.supplier, row.product.bin))
+                    .color(tokens.colors.text_secondary),
+                Row(gap: tokens.spacing.m, wrap: ir_op::FlexWrap::Wrap, children: [
+                    Text(format!("{} units", row.product.stock)),
+                    Text(format!("Reorder at {}", row.product.reorder_point))
+                        .color(tokens.colors.text_secondary),
+                    Text(if row.product.stock == 0 {
+                        "Out of stock"
+                    } else if row.product.stock <= row.product.reorder_point {
+                        "Reorder soon"
+                    } else {
+                        "In stock"
+                    }),
+                ]),
+                Text(format!("{} USD / unit", row.product.unit_cost)),
+            ]),
+            Row(gap: tokens.spacing.s, wrap: ir_op::FlexWrap::Wrap, children: [
+                Button(
+                    child: Text(format!("Receive {} units", row.receive_quantity)),
+                    key: "receive-stock",
+                    disabled: row.receive_quantity == 0,
+                    on_press: with_reducer!(
+                        cx.build,
+                        ReceiveStock(row.product.id, row.receive_quantity),
+                        on_receive_stock,
+                    ),
+                ),
+                Button(
+                    child: Text("Record one sale"),
+                    key: "record-sale",
+                    variant: ButtonVariant::Outline,
+                    disabled: row.product.stock == 0,
+                    on_press: with_reducer!(
+                        cx.build,
+                        RecordSale(row.product.id),
+                        on_record_sale,
+                    ),
+                ),
+            ]),
+        ]),
     )
-    .padding_all(tokens.spacing.l)
+    .padding_all(tokens.spacing.m)
     .bg(tokens.colors.surface)
     .border(tokens.colors.border, 1.0)
-    .border_radius(tokens.radii.large)
+    .border_radius(tokens.radii.medium)
+}
+
+fission_component! {
+    pub ProductInventoryDashboard<InventoryState> {
+        state {
+            search: String = String::new(),
+            filter: String = "All products".to_string(),
+            receive_quantity: String = "5".to_string(),
+        }
+    }
+    view(dashboard, state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let query = dashboard.search.to_lowercase();
+        let filter = dashboard.filter.as_str();
+        let receive_quantity = dashboard.receive_quantity.trim().parse::<u32>()
+            .ok()
+            .filter(|quantity| *quantity > 0);
+        let total_units: u32 = state.products.iter().map(|product| product.stock).sum();
+        let reorder_count = state.products.iter()
+            .filter(|product| product.stock <= product.reorder_point)
+            .count();
+        let visible_count = state.products.iter()
+            .filter(|product| matches_inventory_filter(product, &query, filter))
+            .count();
+    } =>
+    Container(
+        Column(gap: tokens.spacing.l, children: [
+            Row(gap: tokens.spacing.m, wrap: ir_op::FlexWrap::Wrap, children: [
+                Column(gap: tokens.spacing.xs, children: [
+                    Text("Harbour Supply").weight(tokens.typography.font_weight_bold),
+                    Text("Search the catalogue, check stock and record a movement.")
+                        .color(tokens.colors.text_secondary),
+                ]),
+                Spacer(flex_grow: 1.0),
+                Button(
+                    child: Text("Restore sample inventory"),
+                    key: "restore-sample-inventory",
+                    variant: ButtonVariant::Outline,
+                    on_press: with_reducer!(
+                        cx.build,
+                        ResetInventory,
+                        on_reset_inventory,
+                    ),
+                ),
+            ]),
+            Grid(
+                columns: vec![GridTrack::auto_fit(GridTrack::minmax(
+                    GridTrack::Points(180.0),
+                    GridTrack::Fr(1.0),
+                ))],
+                rows: vec![GridTrack::Auto],
+                column_gap: tokens.spacing.m,
+                row_gap: tokens.spacing.s,
+                children: [
+                    Column(children: [
+                        Text(format!("{} products", state.products.len())),
+                        Text("Active SKUs").color(tokens.colors.text_secondary),
+                    ]),
+                    Column(children: [
+                        Text(format!("{} units", total_units)),
+                        Text("Across all bins").color(tokens.colors.text_secondary),
+                    ]),
+                    Column(children: [
+                        Text(format!("{} products", reorder_count)),
+                        Text("At or below reorder point")
+                            .color(tokens.colors.text_secondary),
+                    ]),
+                ],
+            ),
+            Column(gap: tokens.spacing.m, children: [
+                TextInput(
+                    label: Some("Search by name, SKU or supplier".into()),
+                    placeholder: Some("Try MUG-104 or Alpine".into()),
+                    bind: dashboard.search,
+                    semantics_identifier: "inventory.search".to_string(),
+                ),
+                TextInput(
+                    label: Some("Units to receive".into()),
+                    placeholder: Some("Enter a positive whole number".into()),
+                    bind: dashboard.receive_quantity,
+                    semantics_identifier: "inventory.receive-quantity".to_string(),
+                ),
+            ]),
+            if receive_quantity.is_none() {
+                Text("Enter a whole number greater than zero to enable receiving.")
+                    .color(tokens.colors.error)
+            },
+            Row(gap: tokens.spacing.s, wrap: ir_op::FlexWrap::Wrap, children: [
+                Button(
+                    child: Text("All products"),
+                    key: "filter-all",
+                    variant: if dashboard.filter == "All products" {
+                        ButtonVariant::Primary
+                    } else {
+                        ButtonVariant::Outline
+                    },
+                    on_press: reduce { dashboard.filter = "All products".to_string(); },
+                ),
+                Button(
+                    child: Text("Needs reorder"),
+                    key: "filter-reorder",
+                    variant: if dashboard.filter == "Needs reorder" {
+                        ButtonVariant::Primary
+                    } else {
+                        ButtonVariant::Outline
+                    },
+                    on_press: reduce { dashboard.filter = "Needs reorder".to_string(); },
+                ),
+                Button(
+                    child: Text("Out of stock"),
+                    key: "filter-empty",
+                    variant: if dashboard.filter == "Out of stock" {
+                        ButtonVariant::Primary
+                    } else {
+                        ButtonVariant::Outline
+                    },
+                    on_press: reduce { dashboard.filter = "Out of stock".to_string(); },
+                ),
+            ]),
+            Text(format!("{} products shown", visible_count)),
+            if visible_count == 0 {
+                Container(Column(gap: tokens.spacing.s, children: [
+                    Text("No products match these conditions.")
+                        .weight(tokens.typography.font_weight_semibold),
+                    Text("Clear the search and return to all products to continue.")
+                        .color(tokens.colors.text_secondary),
+                    Button(
+                        child: Text("Show all products"),
+                        key: "clear-inventory-filter",
+                        on_press: reduce {
+                            dashboard.search.clear();
+                            dashboard.filter = "All products".to_string();
+                        },
+                    ),
+                ]))
+                .padding_all(tokens.spacing.l)
+                .bg(tokens.colors.surface)
+                .border(tokens.colors.border, 1.0)
+                .border_radius(tokens.radii.medium)
+            } else {
+                Column(gap: tokens.spacing.s, children: [
+                    for product in state.products.iter()
+                        .filter(|product| matches_inventory_filter(product, &query, filter))
+                    {
+                        InventoryProductRow(
+                            product.clone(),
+                            receive_quantity.unwrap_or(0),
+                            key: product.id,
+                        )
+                    },
+                ])
+            },
+            Text(state.feedback.clone())
+                .color(if state.feedback_is_error {
+                    tokens.colors.error
+                } else {
+                    tokens.colors.text_secondary
+                }),
+        ]),
+    )
+    .padding_all(tokens.spacing.l)
+    .bg(tokens.colors.background)
 }
 ```
 </TabItem>
@@ -294,6 +936,8 @@ fission_component! {
 <!-- fission:file path="preview/lib.rs" -->
 ```rust
 mod app;
+mod models;
+mod state;
 
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
@@ -301,15 +945,9 @@ use wasm_bindgen::prelude::*;
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::ProductInventory::new(
-        "Inventory".to_string(),
-        "Review products that need restocking.".to_string(),
-        "Filter low stock".to_string(),
-        "Low-stock products are shown.".to_string(),
-        "All inventory is visible.".to_string(),
-    );
-    WebApp::<(), _>::new(preview)
-        .with_title("Build a product inventory website in Rust")
+
+    WebApp::<state::InventoryState, _>::new(app::ProductInventoryDashboard::new())
+        .with_title("Harbour Supply inventory")
         .mount("#fission-web-mount")
         .run()
         .map_err(|error| JsValue::from_str(&error.to_string()))
@@ -320,28 +958,26 @@ pub fn run() -> Result<(), JsValue> {
 <!-- fission:preview -->
 
 <!-- fission:checkpoint -->
-Show low-stock and failed-save states: Trigger the error preview and confirm a recovery action remains available.
+Enter `0` as the receipt quantity and try to receive a product; its stock must not change. Then enter `3`, restore stock, search for a name that is not present, and use “Show all products” to recover.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 
-## Run, test and build the finished project
+## Run the dashboard
 
-From the project root, run the checks in order:
+Start the server target from the project root and open the local URL printed by the CLI:
 
 ```sh
 fission doctor --project-dir .
 fission run --target ssr --project-dir .
-cargo test
-fission build --target ssr --project-dir .
-fission test --target ssr --project-dir .
 ```
 
-Expected result: The catalogue filters products, shows stock status, and recovers from empty results or failed updates.
+Test the stock workflow before packaging it. Search by SKU, check the reorder filter against each visible reorder point, receive a valid quantity, record a sale, and try to sell the out-of-stock stove. The disabled action and the textual stock status should agree.
 
-## Related Fission reference
+The interactive lesson keeps its sample records in component state, so a reload restores them. To keep inventory changes across requests or share them with product-detail routes, move the catalogue into `GlobalState` and add an asynchronous repository service. Let a reducer request the write, render a pending state while it runs, and show the service result when it completes.
 
-Use these precise reference pages after the working path above is clear:
+## Where to go next
 
-- [Server Sites](/docs/guides/server-sites/)
-- [Storage And Sqlite](/docs/guides/storage-and-sqlite/)
-- [Resources And Async](/docs/guides/resources-and-async/)
+- [State, handles and providers](/docs/guides/state-handles-and-providers/) explains which data belongs in app-wide state and how components receive build-scope access.
+- [Resources and async work](/docs/guides/resources-and-async/) shows how to load and save data without blocking the interface.
+- [Server sites](/docs/guides/server-sites/) covers the SSR shell and request lifecycle.
+- [Text input and forms](/reference/widgets/text-input/) documents accessible form controls and validation.

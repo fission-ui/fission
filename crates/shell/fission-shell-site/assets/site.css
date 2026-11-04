@@ -3,7 +3,6 @@ html { min-height: 100%; scroll-behavior: smooth; }
 body {
   margin: 0;
   min-height: 100vh;
-  font-family: var(--fs-font-sans, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif);
   color: var(--fs-color-text-primary, inherit);
   background: var(--fs-color-background, transparent);
 }
@@ -34,8 +33,14 @@ h4.fission-site-semantics,
 h5.fission-site-semantics,
 h6.fission-site-semantics {
   margin: 0;
-  font: inherit;
   color: inherit;
+}
+:is(h1, h2, h3, h4, h5, h6).fission-site-semantics .fission-site-text-run {
+  font-size: inherit !important;
+  font-weight: inherit !important;
+  font-style: inherit !important;
+  line-height: inherit !important;
+  letter-spacing: inherit !important;
 }
 .fission-site-route-link,
 .fission-site-heading-link,
@@ -154,7 +159,6 @@ button.fission-site-semantics {
 .fission-site-control-label,
 .fission-site-form-label {
   color: var(--fs-color-text-secondary);
-  font-size: 0.875rem;
   font-weight: 600;
   line-height: 1.35;
 }
@@ -223,7 +227,6 @@ textarea.fission-site-input,
 
 .fission-site-control-validation {
   color: var(--fs-color-error);
-  font-size: 0.8125rem;
   line-height: 1.35;
 }
 
@@ -334,8 +337,6 @@ textarea.fission-site-input,
 }
 
 .fission-site-code-block code {
-  font-family: var(--fs-font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
-  font-size: 0.875rem;
   line-height: 1.6;
   white-space: pre;
 }
@@ -373,7 +374,6 @@ textarea.fission-site-input,
   color: var(--fs-color-text-secondary);
   cursor: pointer;
   font: inherit;
-  font-size: 0.9rem;
   font-weight: 700;
   line-height: 1.2;
   padding: 0.46rem 0.82rem;
@@ -460,7 +460,6 @@ textarea.fission-site-input,
   background: transparent;
   color: var(--fs-color-text-primary);
   font: inherit;
-  font-size: 1rem;
 }
 
 .fission-site-search-input-wrap kbd {
@@ -468,7 +467,6 @@ textarea.fission-site-input,
   border: 1px solid var(--fs-color-border);
   border-radius: 0.4rem;
   color: var(--fs-color-text-muted);
-  font-size: 0.75rem;
 }
 
 .fission-site-search-results {
@@ -499,12 +497,10 @@ textarea.fission-site-input,
 }
 
 .fission-site-search-section {
-  font-size: 0.82rem;
   font-weight: 700;
 }
 
 .fission-site-search-excerpt {
-  font-size: 0.9rem;
   line-height: 1.5;
 }
 
@@ -846,12 +842,10 @@ textarea.fission-site-input,
 
   .fission-site-doc-header .fission-site-theme-toggle::before {
     content: "◐";
-    font-size: 1rem;
   }
 
   .fission-site-doc-header .fission-site-search-trigger::before {
     content: "⌕";
-    font-size: 1.08rem;
     font-weight: 800;
   }
 
@@ -896,7 +890,6 @@ textarea.fission-site-input,
 
   .fission-site-blog-post-title .fission-site-text-run,
   .fission-site-blog-index-title .fission-site-text-run {
-    font-size: clamp(2.2rem, 10vw, 3.2rem) !important;
     line-height: 1.02 !important;
     white-space: normal !important;
   }
@@ -951,11 +944,11 @@ textarea.fission-site-input,
     overflow: visible;
   }
 
-  .fission-site-sidebar-open {
+  html.fission-site-sidebar-open:has(.fission-site-doc-sidebar) {
     overflow: hidden;
   }
 
-  .fission-site-sidebar-open body::before {
+  html.fission-site-sidebar-open:has(.fission-site-doc-sidebar) body::before {
     content: "";
     position: fixed;
     inset: 0;
@@ -964,7 +957,7 @@ textarea.fission-site-input,
     backdrop-filter: blur(0.22rem);
   }
 
-  .fission-site-sidebar-open .fission-site-doc-sidebar {
+  html.fission-site-sidebar-open:has(.fission-site-doc-sidebar) .fission-site-doc-sidebar {
     transform: translateX(0);
   }
 

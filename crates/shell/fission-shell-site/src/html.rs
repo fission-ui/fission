@@ -1902,6 +1902,22 @@ impl HtmlRenderer<'_> {
         None
     }
 
+    fn has_ancestor_semantic_identifier(&self, node: &CoreNode, expected: &str) -> bool {
+        let mut parent_id = node.parent;
+        while let Some(id) = parent_id {
+            let Some(parent) = self.ir.nodes.get(&id) else {
+                return false;
+            };
+            if let Op::Semantics(semantics) = &parent.op {
+                if semantics.identifier.as_deref() == Some(expected) {
+                    return true;
+                }
+            }
+            parent_id = parent.parent;
+        }
+        false
+    }
+
     fn render_embed_fallback(
         &self,
         node: &CoreNode,
@@ -2125,6 +2141,33 @@ impl HtmlRenderer<'_> {
             ));
         }
         if let Some(identifier) = semantics.identifier.as_deref() {
+            if identifier == "goal-preview-disclosure" {
+                let children = self.render_semantic_payload_children(node)?;
+                return Ok(format!(
+                    "<details class=\"fission-site-node fission-site-semantics fission-site-preview-disclosure\" data-fission-semantics=\"{}\" data-fission-node=\"{}\">{children}</details>",
+                    escape_attr(identifier),
+                    node.id,
+                ));
+            }
+            if identifier.starts_with("site-disclosure:") {
+                let children = self.render_semantic_payload_children(node)?;
+                return Ok(format!(
+                    "<details class=\"fission-site-node fission-site-semantics fission-site-disclosure\" data-fission-semantics=\"{}\" data-fission-node=\"{}\">{children}</details>",
+                    escape_attr(identifier),
+                    node.id,
+                ));
+            }
+            if let Some(name) = identifier.strip_prefix("site-disclosure-summary:") {
+                let disclosure = format!("site-disclosure:{name}");
+                if self.has_ancestor_semantic_identifier(node, &disclosure) {
+                    let children = self.render_semantic_payload_children(node)?;
+                    return Ok(format!(
+                        "<summary class=\"fission-site-node fission-site-semantics fission-site-disclosure-summary\" data-fission-semantics=\"{}\" data-fission-node=\"{}\">{children}</summary>",
+                        escape_attr(identifier),
+                        node.id,
+                    ));
+                }
+            }
             if let Some(target) = identifier.strip_prefix("site-route:") {
                 return self.render_semantic_link(
                     node,
@@ -2195,6 +2238,16 @@ impl HtmlRenderer<'_> {
                 ));
             }
             if let Some(action) = identifier.strip_prefix("site-client-action:") {
+                if action == "toggle-goal-preview"
+                    && self.has_ancestor_semantic_identifier(node, "goal-preview-disclosure")
+                {
+                    let children = self.render_semantic_payload_children(node)?;
+                    return Ok(format!(
+                        "<summary class=\"fission-site-node fission-site-preview-summary\" data-fission-semantics=\"{}\" data-fission-node=\"{}\">{children}</summary>",
+                        escape_attr(identifier),
+                        node.id,
+                    ));
+                }
                 let children = self.render_children(&node.children, &HashSet::new())?;
                 let mut attrs = format!(
                     " data-fission-client-action=\"{}\" data-fission-semantics=\"{}\"",

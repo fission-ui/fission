@@ -55,15 +55,8 @@ fission_component! {
                 SemanticsRegion(
                     identifier: Some("home-hero-demo".to_string()),
                     label: Some(cx.view.env().tr("home.demo_label")),
-                    child: Row(
+                    child: Column(
                         children: [
-                            SemanticsRegion(
-                                identifier: Some("home-hero-code".to_string()),
-                                child: Column(children: [
-                                    copy("home.filename").weight(tokens.typography.font_weight_semibold),
-                                    MarkdownContent::new(highlighted_source),
-                                ]),
-                            ),
                             SemanticsRegion(
                                 identifier: Some("home-hero-preview".to_string()),
                                 child: Column(children: [
@@ -71,20 +64,26 @@ fission_component! {
                                     WebView(
                                         id: WidgetId::explicit("home-live-task-workspace"),
                                         url: _hero.preview_url.clone(),
-                                        label: Some(cx.view.env().tr("home.counter_label")),
-                                        height: Some(260.0),
+                                        label: Some(cx.view.env().tr("home.demo_label")),
+                                        height: Some(360.0),
                                     ),
                                 ]),
                             ),
                             SemanticsRegion(
-                                identifier: Some("home-hero-mobile".to_string()),
-                                label: Some(cx.view.env().tr("home.mobile_preview_label")),
-                                child: WebView(
-                                    id: WidgetId::explicit("home-live-task-workspace-mobile"),
-                                    url: _hero.preview_url.clone(),
-                                    label: Some(cx.view.env().tr("home.mobile_preview_label")),
-                                    height: Some(232.0),
-                                ),
+                                identifier: Some("site-disclosure:home-source".to_string()),
+                                child: Column(children: [
+                                    SemanticsRegion(
+                                        identifier: Some("site-disclosure-summary:home-source".to_string()),
+                                        child: Some(copy("home.source").into()),
+                                    ),
+                                    SemanticsRegion(
+                                        identifier: Some("home-hero-code".to_string()),
+                                        child: Column(children: [
+                                            copy("home.filename").weight(tokens.typography.font_weight_semibold),
+                                            MarkdownContent::new(highlighted_source),
+                                        ]),
+                                    ),
+                                ]),
                             ),
                         ],
                     ),

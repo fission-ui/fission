@@ -20,6 +20,7 @@ body {
   margin: 0;
   color: var(--ink);
   background: #fff;
+  font-family: var(--fs-font-sans);
   line-height: 1.6;
   text-rendering: optimizeLegibility;
 }
@@ -60,6 +61,10 @@ a:focus-visible, button:focus-visible, iframe:focus-visible {
   text-decoration: none;
   white-space: nowrap;
 }
+[data-fission-semantics="site-header"] a .fission-site-text-run {
+  color: inherit !important;
+  text-decoration: none !important;
+}
 [data-fission-semantics="docs-brand"] { flex: 0 0 auto; }
 [data-fission-semantics="site-primary-nav"] { flex: 0 1 auto; min-width: 0; }
 [data-fission-semantics="site-primary-nav"] > * {
@@ -75,6 +80,12 @@ a:focus-visible, button:focus-visible, iframe:focus-visible {
   border-radius: 6px;
   background: var(--blue-dark);
   color: #fff;
+}
+[data-fission-semantics="site-header-cta"] a .fission-site-text-run,
+[data-fission-semantics="home-primary-cta"] a .fission-site-text-run,
+[data-fission-semantics="home-secondary-cta"] a .fission-site-text-run {
+  color: inherit !important;
+  text-decoration: none !important;
 }
 [data-fission-semantics="site-search-trigger"],
 [data-fission-search-trigger] {
@@ -104,7 +115,7 @@ a:focus-visible, button:focus-visible, iframe:focus-visible {
 [data-fission-semantics="home-hero"] > * {
   display: grid !important;
   grid-template-columns: minmax(0, .9fr) minmax(0, 1.1fr);
-  align-items: center;
+  align-items: start;
   gap: clamp(28px, 4vw, 60px) !important;
 }
 [data-fission-semantics="home-hero"] > * > :first-child { min-width: 0; }
@@ -138,8 +149,8 @@ a:focus-visible, button:focus-visible, iframe:focus-visible {
   box-shadow: 0 18px 48px rgb(11 24 51 / 16%);
 }
 [data-fission-semantics="home-hero-demo"] > * {
-  display: grid !important;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  display: flex !important;
+  flex-direction: column;
   align-items: stretch;
   gap: 0 !important;
 }
@@ -173,7 +184,48 @@ a:focus-visible, button:focus-visible, iframe:focus-visible {
   border: 0;
   background: #fff;
 }
-[data-fission-semantics="home-hero-mobile"] { display: none !important; }
+.fission-site-disclosure {
+  border-top: 1px solid rgb(255 255 255 / 14%);
+}
+.fission-site-disclosure-summary {
+  display: flex;
+  align-items: center;
+  min-height: 48px;
+  padding: 8px 16px;
+  color: inherit;
+  cursor: pointer;
+  font-weight: 650;
+  list-style: none;
+}
+.fission-site-disclosure-summary::-webkit-details-marker { display: none; }
+.fission-site-disclosure-summary .fission-site-text-run { color: inherit !important; }
+.fission-site-disclosure-summary::before {
+  content: "+";
+  margin-right: 10px;
+}
+.fission-site-disclosure[open] > .fission-site-disclosure-summary::before {
+  content: "−";
+}
+[data-fission-semantics="home-hero-code"] { padding: 0 16px 16px; }
+[data-fission-semantics="site-disclosure:home-source"] { color: #e7effa; }
+[data-fission-semantics="home-hero-code"] > .fission-site-column > .fission-site-box {
+  padding: 10px 14px;
+  background: #1a2b40;
+  color: #e7effa;
+  font-weight: 700;
+}
+[data-fission-semantics="home-hero-code"] > .fission-site-column > .fission-site-box .fission-site-text-run {
+  color: inherit !important;
+}
+[data-fission-semantics="home-hero-code"] pre {
+  max-height: 62vh;
+  border-radius: 8px;
+}
+[data-fission-semantics="home-hero-code"] .fission-doc-tab { color: #e7effa; }
+[data-fission-semantics="home-hero-code"] .fission-doc-tab[aria-selected="true"] {
+  background: #24354d;
+  color: #fff;
+}
 
 [data-fission-semantics="home-platforms"] {
   width: min(100%, var(--max));
@@ -331,8 +383,8 @@ a:focus-visible, button:focus-visible, iframe:focus-visible {
   width: 100%;
   margin: 0;
 }
-[data-fission-semantics="goal-left-nav"],
-[data-fission-semantics="goal-right-nav"] {
+[data-fission-semantics="goal-shell"] > .fission-site-row > :first-child,
+[data-fission-semantics="goal-shell"] > .fission-site-row > :last-child {
   position: sticky;
   top: calc(var(--header) + 8px);
   align-self: start;
@@ -340,9 +392,16 @@ a:focus-visible, button:focus-visible, iframe:focus-visible {
   height: calc(100vh - var(--header) - 16px);
   min-height: 0;
   overflow-y: auto;
+  scrollbar-width: thin;
+}
+[data-fission-semantics="goal-left-nav"],
+[data-fission-semantics="goal-right-nav"] {
+  position: static;
+  height: 100%;
+  min-height: 0;
+  overflow: visible;
   padding: 24px 18px;
   background: #fff;
-  scrollbar-width: thin;
 }
 [data-fission-semantics="goal-left-nav"] { border-right: 1px solid var(--line); }
 [data-fission-semantics="goal-right-nav"] { border-left: 1px solid var(--line); }
@@ -369,6 +428,21 @@ a:focus-visible, button:focus-visible, iframe:focus-visible {
 [data-fission-semantics="site-navigation"] { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
 [data-fission-semantics="goal-breadcrumb"] a,
 [data-fission-semantics="site-navigation"] a { text-decoration: none; }
+[data-fission-semantics="site-navigation"] > .fission-site-row {
+  display: flex !important;
+  align-items: center;
+  flex-wrap: wrap !important;
+  gap: 8px !important;
+  min-width: 0;
+}
+[data-fission-semantics="site-navigation"] > .fission-site-row > a {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+[data-fission-semantics="site-navigation"] > .fission-site-row > :last-child {
+  flex: 1 1 auto;
+  min-width: 0;
+}
 [data-fission-semantics="site-section:what-you-will-build"],
 [data-fission-semantics="site-section:finished-example"],
 [data-fission-semantics^="site-section:"] { scroll-margin-top: calc(var(--header) + 24px); }
@@ -388,11 +462,61 @@ a:focus-visible, button:focus-visible, iframe:focus-visible {
 [data-fission-semantics="goal-step-copy"] { max-width: 82ch; min-width: 0; }
 [data-fission-semantics="goal-step-copy"] pre { max-height: min(68vh, 56rem); }
 [data-fission-semantics="goal-checkpoint"] { margin-top: 18px; padding: 16px 18px; border-left: 4px solid var(--teal); border-radius: 5px; background: #edf5f2; }
-[data-fission-semantics="goal-preview-toggle"] button { min-height: 48px; padding: 0 18px; border: 1px solid var(--blue-dark); border-radius: 6px; background: #fff; color: var(--blue-dark); cursor: pointer; }
+[data-fission-semantics="goal-preview-disclosure"] { min-width: 0; }
+[data-fission-semantics="goal-preview-disclosure"] > summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: fit-content;
+  min-height: 48px;
+  padding: 0 18px;
+  border: 1px solid var(--blue-dark);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--blue-dark);
+  cursor: pointer;
+  font-weight: 700;
+  list-style: none;
+}
+[data-fission-semantics="goal-preview-disclosure"] > summary::-webkit-details-marker { display: none; }
+[data-fission-semantics="goal-preview-disclosure"] > summary > .fission-site-box { display: none; }
+[data-fission-semantics="goal-preview-disclosure"] > summary::before { content: "+"; }
+[data-fission-semantics="goal-preview-disclosure"][open] > summary::before { content: "−"; }
+[data-fission-semantics="goal-preview-hide-label"],
+[data-fission-semantics="goal-preview-disclosure"][open] [data-fission-semantics="goal-preview-show-label"] { display: none; }
+[data-fission-semantics="goal-preview-disclosure"][open] [data-fission-semantics="goal-preview-hide-label"] { display: block; }
+[data-fission-semantics="goal-preview-disclosure"] > :not(summary) { margin-top: 16px; }
 [data-fission-semantics="goal-live-preview"],
 [data-fission-semantics="goal-finished-preview"] { width: 100%; overflow: hidden; border: 1px solid var(--line); border-radius: 8px; background: #fff; }
 [data-fission-semantics="goal-live-preview"] iframe,
 [data-fission-semantics="goal-finished-preview"] iframe { display: block; width: 100% !important; height: 560px !important; border: 0; background: #fff; }
+[data-fission-semantics="goal-shell"]:has([data-fission-semantics="goal-preview-disclosure"][open]) > * {
+  grid-template-columns: minmax(0, 1fr) !important;
+}
+[data-fission-semantics="goal-shell"]:has([data-fission-semantics="goal-preview-disclosure"][open]) > .fission-site-row > :first-child,
+[data-fission-semantics="goal-shell"]:has([data-fission-semantics="goal-preview-disclosure"][open]) > .fission-site-row > :last-child {
+  display: none !important;
+}
+[data-fission-semantics="goal-shell"]:has([data-fission-semantics="goal-preview-disclosure"][open]) [data-fission-semantics="goal-step-copy"] {
+  max-width: none;
+}
+[data-fission-semantics="goal-shell"]:has([data-fission-semantics="goal-preview-disclosure"][open]) [data-fission-semantics="goal-step-copy"] .fission-site-rich-text {
+  display: block;
+}
+[data-fission-semantics="goal-shell"]:has([data-fission-semantics="goal-preview-disclosure"][open]) [data-fission-semantics="goal-step-copy"] .fission-site-rich-text,
+[data-fission-semantics="goal-shell"]:has([data-fission-semantics="goal-preview-disclosure"][open]) [data-fission-semantics="goal-step-copy"] h1,
+[data-fission-semantics="goal-shell"]:has([data-fission-semantics="goal-preview-disclosure"][open]) [data-fission-semantics="goal-step-copy"] h2,
+[data-fission-semantics="goal-shell"]:has([data-fission-semantics="goal-preview-disclosure"][open]) [data-fission-semantics="goal-step-copy"] h3 {
+  max-width: 82ch;
+}
+[data-fission-semantics="goal-shell"]:has([data-fission-semantics="goal-preview-disclosure"][open]) [data-fission-semantics="goal-step-copy"] pre,
+[data-fission-semantics="goal-shell"]:has([data-fission-semantics="goal-preview-disclosure"][open]) [data-fission-semantics="goal-step-copy"] .fission-doc-tabs {
+  width: min(100%, 76rem);
+  max-width: none;
+}
+[data-fission-semantics="goal-shell"]:has([data-fission-semantics="goal-preview-disclosure"][open]) [data-fission-semantics="goal-preview-disclosure"][open] iframe {
+  height: min(80vh, 52rem) !important;
+}
 [data-fission-semantics="goal-outcomes"] { padding: 22px; border-radius: 8px; background: #f1f5fb; }
 
 /* Tutorials directory and paginated topic pages */
@@ -448,24 +572,48 @@ a:focus-visible, button:focus-visible, iframe:focus-visible {
 
 [data-fission-semantics="playground-main"] { width: min(100%, var(--max)); margin-inline: auto; padding: 40px var(--gutter) 72px; }
 [data-fission-semantics="playground-main"] > * { gap: 28px !important; }
-[data-fission-semantics="playground-examples"] button {
-  min-height: 48px;
-  padding: 0 16px;
+[data-fission-semantics="playground-example"] a,
+[data-fission-semantics="playground-example-active"] a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 14px;
   border: 1px solid var(--line);
-  border-radius: 6px;
-  background: #fff;
+  border-radius: 999px;
   color: var(--ink);
-  cursor: pointer;
+  text-decoration: none;
 }
-[data-fission-semantics="playground-examples"] button:hover { border-color: var(--blue); }
+[data-fission-semantics="playground-example"] a:hover { border-color: var(--blue); }
+[data-fission-semantics="playground-example"] a .fission-site-text-run,
+[data-fission-semantics="playground-example-active"] a .fission-site-text-run {
+  text-decoration: none !important;
+}
+[data-fission-semantics="playground-example-active"] a {
+  border-color: var(--blue-dark);
+  background: var(--blue-dark);
+  color: #fff;
+}
+[data-fission-semantics="playground-example-active"] a .fission-site-text-run {
+  color: inherit !important;
+}
 [data-fission-semantics="playground-workspace"] > * {
-  display: grid !important;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  align-items: start;
-  gap: 24px !important;
+  display: flex !important;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 28px !important;
 }
 [data-fission-semantics="playground-source"],
 [data-fission-semantics="playground-preview"] { min-width: 0; }
+[data-fission-semantics="site-disclosure:playground-source"] {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+[data-fission-semantics="site-disclosure-summary:playground-source"] {
+  padding-inline: 18px;
+  color: var(--blue-dark);
+}
+[data-fission-semantics="playground-source"] { padding: 0 18px 18px; }
 [data-fission-semantics="playground-source"] pre {
   max-height: 68vh;
   margin: 0;
@@ -475,23 +623,23 @@ a:focus-visible, button:focus-visible, iframe:focus-visible {
   background: var(--code) !important;
   color: #e7effa !important;
 }
-[data-fission-semantics="playground-preview"] iframe { display: block; width: 100% !important; min-height: 620px; border: 1px solid var(--line); border-radius: 8px; background: #fff; }
+[data-fission-semantics="playground-preview"] iframe { display: block; width: 100% !important; min-height: 520px; border: 1px solid var(--line); border-radius: 8px; background: #fff; }
 
 @media (max-width: 1180px) {
   [data-fission-semantics="site-desktop-nav"] { display: none !important; }
-  [data-fission-semantics="site-menu-toggle"] { display: inline-flex !important; align-items: center; }
-  .fission-site-sidebar-toggle { min-height: 44px; padding: 0 12px; border: 1px solid var(--line); border-radius: 6px; background: #fff; }
+  .fission-site-sidebar-toggle { display: inline-flex !important; align-items: center; min-height: 44px; padding: 0 12px; border: 1px solid var(--line); border-radius: 6px; background: #fff; }
   [data-fission-semantics="site-mobile-menu"] { order: 5; flex: 1 0 100%; padding: 10px 0; border-top: 1px solid var(--line); }
-  [data-fission-semantics="site-mobile-menu"] a { display: flex; min-height: 44px; padding-inline: 10px; }
+  [data-fission-semantics="site-mobile-menu"] a { display: flex; min-height: 44px; padding-inline: 10px; color: var(--ink); text-decoration: none; }
+  [data-fission-semantics="site-mobile-menu"] a .fission-site-text-run { color: inherit !important; text-decoration: none !important; }
   html.fission-site-sidebar-open [data-fission-semantics="site-mobile-menu"] { display: block !important; }
   [data-fission-semantics="goal-shell"] > * { grid-template-columns: minmax(190px, 220px) minmax(0, 1fr); }
-  [data-fission-semantics="goal-right-nav"] { display: none; }
+  [data-fission-semantics="goal-shell"] > .fission-site-row > :last-child { display: none; }
   [data-fission-semantics="home-goals"] > * > :nth-child(2) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (max-width: 900px) {
   [data-fission-semantics="site-header"] > * { flex-wrap: wrap !important; }
   [data-fission-semantics="site-header"] > * > :nth-child(2) { display: none !important; }
-  [data-fission-semantics="site-menu-toggle"] { margin-left: auto; }
+  .fission-site-sidebar-toggle { margin-left: auto; }
   [data-fission-semantics="site-primary-nav"] { display: none !important; }
   [data-fission-semantics="site-header-cta"] { display: none !important; }
   [data-fission-semantics="site-github-link"] { display: none !important; }
@@ -521,6 +669,8 @@ a:focus-visible, button:focus-visible, iframe:focus-visible {
   [data-fission-semantics="goal-left-nav"],
   [data-fission-semantics="goal-right-nav"],
   [data-fission-semantics="hub-sidebar"] { display: none; }
+  [data-fission-semantics="goal-shell"] > .fission-site-row > :first-child,
+  [data-fission-semantics="goal-shell"] > .fission-site-row > :last-child { display: none; }
   [data-fission-semantics="goal-main"] { padding-inline: var(--gutter); }
   [data-fission-semantics="home-hero-demo"] > *,
   [data-fission-semantics="home-browser-demo"] > * { grid-template-columns: minmax(0, 1fr); }
@@ -539,5 +689,15 @@ a:focus-visible, button:focus-visible, iframe:focus-visible {
   [data-fission-semantics="home-hero-preview"] iframe,
   [data-fission-semantics="home-browser-demo"] iframe { min-height: 300px; }
   [data-fission-semantics="tutorial-pagination"] { align-items: stretch; flex-wrap: wrap; }
+  [data-fission-semantics="site-navigation"] > .fission-site-row > :last-child {
+    flex: 1 1 100%;
+    max-width: 100%;
+  }
+  [data-fission-semantics="site-navigation"] > .fission-site-row > :last-child,
+  [data-fission-semantics="site-navigation"] > .fission-site-row > :last-child * {
+    min-width: 0;
+    white-space: normal !important;
+    overflow-wrap: anywhere;
+  }
 }
 @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }

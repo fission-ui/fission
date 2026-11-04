@@ -48,7 +48,11 @@ fission_component! {
                             children: [
                                 for example in &page.examples {
                                     SemanticsRegion(
-                                        identifier: Some(format!("playground-example-{}", example.app)),
+                                        identifier: Some(if example.app == selected.app {
+                                            "playground-example-active".to_string()
+                                        } else {
+                                            "playground-example".to_string()
+                                        }),
                                         label: Some(example.title.clone()),
                                         child: Some(
                                             Link::to(
@@ -65,35 +69,44 @@ fission_component! {
                     ),
                     SemanticsRegion(
                         identifier: Some("playground-workspace".to_string()),
-                        child: Row(
+                        child: Column(
                             gap: tokens.spacing.xl,
-                            align_items: ir_op::AlignItems::Stretch,
                             children: [
-                                SemanticsRegion(
-                                    identifier: Some("playground-source".to_string()),
-                                    label: Some(cx.view.env().tr("playground.source")),
-                                    child: Column(gap: tokens.spacing.m, children: [
-                                        SemanticsRegion(
-                                            copy("playground.source").weight(tokens.typography.font_weight_bold),
-                                            identifier: Some("site-heading-2:playground-source".to_string()),
-                                        ),
-                                        Text(selected.description.clone()).color(tokens.colors.text_secondary),
-                                        MarkdownContent::new(source),
-                                    ]),
-                                ),
                                 SemanticsRegion(
                                     identifier: Some("playground-preview".to_string()),
                                     label: Some(cx.view.env().tr("playground.preview")),
-                                    child: Column(gap: tokens.spacing.s, children: [
+                                    child: Column(gap: tokens.spacing.m, children: [
                                         SemanticsRegion(
-                                            copy("playground.preview").weight(tokens.typography.font_weight_bold),
+                                            Text(selected.title.clone())
+                                                .weight(tokens.typography.font_weight_bold),
                                             identifier: Some("site-heading-2:playground-preview".to_string()),
                                         ),
+                                        Text(selected.description.clone()).color(tokens.colors.text_secondary),
                                         WebView(
                                             id: preview_id,
                                             url: selected.preview_url.clone(),
                                             label: Some(selected.title.clone()),
-                                            height: Some(620.0),
+                                            height: Some(520.0),
+                                        ),
+                                    ]),
+                                ),
+                                SemanticsRegion(
+                                    identifier: Some("site-disclosure:playground-source".to_string()),
+                                    child: Column(gap: tokens.spacing.m, children: [
+                                        SemanticsRegion(
+                                            identifier: Some("site-disclosure-summary:playground-source".to_string()),
+                                            child: Some(copy("playground.source.show").into()),
+                                        ),
+                                        SemanticsRegion(
+                                            identifier: Some("playground-source".to_string()),
+                                            label: Some(cx.view.env().tr("playground.source")),
+                                            child: Column(gap: tokens.spacing.m, children: [
+                                                SemanticsRegion(
+                                                    copy("playground.source").weight(tokens.typography.font_weight_bold),
+                                                    identifier: Some("site-heading-2:playground-source".to_string()),
+                                                ),
+                                                MarkdownContent::new(source),
+                                            ]),
                                         ),
                                     ]),
                                 ),

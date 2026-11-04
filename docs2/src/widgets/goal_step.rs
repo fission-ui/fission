@@ -9,9 +9,6 @@ fission_component! {
             index: usize,
             step: GoalStep,
         }
-        state {
-            preview_open: bool = false,
-        }
     }
     view(section, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
@@ -21,11 +18,6 @@ fission_component! {
         let heading_identifier = format!("site-heading-2:{}-heading", section.step.id);
         let heading = format!("{}. {}", section.index + 1, section.step.title);
         let preview_label = format!("{}: {}", cx.view.env().tr("goal.live"), section.step.title);
-        let preview_action = if section.preview_open {
-            "goal.preview.hide"
-        } else {
-            "goal.preview.show"
-        };
     } =>
     SemanticsRegion(
         identifier: Some(section_identifier),
@@ -52,23 +44,26 @@ fission_component! {
                 )
             },
             if section.step.preview {
-                Column(gap: tokens.spacing.m, children: [
-                    SemanticsRegion(
-                        identifier: Some("goal-preview-toggle".to_string()),
-                        child: Button(
+                SemanticsRegion(
+                    identifier: Some("goal-preview-disclosure".to_string()),
+                    child: Column(gap: tokens.spacing.m, children: [
+                        SemanticsRegion(
+                            identifier: Some("site-client-action:toggle-goal-preview".to_string()),
+                            label: Some(cx.view.env().tr("goal.preview.show")),
                             child: Row(gap: tokens.spacing.s, align_items: ir_op::AlignItems::Center, children: [
                                 Icon::svg(material::av::play_arrow::regular())
                                     .size(tokens.spacing.m)
                                     .color(tokens.colors.primary),
-                                Text(cx.view.env().tr(preview_action)),
+                                SemanticsRegion(
+                                    identifier: Some("goal-preview-show-label".to_string()),
+                                    child: Text(cx.view.env().tr("goal.preview.show")),
+                                ),
+                                SemanticsRegion(
+                                    identifier: Some("goal-preview-hide-label".to_string()),
+                                    child: Text(cx.view.env().tr("goal.preview.hide")),
+                                ),
                             ]),
-                            key: "toggle-step-preview",
-                            on_press: reduce {
-                                section.preview_open = !section.preview_open;
-                            },
                         ),
-                    ),
-                    if section.preview_open {
                         SemanticsRegion(
                             identifier: Some("goal-live-preview".to_string()),
                             child: WebView(
@@ -77,9 +72,9 @@ fission_component! {
                                 label: Some(preview_label),
                                 height: Some(560.0),
                             ),
-                        )
-                    },
-                ])
+                        ),
+                    ]),
+                )
             },
         ]),
         key: section.step.id.clone(),

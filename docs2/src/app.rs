@@ -13,7 +13,7 @@ use fission::prelude::{DesignMode, DesignSystem};
 use fission::site::FissionSite;
 use std::path::Path;
 
-const HOMEPAGE_PREVIEW_APP: &str = "single-page-web-app-rust";
+const HOMEPAGE_PREVIEW_APP: &str = "rust-product-inventory";
 
 pub fn site_app() -> Result<FissionSite> {
     let project_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
@@ -88,10 +88,10 @@ pub fn site_app() -> Result<FissionSite> {
     }
 
     let playground_apps = [
-        "single-page-web-app-rust",
         "rust-product-inventory",
         "rust-admin-panel",
         "android-build-an-android-dashboard-with-fission",
+        "single-page-web-app-rust",
     ];
     let playground_examples: Vec<PlaygroundExample> = playground_apps
         .iter()

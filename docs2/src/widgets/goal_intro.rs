@@ -7,9 +7,6 @@ use fission::prelude::*;
 fission_component! {
     pub GoalIntro<DocsState> {
         props { document: GoalDocument }
-        state {
-            finished_preview_open: bool = false,
-        }
     }
     view(intro, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
@@ -30,11 +27,6 @@ fission_component! {
             cx.view.env().tr("goal.target.web")
         } else {
             cx.view.env().tr("goal.target.desktop")
-        };
-        let finished_preview_action = if intro.finished_preview_open {
-            "goal.preview.hide"
-        } else {
-            "goal.preview.show"
         };
         let run_command_block = format!("```sh\n{run_command}\n```");
     } =>
@@ -95,18 +87,26 @@ fission_component! {
                     child: Some(MarkdownContent::new(run_command_block).into()),
                 ),
                 if finished.preview {
-                    Column(gap: tokens.spacing.m, children: [
-                        SemanticsRegion(
-                            identifier: Some("goal-preview-toggle".to_string()),
-                            child: Button(
-                                child: Text(cx.view.env().tr(finished_preview_action)),
-                                key: "toggle-finished-preview",
-                                on_press: reduce {
-                                    intro.finished_preview_open = !intro.finished_preview_open;
-                                },
+                    SemanticsRegion(
+                        identifier: Some("goal-preview-disclosure".to_string()),
+                        child: Column(gap: tokens.spacing.m, children: [
+                            SemanticsRegion(
+                                identifier: Some("site-client-action:toggle-goal-preview".to_string()),
+                                label: Some(cx.view.env().tr("goal.preview.show")),
+                                child: Row(gap: tokens.spacing.s, align_items: ir_op::AlignItems::Center, children: [
+                                    Icon::svg(material::av::play_arrow::regular())
+                                        .size(tokens.spacing.m)
+                                        .color(tokens.colors.primary),
+                                    SemanticsRegion(
+                                        identifier: Some("goal-preview-show-label".to_string()),
+                                        child: Text(cx.view.env().tr("goal.preview.show")),
+                                    ),
+                                    SemanticsRegion(
+                                        identifier: Some("goal-preview-hide-label".to_string()),
+                                        child: Text(cx.view.env().tr("goal.preview.hide")),
+                                    ),
+                                ]),
                             ),
-                        ),
-                        if intro.finished_preview_open {
                             SemanticsRegion(
                                 identifier: Some("goal-finished-preview".to_string()),
                                 child: WebView(
@@ -115,9 +115,9 @@ fission_component! {
                                     label: Some(format!("Interactive result for {}", document.meta.title)),
                                     height: Some(560.0),
                                 ),
-                            )
-                        },
-                    ])
+                            ),
+                        ]),
+                    )
                 },
             ]),
         ),
