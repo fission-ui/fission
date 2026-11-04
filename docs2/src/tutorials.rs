@@ -28,6 +28,18 @@ struct PreviewBuild {
     outputs: Vec<PreviewOutput>,
 }
 
+struct PreparedPreview {
+    package: String,
+    stage_dir: std::path::PathBuf,
+    outputs: Vec<PreviewOutput>,
+}
+
+struct PreviewWorkspace {
+    manifest_path: std::path::PathBuf,
+    preview_count: usize,
+    include_charts: bool,
+}
+
 pub fn build_all(project_dir: &Path) -> Result<()> {
     let content_dir = project_dir.join("content/goals");
     let documents = load_goals(&content_dir)?;
@@ -92,11 +104,6 @@ pub fn build_all(project_dir: &Path) -> Result<()> {
     if previews.is_empty() {
         return Ok(());
     }
-    let workers = parallelism.min(previews.len());
-    eprintln!(
-        "Compiling {} unique Web preview(s) with {workers} worker(s); set {TUTORIAL_BUILD_PARALLELISM_ENV} to change concurrency.",
-        previews.len(),
-    );
     let workspace_root = project_dir
         .parent()
         .context("docs2 must live below the Fission workspace")?;
@@ -122,6 +129,162 @@ pub fn build_all(project_dir: &Path) -> Result<()> {
         }
     }
 
+    let (previews, workspaces) =
+        prepare_preview_workspaces(project_dir, &workspace_root, previews)?;
+    let cargo_target = project_dir.join("target/tutorial-wasm");
+    compile_preview_workspaces(&workspaces, &cargo_target, parallelism)?;
+    let workers = parallelism.min(previews.len());
+    eprintln!(
+        "Packaging {} unique Web preview(s) with {workers} worker(s); set {TUTORIAL_BUILD_PARALLELISM_ENV} to change concurrency.",
+        previews.len(),
+    );
+    package_previews(&previews, &cargo_target, workers)
+}
+
+fn prepare_preview_workspaces(
+    project_dir: &Path,
+    workspace_root: &Path,
+    mut previews: Vec<PreviewBuild>,
+) -> Result<(Vec<PreparedPreview>, Vec<PreviewWorkspace>)> {
+    let mut prepared = (0..previews.len())
+        .map(|_| None)
+        .collect::<Vec<Option<PreparedPreview>>>();
+    let mut workspaces = Vec::new();
+
+    for include_charts in [false, true] {
+        let indices = previews
+            .iter()
+            .enumerate()
+            .filter_map(|(index, preview)| {
+                (preview.include_charts == include_charts).then_some(index)
+            })
+            .collect::<Vec<_>>();
+        if indices.is_empty() {
+            continue;
+        }
+
+        let workspace_dir = project_dir
+            .join("target/tutorials")
+            .join(if include_charts {
+                "preview-workspace-charts"
+            } else {
+                "preview-workspace-web"
+            });
+        if workspace_dir.exists() {
+            fs::remove_dir_all(&workspace_dir)
+                .with_context(|| format!("failed to replace {}", workspace_dir.display()))?;
+        }
+        fs::create_dir_all(&workspace_dir)?;
+        let members = indices
+            .iter()
+            .map(|index| format!("\"preview-{index:03}\""))
+            .collect::<Vec<_>>()
+            .join(",\n    ");
+        let manifest_path = workspace_dir.join("Cargo.toml");
+        fs::write(
+            &manifest_path,
+            format!("[workspace]\nmembers = [\n    {members}\n]\nresolver = \"2\"\n"),
+        )?;
+
+        for index in &indices {
+            let preview = &mut previews[*index];
+            let member_name = format!("preview-{index:03}");
+            let package = format!("docs2-tutorial-preview-{index:03}");
+            let stage_dir = workspace_dir.join(&member_name);
+            fs::create_dir_all(&stage_dir)?;
+            for (relative, contents) in &preview.files {
+                let stage_path = if relative == "preview/lib.rs" {
+                    Path::new("src/lib.rs")
+                } else {
+                    Path::new(relative)
+                };
+                let destination = stage_dir.join(stage_path);
+                if let Some(parent) = destination.parent() {
+                    fs::create_dir_all(parent)?;
+                }
+                fs::write(destination, contents)?;
+            }
+            fs::write(
+                stage_dir.join("Cargo.toml"),
+                tutorial_manifest(&package, workspace_root, include_charts),
+            )?;
+            prepared[*index] = Some(PreparedPreview {
+                package,
+                stage_dir,
+                outputs: std::mem::take(&mut preview.outputs),
+            });
+        }
+        workspaces.push(PreviewWorkspace {
+            manifest_path,
+            preview_count: indices.len(),
+            include_charts,
+        });
+    }
+
+    let prepared = prepared
+        .into_iter()
+        .enumerate()
+        .map(|(index, preview)| {
+            preview.with_context(|| format!("preview {index} was not assigned to a workspace"))
+        })
+        .collect::<Result<Vec<_>>>()?;
+    Ok((prepared, workspaces))
+}
+
+fn compile_preview_workspaces(
+    workspaces: &[PreviewWorkspace],
+    cargo_target: &Path,
+    parallelism: usize,
+) -> Result<()> {
+    for workspace in workspaces {
+        let feature_label = if workspace.include_charts {
+            "with charts"
+        } else {
+            "without charts"
+        };
+        eprintln!(
+            "Compiling {} tutorial app(s) {feature_label} in parallel (up to {parallelism} Cargo jobs)...",
+            workspace.preview_count,
+        );
+        let output = Command::new("cargo")
+            .arg("build")
+            .arg("--manifest-path")
+            .arg(&workspace.manifest_path)
+            .args([
+                "--workspace",
+                "--target",
+                "wasm32-unknown-unknown",
+                "--release",
+                "--jobs",
+            ])
+            .arg(parallelism.to_string())
+            .env("CARGO_TARGET_DIR", cargo_target)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .output()
+            .context("failed to launch Cargo for tutorial preview apps")?;
+        if !output.status.success() {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            bail!(
+                "failed to compile {} tutorial preview app(s) {feature_label} ({}):\n{stdout}{stderr}",
+                workspace.preview_count,
+                output.status
+            );
+        }
+        eprintln!(
+            "Compiled {} tutorial app(s) {feature_label}.",
+            workspace.preview_count
+        );
+    }
+    Ok(())
+}
+
+fn package_previews(
+    previews: &[PreparedPreview],
+    cargo_target: &Path,
+    workers: usize,
+) -> Result<()> {
     let next_preview = AtomicUsize::new(0);
     let cancelled = AtomicBool::new(false);
     let errors = Mutex::new(Vec::<String>::new());
@@ -138,14 +301,9 @@ pub fn build_all(project_dir: &Path) -> Result<()> {
                     let Some(preview) = previews.get(preview_index) else {
                         break;
                     };
-                    if let Err(error) = build_preview(
-                        project_dir,
-                        workspace_root,
-                        preview,
-                        preview_index,
-                        previews.len(),
-                        worker,
-                    ) {
+                    if let Err(error) =
+                        build_preview(cargo_target, preview, preview_index, previews.len(), worker)
+                    {
                         errors
                             .lock()
                             .unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -200,9 +358,8 @@ fn tutorial_build_parallelism() -> Result<usize> {
 }
 
 fn build_preview(
-    project_dir: &Path,
-    workspace_root: &Path,
-    preview: &PreviewBuild,
+    cargo_target: &Path,
+    preview: &PreparedPreview,
     preview_index: usize,
     preview_count: usize,
     worker: usize,
@@ -219,51 +376,19 @@ fn build_preview(
         first.app,
         first.step
     );
-
-    let worker_name = format!("worker-{worker:02}");
-    let stage_dir = project_dir
-        .join("target/tutorials")
-        .join(&worker_name)
-        .join("shared-preview");
-    if stage_dir.exists() {
-        fs::remove_dir_all(&stage_dir)
-            .with_context(|| format!("failed to replace {}", stage_dir.display()))?;
-    }
-    fs::create_dir_all(&stage_dir)?;
-    for (relative, contents) in &preview.files {
-        let stage_path = if relative == "preview/lib.rs" {
-            Path::new("src/lib.rs")
-        } else {
-            Path::new(relative)
-        };
-        let destination = stage_dir.join(stage_path);
-        if let Some(parent) = destination.parent() {
-            fs::create_dir_all(parent)?;
-        }
-        fs::write(destination, contents)?;
-    }
-
-    let package = "docs2-tutorial-preview";
     let output = &first.path;
     if output.exists() {
         fs::remove_dir_all(output)
             .with_context(|| format!("failed to replace {}", output.display()))?;
     }
     fs::create_dir_all(output)?;
-    let cargo_target = if worker == 0 {
-        project_dir.join("target/tutorial-wasm")
-    } else {
-        project_dir.join(format!("target/tutorial-wasm-parallel-{worker:02}"))
-    };
     compile_preview(
         &first.app,
         &first.step,
-        package,
-        &stage_dir,
+        &preview.package,
+        &preview.stage_dir,
         output,
-        workspace_root,
-        &cargo_target,
-        preview.include_charts,
+        cargo_target,
     )?;
 
     for step in &preview.outputs {
@@ -289,14 +414,8 @@ fn compile_preview(
     package: &str,
     stage_dir: &Path,
     output: &Path,
-    workspace_root: &Path,
     cargo_target: &Path,
-    include_charts: bool,
 ) -> Result<()> {
-    fs::write(
-        stage_dir.join("Cargo.toml"),
-        tutorial_manifest(package, workspace_root, include_charts),
-    )?;
     let output_result = Command::new("wasm-pack")
         .arg("build")
         .arg(stage_dir)
@@ -347,9 +466,7 @@ fn tutorial_manifest(package: &str, workspace_root: &Path, include_charts: bool)
         "\"web\""
     };
     format!(
-        r#"[workspace]
-
-[package]
+        r#"[package]
 name = "{package}"
 version = "0.0.0"
 edition = "2021"

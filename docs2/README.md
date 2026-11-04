@@ -17,14 +17,16 @@ Web previews as WASM. A tutorial with invalid Rust fails the build instead of
 showing a preview that does not match its code. Install `wasm-pack` to build the
 previews.
 
-Unique tutorial previews compile concurrently, with a default of ten workers.
-Each worker has its own Cargo target directory so concurrent `wasm-pack` builds
-do not contend over one build lock, and each worker limits Cargo to one compiler
-job. Set `FISSION_TUTORIAL_BUILD_PARALLELISM` to a value from `1` to `64` to tune
-CPU and memory use. The site serving startup
-deadline defaults to 900 seconds; set `FISSION_SERVING_STARTUP_TIMEOUT_SECONDS`
-to a value from `1` to `3600` when a complete site build needs more time. The
-same timeout can be set with `--startup-timeout-seconds` on the CLI.
+Unique tutorial previews are collected into generated Cargo workspaces and
+compiled into a shared target cache. The web and charts previews use separate
+workspaces so their Cargo features stay isolated. Cargo compiles up to ten
+preview apps at once by default, then the site packages and optimizes their
+WASM previews with the same number of workers. Set
+`FISSION_TUTORIAL_BUILD_PARALLELISM` to a value from `1` to `64` to tune CPU and
+memory use. The site serving startup deadline defaults to 900 seconds; set
+`FISSION_SERVING_STARTUP_TIMEOUT_SECONDS` to a value from `1` to `3600` when a
+complete site build needs more time. The same timeout can be set with
+`--startup-timeout-seconds` on the CLI.
 
 For example:
 
