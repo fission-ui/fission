@@ -1,64 +1,61 @@
 ---
 layout: goal
 title: Build your first Rust Android GUI app with Fission
-description: "Step-by-step Rust guide to build your first Rust Android GUI app with Fission."
-goal: Create an interactive counter, then run it on an Android emulator and a connected phone.
+description: Build a Rust Android packing checklist with Fission components, shared app state, touch-friendly actions, and an emulator workflow.
+goal: Check the essentials for a weekend hike, then run the same Rust checklist on an Android emulator or phone
 path: /blog/build-your-first-rust-android-gui-app-with-fission/
 order: 19
 difficulty: Beginner
-duration: 35 minutes
+duration: 40 minutes
 run_command: "fission run --target android --project-dir ."
 app: android-build-your-first-rust-android-gui-app-with-fission
 outcomes:
-  - Implement the feature in shared Rust application code
-  - Explain the state, component and host behaviour involved
-  - Verify the Android workflow and follow physical-device checks when the task requires them
+  - Render a useful hiking checklist with item quantities and packed status
+  - Mark gear packed and focus the list on essentials still to pack
+  - Keep checklist data in shared Rust state and interaction state in its component
+  - Run and verify the shared interface on Android
 ---
-Start with a value that is easy to see: a count that begins at zero. This tutorial builds a real `fission_component!` counter, then runs the same shared Rust app in the mobile target shell. The sections below explain why the count belongs to the component and what the native build adds.
 
-## What you will build
+Before a weekend hike, the final check is easy to get wrong: water treatment is packed, but did the spare batteries make it into the bag? We will build Harbour Trail, a small checklist that shows the quantity and category of each essential item, marks gear as packed, and can hide completed rows while you finish the remaining work.
 
-You will create a counter that increments and resets, then run it on an Android emulator and a connected phone. The WebAssembly preview compiles the same `src/app.rs` component, so its buttons demonstrate the actual counter behavior. Use the target commands at the end to launch the native app.
+The checklist is intentionally small enough to understand in one sitting, but it behaves like a real task. The summary changes with each item, the action label tells you what the next tap will do, and the list can return a packed item if you take it back out. Its data stays in memory for this first app; later tutorials can add persistence without changing the checklist’s basic interaction.
 
-### How the screen uses Fission
+## Create an Android project
 
-Throughout this guide, the screen is written as a `fission_component!`. That component owns its temporary interaction state and renders widgets from that state; a reducer changes it after a user action. Put durable facts shared across screens in `GlobalState`, and request native or service work through an effect or capability after the view is built.
+Fission generates the native Android host while the checklist itself remains ordinary shared Rust code. If the Android SDK and NDK are not ready yet, follow the [Android toolchain setup guide](/blog/set-up-rust-android-gui-development-with-fission/) first.
 
-## Create the project and add the target
-
-Install the Fission command line, create the app, and add its native target. The [canonical Android setup tutorial](/blog/set-up-rust-android-gui-development-with-fission/) covers SDK installation and device prerequisites.
-
+<Tabs>
+<TabItem label="Create the app">
 ```sh
 cargo install cargo-fission
-fission init android-build-your-first-rust-android-gui-app-with-fission
-cd android-build-your-first-rust-android-gui-app-with-fission
+fission init harbour-trail
+cd harbour-trail
 fission add-target android --project-dir .
 ```
-
-## Files created by Fission
-
-This is the starter tree after `fission init` and `fission add-target`; the component and state used for this task are additions in the steps below. Keep shared Rust behavior under `src/` and leave target launch and packaging in `platforms/android/`.
-
+</TabItem>
+<TabItem label="Files for this task">
 ```text
-android-build-your-first-rust-android-gui-app-with-fission/
-├── Cargo.toml                 # Rust package and dependencies
-├── fission.toml               # app identity, targets and capabilities
+harbour-trail/
+├── Cargo.toml
+├── fission.toml
 ├── src/
-│   ├── main.rs                # generated app entrypoint
-│   ├── lib.rs                 # shared app setup
-│   └── app.rs                 # shared Fission screen
+│   ├── main.rs             # generated app entry point
+│   ├── lib.rs              # shared app setup
+│   └── app.rs              # PackingChecklist and pack-item rows
 └── platforms/
-    └── android/              # generated Android host
+    └── android/            # generated Android host and packaging
 ```
+</TabItem>
+</Tabs>
 
-Keep `src/app.rs`, shared state, reducers and reusable `fission_component!` components in the common Rust project. Add a state, service or effect module only when this feature needs that boundary, and use a name tied to the feature. The generated Android host owns launch and packaging details; shared components describe the user task without importing Android APIs.
+Keep the checklist model in shared Rust code. The generated host handles Android startup and packaging; it does not need to own a second version of the item list.
 
-<!-- fission:step id="start-screen" -->
-## Build the first Android screen
+<!-- fission:step id="packing-screen" -->
+## Give the packing task a clear first screen
 
-Start with a counter whose value begins at zero. The text label and count are visible without interaction, and the named Increase count and Reset counter buttons work with touch, keyboard and assistive technology. The retained count belongs in this component because it is only this screen’s temporary interaction state.
+A checklist row needs enough context to prevent a vague “done” tap. The item name says what to find, its category groups similar gear, and the quantity prevents “bottles” from hiding whether one or both are packed. A text status keeps the state understandable without relying on a colored icon.
 
-The complete root component below is the small interactive checkpoint used by the later steps. It reads Fission theme tokens and owns only the temporary state needed for this example.
+For the first screen, define the item record and render the five essentials a small hiking group checks before setting out. The completed water filter and rain shell make the progress summary meaningful at first launch; the remaining bottle, first-aid kit, and headlamp give us clear next actions in the following step.
 
 <Tabs>
 <TabItem label="src/app.rs">
@@ -66,52 +63,82 @@ The complete root component below is the small interactive checkpoint used by th
 ```rust
 use fission::prelude::*;
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct PackItem {
+    pub id: u32,
+    pub name: &'static str,
+    pub category: &'static str,
+    pub quantity: u32,
+    pub packed: bool,
+}
+
+fn starter_items() -> Vec<PackItem> {
+    vec![
+        PackItem { id: 11, name: "Water filter", category: "Water", quantity: 1, packed: true },
+        PackItem { id: 12, name: "Insulated bottles", category: "Water", quantity: 2, packed: false },
+        PackItem { id: 13, name: "First-aid kit", category: "Safety", quantity: 1, packed: false },
+        PackItem { id: 14, name: "Rain shell", category: "Clothing", quantity: 1, packed: true },
+        PackItem { id: 15, name: "Headlamp and spare batteries", category: "Lighting", quantity: 1, packed: false },
+    ]
+}
+
 fission_component! {
-    pub AndroidStarterApp<()> {
-        props {
-            title: String,
-            step: String,
-            goal: String,
-        }
-        state {
-            count: u32 = 0,
-        }
-    }
-    view(preview, _state, cx) {
+    pub PackItemRow<()> { item: PackItem }
+    view(row, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
-    SemanticsRegion(
-        identifier: Some("counter-screen".to_string()),
-        label: Some(preview.title.clone()),
-        child: Container(
-            Column(gap: tokens.spacing.m, children: [
-                Text(preview.title.clone())
+    Container(
+        Column(gap: tokens.spacing.xs, children: [
+            Text(row.item.name).weight(tokens.typography.font_weight_semibold),
+            Text(format!(
+                "{} · {} {}",
+                row.item.category,
+                row.item.quantity,
+                if row.item.quantity == 1 { "item" } else { "items" }
+            )).color(tokens.colors.text_secondary),
+            Text(if row.item.packed { "Packed" } else { "Still to pack" }),
+        ]),
+    )
+    .padding_all(tokens.spacing.m)
+    .bg(tokens.colors.surface)
+    .border(tokens.colors.border, 1.0)
+    .border_radius(tokens.radii.medium)
+}
 
-                    .weight(tokens.typography.font_weight_bold),
-                Text(preview.step.clone()).color(tokens.colors.text_secondary),
-                Text(format!("Count: {}", preview.count)),
-                Text(if preview.count == 0 {
-                    "No count yet. Choose Increase count to begin.".to_string()
-                } else {
-                    format!("The counter has increased {} time(s).", preview.count)
-                }),
-                Button(
-                    child: Text("Increase count".to_string()),
-                    key: "counter-increment",
-                    on_press: reduce { preview.count += 1; },
-                ),
-                Button(
-                    child: Text("Reset counter".to_string()),
-                    key: "counter-reset",
-                    on_press: reduce { preview.count = 0; },
-                ),
-                Text(preview.goal.clone()).color(tokens.colors.text_secondary),
-            ])
+fission_component! {
+    pub PackingChecklist<()> {}
+    view(_checklist, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let items = starter_items();
+        let packed = items.iter().filter(|item| item.packed).count();
+        let remaining = items.len() - packed;
+    } =>
+    SemanticsRegion(
+        identifier: Some("packing-checklist".to_string()),
+        label: Some("Harbour trail packing checklist".to_string()),
+        child: Container(
+            Column(gap: tokens.spacing.l, children: [
+                Column(gap: tokens.spacing.xs, children: [
+                    Text("Harbour Trail · Weekend pack")
+                        .weight(tokens.typography.font_weight_bold),
+                    Text("A five-item essentials check before leaving the trailhead.")
+                        .color(tokens.colors.text_secondary),
+                ]),
+                Column(gap: tokens.spacing.xs, children: [
+                    Text(format!("{} of {} packed", packed, items.len()))
+                        .weight(tokens.typography.font_weight_semibold),
+                    Text(format!("{} still to pack", remaining))
+                        .color(tokens.colors.text_secondary),
+                ]),
+                Column(gap: tokens.spacing.s, children: [
+                    for item in items.iter() {
+                        PackItemRow(item.clone(), key: item.id)
+                    },
+                ]),
+            ]),
         )
         .padding_all(tokens.spacing.l)
-        .bg(tokens.colors.surface)
-        .border(tokens.colors.border, 1.0)
-        .border_radius(tokens.radii.large),
+        .bg(tokens.colors.background),
     )
 }
 ```
@@ -124,19 +151,11 @@ mod app;
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
 
-#[wasm_bindgen(inline_js = "export function tutorial_title() { const parts = document.title.split(' — '); return parts.slice(1).join(' — ') || 'Fission tutorial'; } export function tutorial_step() { return document.title.split(' — ')[0] || 'Tutorial step'; } export function tutorial_goal() { return document.querySelector('meta[name=\"tutorial-goal\"]')?.content || 'Complete the task and verify it on the target.'; }")]
-extern "C" {
-    fn tutorial_title() -> String;
-    fn tutorial_step() -> String;
-    fn tutorial_goal() -> String;
-}
-
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::AndroidStarterApp::new(tutorial_title(), tutorial_step(), tutorial_goal());
-    WebApp::<(), _>::new(preview)
-        .with_title("Fission tutorial preview")
+    WebApp::<(), _>::new(app::PackingChecklist::new())
+        .with_title("Harbour Trail packing checklist")
         .mount("#fission-web-mount")
         .run()
         .map_err(|error| JsValue::from_str(&error.to_string()))
@@ -144,20 +163,19 @@ pub fn run() -> Result<(), JsValue> {
 ```
 </TabItem>
 </Tabs>
-
 <!-- fission:preview -->
 
 <!-- fission:checkpoint -->
-Press **Increase count** twice and check that the screen reports a count of two. Then press **Reset counter** and confirm the count returns to zero.
+Find the headlamp row and note its category and quantity. The summary should report two packed items and three still to pack.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 
-<!-- fission:step id="main-flow" -->
-## Implement the main Android workflow
+<!-- fission:step id="pack-and-filter" -->
+## Mark gear packed and focus on what remains
 
-The counter belongs to one screen, so keeping its value in this component avoids adding unnecessary app-wide state. Each button has a stable key, and its reducer changes only the count. When the count changes, Fission rebuilds the view from the new value; the text and button labels then reflect the current state.
+The item list is shared application data because both the summary and each row need the same packed flag. A typed reducer changes that flag by stable item ID, then updates a short confirmation. Search and filter choices only change this screen, so the “show only what is left” switch belongs in the checklist component’s retained local state.
 
-
+Each row is a reusable PackItemRow component. Giving repeated rows the item’s ID keeps their identity stable when the filter removes completed gear. The action changes from “Mark packed” to “Unpack item” after the reducer updates the state, so the next available action stays clear.
 
 <Tabs>
 <TabItem label="src/app.rs">
@@ -165,52 +183,150 @@ The counter belongs to one screen, so keeping its value in this component avoids
 ```rust
 use fission::prelude::*;
 
-fission_component! {
-    pub AndroidStarterApp<()> {
-        props {
-            title: String,
-            step: String,
-            goal: String,
-        }
-        state {
-            count: u32 = 0,
+#[derive(Clone, Debug, PartialEq)]
+pub struct PackItem {
+    pub id: u32,
+    pub name: &'static str,
+    pub category: &'static str,
+    pub quantity: u32,
+    pub packed: bool,
+}
+
+fn starter_items() -> Vec<PackItem> {
+    vec![
+        PackItem { id: 11, name: "Water filter", category: "Water", quantity: 1, packed: true },
+        PackItem { id: 12, name: "Insulated bottles", category: "Water", quantity: 2, packed: false },
+        PackItem { id: 13, name: "First-aid kit", category: "Safety", quantity: 1, packed: false },
+        PackItem { id: 14, name: "Rain shell", category: "Clothing", quantity: 1, packed: true },
+        PackItem { id: 15, name: "Headlamp and spare batteries", category: "Lighting", quantity: 1, packed: false },
+    ]
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct PackListState {
+    pub items: Vec<PackItem>,
+    pub feedback: String,
+}
+
+impl Default for PackListState {
+    fn default() -> Self {
+        Self {
+            items: starter_items(),
+            feedback: "Check each item as it goes into your pack.".to_string(),
         }
     }
-    view(preview, _state, cx) {
+}
+impl GlobalState for PackListState {}
+
+#[fission_reducer(TogglePacked)]
+pub fn on_toggle_packed(state: &mut PackListState, item_id: u32) {
+    let changed = state.items.iter_mut().find(|item| item.id == item_id).map(|item| {
+        item.packed = !item.packed;
+        (item.name, item.packed)
+    });
+    if let Some((name, packed)) = changed {
+        state.feedback = if packed {
+            format!("{} marked packed.", name)
+        } else {
+            format!("{} moved back to the packing list.", name)
+        };
+    }
+}
+
+fission_component! {
+    pub PackItemRow<PackListState> { item: PackItem }
+    view(row, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
-    SemanticsRegion(
-        identifier: Some("counter-screen".to_string()),
-        label: Some(preview.title.clone()),
-        child: Container(
-            Column(gap: tokens.spacing.m, children: [
-                Text(preview.title.clone())
+    Container(
+        Row(gap: tokens.spacing.m, wrap: ir_op::FlexWrap::Wrap, children: [
+            Column(gap: tokens.spacing.xs, children: [
+                Text(row.item.name).weight(tokens.typography.font_weight_semibold),
+                Text(format!(
+                    "{} · {} {}",
+                    row.item.category,
+                    row.item.quantity,
+                    if row.item.quantity == 1 { "item" } else { "items" }
+                )).color(tokens.colors.text_secondary),
+                Text(if row.item.packed { "Packed" } else { "Still to pack" }),
+            ]),
+            Spacer(flex_grow: 1.0),
+            Button(
+                child: Text(if row.item.packed { "Unpack item" } else { "Mark packed" }),
+                key: "toggle-packed",
+                variant: if row.item.packed { ButtonVariant::Outline } else { ButtonVariant::Primary },
+                on_press: with_reducer!(
+                    cx.build,
+                    TogglePacked(row.item.id),
+                    on_toggle_packed,
+                ),
+            ),
+        ]),
+    )
+    .padding_all(tokens.spacing.m)
+    .bg(tokens.colors.surface)
+    .border(tokens.colors.border, 1.0)
+    .border_radius(tokens.radii.medium)
+}
 
-                    .weight(tokens.typography.font_weight_bold),
-                Text(preview.step.clone()).color(tokens.colors.text_secondary),
-                Text(format!("Count: {}", preview.count)),
-                Text(if preview.count == 0 {
-                    "No count yet. Choose Increase count to begin.".to_string()
+fission_component! {
+    pub PackingChecklist<PackListState> {
+        state {
+            only_unpacked: bool = false,
+        }
+    }
+    view(checklist, app, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let packed = app.items.iter().filter(|item| item.packed).count();
+        let remaining = app.items.len() - packed;
+        let visible_items: Vec<PackItem> = app.items.iter()
+            .filter(|item| !checklist.only_unpacked || !item.packed)
+            .cloned()
+            .collect();
+    } =>
+    SemanticsRegion(
+        identifier: Some("packing-checklist".to_string()),
+        label: Some("Harbour trail packing checklist".to_string()),
+        child: Container(
+            Column(gap: tokens.spacing.l, children: [
+                Column(gap: tokens.spacing.xs, children: [
+                    Text("Harbour Trail · Weekend pack")
+                        .weight(tokens.typography.font_weight_bold),
+                    Text("Check the essentials before leaving the trailhead.")
+                        .color(tokens.colors.text_secondary),
+                ]),
+                Column(gap: tokens.spacing.xs, children: [
+                    Text(format!("{} of {} packed", packed, app.items.len()))
+                        .weight(tokens.typography.font_weight_semibold),
+                    Text(format!("{} still to pack", remaining))
+                        .color(tokens.colors.text_secondary),
+                ]),
+                Button(
+                    child: Text(if checklist.only_unpacked {
+                        "Show the full checklist"
+                    } else {
+                        "Show only what is left"
+                    }),
+                    key: "toggle-remaining-filter",
+                    variant: ButtonVariant::Outline,
+                    on_press: reduce {
+                        checklist.only_unpacked = !checklist.only_unpacked;
+                    },
+                ),
+                if visible_items.is_empty() {
+                    Text("Everything on this checklist is packed.")
                 } else {
-                    format!("The counter has increased {} time(s).", preview.count)
-                }),
-                Button(
-                    child: Text("Increase count".to_string()),
-                    key: "counter-increment",
-                    on_press: reduce { preview.count += 1; },
-                ),
-                Button(
-                    child: Text("Reset counter".to_string()),
-                    key: "counter-reset",
-                    on_press: reduce { preview.count = 0; },
-                ),
-                Text(preview.goal.clone()).color(tokens.colors.text_secondary),
-            ])
+                    Column(gap: tokens.spacing.s, children: [
+                        for item in visible_items.iter() {
+                            PackItemRow(item.clone(), key: item.id)
+                        },
+                    ])
+                },
+                Text(app.feedback.clone()).color(tokens.colors.text_secondary),
+            ]),
         )
         .padding_all(tokens.spacing.l)
-        .bg(tokens.colors.surface)
-        .border(tokens.colors.border, 1.0)
-        .border_radius(tokens.radii.large),
+        .bg(tokens.colors.background),
     )
 }
 ```
@@ -220,22 +336,15 @@ fission_component! {
 ```rust
 mod app;
 
+use app::PackListState;
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
-
-#[wasm_bindgen(inline_js = "export function tutorial_title() { const parts = document.title.split(' — '); return parts.slice(1).join(' — ') || 'Fission tutorial'; } export function tutorial_step() { return document.title.split(' — ')[0] || 'Tutorial step'; } export function tutorial_goal() { return document.querySelector('meta[name=\"tutorial-goal\"]')?.content || 'Complete the task and verify it on the target.'; }")]
-extern "C" {
-    fn tutorial_title() -> String;
-    fn tutorial_step() -> String;
-    fn tutorial_goal() -> String;
-}
 
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::AndroidStarterApp::new(tutorial_title(), tutorial_step(), tutorial_goal());
-    WebApp::<(), _>::new(preview)
-        .with_title("Fission tutorial preview")
+    WebApp::<PackListState, _>::new(app::PackingChecklist::new())
+        .with_title("Harbour Trail packing checklist")
         .mount("#fission-web-mount")
         .run()
         .map_err(|error| JsValue::from_str(&error.to_string()))
@@ -243,60 +352,42 @@ pub fn run() -> Result<(), JsValue> {
 ```
 </TabItem>
 </Tabs>
-
 <!-- fission:preview -->
 
 <!-- fission:checkpoint -->
-Increase the count several times, then reset it. The displayed value should match every action, and Reset should always return the component to zero.
+Mark the first-aid kit and headlamp packed; the summary should move from two of five to four of five. Choose “Show only what is left” and confirm that the remaining list names only the insulated bottles. Mark them packed, then use “Show the full checklist” to review all five items.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 
-<!-- fission:step id="edge-state" -->
-## Verify the user task on Android
+<!-- fission:step id="run-on-android" -->
+## Run the checklist on Android
 
-Run the app on an ANDROID simulator and check that the count starts at zero, increases once per tap and returns to zero after Reset. Then connect a device and repeat the same short flow; this checks that the shared Rust component launches in the generated native host.
+The component and reducer stay in shared Rust code. Fission’s Android target supplies a native shell, so the emulator and browser preview exercise the same checklist rules. The sample list resets when the process starts because we have not added storage; the Android build is still a real native app, not a web page wrapped in a browser.
 
-Use LiveTest with the `counter-screen` region and both named buttons to check focus and activation. Also rotate the simulator or resize its window to make sure the count and actions remain readable.
+Run the checks from the project root. Use the emulator for the first pass, then repeat the pack/unpack flow on a connected phone if the task is part of a device release.
 
-### Run, test and build
-
+<Tabs>
+<TabItem label="Run and build">
 ```sh
-cargo test
 fission doctor android --project-dir .
 fission run --target android --project-dir .
 fission test --target android --project-dir .
 fission build --target android --project-dir . --release
 ```
-
-`cargo test` runs Rust tests you add; the generated scaffold does not create feature-specific tests. `fission doctor` reports missing Android tools, `fission run` launches the selected emulator or connected device, and `fission test` checks that the generated host can start. A release build checks packaging, but none of these commands proves a physical permission or hardware flow works.
-
-
-### Emulator and connected-device commands
-
-The [Android SDK and NDK setup guide](/blog/set-up-rust-android-gui-development-with-fission/) is the single setup source. Check prerequisites and run the emulator with:
-
-```sh
-fission doctor android --project-dir .
-fission run --target android --project-dir .
-fission test --target android --project-dir .
-```
-
-
-For a real capability check, use an Android phone that has the required hardware and permission. Connect it with USB or Wi-Fi debugging, confirm its serial, then run the app on that device:
-
+</TabItem>
+<TabItem label="Choose a connected device">
 ```sh
 adb devices -l
 fission run --target android --device <adb-serial> --project-dir .
 ```
+</TabItem>
+</Tabs>
 
-An emulator can exercise the UI and memory-provider outcomes; it is not evidence that physical hardware or an OS permission flow works.
-
-
-### Current references
-
-These references explain the API contract behind the example and the target-specific behavior to verify:
-
-- [Fission state, handles and providers guide](/docs/guides/state-handles-and-providers/)
-- [Fission component and widget reference](/reference/widgets/catalog/)
-<!-- /fission:checkpoint -->
+Rotate the emulator and scale its system font up one step. The packed labels, item quantities, and row actions should stay visible and tappable. A tap must change only the selected item, leave other rows intact, and update the packed summary immediately. These checks cover the task’s shared state and Android layout; they do not claim to test hardware permissions, which this checklist does not use.
 <!-- /fission:step -->
+
+## Continue learning
+
+- [Android setup: SDK, NDK, emulator and phone](/blog/set-up-rust-android-gui-development-with-fission/)
+- [State, handles and providers](/docs/guides/state-handles-and-providers/)
+- [Android UI composition with reusable Fission widgets](/blog/compose-an-android-app-from-reusable-fission-widgets/)
