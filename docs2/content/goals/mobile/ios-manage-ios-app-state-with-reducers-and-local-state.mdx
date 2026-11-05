@@ -1,8 +1,8 @@
 ---
 layout: goal
 title: Manage iOS app state with reducers and local state
-description: "Step-by-step Rust guide to manage iOS app state with reducers and local state using Fission."
-goal: Keep shared product state and retained per-widget UI state in the correct Fission ownership scope.
+description: Learn when iOS app data belongs in Fission GlobalState and when a screen choice belongs in component-local state by building a working library returns desk in Rust.
+goal: Record returned books once, keep loan totals in sync, and filter completed loans without changing library data.
 path: /blog/manage-ios-app-state-with-reducers-and-local-state/
 order: 73
 difficulty: Beginner
@@ -10,52 +10,52 @@ duration: 35 minutes
 run_command: "fission run --target ios --project-dir ."
 app: ios-manage-ios-app-state-with-reducers-and-local-state
 outcomes:
-  - Implement the feature in shared Rust application code
-  - Explain the state, component and host behaviour involved
-  - Verify the iOS workflow and follow physical-device checks when the task requires them
+  - Model library loans as shared app data
+  - Use a typed reducer to return a book and update the desk message
+  - Keep the returned-loan filter as retained state in its owning component
+  - Run and check the same Rust screen in an iOS Simulator
 ---
 
-## What you will build
+At Riverside Community Library, a volunteer checks books back in while another person answers questions at the desk. They both need the same loan record to say when a book is back. The returns screen also needs a way to hide completed loans while the volunteer works through the active pile.
 
-In this tutorial, you will keep shared product state and retained per-widget UI state in the correct Fission ownership scope. Try the interactive screen below in your browser. It changes local component state only; it does not open iOS permission prompts, use device hardware or build an iPhone app. Follow the Simulator checks below, then use a signed iPhone build for hardware behavior.
+We will build that desk from four sample loans. A typed reducer changes a loan from checked out to returned, and the totals update from the same data. The “include returned loans” choice belongs only to this screen, so closing and reopening the filter does not alter a loan. This first version keeps records in memory; when the app restarts, the sample loans return.
 
-### How the screen uses Fission
+## Create an iOS project
 
-Throughout this guide, the screen is written as a `fission_component!`. That component owns its temporary interaction state and renders widgets from that state; a reducer changes it after a user action. Put durable facts shared across screens in `GlobalState`, and request native or service work through an effect or capability after the view is built.
+Create the app and add its iOS target. The [iOS development setup guide](/blog/set-up-rust-ios-development-with-fission/) walks through Xcode, Rust targets, and the Simulator if you need those installed.
 
-## Create the project and add the target
-
-Install the Fission command line, create the app, and add its native target. The [canonical iOS setup tutorial](/blog/set-up-rust-ios-development-with-fission/) covers SDK installation and device prerequisites.
-
+<Tabs>
+<TabItem label="Create the app">
 ```sh
 cargo install cargo-fission
-fission init ios-manage-ios-app-state-with-reducers-and-local-state
-cd ios-manage-ios-app-state-with-reducers-and-local-state
+fission init riverside-library
+cd riverside-library
 fission add-target ios --project-dir .
 ```
-
-## Files created by Fission
-
-This is the starter tree after `fission init` and `fission add-target`; the component and state used for this task are additions in the steps below. Keep shared Rust behavior under `src/` and leave target launch and packaging in `platforms/ios/`.
-
+</TabItem>
+<TabItem label="Files for this task">
 ```text
-ios-manage-ios-app-state-with-reducers-and-local-state/
+riverside-library/
 ├── Cargo.toml                 # Rust package and dependencies
-├── fission.toml               # app identity, targets and capabilities
+├── fission.toml               # app identity and target configuration
 ├── src/
-│   ├── main.rs                # generated app entrypoint
-│   ├── lib.rs                 # shared app setup
-│   └── app.rs                 # shared Fission screen
+│   ├── main.rs                # generated target entry point
+│   ├── lib.rs                 # app shell setup
+│   └── app.rs                 # loan data, reducer, and components
 └── platforms/
-    └── ios/                  # generated iOS host
+    └── ios/                   # generated iOS host and packaging
 ```
+</TabItem>
+</Tabs>
 
-Keep `src/app.rs`, shared state, reducers and reusable `fission_component!` components in the common Rust project. Add a state, service or effect module only when this feature needs that boundary, and use a name tied to the feature. The generated iOS host owns launch and packaging details; shared components describe the user task without importing iOS APIs.
+The loan record is product data: the desk, a future member screen, and a report should all see the same return status. Keep that record in app state. The filter is only a presentation choice for this desk, so it will live in the component that owns the screen.
 
 <!-- fission:step id="start-screen" -->
-## Try the browser-safe interaction
+## Lay out the returns desk
 
-The preview is a compiled Fission component with two deliberately local simulations. Press **Simulate success** to inspect the normal result, then **Simulate unavailable** to see how the screen can explain that a capability cannot proceed. These actions change only preview state: they do not request permission, access a sensor or run the target app. In the main step, compare that state boundary with the feature-specific instructions.
+A volunteer should not have to open a loan to identify it. Each row shows the book, the member who borrowed it, its due time, and whether it is still checked out. The totals summarize the same four sample loans, so even this read-only first version resembles a useful desk rather than a blank scaffold.
+
+Add the loan type and two components to `src/app.rs`. `LoanCard` owns the presentation for one loan; `LibraryLoanDesk` arranges the cards and summary. The vertical scroll region uses the current app viewport height so all four loans remain reachable on a phone, and its accessible name tells VoiceOver what the region contains.
 
 <Tabs>
 <TabItem label="src/app.rs">
@@ -63,72 +63,144 @@ The preview is a compiled Fission component with two deliberately local simulati
 ```rust
 use fission::prelude::*;
 
-fission_component! {
-    pub IosAppState<()> {
-        props {
-            title: String,
-            step: String,
-            goal: String,
-        }
-        state {
-            simulated_success: bool = false,
-            simulated_unavailable: bool = false,
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LoanStatus {
+    CheckedOut,
+    Returned,
+}
+
+impl LoanStatus {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::CheckedOut => "On loan",
+            Self::Returned => "Returned",
         }
     }
-    view(preview, _state, cx) {
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Loan {
+    pub id: u32,
+    pub title: &'static str,
+    pub borrower: &'static str,
+    pub due: &'static str,
+    pub status: LoanStatus,
+}
+
+fn sample_loans() -> Vec<Loan> {
+    vec![
+        Loan {
+            id: 4102,
+            title: "The Rust Programming Language",
+            borrower: "Ada",
+            due: "Today, 4:30 pm",
+            status: LoanStatus::CheckedOut,
+        },
+        Loan {
+            id: 4103,
+            title: "The Left Hand of Darkness",
+            borrower: "Mateo",
+            due: "Yesterday",
+            status: LoanStatus::CheckedOut,
+        },
+        Loan {
+            id: 4104,
+            title: "A Field Guide to Trees",
+            borrower: "Priya",
+            due: "Returned at 11:10 am",
+            status: LoanStatus::Returned,
+        },
+        Loan {
+            id: 4105,
+            title: "Programming Rust",
+            borrower: "Noah",
+            due: "Tomorrow",
+            status: LoanStatus::CheckedOut,
+        },
+    ]
+}
+
+fission_component! {
+    pub LoanCard<()> { loan: Loan }
+    view(card, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
     SemanticsRegion(
-        identifier: Some("tutorial-preview".to_string()),
-        label: Some(preview.title.clone()),
+        identifier: Some(format!("library-loan-{}", card.loan.id)),
+        label: Some(format!("{} loan for {}", card.loan.title, card.loan.borrower)),
         child: Container(
-            Column(gap: tokens.spacing.m, children: [
-                Text(preview.title.clone())
-
-                    .weight(tokens.typography.font_weight_bold),
-                Text(preview.step.clone())
+            Column(gap: tokens.spacing.xs, align_items: ir_op::AlignItems::Start, children: [
+                Text(card.loan.title.to_string())
+                    .weight(tokens.typography.font_weight_semibold),
+                Text(format!("Borrowed by {}", card.loan.borrower))
                     .color(tokens.colors.text_secondary),
-                Text(preview.goal.clone()),
-                Button(
-                    child: Text(if preview.simulated_success {
-                        "Reset success simulation".to_string()
-                    } else {
-                        "Simulate success".to_string()
-                    }),
-                    key: "tutorial-complete",
-                    on_press: reduce {
-                        preview.simulated_success = !preview.simulated_success;
-                        if preview.simulated_success { preview.simulated_unavailable = false; }
-                    },
-                ),
-                Text(if preview.simulated_success {
-                    format!("Simulated success for {}. Only browser-local state changed. Use the target steps below to verify the real behaviour.", preview.goal)
-                } else {
-                    "Ready: no native request has run. Choose a simulation to see how the screen state changes.".to_string()
-                }),
-                Button(
-                    child: Text(if preview.simulated_unavailable {
-                        "Clear unavailable simulation".to_string()
-                    } else {
-                        "Simulate unavailable".to_string()
-                    }),
-                    key: "tutorial-unavailable",
-                    on_press: reduce {
-                        preview.simulated_unavailable = !preview.simulated_unavailable;
-                        if preview.simulated_unavailable { preview.simulated_success = false; }
-                    },
-                ),
-                if preview.simulated_unavailable {
-                    Text(format!("Simulated unavailable result for {}. No native request ran; the target app should explain the real reason and recovery action.", preview.title))
-                } else {
-                    Text("No unavailable response is being simulated.".to_string())
-                },
-            ])
+                Text(format!("Due: {}", card.loan.due))
+                    .color(tokens.colors.text_secondary),
+                Text(format!("Status: {}", card.loan.status.label()))
+                    .color(tokens.colors.text_secondary),
+            ]),
         )
-        .padding_all(tokens.spacing.l)
+        .padding_all(tokens.spacing.m)
         .bg(tokens.colors.surface)
         .border(tokens.colors.border, 1.0)
-        .border_radius(tokens.radii.large),
+        .border_radius(tokens.radii.medium)
+        .width_length(Length::percent(100.0)),
+    )
+}
+
+fission_component! {
+    pub LibraryLoanDesk<()> {}
+    view(_desk, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let loans = sample_loans();
+        let checked_out = loans.iter()
+            .filter(|loan| loan.status == LoanStatus::CheckedOut)
+            .count();
+        let returned = loans.iter()
+            .filter(|loan| loan.status == LoanStatus::Returned)
+            .count();
+    } =>
+    SemanticsRegion(
+        identifier: Some("riverside-library-returns-desk".to_string()),
+        label: Some("Riverside Community Library returns desk".to_string()),
+        child: Scroll(
+            flex_grow: 1.0,
+            height: cx.view.viewport_size().height,
+            semantic_label: Some("Library loan list".to_string()),
+            child: Container(
+                Column(align_items: ir_op::AlignItems::Center, children: [
+                    Container(
+                        Column(gap: tokens.spacing.l, children: [
+                            Column(gap: tokens.spacing.xs, children: [
+                                Text("Riverside Community Library")
+                                    .weight(tokens.typography.font_weight_bold),
+                                Text("Returns desk · Tuesday afternoon")
+                                    .color(tokens.colors.text_secondary),
+                            ]),
+                            Column(gap: tokens.spacing.xs, children: [
+                                Text(format!("On loan · {}", checked_out)),
+                                Text(format!("Returned today · {}", returned))
+                                    .color(tokens.colors.text_secondary),
+                            ]),
+                            Column(gap: tokens.spacing.s, children: [
+                                for loan in loans.iter() {
+                                    LoanCard(loan.clone(), key: loan.id)
+                                },
+                            ]),
+                        ]),
+                    )
+                    .padding_all(tokens.spacing.l)
+                    .bg(tokens.colors.background)
+                    .width_length(Length::clamp(
+                        Length::points(0.0),
+                        Length::percent(100.0),
+                        Length::points(760.0),
+                    )),
+                ]),
+            )
+            .width_length(Length::percent(100.0))
+            .bg(tokens.colors.background),
+        ),
     )
 }
 ```
@@ -141,19 +213,11 @@ mod app;
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
 
-#[wasm_bindgen(inline_js = "export function tutorial_title() { const parts = document.title.split(' — '); return parts.slice(1).join(' — ') || 'Fission tutorial'; } export function tutorial_step() { return document.title.split(' — ')[0] || 'Tutorial step'; } export function tutorial_goal() { return document.querySelector('meta[name=\"tutorial-goal\"]')?.content || 'Complete the task and verify it on the target.'; }")]
-extern "C" {
-    fn tutorial_title() -> String;
-    fn tutorial_step() -> String;
-    fn tutorial_goal() -> String;
-}
-
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::IosAppState::new(tutorial_title(), tutorial_step(), tutorial_goal());
-    WebApp::<(), _>::new(preview)
-        .with_title("Fission tutorial preview")
+    WebApp::<(), _>::new(app::LibraryLoanDesk::new())
+        .with_title("Riverside Community Library returns desk")
         .mount("#fission-web-mount")
         .run()
         .map_err(|error| JsValue::from_str(&error.to_string()))
@@ -161,98 +225,301 @@ pub fn run() -> Result<(), JsValue> {
 ```
 </TabItem>
 </Tabs>
+
 <!-- fission:preview -->
 
 <!-- fission:checkpoint -->
-Press **Simulate success** and check the visible status change. Then choose **Simulate unavailable** and check that the screen explains the unavailable outcome. Both actions change browser-local state only; they do not invoke the native capability.
+Find Ada’s copy of `The Rust Programming Language` and confirm that it is still on loan. Then scroll down to Noah’s `Programming Rust` loan; on a phone it should be reachable inside the preview without widening the page.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 
-<!-- fission:step id="main-flow" -->
-## Manage iOS app state with reducers and local state
+<!-- fission:step id="return-a-book" -->
+## Update the loan record with a reducer
 
-Use GlobalState for records, authentication, routes and values needed by separate screens. Use retained local state in the owning fission_component! for an isolated draft, expanded panel or selected tab. A reducer is a synchronous transition from a typed action to new state; asynchronous work is queued through an effect and reported by a later success or error action. Draw that ownership boundary before adding fields, then test each reducer transition without constructing the view. This prevents duplicated state and makes the screen easier to reason about.
+When a book comes back, the status is no longer just a detail on this screen. The loan summary and every component reading that loan should now report the return. Put the list in `LibraryState`, which implements `GlobalState`, and make “Mark returned” a typed action. The reducer finds one loan by its stable ID, changes its status, and records a short confirmation for the desk.
 
-The component below is a browser-safe version of this screen. It uses Fission's retained component state and widgets to make the task visible; it does not call a native provider or operating-system API.
+The filter has a different lifetime. A volunteer may turn it on to review returns, then turn it off to focus on the books still out. That choice does not belong in `LibraryState` because it should not change what another screen sees. `LibraryLoanDesk` retains it locally, and its button only changes which rows are visible.
 
+Replace the read-only `src/app.rs` with the version below. `LoanSummary` reads the shared records, `LoanCard` dispatches the return action, and `LibraryLoanDesk` owns the local filter. Since the cards use each loan’s ID as their key, filtering the list does not give a different book the previous row’s widget identity.
+
+<Tabs>
+<TabItem label="src/app.rs">
 <!-- fission:file path="src/app.rs" -->
 ```rust
 use fission::prelude::*;
 
-fission_component! {
-    pub IosStateReducersLocal<()> {
-        props {
-            title: String,
-            step: String,
-            goal: String,
-        }
-        state {
-            show_details: bool = false,
-            saved_count: u32 = 0,
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LoanStatus {
+    CheckedOut,
+    Returned,
+}
+
+impl LoanStatus {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::CheckedOut => "On loan",
+            Self::Returned => "Returned",
         }
     }
-    view(preview, _state, cx) {
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Loan {
+    pub id: u32,
+    pub title: &'static str,
+    pub borrower: &'static str,
+    pub due: &'static str,
+    pub status: LoanStatus,
+}
+
+fn sample_loans() -> Vec<Loan> {
+    vec![
+        Loan {
+            id: 4102,
+            title: "The Rust Programming Language",
+            borrower: "Ada",
+            due: "Today, 4:30 pm",
+            status: LoanStatus::CheckedOut,
+        },
+        Loan {
+            id: 4103,
+            title: "The Left Hand of Darkness",
+            borrower: "Mateo",
+            due: "Yesterday",
+            status: LoanStatus::CheckedOut,
+        },
+        Loan {
+            id: 4104,
+            title: "A Field Guide to Trees",
+            borrower: "Priya",
+            due: "Returned at 11:10 am",
+            status: LoanStatus::Returned,
+        },
+        Loan {
+            id: 4105,
+            title: "Programming Rust",
+            borrower: "Noah",
+            due: "Tomorrow",
+            status: LoanStatus::CheckedOut,
+        },
+    ]
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct LibraryState {
+    pub loans: Vec<Loan>,
+    pub notice: String,
+}
+
+impl Default for LibraryState {
+    fn default() -> Self {
+        Self {
+            loans: sample_loans(),
+            notice: "The returns desk starts with three active loans and one returned book.".to_string(),
+        }
+    }
+}
+
+impl GlobalState for LibraryState {}
+
+#[fission_reducer(MarkLoanReturned)]
+pub fn on_mark_loan_returned(state: &mut LibraryState, loan_id: u32) {
+    let notice = state
+        .loans
+        .iter_mut()
+        .find(|loan| loan.id == loan_id)
+        .and_then(|loan| {
+            if loan.status == LoanStatus::Returned {
+                return None;
+            }
+            loan.status = LoanStatus::Returned;
+            Some(format!("{} is back on the shelf.", loan.title))
+        });
+
+    if let Some(notice) = notice {
+        state.notice = notice;
+    }
+}
+
+fission_component! {
+    pub LoanSummary<LibraryState> {}
+    view(_summary, library, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let checked_out = library.loans.iter()
+            .filter(|loan| loan.status == LoanStatus::CheckedOut)
+            .count();
+        let returned = library.loans.iter()
+            .filter(|loan| loan.status == LoanStatus::Returned)
+            .count();
+    } =>
+    SemanticsRegion(
+        identifier: Some("library-loan-summary".to_string()),
+        label: Some("Library loan totals".to_string()),
+        child: Column(gap: tokens.spacing.xs, children: [
+            Text(format!("On loan · {}", checked_out)),
+            Text(format!("Returned today · {}", returned))
+                .color(tokens.colors.text_secondary),
+        ]),
+    )
+}
+
+fission_component! {
+    pub LoanCard<LibraryState> { loan: Loan }
+    view(card, _library, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
     SemanticsRegion(
-        identifier: Some("state-example".to_string()),
-        label: Some(preview.title.clone()),
+        identifier: Some(format!("library-loan-{}", card.loan.id)),
+        label: Some(format!("{} loan for {}", card.loan.title, card.loan.borrower)),
         child: Container(
-            Column(gap: tokens.spacing.m, children: [
-                Text(preview.title.clone())
-
-                    .weight(tokens.typography.font_weight_bold),
-                Text(preview.goal.clone()),
-                Text(format!("Saved records: {}", preview.saved_count)),
-                Button(
-                    child: Text("Add a shared record"),
-                    key: "add-record",
-                    on_press: reduce { preview.saved_count += 1; },
-                )
-                .semantics_identifier("state.add-record"),
-                Button(
-                    child: Text(if preview.show_details { "Hide state explanation" } else { "Show state explanation" }),
-                    key: "toggle-state-explanation",
-                    on_press: reduce { preview.show_details = !preview.show_details; },
-                ),
-                if preview.show_details {
-                    Text("The count models app data shared across screens. The open explanation is local UI state owned by this component.")
+            Column(gap: tokens.spacing.xs, align_items: ir_op::AlignItems::Start, children: [
+                Text(card.loan.title.to_string())
+                    .weight(tokens.typography.font_weight_semibold),
+                Text(format!("Borrowed by {}", card.loan.borrower))
+                    .color(tokens.colors.text_secondary),
+                Text(format!("Due: {}", card.loan.due))
+                    .color(tokens.colors.text_secondary),
+                Text(format!("Status: {}", card.loan.status.label()))
+                    .color(tokens.colors.text_secondary),
+                if card.loan.status == LoanStatus::CheckedOut {
+                    Button(
+                        child: Text("Mark returned"),
+                        key: "mark-loan-returned",
+                        variant: ButtonVariant::Primary,
+                        on_press: with_reducer!(
+                            cx.build,
+                            MarkLoanReturned(card.loan.id),
+                            on_mark_loan_returned,
+                        ),
+                    )
+                    .semantics_identifier(format!("library-loan.return.{}", card.loan.id))
+                } else {
+                    Text("Returned to the shelf.")
+                        .color(tokens.colors.text_secondary)
                 },
-            ])
+            ]),
         )
-        .padding_all(tokens.spacing.l)
+        .padding_all(tokens.spacing.m)
         .bg(tokens.colors.surface)
         .border(tokens.colors.border, 1.0)
-        .border_radius(tokens.radii.large),
+        .border_radius(tokens.radii.medium)
+        .width_length(Length::percent(100.0)),
     )
 }
+
+fission_component! {
+    pub LibraryLoanDesk<LibraryState> {
+        state {
+            show_returned: bool = false,
+        }
+    }
+    view(desk, library, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let visible_loans: Vec<Loan> = library.loans.iter()
+            .filter(|loan| desk.show_returned || loan.status != LoanStatus::Returned)
+            .cloned()
+            .collect();
+    } =>
+    SemanticsRegion(
+        identifier: Some("riverside-library-returns-desk".to_string()),
+        label: Some("Riverside Community Library returns desk".to_string()),
+        child: Scroll(
+            flex_grow: 1.0,
+            height: cx.view.viewport_size().height,
+            semantic_label: Some("Library loan list".to_string()),
+            child: Container(
+                Column(align_items: ir_op::AlignItems::Center, children: [
+                    Container(
+                        Column(gap: tokens.spacing.l, children: [
+                            Column(gap: tokens.spacing.xs, children: [
+                                Text("Riverside Community Library")
+                                    .weight(tokens.typography.font_weight_bold),
+                                Text("Returns desk · Tuesday afternoon")
+                                    .color(tokens.colors.text_secondary),
+                            ]),
+                            LoanSummary(),
+                            Button(
+                                child: Text(if desk.show_returned {
+                                    "Show active loans only"
+                                } else {
+                                    "Include returned loans"
+                                }),
+                                key: "toggle-returned-loans",
+                                variant: ButtonVariant::Outline,
+                                on_press: reduce {
+                                    desk.show_returned = !desk.show_returned;
+                                },
+                            )
+                            .semantics_identifier("library-loans.toggle-returned"),
+                            if visible_loans.is_empty() {
+                                Text("No active loans remain. Include returned loans to review the completed records.")
+                            } else {
+                                Column(gap: tokens.spacing.s, children: [
+                                    for loan in visible_loans.iter() {
+                                        LoanCard(loan.clone(), key: loan.id)
+                                    },
+                                ])
+                            },
+                            Text(library.notice.clone())
+                                .color(tokens.colors.text_secondary),
+                        ]),
+                    )
+                    .padding_all(tokens.spacing.l)
+                    .bg(tokens.colors.background)
+                    .width_length(Length::clamp(
+                        Length::points(0.0),
+                        Length::percent(100.0),
+                        Length::points(760.0),
+                    )),
+                ]),
+            )
+            .width_length(Length::percent(100.0))
+            .bg(tokens.colors.background),
+        ),
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn returning_a_loan_updates_the_shared_record() {
+        let mut state = LibraryState::default();
+
+        on_mark_loan_returned(&mut state, 4105);
+
+        let loan = state.loans.iter().find(|loan| loan.id == 4105).unwrap();
+        assert_eq!(loan.status, LoanStatus::Returned);
+        assert_eq!(state.notice, "Programming Rust is back on the shelf.");
+    }
+
+    #[test]
+    fn returning_an_unknown_loan_changes_nothing() {
+        let mut state = LibraryState::default();
+        let original = state.clone();
+
+        on_mark_loan_returned(&mut state, 9999);
+
+        assert_eq!(state, original);
+    }
+}
 ```
-
-<!-- fission:preview -->
-
-
-<Tabs>
+</TabItem>
 <TabItem label="preview/lib.rs">
 <!-- fission:file path="preview/lib.rs" -->
 ```rust
 mod app;
 
+use app::LibraryState;
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
-
-#[wasm_bindgen(inline_js = "export function tutorial_title() { const parts = document.title.split(' — '); return parts.slice(1).join(' — ') || 'Fission tutorial'; } export function tutorial_step() { return document.title.split(' — ')[0] || 'Tutorial step'; } export function tutorial_goal() { return document.querySelector('meta[name=\"tutorial-goal\"]')?.content || 'Complete the task and verify it on the target.'; }")]
-extern "C" {
-    fn tutorial_title() -> String;
-    fn tutorial_step() -> String;
-    fn tutorial_goal() -> String;
-}
 
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::IosStateReducersLocal::new(tutorial_title(), tutorial_step(), tutorial_goal());
-    WebApp::<(), _>::new(preview)
-        .with_title("Fission tutorial preview")
+    WebApp::<LibraryState, _>::new(app::LibraryLoanDesk::new())
+        .with_title("Riverside Community Library returns desk")
         .mount("#fission-web-mount")
         .run()
         .map_err(|error| JsValue::from_str(&error.to_string()))
@@ -261,48 +528,88 @@ pub fn run() -> Result<(), JsValue> {
 </TabItem>
 </Tabs>
 
+<!-- fission:preview -->
+
 <!-- fission:checkpoint -->
-Add a shared record and open or close the local explanation. The count is app data in this example; the explanation belongs to the component.
+Mark Noah’s `Programming Rust` loan as returned. The “On loan” total should drop from three to two, the returned total should rise from one to two, and the status message should name the book. Choose `Include returned loans` to reveal Priya’s earlier return; choose `Show active loans only` to hide completed rows again. Hiding a returned row must not put the book back on loan.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 
-<!-- fission:step id="edge-state" -->
-## Verify the user task on iOS
+<!-- fission:step id="run-on-ios" -->
+## Run and verify the returns desk on iOS
 
-On an iOS simulator, repeat the feature path described above and check the expected result. If this task has an unavailable, denied or failure path, run that path too and confirm the screen offers a way to continue. The browser preview demonstrates component state only; the commands below verify the native host.
+The same `LibraryLoanDesk` component can run in the browser and in the native iOS shell. Fission does not need a second screen written in Swift: the host starts the Rust app and supplies the device window. Replace the generated app’s `CounterApp` references in `src/lib.rs` with the library desk and its shared state. The generated `src/main.rs` continues to call `run_mobile` for iOS.
 
-Use LiveTest with the semantic identifiers shown in the component to confirm focus and action behavior. If this screen adapts to window size, repeat the flow at a narrow phone width and a wider display.
+<Tabs>
+<TabItem label="src/lib.rs">
+<!-- fission:file path="src/lib.rs" -->
+```rust
+pub mod app;
 
-### Run, test and build
+use crate::app::{LibraryLoanDesk, LibraryState};
+use fission::prelude::*;
 
+#[cfg(any(target_os = "ios", target_os = "android"))]
+fn mobile_app() -> MobileApp<LibraryState, LibraryLoanDesk> {
+    MobileApp::<LibraryState, _>::new(LibraryLoanDesk::new())
+        .with_title("Riverside Community Library returns desk")
+}
+
+#[cfg(target_arch = "wasm32")]
+fn web_app() -> WebApp<LibraryState, LibraryLoanDesk> {
+    WebApp::<LibraryState, _>::new(LibraryLoanDesk::new())
+        .with_title("Riverside Community Library returns desk")
+}
+
+#[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
+pub fn run_desktop() -> anyhow::Result<()> {
+    DesktopApp::<LibraryState, _>::new(LibraryLoanDesk::new()).run()
+}
+
+#[cfg(any(target_os = "ios", target_os = "android"))]
+pub fn run_mobile() -> anyhow::Result<()> {
+    mobile_app().run()
+}
+
+#[cfg(target_os = "android")]
+#[no_mangle]
+fn android_main(app_handle: AndroidApp) {
+    let _ = mobile_app().run_with_android_app(app_handle);
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen::prelude::wasm_bindgen(start)]
+pub fn run_web() -> Result<(), wasm_bindgen::JsValue> {
+    console_error_panic_hook::set_once();
+    web_app()
+        .run()
+        .map_err(|error| wasm_bindgen::JsValue::from_str(&error.to_string()))
+}
+```
+</TabItem>
+<TabItem label="Build and launch">
 ```sh
 cargo test
-fission doctor ios --project-dir .
-fission run --target ios --project-dir .
-fission test --target ios --project-dir .
-fission build --target ios --project-dir . --release
-```
-
-`cargo test` runs Rust tests you add; the generated scaffold does not create feature-specific tests. `fission doctor` reports missing Xcode, simulator SDK or Rust targets, `fission run` launches an iOS Simulator, and `fission test` checks that the generated host can start. A release build checks the simulator package; it does not verify iPhone signing or physical-device behavior.
-
-
-### Simulator and device commands
-
-The [Xcode and iOS setup guide](/blog/set-up-rust-ios-development-with-fission/) is the single setup source. Fission’s run path discovers iOS simulators only:
-
-```sh
 fission doctor ios --project-dir .
 fission devices --project-dir .
 fission run --target ios --project-dir .
 fission test --target ios --project-dir .
+fission build --target ios --project-dir . --release
 ```
+</TabItem>
+<TabItem label="iOS Simulator or iPhone">
+```sh
+fission devices --project-dir .
+fission run --target ios --device <device-id> --project-dir .
+```
+</TabItem>
+</Tabs>
 
+Start with `cargo test`. The reducer tests verify the record change directly, including an unknown loan ID that should not alter any loan. Then run the desk in an iOS Simulator: return Noah’s book, check that the summary updates, and hide returned loans. Rotate the Simulator or use a smaller window to reach every row by scrolling. The simulator checks the Fission shell; installing a release on a physical iPhone also requires the signing setup described in the [iOS deployment guide](/blog/package-and-prepare-a-fission-ios-app-for-testflight/).
 
-### Current references
+## Continue learning
 
-These references explain the API contract behind the example and the target-specific behavior to verify:
-
-- [State](/docs/guides/state-handles-and-providers/)
-- [Fission component and widget reference](/reference/widgets/catalog/)
-<!-- /fission:checkpoint -->
+- [Build your first Rust iOS app with Fission](/blog/build-your-first-rust-ios-gui-app-with-fission/)
+- [Compose an iOS app from reusable Fission components](/blog/compose-an-ios-app-from-reusable-fission-widgets/)
+- [Use effects for asynchronous work](/docs/guides/state-handles-and-providers/)
 <!-- /fission:step -->
