@@ -239,7 +239,11 @@ fission_component! {
                 row_gap: tokens.spacing.s,
                 children: [
                 Column(children: [
-                    Text(format!("{} products", state.products.len())),
+                    Text(format!(
+                        "{} product{}",
+                        state.products.len(),
+                        if state.products.len() == 1 { "" } else { "s" },
+                    )),
                     Text("Active SKUs").color(tokens.colors.text_secondary),
                 ]),
                 Column(children: [
@@ -247,7 +251,11 @@ fission_component! {
                     Text("Across all bins").color(tokens.colors.text_secondary),
                 ]),
                 Column(children: [
-                    Text(format!("{} products", reorder_count)),
+                    Text(format!(
+                        "{} product{}",
+                        reorder_count,
+                        if reorder_count == 1 { "" } else { "s" },
+                    )),
                     Text("At or below reorder point")
                         .color(tokens.colors.text_secondary),
                 ]),
@@ -588,7 +596,11 @@ fission_component! {
                 row_gap: tokens.spacing.s,
                 children: [
                     Column(children: [
-                        Text(format!("{} products", state.products.len())),
+                        Text(format!(
+                            "{} product{}",
+                            state.products.len(),
+                            if state.products.len() == 1 { "" } else { "s" },
+                        )),
                         Text("Active SKUs").color(tokens.colors.text_secondary),
                     ]),
                     Column(children: [
@@ -596,7 +608,11 @@ fission_component! {
                         Text("Across all bins").color(tokens.colors.text_secondary),
                     ]),
                     Column(children: [
-                        Text(format!("{} products", reorder_count)),
+                        Text(format!(
+                            "{} product{}",
+                            reorder_count,
+                            if reorder_count == 1 { "" } else { "s" },
+                        )),
                         Text("At or below reorder point")
                             .color(tokens.colors.text_secondary),
                     ]),
@@ -640,7 +656,11 @@ fission_component! {
                     on_press: reduce { dashboard.filter = "Out of stock".to_string(); },
                 ),
             ]),
-            Text(format!("{} products shown", visible_count)),
+            Text(format!(
+                "{} product{} shown",
+                visible_count,
+                if visible_count == 1 { "" } else { "s" },
+            )),
             Column(gap: tokens.spacing.s, children: [
                 for product in state.products.iter()
                     .filter(|product| matches_inventory_filter(product, &query, filter))
@@ -822,7 +842,11 @@ fission_component! {
                 row_gap: tokens.spacing.s,
                 children: [
                     Column(children: [
-                        Text(format!("{} products", state.products.len())),
+                        Text(format!(
+                            "{} product{}",
+                            state.products.len(),
+                            if state.products.len() == 1 { "" } else { "s" },
+                        )),
                         Text("Active SKUs").color(tokens.colors.text_secondary),
                     ]),
                     Column(children: [
@@ -830,7 +854,11 @@ fission_component! {
                         Text("Across all bins").color(tokens.colors.text_secondary),
                     ]),
                     Column(children: [
-                        Text(format!("{} products", reorder_count)),
+                        Text(format!(
+                            "{} product{}",
+                            reorder_count,
+                            if reorder_count == 1 { "" } else { "s" },
+                        )),
                         Text("At or below reorder point")
                             .color(tokens.colors.text_secondary),
                     ]),
@@ -886,7 +914,11 @@ fission_component! {
                     on_press: reduce { dashboard.filter = "Out of stock".to_string(); },
                 ),
             ]),
-            Text(format!("{} products shown", visible_count)),
+            Text(format!(
+                "{} product{} shown",
+                visible_count,
+                if visible_count == 1 { "" } else { "s" },
+            )),
             if visible_count == 0 {
                 Container(Column(gap: tokens.spacing.s, children: [
                     Text("No products match these conditions.")
