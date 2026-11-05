@@ -1,8 +1,8 @@
 ---
 layout: goal
 title: Compose an Android app from reusable Fission widgets
-description: "Step-by-step Rust guide to compose an Android app from reusable Fission widgets."
-goal: Build a small Android screen from named fission_component! components and standard widgets while keeping normal widget contracts.
+description: "Build a realistic Android tree-inspection dashboard by composing reusable fission_component! widgets, shared app state and reducers."
+goal: Give an urban forestry crew a clear inspection queue and let dispatch assign an unassigned tree to a crew.
 path: /blog/compose-an-android-app-from-reusable-fission-widgets/
 order: 27
 difficulty: Beginner
@@ -10,52 +10,38 @@ duration: 35 minutes
 run_command: "fission run --target android --project-dir ."
 app: android-compose-an-android-app-from-reusable-fission-widgets
 outcomes:
-  - Implement the feature in shared Rust application code
-  - Explain the state, component and host behaviour involved
-  - Verify the Android workflow and follow physical-device checks when the task requires them
+  - Build repeated inspection cards as named fission_component! components
+  - Keep tree records in shared state and update them through a reducer
+  - Compose the same screen for a browser preview and an Android app
 ---
 
-## What you will build
+## The morning inspection round
 
-In this tutorial, you will build a small Android screen from named fission_component! components and standard widgets while keeping normal widget contracts. Try the interactive screen below in your browser. It changes local component state only; it does not open Android permission prompts, use device hardware or build an Android app. Follow the emulator checks below, then use a phone for hardware behavior.
+You will build the morning inspection board used by a city tree-care crew. It shows which trees need attention, where each tree is, what the inspector found, and whether a crew has been assigned. Dispatch can assign an unowned inspection to the Green Crew; the card and the summary then update together.
 
-### How the screen uses Fission
+The repeated card is a useful boundary because every inspection needs the same information and action. The dashboard arranges those cards and calculates the counts from the shared records. That separation keeps card presentation reusable while the app state remains the source of truth.
 
-Throughout this guide, the screen is written as a `fission_component!`. That component owns its temporary interaction state and renders widgets from that state; a reducer changes it after a user action. Put durable facts shared across screens in `GlobalState`, and request native or service work through an effect or capability after the view is built.
+The browser example uses three representative records so you can try the workflow before opening an emulator. Those records live only in this example. A production app would load inspections from its service or local database through an effect.
 
-## Create the project and add the target
+## Create the Android project
 
-Install the Fission command line, create the app, and add its native target. The [canonical Android setup tutorial](/blog/set-up-rust-android-gui-development-with-fission/) covers SDK installation and device prerequisites.
+Install the Fission CLI, create the project, and add Android as a target. If this is your first Android build, follow the [Android development setup guide](/blog/set-up-rust-android-gui-development-with-fission/) first; it covers the SDK, NDK, and emulator setup.
 
 ```sh
 cargo install cargo-fission
-fission init android-compose-an-android-app-from-reusable-fission-widgets
-cd android-compose-an-android-app-from-reusable-fission-widgets
+fission init urban-tree-rounds
+cd urban-tree-rounds
 fission add-target android --project-dir .
 ```
 
-## Files created by Fission
-
-This is the starter tree after `fission init` and `fission add-target`; the component and state used for this task are additions in the steps below. Keep shared Rust behavior under `src/` and leave target launch and packaging in `platforms/android/`.
-
-```text
-android-compose-an-android-app-from-reusable-fission-widgets/
-├── Cargo.toml                 # Rust package and dependencies
-├── fission.toml               # app identity, targets and capabilities
-├── src/
-│   ├── main.rs                # generated app entrypoint
-│   ├── lib.rs                 # shared app setup
-│   └── app.rs                 # shared Fission screen
-└── platforms/
-    └── android/              # generated Android host
-```
-
-Keep `src/app.rs`, shared state, reducers and reusable `fission_component!` components in the common Rust project. Add a state, service or effect module only when this feature needs that boundary, and use a name tied to the feature. The generated Android host owns launch and packaging details; shared components describe the user task without importing Android APIs.
+Fission generates the Android host and a Rust application shell. Keep the records, reducers, and screen in shared Rust code. The generated Android project launches and packages that shared app; it should not contain a second copy of the inspection rules.
 
 <!-- fission:step id="start-screen" -->
-## Try the browser-safe interaction
+## Give each inspection a clear card
 
-The preview is a compiled Fission component with two deliberately local simulations. Press **Simulate success** to inspect the normal result, then **Simulate unavailable** to see how the screen can explain that a capability cannot proceed. These actions change only preview state: they do not request permission, access a sensor or run the target app. In the main step, compare that state boundary with the feature-specific instructions.
+Start with the information a field crew needs before it walks to a tree: a stable inspection number, species, location, priority, and a concise report. A named `TreeInspectionCard` keeps that presentation consistent as the daily queue grows. Its props describe one inspection, so the parent can reuse it without the card reaching into unrelated app data.
+
+Here is the first version of the board. It is deliberately read-only: first check that the repeated records are easy to scan, then add the assignment action in the next step.
 
 <Tabs>
 <TabItem label="src/app.rs">
@@ -63,72 +49,127 @@ The preview is a compiled Fission component with two deliberately local simulati
 ```rust
 use fission::prelude::*;
 
+#[derive(Clone, Debug)]
+pub struct TreeInspection {
+    pub id: u32,
+    pub species: &'static str,
+    pub location: &'static str,
+    pub priority: &'static str,
+    pub finding: &'static str,
+    pub reported_by: &'static str,
+}
+
 fission_component! {
-    pub AndroidWidgetComposition<()> {
-        props {
-            title: String,
-            step: String,
-            goal: String,
-        }
-        state {
-            simulated_success: bool = false,
-            simulated_unavailable: bool = false,
-        }
-    }
-    view(preview, _state, cx) {
+    pub TreeInspectionCard<()> { inspection: TreeInspection }
+    view(card, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
     SemanticsRegion(
-        identifier: Some("tutorial-preview".to_string()),
-        label: Some(preview.title.clone()),
+        identifier: Some(format!("tree-inspection-{}", card.inspection.id)),
+        label: Some(format!(
+            "Tree inspection {}: {}, {}",
+            card.inspection.id,
+            card.inspection.species,
+            card.inspection.location,
+        )),
         child: Container(
-            Column(gap: tokens.spacing.m, children: [
-                Text(preview.title.clone())
-
+            Column(gap: tokens.spacing.s, align_items: ir_op::AlignItems::Start, children: [
+                Row(gap: tokens.spacing.s, children: [
+                    Text(format!("TREE-{}", card.inspection.id))
+                        .weight(tokens.typography.font_weight_semibold),
+                    Text(card.inspection.priority)
+                        .color(tokens.colors.text_secondary),
+                ]),
+                Text(card.inspection.species)
                     .weight(tokens.typography.font_weight_bold),
-                Text(preview.step.clone())
+                Text(card.inspection.location)
                     .color(tokens.colors.text_secondary),
-                Text(preview.goal.clone()),
-                Button(
-                    child: Text(if preview.simulated_success {
-                        "Reset success simulation".to_string()
-                    } else {
-                        "Simulate success".to_string()
-                    }),
-                    key: "tutorial-complete",
-                    on_press: reduce {
-                        preview.simulated_success = !preview.simulated_success;
-                        if preview.simulated_success { preview.simulated_unavailable = false; }
-                    },
-                ),
-                Text(if preview.simulated_success {
-                    format!("Simulated success for {}. Only browser-local state changed. Use the target steps below to verify the real behaviour.", preview.goal)
-                } else {
-                    "Ready: no native request has run. Choose a simulation to see how the screen state changes.".to_string()
-                }),
-                Button(
-                    child: Text(if preview.simulated_unavailable {
-                        "Clear unavailable simulation".to_string()
-                    } else {
-                        "Simulate unavailable".to_string()
-                    }),
-                    key: "tutorial-unavailable",
-                    on_press: reduce {
-                        preview.simulated_unavailable = !preview.simulated_unavailable;
-                        if preview.simulated_unavailable { preview.simulated_success = false; }
-                    },
-                ),
-                if preview.simulated_unavailable {
-                    Text(format!("Simulated unavailable result for {}. No native request ran; the target app should explain the real reason and recovery action.", preview.title))
-                } else {
-                    Text("No unavailable response is being simulated.".to_string())
-                },
-            ])
+                Text(card.inspection.finding),
+                Text(format!("Reported by {}", card.inspection.reported_by))
+                    .color(tokens.colors.text_secondary),
+            ]),
         )
-        .padding_all(tokens.spacing.l)
+        .padding_all(tokens.spacing.m)
         .bg(tokens.colors.surface)
         .border(tokens.colors.border, 1.0)
-        .border_radius(tokens.radii.large),
+        .border_radius(tokens.radii.medium)
+        .width_length(Length::percent(100.0)),
+    )
+}
+
+fission_component! {
+    pub MorningTreeRound<()> {}
+    view(_round, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    SemanticsRegion(
+        identifier: Some("urban-forestry-morning-round".to_string()),
+        label: Some("Urban forestry morning inspection round".to_string()),
+        child: Scroll(
+            flex_grow: 1.0,
+            height: cx.view.viewport_size().height,
+            child: Container(
+                Column(align_items: ir_op::AlignItems::Center, children: [
+                    Container(
+                        Column(gap: tokens.spacing.m, children: [
+                            Column(gap: tokens.spacing.xs, children: [
+                                Text("Cedar County Urban Forestry")
+                                    .weight(tokens.typography.font_weight_bold),
+                                Text("Morning inspection round · Wednesday, 8 May")
+                                    .color(tokens.colors.text_secondary),
+                            ]),
+                            Text("Needs a crew · 1     Scheduled · 1     Completed · 1"),
+                            Text("Work the urgent reports first, then review the routine checks.")
+                                .color(tokens.colors.text_secondary),
+                            Column(gap: tokens.spacing.s, children: [
+                                TreeInspectionCard(
+                                    TreeInspection {
+                                        id: 184,
+                                        species: "London plane",
+                                        location: "Alder Street · bus shelter",
+                                        priority: "Urgent",
+                                        finding: "A large limb split above the shelter after last night’s wind.",
+                                        reported_by: "Maya Jones",
+                                    },
+                                    key: 184,
+                                ),
+                                TreeInspectionCard(
+                                    TreeInspection {
+                                        id: 207,
+                                        species: "Silver birch",
+                                        location: "Oak Lane · north playground gate",
+                                        priority: "Routine",
+                                        finding: "Inspect the raised root near the gate and mark the path safe.",
+                                        reported_by: "Pavel Singh",
+                                    },
+                                    key: 207,
+                                ),
+                                TreeInspectionCard(
+                                    TreeInspection {
+                                        id: 213,
+                                        species: "Common lime",
+                                        location: "Mason Square · east entrance",
+                                        priority: "Routine",
+                                        finding: "Seasonal inspection found no work required.",
+                                        reported_by: "Tree team",
+                                    },
+                                    key: 213,
+                                ),
+                            ]),
+                        ])
+                    )
+                    .padding_all(tokens.spacing.m)
+                    .width_length(Length::clamp(
+                        Length::points(0.0),
+                        Length::percent(100.0),
+                        Length::points(760.0),
+                    ))
+                    .bg(tokens.colors.background),
+                ]),
+            )
+            .width_length(Length::percent(100.0))
+            .bg(tokens.colors.background),
+        ),
     )
 }
 ```
@@ -141,19 +182,11 @@ mod app;
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
 
-#[wasm_bindgen(inline_js = "export function tutorial_title() { const parts = document.title.split(' — '); return parts.slice(1).join(' — ') || 'Fission tutorial'; } export function tutorial_step() { return document.title.split(' — ')[0] || 'Tutorial step'; } export function tutorial_goal() { return document.querySelector('meta[name=\"tutorial-goal\"]')?.content || 'Complete the task and verify it on the target.'; }")]
-extern "C" {
-    fn tutorial_title() -> String;
-    fn tutorial_step() -> String;
-    fn tutorial_goal() -> String;
-}
-
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::AndroidWidgetComposition::new(tutorial_title(), tutorial_step(), tutorial_goal());
-    WebApp::<(), _>::new(preview)
-        .with_title("Fission tutorial preview")
+    WebApp::<(), _>::new(app::MorningTreeRound::new())
+        .with_title("Cedar County tree inspections")
         .mount("#fission-web-mount")
         .run()
         .map_err(|error| JsValue::from_str(&error.to_string()))
@@ -161,130 +194,377 @@ pub fn run() -> Result<(), JsValue> {
 ```
 </TabItem>
 </Tabs>
+
 <!-- fission:preview -->
 
 <!-- fission:checkpoint -->
-Press **Simulate success** and check the visible status change. Then choose **Simulate unavailable** and check that the screen explains the unavailable outcome. Both actions change browser-local state only; they do not invoke the native capability.
+Find inspection **TREE-184**. It should be the only urgent job, and its card should name Alder Street’s bus shelter and explain the split limb. Compare it with TREE-207: the card shape stays familiar even though the tree, location, and finding differ.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 
 <!-- fission:step id="main-flow" -->
-## Compose an Android app from reusable Fission widgets
+## Compose the dispatch board from reusable components
 
-Split the screen at a meaningful reusable boundary, such as a labelled form field, summary card or row. Give that component typed props for the values supplied by its parent; keep only its own retained interaction state inside its fission_component! declaration. The parent screen owns the workflow and reducer bindings. Avoid a component that reads unrelated global data just to render its props, and avoid returning a large anonymous Widget tree from a helper function. Verify the component once on the target and then reuse it in two different parent layouts.
+Now connect the cards to app state. The board derives its counts from the inspection records, so assigning a crew cannot leave a separate summary number out of date. `TreeInspectionCard` receives one record and binds its button to a reducer; the reducer updates that record in `TreeRoundsState`. Every card uses the same component, while each button carries the ID of the record it represents.
 
-The component below is a browser-safe version of this screen. It uses Fission's retained component state and widgets to make the task visible; it does not call a native provider or operating-system API.
+The `key` on each card comes from the durable inspection ID. That identity matters when the list changes: Fission can keep retained widget state with the correct inspection instead of attaching it to whichever row happens to occupy the same position.
 
+The combined source below is kept in one file so you can build and run the example without first creating modules. Once the feature grows, move the model, reducer, card, and screen into separate files; the component boundaries remain the same.
+
+<Tabs>
+<TabItem label="src/app.rs">
 <!-- fission:file path="src/app.rs" -->
 ```rust
 use fission::prelude::*;
 
-fission_component! {
-    #[derive(Default)]
-    pub MetricTile<()> {
-        props {
-            label: String,
-            value: String,
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum InspectionStatus {
+    NeedsCrew,
+    Scheduled,
+    Completed,
+}
+
+impl InspectionStatus {
+    fn label(self) -> &'static str {
+        match self {
+            Self::NeedsCrew => "Needs a crew",
+            Self::Scheduled => "Scheduled",
+            Self::Completed => "Completed",
         }
     }
-    view(tile, _state, cx) {
-        let tokens = &cx.view.env().theme.tokens;
-    } =>
-    Container(
-        Column(gap: tokens.spacing.xs, children: [
-            Text(tile.label.clone()).color(tokens.colors.text_secondary),
-            Text(tile.value.clone())
+}
 
-                .weight(tokens.typography.font_weight_bold),
-        ])
-    )
-    .padding_all(tokens.spacing.m)
-    .bg(tokens.colors.surface)
-    .border(tokens.colors.border, 1.0)
-    .border_radius(tokens.radii.medium)
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TreeInspection {
+    pub id: u32,
+    pub species: &'static str,
+    pub location: &'static str,
+    pub priority: &'static str,
+    pub finding: &'static str,
+    pub reported_by: &'static str,
+    pub status: InspectionStatus,
+    pub assigned_crew: Option<&'static str>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TreeRoundsState {
+    pub inspections: Vec<TreeInspection>,
+    pub notice: String,
+}
+
+impl Default for TreeRoundsState {
+    fn default() -> Self {
+        Self {
+            inspections: vec![
+                TreeInspection {
+                    id: 184,
+                    species: "London plane",
+                    location: "Alder Street · bus shelter",
+                    priority: "Urgent",
+                    finding: "A large limb split above the shelter after last night’s wind.",
+                    reported_by: "Maya Jones",
+                    status: InspectionStatus::NeedsCrew,
+                    assigned_crew: None,
+                },
+                TreeInspection {
+                    id: 207,
+                    species: "Silver birch",
+                    location: "Oak Lane · north playground gate",
+                    priority: "Routine",
+                    finding: "Inspect the raised root near the gate and mark the path safe.",
+                    reported_by: "Pavel Singh",
+                    status: InspectionStatus::Scheduled,
+                    assigned_crew: Some("Green Crew"),
+                },
+                TreeInspection {
+                    id: 213,
+                    species: "Common lime",
+                    location: "Mason Square · east entrance",
+                    priority: "Routine",
+                    finding: "Seasonal inspection found no work required.",
+                    reported_by: "Tree team",
+                    status: InspectionStatus::Completed,
+                    assigned_crew: Some("Tree Team"),
+                },
+            ],
+            notice: "One urgent tree needs a crew before the afternoon route.".to_string(),
+        }
+    }
+}
+
+impl GlobalState for TreeRoundsState {}
+
+#[cfg(test)]
+#[path = "app_tests.rs"]
+mod app_tests;
+
+fn assign_tree_to_green_crew(state: &mut TreeRoundsState, inspection_id: u32) {
+    let Some(inspection) = state
+        .inspections
+        .iter_mut()
+        .find(|inspection| inspection.id == inspection_id)
+    else {
+        return;
+    };
+
+    if inspection.status != InspectionStatus::NeedsCrew {
+        return;
+    }
+
+    inspection.status = InspectionStatus::Scheduled;
+    inspection.assigned_crew = Some("Green Crew");
+    state.notice = format!(
+        "TREE-{} is on the Green Crew’s afternoon route.",
+        inspection.id,
+    );
+}
+
+#[fission_reducer(AssignTreeToGreenCrew)]
+pub fn on_assign_tree_to_green_crew(state: &mut TreeRoundsState, inspection_id: u32) {
+    assign_tree_to_green_crew(state, inspection_id);
 }
 
 fission_component! {
-    pub AndroidWidgets<()> {
-        props {
-            title: String,
-            step: String,
-            goal: String,
-        }
-    }
-    view(preview, _state, cx) {
+    pub TreeInspectionCard<TreeRoundsState> { inspection: TreeInspection }
+    view(card, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
+        let assign = with_reducer!(
+            cx.build,
+            AssignTreeToGreenCrew(card.inspection.id),
+            on_assign_tree_to_green_crew,
+        );
     } =>
     SemanticsRegion(
-        identifier: Some("reusable-components".to_string()),
-        label: Some(preview.title.clone()),
+        identifier: Some(format!("tree-inspection-{}", card.inspection.id)),
+        label: Some(format!(
+            "Tree inspection {}: {}, {}",
+            card.inspection.id,
+            card.inspection.species,
+            card.inspection.location,
+        )),
         child: Container(
-            Column(gap: tokens.spacing.m, children: [
-                Text(preview.title.clone())
-
-                    .weight(tokens.typography.font_weight_bold),
-                Text(preview.goal.clone()),
-                Row(gap: tokens.spacing.m, children: [
-                    MetricTile(label: "Open tasks".to_string(), value: "4".to_string()),
-                    MetricTile(label: "Completed".to_string(), value: "12".to_string()),
+            Column(gap: tokens.spacing.s, align_items: ir_op::AlignItems::Start, children: [
+                Row(gap: tokens.spacing.s, children: [
+                    Text(format!("TREE-{}", card.inspection.id))
+                        .weight(tokens.typography.font_weight_semibold),
+                    Text(card.inspection.priority)
+                        .color(tokens.colors.text_secondary),
+                    Text(card.inspection.status.label())
+                        .color(tokens.colors.text_secondary),
                 ]),
-                Text("MetricTile owns the repeated presentation; the screen supplies each label and value."),
-            ])
+                Text(card.inspection.species)
+                    .weight(tokens.typography.font_weight_bold),
+                Text(card.inspection.location)
+                    .color(tokens.colors.text_secondary),
+                Text(card.inspection.finding),
+                Text(format!("Reported by {}", card.inspection.reported_by))
+                    .color(tokens.colors.text_secondary),
+                if let Some(crew) = card.inspection.assigned_crew {
+                    Text(format!("Assigned to {crew}"))
+                        .color(tokens.colors.text_secondary)
+                } else {
+                    Button(
+                        child: Text("Assign to Green Crew"),
+                        key: "assign-to-green-crew",
+                        variant: ButtonVariant::Primary,
+                        on_press: assign,
+                    )
+                    .semantics_identifier(format!(
+                        "tree-inspection.assign.{}",
+                        card.inspection.id,
+                    ))
+                },
+            ]),
         )
-        .padding_all(tokens.spacing.l)
+        .padding_all(tokens.spacing.m)
         .bg(tokens.colors.surface)
         .border(tokens.colors.border, 1.0)
-        .border_radius(tokens.radii.large),
+        .border_radius(tokens.radii.medium)
+        .width_length(Length::percent(100.0)),
+    )
+}
+
+fission_component! {
+    pub TreeRoundsDashboard<TreeRoundsState> {}
+    view(_dashboard, state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let needs_crew = state.inspections.iter()
+            .filter(|inspection| inspection.status == InspectionStatus::NeedsCrew)
+            .count();
+        let scheduled = state.inspections.iter()
+            .filter(|inspection| inspection.status == InspectionStatus::Scheduled)
+            .count();
+        let completed = state.inspections.iter()
+            .filter(|inspection| inspection.status == InspectionStatus::Completed)
+            .count();
+    } =>
+    SemanticsRegion(
+        identifier: Some("cedar-county-tree-rounds".to_string()),
+        label: Some("Cedar County tree inspection round".to_string()),
+        child: Scroll(
+            flex_grow: 1.0,
+            height: cx.view.viewport_size().height,
+            child: Container(
+                Column(align_items: ir_op::AlignItems::Center, children: [
+                    Container(
+                        Column(gap: tokens.spacing.m, children: [
+                            Column(gap: tokens.spacing.xs, children: [
+                                Text("Cedar County Urban Forestry")
+                                    .weight(tokens.typography.font_weight_bold),
+                                Text("Morning inspection round · Wednesday, 8 May")
+                                    .color(tokens.colors.text_secondary),
+                            ]),
+                            Text(format!(
+                                "Needs a crew · {}     Scheduled · {}     Completed · {}",
+                                needs_crew,
+                                scheduled,
+                                completed,
+                            )),
+                            Text(state.notice.clone())
+                                .color(tokens.colors.text_secondary),
+                            Column(gap: tokens.spacing.s, children: [
+                                for inspection in state.inspections.iter().cloned() {
+                                    TreeInspectionCard(
+                                        inspection.clone(),
+                                        key: inspection.id,
+                                    )
+                                },
+                            ]),
+                        ])
+                    )
+                    .padding_all(tokens.spacing.m)
+                    .width_length(Length::clamp(
+                        Length::points(0.0),
+                        Length::percent(100.0),
+                        Length::points(760.0),
+                    ))
+                    .bg(tokens.colors.background),
+                ]),
+            )
+            .width_length(Length::percent(100.0))
+            .bg(tokens.colors.background),
+        ),
     )
 }
 ```
-
-<!-- fission:preview -->
-
-
-<Tabs>
+</TabItem>
 <TabItem label="preview/lib.rs">
 <!-- fission:file path="preview/lib.rs" -->
 ```rust
 mod app;
 
+use app::TreeRoundsState;
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
-
-#[wasm_bindgen(inline_js = "export function tutorial_title() { const parts = document.title.split(' — '); return parts.slice(1).join(' — ') || 'Fission tutorial'; } export function tutorial_step() { return document.title.split(' — ')[0] || 'Tutorial step'; } export function tutorial_goal() { return document.querySelector('meta[name=\"tutorial-goal\"]')?.content || 'Complete the task and verify it on the target.'; }")]
-extern "C" {
-    fn tutorial_title() -> String;
-    fn tutorial_step() -> String;
-    fn tutorial_goal() -> String;
-}
 
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::AndroidWidgets::new(tutorial_title(), tutorial_step(), tutorial_goal());
-    WebApp::<(), _>::new(preview)
-        .with_title("Fission tutorial preview")
+    WebApp::<TreeRoundsState, _>::new(app::TreeRoundsDashboard::new())
+        .with_title("Cedar County tree inspections")
         .mount("#fission-web-mount")
         .run()
         .map_err(|error| JsValue::from_str(&error.to_string()))
 }
 ```
 </TabItem>
+<TabItem label="state-transition test">
+<!-- fission:file path="src/app_tests.rs" -->
+```rust
+use super::*;
+
+#[test]
+fn assigning_a_tree_updates_its_record_and_dashboard_notice() {
+    let mut state = TreeRoundsState::default();
+
+    assign_tree_to_green_crew(&mut state, 184);
+
+    let inspection = state
+        .inspections
+        .iter()
+        .find(|inspection| inspection.id == 184)
+        .expect("TREE-184 is in the morning round");
+    assert_eq!(inspection.status, InspectionStatus::Scheduled);
+    assert_eq!(inspection.assigned_crew, Some("Green Crew"));
+    assert_eq!(
+        state.notice,
+        "TREE-184 is on the Green Crew’s afternoon route."
+    );
+}
+```
+</TabItem>
 </Tabs>
 
+<!-- fission:preview -->
+
 <!-- fission:checkpoint -->
-Compare the two metric tiles. They use one named component with different props, while the screen owns their arrangement.
+In the preview, select **Assign to Green Crew** on TREE-184. Its card should replace the action with the crew name, the “Needs a crew” count should fall to zero, the scheduled count should rise to two, and the notice should identify the afternoon route. TREE-207 and TREE-213 should keep their own details and statuses.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 
 <!-- fission:step id="edge-state" -->
-## Verify the user task on Android
+## Run the same shared app on Android
 
-On an Android emulator, repeat the feature path described above and check the expected result. If this task has an unavailable, denied or failure path, run that path too and confirm the screen offers a way to continue. The browser preview demonstrates component state only; the commands below verify the native host.
+Replace the generated `CounterApp` wiring in `src/lib.rs` with the Android shell below. The browser and Android shells then use the same `TreeRoundsState`, reducer, and dashboard component. The browser shell makes the interaction easy to inspect; the Android shell supplies the device window and generated host. No tree-assignment logic belongs in Android-specific code.
 
-Use LiveTest with the semantic identifiers shown in the component to confirm focus and action behavior. If this screen adapts to window size, repeat the flow at a narrow phone width and a wider display.
+<Tabs>
+<TabItem label="src/lib.rs · Android shell">
+<!-- fission:file path="src/lib.rs" -->
+```rust
+pub mod app;
 
-### Run, test and build
+use app::{TreeRoundsDashboard, TreeRoundsState};
+use fission::prelude::*;
+
+#[cfg(target_os = "android")]
+const ANDROID_TEST_CONTROL_PORT: u16 = 48763;
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+fn mobile_app() -> MobileApp<TreeRoundsState, TreeRoundsDashboard> {
+    let app = MobileApp::<TreeRoundsState, _>::new(TreeRoundsDashboard::new())
+        .with_title("Cedar County tree inspections");
+    #[cfg(target_os = "android")]
+    let app = app.with_test_control_port(ANDROID_TEST_CONTROL_PORT);
+    app
+}
+
+#[cfg(target_arch = "wasm32")]
+fn web_app() -> WebApp<TreeRoundsState, TreeRoundsDashboard> {
+    WebApp::<TreeRoundsState, _>::new(TreeRoundsDashboard::new())
+        .with_title("Cedar County tree inspections")
+}
+
+#[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
+pub fn run_desktop() -> anyhow::Result<()> {
+    DesktopApp::<TreeRoundsState, _>::new(TreeRoundsDashboard::new())
+        .with_title("Cedar County tree inspections")
+        .run()
+}
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub fn run_mobile() -> anyhow::Result<()> {
+    mobile_app().run()
+}
+
+#[cfg(target_os = "android")]
+#[no_mangle]
+fn android_main(app_handle: AndroidApp) {
+    let _ = mobile_app().run_with_android_app(app_handle);
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen::prelude::wasm_bindgen(start)]
+pub fn run_web() -> Result<(), wasm_bindgen::JsValue> {
+    console_error_panic_hook::set_once();
+    web_app()
+        .run()
+        .map_err(|error| wasm_bindgen::JsValue::from_str(&error.to_string()))
+}
+```
+</TabItem>
+</Tabs>
+
+Add the focused state-transition test in `src/app_tests.rs` (the **state-transition test** tab above), then run the app on an emulator. Before assigning, confirm TREE-184 is urgent and unassigned. After tapping **Assign to Green Crew**, check that the card, the summary counts, and the route notice all change together. Reopen the screen after navigating away to confirm app-wide state is owned by the application, not by one card’s retained local state.
 
 ```sh
 cargo test
@@ -294,26 +574,14 @@ fission test --target android --project-dir .
 fission build --target android --project-dir . --release
 ```
 
-`cargo test` runs Rust tests you add; the generated scaffold does not create feature-specific tests. `fission doctor` reports missing Android tools, `fission run` launches the selected emulator or connected device, and `fission test` checks that the generated host can start. A release build checks packaging, but none of these commands proves a physical permission or hardware flow works.
+`cargo test` runs the state-transition test. `fission doctor` checks the Android toolchain, `fission run` launches the selected emulator or connected phone, and `fission test` exercises the generated host. A release build verifies packaging. The example records are in memory; connect an effect and a persistence layer before using the board for real municipal work.
 
+For the next implementation pass, move `TreeInspection` and `TreeRoundsState` into a model module, keep `on_assign_tree_to_green_crew` beside the state transition, and give `TreeInspectionCard` its own component file. Those modules should still compile into one shared app library used by Android.
 
-### Emulator and connected-device commands
+### References
 
-The [Android SDK and NDK setup guide](/blog/set-up-rust-android-gui-development-with-fission/) is the single setup source. Check prerequisites and run the emulator with:
-
-```sh
-fission doctor android --project-dir .
-fission run --target android --project-dir .
-fission test --target android --project-dir .
-```
-
-
-### Current references
-
-These references explain the API contract behind the example and the target-specific behavior to verify:
-
-- [Components](/docs/guides/layout-and-widgets/)
-- [Fission state, handles and providers guide](/docs/guides/state-handles-and-providers/)
-- [Fission component and widget reference](/reference/widgets/catalog/)
-<!-- /fission:checkpoint -->
+- [Layout and widgets](/docs/guides/layout-and-widgets/)
+- [Fission state, handles, and providers](/docs/guides/state-handles-and-providers/)
+- [Fission components and widget catalog](/reference/widgets/catalog/)
+- [Android development setup](/blog/set-up-rust-android-gui-development-with-fission/)
 <!-- /fission:step -->
