@@ -1,8 +1,8 @@
 ---
 layout: goal
-title: Build validated Android forms that work with the soft keyboard
-description: "Step-by-step Rust guide to build validated Android forms that work with the soft keyboard using Fission."
-goal: Handle focus, IME actions, selection, numeric input, validation and keyboard-safe layouts in a touch-first form.
+title: Build a keyboard-friendly Android reservation form in Rust
+description: "Build a validated Android seedling reservation form in Rust with Fission TextInput, field-specific errors, numeric and email keyboards, and a layout that stays usable with the soft keyboard open."
+goal: Let a native plant nursery collect a clear pickup request, catch missing or invalid details, and keep every field reachable while someone types on Android.
 path: /blog/build-validated-android-forms-that-work-with-the-soft-keyboard/
 order: 30
 difficulty: Beginner
@@ -10,52 +10,57 @@ duration: 35 minutes
 run_command: "fission run --target android --project-dir ."
 app: android-build-validated-android-forms-that-work-with-the-soft-keyboard
 outcomes:
-  - Implement the feature in shared Rust application code
-  - Explain the state, component and host behaviour involved
-  - Verify the Android workflow and follow physical-device checks when the task requires them
+  - Build a native seedling pickup request with clearly labelled fields
+  - Choose email, name, and number input modes with useful keyboard actions
+  - Validate the request and show an error beside the field that needs attention
+  - Check the focused fields and submit action while the Android keyboard is open
 ---
 
-## What you will build
+## Build a native seedling pickup request
 
-In this tutorial, you will handle focus, IME actions, selection, numeric input, validation and keyboard-safe layouts in a touch-first form. Try the interactive screen below in your browser. It changes local component state only; it does not open Android permission prompts, use device hardware or build an Android app. Follow the emulator checks below, then use a phone for hardware behavior.
+Meadowline Native Plants receives requests from neighborhood restoration crews. A useful request needs a contact name, a reply address, the seedling species, and the number of plants to prepare. If a quantity is missing or too large for one tray, staff should see what to fix before they plan the pickup.
 
-### How the screen uses Fission
+In this tutorial, you will build that request form in shared Rust code. The browser example opens with a sample draft so the result is easy to inspect; edit the fields and submit to see the form’s validation. The preview does not hold nursery stock. The Android steps show how to check the real software keyboard, focus order, and window resizing.
 
-Throughout this guide, the screen is written as a `fission_component!`. That component owns its temporary interaction state and renders widgets from that state; a reducer changes it after a user action. Put durable facts shared across screens in `GlobalState`, and request native or service work through an effect or capability after the view is built.
+The draft belongs to this form while the person is editing. A real accepted request becomes durable nursery data and should be sent to a service through an asynchronous effect. Keeping that boundary clear lets us learn the form behavior without pretending a browser-only example placed an order.
 
-## Create the project and add the target
+## Create the Android app
 
-Install the Fission command line, create the app, and add its native target. The [canonical Android setup tutorial](/blog/set-up-rust-android-gui-development-with-fission/) covers SDK installation and device prerequisites.
+Install the Fission command line tool, create the app, and add its Android target. If the SDK or emulator is not installed yet, follow the [Android development setup guide](/blog/set-up-rust-android-gui-development-with-fission/) first.
 
+<Tabs>
+<TabItem label="Create the project">
 ```sh
 cargo install cargo-fission
-fission init android-build-validated-android-forms-that-work-with-the-soft-keyboard
-cd android-build-validated-android-forms-that-work-with-the-soft-keyboard
+fission init meadowline-pickups
+cd meadowline-pickups
 fission add-target android --project-dir .
 ```
-
-## Files created by Fission
-
-This is the starter tree after `fission init` and `fission add-target`; the component and state used for this task are additions in the steps below. Keep shared Rust behavior under `src/` and leave target launch and packaging in `platforms/android/`.
-
+</TabItem>
+<TabItem label="Files used in this tutorial">
 ```text
-android-build-validated-android-forms-that-work-with-the-soft-keyboard/
-├── Cargo.toml                 # Rust package and dependencies
-├── fission.toml               # app identity, targets and capabilities
+meadowline-pickups/
+├── Cargo.toml
+├── fission.toml
 ├── src/
-│   ├── main.rs                # generated app entrypoint
-│   ├── lib.rs                 # shared app setup
-│   └── app.rs                 # shared Fission screen
+│   ├── app.rs          # reservation form and validation
+│   ├── app_tests.rs    # validation tests
+│   ├── lib.rs          # shared app entry points
+│   └── main.rs         # generated desktop entry point
 └── platforms/
-    └── android/              # generated Android host
+    └── android/        # generated Android host
 ```
+</TabItem>
+</Tabs>
 
-Keep `src/app.rs`, shared state, reducers and reusable `fission_component!` components in the common Rust project. Add a state, service or effect module only when this feature needs that boundary, and use a name tied to the feature. The generated Android host owns launch and packaging details; shared components describe the user task without importing Android APIs.
+The Android host starts the shared Rust app. The form and its validation stay in `src/app.rs`, which also means the browser preview and phone exercise the same component.
 
-<!-- fission:step id="start-screen" -->
-## Try the browser-safe interaction
+<!-- fission:step id="reservation-draft" -->
+## Arrange the fields in the order a nursery needs them
 
-The preview is a compiled Fission component with two deliberately local simulations. Press **Simulate success** to inspect the normal result, then **Simulate unavailable** to see how the screen can explain that a capability cannot proceed. These actions change only preview state: they do not request permission, access a sensor or run the target app. In the main step, compare that state boundary with the feature-specific instructions.
+Start with the information Meadowline uses to prepare a pickup. Name and email come first because staff need to know who is collecting the plants and how to reach them. Species and quantity follow because they determine which tray to prepare. The pickup note is optional and can hold a site name or an accessibility request.
+
+The preview begins with a sample draft from Maya Chen. Change any field, then choose **Review pickup request**. At this stage the form only reflects the values; validation comes next.
 
 <Tabs>
 <TabItem label="src/app.rs">
@@ -63,182 +68,127 @@ The preview is a compiled Fission component with two deliberately local simulati
 ```rust
 use fission::prelude::*;
 
+#[cfg(test)]
+#[path = "app_tests.rs"]
+mod app_tests;
+
 fission_component! {
-    pub AndroidValidatedForm<()> {
-        props {
-            title: String,
-            step: String,
-            goal: String,
-        }
-        state {
-            simulated_success: bool = false,
-            simulated_unavailable: bool = false,
-        }
+    pub SeedlingReservationForm<()> {
+    state {
+        customer_name: String = "Maya Chen".to_string(),
+        reply_email: String = "maya.chen@example.org".to_string(),
+        species: String = "Coast live oak".to_string(),
+        quantity: String = "12".to_string(),
+        pickup_note: String = "Cedar Point restoration site".to_string(),
+        reviewed: bool = false,
     }
-    view(preview, _state, cx) {
-        let tokens = &cx.view.env().theme.tokens;
-    } =>
-    SemanticsRegion(
-        identifier: Some("tutorial-preview".to_string()),
-        label: Some(preview.title.clone()),
-        child: Container(
-            Column(gap: tokens.spacing.m, children: [
-                Text(preview.title.clone())
-
-                    .weight(tokens.typography.font_weight_bold),
-                Text(preview.step.clone())
-                    .color(tokens.colors.text_secondary),
-                Text(preview.goal.clone()),
-                Button(
-                    child: Text(if preview.simulated_success {
-                        "Reset success simulation".to_string()
-                    } else {
-                        "Simulate success".to_string()
-                    }),
-                    key: "tutorial-complete",
-                    on_press: reduce {
-                        preview.simulated_success = !preview.simulated_success;
-                        if preview.simulated_success { preview.simulated_unavailable = false; }
-                    },
-                ),
-                Text(if preview.simulated_success {
-                    format!("Simulated success for {}. Only browser-local state changed. Use the target steps below to verify the real behaviour.", preview.goal)
-                } else {
-                    "Ready: no native request has run. Choose a simulation to see how the screen state changes.".to_string()
-                }),
-                Button(
-                    child: Text(if preview.simulated_unavailable {
-                        "Clear unavailable simulation".to_string()
-                    } else {
-                        "Simulate unavailable".to_string()
-                    }),
-                    key: "tutorial-unavailable",
-                    on_press: reduce {
-                        preview.simulated_unavailable = !preview.simulated_unavailable;
-                        if preview.simulated_unavailable { preview.simulated_success = false; }
-                    },
-                ),
-                if preview.simulated_unavailable {
-                    Text(format!("Simulated unavailable result for {}. No native request ran; the target app should explain the real reason and recovery action.", preview.title))
-                } else {
-                    Text("No unavailable response is being simulated.".to_string())
-                },
-            ])
-        )
-        .padding_all(tokens.spacing.l)
-        .bg(tokens.colors.surface)
-        .border(tokens.colors.border, 1.0)
-        .border_radius(tokens.radii.large),
-    )
-}
-```
-</TabItem>
-<TabItem label="preview/lib.rs">
-<!-- fission:file path="preview/lib.rs" -->
-```rust
-mod app;
-
-use fission::prelude::*;
-use wasm_bindgen::prelude::*;
-
-#[wasm_bindgen(inline_js = "export function tutorial_title() { const parts = document.title.split(' — '); return parts.slice(1).join(' — ') || 'Fission tutorial'; } export function tutorial_step() { return document.title.split(' — ')[0] || 'Tutorial step'; } export function tutorial_goal() { return document.querySelector('meta[name=\"tutorial-goal\"]')?.content || 'Complete the task and verify it on the target.'; }")]
-extern "C" {
-    fn tutorial_title() -> String;
-    fn tutorial_step() -> String;
-    fn tutorial_goal() -> String;
-}
-
-#[wasm_bindgen(start)]
-pub fn run() -> Result<(), JsValue> {
-    console_error_panic_hook::set_once();
-    let preview = app::AndroidValidatedForm::new(tutorial_title(), tutorial_step(), tutorial_goal());
-    WebApp::<(), _>::new(preview)
-        .with_title("Fission tutorial preview")
-        .mount("#fission-web-mount")
-        .run()
-        .map_err(|error| JsValue::from_str(&error.to_string()))
-}
-```
-</TabItem>
-</Tabs>
-<!-- fission:preview -->
-
-<!-- fission:checkpoint -->
-Press **Simulate success** and check the visible status change. Then choose **Simulate unavailable** and check that the screen explains the unavailable outcome. Both actions change browser-local state only; they do not invoke the native capability.
-<!-- /fission:checkpoint -->
-<!-- /fission:step -->
-
-<!-- fission:step id="main-flow" -->
-## Build validated Android forms that work with the soft keyboard
-
-Keep each field's draft in the form component and put only a validated submission in shared app state. Give every field a visible label, an input type that matches its data, and a specific validation message. On a phone, verify that focusing the last field scrolls it above the software keyboard, the submit action remains reachable, and the keyboard can be dismissed without losing text. Test empty, malformed, valid and long input, then rotate or resize the device while the keyboard is open. Do not treat keyboard dismissal as successful validation.
-
-The component below is a browser-safe version of this screen. It uses Fission's retained component state and widgets to make the task visible; it does not call a native provider or operating-system API.
-
-<!-- fission:file path="src/app.rs" -->
-```rust
-use fission::prelude::*;
-
-fission_component! {
-    pub AndroidValidatedFormsWorkSoft<()> {
-        props {
-            title: String,
-            step: String,
-            goal: String,
-        }
-        state {
-            email: String = String::new(),
-            submitted: bool = false,
-        }
     }
     view(form, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
     SemanticsRegion(
-        identifier: Some("validated-form".to_string()),
-        label: Some(form.title.clone()),
-        child: Container(
-            Column(gap: tokens.spacing.m, children: [
-                Text(form.title.clone())
-
-                    .weight(tokens.typography.font_weight_bold),
-                Text(form.goal.clone()),
-                TextInput(
-                    label: Some("Email address".into()),
-                    bind: form.email,
-                    placeholder: Some("name@example.com".into()),
-                    required: true,
-                    semantics_identifier: "tutorial.email".to_string(),
-                ),
-                Button(
-                    child: Text("Validate and continue"),
-                    key: "submit-email",
-                    on_press: reduce { form.submitted = true; },
-                ),
-                if form.submitted && (form.email.trim().is_empty() || !form.email.contains('@')) {
-                    Text("Enter an email address that includes @.")
-                        .color(tokens.colors.error)
-                } else if form.submitted {
-                    Text("The form passed this local example check.")
-                        .color(tokens.colors.success)
-                } else {
-                    Text("The field draft stays with this form until it is submitted.")
-                        .color(tokens.colors.text_secondary)
-                },
-            ])
-        )
-        .padding_all(tokens.spacing.l)
-        .bg(tokens.colors.surface)
-        .border(tokens.colors.border, 1.0)
-        .border_radius(tokens.radii.large),
+        identifier: Some("seedling-reservation-form".to_string()),
+        label: Some("Meadowline Native Plants pickup request".to_string()),
+        child: Scroll(
+            flex_grow: 1.0,
+            height: cx.view.viewport_size().height,
+            child: Container(
+                Column(align_items: ir_op::AlignItems::Center, children: [
+                    Container(
+                        Column(gap: tokens.spacing.m, children: [
+                            Column(gap: tokens.spacing.xs, children: [
+                                Text("Meadowline Native Plants")
+                                    .weight(tokens.typography.font_weight_bold),
+                                Text("Community restoration pickup request")
+                                    .color(tokens.colors.text_secondary),
+                            ]),
+                            Text("Pickup site · Cedar Point Nursery")
+                                .color(tokens.colors.text_secondary),
+                            TextInput(
+                                label: Some("Customer name".into()),
+                                bind: form.customer_name,
+                                required: true,
+                                semantics_identifier: "reservation.customer-name".to_string(),
+                            ),
+                            TextInput(
+                                label: Some("Reply email".into()),
+                                bind: form.reply_email,
+                                placeholder: Some("name@example.org".into()),
+                                required: true,
+                                semantics_identifier: "reservation.reply-email".to_string(),
+                            ),
+                            TextInput(
+                                label: Some("Seedling species".into()),
+                                bind: form.species,
+                                required: true,
+                                semantics_identifier: "reservation.species".to_string(),
+                            ),
+                            TextInput(
+                                label: Some("Number of seedlings".into()),
+                                bind: form.quantity,
+                                required: true,
+                                semantics_identifier: "reservation.quantity".to_string(),
+                            ),
+                            TextInput(
+                                label: Some("Pickup note (optional)".into()),
+                                bind: form.pickup_note,
+                                multiline: true,
+                                semantics_identifier: "reservation.pickup-note".to_string(),
+                            ),
+                            Row(gap: tokens.spacing.s, wrap: ir_op::FlexWrap::Wrap, children: [
+                                Button(
+                                    child: Text("Review pickup request"),
+                                    key: "review-pickup-request",
+                                    variant: ButtonVariant::Primary,
+                                    on_press: reduce { form.reviewed = true; },
+                                )
+                                .semantics_identifier("reservation.review".to_string()),
+                                Button(
+                                    child: Text("Restore sample draft"),
+                                    key: "restore-sample-draft",
+                                    variant: ButtonVariant::Outline,
+                                    on_press: reduce {
+                                        form.customer_name = "Maya Chen".to_string();
+                                        form.reply_email = "maya.chen@example.org".to_string();
+                                        form.species = "Coast live oak".to_string();
+                                        form.quantity = "12".to_string();
+                                        form.pickup_note = "Cedar Point restoration site".to_string();
+                                        form.reviewed = false;
+                                    },
+                                ),
+                            ]),
+                            if form.reviewed {
+                                Text(format!(
+                                    "Draft reviewed: {} {} seedlings for {}.",
+                                    form.quantity,
+                                    form.species,
+                                    form.customer_name,
+                                ))
+                                .color(tokens.colors.success)
+                            } else {
+                                Text("This draft has not been sent to the nursery.")
+                                    .color(tokens.colors.text_secondary)
+                            },
+                        ])
+                    )
+                    .padding_all(tokens.spacing.l)
+                    .width_length(Length::clamp(
+                        Length::points(0.0),
+                        Length::percent(100.0),
+                        Length::points(680.0),
+                    ))
+                    .bg(tokens.colors.surface)
+                    .border(tokens.colors.border, 1.0)
+                    .border_radius(tokens.radii.medium),
+                ]),
+            )
+            .width_length(Length::percent(100.0))
+            .bg(tokens.colors.background),
+        ),
     )
 }
 ```
-
-<!-- fission:preview -->
-
-
-<Tabs>
+</TabItem>
 <TabItem label="preview/lib.rs">
 <!-- fission:file path="preview/lib.rs" -->
 ```rust
@@ -247,19 +197,11 @@ mod app;
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
 
-#[wasm_bindgen(inline_js = "export function tutorial_title() { const parts = document.title.split(' — '); return parts.slice(1).join(' — ') || 'Fission tutorial'; } export function tutorial_step() { return document.title.split(' — ')[0] || 'Tutorial step'; } export function tutorial_goal() { return document.querySelector('meta[name=\"tutorial-goal\"]')?.content || 'Complete the task and verify it on the target.'; }")]
-extern "C" {
-    fn tutorial_title() -> String;
-    fn tutorial_step() -> String;
-    fn tutorial_goal() -> String;
-}
-
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::AndroidValidatedFormsWorkSoft::new(tutorial_title(), tutorial_step(), tutorial_goal());
-    WebApp::<(), _>::new(preview)
-        .with_title("Fission tutorial preview")
+    WebApp::<(), _>::new(app::SeedlingReservationForm::new())
+        .with_title("Meadowline seedling pickup request")
         .mount("#fission-web-mount")
         .run()
         .map_err(|error| JsValue::from_str(&error.to_string()))
@@ -268,19 +210,357 @@ pub fn run() -> Result<(), JsValue> {
 </TabItem>
 </Tabs>
 
+<!-- fission:preview -->
+
 <!-- fission:checkpoint -->
-Try an empty value, then an address with and without `@`. This preview checks local form state; the Android target step is where you verify keyboard and window-inset behaviour.
+Change the species or quantity, then review the draft. The summary should use the values currently in the fields. Restore the sample draft when you want to begin again.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 
-<!-- fission:step id="edge-state" -->
-## Verify the user task on Android
+<!-- fission:step id="keyboard-and-validation" -->
+## Choose the right keyboard and validate each field
 
-On an Android emulator, repeat the feature path described above and check the expected result. If this task has an unavailable, denied or failure path, run that path too and confirm the screen offers a way to continue. The browser preview demonstrates component state only; the commands below verify the native host.
+A name field benefits from name-aware capitalization; an email field should open an email keyboard; and the quantity field should request a numeric keyboard. Setting the return action to **Next** gives Android a useful way to move through the first fields. The final quantity field uses **Done**, while the optional pickup note allows a new line.
 
-Use LiveTest with the semantic identifiers shown in the component to confirm focus and action behavior. If this screen adapts to window size, repeat the flow at a narrow phone width and a wider display.
+The reservation rules belong in one function so the form and its tests agree. This nursery accepts between one and twenty-four seedlings in a pickup tray. It also needs a non-empty customer name and species, plus an email address with a basic local-part and domain shape. That email check catches common typing mistakes; a production service still needs its own address verification.
 
-### Run, test and build
+Replace the earlier `src/app.rs` with this version. The error text is attached to the field that needs attention, and the result summary is derived from the current draft, so editing a value after a failed check does not leave a stale message on screen.
+
+<Tabs>
+<TabItem label="src/app.rs">
+<!-- fission:file path="src/app.rs" -->
+```rust
+use fission::prelude::*;
+
+#[cfg(test)]
+#[path = "app_tests.rs"]
+mod app_tests;
+
+pub fn email_has_basic_shape(value: &str) -> bool {
+    let value = value.trim();
+    let Some((local, domain)) = value.split_once('@') else {
+        return false;
+    };
+
+    !value.chars().any(char::is_whitespace)
+        && !local.is_empty()
+        && !domain.is_empty()
+        && !domain.contains('@')
+        && domain.contains('.')
+        && !domain.starts_with('.')
+        && !domain.ends_with('.')
+}
+
+pub fn validate_reservation(
+    customer_name: &str,
+    reply_email: &str,
+    species: &str,
+    quantity: &str,
+) -> Result<u32, &'static str> {
+    if customer_name.trim().is_empty() {
+        return Err("Enter the name staff should use for this pickup.");
+    }
+    if !email_has_basic_shape(reply_email) {
+        return Err("Enter an email with a name and a complete domain.");
+    }
+    if species.trim().is_empty() {
+        return Err("Enter the species the nursery should prepare.");
+    }
+
+    let quantity = quantity
+        .trim()
+        .parse::<u32>()
+        .map_err(|_| "Enter a whole number from 1 to 24.")?;
+    if !(1..=24).contains(&quantity) {
+        return Err("A pickup tray holds between 1 and 24 seedlings.");
+    }
+
+    Ok(quantity)
+}
+
+fission_component! {
+    pub SeedlingReservationForm<()> {
+    state {
+        customer_name: String = "Maya Chen".to_string(),
+        reply_email: String = "maya.chen@example.org".to_string(),
+        species: String = "Coast live oak".to_string(),
+        quantity: String = "12".to_string(),
+        pickup_note: String = "Cedar Point restoration site".to_string(),
+        reviewed: bool = false,
+    }
+    }
+    view(form, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let result = validate_reservation(
+            &form.customer_name,
+            &form.reply_email,
+            &form.species,
+            &form.quantity,
+        );
+        let name_invalid = form.reviewed && form.customer_name.trim().is_empty();
+        let email_invalid = form.reviewed && !email_has_basic_shape(&form.reply_email);
+        let species_invalid = form.reviewed && form.species.trim().is_empty();
+        let quantity_value = form.quantity.trim().parse::<u32>().ok();
+        let quantity_invalid = form.reviewed && !matches!(quantity_value, Some(1..=24));
+    } =>
+    SemanticsRegion(
+        identifier: Some("seedling-reservation-form".to_string()),
+        label: Some("Meadowline Native Plants pickup request".to_string()),
+        child: Scroll(
+            flex_grow: 1.0,
+            height: cx.view.viewport_size().height,
+            child: Container(
+                Column(align_items: ir_op::AlignItems::Center, children: [
+                    Container(
+                        Column(gap: tokens.spacing.m, children: [
+                            Column(gap: tokens.spacing.xs, children: [
+                                Text("Meadowline Native Plants")
+                                    .weight(tokens.typography.font_weight_bold),
+                                Text("Community restoration pickup request")
+                                    .color(tokens.colors.text_secondary),
+                            ]),
+                            Text("Pickup site · Cedar Point Nursery")
+                                .color(tokens.colors.text_secondary),
+                            TextInput(
+                                label: Some("Customer name".into()),
+                                bind: form.customer_name,
+                                required: true,
+                                keyboard_type: TextInputType::Name,
+                                text_input_action: TextInputAction::Next,
+                                error_text: if name_invalid {
+                                    Some("Enter the name staff should use for this pickup.".into())
+                                } else {
+                                    None
+                                },
+                                semantics_identifier: "reservation.customer-name".to_string(),
+                            ),
+                            TextInput(
+                                label: Some("Reply email".into()),
+                                bind: form.reply_email,
+                                placeholder: Some("name@example.org".into()),
+                                required: true,
+                                keyboard_type: TextInputType::EmailAddress,
+                                text_input_action: TextInputAction::Next,
+                                error_text: if email_invalid {
+                                    Some("Enter an email with a name and a complete domain.".into())
+                                } else {
+                                    None
+                                },
+                                semantics_identifier: "reservation.reply-email".to_string(),
+                            ),
+                            TextInput(
+                                label: Some("Seedling species".into()),
+                                bind: form.species,
+                                required: true,
+                                text_input_action: TextInputAction::Next,
+                                error_text: if species_invalid {
+                                    Some("Enter the species the nursery should prepare.".into())
+                                } else {
+                                    None
+                                },
+                                semantics_identifier: "reservation.species".to_string(),
+                            ),
+                            TextInput(
+                                label: Some("Number of seedlings".into()),
+                                bind: form.quantity,
+                                required: true,
+                                keyboard_type: TextInputType::Number,
+                                text_input_action: TextInputAction::Done,
+                                helper_text: Some("One pickup tray holds 1 to 24 seedlings.".into()),
+                                error_text: if quantity_invalid {
+                                    Some("Enter a whole number from 1 to 24.".into())
+                                } else {
+                                    None
+                                },
+                                semantics_identifier: "reservation.quantity".to_string(),
+                            ),
+                            TextInput(
+                                label: Some("Pickup note (optional)".into()),
+                                bind: form.pickup_note,
+                                multiline: true,
+                                text_input_action: TextInputAction::Newline,
+                                helper_text: Some("For example, the restoration site or an access note.".into()),
+                                semantics_identifier: "reservation.pickup-note".to_string(),
+                            ),
+                            Row(gap: tokens.spacing.s, wrap: ir_op::FlexWrap::Wrap, children: [
+                                Button(
+                                    child: Text("Check pickup request"),
+                                    key: "check-pickup-request",
+                                    variant: ButtonVariant::Primary,
+                                    on_press: reduce { form.reviewed = true; },
+                                )
+                                .semantics_identifier("reservation.check".to_string()),
+                                Button(
+                                    child: Text("Restore sample draft"),
+                                    key: "restore-sample-draft",
+                                    variant: ButtonVariant::Outline,
+                                    on_press: reduce {
+                                        form.customer_name = "Maya Chen".to_string();
+                                        form.reply_email = "maya.chen@example.org".to_string();
+                                        form.species = "Coast live oak".to_string();
+                                        form.quantity = "12".to_string();
+                                        form.pickup_note = "Cedar Point restoration site".to_string();
+                                        form.reviewed = false;
+                                    },
+                                ),
+                            ]),
+                            if form.reviewed {
+                                match result {
+                                    Ok(quantity) => Text(format!(
+                                        "Pickup request looks complete: {} {} seedlings for {}.",
+                                        quantity,
+                                        form.species.trim(),
+                                        form.customer_name.trim(),
+                                    ))
+                                    .color(tokens.colors.success),
+                                    Err(message) => Text(message.to_string())
+                                        .color(tokens.colors.error),
+                                }
+                            } else {
+                                Text("The sample draft is local to this screen until you send it to a service.")
+                                    .color(tokens.colors.text_secondary)
+                            },
+                        ])
+                    )
+                    .padding_all(tokens.spacing.l)
+                    .width_length(Length::clamp(
+                        Length::points(0.0),
+                        Length::percent(100.0),
+                        Length::points(680.0),
+                    ))
+                    .bg(tokens.colors.surface)
+                    .border(tokens.colors.border, 1.0)
+                    .border_radius(tokens.radii.medium),
+                ]),
+            )
+            .width_length(Length::percent(100.0))
+            .bg(tokens.colors.background),
+        ),
+    )
+}
+```
+</TabItem>
+<TabItem label="src/app_tests.rs">
+<!-- fission:file path="src/app_tests.rs" -->
+```rust
+use super::*;
+
+#[test]
+fn accepts_a_complete_pickup_request() {
+    assert_eq!(
+        validate_reservation(
+            "Maya Chen",
+            "maya.chen@example.org",
+            "Coast live oak",
+            "12",
+        ),
+        Ok(12),
+    );
+}
+
+#[test]
+fn rejects_missing_contact_details_and_invalid_quantities() {
+    assert_eq!(
+        validate_reservation("", "maya.chen@example.org", "Coast live oak", "12"),
+        Err("Enter the name staff should use for this pickup."),
+    );
+    assert_eq!(
+        validate_reservation("Maya Chen", "maya@", "Coast live oak", "12"),
+        Err("Enter an email with a name and a complete domain."),
+    );
+    assert_eq!(
+        validate_reservation("Maya Chen", "maya.chen@example.org", "Coast live oak", "0"),
+        Err("A pickup tray holds between 1 and 24 seedlings."),
+    );
+    assert_eq!(
+        validate_reservation("Maya Chen", "maya.chen@example.org", "Coast live oak", "25"),
+        Err("A pickup tray holds between 1 and 24 seedlings."),
+    );
+}
+```
+</TabItem>
+<TabItem label="preview/lib.rs">
+<!-- fission:file path="preview/lib.rs" -->
+```rust
+mod app;
+
+use fission::prelude::*;
+use wasm_bindgen::prelude::*;
+
+#[wasm_bindgen(start)]
+pub fn run() -> Result<(), JsValue> {
+    console_error_panic_hook::set_once();
+    WebApp::<(), _>::new(app::SeedlingReservationForm::new())
+        .with_title("Meadowline seedling pickup request")
+        .mount("#fission-web-mount")
+        .run()
+        .map_err(|error| JsValue::from_str(&error.to_string()))
+}
+```
+</TabItem>
+</Tabs>
+
+<!-- fission:preview -->
+
+<!-- fission:checkpoint -->
+Clear the customer name, enter `maya@` as the reply email, or set the quantity to `25`; choose **Check pickup request** and read the specific field error. Then restore the sample draft, change the quantity to `18`, and check again. The result should reflect the edited fields rather than a stale confirmation.
+<!-- /fission:checkpoint -->
+<!-- /fission:step -->
+
+<!-- fission:step id="verify-on-android" -->
+## Check the form with the Android keyboard open
+
+The browser lets you verify labels, validation, and the pickup summary. The soft keyboard belongs to the Android host, so check that part on an emulator or phone. Start with a narrow emulator: tap the customer name, use **Next** to move through email and species, then enter a quantity. Confirm that the focused field and **Check pickup request** remain reachable as the keyboard opens. Dismiss the keyboard and make sure the draft is still present.
+
+Repeat the flow with a long species name and a multi-line pickup note. Rotate the emulator while a field is focused, then check that the text and selection are still usable. A keyboard closing is not a successful form submission; only the checked values and their field errors tell you whether the request is ready.
+
+The sample has no inventory service, so **Check pickup request** validates a local draft. In a production reservation flow, dispatch the validated request through an asynchronous effect, show a pending state while the nursery service responds, and only then report that stock was actually held.
+
+<Tabs>
+<TabItem label="src/lib.rs · Android shell">
+<!-- fission:file path="src/lib.rs" -->
+```rust
+pub mod app;
+
+use app::SeedlingReservationForm;
+use fission::prelude::*;
+
+#[cfg(not(any(target_os = "android", target_os = "ios", target_arch = "wasm32")))]
+pub fn run_desktop() -> anyhow::Result<()> {
+    DesktopApp::<(), _>::new(SeedlingReservationForm::new())
+        .with_title("Meadowline seedling pickup request")
+        .run()
+}
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub fn run_mobile() -> anyhow::Result<()> {
+    MobileApp::<(), _>::new(SeedlingReservationForm::new())
+        .with_title("Meadowline seedling pickup request")
+        .run()
+}
+
+#[cfg(target_os = "android")]
+#[no_mangle]
+fn android_main(app_handle: AndroidApp) {
+    let app = MobileApp::<(), _>::new(SeedlingReservationForm::new())
+        .with_title("Meadowline seedling pickup request");
+    let _ = app.run_with_android_app(app_handle);
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen::prelude::wasm_bindgen(start)]
+pub fn run_web() -> Result<(), wasm_bindgen::JsValue> {
+    console_error_panic_hook::set_once();
+    WebApp::<(), _>::new(SeedlingReservationForm::new())
+        .with_title("Meadowline seedling pickup request")
+        .run()
+        .map_err(|error| wasm_bindgen::JsValue::from_str(&error.to_string()))
+}
+```
+</TabItem>
+</Tabs>
+
+Add `src/app_tests.rs` as shown above, then run the form on an Android emulator. The shared component handles the request fields; the generated Android host is what gives the app a real IME, soft keyboard, focus traversal, and window-resize behavior.
 
 ```sh
 cargo test
@@ -290,26 +570,11 @@ fission test --target android --project-dir .
 fission build --target android --project-dir . --release
 ```
 
-`cargo test` runs Rust tests you add; the generated scaffold does not create feature-specific tests. `fission doctor` reports missing Android tools, `fission run` launches the selected emulator or connected device, and `fission test` checks that the generated host can start. A release build checks packaging, but none of these commands proves a physical permission or hardware flow works.
+The unit tests exercise the nursery’s local validation rules. `fission doctor` checks SDK and NDK configuration, `fission run` launches a device, and `fission test` checks the generated host. Finally, build a release package to catch target-specific link and packaging issues.
 
+### Learn more
 
-### Emulator and connected-device commands
-
-The [Android SDK and NDK setup guide](/blog/set-up-rust-android-gui-development-with-fission/) is the single setup source. Check prerequisites and run the emulator with:
-
-```sh
-fission doctor android --project-dir .
-fission run --target android --project-dir .
-fission test --target android --project-dir .
-```
-
-
-### Current references
-
-These references explain the API contract behind the example and the target-specific behavior to verify:
-
-- [Forms](/reference/widgets/form-control/)
-- [Fission state, handles and providers guide](/docs/guides/state-handles-and-providers/)
-- [Fission component and widget reference](/reference/widgets/catalog/)
-<!-- /fission:checkpoint -->
+- [TextInput fields and keyboard actions](/reference/widgets/text-input/)
+- [Fission state, handles, and providers](/docs/guides/state-handles-and-providers/)
+- [Android development setup](/blog/set-up-rust-android-gui-development-with-fission/)
 <!-- /fission:step -->

@@ -33,6 +33,7 @@ struct PreparedPreview {
     stage_dir: std::path::PathBuf,
     cache_marker: std::path::PathBuf,
     cache_key: String,
+    cache_context: String,
     outputs: Vec<PreviewOutput>,
 }
 
@@ -209,15 +210,16 @@ fn prepare_preview_workspaces(
                 &stage_dir.join("Cargo.toml"),
                 tutorial_manifest(&package, workspace_root, include_charts).as_bytes(),
             )?;
-            let cache_key = preview_cache_key(&stage_dir, cache_context)?;
+            let cache_key = preview_cache_key(&stage_dir, cache_context, &package)?;
             let cache_marker = project_dir
                 .join("target/tutorial-preview-cache")
-                .join(format!("{package}.fingerprint"));
+                .join(format!("{cache_key}.fingerprint"));
             prepared[*index] = Some(PreparedPreview {
                 package,
                 stage_dir,
                 cache_marker,
                 cache_key,
+                cache_context: cache_context.to_owned(),
                 outputs: std::mem::take(&mut preview.outputs),
             });
         }
@@ -257,11 +259,19 @@ fn compile_preview_workspaces(
     parallelism: usize,
 ) -> Result<()> {
     for workspace in workspaces {
-        if workspace
+        let uncached = workspace
             .preview_indices
             .iter()
-            .all(|index| previews.get(*index).is_some_and(preview_package_is_cached))
-        {
+            .filter_map(|index| previews.get(*index).map(|preview| (*index, preview)))
+            .filter_map(
+                |(index, preview)| match preview_package_is_cached(preview) {
+                    Ok(true) => None,
+                    Ok(false) => Some(Ok((index, preview.package.as_str()))),
+                    Err(error) => Some(Err(error)),
+                },
+            )
+            .collect::<Result<Vec<_>>>()?;
+        if uncached.is_empty() {
             eprintln!(
                 "Reusing all {} compiled tutorial app(s) {}.",
                 workspace.preview_count,
@@ -279,21 +289,20 @@ fn compile_preview_workspaces(
             "without charts"
         };
         eprintln!(
-            "Compiling {} tutorial app(s) {feature_label} in parallel (up to {parallelism} Cargo jobs)...",
-            workspace.preview_count,
+            "Compiling {} uncached tutorial app(s) {feature_label} in parallel (up to {parallelism} Cargo jobs)...",
+            uncached.len(),
         );
-        let output = Command::new("cargo")
+        let mut command = Command::new("cargo");
+        command
             .arg("build")
             .arg("--manifest-path")
             .arg(&workspace.manifest_path)
-            .args([
-                "--workspace",
-                "--target",
-                "wasm32-unknown-unknown",
-                "--release",
-                "--jobs",
-            ])
-            .arg(parallelism.to_string())
+            .args(["--target", "wasm32-unknown-unknown", "--release", "--jobs"])
+            .arg(parallelism.to_string());
+        for (_, package) in &uncached {
+            command.arg("--package").arg(package);
+        }
+        let output = command
             .env("CARGO_TARGET_DIR", cargo_target)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -304,26 +313,56 @@ fn compile_preview_workspaces(
             let stderr = String::from_utf8_lossy(&output.stderr);
             bail!(
                 "failed to compile {} tutorial preview app(s) {feature_label} ({}):\n{stdout}{stderr}",
-                workspace.preview_count,
+                uncached.len(),
                 output.status
             );
         }
         eprintln!(
             "Compiled {} tutorial app(s) {feature_label}.",
-            workspace.preview_count
+            uncached.len()
         );
     }
     Ok(())
 }
 
-fn preview_package_is_cached(preview: &PreparedPreview) -> bool {
+fn preview_package_is_cached(preview: &PreparedPreview) -> Result<bool> {
     let Some(first) = preview.outputs.first() else {
-        return false;
+        return Ok(false);
     };
-    let module = preview.package.replace('-', "_");
-    fs::read_to_string(&preview.cache_marker)
+    let Some(module) = preview_bootstrap_module(&first.path)? else {
+        return Ok(false);
+    };
+    if !preview_package_exists(&first.path, &module) {
+        return Ok(false);
+    }
+
+    if fs::read_to_string(&preview.cache_marker)
         .is_ok_and(|cached_key| cached_key == preview.cache_key)
-        && preview_package_exists(&first.path, &module)
+    {
+        return Ok(true);
+    }
+
+    let legacy_package = module.replace('_', "-");
+    let legacy_marker = preview
+        .cache_marker
+        .parent()
+        .context("tutorial preview cache marker has no parent")?
+        .join(format!("{legacy_package}.fingerprint"));
+    let legacy_key = legacy_preview_cache_key(
+        &preview.stage_dir,
+        &preview.cache_context,
+        &preview.package,
+        &legacy_package,
+    )?;
+    if fs::read_to_string(&legacy_marker).is_ok_and(|cached_key| cached_key == legacy_key) {
+        fs::write(&preview.cache_marker, &preview.cache_key)?;
+        eprintln!(
+            "Migrated cached preview package {} to a source-stable cache key.",
+            legacy_package
+        );
+        return Ok(true);
+    }
+    Ok(false)
 }
 
 fn package_previews(
@@ -423,7 +462,7 @@ fn build_preview(
         first.step
     );
     let output = &first.path;
-    let package_is_current = preview_package_is_cached(preview);
+    let package_is_current = preview_package_is_cached(preview)?;
     if !package_is_current && output.exists() {
         fs::remove_dir_all(output)
             .with_context(|| format!("failed to replace {}", output.display()))?;
@@ -472,6 +511,32 @@ fn preview_package_exists(output: &Path, module: &str) -> bool {
     let packaged_js = package.join(format!("{module}.js"));
     let bootstrap = output.join("bootstrap.mjs");
     packaged_wasm.is_file() && packaged_js.is_file() && bootstrap.is_file()
+}
+
+fn preview_bootstrap_module(output: &Path) -> Result<Option<String>> {
+    let bootstrap_path = output.join("bootstrap.mjs");
+    let bootstrap = match fs::read_to_string(&bootstrap_path) {
+        Ok(bootstrap) => bootstrap,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => {
+            return Err(error)
+                .with_context(|| format!("failed to read {}", bootstrap_path.display()))
+        }
+    };
+    let Some((_, module_path)) = bootstrap.split_once("from './pkg/") else {
+        return Ok(None);
+    };
+    let Some((module, _)) = module_path.split_once(".js'") else {
+        return Ok(None);
+    };
+    if module.is_empty()
+        || !module
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric() || character == '_')
+    {
+        return Ok(None);
+    }
+    Ok(Some(module.to_owned()))
 }
 
 fn preview_cache_context(workspace_root: &Path, project_dir: &Path) -> Result<String> {
@@ -558,11 +623,70 @@ fn preview_cache_context(workspace_root: &Path, project_dir: &Path) -> Result<St
     Ok(format!("{:016x}", hasher.finish()))
 }
 
-fn preview_cache_key(stage_dir: &Path, context: &str) -> Result<String> {
+fn preview_cache_key(stage_dir: &Path, context: &str, package: &str) -> Result<String> {
     let mut hasher = PreviewCacheHasher::default();
     hasher.field(context.as_bytes());
-    hash_directory(&mut hasher, stage_dir, stage_dir)?;
+    hash_preview_directory(
+        &mut hasher,
+        stage_dir,
+        stage_dir,
+        package,
+        "tutorial-preview",
+    )?;
     Ok(format!("{:016x}", hasher.finish()))
+}
+
+fn legacy_preview_cache_key(
+    stage_dir: &Path,
+    context: &str,
+    current_package: &str,
+    legacy_package: &str,
+) -> Result<String> {
+    let mut hasher = PreviewCacheHasher::default();
+    hasher.field(context.as_bytes());
+    hash_preview_directory(
+        &mut hasher,
+        stage_dir,
+        stage_dir,
+        current_package,
+        legacy_package,
+    )?;
+    Ok(format!("{:016x}", hasher.finish()))
+}
+
+fn hash_preview_directory(
+    hasher: &mut PreviewCacheHasher,
+    base: &Path,
+    directory: &Path,
+    package_name: &str,
+    replacement: &str,
+) -> Result<()> {
+    let mut entries = fs::read_dir(directory)?.collect::<std::io::Result<Vec<_>>>()?;
+    entries.sort_by_key(std::fs::DirEntry::file_name);
+    for entry in entries {
+        let path = entry.path();
+        let file_type = entry.file_type()?;
+        if file_type.is_dir() {
+            hash_preview_directory(hasher, base, &path, package_name, replacement)?;
+        } else if file_type.is_file() {
+            let relative = path
+                .strip_prefix(base)
+                .context("tutorial cache input escaped its source directory")?
+                .to_string_lossy()
+                .replace('\\', "/");
+            hasher.field(relative.as_bytes());
+            let contents = fs::read(&path)?;
+            if relative == "Cargo.toml" {
+                let contents = String::from_utf8(contents)
+                    .context("tutorial preview Cargo.toml was not UTF-8")?
+                    .replace(package_name, replacement);
+                hasher.field(contents.as_bytes());
+            } else {
+                hasher.field(&contents);
+            }
+        }
+    }
+    Ok(())
 }
 
 fn hash_directory(hasher: &mut PreviewCacheHasher, base: &Path, directory: &Path) -> Result<()> {
@@ -711,4 +835,125 @@ fn html_escape(value: &str) -> String {
         .replace('"', "&quot;")
         .replace('<', "&lt;")
         .replace('>', "&gt;")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn temporary_directory(label: &str) -> std::path::PathBuf {
+        static NEXT_DIRECTORY: AtomicUsize = AtomicUsize::new(0);
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        std::env::temp_dir().join(format!(
+            "fission-tutorial-cache-{label}-{}-{nonce}-{}",
+            std::process::id(),
+            NEXT_DIRECTORY.fetch_add(1, Ordering::Relaxed)
+        ))
+    }
+
+    #[test]
+    fn preview_cache_key_does_not_depend_on_workspace_package_number() {
+        let stage_dir = temporary_directory("stable-key");
+        fs::create_dir_all(stage_dir.join("src")).unwrap();
+        fs::write(
+            stage_dir.join("Cargo.toml"),
+            "[package]\nname = \"docs2-tutorial-preview-007\"\nversion = \"0.0.0\"\n",
+        )
+        .unwrap();
+        fs::write(
+            stage_dir.join("src/lib.rs"),
+            "pub fn answer() -> u8 { 42 }\n",
+        )
+        .unwrap();
+        let first = preview_cache_key(&stage_dir, "context", "docs2-tutorial-preview-007").unwrap();
+        fs::write(
+            stage_dir.join("Cargo.toml"),
+            "[package]\nname = \"docs2-tutorial-preview-108\"\nversion = \"0.0.0\"\n",
+        )
+        .unwrap();
+        let shifted =
+            preview_cache_key(&stage_dir, "context", "docs2-tutorial-preview-108").unwrap();
+
+        assert_eq!(first, shifted);
+        fs::remove_dir_all(stage_dir).unwrap();
+    }
+
+    #[test]
+    fn cached_numeric_preview_package_migrates_to_the_stable_key() {
+        let root = temporary_directory("migration");
+        let stage_dir = root.join("stage");
+        let output = root.join("output");
+        let marker_dir = root.join("cache");
+        fs::create_dir_all(stage_dir.join("src")).unwrap();
+        fs::create_dir_all(output.join("pkg")).unwrap();
+        fs::create_dir_all(&marker_dir).unwrap();
+
+        let legacy_package = "docs2-tutorial-preview-007";
+        let current_package = "docs2-tutorial-preview-108";
+        let legacy_module = legacy_package.replace('-', "_");
+        fs::write(
+            stage_dir.join("Cargo.toml"),
+            format!("[package]\nname = \"{legacy_package}\"\nversion = \"0.0.0\"\n"),
+        )
+        .unwrap();
+        fs::write(
+            stage_dir.join("src/lib.rs"),
+            "pub fn answer() -> u8 { 42 }\n",
+        )
+        .unwrap();
+        let mut legacy_hasher = PreviewCacheHasher::default();
+        legacy_hasher.field(b"context");
+        hash_directory(&mut legacy_hasher, &stage_dir, &stage_dir).unwrap();
+        let legacy_key = format!("{:016x}", legacy_hasher.finish());
+
+        fs::write(
+            stage_dir.join("Cargo.toml"),
+            format!("[package]\nname = \"{current_package}\"\nversion = \"0.0.0\"\n"),
+        )
+        .unwrap();
+        fs::write(
+            output.join("bootstrap.mjs"),
+            format!("import init from './pkg/{legacy_module}.js';\nawait init();\n"),
+        )
+        .unwrap();
+        fs::write(output.join("pkg").join(format!("{legacy_module}.js")), "").unwrap();
+        fs::write(
+            output.join("pkg").join(format!("{legacy_module}_bg.wasm")),
+            "",
+        )
+        .unwrap();
+        fs::write(
+            marker_dir.join(format!("{legacy_package}.fingerprint")),
+            legacy_key,
+        )
+        .unwrap();
+
+        let cache_key = preview_cache_key(&stage_dir, "context", current_package).unwrap();
+        let preview = PreparedPreview {
+            package: current_package.to_owned(),
+            stage_dir: stage_dir.clone(),
+            cache_marker: marker_dir.join(format!("{cache_key}.fingerprint")),
+            cache_key: cache_key.clone(),
+            cache_context: "context".to_owned(),
+            outputs: vec![PreviewOutput {
+                app: "test-app".to_owned(),
+                step: "test-step".to_owned(),
+                goal_title: "Test goal".to_owned(),
+                step_title: "Test step".to_owned(),
+                goal: "Test".to_owned(),
+                path: output,
+            }],
+        };
+
+        assert!(preview_package_is_cached(&preview).unwrap());
+        assert_eq!(
+            fs::read_to_string(&preview.cache_marker).unwrap(),
+            cache_key
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
 }

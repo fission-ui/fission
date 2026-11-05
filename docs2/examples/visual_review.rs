@@ -85,6 +85,12 @@ fn main() -> Result<()> {
                     command["x"].as_f64().context("missing x")? as f32,
                     command["y"].as_f64().context("missing y")? as f32,
                 )?,
+                "TapText" => client.tap_text(command["text"].as_str().context("missing text")?)?,
+                "Type" => client.type_text(command["text"].as_str().context("missing text")?)?,
+                "PressKey" => client.press_key(
+                    command["key"].as_str().context("missing key")?,
+                    command["modifiers"].as_u64().unwrap_or_default() as u8,
+                )?,
                 "Wheel" => {
                     let query = if let Some(identifier) = command["semantic_id"].as_str() {
                         SelectorQuery::semantic_identifier(identifier)
