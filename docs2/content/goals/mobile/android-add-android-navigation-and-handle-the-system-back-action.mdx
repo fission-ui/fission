@@ -178,6 +178,11 @@ fission_component! {
                     .color(tokens.colors.text_secondary),
                 Text(format!("Reported by {}", card.work_order.requested_by))
                     .color(tokens.colors.text_secondary),
+                Text(format!(
+                    "Assigned to {}",
+                    card.work_order.assigned_to.unwrap_or("No technician yet"),
+                ))
+                .color(tokens.colors.text_secondary),
             ]),
         )
         .padding_all(tokens.spacing.m)
@@ -452,6 +457,11 @@ fission_component! {
                     .color(tokens.colors.text_secondary),
                 Text(format!("Reported by {}", card.work_order.requested_by))
                     .color(tokens.colors.text_secondary),
+                Text(format!(
+                    "Assigned to {}",
+                    card.work_order.assigned_to.unwrap_or("No technician yet"),
+                ))
+                .color(tokens.colors.text_secondary),
                 Button(
                     child: Text("Open work order"),
                     key: "open-work-order",
