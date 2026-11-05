@@ -177,6 +177,7 @@ a:focus-visible, button:focus-visible, iframe:focus-visible {
   color: #e7effa !important;
   line-height: 1.55;
 }
+[data-fission-semantics="home-hero-preview"] .fission-site-text-run { color: #eaf0f8 !important; }
 [data-fission-semantics="home-hero-preview"] iframe {
   display: block;
   width: 100% !important;

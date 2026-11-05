@@ -1,8 +1,8 @@
 ---
 layout: goal
-title: Request Android location access
-description: "Step-by-step Rust guide to request Android location access using Fission."
-goal: Explain coarse and fine access, denied and disabled-location states, and defer the location request until it is needed.
+title: Request Android location permissions in a Rust app
+description: "Learn how to request Android location permissions in Rust with Fission, including approximate access, denial, and recovery."
+goal: "Let a Nightjar courier record a handoff at a named stop, then attach a one-time pin only when location is useful."
 path: /blog/request-android-location-access/
 order: 49
 difficulty: Beginner
@@ -10,45 +10,57 @@ duration: 35 minutes
 run_command: "fission run --target android --project-dir ."
 app: android-request-android-location-access
 outcomes:
-  - Implement the feature in shared Rust application code
-  - Explain the state, component and host behaviour involved
-  - Verify the Android workflow and follow physical-device checks when the task requires them
+  - Keep a delivery handoff usable with its named stop and notes when location is unavailable
+  - Request foreground location only after the driver chooses to add a pin
+  - Refresh permission state after the Android prompt or a change in system settings
+  - Treat approximate location as useful and show the accuracy returned by Android
 ---
 
-## Create the project and add the target
+At Harbor Street depot, Nightjar Couriers records who received a package and which loading bay they used. The handoff should remain saveable indoors or after a driver declines location; coordinates are optional evidence, not a prerequisite.
 
-Install the Fission command line, create the app, and add its native target.
+We will request foreground location only when the driver adds the optional pin. Android can grant approximate access even when precise access was requested, so the screen displays the returned accuracy and lets the driver decide whether the point is useful. This flow never tracks the driver in the background.
 
+## Create the Android project
+
+Install the Fission CLI, create the shared Rust app, and add Android and the geolocation capability. The CLI updates the generated Android project so it declares the capability’s platform permissions.
+
+<Tabs>
+<TabItem label="Create the project">
 ```sh
 cargo install cargo-fission
-fission init android-request-android-location-access
-cd android-request-android-location-access
+fission init nightjar-handoff
+cd nightjar-handoff
 fission add-target android --project-dir .
 fission add-capability geolocation --project-dir .
 ```
-
-## Files created by Fission
-
-This is the starter tree after `fission init` and `fission add-target`; the component and state used for this task are additions in the steps below. Keep shared Rust behavior under `src/` and leave target launch and packaging in `platforms/android/`.
-
+</TabItem>
+<TabItem label="Files used in this guide">
 ```text
-android-request-android-location-access/
-├── Cargo.toml                 # Rust package and dependencies
-├── fission.toml               # app identity, targets and capabilities
+nightjar-handoff/
+├── Cargo.toml
+├── fission.toml
 ├── src/
-│   ├── main.rs                # generated app entrypoint
-│   ├── lib.rs                 # shared app setup
-│   └── app.rs                 # shared Fission screen
+│   ├── app.rs          # shared handoff state, reducers, and screen
+│   ├── lib.rs
+│   └── main.rs
 └── platforms/
-    └── android/              # generated Android host
+    └── android/        # generated Android host and packaging
 ```
+</TabItem>
+</Tabs>
 
-Keep `src/app.rs`, shared state, reducers and reusable `fission_component!` components in the common Rust project. Add a state, service or effect module only when this feature needs that boundary, and use a name tied to the feature. The generated Android host owns launch and packaging details; shared components describe the user task without importing Android APIs.
+The screen and its handoff rules live in shared Rust code. Android supplies the permission prompt and location provider through Fission’s geolocation capability; the shared component does not call Android APIs directly.
 
-<!-- fission:step id="start-screen" -->
-## Try the browser-safe interaction
+<!-- fission:step id="location-access" -->
+## Add an optional, one-time location pin
 
-The preview is a compiled Fission component with two deliberately local simulations. Press **Simulate success** to inspect the normal result, then **Simulate unavailable** to see how the screen can explain that a capability cannot proceed. These actions change only preview state: they do not request permission, access a sensor or run the target app. In the main step, compare that state boundary with the feature-specific instructions.
+Fission separates the driver’s choice from platform work. The component binds buttons to reducers. A reducer queues a geolocation effect, and a result reducer stores the permission or position after the host replies. The view itself never starts a permission prompt or blocks while a location lookup runs.
+
+Android and the browser report permission differently, so the screen separates permission requests, status checks, and position lookups. **Request location access** asks Android to show its permission UI. That request is asynchronous: the host may return the permission state it saw before the driver finished answering. After the prompt closes, **Refresh access status** reads the current state. On Android, the pin button becomes available after this check confirms access, so a pending prompt is never treated as approval.
+
+The browser host reports its current state without opening a prompt. If that state is **Prompt**, the preview allows **Add handoff pin** because the browser opens its location prompt when the position lookup runs. The same component therefore demonstrates both hosts while keeping their different permission steps visible.
+
+Android 12 and later let a person choose approximate access. Fission requests the foreground coarse and fine permissions together when <code>precise</code> is true, but the operating system still decides what to grant. The returned <code>accuracy_meters</code> value tells the app how much confidence to place in the pin. A delivery record can keep the depot and loading-bay name if that accuracy is too broad.
 
 <Tabs>
 <TabItem label="src/app.rs">
@@ -56,160 +68,196 @@ The preview is a compiled Fission component with two deliberately local simulati
 ```rust
 use fission::prelude::*;
 
-fission_component! {
-    pub AndroidLocationAccess<()> {
-        props {
-            title: String,
-            step: String,
-            goal: String,
-        }
-        state {
-            simulated_success: bool = false,
-            simulated_unavailable: bool = false,
-        }
-    }
-    view(preview, _state, cx) {
-        let tokens = &cx.view.env().theme.tokens;
-    } =>
-    SemanticsRegion(
-        identifier: Some("tutorial-preview".to_string()),
-        label: Some(preview.title.clone()),
-        child: Container(
-            Column(gap: tokens.spacing.m, children: [
-                Text(preview.title.clone())
-
-                    .weight(tokens.typography.font_weight_bold),
-                Text(preview.step.clone())
-                    .color(tokens.colors.text_secondary),
-                Text(preview.goal.clone()),
-                Button(
-                    child: Text(if preview.simulated_success {
-                        "Reset success simulation".to_string()
-                    } else {
-                        "Simulate success".to_string()
-                    }),
-                    key: "tutorial-complete",
-                    on_press: reduce {
-                        preview.simulated_success = !preview.simulated_success;
-                        if preview.simulated_success { preview.simulated_unavailable = false; }
-                    },
-                ),
-                Text(if preview.simulated_success {
-                    format!("Simulated success for {}. Only browser-local state changed. Use the target steps below to verify the real behaviour.", preview.goal)
-                } else {
-                    "Ready: no native request has run. Choose a simulation to see how the screen state changes.".to_string()
-                }),
-                Button(
-                    child: Text(if preview.simulated_unavailable {
-                        "Clear unavailable simulation".to_string()
-                    } else {
-                        "Simulate unavailable".to_string()
-                    }),
-                    key: "tutorial-unavailable",
-                    on_press: reduce {
-                        preview.simulated_unavailable = !preview.simulated_unavailable;
-                        if preview.simulated_unavailable { preview.simulated_success = false; }
-                    },
-                ),
-                if preview.simulated_unavailable {
-                    Text(format!("Simulated unavailable result for {}. No native request ran; the target app should explain the real reason and recovery action.", preview.title))
-                } else {
-                    Text("No unavailable response is being simulated.".to_string())
-                },
-            ])
-        )
-        .padding_all(tokens.spacing.l)
-        .bg(tokens.colors.surface)
-        .border(tokens.colors.border, 1.0)
-        .border_radius(tokens.radii.large),
-    )
-}
-```
-</TabItem>
-<TabItem label="preview/lib.rs">
-<!-- fission:file path="preview/lib.rs" -->
-```rust
-mod app;
-
-use fission::prelude::*;
-use wasm_bindgen::prelude::*;
-
-#[wasm_bindgen(inline_js = "export function tutorial_title() { const parts = document.title.split(' — '); return parts.slice(1).join(' — ') || 'Fission tutorial'; } export function tutorial_step() { return document.title.split(' — ')[0] || 'Tutorial step'; } export function tutorial_goal() { return document.querySelector('meta[name=\"tutorial-goal\"]')?.content || 'Complete the task and verify it on the target.'; }")]
-extern "C" {
-    fn tutorial_title() -> String;
-    fn tutorial_step() -> String;
-    fn tutorial_goal() -> String;
-}
-
-#[wasm_bindgen(start)]
-pub fn run() -> Result<(), JsValue> {
-    console_error_panic_hook::set_once();
-    let preview = app::AndroidLocationAccess::new(tutorial_title(), tutorial_step(), tutorial_goal());
-    WebApp::<(), _>::new(preview)
-        .with_title("Fission tutorial preview")
-        .mount("#fission-web-mount")
-        .run()
-        .map_err(|error| JsValue::from_str(&error.to_string()))
-}
-```
-</TabItem>
-</Tabs>
-<!-- fission:preview -->
-
-<!-- fission:checkpoint -->
-Press **Simulate success** and check the visible status change. Then choose **Simulate unavailable** and check that the screen explains the unavailable outcome. Both actions change browser-local state only; they do not invoke the native capability.
-<!-- /fission:checkpoint -->
-<!-- /fission:step -->
-
-<!-- fission:step id="main-flow" -->
-## Connect the Geolocation provider to the user action
-
-This is the real Fission request path for this feature. Keep permission and hardware work outside the component view: the component dispatches one intent, the reducer queues the request, and success or error reducers store the returned result.
-
-Start with task data and status in the app state. Keep a text-field draft, open flag or selected tab in the owning component instead of duplicating that temporary state here:
-
-```rust
 #[derive(Debug, Default)]
-struct GeolocationState {
-    // Add these fields to your existing app state.
-    position: Option<GeolocationPosition>,
-    location_error: Option<String>,
-    locating: bool,
+pub struct DeliveryHandoffState {
+    pub permission: Option<GeolocationPermission>,
+    pub permission_busy: bool,
+    pub permission_message: Option<String>,
+    pub locating: bool,
+    pub position: Option<GeolocationPosition>,
+    pub location_message: Option<String>,
 }
 
-impl GlobalState for GeolocationState {}
-```
+impl GlobalState for DeliveryHandoffState {}
 
-Handle successful and failed results separately so the screen can explain denied permission, cancellation, unsupported hardware and provider errors:
+#[fission_reducer(LocationPermissionUpdated)]
+fn on_location_permission_updated(
+    state: &mut DeliveryHandoffState,
+    permission: GeolocationPermission,
+) {
+    state.permission_busy = false;
+    state.permission = Some(permission);
+    state.permission_message = Some(match permission {
+        GeolocationPermission::Granted => {
+            "Location access is granted. Add a pin only if this handoff needs one.".to_string()
+        }
+        GeolocationPermission::Denied => {
+            "Location is not currently granted. If the Android prompt just closed, refresh this status. Otherwise, change access in system settings or continue without a pin.".to_string()
+        }
+        GeolocationPermission::Prompt => {
+            "No location choice has been made. Answer the Android prompt if it is open, then refresh. In this browser preview, Add handoff pin opens the browser prompt.".to_string()
+        }
+        GeolocationPermission::Unsupported => {
+            "This host cannot provide location. The stop name and handoff notes are still enough to save the record.".to_string()
+        }
+        GeolocationPermission::Unknown => {
+            "The host could not determine location access. Refresh the status or continue without a pin.".to_string()
+        }
+    });
+}
 
-```rust
-#[fission_reducer(PositionLoaded)]
-fn on_position_loaded(state: &mut GeolocationState, position: GeolocationPosition) {
+#[fission_reducer(LocationPermissionFailed)]
+fn on_location_permission_failed(
+    state: &mut DeliveryHandoffState,
+    error: GeolocationError,
+) {
+    state.permission_busy = false;
+    state.permission_message = Some(if error.message.trim().is_empty() {
+        "The host could not check location access. You can still save the handoff without a pin."
+            .to_string()
+    } else {
+        format!(
+            "Location access could not be checked: {}. You can still save the handoff without a pin.",
+            error.message
+        )
+    });
+}
+
+#[fission_reducer(RequestDeliveryLocationAccess)]
+fn on_request_delivery_location_access(
+    state: &mut DeliveryHandoffState,
+    ctx: &mut ReducerContext<DeliveryHandoffState>,
+) {
+    if state.permission_busy {
+        return;
+    }
+
+    state.permission_busy = true;
+    state.permission_message = Some("Requesting foreground location access…".to_string());
+
+    let on_ok = ctx.effects.bind(
+        LocationPermissionUpdated(GeolocationPermission::Unknown),
+        reduce_with!(on_location_permission_updated),
+    );
+    let on_err = ctx.effects.bind(
+        LocationPermissionFailed(GeolocationError::default()),
+        reduce_with!(on_location_permission_failed),
+    );
+
+    ctx.effects
+        .geolocation()
+        .request_permission(GeolocationPermissionRequest {
+            precise: true,
+            background: false,
+        })
+        .on_ok(on_ok)
+        .on_err(on_err);
+}
+
+#[fission_reducer(RefreshDeliveryLocationAccess)]
+fn on_refresh_delivery_location_access(
+    state: &mut DeliveryHandoffState,
+    ctx: &mut ReducerContext<DeliveryHandoffState>,
+) {
+    if state.permission_busy {
+        return;
+    }
+
+    state.permission_busy = true;
+    state.permission_message = Some("Checking the current location access…".to_string());
+
+    let on_ok = ctx.effects.bind(
+        LocationPermissionUpdated(GeolocationPermission::Unknown),
+        reduce_with!(on_location_permission_updated),
+    );
+    let on_err = ctx.effects.bind(
+        LocationPermissionFailed(GeolocationError::default()),
+        reduce_with!(on_location_permission_failed),
+    );
+
+    ctx.effects
+        .geolocation()
+        .permission()
+        .on_ok(on_ok)
+        .on_err(on_err);
+}
+
+#[fission_reducer(HandoffPinCaptured, no_eq)]
+fn on_handoff_pin_captured(
+    state: &mut DeliveryHandoffState,
+    position: GeolocationPosition,
+) {
     state.locating = false;
-    state.position = Some(position);
-    state.location_error = None;
+    state.position = Some(position.clone());
+    state.location_message = Some(format!(
+        "Pin ready at {:.5}, {:.5}; reported accuracy is about {:.0} m.",
+        position.latitude,
+        position.longitude,
+        position.accuracy_meters,
+    ));
 }
 
-#[fission_reducer(PositionFailed)]
-fn on_position_failed(state: &mut GeolocationState, error: GeolocationError) {
+#[fission_reducer(HandoffPinFailed)]
+fn on_handoff_pin_failed(
+    state: &mut DeliveryHandoffState,
+    error: GeolocationError,
+) {
     state.locating = false;
-    state.location_error = Some(error.message);
+    if error.code == "permission_denied" {
+        state.permission = Some(GeolocationPermission::Denied);
+        state.permission_message = Some(
+            "Location access was denied. Refresh the status after changing Android settings, or continue without a pin."
+                .to_string(),
+        );
+    }
+    state.location_message = Some(match error.code.as_str() {
+        "permission_denied" => {
+            "Location was not granted. Refresh access after the Android prompt, or keep the named stop and save without a pin.".to_string()
+        }
+        "unsupported" => {
+            "This device cannot provide a location pin. Keep the named stop and save the handoff.".to_string()
+        }
+        "timeout" => {
+            "The phone did not find a position in time. Try once more or save the handoff without a pin.".to_string()
+        }
+        "position_unavailable" | "unavailable" => {
+            "The location provider has no position right now. Check location services or save without a pin.".to_string()
+        }
+        _ if error.message.trim().is_empty() => {
+            "The location provider returned no position. Try again or save without a pin."
+                .to_string()
+        }
+        _ => format!(
+            "The handoff pin could not be added: {}. The stop name and notes are unchanged.",
+            error.message
+        ),
+    });
 }
-```
 
-Queue the operation after the user presses the named control. The sample `PositionLoaded` value below supplies the action's payload type; the host replaces it with the actual coordinates when the request completes:
+#[fission_reducer(AddHandoffPin)]
+fn on_add_handoff_pin(
+    state: &mut DeliveryHandoffState,
+    ctx: &mut ReducerContext<DeliveryHandoffState>,
+) {
+    if state.locating {
+        return;
+    }
 
-```rust
-state.locating = true;
-ctx.effects
-    .geolocation()
-    .current_position(GeolocationPositionRequest {
-        high_accuracy: true,
-        timeout_ms: Some(10_000),
-        maximum_age_ms: Some(60_000),
-    })
-    .on_ok(ctx.effects.bind(
-        PositionLoaded(GeolocationPosition {
+    let may_request_position = state.permission == Some(GeolocationPermission::Granted)
+        || state.permission == Some(GeolocationPermission::Prompt);
+    if !may_request_position {
+        state.location_message = Some(
+            "Request location access and refresh the status before adding a pin. The handoff form remains available without it."
+                .to_string(),
+        );
+        return;
+    }
+
+    state.locating = true;
+    state.location_message = Some("Finding a position for this handoff…".to_string());
+
+    let on_ok = ctx.effects.bind(
+        HandoffPinCaptured(GeolocationPosition {
             latitude: 0.0,
             longitude: 0.0,
             altitude_meters: None,
@@ -219,95 +267,190 @@ ctx.effects
             speed_mps: None,
             timestamp_unix_ms: 0,
         }),
-        reduce_with!(on_position_loaded),
-    ))
-    .on_err(ctx.effects.bind(
-        PositionFailed(GeolocationError::default()),
-        reduce_with!(on_position_failed),
-    ));
-```
+        reduce_with!(on_handoff_pin_captured),
+    );
+    let on_err = ctx.effects.bind(
+        HandoffPinFailed(GeolocationError::default()),
+        reduce_with!(on_handoff_pin_failed),
+    );
 
-Bind the user action from a reusable Fission component. Keep the visible label in the same control so it works with touch, keyboard and assistive technology:
-
-```rust
-fission_component!
-{
-    pub FindNearbyStoresButton<GeolocationState> {
-    }
-    view(component, _state, _cx) => rust {
-        let (ctx, view) = fission::build::current::<GeolocationState>();
-                let run = with_reducer!(ctx, FindNearbyStores, on_find_nearby_stores);
-
-                Button::new("Find nearby stores")
-                    .disabled(view.state().locating)
-                    .on_press(run)
-                    .into()
-    }
+    ctx.effects
+        .geolocation()
+        .current_position(GeolocationPositionRequest {
+            high_accuracy: true,
+            timeout_ms: Some(10_000),
+            maximum_age_ms: Some(30_000),
+        })
+        .on_ok(on_ok)
+        .on_err(on_err);
 }
-```
-
-The [complete Geolocation guide](/docs/capabilities/geolocation/) explains configuration and expected platform behaviour. Test a successful memory-provider response and an unavailable or denied response before relying on the physical-device check below. The browser preview exercises the component state only; it does not invoke this native provider.
-
-Keep platform-only code behind the generated target boundary or a typed provider; the shared component should describe the user task rather than call an operating-system API directly.
-
-
-
-<Tabs>
-<TabItem label="src/app.rs">
-<!-- fission:file path="src/app.rs" -->
-```rust
-use fission::prelude::*;
 
 fission_component! {
-    pub AndroidLocationAccessResult<()> {
-        props {
-            title: String,
-            step: String,
-            goal: String,
-        }
+    pub DeliveryHandoffForm<DeliveryHandoffState> {
         state {
-            outcome: u8 = 0,
+            stop_name: String = "Harbor Street depot · Bay 4".to_string(),
+            handoff_notes: String = "Package checked with the receiving team.".to_string(),
+            saved: bool = false,
         }
     }
-    view(preview, _state, cx) {
+    view(form, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
+        let request_access = with_reducer!(
+            cx.build,
+            RequestDeliveryLocationAccess,
+            on_request_delivery_location_access
+        );
+        let refresh_access = with_reducer!(
+            cx.build,
+            RefreshDeliveryLocationAccess,
+            on_refresh_delivery_location_access
+        );
+        let add_pin = with_reducer!(cx.build, AddHandoffPin, on_add_handoff_pin);
+        let access_granted = state.permission == Some(GeolocationPermission::Granted);
+        let can_add_pin = access_granted
+            || state.permission == Some(GeolocationPermission::Prompt);
+        let permission_message = state.permission_message.clone().unwrap_or_else(|| {
+            "Location has not been checked. Request access only when this handoff needs a pin."
+                .to_string()
+        });
+        let location_message = state.location_message.clone().unwrap_or_else(|| {
+            "No GPS pin is attached. The named stop remains the handoff location.".to_string()
+        });
     } =>
     SemanticsRegion(
-        identifier: Some("capability-result-preview".to_string()),
-        label: Some(preview.title.clone()),
-        child: Container(
-            Column(gap: tokens.spacing.m, children: [
-                Text(preview.title.clone())
-
-                    .weight(tokens.typography.font_weight_bold),
-                Text(preview.step.clone())
-                    .color(tokens.colors.text_secondary),
-                Text(preview.goal.clone()),
-                Button(
-                    child: Text("Simulate request success"),
-                    key: "provider-success",
-                    on_press: reduce { preview.outcome = 1; },
-                )
-                .semantics_identifier("provider-preview.success"),
-                Button(
-                    child: Text("Simulate denial or unavailable"),
-                    key: "provider-unavailable",
-                    on_press: reduce { preview.outcome = 2; },
-                )
-                .semantics_identifier("provider-preview.unavailable"),
-                Text(if preview.outcome == 1 {
-                    format!("The simulated request for {} succeeded. The app can now show its result and the next useful action.", preview.goal)
-                } else if preview.outcome == 2 {
-                    format!("The simulated request for {} is unavailable. Keep the screen usable and explain whether the user can retry, change settings, or choose another path.", preview.goal)
-                } else {
-                    "Ready. No native permission prompt, sensor or provider request has run in this browser.".to_string()
-                }),
-            ])
-        )
-        .padding_all(tokens.spacing.l)
-        .bg(tokens.colors.surface)
-        .border(tokens.colors.border, 1.0)
-        .border_radius(tokens.radii.large),
+        identifier: Some("nightjar-handoff-form".to_string()),
+        label: Some("Nightjar Couriers delivery handoff".to_string()),
+        child: Scroll(
+            flex_grow: 1.0,
+            height: cx.view.viewport_size().height,
+            child: Container(
+                Column(align_items: ir_op::AlignItems::Center, children: [
+                    Container(
+                        Column(gap: tokens.spacing.m, children: [
+                            Column(gap: tokens.spacing.xs, children: [
+                                Text("Nightjar Couriers")
+                                    .weight(tokens.typography.font_weight_bold),
+                                Text("Delivery handoff · Harbor Street depot")
+                                    .color(tokens.colors.text_secondary),
+                            ]),
+                            Text("The location pin is optional")
+                                .weight(tokens.typography.font_weight_bold),
+                            Text(permission_message)
+                                .color(tokens.colors.text_secondary),
+                            Row(gap: tokens.spacing.s, wrap: ir_op::FlexWrap::Wrap, children: [
+                                Button(
+                                    child: Text(if state.permission_busy {
+                                        "Working…"
+                                    } else if access_granted {
+                                        "Location access granted"
+                                    } else {
+                                        "Request location access"
+                                    }),
+                                    key: "request-location-access",
+                                    variant: ButtonVariant::Outline,
+                                    disabled: state.permission_busy || access_granted,
+                                    on_press: request_access,
+                                )
+                                .semantics_identifier("handoff.request-location-access".to_string()),
+                                Button(
+                                    child: Text("Refresh access status"),
+                                    key: "refresh-location-access",
+                                    variant: ButtonVariant::Outline,
+                                    disabled: state.permission_busy,
+                                    on_press: refresh_access,
+                                )
+                                .semantics_identifier("handoff.refresh-location-access".to_string()),
+                            ]),
+                            TextInput(
+                                label: Some("Delivery stop".into()),
+                                bind: form.stop_name,
+                                required: true,
+                                semantics_identifier: "handoff.stop-name".to_string(),
+                            ),
+                            TextInput(
+                                label: Some("Handoff notes".into()),
+                                bind: form.handoff_notes,
+                                multiline: true,
+                                required: true,
+                                helper_text: Some(
+                                    "Record who received the package or what the next courier should know."
+                                        .into(),
+                                ),
+                                semantics_identifier: "handoff.notes".to_string(),
+                            ),
+                            Button(
+                                child: Text(if state.locating {
+                                    "Finding handoff pin…"
+                                } else {
+                                    "Add handoff pin"
+                                }),
+                                key: "add-handoff-pin",
+                                variant: ButtonVariant::Outline,
+                                disabled: state.locating || !can_add_pin,
+                                on_press: add_pin,
+                            )
+                            .semantics_identifier("handoff.add-pin".to_string()),
+                            Text(location_message)
+                                .color(tokens.colors.text_secondary),
+                            if let Some(position) = &state.position {
+                                Text(format!(
+                                    "Map pin: {:.5}, {:.5} · about {:.0} m accuracy",
+                                    position.latitude,
+                                    position.longitude,
+                                    position.accuracy_meters,
+                                ))
+                            },
+                            Row(gap: tokens.spacing.s, wrap: ir_op::FlexWrap::Wrap, children: [
+                                Button(
+                                    child: Text("Save handoff"),
+                                    key: "save-handoff",
+                                    variant: ButtonVariant::Primary,
+                                    on_press: reduce { form.saved = true; },
+                                )
+                                .semantics_identifier("handoff.save".to_string()),
+                                Button(
+                                    child: Text("Restore sample handoff"),
+                                    key: "restore-handoff",
+                                    variant: ButtonVariant::Outline,
+                                    on_press: reduce {
+                                        form.stop_name = "Harbor Street depot · Bay 4".to_string();
+                                        form.handoff_notes =
+                                            "Package checked with the receiving team.".to_string();
+                                        form.saved = false;
+                                    },
+                                ),
+                            ]),
+                            if form.saved {
+                                Text(format!(
+                                    "Handoff ready for {}. {}",
+                                    form.stop_name,
+                                    if state.position.is_some() {
+                                        "A location pin is attached."
+                                    } else {
+                                        "No GPS coordinates were added."
+                                    },
+                                ))
+                                .color(tokens.colors.success)
+                            } else {
+                                Text("The handoff is still being edited.")
+                                    .color(tokens.colors.text_secondary)
+                            },
+                        ])
+                    )
+                    .padding_all(tokens.spacing.l)
+                    .width_length(Length::clamp(
+                        Length::points(0.0),
+                        Length::percent(100.0),
+                        Length::points(680.0),
+                    ))
+                    .bg(tokens.colors.surface)
+                    .border(tokens.colors.border, 1.0)
+                    .border_radius(tokens.radii.medium),
+                ]),
+            )
+            .width_length(Length::percent(100.0))
+            .bg(tokens.colors.background),
+        ),
     )
 }
 ```
@@ -320,19 +463,11 @@ mod app;
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
 
-#[wasm_bindgen(inline_js = "export function tutorial_title() { const parts = document.title.split(' — '); return parts.slice(1).join(' — ') || 'Fission tutorial'; } export function tutorial_step() { return document.title.split(' — ')[0] || 'Tutorial step'; } export function tutorial_goal() { return document.querySelector('meta[name=\"tutorial-goal\"]')?.content || 'Complete the task and verify it on the target.'; }")]
-extern "C" {
-    fn tutorial_title() -> String;
-    fn tutorial_step() -> String;
-    fn tutorial_goal() -> String;
-}
-
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::AndroidLocationAccessResult::new(tutorial_title(), tutorial_step(), tutorial_goal());
-    WebApp::<(), _>::new(preview)
-        .with_title("Fission tutorial preview")
+    WebApp::<app::DeliveryHandoffState, _>::new(app::DeliveryHandoffForm::new())
+        .with_title("Nightjar Couriers handoff")
         .mount("#fission-web-mount")
         .run()
         .map_err(|error| JsValue::from_str(&error.to_string()))
@@ -340,61 +475,38 @@ pub fn run() -> Result<(), JsValue> {
 ```
 </TabItem>
 </Tabs>
+
+The position request asks the host for a fresh, high-accuracy reading, with a ten-second timeout and a short cache age. These are request preferences, not guarantees: the device may return an older or less precise result. The screen therefore displays the returned accuracy and keeps the depot name and notes unchanged if the lookup fails.
+
 <!-- fission:preview -->
 
 <!-- fission:checkpoint -->
-Use the browser controls to simulate success and an unavailable result. They change local component state only and never call a native provider. Use the commands below to verify the real request on an Android emulator or phone.
+In the browser preview, refresh access first. If the browser reports **Prompt**, select **Add handoff pin** and respond to its location prompt. On Android, select **Request location access**, choose precise or approximate access in the system UI, then press **Refresh access status**. Add a pin only when the refreshed state is granted. In either host, deny access or turn location services off and save the handoff; the stop name and notes must still be present.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 
-<!-- fission:step id="edge-state" -->
-## Verify the native request on Android
+## Verify the Android permission choices
 
-The browser controls simulate app state; they never send a request to the platform provider. Run the target below on an emulator or device that supports this feature. Follow the user path from the first explanation through the request and returned result, and keep success hidden until the host replies.
+Run the generated app on an emulator and test each choice from a known permission state. Use Android Settings to reset the app’s location permission between runs so the next request shows the first-use prompt.
 
-Repeat with the feature unavailable, denied or cancelled, as applicable. Confirm the screen preserves the user’s existing data and offers the right recovery step. Use a physical device when the behavior depends on real hardware or an operating-system prompt.
-
-### Run, test and build
-
-```sh
-cargo test
-fission doctor android --project-dir .
-fission run --target android --project-dir .
-fission test --target android --project-dir .
-fission build --target android --project-dir . --release
-```
-
-`cargo test` runs Rust tests you add; the generated scaffold does not create feature-specific tests. `fission doctor` reports missing Android tools, `fission run` launches the selected emulator or connected device, and `fission test` checks that the generated host can start. A release build checks packaging, but none of these commands proves a physical permission or hardware flow works.
-
-
-### Emulator and connected-device commands
-
-Run these emulator checks from the generated project root:
-
+<Tabs>
+<TabItem label="Run on Android">
 ```sh
 fission doctor android --project-dir .
 fission run --target android --project-dir .
-fission test --target android --project-dir .
 ```
-
-
-For a real capability check, use an Android phone that has the required hardware and permission. Connect it with USB or Wi-Fi debugging, confirm its serial, then run the app on that device:
-
-```sh
-adb devices -l
-fission run --target android --device <adb-serial> --project-dir .
+</TabItem>
+<TabItem label="Check permission behavior">
+```text
+1. On first use, request location access from the handoff form.
+2. Choose precise access. Refresh the status, add a pin, and check the reported accuracy.
+3. Reset the permission, choose approximate access, refresh, and add a pin.
+4. Reset once more and deny access. Confirm the stop and notes still save.
+5. Turn Android location services off and confirm the app offers the no-pin path.
 ```
+</TabItem>
+</Tabs>
 
-An emulator can exercise the UI and memory-provider outcomes; it is not evidence that physical hardware or an OS permission flow works.
+Approximate access is still a successful permission result; do not label it as a failure or silently request more access. If a pin is not useful at the reported accuracy, the driver can keep the named stop and complete the handoff. This guide requests foreground access only. It does not add <code>ACCESS_BACKGROUND_LOCATION</code>.
 
-
-### Current references
-
-These references explain the API contract behind the example and the target-specific behavior to verify:
-
-- [Geolocation capability guide](/docs/capabilities/geolocation/)
-- [Geolocation capability reference](/reference/capabilities/geolocation/)
-- [Fission state, handles and providers guide](/docs/guides/state-handles-and-providers/)
-- [Fission component and widget reference](/reference/widgets/catalog/)
-<!-- /fission:checkpoint -->
-<!-- /fission:step -->
+For platform behavior, see Android’s [runtime location permission guide](https://developer.android.com/develop/sensors-and-location/location/permissions/runtime) and [approximate location guidance](https://developer.android.com/develop/sensors-and-location/location/permissions#approximate-request). For Fission’s portable provider contract, see the [Geolocation capability guide](/docs/capabilities/geolocation/) and the [Geolocation reference](/reference/capabilities/geolocation/).

@@ -22,7 +22,7 @@ Juniper County's trail crew records hazards during its afternoon inspections. A 
 
 We will start with that useful fallback, then connect an optional location lookup to Fission's geolocation capability. The app will ask for coordinates only after someone chooses **Add map pin**. If Android returns a denial or the device cannot provide a position, the report and its manually assigned trail segment remain available.
 
-The preview loads without asking for location. If you choose **Add map pin**, the browser uses its own location prompt; the Android app uses the Android host. You can also save the report with its assigned trail segment and leave location off.
+The preview loads without asking for location. On Android, choose **Request location access**, answer the system prompt, refresh the access status, and then add a pin if access was granted. In the browser preview, refresh first; if the state is **Prompt**, **Add map pin** opens the browser’s location prompt. The report can always be saved with its assigned trail segment and no coordinates.
 
 ## Create the Android project
 
@@ -208,7 +208,7 @@ Change the segment or observation, then save the draft. The result should name t
 <!-- fission:step id="request-location-on-check-in" -->
 ## Request a map pin only when the crew asks for one
 
-Now add the native path. Juniper County needs the phone's position only when the crew member selects **Add map pin**. Do not request location when the app starts or while it is in the background: neither behavior is needed to save an inspection report.
+Now add the permission and position flow. Juniper County needs a phone position only when the crew member decides a map pin will help. The app must not request access at startup or track the crew in the background. First ask for foreground access, then refresh Android’s state after the prompt, and only read a position after access is confirmed.
 
 First declare the capability so Fission can configure the generated Android project:
 
@@ -298,6 +298,35 @@ fn on_trail_permission_check_failed(state: &mut TrailReportState, error: Geoloca
     });
 }
 
+#[fission_reducer(RequestTrailPermission)]
+fn on_request_trail_permission(
+    state: &mut TrailReportState,
+    ctx: &mut ReducerContext<TrailReportState>,
+) {
+    if state.checking_permission {
+        return;
+    }
+
+    state.checking_permission = true;
+    state.permission_error = None;
+    let on_ok = ctx.effects.bind(
+        TrailPermissionChecked(GeolocationPermission::Unknown),
+        reduce_with!(on_trail_permission_checked),
+    );
+    let on_err = ctx.effects.bind(
+        TrailPermissionCheckFailed(GeolocationError::default()),
+        reduce_with!(on_trail_permission_check_failed),
+    );
+    ctx.effects
+        .geolocation()
+        .request_permission(GeolocationPermissionRequest {
+            precise: true,
+            background: false,
+        })
+        .on_ok(on_ok)
+        .on_err(on_err);
+}
+
 #[fission_reducer(RefreshTrailPermission)]
 fn on_refresh_trail_permission(
     state: &mut TrailReportState,
@@ -330,6 +359,15 @@ fn on_add_trail_map_pin(
     ctx: &mut ReducerContext<TrailReportState>,
 ) {
     if state.locating {
+        return;
+    }
+    if state.permission != Some(GeolocationPermission::Granted)
+        && state.permission != Some(GeolocationPermission::Prompt)
+    {
+        state.location_error = Some(
+            "Request and refresh location access before adding a map pin. The assigned trail segment remains available."
+                .to_string(),
+        );
         return;
     }
 
@@ -373,12 +411,19 @@ fission_component! {
     }
     view(report, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
-        let add_map_pin = with_reducer!(cx.build, AddTrailMapPin, on_add_trail_map_pin);
+        let request_permission = with_reducer!(
+            cx.build,
+            RequestTrailPermission,
+            on_request_trail_permission
+        );
         let refresh_permission = with_reducer!(
             cx.build,
             RefreshTrailPermission,
             on_refresh_trail_permission
         );
+        let add_map_pin = with_reducer!(cx.build, AddTrailMapPin, on_add_trail_map_pin);
+        let can_add_map_pin = state.permission == Some(GeolocationPermission::Granted)
+            || state.permission == Some(GeolocationPermission::Prompt);
         let location_message = if let Some(position) = &state.position {
             format!("Map pin added with about {:.0} m accuracy.", position.accuracy_meters)
         } else if let Some(error) = &state.location_error {
@@ -396,18 +441,18 @@ fission_component! {
                             .to_string()
                     }
                     Some(GeolocationPermission::Denied) => {
-                        "Location access is denied. Keep the assigned segment or change access in system settings."
+                        "Location is not currently granted. If the Android prompt just closed, refresh this status; otherwise, keep the assigned segment or change access in system settings."
                             .to_string()
                     }
                     Some(GeolocationPermission::Prompt) => {
-                        "The host will ask when you choose Add map pin.".to_string()
+                        "No location choice is recorded yet. On Android, request access and refresh after answering the system prompt. In the browser preview, Add map pin opens the browser prompt.".to_string()
                     }
                     Some(GeolocationPermission::Unsupported) => {
                         "This host cannot check location permission. The assigned segment still works."
                             .to_string()
                     }
                     Some(GeolocationPermission::Unknown) => {
-                        "The host could not confirm permission. Add a map pin to request location or keep the assigned segment."
+                        "The host could not confirm permission. Request or refresh access before adding a pin, or keep the assigned segment."
                             .to_string()
                     }
                     None => {
@@ -449,22 +494,34 @@ fission_component! {
                                 } else {
                                     tokens.colors.text_secondary
                                 }),
-                            Button(
-                                child: Text(
-                                    if state.checking_permission {
-                                        "Checking access…"
-                                    } else {
-                                        "Refresh access status"
-                                    }
+                            Row(gap: tokens.spacing.s, wrap: ir_op::FlexWrap::Wrap, children: [
+                                Button(
+                                    child: Text(
+                                        if state.checking_permission {
+                                            "Working…"
+                                        } else {
+                                            "Request location access"
+                                        }
+                                    ),
+                                    key: "request-location-permission",
+                                    variant: ButtonVariant::Outline,
+                                    disabled: state.checking_permission,
+                                    on_press: request_permission,
+                                )
+                                .semantics_identifier(
+                                    "trail-report.request-location-permission".to_string(),
                                 ),
-                                key: "refresh-location-permission",
-                                variant: ButtonVariant::Outline,
-                                disabled: state.checking_permission,
-                                on_press: refresh_permission,
-                            )
-                            .semantics_identifier(
-                                "trail-report.refresh-location-permission".to_string(),
-                            ),
+                                Button(
+                                    child: Text("Refresh access status"),
+                                    key: "refresh-location-permission",
+                                    variant: ButtonVariant::Outline,
+                                    disabled: state.checking_permission,
+                                    on_press: refresh_permission,
+                                )
+                                .semantics_identifier(
+                                    "trail-report.refresh-location-permission".to_string(),
+                                ),
+                            ]),
                             TextInput(
                                 label: Some("Assigned trail segment".into()),
                                 bind: report.trail_segment,
@@ -492,7 +549,7 @@ fission_component! {
                                     ),
                                     key: "add-trail-map-pin",
                                     variant: ButtonVariant::Outline,
-                                    disabled: state.locating,
+                                    disabled: state.locating || !can_add_map_pin,
                                     on_press: add_map_pin,
                                 )
                                 .semantics_identifier("trail-report.add-map-pin".to_string()),
@@ -560,23 +617,23 @@ pub fn run() -> Result<(), JsValue> {
 </TabItem>
 </Tabs>
 
-The reducer returns as soon as it queues the request. Fission's web host asks the browser for location in the preview; the Android host uses the operating-system permission prompt. Either host dispatches the loaded or failed action. The sample position above is only the action's payload shape; the host supplies the real coordinates. A denial is a normal result, so clear the loading flag and keep the saved report intact.
+The request and position are separate effects. On Android, the permission request opens the operating-system prompt, but its result can reflect the state from before the crew member finished answering. Refresh after the prompt closes. Once access is granted, the pin action asks the Android provider for coordinates; in the browser preview, that position request opens the browser prompt. The example position passed to the result action is only its payload shape—the host supplies the real coordinates. A denial is a normal outcome, so clear the loading flag and keep the saved report intact.
 
-The **Refresh access status** button reads permission with `ctx.effects.geolocation().permission()`. The host returns a typed `GeolocationPermission` value, and this check does not open a prompt. After a crew member changes access in system settings and returns to the app, they can refresh the label without starting another location request. The [Geolocation guide](/docs/capabilities/geolocation/) explains the provider contract and memory-host tests in more depth.
+The **Request location access** button calls the geolocation effect’s permission request with foreground access enabled and background access disabled. The **Refresh access status** button reads the current permission without opening another prompt. After a crew member changes access in system settings and returns to the app, refresh the label before enabling the pin action. The [Geolocation guide](/docs/capabilities/geolocation/) explains the provider contract and memory-host tests in more depth.
 
 <!-- fission:preview -->
 
 <!-- fission:checkpoint -->
-The preview's **Add map pin** action asks the browser host for location only after your tap; the Android target uses Android's permission UI. If either host denies the request or cannot return a position, the assigned segment and report draft should remain available.
+In the browser preview, refresh access; when it reports **Prompt**, **Add map pin** opens the browser’s location prompt. On Android, request access, answer the system prompt, refresh the permission state, and add a pin only after a grant. If either host denies access or cannot return a position, the assigned segment and report draft remain available.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 
 <!-- fission:step id="verify-permission-paths" -->
 ## Verify grant, denial, and a later settings change
 
-Run the app on an Android emulator. First test denial from a fresh install or after resetting this app's location permission: tap **Add map pin**, choose **Don't allow**, and confirm the report still saves with its assigned segment. Then reset the permission again, repeat the action, and grant access. The status should report that access is allowed and the returned position should attach to the report.
+Run the app on an Android emulator. Start from a fresh install or reset this app’s location permission in Android Settings. Tap **Request location access**, choose **Don’t allow**, and then tap **Refresh access status**. Confirm the report still saves with its assigned segment. Reset the permission again, request access, choose precise or approximate, refresh, and add a pin only after the refreshed state is granted.
 
-Next, open the app's location permission in Android settings, change it, and return to the report. Tap **Refresh access status**: the screen should show the new answer without opening another prompt. This example makes refresh explicit so you can see the state transition; a larger app can dispatch the same action when its screen resumes. The [mobile lifecycle tutorial](/blog/handle-mobile-lifecycle-changes-while-effects-are-in-flight/) covers that resume boundary. Check the disabled-location and timeout paths too; they should offer a retry or the manual segment, never erase the report.
+Next, open the app’s location permission in Android settings, change it, and return to the report. Tap **Refresh access status**: the screen should show the new answer without opening another prompt. This example makes refresh explicit so you can see the state transition; a larger app can dispatch the same action when its screen resumes. The [mobile lifecycle tutorial](/blog/handle-mobile-lifecycle-changes-while-effects-are-in-flight/) covers that resume boundary. Check the disabled-location and timeout paths too; they should offer a retry or the manual segment, never erase the report.
 
 <Tabs>
 <TabItem label="Run on Android">
