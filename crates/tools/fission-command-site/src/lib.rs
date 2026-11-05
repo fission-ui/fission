@@ -9,6 +9,9 @@ use std::net::TcpStream;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+// Tutorial WebAssembly bundles are large enough to outlive the idle-request deadline.
+const HTTP_RESPONSE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+
 pub fn build(project_dir: &Path, release: bool) -> Result<()> {
     if site_entry_configured(project_dir)? {
         return run_site_builder(project_dir, release, "build", &[]);
@@ -298,6 +301,7 @@ fn handle_http_request(
     if method == "POST" && path == "/__fission/renderer" {
         let body = read_http_body(&mut reader)?;
         eprintln!("{}", format_renderer_diagnostic(&body));
+        stream.start_response();
         stream.write_all(&http_response(204, "text/plain", b"", spa_fallback))?;
         return Ok(());
     }
@@ -308,6 +312,7 @@ fn handle_http_request(
     } else {
         http_response(404, "text/plain", b"outside serving mount", spa_fallback)
     };
+    stream.start_response();
     stream.write_all(&response)?;
     Ok(())
 }
@@ -356,6 +361,10 @@ struct DeadlineStream {
     deadline: std::time::Instant,
 }
 impl DeadlineStream {
+    fn start_response(&mut self) {
+        self.deadline = std::time::Instant::now() + HTTP_RESPONSE_TIMEOUT;
+    }
+
     fn remaining(&self) -> io::Result<std::time::Duration> {
         self.deadline
             .checked_duration_since(std::time::Instant::now())

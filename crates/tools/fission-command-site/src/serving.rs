@@ -324,6 +324,30 @@ mod tests {
         assert!(TcpListener::bind(address).is_ok());
         std::fs::remove_dir_all(root).unwrap();
     }
+
+    #[test]
+    fn large_static_assets_can_finish_after_a_slow_client_starts_reading() {
+        let root = fixture_root();
+        let asset_size = 16 * 1024 * 1024;
+        std::fs::write(root.join("showcase.wasm"), vec![0x5a; asset_size]).unwrap();
+        let server = OwnedServer::start_at(root.clone(), "127.0.0.1", 0, "/", false).unwrap();
+        let mut stream = TcpStream::connect(server.address()).unwrap();
+        stream
+            .write_all(b"GET /showcase.wasm HTTP/1.1\r\nHost: localhost\r\n\r\n")
+            .unwrap();
+        std::thread::sleep(Duration::from_millis(400));
+
+        let mut response = Vec::new();
+        stream.read_to_end(&mut response).unwrap();
+        let body_start = response
+            .windows(4)
+            .position(|window| window == b"\r\n\r\n")
+            .unwrap()
+            + 4;
+        assert!(response.starts_with(b"HTTP/1.1 200 OK"));
+        assert_eq!(response.len() - body_start, asset_size);
+        std::fs::remove_dir_all(root).unwrap();
+    }
 }
 
 #[derive(Clone, Debug)]
