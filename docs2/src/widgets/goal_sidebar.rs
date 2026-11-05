@@ -52,7 +52,7 @@ fission_component! {
                 child: Column(gap: tokens.spacing.s, children: [
                     copy("goal.version").weight(tokens.typography.font_weight_bold),
                     copy("goal.latest").color(tokens.colors.text_secondary),
-                    Link::to(cx.view.env().tr("goal.changelog"), navigation::CHANGELOG),
+                    Link::to(cx.view.env().tr("goal.changelog"), navigation::LATEST_RELEASE),
                 ]),
             ),
         ]),

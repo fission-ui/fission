@@ -1,3 +1,4 @@
+mod blog_post_card;
 mod browser_cta;
 mod compose_section;
 mod feature_card;
@@ -24,6 +25,7 @@ mod tutorial_card;
 mod tutorial_gallery;
 mod tutorial_list_item;
 
+pub(crate) use blog_post_card::BlogPostCard;
 pub use browser_cta::PlaygroundCallout;
 pub use compose_section::ComposeSection;
 pub use feature_section::FeatureSection;

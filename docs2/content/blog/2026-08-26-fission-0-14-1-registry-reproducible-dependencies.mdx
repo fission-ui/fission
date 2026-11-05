@@ -1,0 +1,70 @@
+---
+title: Fission 0.14.1: registry-reproducible dependencies
+description: Fission 0.14.1 fixes crates.io installation and makes release CI use the same external dependencies as published consumers.
+authors:
+  - fission
+categories:
+  - Releases
+tags:
+  - release
+  - tooling
+  - reliability
+show_adjacent_posts: true
+---
+
+# Fission 0.14.1: registry-reproducible dependencies
+
+Fission 0.14.1 is a focused repair for the 0.14.0 publication. The 0.14.0 source
+workspace passed its platform checks, but those checks used workspace overrides
+for Fission's Winit and Vello forks. Published Cargo packages do not inherit a
+workspace `[patch.crates-io]` section or external path dependency, so downstream
+installation resolved older fork packages that lacked APIs used by the released
+Fission shell.
+
+The visible result was a compile failure from:
+
+```console
+cargo install cargo-fission --version 0.14.0 --locked
+```
+
+The failure was not caused by `--locked`. It was a difference between the
+dependency graph qualified in the repository and the graph available from
+crates.io.
+
+## One dependency graph for CI and users
+
+The required fork changes are now published as immutable versions:
+
+- `fission-winit 0.30.13-fission.3`
+- `fission-vello-encoding 0.6.0-fission.3`
+- `fission-vello-shaders 0.6.0-fission.3`
+- `fission-vello 0.6.0-fission.3`
+
+Fission requires those registry packages directly. The workspace-level Winit
+and Android Activity patches are removed, and publishable renderer and shell
+manifests no longer resolve Vello through the vendored source tree. The lockfile
+therefore records crates.io sources and checksums for every external dependency
+used by the released graph.
+
+Web, Android, iOS, and CLI CI now compile those registry artifacts. A new
+dependency-boundary check rejects `[patch]`, `[replace]`, external Git sources,
+and `third_party` path dependencies in publishable Fission manifests. A future
+fork change must be published under a new version before Fission can consume and
+qualify it.
+
+## Upgrade
+
+Update the framework and CLI:
+
+```toml
+[dependencies]
+fission = { version = "0.14.1", default-features = false, features = ["desktop"] }
+```
+
+```sh
+cargo install cargo-fission --version 0.14.1 --locked
+```
+
+No application source changes are required from 0.14.0. Applications should
+move directly to 0.14.1 because 0.14.0's published dependency graph is not
+installable for targets that compile `fission-shell-winit`.

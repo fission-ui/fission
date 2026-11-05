@@ -458,7 +458,7 @@ mod tests {
         assert_eq!(goals[0].meta.order, 1);
         assert_eq!(
             goals[0].meta.path,
-            "/blog/build-a-rust-website-with-dropdown-navigation/"
+            "/tutorials/build-a-rust-website-with-dropdown-navigation/"
         );
         assert_eq!(goals[117].meta.order, 118);
     }

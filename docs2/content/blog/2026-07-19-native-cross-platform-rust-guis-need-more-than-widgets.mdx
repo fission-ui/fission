@@ -1,0 +1,272 @@
+---
+title: Native cross-platform Rust GUIs need more than widgets
+authors:
+  - courtney-robinson
+tags:
+  - architecture
+  - platform
+  - authoring
+categories:
+  - Project
+---
+
+Fission's not just about drawing widgets on screen.
+
+That part matters, obviously. Widgets matter. Layout matters. Rendering matters.
+Native shells matter. But they were never the whole frustration. The frustration
+was everything that happens after the first window opens: the testing, the
+automation, the screenshots, the accessibility, the signing, the app-store
+metadata, the CI handoff, the weird platform details that only show up when you
+are already trying to ship.
+
+After you have built and released enough applications, a GUI framework stops
+looking like only a rendering abstraction. It starts looking like the thing that
+decides whether a team can take an idea from source code to something tested,
+packaged, signed, accessible, reviewed, submitted, and actually shipped without
+quietly building a second framework around the first one.
+
+Rendering matters. Widgets matter. Layout matters. But the work does not stop
+when a window opens. It stops when a real user can install the app, use it with
+their input devices and accessibility tools, and when the team building it can
+reliably reproduce that whole journey again next week, next month, and on the
+next platform.
+
+Fission came from that frustration more than from a desire to draw another set
+of widgets.
+
+I have wanted to build something like it for a long time. In the mid 2000s, the
+browser UI world was exciting and awkward and full of tradeoffs that never quite
+sat right with me. Dojo was one of the few serious games in town. ExtJS looked
+incredible, but I could not afford it. Google Web Toolkit felt like walking
+barefoot over broken glass, but if you somehow got to the other side it could be
+amazing. Ember felt wrong to me in ways I did not yet have the language or the
+experience to explain.
+
+Since then I have worked across Java, C++, Rust, Python, Ruby, Haskell, PHP,
+Angular, Spring Boot, Thymeleaf, Tauri with React, and especially Flutter. That
+is not meant as a checklist. It is just the long way of saying I have carried
+this itch through a lot of stacks. Most frameworks get something right. Many of
+them are impressive. Some are even beautiful. But the longer you build with
+them, the more you learn that a good first week is not the same thing as a good
+third year.
+
+Flutter won me over in one important way. I like the widget composition model. I
+like building a UI as a tree of small, explicit values. I like that a screen can
+remain readable in the place where the screen is actually built instead of being
+spread across templates, controllers, lifecycle hooks, and conventions that live
+everywhere except where I am looking.
+
+I did not love Dart in the same way. More importantly, I did not love the amount
+of machinery that still sat around the app: testing across targets, automation,
+release screenshots, signing, store metadata, accessibility, CI, and all the
+platform-specific details that turn a demo into a product. Flutter makes a lot
+of things possible, but working on real products taught me that making something
+possible is not the same as making it controlled, inspectable, and boring to
+ship.
+
+That lesson got sharper when I built a low-code/no-code startup and raised VC
+money on the back of it.
+
+A no-code editor forces you to look under the floorboards. You are not just
+building an app. You are building a system that builds apps. You have to decide
+how state is represented, how components are serialized, how a design becomes
+runtime behavior, how generated output can be tested, and how the result becomes
+a real installable artifact. You cannot hand-wave those questions away because
+every customer app eventually asks them.
+
+That is where I learned about Skia, and also where I learned that I did not want
+Fission to be built on it. But the bigger lesson was not really about Skia. It
+was about the cost of consistency. The same product idea has to survive multiple
+targets, screen sizes, input systems, accessibility systems, and release
+channels. It has to make sense to a human developer, but it also has to be
+visible enough for tools to test it and honest enough for automation to know
+when something is wrong.
+
+The part that hurt more than I expected was the post-build life of the apps we
+generated. Packaging. Signing. Screenshots. Release notes. App-store handoff.
+Deployment infrastructure. CI glue. The endless little pieces of delivery work
+that are never the reason a customer bought the product but still have to be
+right before the product can reach them.
+
+Some days it felt like we were doing more ops than product. Infrastructure is
+important, but we were not an infrastructure company. In a startup, every day
+spent rebuilding generic delivery machinery is a day not spent on the thing
+customers actually came for. Once you have lived that, it becomes very difficult
+to accept a framework definition that stops at rendering.
+
+That was the pain behind Fission. Not "can Rust draw a button?" Rust can draw
+buttons. The question I kept coming back to was whether Rust could own the path
+from a component tree to a shipped native application across the targets real
+products need.
+
+For years, I parked the idea, and the reason changed over time.
+
+When I was using Dojo, GWT, Ember, and the other tools that first made me want a
+framework like this, I did not have the experience to build it. I could feel the
+problems, but feeling a problem is not the same as being able to design a way out
+of it. I knew what annoyed me. I did not yet know enough to build something
+better.
+
+By the time I did have enough experience, I had a different problem: I knew too
+much. I knew how many targets I wanted. Windows, macOS, Linux, iOS, Android,
+Web, static sites, server-rendered sites, terminal apps, and eventually smaller
+or stranger targets like wearables and MCUs. I knew I wanted an authoring model
+that felt good by hand, deterministic tests, accessibility and semantics in the
+runtime model, and packaging and release workflows that were not just another
+folder of scripts everyone writes differently.
+
+That knowledge did not make the project feel more approachable. It made it feel
+less approachable. I could estimate the work properly, and the estimate was
+brutal. Without a clear business case, starting Fission looked like exactly the
+kind of ambitious side project that sounds exciting, consumes years, and never
+gets finished. So it stayed in my head while I got on with work that had a
+clearer reason to exist.
+
+Then language models changed the time curve.
+
+They did not remove the need for engineering judgement. If anything, they made
+the absence of judgement more obvious. But they changed the practical economics
+of attempting something this wide. The thing that had previously looked like a
+multi-year hole with no good path through it started to look possible if the
+architecture was strict enough and the feedback loops were mechanical enough.
+
+That last part matters. I do not think AI can save a vague framework. If the API
+surface is inconsistent, generated code amplifies the inconsistency. If the tests
+are weak, mistakes survive. If the runtime cannot explain what it rendered, the
+model guesses. If screenshots cannot be captured and inspected, visual quality
+falls apart. If packaging is not deterministic, deployment becomes a ritual
+instead of a process.
+
+So Fission had to be built in a way that made mistakes concrete. Compiler
+output. Runtime diagnostics. Semantic trees. LiveTest commands. Screenshots.
+Package manifests. Release checks. Store metadata. Receipts. Things a person can
+read, and things a tool can act on.
+
+That requirement is one reason Fission is built around lowering application UI
+into a smaller intermediate representation.
+
+The idea is not mine in any grand sense. Haskell Core makes a bigger language
+manageable by lowering it to something smaller. LLVM IR gives many frontends and
+many backends a concrete place to meet. I wanted that kind of pressure in a UI
+framework. A Fission app should not require every platform shell to understand
+every possible user widget directly. It should lower into a smaller set of
+runtime concepts: layout, text, images, input, semantics, effects, resources,
+motion, scroll state, rendering primitives, and platform capabilities.
+
+That does not make cross-platform UI easy. Nothing does. But it changes the
+multiplication. If every custom widget has to be translated directly to every
+platform, the work explodes. If applications pass through a stable representation,
+then target support is still serious work, but it is not every application times
+every platform forever.
+
+I tried other ideas along the way, and one of them went much further than a
+loose design note. I built an actual calculus around `Frame`. The idea was that
+a UI could be represented almost entirely as frames with identity, constraints,
+style or state references, and children, then extended with events, animation,
+accessibility, files, networking, 3D objects, foldable layouts, VR inputs, and
+whatever else a serious app might eventually need. Part of the motivation was
+Figma. Designers already think in frames, constraints, styles, and nested
+structure, and I wanted something close enough that a Figma design could map
+into a running application instead of being manually reinterpreted by a
+developer.
+
+That version of the idea did not survive. It was useful, but it was not the
+right final abstraction. The more real interaction I added, the more the frame
+calculus had to absorb things that did not want to be only frames: focus, text
+input, accessibility, platform capabilities, host work, resources, routing,
+semantics, and the awkward edge cases that show up when software stops being a
+design file and starts being a real application. Eventually the theory bent
+enough that I had to admit the useful part was not "everything is a frame". The
+useful part was having a small representation that higher-level APIs could lower
+into, and that shells and tools could reason about.
+
+So the frame calculus failed, but it failed in the right direction. The IR idea
+stayed. The Flutter-like widget composition stayed. The need for deterministic
+state and runtime control stayed. Those became the spine of Fission.
+
+The testing side is just as important to me.
+
+I rarely enjoyed writing GUI tests in Flutter. They often felt unintuitive or
+flaky. More broadly, GUI testing across platforms too often turns into sleeps,
+pixel assumptions, and coordinate clicks. That is annoying for hand-written
+apps. It is disastrous for generated apps, no-code systems, and AI-assisted
+development, because the test system needs to say what it saw and why an action
+failed.
+
+If a button exists but is clipped off screen, that should be reported. If a node
+was found but disabled, that should be reported. If a selector matches three
+things, that should be reported. If a screenshot shows that the layout is ugly,
+the system should at least make that screenshot part of the loop instead of
+pretending the compile succeeded so the UI must be fine.
+
+This is why Fission has explicit state transitions, synchronous reducers,
+effects, jobs, services, resources, semantics, selector-driven LiveTest commands,
+and screenshot capture. Those are not decorative features. They are how the
+framework keeps the application understandable after it becomes more than a toy.
+
+And yes, this is also why AI has been able to help build Fission.
+
+I know that will make some people suspicious. I understand it. A lot of
+AI-generated software is bad. A lot of people selling AI-generated software are
+saying things that deserve suspicion. But my experience with Fission has not
+been that AI makes engineering easy. My experience has been that AI punishes weak
+architecture very quickly. If the framework is loose, the model drifts. If the
+checks are vague, the model declares victory too early. If the visual output is
+not inspected, it produces average-looking sludge and calls it done. If the
+release process has holes, it finds them in production-facing work at exactly
+the wrong time.
+
+The useful part is not that an LLM can write a widget. The useful part is that a
+framework can be designed so the LLM, the human engineer, and CI all get the
+same hard feedback from the same system. Compile this. Run the app. Inspect the
+semantic tree. Click the thing by meaning, not coordinates. Take the screenshot.
+Check the package. Validate the release metadata. Tell me precisely what failed.
+
+That is what makes AI-assisted application development interesting to me. Not
+because it replaces taste or judgement, but because a sufficiently deterministic
+framework can turn vague work into something observable enough to correct.
+
+Fission did not become useful for AI by adding prompt text around a normal GUI
+library. It became useful because the framework itself is trying to be
+inspectable, testable, and explicit.
+
+The current target story is deliberately broad: macOS, Windows, Linux, Android,
+iOS, WebAssembly web apps, terminal apps, static sites, and server-rendered
+sites. Those targets will never all support the same capabilities. Pretending
+otherwise would be absurd. A terminal, an SSR response, and a native mobile app
+do not have the same affordances. What they can share is the application model,
+the state model, routing, semantics, testing ideas, configuration, and a way to
+say clearly where a target can or cannot support a feature.
+
+That breadth matters because real product work crosses boundaries. You may need
+a native desktop app, a mobile app, a static documentation site, a
+server-rendered account portal, and a terminal utility. It is painful when those
+all become separate worlds with separate conventions, separate testing tools,
+separate release processes, and separate ideas about what the application even
+is.
+
+Fission is trying to make the shared part real without pretending the platforms
+are identical.
+
+That is also why build, packaging, and release support belongs in the framework.
+A framework that can draw a screen but leaves every team to rediscover Android
+signing, macOS notarization, release screenshots, store metadata, static hosting,
+Docker packaging, and CI handoff has stopped before one of the most expensive
+parts of real product work. Maybe that is acceptable for a widget toolkit. It is
+not enough for the thing I wanted Fission to be.
+
+The goal is not to hide the platform. That would be another mistake. The goal is
+to make the common path boring, give developers defaults they can ship with, and
+leave escape hatches for the cases where the platform needs direct control.
+
+Rust GUI has made real progress. There are more experiments, more serious
+frameworks, better renderers, better shell integrations, and more people working
+on the genuinely hard parts. I am glad that is happening. I also think the bar
+should keep moving.
+
+The question I keep coming back to is not only whether Rust can draw a native
+cross-platform UI. It is whether Rust can take an application from a clear
+source model all the way to shipped software: tested, accessible, packaged,
+signed, automated, and understandable by both humans and tools.
+
+That is what Fission is for.

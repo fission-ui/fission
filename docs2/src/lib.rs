@@ -1,4 +1,5 @@
 pub mod app;
+pub mod blog;
 pub mod content;
 pub mod design;
 pub mod i18n;

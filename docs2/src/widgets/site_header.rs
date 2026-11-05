@@ -36,6 +36,7 @@ fission_component! {
                         children: [
                             Link::to(cx.view.env().tr("site.docs"), navigation::DOCS),
                             Link::to(cx.view.env().tr("site.tutorials"), navigation::TUTORIALS),
+                            Link::to(cx.view.env().tr("site.blog"), navigation::BLOG),
                             Link::to(cx.view.env().tr("site.compose"), navigation::COMPOSE),
                             Link::to(cx.view.env().tr("site.examples"), navigation::EXAMPLES),
                             Link::to(cx.view.env().tr("site.reference"), navigation::REFERENCE_OVERVIEW),
@@ -77,6 +78,7 @@ fission_component! {
                     child: Column(gap: tokens.spacing.xs, children: [
                         Link::to(cx.view.env().tr("site.docs"), navigation::DOCS),
                         Link::to(cx.view.env().tr("site.tutorials"), navigation::TUTORIALS),
+                        Link::to(cx.view.env().tr("site.blog"), navigation::BLOG),
                         Link::to(cx.view.env().tr("site.compose"), navigation::COMPOSE),
                         Link::to(cx.view.env().tr("site.examples"), navigation::EXAMPLES),
                         Link::to(cx.view.env().tr("site.reference"), navigation::REFERENCE_OVERVIEW),

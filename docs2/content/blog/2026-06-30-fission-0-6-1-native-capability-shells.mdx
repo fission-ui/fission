@@ -1,0 +1,100 @@
+---
+title: Fission 0.6.1: native capability shells and iOS GPU rendering
+authors:
+  - fission
+tags:
+  - release
+  - platform
+  - authoring
+categories:
+  - Releases
+---
+
+Fission 0.6.1 is the native capability shell and iOS GPU rendering release. It takes the mobile target work from [issue #83](https://github.com/fission-ui/fission/issues/83), turns generated Android and iOS targets into real extension points for app-owned native SDK integrations, and keeps iOS on the Vello GPU renderer instead of falling back to the software upload path.
+
+The goal is not to bake payments, camera, scanner, or other product-specific SDKs into Fission core. The goal is to give Fission apps a supported native project shape where capability crates and applications can add platform sources, dependencies, permissions, framework links, and manifest entries without hand-maintaining a parallel mobile project.
+
+The iOS renderer change comes from [PR #82](https://github.com/fission-ui/fission/pull/82). It fixes the black-screen path that appeared when the iOS simulator adapter did not support indirect execution. The renderer crates in this release use `fission-vello 0.6.0-fission.2`.
+
+## Native project shells
+
+The `fission add-target` flow now generates richer Android and iOS platform directories.
+
+For Android, generated targets include:
+
+- a Gradle application shell;
+- a `FissionActivity` host activity;
+- project-level repository configuration;
+- an app build file with JVM and AndroidX defaults;
+- a `native-modules.gradle` overlay;
+- a native module directory layout for app-owned Java/Kotlin sources and metadata.
+
+For iOS, generated targets include:
+
+- a SwiftPM host package;
+- a `NativeModules` SwiftPM package;
+- a native capability registry;
+- copied Swift module source support;
+- package/framework hooks for app-owned native adapters.
+
+This raises the ceiling for mobile Fission apps. A generated app can now grow into integrations such as Stripe PaymentSheet, Google Pay, Apple Pay, camera/scanner SDKs, and other native capability modules without abandoning the Fission target structure.
+
+## iOS Vello GPU rendering
+
+0.6.1 keeps iOS on the native Vello GPU renderer.
+
+Before this release, Fission could fall back to the software renderer on iOS when the adapter lacked indirect execution support. That avoided one GPU failure mode, but it made real mobile usage impractically slow and left image-heavy screens behind the desktop/native path.
+
+The root cause was narrower than "Vello does not work on iOS." Compute worked, but the old path created transient storage buffers with `BufferUsages::INDIRECT`. On the iOS simulator adapter, indirect execution was unavailable, so the first Vello compute stage effectively lost the uploaded scene data and rendered black output.
+
+The fix passes the adapter's indirect-dispatch capability into the Fission Vello fork. When indirect dispatch is unavailable, Vello avoids `INDIRECT` buffer usage for direct-dispatch fallback paths and conservatively direct-dispatches the indirect stages.
+
+The result is that iOS can stay on the GPU renderer, render image content, and keep interactive UI usable without the software upload path.
+
+## Generic native module config
+
+0.6.1 adds generic native module declarations to `fission.toml`.
+
+The model is capability-agnostic. A module can describe Android source directories, Maven dependencies, repositories, permissions, and manifest entries. It can also describe iOS Swift package products, source directories, and linked frameworks.
+
+Fission then projects that metadata into the generated Android/iOS shell. The capability crate or application remains responsible for the SDK-specific code and runtime behavior.
+
+## Regenerated examples
+
+The examples that already carried Android or iOS targets were regenerated with the current CLI so the repository shows the new target structure directly:
+
+- `examples/field-inspector`
+- `examples/mobile-smoke`
+- `examples/web-smoke`
+
+Those examples now include the generated Gradle and SwiftPM shell files alongside the existing package/run scripts.
+
+## Documentation cleanup
+
+The release also tightens the documented i18n recommendation.
+
+Fission's runtime contract is still `TranslationBundle`, but the documentation now consistently recommends YAML translation files embedded with `include_str!` and parsed into `Env` at startup. That keeps first render deterministic across desktop, web, mobile, terminal, static site, and SSR targets.
+
+## Migration notes
+
+Applications using 0.5.1 can update the Rust dependency in the usual way:
+
+```toml
+fission = { version = "0.6.1", default-features = false, features = ["desktop"] }
+```
+
+For mobile apps, re-run target generation so your checked-in platform directories receive the new shell structure:
+
+```bash
+fission add-target --project-dir . android ios
+```
+
+Review the generated platform diffs before committing, especially if the app already had custom Android or iOS files. The generator is designed to preserve existing app-owned platform files where possible, but native SDK integrations should still be reviewed like ordinary platform code.
+
+If you previously forced the software renderer on iOS to avoid black output, remove that workaround and retest with the default native Vello GPU path.
+
+## Verification
+
+The release preparation regenerates the repository mobile examples and runs the same tooling checks used by the native shell PR: formatting, package/check coverage for the command crates, and command crate tests for `fission add-target`, package, run, and CLI behavior.
+
+PR #82 was separately verified with `cargo test -p fission-vello direct_dispatch_fallback --lib`, `cargo check -p fission-shell-winit`, and an iOS simulator `MobileSmoke` run where `FISSION_RENDERER=native-vello-gpu` rendered non-black output, image content, and accepted a `TapText("Tap")` test-control interaction.

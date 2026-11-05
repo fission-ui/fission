@@ -1,0 +1,96 @@
+---
+title: Fission 0.6.3: ScrollIntoView runtime effects
+authors:
+  - fission
+tags:
+  - release
+  - runtime
+  - scroll
+  - documents
+categories:
+  - Releases
+---
+
+Fission 0.6.3 adds a small but important runtime feature: reducers can now ask the runtime to reveal a widget inside a scroll container after layout.
+
+That is the missing piece for document editors, page outlines, validation summaries, search results, sidebars, and any app where a user action selects something that may already exist lower in a scrollable surface.
+
+## Why this belongs in the runtime
+
+Fission already had scroll primitives:
+
+- `Scroll` owns a scrollable viewport;
+- `RuntimeState.scroll` stores offsets;
+- pointer wheels, scrollbars, and text-input caret tracking can mutate those offsets internally;
+- app code can read previous layout through `View::get_rect(...)`.
+
+The missing feature was a safe way for application intent to say: after the next layout pass, scroll this viewport so that widget is visible.
+
+Reducers cannot safely mutate scroll offsets because they do not own layout geometry. Widget conversion must stay side-effect free. `ScrollIntoViewRequest` keeps that boundary intact.
+
+## The API
+
+A reducer can now emit:
+
+```rust
+ctx.effects.scroll_into_view(ScrollIntoViewRequest {
+    container: Some(WidgetId::explicit("document.canvas.scroll")),
+    target: WidgetId::explicit("document.page.3"),
+    axis: ScrollAxis::Vertical,
+    alignment: ScrollAlignment::Start,
+    padding: [24.0, 24.0, 24.0, 24.0],
+    behavior: ScrollBehavior::Instant,
+    if_needed: false,
+});
+```
+
+The request is resolved after layout, when Fission can see both the target rect and the scroll container geometry. If `container` is omitted, the runtime uses the nearest matching scroll ancestor.
+
+`ScrollAlignment` supports `Start`, `Center`, `End`, `Nearest`, and `Fraction(f32)`. `Nearest` keeps already visible content stationary and otherwise uses the smallest offset change needed to reveal the target.
+
+## Document editor flow
+
+A document app can keep pages in natural order:
+
+```rust
+Scroll {
+    id: Some(WidgetId::explicit("document.canvas.scroll")),
+    direction: FlexDirection::Column,
+    flex_grow: 1.0,
+    child: Some(DocumentPages { pages: state.pages.clone() }.into()),
+    ..Default::default()
+}
+.into()
+```
+
+Each page wrapper gets a stable explicit ID such as `document.page.3`. When the user selects page 3 from a page rail or outline, the reducer updates selected state and emits `ScrollIntoViewRequest`. Fission handles the offset after layout and schedules another frame so rendering, hit testing, semantics, and test-control tree output converge on the new scroll position.
+
+That avoids the wrong workaround: reordering rendered pages just to make the selected page appear near the top.
+
+## Runtime behavior
+
+The runtime now:
+
+1. queues `ScrollIntoViewRequest` as a runtime effect;
+2. waits for the next layout snapshot;
+3. resolves the target and container;
+4. computes the requested offset in scroll-content coordinates;
+5. clamps the offset to the scrollable range;
+6. writes `RuntimeState.scroll`;
+7. schedules a follow-up frame when the offset changes.
+
+Missing targets are retried once on the next frame. That covers common route or conditional-render cases where the state change that selects a target also causes it to appear.
+
+## Migration notes
+
+Applications using 0.6.2 can update the Rust dependency in the usual way:
+
+```toml
+fission = { version = "0.6.3", default-features = false, features = ["desktop"] }
+```
+
+Use stable explicit widget IDs for both the scroll container and reveal targets when the request comes from app state, route state, search state, or external document navigation.
+
+## Verification
+
+0.6.3 includes focused runtime tests for explicit containers, nearest scroll ancestors, alignment, visibility no-ops, queued runtime effects, and one-frame retry behavior. The release also runs formatting, workspace checks, and documentation-site checks before publishing the crate set.

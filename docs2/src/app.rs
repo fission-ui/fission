@@ -1,11 +1,13 @@
+use crate::blog::{blog_categories, load_blog_posts, BlogPost};
 use crate::content::{load_goals, GoalDocument, GoalMeta};
 use crate::design::DocsDesignSystem;
 use crate::i18n;
 use crate::navigation;
 use crate::products::{product_routes, ProductRoute};
 use crate::screens::{
-    tutorial_categories, DocumentationHub, GoalPage, HomePage, PlaygroundExample, PlaygroundPage,
-    TutorialCategoryPage, TutorialsIndexPage, TUTORIALS_PER_PAGE,
+    tutorial_categories, BlogArchive, BlogArchivePage, BlogArticlePage, DocumentationHub, GoalPage,
+    HomePage, PlaygroundExample, PlaygroundPage, TutorialCategoryPage, TutorialsIndexPage,
+    BLOG_POSTS_PER_PAGE, TUTORIALS_PER_PAGE,
 };
 use crate::state::DocsState;
 use anyhow::{Context, Result};
@@ -18,6 +20,8 @@ const HOMEPAGE_PREVIEW_APP: &str = "rust-product-inventory";
 pub fn site_app() -> Result<FissionSite> {
     let project_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
     let goals = load_goals(project_dir.join("content/goals"))?;
+    let blog_posts = load_blog_posts(project_dir.join("content/blog"))?;
+    let article_categories = blog_categories(&blog_posts);
     let tutorials: Vec<GoalMeta> = goals.iter().map(|goal| goal.meta.clone()).collect();
     let categories = tutorial_categories(&tutorials);
     let hero_tutorial = goals
@@ -64,6 +68,96 @@ pub fn site_app() -> Result<FissionSite> {
             TutorialsIndexPage::new(categories.clone()),
         )
         .with_route_structured_data(navigation::TUTORIALS, tutorials_structured_data(&categories));
+
+    let blog_page_count = blog_posts.len().div_ceil(BLOG_POSTS_PER_PAGE);
+    for page in 1..=blog_page_count {
+        let path = blog_archive_path(navigation::BLOG, page);
+        let start = (page - 1) * BLOG_POSTS_PER_PAGE;
+        let posts = blog_posts[start..(start + BLOG_POSTS_PER_PAGE).min(blog_posts.len())]
+            .iter()
+            .map(BlogPost::summary)
+            .collect();
+        let archive = BlogArchive {
+            title: if page == 1 {
+                "Fission journal".to_string()
+            } else {
+                format!("Fission journal — page {page}")
+            },
+            description: "Release notes and engineering articles about building, testing, and shipping Rust applications with Fission.".to_string(),
+            base_path: navigation::BLOG.to_string(),
+            page,
+            page_count: blog_page_count,
+            posts,
+            categories: article_categories.clone(),
+            show_categories: true,
+        };
+        site = site
+            .route_widget::<DocsState, _>(
+                path.clone(),
+                format!(
+                    "{} — Rust engineering articles and release notes",
+                    archive.title
+                ),
+                Some(archive.description.clone()),
+                BlogArchivePage::new(archive.clone()),
+            )
+            .with_route_structured_data(path, blog_archive_structured_data(&archive, &blog_posts));
+    }
+
+    for category in &article_categories {
+        let category_posts = blog_posts
+            .iter()
+            .filter(|post| post.categories.contains(&category.title))
+            .collect::<Vec<_>>();
+        let page_count = category_posts.len().div_ceil(BLOG_POSTS_PER_PAGE);
+        for page in 1..=page_count {
+            let path = blog_archive_path(&category.path, page);
+            let start = (page - 1) * BLOG_POSTS_PER_PAGE;
+            let posts = category_posts
+                [start..(start + BLOG_POSTS_PER_PAGE).min(category_posts.len())]
+                .iter()
+                .map(|post| post.summary())
+                .collect();
+            let archive = BlogArchive {
+                title: format!("{} articles", category.title),
+                description: blog_category_description(&category.title).to_string(),
+                base_path: category.path.clone(),
+                page,
+                page_count,
+                posts,
+                categories: article_categories.clone(),
+                show_categories: true,
+            };
+            site = site
+                .route_widget::<DocsState, _>(
+                    path.clone(),
+                    format!("{} — Fission blog", archive.title),
+                    Some(archive.description.clone()),
+                    BlogArchivePage::new(archive.clone()),
+                )
+                .with_route_structured_data(
+                    path,
+                    blog_archive_structured_data(&archive, &blog_posts),
+                );
+        }
+    }
+
+    for (index, post) in blog_posts.iter().enumerate() {
+        let older = blog_posts.get(index + 1).map(BlogPost::summary);
+        let newer = index
+            .checked_sub(1)
+            .and_then(|previous| blog_posts.get(previous))
+            .map(BlogPost::summary);
+        let path = post.path.clone();
+        site = site
+            .route_widget::<DocsState, _>(
+                path.clone(),
+                format!("{} — Fission blog", post.title),
+                Some(post.description.clone()),
+                BlogArticlePage::new(post.clone(), older, newer),
+            )
+            .with_route_structured_data(path, blog_post_structured_data(post));
+    }
 
     for category in &categories {
         for page in 1..=category.page_count() {
@@ -239,6 +333,82 @@ fn category_description(slug: &str) -> &'static str {
         "shared-mobile" => "Build cross-platform mobile apps for Android and iOS with shared Rust components, offline workflows, device capabilities and responsive dashboards.",
         _ => "Step-by-step tutorials for building applications with Rust and Fission.",
     }
+}
+
+fn blog_archive_path(base_path: &str, page: usize) -> String {
+    if page <= 1 {
+        base_path.to_string()
+    } else {
+        format!("{}page/{page}/", base_path)
+    }
+}
+
+fn blog_category_description(category: &str) -> &'static str {
+    match category {
+        "Releases" => "Fission framework release posts. Read what each version changes, why it matters, and how to upgrade.",
+        "Project" => "Engineering notes about the design decisions, platform work, and product direction behind Fission.",
+        "Migration" => "Practical migration guidance for teams moving existing applications toward Rust and Fission.",
+        _ => "Engineering articles and release notes from the Fission team.",
+    }
+}
+
+fn blog_archive_structured_data(archive: &BlogArchive, all_posts: &[BlogPost]) -> [String; 1] {
+    [serde_json::json!({
+        "@context": "https://schema.org",
+        "@type": "CollectionPage",
+        "name": archive.title,
+        "description": archive.description,
+        "url": format!("https://fission.rs{}", blog_archive_path(&archive.base_path, archive.page)),
+        "mainEntity": {
+            "@type": "ItemList",
+            "itemListElement": archive.posts.iter().enumerate().map(|(index, post)| serde_json::json!({
+                "@type": "ListItem",
+                "position": index + 1,
+                "name": post.title,
+                "url": format!("https://fission.rs{}", post.path)
+            })).collect::<Vec<_>>()
+        },
+        "numberOfItems": if archive.base_path == navigation::BLOG {
+            all_posts.len()
+        } else {
+            all_posts.iter().filter(|post| {
+                let category = archive.title.split_whitespace().next().unwrap_or_default();
+                post.categories.iter().any(|item| item.eq_ignore_ascii_case(category))
+            }).count()
+        }
+    })
+    .to_string()]
+}
+
+fn blog_post_structured_data(post: &BlogPost) -> [String; 1] {
+    let authors = post
+        .authors
+        .iter()
+        .map(|author| match author.as_str() {
+            "fission" => serde_json::json!({ "@type": "Organization", "name": "Fission Team" }),
+            "courtney" | "courtney-robinson" => {
+                serde_json::json!({ "@type": "Person", "name": "Courtney Robinson" })
+            }
+            other => serde_json::json!({ "@type": "Person", "name": other }),
+        })
+        .collect::<Vec<_>>();
+    [serde_json::json!({
+        "@context": "https://schema.org",
+        "@type": "BlogPosting",
+        "headline": post.title,
+        "description": post.description,
+        "datePublished": post.published,
+        "author": authors,
+        "articleSection": post.categories,
+        "keywords": post.tags,
+        "mainEntityOfPage": format!("https://fission.rs{}", post.path),
+        "publisher": {
+            "@type": "Organization",
+            "name": "Fission",
+            "url": "https://fission.rs/"
+        }
+    })
+    .to_string()]
 }
 
 fn category_structured_data(
