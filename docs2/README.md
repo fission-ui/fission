@@ -28,6 +28,12 @@ memory use. The site serving startup deadline defaults to 900 seconds; set
 complete site build needs more time. The same timeout can be set with
 `--startup-timeout-seconds` on the CLI.
 
+Check that `fission site serve --help` lists `--startup-timeout-seconds` before
+relying on a longer deadline. This checkout’s CLI also reads
+`FISSION_SERVING_STARTUP_TIMEOUT_SECONDS`; the current `main` CLI accepts the
+flag but does not read that environment variable, so pass the flag explicitly
+when using a binary installed from `main`.
+
 For example:
 
 ```sh
