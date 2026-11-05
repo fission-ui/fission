@@ -1,397 +1,597 @@
 ---
 layout: goal
-title: Schedule local notifications on Android
-description: "Step-by-step Rust guide to schedule local notifications on Android using Fission."
-goal: Request notification access where required, schedule and cancel a local notification, and account for Android API-level differences.
+title: Schedule Android notifications for a trail follow-up
+description: "Build a Rust Android trail-report reminder with Fission notifications. Request access in context, schedule a follow-up, and cancel it by a stable ID."
+goal: Let a trail crew schedule a follow-up notification for an unresolved report, keep the report usable when notifications are off, and cancel the reminder when the work is complete.
 path: /blog/schedule-local-notifications-on-android/
 order: 40
 difficulty: Beginner
-duration: 35 minutes
+duration: 40 minutes
 run_command: "fission run --target android --project-dir ."
 app: android-schedule-local-notifications-on-android
 outcomes:
-  - Implement the feature in shared Rust application code
-  - Explain the state, component and host behaviour involved
-  - Verify the Android workflow and follow physical-device checks when the task requires them
+  - Request notification access only when the crew schedules a reminder
+  - Schedule and cancel one report follow-up using a stable notification ID
+  - Explain Android notification channels and the API 33 runtime permission
+  - Recognise when a best-effort timer is not reliable enough for the product
 ---
 
-## What you will build
+## Remind a crew to revisit an unresolved trail report
 
-In this tutorial, you will request notification access where required, schedule and cancel a local notification, and account for Android API-level differences. Try the interactive screen below in your browser. It changes local component state only; it does not open Android permission prompts, use device hardware or build an Android app. Follow the emulator checks below, then use a phone for hardware behavior.
+Juniper County’s trail crew has logged water cutting across the North Ridge path. A second crew is bringing gravel, so the inspector wants a reminder to check the bridge approach again in about fifteen minutes. If the road crew resolves the hazard early, the inspector should be able to cancel the reminder.
 
-### The Fission pieces in this example
+We will build that follow-up flow. The report description stays editable, Android permission is requested only when the inspector chooses to schedule, and a denied request leaves the form usable.
 
-Keep native work out of a component’s `view`: the component sends a typed request through an effect, and the host returns a success or error action for the reducer. That lets the screen stay responsive and show a useful recovery path. The browser preview below simulates these result states locally; the target checks later are where you verify the real capability.
+There is one delivery limit to understand before you use this in a product: Fission’s current Android `AfterMillis` scheduler runs a cancellable timer in the app process. It can post while that process is alive, but it is not a persistent Android alarm and may not fire after Android kills the process or delays it for power management. Treat this as a best-effort reminder. A promise that must survive process death or arrive at a precise time needs a target-specific Android scheduler.
 
-## Create the project and add the target
+## Create the Android project
 
-Install the Fission command line, create the app, and add its native target. The [canonical Android setup tutorial](/blog/set-up-rust-android-gui-development-with-fission/) covers SDK installation and device prerequisites.
+Create the shared app, add Android, then declare the notification capability. The capability command adds Android’s notification permission to the generated project. Keep the reminder rules and form in shared Rust code; the generated Android host handles platform notifications.
+
+<Tabs>
+<TabItem label="Create the project">
 
 ```sh
 cargo install cargo-fission
-fission init android-schedule-local-notifications-on-android
-cd android-schedule-local-notifications-on-android
+fission init juniper-trail-follow-ups
+cd juniper-trail-follow-ups
 fission add-target android --project-dir .
 fission add-capability notifications --project-dir .
 ```
 
-## Files created by Fission
-
-This is the starter tree after `fission init` and `fission add-target`; the component and state used for this task are additions in the steps below. Keep shared Rust behavior under `src/` and leave target launch and packaging in `platforms/android/`.
+</TabItem>
+<TabItem label="Files used in the tutorial">
 
 ```text
-android-schedule-local-notifications-on-android/
-├── Cargo.toml                 # Rust package and dependencies
-├── fission.toml               # app identity, targets and capabilities
+juniper-trail-follow-ups/
+├── Cargo.toml
+├── fission.toml
 ├── src/
-│   ├── main.rs                # generated app entrypoint
-│   ├── lib.rs                 # shared app setup
-│   └── app.rs                 # shared Fission screen
+│   ├── app.rs          # shared reminder state and component
+│   ├── lib.rs          # shared application entry point
+│   └── main.rs         # generated desktop entry point
 └── platforms/
-    └── android/              # generated Android host
+    └── android/        # generated Android host and manifest
 ```
 
-Keep `src/app.rs`, shared state, reducers and reusable `fission_component!` components in the common Rust project. Add a state, service or effect module only when this feature needs that boundary, and use a name tied to the feature. The generated Android host owns launch and packaging details; shared components describe the user task without importing Android APIs.
-
-<!-- fission:step id="start-screen" -->
-## Try the browser-safe interaction
-
-The preview is a compiled Fission component with two deliberately local simulations. Press **Simulate success** to inspect the normal result, then **Simulate unavailable** to see how the screen can explain that a capability cannot proceed. These actions change only preview state: they do not request permission, access a sensor or run the target app. In the main step, compare that state boundary with the feature-specific instructions.
-
-<Tabs>
-<TabItem label="src/app.rs">
-<!-- fission:file path="src/app.rs" -->
-```rust
-use fission::prelude::*;
-
-fission_component! {
-    pub AndroidLocalNotifications<()> {
-        props {
-            title: String,
-            step: String,
-            goal: String,
-        }
-        state {
-            simulated_success: bool = false,
-            simulated_unavailable: bool = false,
-        }
-    }
-    view(preview, _state, cx) {
-        let tokens = &cx.view.env().theme.tokens;
-    } =>
-    SemanticsRegion(
-        identifier: Some("tutorial-preview".to_string()),
-        label: Some(preview.title.clone()),
-        child: Container(
-            Column(gap: tokens.spacing.m, children: [
-                Text(preview.title.clone())
-
-                    .weight(tokens.typography.font_weight_bold),
-                Text(preview.step.clone())
-                    .color(tokens.colors.text_secondary),
-                Text(preview.goal.clone()),
-                Button(
-                    child: Text(if preview.simulated_success {
-                        "Reset success simulation".to_string()
-                    } else {
-                        "Simulate success".to_string()
-                    }),
-                    key: "tutorial-complete",
-                    on_press: reduce {
-                        preview.simulated_success = !preview.simulated_success;
-                        if preview.simulated_success { preview.simulated_unavailable = false; }
-                    },
-                ),
-                Text(if preview.simulated_success {
-                    format!("Simulated success for {}. Only browser-local state changed. Use the target steps below to verify the real behaviour.", preview.goal)
-                } else {
-                    "Ready: no native request has run. Choose a simulation to see how the screen state changes.".to_string()
-                }),
-                Button(
-                    child: Text(if preview.simulated_unavailable {
-                        "Clear unavailable simulation".to_string()
-                    } else {
-                        "Simulate unavailable".to_string()
-                    }),
-                    key: "tutorial-unavailable",
-                    on_press: reduce {
-                        preview.simulated_unavailable = !preview.simulated_unavailable;
-                        if preview.simulated_unavailable { preview.simulated_success = false; }
-                    },
-                ),
-                if preview.simulated_unavailable {
-                    Text(format!("Simulated unavailable result for {}. No native request ran; the target app should explain the real reason and recovery action.", preview.title))
-                } else {
-                    Text("No unavailable response is being simulated.".to_string())
-                },
-            ])
-        )
-        .padding_all(tokens.spacing.l)
-        .bg(tokens.colors.surface)
-        .border(tokens.colors.border, 1.0)
-        .border_radius(tokens.radii.large),
-    )
-}
-```
-</TabItem>
-<TabItem label="preview/lib.rs">
-<!-- fission:file path="preview/lib.rs" -->
-```rust
-mod app;
-
-use fission::prelude::*;
-use wasm_bindgen::prelude::*;
-
-#[wasm_bindgen(inline_js = "export function tutorial_title() { const parts = document.title.split(' — '); return parts.slice(1).join(' — ') || 'Fission tutorial'; } export function tutorial_step() { return document.title.split(' — ')[0] || 'Tutorial step'; } export function tutorial_goal() { return document.querySelector('meta[name=\"tutorial-goal\"]')?.content || 'Complete the task and verify it on the target.'; }")]
-extern "C" {
-    fn tutorial_title() -> String;
-    fn tutorial_step() -> String;
-    fn tutorial_goal() -> String;
-}
-
-#[wasm_bindgen(start)]
-pub fn run() -> Result<(), JsValue> {
-    console_error_panic_hook::set_once();
-    let preview = app::AndroidLocalNotifications::new(tutorial_title(), tutorial_step(), tutorial_goal());
-    WebApp::<(), _>::new(preview)
-        .with_title("Fission tutorial preview")
-        .mount("#fission-web-mount")
-        .run()
-        .map_err(|error| JsValue::from_str(&error.to_string()))
-}
-```
 </TabItem>
 </Tabs>
-<!-- fission:preview -->
 
-<!-- fission:checkpoint -->
-Press **Simulate success** and check the visible status change. Then choose **Simulate unavailable** and check that the screen explains the unavailable outcome. Both actions change browser-local state only; they do not invoke the native capability.
-<!-- /fission:checkpoint -->
-<!-- /fission:step -->
+The CLI adds `POST_NOTIFICATIONS` to the Android manifest. Android 13 (API 33) and newer ask for that runtime permission; earlier versions do not show the same prompt. Android 8 (API 26) and newer require notifications to use a channel. Fission’s Android host creates its default channel here, and the user can still turn it off in system settings. Read Android’s [notification permission guide](https://developer.android.com/develop/ui/views/notifications/notification-permission) and [channel guide](https://developer.android.com/develop/ui/views/notifications/channels) when choosing behavior for a real app.
 
 <!-- fission:step id="main-flow" -->
-## Connect the Notifications provider to the user action
+## Build the reminder form and notification actions
 
-This is the real Fission request path for this feature. Keep permission and hardware work outside the component view: the component dispatches one intent, the reducer queues the request, and success or error reducers store the returned result.
+The form belongs to the report screen, so its trail segment and observation are retained as local component state while the inspector edits them. Permission status, in-flight work, and the returned receipt live in `GlobalState` because they arrive asynchronously and control actions elsewhere in the screen.
 
-Start with task data and status in the app state. Keep a text-field draft, open flag or selected tab in the owning component instead of duplicating that temporary state here:
-
-```rust
-#[derive(Debug, Default)]
-struct NotificationState {
-    // Add these fields to your existing app state.
-    last_notification_id: Option<NotificationId>,
-    notification_error: Option<String>,
-}
-
-impl GlobalState for NotificationState {}
-```
-
-Handle successful and failed results separately so the screen can explain denied permission, cancellation, unsupported hardware and provider errors:
-
-```rust
-#[fission_reducer(NotificationShown)]
-fn on_notification_shown(state: &mut NotificationState, receipt: NotificationReceipt) {
-    state.last_notification_id = Some(receipt.id);
-    state.notification_error = None;
-}
-
-#[fission_reducer(NotificationFailed)]
-fn on_notification_failed(state: &mut NotificationState, error: NotificationError) {
-    state.notification_error = Some(error.message);
-}
-```
-
-Queue the operation after the user presses the named control. The host completes asynchronously and dispatches the matching reducer:
-
-```rust
-ctx.effects
-    .notifications()
-    .show(NotificationRequest {
-        id: NotificationId::new("sync-complete"),
-        title: "Sync complete".into(),
-        body: "Your workspace is up to date.".into(),
-        deep_link: Some("fission://sync/history".into()),
-        ..Default::default()
-    })
-    .on_ok(ctx.effects.bind(
-        NotificationShown(NotificationReceipt::default()),
-        reduce_with!(on_notification_shown),
-    ))
-    .on_err(ctx.effects.bind(
-        NotificationFailed(NotificationError::default()),
-        reduce_with!(on_notification_failed),
-    ));
-```
-
-Bind the user action from a reusable Fission component. Keep the visible label in the same control so it works with touch, keyboard and assistive technology:
-
-```rust
-fission_component!
-{
-    pub ShowSyncNotificationButton<NotificationState> {
-    }
-    view(component, _state, _cx) => rust {
-        let (ctx, view) = fission::build::current::<NotificationState>();
-                let run = with_reducer!(ctx, ShowSyncNotification, on_show_sync_notification);
-
-                Button::new("Show sync notification")
-                    .disabled(false)
-                    .on_press(run)
-                    .into()
-    }
-}
-```
-
-The [complete Notifications guide](/docs/capabilities/notifications/) explains configuration and expected platform behaviour. Test a successful memory-provider response and an unavailable or denied response before relying on the physical-device check below. The browser preview exercises the component state only; it does not invoke this native provider.
-
-Keep platform-only code behind the generated target boundary or a typed provider; the shared component should describe the user task rather than call an operating-system API directly.
-
-
+The **Enable notifications** button asks the host for access. The separate refresh button reads the latest settings without prompting. That second action matters when someone has just answered Android’s prompt or changed notification access in system settings. Only enable scheduling after the host reports that alerts and scheduling are available.
 
 <Tabs>
-<TabItem label="src/app.rs">
+<TabItem label="src/app.rs · shared state and component">
 <!-- fission:file path="src/app.rs" -->
+
 ```rust
 use fission::prelude::*;
 
+const REMINDER_DELAY_MS: u64 = 15 * 60 * 1_000;
+const REMINDER_ID: &str = "juniper-north-ridge-follow-up";
+
+#[derive(Debug, Default)]
+pub struct TrailReminderState {
+    pub settings: Option<NotificationSettings>,
+    pub requesting_permission: bool,
+    pub checking_settings: bool,
+    pub scheduling: bool,
+    pub cancelling: bool,
+    pub receipt: Option<NotificationReceipt>,
+    pub scheduled_segment: Option<String>,
+    pub notice: Option<String>,
+    pub error: Option<String>,
+}
+
+impl GlobalState for TrailReminderState {}
+
+#[fission_reducer(RequestTrailNotifications)]
+fn on_request_trail_notifications(
+    state: &mut TrailReminderState,
+    ctx: &mut ReducerContext<TrailReminderState>,
+) {
+    if state.requesting_permission || state.checking_settings {
+        return;
+    }
+
+    state.requesting_permission = true;
+    state.notice = None;
+    state.error = None;
+    let on_ok = ctx.effects.bind(
+        TrailNotificationPermissionRequested(NotificationSettings::default()),
+        reduce_with!(on_trail_notification_permission_requested),
+    );
+    let on_err = ctx.effects.bind(
+        TrailNotificationOperationFailed(NotificationError::default()),
+        reduce_with!(on_trail_notification_operation_failed),
+    );
+    ctx.effects
+        .notifications()
+        .request_permission(NotificationPermissionRequest {
+            alerts: true,
+            badge: false,
+            sound: true,
+            provisional: false,
+        })
+        .on_ok(on_ok)
+        .on_err(on_err);
+}
+
+#[fission_reducer(TrailNotificationPermissionRequested)]
+fn on_trail_notification_permission_requested(
+    state: &mut TrailReminderState,
+    _settings: NotificationSettings,
+) {
+    state.requesting_permission = false;
+    state.settings = None;
+    state.notice = Some(
+        "After you answer the system prompt, refresh access status to check the current setting."
+            .to_string(),
+    );
+}
+
+#[fission_reducer(RefreshTrailNotificationSettings)]
+fn on_refresh_trail_notification_settings(
+    state: &mut TrailReminderState,
+    ctx: &mut ReducerContext<TrailReminderState>,
+) {
+    if state.checking_settings || state.requesting_permission {
+        return;
+    }
+
+    state.checking_settings = true;
+    state.notice = None;
+    state.error = None;
+    let on_ok = ctx.effects.bind(
+        TrailNotificationSettingsLoaded(NotificationSettings::default()),
+        reduce_with!(on_trail_notification_settings_loaded),
+    );
+    let on_err = ctx.effects.bind(
+        TrailNotificationOperationFailed(NotificationError::default()),
+        reduce_with!(on_trail_notification_operation_failed),
+    );
+    ctx.effects
+        .notifications()
+        .settings()
+        .on_ok(on_ok)
+        .on_err(on_err);
+}
+
+#[fission_reducer(TrailNotificationSettingsLoaded)]
+fn on_trail_notification_settings_loaded(
+    state: &mut TrailReminderState,
+    settings: NotificationSettings,
+) {
+    state.checking_settings = false;
+    state.settings = Some(settings);
+    state.notice = Some("Notification settings have been refreshed.".to_string());
+    state.error = None;
+}
+
+#[fission_reducer(ScheduleTrailFollowUp)]
+fn on_schedule_trail_follow_up(
+    state: &mut TrailReminderState,
+    trail_segment: String,
+    observation: String,
+    ctx: &mut ReducerContext<TrailReminderState>,
+) {
+    if state.scheduling || state.cancelling {
+        return;
+    }
+
+    let can_schedule = state
+        .settings
+        .as_ref()
+        .map(|settings| {
+            settings.permission == NotificationPermission::Granted
+                && settings.alerts
+                && settings.scheduling
+        })
+        .unwrap_or(false);
+
+    if !can_schedule {
+        state.error = Some(
+            "Refresh notification access first. Schedule only when alerts are allowed."
+                .to_string(),
+        );
+        return;
+    }
+
+    state.scheduling = true;
+    state.notice = None;
+    state.error = None;
+    let request = NotificationRequest {
+        id: NotificationId::new(REMINDER_ID),
+        title: format!("Recheck {}", trail_segment),
+        body: format!("Follow up on this inspection: {}", observation),
+        schedule: NotificationSchedule::AfterMillis(REMINDER_DELAY_MS),
+        ..Default::default()
+    };
+    let on_ok = ctx.effects.bind(
+        TrailFollowUpScheduled(NotificationReceipt::default(), trail_segment.clone()),
+        reduce_with!(on_trail_follow_up_scheduled),
+    );
+    let on_err = ctx.effects.bind(
+        TrailNotificationOperationFailed(NotificationError::default()),
+        reduce_with!(on_trail_notification_operation_failed),
+    );
+    ctx.effects
+        .notifications()
+        .schedule(request)
+        .on_ok(on_ok)
+        .on_err(on_err);
+}
+
+#[fission_reducer(TrailFollowUpScheduled)]
+fn on_trail_follow_up_scheduled(
+    state: &mut TrailReminderState,
+    receipt: NotificationReceipt,
+    trail_segment: String,
+) {
+    state.scheduling = false;
+    state.receipt = Some(receipt.clone());
+    state.scheduled_segment = Some(trail_segment.clone());
+    state.notice = Some(if receipt.scheduled {
+        format!("The follow-up for {trail_segment} is queued for about fifteen minutes from now.")
+    } else if receipt.delivered {
+        format!("The follow-up notification for {trail_segment} was delivered.")
+    } else {
+        format!("The notification host accepted the follow-up for {trail_segment}.")
+    });
+    state.error = None;
+}
+
+#[fission_reducer(CancelTrailFollowUp)]
+fn on_cancel_trail_follow_up(
+    state: &mut TrailReminderState,
+    ctx: &mut ReducerContext<TrailReminderState>,
+) {
+    if state.cancelling || state.scheduling || state.receipt.is_none() {
+        return;
+    }
+
+    state.cancelling = true;
+    state.notice = None;
+    state.error = None;
+    let trail_segment = state
+        .scheduled_segment
+        .clone()
+        .unwrap_or_else(|| "the trail report".to_string());
+    let on_ok = ctx.effects.bind(
+        TrailFollowUpCancelled(trail_segment),
+        reduce_with!(on_trail_follow_up_cancelled),
+    );
+    let on_err = ctx.effects.bind(
+        TrailNotificationOperationFailed(NotificationError::default()),
+        reduce_with!(on_trail_notification_operation_failed),
+    );
+    ctx.effects
+        .notifications()
+        .cancel(CancelNotificationRequest {
+            id: NotificationId::new(REMINDER_ID),
+        })
+        .on_ok(on_ok)
+        .on_err(on_err);
+}
+
+#[fission_reducer(TrailFollowUpCancelled)]
+fn on_trail_follow_up_cancelled(state: &mut TrailReminderState, trail_segment: String) {
+    state.cancelling = false;
+    state.receipt = None;
+    state.scheduled_segment = None;
+    state.notice = Some(format!("The reminder for {trail_segment} has been cancelled."));
+    state.error = None;
+}
+
+#[fission_reducer(TrailNotificationOperationFailed)]
+fn on_trail_notification_operation_failed(
+    state: &mut TrailReminderState,
+    error: NotificationError,
+) {
+    state.requesting_permission = false;
+    state.checking_settings = false;
+    state.scheduling = false;
+    state.cancelling = false;
+    state.error = Some(if error.code == "permission_denied" {
+        "Notifications are off. Enable them in Android settings, then refresh access status."
+            .to_string()
+    } else if error.message.trim().is_empty() {
+        "The notification host could not complete that action. Refresh status or try again."
+            .to_string()
+    } else {
+        format!("The reminder could not be updated: {}", error.message)
+    });
+    if error.code == "permission_denied" {
+        state.settings = None;
+    }
+}
+
 fission_component! {
-    pub AndroidLocalNotificationsResult<()> {
-        props {
-            title: String,
-            step: String,
-            goal: String,
-        }
+    pub TrailFollowUpPlanner<TrailReminderState> {
         state {
-            outcome: u8 = 0,
+            trail_segment: String = "North Ridge · Timber bridge".to_string(),
+            observation: String = "Water is cutting across the path beside the bridge.".to_string(),
         }
     }
-    view(preview, _state, cx) {
+    view(planner, app, cx) {
         let tokens = &cx.view.env().theme.tokens;
+        let request_access = with_reducer!(
+            cx.build,
+            RequestTrailNotifications,
+            on_request_trail_notifications
+        );
+        let refresh_settings = with_reducer!(
+            cx.build,
+            RefreshTrailNotificationSettings,
+            on_refresh_trail_notification_settings
+        );
+        let schedule_follow_up = with_reducer!(
+            cx.build,
+            ScheduleTrailFollowUp(
+                planner.trail_segment.clone(),
+                planner.observation.clone()
+            ),
+            on_schedule_trail_follow_up
+        );
+        let cancel_follow_up = with_reducer!(
+            cx.build,
+            CancelTrailFollowUp,
+            on_cancel_trail_follow_up
+        );
+        let settings = app.settings.as_ref();
+        let access_granted = settings
+            .map(|settings| {
+                settings.permission == NotificationPermission::Granted
+                    && settings.alerts
+                    && settings.scheduling
+            })
+            .unwrap_or(false);
+        let permission_message = match settings {
+            Some(settings) if !settings.scheduling => {
+                "This host cannot schedule notifications. The report remains available."
+                    .to_string()
+            }
+            Some(settings) if settings.permission == NotificationPermission::Denied => {
+                "Notifications are off. Enable them in Android settings, then refresh this status."
+                    .to_string()
+            }
+            Some(settings) if settings.permission == NotificationPermission::Unsupported => {
+                "Notifications are not available on this host. The report remains available."
+                    .to_string()
+            }
+            Some(settings)
+                if settings.permission == NotificationPermission::Granted && !settings.alerts =>
+            {
+                "Notification access is granted, but alerts are off. Turn alerts on in Android settings, then refresh this status."
+                    .to_string()
+            }
+            Some(settings)
+                if settings.permission == NotificationPermission::Granted && settings.alerts =>
+            {
+                "Notifications are on. You can schedule the follow-up below.".to_string()
+            }
+            Some(settings) if settings.permission == NotificationPermission::Provisional => {
+                "The host granted provisional notification access.".to_string()
+            }
+            Some(_) => {
+                "Access has not been granted. Choose Enable notifications, then refresh this status."
+                    .to_string()
+            }
+            None => {
+                "Access has not been checked. Refresh status before scheduling a reminder."
+                    .to_string()
+            }
+        };
+        let (operation_message, operation_failed) = if let Some(error) = &app.error {
+            (error.clone(), true)
+        } else if let Some(notice) = &app.notice {
+            (notice.clone(), false)
+        } else if app.scheduling {
+            ("Scheduling the follow-up…".to_string(), false)
+        } else if app.cancelling {
+            ("Cancelling the follow-up…".to_string(), false)
+        } else {
+            ("No follow-up reminder is scheduled.".to_string(), false)
+        };
+        let can_enable = !access_granted
+            && !app.requesting_permission
+            && !app.checking_settings;
+        let can_schedule = access_granted
+            && app.receipt.is_none()
+            && !app.scheduling
+            && !app.cancelling;
     } =>
     SemanticsRegion(
-        identifier: Some("capability-result-preview".to_string()),
-        label: Some(preview.title.clone()),
-        child: Container(
-            Column(gap: tokens.spacing.m, children: [
-                Text(preview.title.clone())
-
-                    .weight(tokens.typography.font_weight_bold),
-                Text(preview.step.clone())
-                    .color(tokens.colors.text_secondary),
-                Text(preview.goal.clone()),
-                Button(
-                    child: Text("Simulate request success"),
-                    key: "provider-success",
-                    on_press: reduce { preview.outcome = 1; },
-                )
-                .semantics_identifier("provider-preview.success"),
-                Button(
-                    child: Text("Simulate denial or unavailable"),
-                    key: "provider-unavailable",
-                    on_press: reduce { preview.outcome = 2; },
-                )
-                .semantics_identifier("provider-preview.unavailable"),
-                Text(if preview.outcome == 1 {
-                    format!("The simulated request for {} succeeded. The app can now show its result and the next useful action.", preview.goal)
-                } else if preview.outcome == 2 {
-                    format!("The simulated request for {} is unavailable. Keep the screen usable and explain whether the user can retry, change settings, or choose another path.", preview.goal)
-                } else {
-                    "Ready. No native permission prompt, sensor or provider request has run in this browser.".to_string()
-                }),
-            ])
-        )
-        .padding_all(tokens.spacing.l)
-        .bg(tokens.colors.surface)
-        .border(tokens.colors.border, 1.0)
-        .border_radius(tokens.radii.large),
+        identifier: Some("juniper-trail-follow-up".to_string()),
+        label: Some("Juniper County trail follow-up reminder".to_string()),
+        child: Scroll(
+            flex_grow: 1.0,
+            height: cx.view.viewport_size().height,
+            child: Container(
+                Column(align_items: ir_op::AlignItems::Center, children: [
+                    Container(
+                        Column(gap: tokens.spacing.m, children: [
+                            Column(gap: tokens.spacing.xs, children: [
+                                Text("Juniper County Trail Service")
+                                    .weight(tokens.typography.font_weight_bold),
+                                Text("Follow-up · Afternoon inspection")
+                                    .color(tokens.colors.text_secondary),
+                            ]),
+                            Text("Revisit an unresolved trail report")
+                                .weight(tokens.typography.font_weight_bold),
+                            Text("Keep the crew’s observation in the reminder so the right work is easy to recognise.")
+                                .color(tokens.colors.text_secondary),
+                            TextInput(
+                                label: Some("Trail segment".into()),
+                                bind: planner.trail_segment,
+                                required: true,
+                                semantics_identifier: "trail-follow-up.segment".to_string(),
+                            ),
+                            TextInput(
+                                label: Some("What needs a second look?".into()),
+                                bind: planner.observation,
+                                multiline: true,
+                                required: true,
+                                helper_text: Some("This text appears in the notification.".into()),
+                                semantics_identifier: "trail-follow-up.observation".to_string(),
+                            ),
+                            Text("Reminder time · about 15 minutes after scheduling")
+                                .color(tokens.colors.text_secondary),
+                            Text(permission_message)
+                                .color(if access_granted {
+                                    tokens.colors.success
+                                } else {
+                                    tokens.colors.text_secondary
+                                }),
+                            Row(gap: tokens.spacing.s, wrap: ir_op::FlexWrap::Wrap, children: [
+                                Button(
+                                    child: Text(if app.requesting_permission {
+                                        "Waiting for Android…"
+                                    } else {
+                                        "Enable notifications"
+                                    }),
+                                    key: "request-trail-notification-access",
+                                    variant: ButtonVariant::Outline,
+                                    disabled: !can_enable,
+                                    on_press: request_access,
+                                )
+                                .semantics_identifier("trail-follow-up.request-access".to_string()),
+                                Button(
+                                    child: Text(if app.checking_settings {
+                                        "Checking access…"
+                                    } else {
+                                        "Refresh access status"
+                                    }),
+                                    key: "refresh-trail-notification-settings",
+                                    variant: ButtonVariant::Outline,
+                                    disabled: app.checking_settings || app.requesting_permission,
+                                    on_press: refresh_settings,
+                                )
+                                .semantics_identifier("trail-follow-up.refresh-access".to_string()),
+                            ]),
+                            Row(gap: tokens.spacing.s, wrap: ir_op::FlexWrap::Wrap, children: [
+                                Button(
+                                    child: Text(if app.scheduling {
+                                        "Scheduling reminder…"
+                                    } else {
+                                        "Remind me in 15 minutes"
+                                    }),
+                                    key: "schedule-trail-follow-up",
+                                    variant: ButtonVariant::Primary,
+                                    disabled: !can_schedule,
+                                    on_press: schedule_follow_up,
+                                )
+                                .semantics_identifier("trail-follow-up.schedule".to_string()),
+                                Button(
+                                    child: Text(if app.cancelling {
+                                        "Cancelling…"
+                                    } else {
+                                        "Cancel reminder"
+                                    }),
+                                    key: "cancel-trail-follow-up",
+                                    variant: ButtonVariant::Outline,
+                                    disabled: app.receipt.is_none() || app.cancelling || app.scheduling,
+                                    on_press: cancel_follow_up,
+                                )
+                                .semantics_identifier("trail-follow-up.cancel".to_string()),
+                            ]),
+                            Text(operation_message)
+                                .color(if operation_failed {
+                                    tokens.colors.error
+                                } else {
+                                    tokens.colors.text_secondary
+                                }),
+                            Text("This reminder is best-effort while the Android app process remains alive.")
+                                .color(tokens.colors.text_secondary),
+                        ])
+                    )
+                    .padding_all(tokens.spacing.l)
+                    .width_length(Length::clamp(
+                        Length::points(0.0),
+                        Length::percent(100.0),
+                        Length::points(680.0),
+                    ))
+                    .bg(tokens.colors.surface)
+                    .border(tokens.colors.border, 1.0)
+                    .border_radius(tokens.radii.medium),
+                ]),
+            )
+            .width_length(Length::percent(100.0))
+            .bg(tokens.colors.background),
+        ),
     )
 }
 ```
+
 </TabItem>
 <TabItem label="preview/lib.rs">
 <!-- fission:file path="preview/lib.rs" -->
+
 ```rust
 mod app;
 
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
 
-#[wasm_bindgen(inline_js = "export function tutorial_title() { const parts = document.title.split(' — '); return parts.slice(1).join(' — ') || 'Fission tutorial'; } export function tutorial_step() { return document.title.split(' — ')[0] || 'Tutorial step'; } export function tutorial_goal() { return document.querySelector('meta[name=\"tutorial-goal\"]')?.content || 'Complete the task and verify it on the target.'; }")]
-extern "C" {
-    fn tutorial_title() -> String;
-    fn tutorial_step() -> String;
-    fn tutorial_goal() -> String;
-}
-
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::AndroidLocalNotificationsResult::new(tutorial_title(), tutorial_step(), tutorial_goal());
-    WebApp::<(), _>::new(preview)
-        .with_title("Fission tutorial preview")
+    WebApp::<app::TrailReminderState, _>::new(app::TrailFollowUpPlanner::new())
+        .with_title("Juniper County trail follow-up")
         .mount("#fission-web-mount")
         .run()
         .map_err(|error| JsValue::from_str(&error.to_string()))
 }
 ```
+
 </TabItem>
 </Tabs>
+
+The notification request uses the same stable ID for scheduling and cancellation. When the crew changes the report, that ID keeps the reminder tied to one follow-up instead of creating an unrelated notification each time.
+
+The permission prompt and the status check do different jobs. **Enable notifications** asks the host to request access; after the system prompt closes, **Refresh access status** reads the latest settings without prompting. The schedule button stays disabled until the host reports that alerts and scheduling are available.
+
 <!-- fission:preview -->
 
 <!-- fission:checkpoint -->
-Use the browser controls to simulate success and an unavailable result. They change local component state only and never call a native provider. Use the commands below to verify the real request on an Android emulator or phone.
+Open the interactive result and edit the trail segment or observation. Refresh access status to see what the browser host allows. If browser notifications are available, grant access, schedule the reminder, then cancel it. The preview uses the Web notification host; Android permission prompts and delivery timing still need to be checked on an Android target.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 
-<!-- fission:step id="edge-state" -->
-## Verify the native request on Android
+<!-- fission:step id="android-delivery-checks" -->
+## Check permission, delivery, and cancellation on Android
 
-The browser controls simulate app state; they never send a request to the platform provider. Run the target below on an emulator or device that supports this feature. Follow the user path from the first explanation through the request and returned result, and keep success hidden until the host replies.
+Run the generated app on an emulator or device. On API 33 or newer, choose **Enable notifications**, answer Android’s prompt, and then refresh access status. On an older release, the app may not show a runtime prompt; the settings check still tells you if notifications are blocked in the app or its channel. If access is denied, the report remains on screen and the schedule action stays disabled.
 
-Repeat with the feature unavailable, denied or cancelled, as applicable. Confirm the screen preserves the user’s existing data and offers the right recovery step. Use a physical device when the behavior depends on real hardware or an operating-system prompt.
+To test delivery without waiting fifteen minutes, temporarily change `REMINDER_DELAY_MS` to `10_000` (ten seconds), rebuild, and run the app. Schedule the reminder and wait with the app process alive. Schedule it once more and cancel before the delay ends; the notification should not appear. Restore the fifteen-minute value after this check.
 
-### Run, test and build
+For a settings recovery check, turn notifications off for Juniper County Trail Service in Android settings, return to the app, and refresh status. Then turn them back on and refresh again. A successful status query should enable the schedule button without asking for permission a second time.
 
-```sh
-cargo test
-fission doctor android --project-dir .
-fission run --target android --project-dir .
-fission test --target android --project-dir .
-fission build --target android --project-dir . --release
-```
+Fission’s current Android `AfterMillis` implementation does not use `AlarmManager`; `AtUnixMillis` also becomes a process timer. Do not add `SCHEDULE_EXACT_ALARM` for this sample, and do not promise delivery after force-stop, process death, reboot, or at an exact minute. Android recommends exact alarms only for user-facing actions that truly require precise timing, and Android 12+ restricts them through special app access. For a durable reminder, add and test a native `AlarmManager` or `WorkManager` implementation that matches your delivery requirement. See Android’s [alarm scheduling guide](https://developer.android.com/develop/background-work/services/alarms).
 
-`cargo test` runs Rust tests you add; the generated scaffold does not create feature-specific tests. `fission doctor` reports missing Android tools, `fission run` launches the selected emulator or connected device, and `fission test` checks that the generated host can start. A release build checks packaging, but none of these commands proves a physical permission or hardware flow works.
-
-
-### Emulator and connected-device commands
-
-The [Android SDK and NDK setup guide](/blog/set-up-rust-android-gui-development-with-fission/) is the single setup source. Check prerequisites and run the emulator with:
+<Tabs>
+<TabItem label="Run the Android app">
 
 ```sh
 fission doctor android --project-dir .
 fission run --target android --project-dir .
-fission test --target android --project-dir .
 ```
 
+</TabItem>
+<TabItem label="Reference the Fission API">
 
-For a real capability check, use an Android phone that has the required hardware and permission. Connect it with USB or Wi-Fi debugging, confirm its serial, then run the app on that device:
-
-```sh
-adb devices -l
-fission run --target android --device <adb-serial> --project-dir .
-```
-
-An emulator can exercise the UI and memory-provider outcomes; it is not evidence that physical hardware or an OS permission flow works.
-
-
-### Current references
-
-These references explain the API contract behind the example and the target-specific behavior to verify:
-
-- [Notifications capability guide](/docs/capabilities/notifications/)
+- [Notifications guide](/docs/capabilities/notifications/)
 - [Notifications capability reference](/reference/capabilities/notifications/)
-- [Fission state, handles and providers guide](/docs/guides/state-handles-and-providers/)
-- [Fission component and widget reference](/reference/widgets/catalog/)
-<!-- /fission:checkpoint -->
+- [Android project setup](/blog/set-up-rust-android-gui-development-with-fission/)
+
+</TabItem>
+</Tabs>
+
+The notification is an invitation to reopen the report, not the source of truth for whether the path is safe. Keep report state in the app and let the crew resolve it there, even if notifications are disabled or the best-effort timer never fires.
 <!-- /fission:step -->
