@@ -113,8 +113,8 @@
   "home.learn.site_body": "Render product pages on the server with routes, stock filters and persistent updates.",
   "home.learn.start": "Start this tutorial →",
   "home.browser.eyebrow": "Try it now",
-  "home.browser.title": "Try Fission in the browser",
-  "home.browser.summary": "No installation required. Explore a working Fission Web app, then start building your own Rust interface.",
+  "home.browser.title": "Explore the Fission app showcase",
+  "home.browser.summary": "Open the real Fission example showcase in your browser. Explore complete apps and reusable widgets built with Rust, without installing anything.",
   "goal.nav.get_started": "Get started",
   "goal.nav.introduction": "Introduction",
   "goal.nav.installation": "Installation",
@@ -330,11 +330,5 @@
   "tutorials.previous": "← Previous page",
   "tutorials.next": "Next page →",
   "tutorials.all_categories": "All tutorial topics →",
-  "playground.title": "Try Fission in your browser",
-  "playground.description": "Choose a working Fission app, explore its interactive screen and read the Rust component that builds it. Switch examples to see how the same framework supports very different products.",
-  "playground.examples": "Choose a Fission app example",
-  "playground.source": "Rust component",
-  "playground.source.show": "View the Rust component",
-  "playground.preview": "Interactive app preview",
-  "playground.tutorials": "Learn how these apps are built →"
+  "showcase.frame_label": "Interactive Fission Rust and WebAssembly example showcase"
 }

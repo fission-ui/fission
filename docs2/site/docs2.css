@@ -460,6 +460,31 @@ a:focus-visible, button:focus-visible, iframe:focus-visible {
   padding-top: 24px;
   border-top: 1px solid var(--line);
 }
+/* The showcase is a real application mounted below the shared site header. */
+[data-fission-semantics="site-showcase-page"],
+[data-fission-semantics="site-showcase-page"] > .fission-site-column {
+  width: 100% !important;
+  min-height: 100vh;
+  min-height: 100svh;
+}
+[data-fission-semantics="site-showcase-page"] > .fission-site-column {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 0 !important;
+}
+[data-fission-semantics="site-showcase-frame"],
+[data-fission-semantics="site-showcase-frame"] .fission-site-node {
+  width: 100% !important;
+  height: 100% !important;
+  min-height: 0;
+}
+[data-fission-semantics="site-showcase-frame"] .fission-site-embed {
+  display: block;
+  border: 0;
+  border-radius: 0;
+  background: #f4f1e8;
+}
 [data-fission-semantics="goal-version-card"],
 [data-fission-semantics="goal-target-card"],
 [data-fission-semantics="goal-previous-card"],

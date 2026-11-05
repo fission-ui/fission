@@ -8,6 +8,7 @@ on:
       - main
     paths:
       - 'documentation/**'
+      - 'docs2/**'
       - 'crates/**'
       - 'examples/**'
       - 'Cargo.toml'
@@ -96,10 +97,27 @@ jobs:
       - name: Stage interactive showcase with website assets
         run: |
           mkdir -p documentation/static/showcase-app/pkg
+          mkdir -p docs2/generated-assets/showcase-app/pkg
           cp examples/showcase/platforms/web/index.html documentation/static/showcase-app/index.html
           cp examples/showcase/platforms/web/bootstrap.mjs documentation/static/showcase-app/bootstrap.mjs
           cp examples/showcase/platforms/web/app-icon.png documentation/static/showcase-app/app-icon.png
           cp -R examples/showcase/platforms/web/pkg/. documentation/static/showcase-app/pkg/
+          cp examples/showcase/platforms/web/index.html docs2/generated-assets/showcase-app/index.html
+          cp examples/showcase/platforms/web/bootstrap.mjs docs2/generated-assets/showcase-app/bootstrap.mjs
+          cp examples/showcase/platforms/web/app-icon.png docs2/generated-assets/showcase-app/app-icon.png
+          cp -R examples/showcase/platforms/web/pkg/. docs2/generated-assets/showcase-app/pkg/
+
+      - name: Build and verify docs2 showcase route
+        env:
+          FISSION_TUTORIAL_BUILD_PARALLELISM: 10
+          FISSION_SERVING_STARTUP_TIMEOUT_SECONDS: 3600
+        run: |
+          cargo run -p cargo-fission --bin fission -- site build --project-dir docs2
+          test -f docs2/dist/site/showcase/index.html
+          test -f docs2/dist/site/showcase-app/index.html
+          test -f docs2/dist/site/showcase-app/pkg/example_showcase.js
+          find docs2/dist/site/showcase-app/pkg -maxdepth 1 -name '*_bg.wasm' -print -quit | grep -q .
+          scripts/check_docs2_showcase_page.sh docs2/dist/site
 
       - name: Package static site
         run: cargo run -p cargo-fission --bin fission -- package --project-dir documentation --target site --format static --release

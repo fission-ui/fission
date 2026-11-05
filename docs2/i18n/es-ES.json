@@ -113,8 +113,8 @@
   "home.learn.site_body": "Renderiza productos en servidor con rutas, filtros de inventario y actualizaciones persistentes.",
   "home.learn.start": "Empezar este tutorial →",
   "home.browser.eyebrow": "Pruébalo ahora",
-  "home.browser.title": "Prueba Fission en el navegador",
-  "home.browser.summary": "No necesitas instalar nada. Explora una aplicación Web de Fission y empieza a crear tu propia interfaz Rust.",
+  "home.browser.title": "Explora la galería de aplicaciones de Fission",
+  "home.browser.summary": "Abre la galería real de ejemplos de Fission en tu navegador. Explora aplicaciones completas y widgets reutilizables creados con Rust sin instalar nada.",
   "goal.nav.get_started": "Primeros pasos",
   "goal.nav.introduction": "Introducción",
   "goal.nav.installation": "Instalación",
@@ -330,11 +330,5 @@
   "tutorials.previous": "← Página anterior",
   "tutorials.next": "Página siguiente →",
   "tutorials.all_categories": "Todos los temas →",
-  "playground.title": "Prueba Fission en el navegador",
-  "playground.description": "Elige una aplicación funcional de Fission, explora su interfaz interactiva y lee el componente Rust que la crea. Cambia de ejemplo para ver cómo el mismo framework permite construir productos distintos.",
-  "playground.examples": "Elige un ejemplo de aplicación Fission",
-  "playground.source": "Componente Rust",
-  "playground.source.show": "Ver el componente Rust",
-  "playground.preview": "Vista previa interactiva",
-  "playground.tutorials": "Aprende a crear estas aplicaciones →"
+  "showcase.frame_label": "Galería interactiva de ejemplos de Fission con Rust y WebAssembly"
 }

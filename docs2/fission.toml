@@ -50,7 +50,7 @@ href = "/reference/overview/overview/"
 
 [[site.nav]]
 title = "Try Fission in the browser"
-href = "/try/"
+href = "/showcase/"
 
 [[site.routes]]
 path = "/docs"

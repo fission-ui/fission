@@ -6,8 +6,8 @@ use crate::navigation;
 use crate::products::{product_routes, ProductRoute};
 use crate::screens::{
     tutorial_categories, BlogArchive, BlogArchivePage, BlogArticlePage, DocumentationHub, GoalPage,
-    HomePage, PlaygroundExample, PlaygroundPage, TutorialCategoryPage, TutorialsIndexPage,
-    BLOG_POSTS_PER_PAGE, TUTORIALS_PER_PAGE,
+    HomePage, ShowcasePage, TutorialCategoryPage, TutorialsIndexPage, BLOG_POSTS_PER_PAGE,
+    TUTORIALS_PER_PAGE,
 };
 use crate::state::DocsState;
 use anyhow::{Context, Result};
@@ -68,6 +68,18 @@ pub fn site_app() -> Result<FissionSite> {
             TutorialsIndexPage::new(categories.clone()),
         )
         .with_route_structured_data(navigation::TUTORIALS, tutorials_structured_data(&categories));
+
+    site = site
+        .route_widget::<DocsState, _>(
+            navigation::TRY_IN_BROWSER,
+            "Try Fission in your browser — Rust app showcase",
+            Some("Explore complete Rust applications and reusable widgets in Fission’s interactive WebAssembly showcase. Try the real example app in your browser without installing anything.".to_string()),
+            ShowcasePage,
+        )
+        .with_route_structured_data(
+            navigation::TRY_IN_BROWSER,
+            showcase_structured_data(),
+        );
 
     let blog_page_count = blog_posts.len().div_ceil(BLOG_POSTS_PER_PAGE);
     for page in 1..=blog_page_count {
@@ -178,52 +190,6 @@ pub fn site_app() -> Result<FissionSite> {
                     TutorialCategoryPage::new(category.clone(), page),
                 )
                 .with_route_structured_data(path, category_structured_data(category, page));
-        }
-    }
-
-    let playground_apps = [
-        "rust-product-inventory",
-        "rust-admin-panel",
-        "android-build-an-android-dashboard-with-fission",
-        "single-page-web-app-rust",
-    ];
-    let playground_examples: Vec<PlaygroundExample> = playground_apps
-        .iter()
-        .filter_map(|app| {
-            let goal = goals.iter().find(|goal| goal.meta.app == *app)?;
-            let finished_step = goal.steps.last()?;
-            let source = finished_step.files.get("src/app.rs")?.clone();
-            Some(PlaygroundExample {
-                app: goal.meta.app.clone(),
-                title: goal.meta.title.clone(),
-                description: goal.meta.description.clone(),
-                source,
-                preview_url: finished_step.preview_url(&goal.meta.app),
-                preview_height: match goal.meta.app.as_str() {
-                    "rust-product-inventory" => 1040.0,
-                    "rust-admin-panel" => 960.0,
-                    "single-page-web-app-rust" => 1200.0,
-                    _ => 520.0,
-                },
-            })
-        })
-        .collect();
-    if let Some(first_example) = playground_examples.first() {
-        site = site.route_widget::<DocsState, _>(
-            navigation::TRY_IN_BROWSER,
-            "Try Fission in your browser — interactive Rust app showcase",
-            Some("Explore interactive Fission apps in your browser, switch between working examples and inspect the Rust component source behind each screen.".to_string()),
-            PlaygroundPage::new(playground_examples.clone(), first_example.app.clone()),
-        );
-
-        for example in &playground_examples {
-            let path = format!("{}{}/", navigation::TRY_IN_BROWSER, example.app);
-            site = site.route_widget::<DocsState, _>(
-                path,
-                format!("{} — Try Fission in your browser", example.title),
-                Some(example.description.clone()),
-                PlaygroundPage::new(playground_examples.clone(), example.app.clone()),
-            );
         }
     }
 
@@ -402,6 +368,27 @@ fn blog_post_structured_data(post: &BlogPost) -> [String; 1] {
         "articleSection": post.categories,
         "keywords": post.tags,
         "mainEntityOfPage": format!("https://fission.rs{}", post.path),
+        "publisher": {
+            "@type": "Organization",
+            "name": "Fission",
+            "url": "https://fission.rs/"
+        }
+    })
+    .to_string()]
+}
+
+fn showcase_structured_data() -> [String; 1] {
+    [serde_json::json!({
+        "@context": "https://schema.org",
+        "@type": "WebApplication",
+        "name": "Fission Rust and WebAssembly app showcase",
+        "url": format!("https://fission.rs{}", navigation::TRY_IN_BROWSER),
+        "applicationCategory": "DeveloperApplication",
+        "operatingSystem": "Web",
+        "browserRequirements": "A modern browser with WebAssembly support",
+        "description": "Explore interactive Rust applications and reusable widgets built with Fission and compiled to WebAssembly.",
+        "isAccessibleForFree": true,
+        "inLanguage": "en-GB",
         "publisher": {
             "@type": "Organization",
             "name": "Fission",

@@ -9,8 +9,13 @@ pages and guides are Markdown content rendered by the Fission site template.
 From the Fission workspace root:
 
 ```console
+./scripts/build_docs2_showcase_app.sh
 fission site serve --project-dir docs2
 ```
+
+The first command builds `examples/showcase` for WebAssembly and stages its
+browser files into docs2's generated assets. The `/showcase/` route loads that
+real workbench from `/showcase-app/`.
 
 The command first extracts each tutorial's complete source files and builds the
 Web previews as WASM. A tutorial with invalid Rust fails the build instead of

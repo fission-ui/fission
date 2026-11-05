@@ -22,7 +22,7 @@ pub const ANDROID_RESPONSIVE_LAYOUTS: &str =
     "/blog/make-an-android-layout-adapt-to-phones-tablets-and-changing-window-sizes/";
 pub const LIVE_TEST: &str = "/blog/drive-a-real-mobile-app-with-fission-livetest/";
 pub const ANDROID_RELEASE: &str = "/blog/package-and-prepare-a-fission-android-app-for-release/";
-pub const TRY_IN_BROWSER: &str = "/try/";
+pub const TRY_IN_BROWSER: &str = "/showcase/";
 
 pub const COMPOSE: &str = "/compose/";
 pub const EXAMPLES: &str = "https://github.com/fission-ui/fission/tree/main/examples";
