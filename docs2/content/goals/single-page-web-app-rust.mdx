@@ -1,27 +1,27 @@
 ---
 layout: goal
 title: Build a single-page web app in Rust
-description: Build an accessible Rust web app with client-side routing, shared state, forms, loading feedback, browser history and a production Web build.
-goal: Build an interactive browser application whose routes and forms stay understandable
+description: Build a single-page Rust web app with Fission's Router, shared state, accessible task views, validated forms and browser history.
+goal: Build a realistic sprint board whose task list, forms and detail routes stay in sync
 path: /blog/build-a-single-page-web-app-in-rust/
 order: 16
 difficulty: Beginner
-duration: 35 minutes
+duration: 45 minutes
 run_command: "fission run --target web --project-dir ."
 app: single-page-web-app-rust
 outcomes:
-  - Render a task workspace and empty state
-  - Create tasks and open a detail route
-  - Handle invalid drafts and browser history
+  - Render a useful empty state for a new sprint
+  - Open a task from a native detail route
+  - Validate new work and move it through the sprint
 aliases:
   - /docs/learn/interactive-counter/
 ---
 
-Build an accessible Rust web app with client-side routing, shared state, forms, loading feedback, browser history and a production Web build. This tutorial takes you from project setup to a runnable result in three steps. Each step’s `src/app.rs` component is compiled into the WebAssembly preview shown beside its code, so you can try the same Fission component while you read. The preview demonstrates task and detail states in one browser view. Use Fission’s Router for real page transitions and app state for data shared between routes.
+Build a sprint-planning app in Rust for Harborline's Northstar checkout launch. We will start with the screen a teammate sees when a sprint has no work, add real tasks that open on their own routes, then let the team create and move work through the sprint. Each step leaves you with a useful screen; the final app keeps its task data and navigation in sync even when you use the browser's Back button.
 
-Build a small workspace with a task list, a detail route and a form that creates a task. The browser back and forward buttons should follow the same navigation history as links inside the app.
+The preview controls stay collapsed while you read. Open a step's result when you want to try the screen, then close it to return to the tutorial's full reading width. The app keeps changes in memory: its success and error messages come from the same validation and state transitions you would keep when a backend is added.
 
-Install the Fission CLI and scaffold the Web project:
+Install the Fission CLI and scaffold a Web project:
 
 ```sh
 cargo install cargo-fission
@@ -39,65 +39,120 @@ harbour-workspace/
 ├── src/
 │   ├── main.rs                 # generated desktop entrypoint
 │   ├── lib.rs                  # shared app setup
-│   ├── app.rs                  # the Fission component shown in this tutorial
-│   ├── state.rs
-│   ├── router.rs
-│   ├── pages/task_list.rs
-│   └── pages/task_detail.rs
+│   ├── app.rs                  # reusable Fission components
+│   ├── state.rs                # sprint data and reducers
+│   ├── router.rs               # routes and browser history
+│   ├── pages/task_list.rs      # workspace screen
+│   └── pages/task_detail.rs    # task detail screen
 ├── platforms/                  # generated host files after add-target
 └── tests/                      # project-specific flow checks
 ```
 
-`fission init` generates `Cargo.toml`, `fission.toml`, `src/main.rs`, `src/lib.rs` and `src/app.rs`. Add the task modules in the tree as you build the feature. Keep data shared across routes in `GlobalState`, and keep retained interaction such as a disclosure or draft field in the owning `fission_component!`. Request database, filesystem, network and session work through a reducer effect, job or service; never run host work while a component view is being built.
-
-`preview/lib.rs` is a documentation harness. The page compiles each complete `src/app.rs` component into WebAssembly so you can use the same UI while reading. Its host results are deterministic preview states; the target-specific host work described in this tutorial runs in each target project code, not in the browser preview.
+`fission init` generates the project manifest and starter app files; `fission add-target web` adds the browser target. As the board grows, move the shared task model and reducers into `state.rs`, and keep each screen or reusable component in its own module. Data used by both the board and detail route belongs in `GlobalState`; short-lived text or filter selections belong to the component that owns them. A component's view describes what to render, while a reducer performs the state change after a user action.
 
 <!-- fission:step id="start-screen" -->
-## Render a task workspace and empty state
+## Lay out the workspace and explain the empty sprint
 
-Begin with the screen needed for this task. The first render gives you a concrete checkpoint before you add interaction state.
+A blank board is still a real product state. Someone opening Northstar for the first time should know which project and sprint they are viewing, whether work has been planned, and what will appear after the first task is added. Render those parts before adding task cards; that gives us a useful layout to extend in the next step.
 
-Use props for page copy and read theme tokens through cx.view.env(). The component below keeps presentation aligned with the active design system.
+`SprintMetric` is a small reusable component for the three summaries. `TaskWorkspace` owns the screen composition, reads its colors and spacing from Fission's current theme, and gives the empty state enough context to explain what is missing. There is no inert button here: the app tells the team what to do, and we make that action work when the form arrives in the final step.
 
 <Tabs>
 <TabItem label="src/app.rs">
 <!-- fission:file path="src/app.rs" -->
 ```rust
 use fission::prelude::*;
+
 fission_component! {
-    pub TaskWorkspace<()> {
+    pub SprintMetric<()> {
         props {
-            title: String,
-            detail: String,
-            action: String,
-            success: String,
-            empty: String,
+            label: String,
+            value: String,
+            context: String,
         }
     }
-    view(preview, _state, cx) {
+    view(metric, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
     Container(
-        Column(
-            gap: tokens.spacing.m,
-            children: [
-                Text(preview.title.clone()).weight(tokens.typography.font_weight_bold),
-                Text(preview.detail.clone()).color(tokens.colors.text_secondary),
-                Row(gap: tokens.spacing.m,
-                    children: [Text("Tasks"),
-                        Text("Projects"),
-                        Text("Settings")]),
-                Text("Your workspace is empty."),
-                Text(format!("Next action: {}",
-                        preview.action)),
-                Text(preview.empty.clone()).color(tokens.colors.text_secondary),
-            ]
-        )
+        Column(gap: tokens.spacing.xs, children: [
+            Text(metric.label.clone()).color(tokens.colors.text_secondary),
+            Text(metric.value.clone()).weight(tokens.typography.font_weight_bold),
+            Text(metric.context.clone()).color(tokens.colors.text_secondary),
+        ]),
     )
-    .padding_all(tokens.spacing.l)
+    .padding_all(tokens.spacing.m)
     .bg(tokens.colors.surface)
     .border(tokens.colors.border, 1.0)
-    .border_radius(tokens.radii.large)
+    .border_radius(tokens.radii.medium)
+}
+
+fission_component! {
+    pub TaskWorkspace<()> {
+        props {
+            project: String,
+            sprint: String,
+            empty_title: String,
+            empty_explanation: String,
+        }
+    }
+    view(workspace, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Container(
+        Column(gap: tokens.spacing.l, children: [
+            Row(gap: tokens.spacing.m, align_items: ir_op::AlignItems::Center, children: [
+                Container(Text("H").weight(tokens.typography.font_weight_bold))
+                    .padding_all(tokens.spacing.s)
+                    .bg(tokens.colors.surface)
+                    .border(tokens.colors.border, 1.0)
+                    .border_radius(tokens.radii.medium),
+                Column(gap: tokens.spacing.xs, children: [
+                    Text("Harborline").weight(tokens.typography.font_weight_bold),
+                    Text("Product workspace").color(tokens.colors.text_secondary),
+                ]),
+                Spacer(flex_grow: 1.0),
+                Text("Mara Chen").color(tokens.colors.text_secondary),
+            ]),
+            Column(gap: tokens.spacing.xs, children: [
+                Text(workspace.project.clone()).weight(tokens.typography.font_weight_bold),
+                Text(workspace.sprint.clone()).color(tokens.colors.text_secondary),
+            ]),
+            Grid(
+                columns: vec![GridTrack::auto_fit(
+                    GridTrack::minmax(GridTrack::Points(210.0), GridTrack::Fr(1.0))
+                )],
+                rows: vec![GridTrack::Auto],
+                column_gap: tokens.spacing.m,
+                row_gap: tokens.spacing.m,
+                children: [
+                    SprintMetric("Planned tasks".into(), "0".into(), "No work assigned".into()),
+                    SprintMetric("In progress".into(), "0".into(), "The sprint has not started".into()),
+                    SprintMetric("Ready for review".into(), "0".into(), "Nothing is waiting for review".into()),
+                ],
+            ),
+            SemanticsRegion(
+                identifier: Some("sprint-empty-state".to_string()),
+                label: Some(workspace.empty_title.clone()),
+                child: Container(
+                    Column(gap: tokens.spacing.s, children: [
+                        Text(workspace.empty_title.clone())
+                            .weight(tokens.typography.font_weight_bold),
+                        Text(workspace.empty_explanation.clone())
+                            .color(tokens.colors.text_secondary),
+                        Text("Add the first task after the team agrees on its scope.")
+                            .color(tokens.colors.text_secondary),
+                    ]),
+                )
+                .padding_all(tokens.spacing.l)
+                .bg(tokens.colors.surface)
+                .border(tokens.colors.border, 1.0)
+                .border_radius(tokens.radii.medium),
+            ),
+        ]),
+    )
+    .padding_all(tokens.spacing.l)
+    .bg(tokens.colors.background)
 }
 ```
 </TabItem>
@@ -112,15 +167,14 @@ use wasm_bindgen::prelude::*;
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::TaskWorkspace::new(
-        "Task workspace".to_string(),
-        "Create a task and open its detail view.".to_string(),
-        "Create a task".to_string(),
-        "The task is saved and its detail route is ready.".to_string(),
-        "Your workspace is empty. Create the first task to continue.".to_string(),
+    let workspace = app::TaskWorkspace::new(
+        "Northstar product launch".to_string(),
+        "Sprint 24 · 17–28 June · 8 teammates".to_string(),
+        "No tasks are planned for Sprint 24 yet.".to_string(),
+        "When work is added, each task will show its owner, priority and due date. A useful empty state explains what belongs here and what the team can do next.".to_string(),
     );
-    WebApp::<(), _>::new(preview)
-        .with_title("Build a single-page web app in Rust")
+    WebApp::<(), _>::new(workspace)
+        .with_title("Northstar sprint workspace")
         .mount("#fission-web-mount")
         .run()
         .map_err(|error| JsValue::from_str(&error.to_string()))
@@ -131,67 +185,226 @@ pub fn run() -> Result<(), JsValue> {
 <!-- fission:preview -->
 
 <!-- fission:checkpoint -->
-Render a task workspace and empty state: Confirm the initial screen names the task and its next action.
+Render the preview and look at it as a teammate joining an empty sprint. The project and sprint should be clear, the three counts should agree that no work is planned, and the empty state should explain what information will appear when a task is added.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 
 <!-- fission:step id="main-flow" -->
-## Create tasks and open a detail route
+## Open a task from the sprint board
 
-Use Fission's native Router and RouterParams for route state. Keep shared product data in GlobalState and keep short-lived form drafts close to the form component. Use an effect for work that can take time, with a visible pending state and both success and failure outcomes.
+Now the board needs records that a teammate can actually open. Store the three checkout launch tasks in `TaskBoardState`, which implements `GlobalState` because both the list and detail page read the same records. Each card links to `/tasks/:id`; the route carries the selected task's id, while the shared state supplies its title, owner and delivery context.
 
-The source below makes the main task interactive using retained component state and explicit controls.
-This state belongs to the component because it only remembers this view's interaction. Durable data shared across routes belongs in GlobalState and changes through reducers.
+The detail route is built with `RouterParams`, so a URL such as `/tasks/241` can select task 241 without copying task data into a second screen. Fission's Web shell reports browser history changes to `route_changed`, which updates the router's current path. Try a card, then use Back and Forward: the URL and the page should move together.
+
 <Tabs>
 <TabItem label="src/app.rs">
 <!-- fission:file path="src/app.rs" -->
 ```rust
 use fission::prelude::*;
-fission_component! {
-    pub TaskWorkspace<()> {
-        props {
-            title: String,
-            detail: String,
-            action: String,
-            success: String,
-            empty: String,
-        }
-        state {
-            detail_open: bool = false,
-            task_count: usize = 0,
-            has_error: bool = false,
+use std::sync::Arc;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TaskStatus {
+    Ready,
+    InProgress,
+    InReview,
+}
+
+impl TaskStatus {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Ready => "Ready",
+            Self::InProgress => "In progress",
+            Self::InReview => "In review",
         }
     }
-    view(preview, _state, cx) {
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SprintTask {
+    pub id: u32,
+    pub title: String,
+    pub team: String,
+    pub owner: String,
+    pub context: String,
+    pub status: TaskStatus,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TaskBoardState {
+    pub current_path: String,
+    pub tasks: Vec<SprintTask>,
+}
+
+impl Default for TaskBoardState {
+    fn default() -> Self {
+        Self {
+            current_path: "/projects/northstar".into(),
+            tasks: vec![
+                SprintTask {
+                    id: 241,
+                    title: "Finalize checkout empty state".into(),
+                    team: "Design".into(),
+                    owner: "Leo Ortiz".into(),
+                    context: "Explain what is missing on a first checkout and give the customer one clear next step.".into(),
+                    status: TaskStatus::Ready,
+                },
+                SprintTask {
+                    id: 236,
+                    title: "Instrument payment retry events".into(),
+                    team: "Backend".into(),
+                    owner: "Sam Patel".into(),
+                    context: "Record the retry number and outcome without sending payment details to analytics.".into(),
+                    status: TaskStatus::InProgress,
+                },
+                SprintTask {
+                    id: 232,
+                    title: "Review order confirmation copy".into(),
+                    team: "Content".into(),
+                    owner: "Erin Park".into(),
+                    context: "Check the order number, delivery window and support route against the launch checklist.".into(),
+                    status: TaskStatus::InReview,
+                },
+            ],
+        }
+    }
+}
+
+impl GlobalState for TaskBoardState {}
+
+pub fn route_changed(
+    state: &mut TaskBoardState,
+    action: fission::core::action::ShellRouteChanged,
+    _cx: &mut ReducerContext<TaskBoardState>,
+) {
+    state.current_path = action.location.pathname;
+}
+
+fission_component! {
+    pub SprintTaskCard<TaskBoardState> { task: SprintTask }
+    view(card, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let task_path = format!("/tasks/{}", card.task.id);
+    } =>
+    Container(
+        Column(gap: tokens.spacing.s, children: [
+            Link::to(card.task.title.clone(), task_path),
+            Text(format!("NS-{} · {}", card.task.id, card.task.team))
+                .color(tokens.colors.text_secondary),
+            Text(card.task.context.clone()),
+            Row(gap: tokens.spacing.s, children: [
+                Text(card.task.owner).weight(tokens.typography.font_weight_semibold),
+                Spacer(flex_grow: 1.0),
+                Text(card.task.status.label()).color(tokens.colors.text_secondary),
+            ]),
+        ]),
+    )
+    .padding_all(tokens.spacing.m)
+    .bg(tokens.colors.surface)
+    .border(tokens.colors.border, 1.0)
+    .border_radius(tokens.radii.medium)
+}
+
+fission_component! {
+    pub SprintTaskBoard<TaskBoardState> {}
+    view(_board, state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
     Container(
-        Column(
-            gap: tokens.spacing.m,
-            children: [
-                Text(preview.title.clone()).weight(tokens.typography.font_weight_bold),
-                Text(preview.detail.clone()).color(tokens.colors.text_secondary),
-                Button(child: Text(if preview.detail_open { "Back to tasks".to_string() } else { "Open task detail".to_string() }),
-                    key: "task-route",
-                    on_press: reduce { preview.detail_open = !preview.detail_open; }),
-                if preview.detail_open { Column(children: [Text("Task detail"),
-                            Text("Review the release notes")]) } else { Column(children: [Text(format!("{} task(s)",
-                                    preview.task_count)),
-                            Button(child: Text(preview.action.clone()),
-                                key: "create-task",
-                                on_press: reduce { preview.task_count += 1; })]) },
-                Button(child: Text(if preview.has_error { "Try again".to_string() } else { "Preview a blank task".to_string() }),
-                    key: "preview-error",
-                    on_press: reduce { preview.has_error = !preview.has_error; }),
-                if preview.has_error { Text("A task title is required. Add a title before saving.") } else { Text(preview.success.clone()) },
-                Text(preview.empty.clone()).color(tokens.colors.text_secondary),
-            ]
-        )
+        Column(gap: tokens.spacing.l, children: [
+            Column(gap: tokens.spacing.xs, children: [
+                Text("Harborline").weight(tokens.typography.font_weight_bold),
+                Text("Northstar product launch · Sprint 24")
+                    .color(tokens.colors.text_secondary),
+            ]),
+            Text("Select a task to open its own page. The task record stays in shared app state while the Router chooses which screen to show.")
+                .color(tokens.colors.text_secondary),
+            Grid(
+                columns: vec![GridTrack::auto_fit(
+                    GridTrack::minmax(GridTrack::Points(280.0), GridTrack::Fr(1.0))
+                )],
+                rows: vec![GridTrack::Auto],
+                column_gap: tokens.spacing.m,
+                row_gap: tokens.spacing.m,
+                children: [
+                    for task in state.tasks.iter().cloned() {
+                        SprintTaskCard(task.clone(), key: task.id)
+                    },
+                ],
+            ),
+        ]),
     )
     .padding_all(tokens.spacing.l)
-    .bg(tokens.colors.surface)
-    .border(tokens.colors.border, 1.0)
-    .border_radius(tokens.radii.large)
+    .bg(tokens.colors.background)
+}
+
+fission_component! {
+    pub SprintTaskDetail<TaskBoardState> { props { task_id: u32 } }
+    view(page, state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let task = state.tasks.iter().find(|task| task.id == page.task_id).cloned();
+    } =>
+    if let Some(task) = task {
+        Center(Container(Column(gap: tokens.spacing.m, children: [
+            Link::to("← Northstar product launch", "/projects/northstar"),
+            Text(format!("NS-{} · {}", task.id, task.status.label()))
+                .color(tokens.colors.text_secondary),
+            Text(task.title.clone()).weight(tokens.typography.font_weight_bold),
+            Text(format!("Team: {} · Owner: {}", task.team, task.owner))
+                .color(tokens.colors.text_secondary),
+            Text("What needs to happen").weight(tokens.typography.font_weight_semibold),
+            Text(task.context.clone()),
+        ])).width_length(Length::percent(100.0)).max_width(760.0)
+            .padding_all(tokens.spacing.l)
+            .bg(tokens.colors.surface)
+            .border(tokens.colors.border, 1.0)
+            .border_radius(tokens.radii.medium))
+    } else {
+        Center(Container(Column(gap: tokens.spacing.m, children: [
+            Text("This task is no longer in the sprint.")
+                .weight(tokens.typography.font_weight_semibold),
+            Link::to("Return to the Northstar board", "/projects/northstar"),
+        ])).width_length(Length::percent(100.0)).max_width(760.0)
+            .padding_all(tokens.spacing.l)
+            .bg(tokens.colors.surface)
+            .border(tokens.colors.border, 1.0)
+            .border_radius(tokens.radii.medium))
+    }
+}
+
+fission_component! {
+    pub TaskNotFound<TaskBoardState> {}
+    view(_page, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    Center(Container(Column(gap: tokens.spacing.m, children: [
+        Text("This Northstar page could not be found.")
+            .weight(tokens.typography.font_weight_bold),
+        Link::to("Return to the sprint board", "/projects/northstar"),
+    ])).width_length(Length::percent(100.0)).max_width(760.0)
+        .padding_all(tokens.spacing.l)
+        .bg(tokens.colors.surface)
+        .border(tokens.colors.border, 1.0)
+        .border_radius(tokens.radii.medium))
+}
+
+fission_component! {
+    pub TaskBoardApp<TaskBoardState> {}
+    view(_app, state, _cx) {
+        let router = Router::<TaskBoardState>::new()
+            .with_path(state.current_path.clone())
+            .route("/", SprintTaskBoard::new)
+            .route("/projects/northstar", SprintTaskBoard::new)
+            .route("/tutorials/single-page-web-app-rust/:step", SprintTaskBoard::new)
+            .route_builder("/tasks/:id", Arc::new(|_, _, params| {
+                let task_id = params.get("id")
+                    .and_then(|id| id.parse().ok())
+                    .unwrap_or_default();
+                SprintTaskDetail::new(task_id).into()
+            }))
+            .not_found(TaskNotFound::new);
+    } =>
+    router
 }
 ```
 </TabItem>
@@ -206,15 +419,9 @@ use wasm_bindgen::prelude::*;
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::TaskWorkspace::new(
-        "Task workspace".to_string(),
-        "Create a task and open its detail view.".to_string(),
-        "Create a task".to_string(),
-        "The task is saved and its detail route is ready.".to_string(),
-        "Your workspace is empty. Create the first task to continue.".to_string(),
-    );
-    WebApp::<(), _>::new(preview)
-        .with_title("Build a single-page web app in Rust")
+    WebApp::<app::TaskBoardState, _>::new(app::TaskBoardApp::new())
+        .with_route_handler(app::route_changed)
+        .with_title("Northstar sprint board")
         .mount("#fission-web-mount")
         .run()
         .map_err(|error| JsValue::from_str(&error.to_string()))
@@ -225,67 +432,608 @@ pub fn run() -> Result<(), JsValue> {
 <!-- fission:preview -->
 
 <!-- fission:checkpoint -->
-Create tasks and open a detail route: Use the preview control and check that the result matches the action.
+Open “Finalize checkout empty state.” Confirm the address ends in `/tasks/241`, then use the browser Back button to return to the sprint board and Forward to reopen the same task. Try `/tasks/999` in the address bar as well; the not-found screen should offer a clear route back.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 
 <!-- fission:step id="edge-state" -->
-## Handle invalid drafts and browser history
+## Add validated work and move it through the sprint
 
-Add semantic names to controls, preserve the user's draft after a validation error and make the empty task list actionable. Test direct route loads, browser back and forward, a narrow viewport, keyboard-only navigation and a failed request.
+A useful board also needs to accept the next piece of work. Keep the title and context drafts inside `SprintTaskBoard`, because no other screen needs them before the teammate submits the form. Keep saved tasks and feedback in `TaskBoardState`, because the board and detail route must see the same result.
 
-Keep I/O outside component conversion. Use reducers for explicit state transitions, then queue host work through an asynchronous effect, capability, job or service so the UI stays responsive.
-The preview control below simulates an unsuccessful host result. It demonstrates the message and recovery path; it does not perform authentication, database, network, or filesystem work.
+`AddSprintTask` checks the title before changing the sprint. If the title is too short, the reducer returns an actionable error and leaves the task list untouched. A valid title creates a new Ready task, then reports its assigned id. From the detail route, `AdvanceSprintTask` moves it to the next lane. These are local state changes, so the preview shows realistic validation without pretending to contact a server. The same reducer boundary is where a production app can later request an asynchronous save.
+
 <Tabs>
 <TabItem label="src/app.rs">
 <!-- fission:file path="src/app.rs" -->
 ```rust
 use fission::prelude::*;
-fission_component! {
-    pub TaskWorkspace<()> {
-        props {
-            title: String,
-            detail: String,
-            action: String,
-            success: String,
-            empty: String,
-        }
-        state {
-            detail_open: bool = false,
-            task_count: usize = 0,
-            has_error: bool = false,
+use std::sync::Arc;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TaskStatus {
+    Ready,
+    InProgress,
+    InReview,
+    Done,
+}
+
+impl TaskStatus {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Ready => "Ready",
+            Self::InProgress => "In progress",
+            Self::InReview => "In review",
+            Self::Done => "Done",
         }
     }
-    view(preview, _state, cx) {
+
+    pub fn next(self) -> Self {
+        match self {
+            Self::Ready => Self::InProgress,
+            Self::InProgress => Self::InReview,
+            Self::InReview => Self::Done,
+            Self::Done => Self::InReview,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SprintTask {
+    pub id: u32,
+    pub title: String,
+    pub team: String,
+    pub owner: String,
+    pub priority: String,
+    pub due: String,
+    pub context: String,
+    pub status: TaskStatus,
+}
+
+fn task(
+    id: u32,
+    title: &str,
+    team: &str,
+    owner: &str,
+    priority: &str,
+    due: &str,
+    context: &str,
+    status: TaskStatus,
+) -> SprintTask {
+    SprintTask {
+        id,
+        title: title.into(),
+        team: team.into(),
+        owner: owner.into(),
+        priority: priority.into(),
+        due: due.into(),
+        context: context.into(),
+        status,
+    }
+}
+
+fn sample_tasks() -> Vec<SprintTask> {
+    vec![
+        task(
+            241,
+            "Finalize checkout empty state",
+            "Design",
+            "Leo Ortiz",
+            "High",
+            "Due today",
+            "Explain what is missing on a first checkout and give the customer one clear next step.",
+            TaskStatus::Ready,
+        ),
+        task(
+            244,
+            "Confirm tax calculation for EU orders",
+            "Payments",
+            "Mara Chen",
+            "High",
+            "Due tomorrow",
+            "Verify rounding for VAT-inclusive and VAT-exclusive prices before the launch review.",
+            TaskStatus::Ready,
+        ),
+        task(
+            250,
+            "Write the failed payment recovery email",
+            "Content",
+            "Erin Park",
+            "Normal",
+            "Due Thu",
+            "Explain when the retry happens and give the customer a direct way to update payment details.",
+            TaskStatus::Ready,
+        ),
+        task(
+            236,
+            "Instrument payment retry events",
+            "Backend",
+            "Sam Patel",
+            "High",
+            "Due today",
+            "Record the retry number and result without sending payment details to analytics.",
+            TaskStatus::InProgress,
+        ),
+        task(
+            238,
+            "Connect the order confirmation screen",
+            "Frontend",
+            "Mara Chen",
+            "Normal",
+            "Due Wed",
+            "Render the confirmation from the order returned by checkout so the receipt matches the saved order.",
+            TaskStatus::InProgress,
+        ),
+        task(
+            239,
+            "Check keyboard flow in the address form",
+            "Accessibility",
+            "Leo Ortiz",
+            "Normal",
+            "Due Thu",
+            "Check focus order and make sure the field error is announced when the address is incomplete.",
+            TaskStatus::InProgress,
+        ),
+        task(
+            232,
+            "Review order confirmation copy",
+            "Content",
+            "Erin Park",
+            "Normal",
+            "Due today",
+            "Check the order number, delivery window and support route against the launch checklist.",
+            TaskStatus::InReview,
+        ),
+        task(
+            233,
+            "Approve mobile checkout layout",
+            "Design",
+            "Sam Patel",
+            "High",
+            "Due Fri",
+            "Review long addresses and the on-screen keyboard at a phone width.",
+            TaskStatus::InReview,
+        ),
+        task(
+            221,
+            "Agree the launch success measures",
+            "Planning",
+            "Mara Chen",
+            "Normal",
+            "Completed Mon",
+            "Track completed checkouts, payment retries and support contacts after release.",
+            TaskStatus::Done,
+        ),
+        task(
+            224,
+            "Confirm the launch support rota",
+            "Operations",
+            "Erin Park",
+            "Normal",
+            "Completed Tue",
+            "Publish support coverage for launch day and document the handoff.",
+            TaskStatus::Done,
+        ),
+        task(
+            228,
+            "Approve the checkout event schema",
+            "Analytics",
+            "Sam Patel",
+            "High",
+            "Completed Tue",
+            "Include the order id and result while keeping payment details out of analytics.",
+            TaskStatus::Done,
+        ),
+    ]
+}
+
+fn task_matches(task: &SprintTask, query: &str, filter: &str) -> bool {
+    let query = query.trim().to_lowercase();
+    let matches_query = query.is_empty()
+        || task.title.to_lowercase().contains(&query)
+        || task.owner.to_lowercase().contains(&query)
+        || task.team.to_lowercase().contains(&query)
+        || format!("NS-{}", task.id).to_lowercase().contains(&query);
+    let matches_filter = match filter {
+        "mine" => task.owner == "Mara Chen",
+        "high" => task.priority == "High",
+        _ => true,
+    };
+    matches_query && matches_filter
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct TaskBoardState {
+    pub current_path: String,
+    pub tasks: Vec<SprintTask>,
+    pub next_task_id: u32,
+    pub feedback: Option<String>,
+    pub feedback_is_error: bool,
+}
+
+impl Default for TaskBoardState {
+    fn default() -> Self {
+        Self {
+            current_path: "/projects/northstar".into(),
+            tasks: sample_tasks(),
+            next_task_id: 251,
+            feedback: None,
+            feedback_is_error: false,
+        }
+    }
+}
+
+impl GlobalState for TaskBoardState {}
+
+#[fission_reducer(AddSprintTask)]
+pub fn on_add_sprint_task(state: &mut TaskBoardState, title: String, context: String) {
+    let title = title.trim();
+    if title.chars().count() < 5 {
+        state.feedback =
+            Some("Use at least five characters so the task is clear to the team.".into());
+        state.feedback_is_error = true;
+        return;
+    }
+
+    let id = state.next_task_id;
+    state.next_task_id += 1;
+    state.tasks.insert(
+        0,
+        task(
+            id,
+            title,
+            "Product",
+            "Mara Chen",
+            "Normal",
+            "Unscheduled",
+            if context.trim().is_empty() {
+                "Add acceptance details before work begins."
+            } else {
+                context.trim()
+            },
+            TaskStatus::Ready,
+        ),
+    );
+    state.feedback = Some(format!("NS-{id} was added to Ready."));
+    state.feedback_is_error = false;
+}
+
+#[fission_reducer(AdvanceSprintTask)]
+pub fn on_advance_sprint_task(state: &mut TaskBoardState, task_id: u32) {
+    if let Some(task) = state.tasks.iter_mut().find(|task| task.id == task_id) {
+        task.status = task.status.next();
+        state.feedback = Some(format!("NS-{} moved to {}.", task.id, task.status.label()));
+        state.feedback_is_error = false;
+    } else {
+        state.feedback = Some("That task is no longer in this sprint.".into());
+        state.feedback_is_error = true;
+    }
+}
+
+pub fn route_changed(
+    state: &mut TaskBoardState,
+    action: fission::core::action::ShellRouteChanged,
+    _cx: &mut ReducerContext<TaskBoardState>,
+) {
+    state.current_path = action.location.pathname;
+}
+
+fission_component! {
+    pub SprintTaskCard<TaskBoardState> { task: SprintTask }
+    view(card, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let task_path = format!("/tasks/{}", card.task.id);
+        let priority_tone = if card.task.priority == "High" { BadgeTone::Error } else { BadgeTone::Gray };
+        let status_tone = match card.task.status {
+            TaskStatus::Ready => BadgeTone::Blue,
+            TaskStatus::InProgress => BadgeTone::Brand,
+            TaskStatus::InReview => BadgeTone::Warning,
+            TaskStatus::Done => BadgeTone::Success,
+        };
+    } =>
+    Container(
+        Column(gap: tokens.spacing.s, children: [
+            Link::to(card.task.title.clone(), task_path),
+            Text(format!("Northstar · {} · NS-{}", card.task.team, card.task.id))
+                .color(tokens.colors.text_secondary),
+            Row(gap: tokens.spacing.xs, wrap: ir_op::FlexWrap::Wrap, children: [
+                Badge {
+                    text: format!("{} priority", card.task.priority),
+                    tone: priority_tone,
+                    size: ComponentSize::Sm,
+                    ..Default::default()
+                },
+                Badge {
+                    text: card.task.status.label().into(),
+                    tone: status_tone,
+                    size: ComponentSize::Sm,
+                    ..Default::default()
+                },
+            ]),
+            Row(gap: tokens.spacing.s, align_items: ir_op::AlignItems::Center, children: [
+                Avatar {
+                    name: Some(card.task.owner.clone()),
+                    size: Some(tokens.spacing.l),
+                    ..Default::default()
+                },
+                Text(card.task.owner.clone()).weight(tokens.typography.font_weight_semibold),
+                Spacer(flex_grow: 1.0),
+                Text(card.task.due.clone()).color(tokens.colors.text_secondary),
+            ]),
+        ]),
+    )
+    .padding_all(tokens.spacing.m)
+    .bg(tokens.colors.surface)
+    .border(tokens.colors.border, 1.0)
+    .border_radius(tokens.radii.medium)
+}
+
+fission_component! {
+    pub SprintTaskLane<TaskBoardState> {
+        props {
+            title: String,
+            status: TaskStatus,
+            tasks: Vec<SprintTask>,
+        }
+    }
+    view(lane, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+    } =>
+    SemanticsRegion(
+        identifier: Some(format!("sprint-lane-{:?}", lane.status)),
+        label: Some(lane.title.clone()),
+        child: Container(
+            Column(gap: tokens.spacing.s, children: [
+                Row(gap: tokens.spacing.s, children: [
+                    Text(lane.title.clone()).weight(tokens.typography.font_weight_bold),
+                    Spacer(flex_grow: 1.0),
+                    Text(lane.tasks.len().to_string()).color(tokens.colors.text_secondary),
+                ]),
+                if lane.tasks.is_empty() {
+                    Text("No tasks match this view.").color(tokens.colors.text_secondary)
+                } else {
+                    Column(gap: tokens.spacing.s, children: [
+                        for task in lane.tasks.iter().cloned() {
+                            SprintTaskCard(task.clone(), key: task.id)
+                        },
+                    ])
+                },
+            ]),
+        )
+        .padding_all(tokens.spacing.s)
+        .bg(tokens.colors.background)
+        .border(tokens.colors.border, 1.0)
+        .border_radius(tokens.radii.medium),
+    )
+}
+
+fission_component! {
+    pub SprintTaskBoard<TaskBoardState> {
+        state {
+            search: String = String::new(),
+            filter: String = "all".to_string(),
+            show_composer: bool = false,
+            draft_title: String = String::new(),
+            draft_context: String = String::new(),
+        }
+    }
+    view(board, state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let query = board.search.clone();
+        let filter = board.filter.clone();
+        let matches = |task: &&SprintTask| task_matches(task, &query, &filter);
+        let ready = state.tasks.iter().filter(|task| matches(task) && task.status == TaskStatus::Ready).cloned().collect::<Vec<_>>();
+        let in_progress = state.tasks.iter().filter(|task| matches(task) && task.status == TaskStatus::InProgress).cloned().collect::<Vec<_>>();
+        let in_review = state.tasks.iter().filter(|task| matches(task) && task.status == TaskStatus::InReview).cloned().collect::<Vec<_>>();
+        let done_tasks = state.tasks.iter().filter(|task| matches(task) && task.status == TaskStatus::Done).cloned().collect::<Vec<_>>();
+        let open_count = state.tasks.iter().filter(|task| task.status != TaskStatus::Done).count();
+        let review_count = state.tasks.iter().filter(|task| task.status == TaskStatus::InReview).count();
+        let high_priority_count = state.tasks.iter().filter(|task| task.priority == "High").count();
+        let completed_count = done_tasks.len();
+        let completed_percent = if state.tasks.is_empty() { 0 } else { completed_count * 100 / state.tasks.len() };
+        let add_task = with_reducer!(cx.build, AddSprintTask(board.draft_title.clone(), board.draft_context.clone()), on_add_sprint_task);
+    } =>
+    Container(
+        Column(gap: tokens.spacing.l, children: [
+            Row(gap: tokens.spacing.m, children: [
+                Text("H").weight(tokens.typography.font_weight_bold),
+                Column(gap: tokens.spacing.xs, children: [
+                    Text("Harborline").weight(tokens.typography.font_weight_bold),
+                    Text("Northstar workspace").color(tokens.colors.text_secondary),
+                ]),
+                Spacer(flex_grow: 1.0),
+                Text("Mara Chen"),
+            ]),
+            Column(gap: tokens.spacing.s, children: [
+                Text("Workspace  ›  Northstar product launch").color(tokens.colors.text_secondary),
+                Container(Row(gap: tokens.spacing.m, align_items: ir_op::AlignItems::Center,
+                    justify_content: ir_op::JustifyContent::SpaceBetween,
+                    wrap: ir_op::FlexWrap::Wrap, children: [
+                    Column(gap: tokens.spacing.xs, children: [
+                        Text("Northstar product launch").weight(tokens.typography.font_weight_bold),
+                        Text("Sprint 24 · 17–28 June · 8 teammates").color(tokens.colors.text_secondary),
+                    ]),
+                    Button(
+                        child: Text(if board.show_composer { "Close task form" } else { "New task" }),
+                        key: "open-task-form",
+                        on_press: reduce { board.show_composer = !board.show_composer; },
+                    ),
+                ])).width_length(Length::percent(100.0)),
+            ]),
+            Grid(
+                columns: vec![GridTrack::auto_fit(GridTrack::minmax(GridTrack::Points(210.0), GridTrack::Fr(1.0)))],
+                rows: vec![GridTrack::Auto],
+                column_gap: tokens.spacing.m,
+                row_gap: tokens.spacing.m,
+                children: [
+                    Container(Column(children: [
+                        Text("Open tasks").color(tokens.colors.text_secondary),
+                        Text(open_count.to_string()).weight(tokens.typography.font_weight_bold),
+                        Text("across this sprint").color(tokens.colors.text_secondary),
+                    ])).padding_all(tokens.spacing.m).bg(tokens.colors.surface).border(tokens.colors.border, 1.0).border_radius(tokens.radii.medium),
+                    Container(Column(children: [
+                        Text("Needs review").color(tokens.colors.text_secondary),
+                        Text(review_count.to_string()).weight(tokens.typography.font_weight_bold),
+                        Text("ready for a second look").color(tokens.colors.text_secondary),
+                    ])).padding_all(tokens.spacing.m).bg(tokens.colors.surface).border(tokens.colors.border, 1.0).border_radius(tokens.radii.medium),
+                    Container(Column(children: [
+                        Text("High priority").color(tokens.colors.text_secondary),
+                        Text(high_priority_count.to_string()).weight(tokens.typography.font_weight_bold),
+                        Text("needs a decision this sprint").color(tokens.colors.text_secondary),
+                    ])).padding_all(tokens.spacing.m).bg(tokens.colors.surface).border(tokens.colors.border, 1.0).border_radius(tokens.radii.medium),
+                    Container(Column(children: [
+                        Row(gap: tokens.spacing.s, children: [
+                            Text("Sprint progress").weight(tokens.typography.font_weight_semibold),
+                            Spacer(flex_grow: 1.0),
+                            Text(format!("{}% complete", completed_percent)),
+                        ]),
+                        ProgressBar { value: completed_percent as f32 / 100.0, ..Default::default() },
+                        Text(format!("{} of {} planned tasks are complete", completed_count, state.tasks.len()))
+                            .color(tokens.colors.text_secondary),
+                    ])).padding_all(tokens.spacing.m).bg(tokens.colors.surface).border(tokens.colors.border, 1.0).border_radius(tokens.radii.medium),
+                ],
+            ),
+            Container(Row(gap: tokens.spacing.m, align_items: ir_op::AlignItems::Center,
+                justify_content: ir_op::JustifyContent::SpaceBetween,
+                wrap: ir_op::FlexWrap::Wrap, children: [
+                Row(gap: tokens.spacing.s, wrap: ir_op::FlexWrap::Wrap, children: [
+                    Button(child: Text(format!("All tasks · {}", state.tasks.len())), key: "filter-all",
+                        variant: if board.filter == "all" { ButtonVariant::Primary } else { ButtonVariant::Outline },
+                        on_press: reduce { board.filter = "all".to_string(); }),
+                    Button(child: Text("Assigned to me"), key: "filter-mine",
+                        variant: if board.filter == "mine" { ButtonVariant::Primary } else { ButtonVariant::Outline },
+                        on_press: reduce { board.filter = "mine".to_string(); }),
+                    Button(child: Text("High priority"), key: "filter-high",
+                        variant: if board.filter == "high" { ButtonVariant::Primary } else { ButtonVariant::Outline },
+                        on_press: reduce { board.filter = "high".to_string(); }),
+                ]),
+                Container(TextInput(label: Some("Search tasks".into()),
+                    placeholder: Some("Search by task or owner…".into()), bind: board.search,
+                    semantics_identifier: "sprint.search".to_string()))
+                    .width_length(Length::Points(280.0)),
+            ])).width_length(Length::percent(100.0)),
+            if board.show_composer {
+                Container(Column(gap: tokens.spacing.s, children: [
+                    Text("Add a sprint task").weight(tokens.typography.font_weight_bold),
+                    Text("Give the team enough detail to pick this up without another handoff.")
+                        .color(tokens.colors.text_secondary),
+                    TextInput(label: Some("Task title".into()), placeholder: Some("Confirm tax calculation for EU orders".into()),
+                        bind: board.draft_title, semantics_identifier: "sprint.new-task.title".to_string()),
+                    TextInput(label: Some("What needs to happen?".into()), placeholder: Some("Describe the result the team should deliver".into()),
+                        multiline: true, bind: board.draft_context, semantics_identifier: "sprint.new-task.context".to_string()),
+                    Row(gap: tokens.spacing.s, children: [
+                        Button(child: Text("Add to sprint"), key: "add-sprint-task", on_press: add_task),
+                        Button(child: Text("Cancel"), key: "cancel-sprint-task", variant: ButtonVariant::Outline,
+                            on_press: reduce { board.show_composer = false; }),
+                    ]),
+                ])).padding_all(tokens.spacing.m).bg(tokens.colors.surface).border(tokens.colors.border, 1.0).border_radius(tokens.radii.medium)
+            },
+            if let Some(message) = state.feedback.clone() {
+                SemanticsRegion(
+                    identifier: Some(if state.feedback_is_error { "sprint-feedback-error".into() } else { "sprint-feedback-success".into() }),
+                    label: Some(message.clone()),
+                    child: Text(message).color(tokens.colors.text_secondary),
+                )
+            },
+            Grid(
+                columns: vec![GridTrack::auto_fit(GridTrack::minmax(GridTrack::Points(260.0), GridTrack::Fr(1.0)))],
+                rows: vec![GridTrack::Auto],
+                column_gap: tokens.spacing.m,
+                row_gap: tokens.spacing.m,
+                children: [
+                    SprintTaskLane("Ready".into(), TaskStatus::Ready, ready),
+                    SprintTaskLane("In progress".into(), TaskStatus::InProgress, in_progress),
+                    SprintTaskLane("In review".into(), TaskStatus::InReview, in_review),
+                ],
+            ),
+            Column(gap: tokens.spacing.s, children: [
+                Row(gap: tokens.spacing.m, align_items: ir_op::AlignItems::Center, children: [
+                    Text("Recently completed").weight(tokens.typography.font_weight_bold),
+                    Spacer(flex_grow: 1.0),
+                    Text(format!("{} tasks", done_tasks.len())).color(tokens.colors.text_secondary),
+                ]),
+                if done_tasks.is_empty() {
+                    Text("Completed checkout launch tasks will appear here.")
+                        .color(tokens.colors.text_secondary)
+                } else {
+                    Grid(
+                        columns: vec![GridTrack::auto_fit(GridTrack::minmax(GridTrack::Points(260.0), GridTrack::Fr(1.0)))],
+                        rows: vec![GridTrack::Auto],
+                        column_gap: tokens.spacing.m,
+                        row_gap: tokens.spacing.m,
+                        children: [
+                            for task in done_tasks.iter().cloned() {
+                                SprintTaskCard(task.clone(), key: task.id)
+                            },
+                        ],
+                    )
+                },
+            ]),
+        ]),
+    )
+    .padding_all(tokens.spacing.l)
+    .bg(tokens.colors.background)
+}
+
+fission_component! {
+    pub SprintTaskDetail<TaskBoardState> { props { task_id: u32 } }
+    view(page, state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let task = state.tasks.iter().find(|task| task.id == page.task_id).cloned();
+    } =>
+    if let Some(task) = task {
+        Center(Container(Column(gap: tokens.spacing.m, children: [
+            Link::to("← Northstar product launch", "/projects/northstar"),
+            Text(format!("NS-{} · {}", task.id, task.status.label())).color(tokens.colors.text_secondary),
+            Text(task.title.clone()).weight(tokens.typography.font_weight_bold),
+            Text(format!("{} · {} priority · {}", task.team, task.priority, task.due))
+                .color(tokens.colors.text_secondary),
+            Text("What needs to happen").weight(tokens.typography.font_weight_semibold),
+            Text(task.context.clone()),
+            Text(format!("Owner: {}", task.owner)),
+            Button(
+                child: Text(format!("Move to {}", task.status.next().label())),
+                key: "advance-sprint-task",
+                on_press: with_reducer!(cx.build, AdvanceSprintTask(page.task_id), on_advance_sprint_task),
+            ),
+        ])).width_length(Length::percent(100.0)).max_width(760.0).padding_all(tokens.spacing.l).bg(tokens.colors.surface).border(tokens.colors.border, 1.0).border_radius(tokens.radii.medium))
+    } else {
+        Center(Container(Column(gap: tokens.spacing.m, children: [
+            Text("This task is no longer in the sprint.").weight(tokens.typography.font_weight_semibold),
+            Link::to("Return to the Northstar board", "/projects/northstar"),
+        ])).width_length(Length::percent(100.0)).max_width(760.0).padding_all(tokens.spacing.l).bg(tokens.colors.surface).border(tokens.colors.border, 1.0).border_radius(tokens.radii.medium))
+    }
+}
+
+fission_component! {
+    pub TaskNotFound<TaskBoardState> {}
+    view(_page, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
     Container(
-        Column(
-            gap: tokens.spacing.m,
-            children: [
-                Text(preview.title.clone()).weight(tokens.typography.font_weight_bold),
-                Text(preview.detail.clone()).color(tokens.colors.text_secondary),
-                Button(child: Text(if preview.detail_open { "Back to tasks".to_string() } else { "Open task detail".to_string() }),
-                    key: "task-route",
-                    on_press: reduce { preview.detail_open = !preview.detail_open; }),
-                if preview.detail_open { Column(children: [Text("Task detail"),
-                            Text("Review the release notes")]) } else { Column(children: [Text(format!("{} task(s)",
-                                    preview.task_count)),
-                            Button(child: Text(preview.action.clone()),
-                                key: "create-task",
-                                on_press: reduce { preview.task_count += 1; })]) },
-                Button(child: Text(if preview.has_error { "Try again".to_string() } else { "Preview a blank task".to_string() }),
-                    key: "preview-error",
-                    on_press: reduce { preview.has_error = !preview.has_error; }),
-                if preview.has_error { Text("A task title is required. Add a title before saving.") } else { Text(preview.success.clone()) },
-                Text(preview.empty.clone()).color(tokens.colors.text_secondary),
-            ]
-        )
+        Column(gap: tokens.spacing.m, children: [
+            Text("This Northstar page could not be found.").weight(tokens.typography.font_weight_bold),
+            Link::to("Return to the sprint board", "/projects/northstar"),
+        ]),
     )
     .padding_all(tokens.spacing.l)
-    .bg(tokens.colors.surface)
-    .border(tokens.colors.border, 1.0)
-    .border_radius(tokens.radii.large)
+}
+
+fission_component! {
+    pub TaskBoardApp<TaskBoardState> {}
+    view(_app, state, _cx) {
+        let router = Router::<TaskBoardState>::new()
+            .with_path(state.current_path.clone())
+            .route("/", SprintTaskBoard::new)
+            .route("/projects/northstar", SprintTaskBoard::new)
+            .route("/tutorials/single-page-web-app-rust/:step", SprintTaskBoard::new)
+            .route_builder("/tasks/:id", Arc::new(|_, _, params| {
+                let task_id = params.get("id").and_then(|id| id.parse().ok()).unwrap_or_default();
+                SprintTaskDetail::new(task_id).into()
+            }))
+            .not_found(TaskNotFound::new);
+    } =>
+    router
 }
 ```
 </TabItem>
@@ -300,15 +1048,10 @@ use wasm_bindgen::prelude::*;
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::TaskWorkspace::new(
-        "Task workspace".to_string(),
-        "Create a task and open its detail view.".to_string(),
-        "Create a task".to_string(),
-        "The task is saved and its detail route is ready.".to_string(),
-        "Your workspace is empty. Create the first task to continue.".to_string(),
-    );
-    WebApp::<(), _>::new(preview)
-        .with_title("Build a single-page web app in Rust")
+
+    WebApp::<app::TaskBoardState, _>::new(app::TaskBoardApp::new())
+        .with_route_handler(app::route_changed)
+        .with_title("Northstar sprint board")
         .mount("#fission-web-mount")
         .run()
         .map_err(|error| JsValue::from_str(&error.to_string()))
@@ -319,7 +1062,7 @@ pub fn run() -> Result<(), JsValue> {
 <!-- fission:preview -->
 
 <!-- fission:checkpoint -->
-Handle invalid drafts and browser history: Trigger the error preview and confirm a recovery action remains available.
+Open the form and submit a two-character title. The board should remain unchanged and explain the five-character minimum. Then add “Confirm tax review states” with a delivery note, open the new task, move it to In progress, and use the browser Back button to return to the sprint board.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 
@@ -336,7 +1079,7 @@ fission build --target web --project-dir .
 fission test --target web --project-dir .
 ```
 
-Expected result: The app creates tasks, opens detail routes, follows browser history, and recovers from invalid drafts.
+Expected result: Northstar has a readable empty state, three realistic task routes, validated task creation, status transitions and browser history that returns to the correct screen.
 
 ## Related Fission reference
 

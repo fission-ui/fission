@@ -108,6 +108,7 @@ pub fn site_app() -> Result<FissionSite> {
                 preview_height: match goal.meta.app.as_str() {
                     "rust-product-inventory" => 1040.0,
                     "rust-admin-panel" => 960.0,
+                    "single-page-web-app-rust" => 1200.0,
                     _ => 520.0,
                 },
             })
