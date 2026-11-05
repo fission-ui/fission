@@ -25,7 +25,7 @@ Throughout this guide, the screen is written as a `fission_component!`. That com
 
 ## Add the target to your existing project
 
-Start in the root of the Fission app you already have. Do not run `fission init` over it: `fission add-target` updates the existing target list and creates the Android host while leaving shared state, routes and components in `src/`. The [Android setup tutorial](/blog/set-up-rust-android-gui-development-with-fission/) covers its SDK and device prerequisites.
+Start in the root of the Fission app you already have. Do not run `fission init` over it: `fission add-target` updates the existing target list and creates the Android host while leaving shared state, routes and components in `src/`.
 
 ```sh
 fission add-target android --project-dir .
@@ -201,7 +201,7 @@ fission build --target android --project-dir . --release
 
 ### Emulator and connected-device commands
 
-The [Android SDK and NDK setup guide](/blog/set-up-rust-android-gui-development-with-fission/) is the single setup source. Check prerequisites and run the emulator with:
+Run these emulator checks from the generated project root:
 
 ```sh
 fission doctor android --project-dir .

@@ -25,7 +25,7 @@ Throughout this guide, the screen is written as a `fission_component!`. That com
 
 ## Create the project and add the target
 
-Install the Fission command line, create the app, and add its native target. The Android and iOS setup tutorials linked below cover their SDKs and device prerequisites.
+Install the Fission command line, create the app, and add its native target.
 
 ```sh
 cargo install cargo-fission
@@ -284,7 +284,7 @@ fission build --target android --project-dir . --release
 
 ### Run the shared project on both mobile targets
 
-Follow the [Android setup tutorial](/blog/set-up-rust-android-gui-development-with-fission/) and [iOS setup tutorial](/blog/set-up-rust-ios-development-with-fission/) before running both shells:
+Run both target checks from the generated project root:
 
 ```sh
 fission doctor android --project-dir .

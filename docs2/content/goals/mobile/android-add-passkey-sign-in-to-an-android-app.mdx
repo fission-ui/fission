@@ -25,7 +25,7 @@ Keep native work out of a component’s `view`: the component sends a typed requ
 
 ## Create the project and add the target
 
-Install the Fission command line, create the app, and add its native target. The [canonical Android setup tutorial](/blog/set-up-rust-android-gui-development-with-fission/) covers SDK installation and device prerequisites.
+Install the Fission command line, create the app, and add its native target.
 
 ```sh
 cargo install cargo-fission
@@ -370,7 +370,7 @@ fission build --target android --project-dir . --release
 
 ### Emulator and connected-device commands
 
-The [Android SDK and NDK setup guide](/blog/set-up-rust-android-gui-development-with-fission/) is the single setup source. Check prerequisites and run the emulator with:
+Run these emulator checks from the generated project root:
 
 ```sh
 fission doctor android --project-dir .

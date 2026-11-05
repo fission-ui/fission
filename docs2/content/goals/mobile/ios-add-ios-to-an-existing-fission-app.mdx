@@ -25,7 +25,7 @@ Throughout this guide, the screen is written as a `fission_component!`. That com
 
 ## Add the target to your existing project
 
-Start in the root of the Fission app you already have. Do not run `fission init` over it: `fission add-target` updates the existing target list and creates the iOS host while leaving shared state, routes and components in `src/`. The [iOS setup tutorial](/blog/set-up-rust-ios-development-with-fission/) covers its SDK and device prerequisites.
+Start in the root of the Fission app you already have. Do not run `fission init` over it: `fission add-target` updates the existing target list and creates the iOS host while leaving shared state, routes and components in `src/`.
 
 ```sh
 fission add-target ios --project-dir .
@@ -201,7 +201,7 @@ fission build --target ios --project-dir . --release
 
 ### Simulator and device commands
 
-The [Xcode and iOS setup guide](/blog/set-up-rust-ios-development-with-fission/) is the single setup source. Fission’s run path discovers iOS simulators only:
+Fission’s run command discovers iOS simulators. Run these checks from the generated project root:
 
 ```sh
 fission doctor ios --project-dir .
