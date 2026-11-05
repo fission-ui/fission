@@ -1,8 +1,8 @@
 ---
 layout: goal
 title: Manage Android app state with reducers and local state
-description: "Step-by-step Rust guide to manage Android app state with reducers and local state using Fission."
-goal: Choose shared GlobalState or retained component state and implement a typed action flow for an Android app.
+description: Learn where Android app records and temporary screen choices belong in Fission by building a tool-library checkout desk with Rust components and reducers.
+goal: Keep the workshop tool inventory in shared state, check items in and out, and filter the list without changing inventory.
 path: /blog/manage-android-app-state-with-reducers-and-local-state/
 order: 28
 difficulty: Beginner
@@ -10,52 +10,52 @@ duration: 35 minutes
 run_command: "fission run --target android --project-dir ."
 app: android-manage-android-app-state-with-reducers-and-local-state
 outcomes:
-  - Implement the feature in shared Rust application code
-  - Explain the state, component and host behaviour involved
-  - Verify the Android workflow and follow physical-device checks when the task requires them
+  - Model a shared workshop inventory in GlobalState
+  - Check a tool out or back in with typed reducers
+  - Keep the available-tools filter in the screen component
+  - Run the same Rust workflow in an Android emulator
 ---
 
-## What you will build
+At North Gate Workshop, volunteers share drills, saws, and other equipment. When a tool is checked out, everyone at the desk needs to see who has it and when it is due back. The desk also needs a quick way to focus on tools that are available without changing the inventory.
 
-In this tutorial, you will choose shared GlobalState or retained component state and implement a typed action flow for an Android app. Try the interactive screen below in your browser. It changes local component state only; it does not open Android permission prompts, use device hardware or build an Android app. Follow the emulator checks below, then use a phone for hardware behavior.
+We will build that checkout desk from four workshop tools. A reducer checks a tool out to Asha or marks it back on the shelf, while a summary reads the same inventory. The available-only filter belongs to the desk component because it changes the view, not the equipment record. This first version keeps its sample inventory in memory, so restarting the app restores the starting shelf.
 
-### How the screen uses Fission
+## Create an Android project
 
-Throughout this guide, the screen is written as a `fission_component!`. That component owns its temporary interaction state and renders widgets from that state; a reducer changes it after a user action. Put durable facts shared across screens in `GlobalState`, and request native or service work through an effect or capability after the view is built.
+Create the app and add its Android target. The [Android development setup guide](/blog/set-up-rust-android-gui-development-with-fission/) covers the SDK, NDK, and emulator if you need to install them.
 
-## Create the project and add the target
-
-Install the Fission command line, create the app, and add its native target. The [canonical Android setup tutorial](/blog/set-up-rust-android-gui-development-with-fission/) covers SDK installation and device prerequisites.
-
+<Tabs>
+<TabItem label="Create the app">
 ```sh
 cargo install cargo-fission
-fission init android-manage-android-app-state-with-reducers-and-local-state
-cd android-manage-android-app-state-with-reducers-and-local-state
+fission init north-gate-tool-library
+cd north-gate-tool-library
 fission add-target android --project-dir .
 ```
-
-## Files created by Fission
-
-This is the starter tree after `fission init` and `fission add-target`; the component and state used for this task are additions in the steps below. Keep shared Rust behavior under `src/` and leave target launch and packaging in `platforms/android/`.
-
+</TabItem>
+<TabItem label="Files for this task">
 ```text
-android-manage-android-app-state-with-reducers-and-local-state/
+north-gate-tool-library/
 ├── Cargo.toml                 # Rust package and dependencies
-├── fission.toml               # app identity, targets and capabilities
+├── fission.toml               # app identity and target configuration
 ├── src/
-│   ├── main.rs                # generated app entrypoint
+│   ├── main.rs                # generated target entry point
 │   ├── lib.rs                 # shared app setup
-│   └── app.rs                 # shared Fission screen
+│   └── app.rs                 # inventory, reducers, and components
 └── platforms/
-    └── android/              # generated Android host
+    └── android/               # generated Android host and packaging
 ```
+</TabItem>
+</Tabs>
 
-Keep `src/app.rs`, shared state, reducers and reusable `fission_component!` components in the common Rust project. Add a state, service or effect module only when this feature needs that boundary, and use a name tied to the feature. The generated Android host owns launch and packaging details; shared components describe the user task without importing Android APIs.
+Keep the tool records and the desk components in the shared Rust project under `src/`. The generated Android host launches that app; it does not need a second copy of the inventory rules.
 
 <!-- fission:step id="start-screen" -->
-## Try the browser-safe interaction
+## Lay out the workshop shelf
 
-The preview is a compiled Fission component with two deliberately local simulations. Press **Simulate success** to inspect the normal result, then **Simulate unavailable** to see how the screen can explain that a capability cannot proceed. These actions change only preview state: they do not request permission, access a sensor or run the target app. In the main step, compare that state boundary with the feature-specific instructions.
+A volunteer should be able to tell at a glance which tools can leave the workshop and which ones are already with a member. Each row therefore shows a tool name, where it belongs, its current status, and the return time when it is checked out.
+
+Start with a read-only screen so the inventory shape is easy to see before adding actions. `ToolCard` gives one tool a consistent layout, and `ToolLibraryDesk` arranges the summary and cards. Its named vertical scroll region keeps the full shelf reachable on a phone and gives TalkBack a useful description for the scroll area.
 
 <Tabs>
 <TabItem label="src/app.rs">
@@ -63,72 +63,150 @@ The preview is a compiled Fission component with two deliberately local simulati
 ```rust
 use fission::prelude::*;
 
-fission_component! {
-    pub AndroidAppState<()> {
-        props {
-            title: String,
-            step: String,
-            goal: String,
-        }
-        state {
-            simulated_success: bool = false,
-            simulated_unavailable: bool = false,
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ToolStatus {
+    Available,
+    CheckedOut {
+        borrower: &'static str,
+        due: &'static str,
+    },
+}
+
+impl ToolStatus {
+    pub fn is_available(&self) -> bool {
+        matches!(self, Self::Available)
+    }
+
+    pub fn summary(&self) -> String {
+        match self {
+            Self::Available => "Available on the shelf".to_string(),
+            Self::CheckedOut { borrower, due } => {
+                format!("Checked out by {} · due {}", borrower, due)
+            }
         }
     }
-    view(preview, _state, cx) {
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Tool {
+    pub id: u32,
+    pub name: &'static str,
+    pub location: &'static str,
+    pub status: ToolStatus,
+}
+
+fn sample_tools() -> Vec<Tool> {
+    vec![
+        Tool {
+            id: 2201,
+            name: "Cordless drill",
+            location: "Assembly bench",
+            status: ToolStatus::Available,
+        },
+        Tool {
+            id: 2202,
+            name: "Circular saw",
+            location: "Cutting bay",
+            status: ToolStatus::CheckedOut {
+                borrower: "Ravi",
+                due: "Friday, 5:00 pm",
+            },
+        },
+        Tool {
+            id: 2203,
+            name: "Orbital sander",
+            location: "Finishing table",
+            status: ToolStatus::Available,
+        },
+        Tool {
+            id: 2204,
+            name: "Pressure washer",
+            location: "Wash area",
+            status: ToolStatus::CheckedOut {
+                borrower: "Elena",
+                due: "Saturday, noon",
+            },
+        },
+    ]
+}
+
+fission_component! {
+    pub ToolCard<()> { tool: Tool }
+    view(card, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
+        let status = card.tool.status.summary();
     } =>
     SemanticsRegion(
-        identifier: Some("tutorial-preview".to_string()),
-        label: Some(preview.title.clone()),
+        identifier: Some(format!("workshop-tool-{}", card.tool.id)),
+        label: Some(format!("{} in {}", card.tool.name, card.tool.location)),
         child: Container(
-            Column(gap: tokens.spacing.m, children: [
-                Text(preview.title.clone())
-
-                    .weight(tokens.typography.font_weight_bold),
-                Text(preview.step.clone())
+            Column(gap: tokens.spacing.xs, align_items: ir_op::AlignItems::Start, children: [
+                Text(card.tool.name.to_string())
+                    .weight(tokens.typography.font_weight_semibold),
+                Text(format!("Stored at {}", card.tool.location))
                     .color(tokens.colors.text_secondary),
-                Text(preview.goal.clone()),
-                Button(
-                    child: Text(if preview.simulated_success {
-                        "Reset success simulation".to_string()
-                    } else {
-                        "Simulate success".to_string()
-                    }),
-                    key: "tutorial-complete",
-                    on_press: reduce {
-                        preview.simulated_success = !preview.simulated_success;
-                        if preview.simulated_success { preview.simulated_unavailable = false; }
-                    },
-                ),
-                Text(if preview.simulated_success {
-                    format!("Simulated success for {}. Only browser-local state changed. Use the target steps below to verify the real behaviour.", preview.goal)
-                } else {
-                    "Ready: no native request has run. Choose a simulation to see how the screen state changes.".to_string()
-                }),
-                Button(
-                    child: Text(if preview.simulated_unavailable {
-                        "Clear unavailable simulation".to_string()
-                    } else {
-                        "Simulate unavailable".to_string()
-                    }),
-                    key: "tutorial-unavailable",
-                    on_press: reduce {
-                        preview.simulated_unavailable = !preview.simulated_unavailable;
-                        if preview.simulated_unavailable { preview.simulated_success = false; }
-                    },
-                ),
-                if preview.simulated_unavailable {
-                    Text(format!("Simulated unavailable result for {}. No native request ran; the target app should explain the real reason and recovery action.", preview.title))
-                } else {
-                    Text("No unavailable response is being simulated.".to_string())
-                },
-            ])
+                Text(status).color(tokens.colors.text_secondary),
+            ]),
         )
-        .padding_all(tokens.spacing.l)
+        .padding_all(tokens.spacing.m)
         .bg(tokens.colors.surface)
         .border(tokens.colors.border, 1.0)
-        .border_radius(tokens.radii.large),
+        .border_radius(tokens.radii.medium)
+        .width_length(Length::percent(100.0)),
+    )
+}
+
+fission_component! {
+    pub ToolLibraryDesk<()> {}
+    view(_desk, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let tools = sample_tools();
+        let available = tools.iter()
+            .filter(|tool| tool.status.is_available())
+            .count();
+        let checked_out = tools.len() - available;
+    } =>
+    SemanticsRegion(
+        identifier: Some("north-gate-tool-library".to_string()),
+        label: Some("North Gate Workshop tool library".to_string()),
+        child: Scroll(
+            flex_grow: 1.0,
+            height: cx.view.viewport_size().height,
+            semantic_label: Some("Workshop tool inventory".to_string()),
+            child: Container(
+                Column(align_items: ir_op::AlignItems::Center, children: [
+                    Container(
+                        Column(gap: tokens.spacing.l, children: [
+                            Column(gap: tokens.spacing.xs, children: [
+                                Text("North Gate Workshop")
+                                    .weight(tokens.typography.font_weight_bold),
+                                Text("Workshop tool lending desk")
+                                    .color(tokens.colors.text_secondary),
+                            ]),
+                            Column(gap: tokens.spacing.xs, children: [
+                                Text(format!("Available · {}", available)),
+                                Text(format!("Checked out · {}", checked_out))
+                                    .color(tokens.colors.text_secondary),
+                            ]),
+                            Column(gap: tokens.spacing.s, children: [
+                                for tool in tools.iter() {
+                                    ToolCard(tool.clone(), key: tool.id)
+                                },
+                            ]),
+                        ]),
+                    )
+                    .padding_all(tokens.spacing.l)
+                    .bg(tokens.colors.background)
+                    .width_length(Length::clamp(
+                        Length::points(0.0),
+                        Length::percent(100.0),
+                        Length::points(760.0),
+                    )),
+                ]),
+            )
+            .width_length(Length::percent(100.0))
+            .bg(tokens.colors.background),
+        ),
     )
 }
 ```
@@ -141,19 +219,11 @@ mod app;
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
 
-#[wasm_bindgen(inline_js = "export function tutorial_title() { const parts = document.title.split(' — '); return parts.slice(1).join(' — ') || 'Fission tutorial'; } export function tutorial_step() { return document.title.split(' — ')[0] || 'Tutorial step'; } export function tutorial_goal() { return document.querySelector('meta[name=\"tutorial-goal\"]')?.content || 'Complete the task and verify it on the target.'; }")]
-extern "C" {
-    fn tutorial_title() -> String;
-    fn tutorial_step() -> String;
-    fn tutorial_goal() -> String;
-}
-
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::AndroidAppState::new(tutorial_title(), tutorial_step(), tutorial_goal());
-    WebApp::<(), _>::new(preview)
-        .with_title("Fission tutorial preview")
+    WebApp::<(), _>::new(app::ToolLibraryDesk::new())
+        .with_title("North Gate Workshop tool library")
         .mount("#fission-web-mount")
         .run()
         .map_err(|error| JsValue::from_str(&error.to_string()))
@@ -161,98 +231,351 @@ pub fn run() -> Result<(), JsValue> {
 ```
 </TabItem>
 </Tabs>
+
 <!-- fission:preview -->
 
 <!-- fission:checkpoint -->
-Press **Simulate success** and check the visible status change. Then choose **Simulate unavailable** and check that the screen explains the unavailable outcome. Both actions change browser-local state only; they do not invoke the native capability.
+Find the circular saw in the cutting bay. Its row should name Ravi as the borrower and show a Friday, 5:00 pm return time. The drill and sander should be available.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 
-<!-- fission:step id="main-flow" -->
-## Manage Android app state with reducers and local state
+<!-- fission:step id="check-tools-in-and-out" -->
+## Check tools in and out with reducers
 
-Use GlobalState for records, authentication, routes and values needed by separate screens. Use retained local state in the owning fission_component! for an isolated draft, expanded panel or selected tab. A reducer is a synchronous transition from a typed action to new state; asynchronous work is queued through an effect and reported by a later success or error action. Draw that ownership boundary before adding fields, then test each reducer transition without constructing the view. This prevents duplicated state and makes the screen easier to reason about.
+A checkout changes shared inventory. When a volunteer checks out the drill, the tool row and the available count should change together. Checking in Elena’s pressure washer must update the same shared record, not just remove a card from the current screen.
 
-The component below is a browser-safe version of this screen. It uses Fission's retained component state and widgets to make the task visible; it does not call a native provider or operating-system API.
+Keep the tool list in `ToolLibraryState`, which implements `GlobalState`. The `CheckOutTool` and `CheckInTool` actions carry the selected tool’s stable ID; their reducers reject an invalid repeat transition, update the matching status, and leave a clear notice. `ToolSummary` and `ToolCard` both read this state, so their values stay in sync.
 
+The filter has a different job. A volunteer can focus on available tools, then show the whole shelf to check who has the rest. `available_only` is retained local state in `ToolLibraryDesk` because it changes the visible rows, not the equipment data. Replace `src/app.rs` with this version and try the drill, saw, and filter in the preview.
+
+<Tabs>
+<TabItem label="src/app.rs">
 <!-- fission:file path="src/app.rs" -->
 ```rust
 use fission::prelude::*;
 
-fission_component! {
-    pub AndroidStateReducersLocal<()> {
-        props {
-            title: String,
-            step: String,
-            goal: String,
-        }
-        state {
-            show_details: bool = false,
-            saved_count: u32 = 0,
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ToolStatus {
+    Available,
+    CheckedOut {
+        borrower: &'static str,
+        due: &'static str,
+    },
+}
+
+impl ToolStatus {
+    pub fn is_available(&self) -> bool {
+        matches!(self, Self::Available)
+    }
+
+    pub fn summary(&self) -> String {
+        match self {
+            Self::Available => "Available on the shelf".to_string(),
+            Self::CheckedOut { borrower, due } => {
+                format!("Checked out by {} · due {}", borrower, due)
+            }
         }
     }
-    view(preview, _state, cx) {
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Tool {
+    pub id: u32,
+    pub name: &'static str,
+    pub location: &'static str,
+    pub status: ToolStatus,
+}
+
+fn sample_tools() -> Vec<Tool> {
+    vec![
+        Tool {
+            id: 2201,
+            name: "Cordless drill",
+            location: "Assembly bench",
+            status: ToolStatus::Available,
+        },
+        Tool {
+            id: 2202,
+            name: "Circular saw",
+            location: "Cutting bay",
+            status: ToolStatus::CheckedOut {
+                borrower: "Ravi",
+                due: "Friday, 5:00 pm",
+            },
+        },
+        Tool {
+            id: 2203,
+            name: "Orbital sander",
+            location: "Finishing table",
+            status: ToolStatus::Available,
+        },
+        Tool {
+            id: 2204,
+            name: "Pressure washer",
+            location: "Wash area",
+            status: ToolStatus::CheckedOut {
+                borrower: "Elena",
+                due: "Saturday, noon",
+            },
+        },
+    ]
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ToolLibraryState {
+    pub tools: Vec<Tool>,
+    pub notice: String,
+}
+
+impl Default for ToolLibraryState {
+    fn default() -> Self {
+        Self {
+            tools: sample_tools(),
+            notice: "Two tools are currently checked out; two are ready for workshop jobs.".to_string(),
+        }
+    }
+}
+
+impl GlobalState for ToolLibraryState {}
+
+#[fission_reducer(CheckOutTool)]
+pub fn on_check_out_tool(state: &mut ToolLibraryState, tool_id: u32) {
+    let notice = state
+        .tools
+        .iter_mut()
+        .find(|tool| tool.id == tool_id)
+        .and_then(|tool| {
+            if !tool.status.is_available() {
+                return None;
+            }
+            tool.status = ToolStatus::CheckedOut {
+                borrower: "Asha",
+                due: "Friday, 5:00 pm",
+            };
+            Some(format!("{} checked out to Asha until Friday at 5:00 pm.", tool.name))
+        });
+
+    if let Some(notice) = notice {
+        state.notice = notice;
+    }
+}
+
+#[fission_reducer(CheckInTool)]
+pub fn on_check_in_tool(state: &mut ToolLibraryState, tool_id: u32) {
+    let notice = state
+        .tools
+        .iter_mut()
+        .find(|tool| tool.id == tool_id)
+        .and_then(|tool| {
+            if tool.status.is_available() {
+                return None;
+            }
+            tool.status = ToolStatus::Available;
+            Some(format!("{} is back on the shelf.", tool.name))
+        });
+
+    if let Some(notice) = notice {
+        state.notice = notice;
+    }
+}
+
+fission_component! {
+    pub ToolSummary<ToolLibraryState> {}
+    view(_summary, library, cx) {
         let tokens = &cx.view.env().theme.tokens;
+        let available = library.tools.iter()
+            .filter(|tool| tool.status.is_available())
+            .count();
+        let checked_out = library.tools.len() - available;
     } =>
     SemanticsRegion(
-        identifier: Some("state-example".to_string()),
-        label: Some(preview.title.clone()),
-        child: Container(
-            Column(gap: tokens.spacing.m, children: [
-                Text(preview.title.clone())
-
-                    .weight(tokens.typography.font_weight_bold),
-                Text(preview.goal.clone()),
-                Text(format!("Saved records: {}", preview.saved_count)),
-                Button(
-                    child: Text("Add a shared record"),
-                    key: "add-record",
-                    on_press: reduce { preview.saved_count += 1; },
-                )
-                .semantics_identifier("state.add-record"),
-                Button(
-                    child: Text(if preview.show_details { "Hide state explanation" } else { "Show state explanation" }),
-                    key: "toggle-state-explanation",
-                    on_press: reduce { preview.show_details = !preview.show_details; },
-                ),
-                if preview.show_details {
-                    Text("The count models app data shared across screens. The open explanation is local UI state owned by this component.")
-                },
-            ])
-        )
-        .padding_all(tokens.spacing.l)
-        .bg(tokens.colors.surface)
-        .border(tokens.colors.border, 1.0)
-        .border_radius(tokens.radii.large),
+        identifier: Some("workshop-tool-summary".to_string()),
+        label: Some("Workshop tool availability".to_string()),
+        child: Column(gap: tokens.spacing.xs, children: [
+            Text(format!("Available · {}", available)),
+            Text(format!("Checked out · {}", checked_out))
+                .color(tokens.colors.text_secondary),
+        ]),
     )
 }
+
+fission_component! {
+    pub ToolCard<ToolLibraryState> { tool: Tool }
+    view(card, _library, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let available = card.tool.status.is_available();
+        let status = card.tool.status.summary();
+    } =>
+    SemanticsRegion(
+        identifier: Some(format!("workshop-tool-{}", card.tool.id)),
+        label: Some(format!("{} in {}", card.tool.name, card.tool.location)),
+        child: Container(
+            Column(gap: tokens.spacing.s, align_items: ir_op::AlignItems::Start, children: [
+                Column(gap: tokens.spacing.xs, children: [
+                    Text(card.tool.name.to_string())
+                        .weight(tokens.typography.font_weight_semibold),
+                    Text(format!("Stored at {}", card.tool.location))
+                        .color(tokens.colors.text_secondary),
+                    Text(status).color(tokens.colors.text_secondary),
+                ]),
+                if available {
+                    Button(
+                        child: Text("Check out to Asha"),
+                        key: "check-out-tool",
+                        variant: ButtonVariant::Primary,
+                        on_press: with_reducer!(
+                            cx.build,
+                            CheckOutTool(card.tool.id),
+                            on_check_out_tool,
+                        ),
+                    )
+                    .semantics_identifier(format!("workshop-tool.check-out.{}", card.tool.id))
+                } else {
+                    Button(
+                        child: Text("Check in"),
+                        key: "check-in-tool",
+                        variant: ButtonVariant::Outline,
+                        on_press: with_reducer!(
+                            cx.build,
+                            CheckInTool(card.tool.id),
+                            on_check_in_tool,
+                        ),
+                    )
+                    .semantics_identifier(format!("workshop-tool.check-in.{}", card.tool.id))
+                },
+            ]),
+        )
+        .padding_all(tokens.spacing.m)
+        .bg(tokens.colors.surface)
+        .border(tokens.colors.border, 1.0)
+        .border_radius(tokens.radii.medium)
+        .width_length(Length::percent(100.0)),
+    )
+}
+
+fission_component! {
+    pub ToolLibraryDesk<ToolLibraryState> {
+        state {
+            available_only: bool = false,
+        }
+    }
+    view(desk, library, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let visible_tools: Vec<Tool> = library.tools.iter()
+            .filter(|tool| !desk.available_only || tool.status.is_available())
+            .cloned()
+            .collect();
+    } =>
+    SemanticsRegion(
+        identifier: Some("north-gate-tool-library".to_string()),
+        label: Some("North Gate Workshop tool library".to_string()),
+        child: Scroll(
+            flex_grow: 1.0,
+            height: cx.view.viewport_size().height,
+            semantic_label: Some("Workshop tool inventory".to_string()),
+            child: Container(
+                Column(align_items: ir_op::AlignItems::Center, children: [
+                    Container(
+                        Column(gap: tokens.spacing.l, children: [
+                            Column(gap: tokens.spacing.xs, children: [
+                                Text("North Gate Workshop")
+                                    .weight(tokens.typography.font_weight_bold),
+                                Text("Workshop tool lending desk")
+                                    .color(tokens.colors.text_secondary),
+                            ]),
+                            ToolSummary(),
+                            Button(
+                                child: Text(if desk.available_only {
+                                    "Show all tools"
+                                } else {
+                                    "Available tools only"
+                                }),
+                                key: "toggle-available-tools",
+                                variant: ButtonVariant::Outline,
+                                on_press: reduce {
+                                    desk.available_only = !desk.available_only;
+                                },
+                            )
+                            .semantics_identifier("workshop-tools.toggle-available"),
+                            if visible_tools.is_empty() {
+                                Text("No tools are available for checkout. Show all tools to review who has the equipment.")
+                            } else {
+                                Column(gap: tokens.spacing.s, children: [
+                                    for tool in visible_tools.iter() {
+                                        ToolCard(tool.clone(), key: tool.id)
+                                    },
+                                ])
+                            },
+                            Text(library.notice.clone())
+                                .color(tokens.colors.text_secondary),
+                        ]),
+                    )
+                    .padding_all(tokens.spacing.l)
+                    .bg(tokens.colors.background)
+                    .width_length(Length::clamp(
+                        Length::points(0.0),
+                        Length::percent(100.0),
+                        Length::points(760.0),
+                    )),
+                ]),
+            )
+            .width_length(Length::percent(100.0))
+            .bg(tokens.colors.background),
+        ),
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn checking_out_an_available_tool_updates_the_shared_record() {
+        let mut state = ToolLibraryState::default();
+
+        on_check_out_tool(&mut state, 2201);
+
+        let tool = state.tools.iter().find(|tool| tool.id == 2201).unwrap();
+        assert_eq!(
+            tool.status,
+            ToolStatus::CheckedOut {
+                borrower: "Asha",
+                due: "Friday, 5:00 pm",
+            }
+        );
+        assert_eq!(
+            state.notice,
+            "Cordless drill checked out to Asha until Friday at 5:00 pm."
+        );
+    }
+
+    #[test]
+    fn checking_in_a_tool_makes_it_available_again() {
+        let mut state = ToolLibraryState::default();
+
+        on_check_in_tool(&mut state, 2204);
+
+        let tool = state.tools.iter().find(|tool| tool.id == 2204).unwrap();
+        assert_eq!(tool.status, ToolStatus::Available);
+        assert_eq!(state.notice, "Pressure washer is back on the shelf.");
+    }
+}
 ```
-
-<!-- fission:preview -->
-
-
-<Tabs>
+</TabItem>
 <TabItem label="preview/lib.rs">
 <!-- fission:file path="preview/lib.rs" -->
 ```rust
 mod app;
 
+use app::ToolLibraryState;
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
-
-#[wasm_bindgen(inline_js = "export function tutorial_title() { const parts = document.title.split(' — '); return parts.slice(1).join(' — ') || 'Fission tutorial'; } export function tutorial_step() { return document.title.split(' — ')[0] || 'Tutorial step'; } export function tutorial_goal() { return document.querySelector('meta[name=\"tutorial-goal\"]')?.content || 'Complete the task and verify it on the target.'; }")]
-extern "C" {
-    fn tutorial_title() -> String;
-    fn tutorial_step() -> String;
-    fn tutorial_goal() -> String;
-}
 
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::AndroidStateReducersLocal::new(tutorial_title(), tutorial_step(), tutorial_goal());
-    WebApp::<(), _>::new(preview)
-        .with_title("Fission tutorial preview")
+    WebApp::<ToolLibraryState, _>::new(app::ToolLibraryDesk::new())
+        .with_title("North Gate Workshop tool library")
         .mount("#fission-web-mount")
         .run()
         .map_err(|error| JsValue::from_str(&error.to_string()))
@@ -261,47 +584,95 @@ pub fn run() -> Result<(), JsValue> {
 </TabItem>
 </Tabs>
 
+<!-- fission:preview -->
+
 <!-- fission:checkpoint -->
-Add a shared record and open or close the local explanation. The count is app data in this example; the explanation belongs to the component.
+Check out the cordless drill to Asha. The available total should drop from two to one, and the drill row should show Asha’s return time. Check in Elena’s pressure washer; it should become available and the notice should name the tool. Choose `Available tools only` to hide checked-out items, then `Show all tools` to bring them back without changing any status.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 
-<!-- fission:step id="edge-state" -->
-## Verify the user task on Android
+<!-- fission:step id="run-on-android" -->
+## Run the checkout desk on Android
 
-On an Android emulator, repeat the feature path described above and check the expected result. If this task has an unavailable, denied or failure path, run that path too and confirm the screen offers a way to continue. The browser preview demonstrates component state only; the commands below verify the native host.
+The browser preview exercises the inventory rules without requiring an emulator. The native app uses the same `ToolLibraryDesk` and `ToolLibraryState`; the Android shell supplies the device window and generated host. Replace the generated app’s `CounterApp` references in `src/lib.rs`. The generated `src/main.rs` continues to select the Android entry point.
 
-Use LiveTest with the semantic identifiers shown in the component to confirm focus and action behavior. If this screen adapts to window size, repeat the flow at a narrow phone width and a wider display.
+<Tabs>
+<TabItem label="src/lib.rs">
+<!-- fission:file path="src/lib.rs" -->
+```rust
+pub mod app;
 
-### Run, test and build
+use crate::app::{ToolLibraryDesk, ToolLibraryState};
+use fission::prelude::*;
 
+#[cfg(target_os = "android")]
+const ANDROID_TEST_CONTROL_PORT: u16 = 48761;
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+fn mobile_app() -> MobileApp<ToolLibraryState, ToolLibraryDesk> {
+    let app = MobileApp::<ToolLibraryState, _>::new(ToolLibraryDesk::new())
+        .with_title("North Gate Workshop tool library");
+    #[cfg(target_os = "android")]
+    let app = app.with_test_control_port(ANDROID_TEST_CONTROL_PORT);
+    app
+}
+
+#[cfg(target_arch = "wasm32")]
+fn web_app() -> WebApp<ToolLibraryState, ToolLibraryDesk> {
+    WebApp::<ToolLibraryState, _>::new(ToolLibraryDesk::new())
+        .with_title("North Gate Workshop tool library")
+}
+
+#[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
+pub fn run_desktop() -> anyhow::Result<()> {
+    DesktopApp::<ToolLibraryState, _>::new(ToolLibraryDesk::new()).run()
+}
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub fn run_mobile() -> anyhow::Result<()> {
+    mobile_app().run()
+}
+
+#[cfg(target_os = "android")]
+#[no_mangle]
+fn android_main(app_handle: AndroidApp) {
+    let _ = mobile_app().run_with_android_app(app_handle);
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen::prelude::wasm_bindgen(start)]
+pub fn run_web() -> Result<(), wasm_bindgen::JsValue> {
+    console_error_panic_hook::set_once();
+    web_app()
+        .run()
+        .map_err(|error| wasm_bindgen::JsValue::from_str(&error.to_string()))
+}
+```
+</TabItem>
+<TabItem label="Run, test, and build">
 ```sh
 cargo test
 fission doctor android --project-dir .
+fission devices --project-dir .
 fission run --target android --project-dir .
 fission test --target android --project-dir .
 fission build --target android --project-dir . --release
 ```
-
-`cargo test` runs Rust tests you add; the generated scaffold does not create feature-specific tests. `fission doctor` reports missing Android tools, `fission run` launches the selected emulator or connected device, and `fission test` checks that the generated host can start. A release build checks packaging, but none of these commands proves a physical permission or hardware flow works.
-
-
-### Emulator and connected-device commands
-
-The [Android SDK and NDK setup guide](/blog/set-up-rust-android-gui-development-with-fission/) is the single setup source. Check prerequisites and run the emulator with:
-
+</TabItem>
+<TabItem label="Emulator or connected phone">
 ```sh
-fission doctor android --project-dir .
-fission run --target android --project-dir .
-fission test --target android --project-dir .
+fission devices --project-dir .
+fission run --target android --device <device-id> --project-dir .
 ```
+</TabItem>
+</Tabs>
 
+Run `cargo test` first. The reducer tests prove that a checkout records Asha and that a check-in returns the pressure washer to the shelf. Then launch the app in an Android emulator. Check out the drill, verify both the row and available total change, and check in the pressure washer. Open TalkBack and confirm that each tool row announces its name, storage location, status, and action. A physical Android build uses the same Rust app; the [Android device guide](/blog/run-a-fission-app-on-a-physical-android-phone/) explains USB debugging and deployment.
 
-### Current references
-
-These references explain the API contract behind the example and the target-specific behavior to verify:
-
-- [State](/docs/guides/state-handles-and-providers/)
-- [Fission component and widget reference](/reference/widgets/catalog/)
-<!-- /fission:checkpoint -->
 <!-- /fission:step -->
+
+## Continue learning
+
+- [Build your first Rust Android app with Fission](/blog/build-your-first-rust-android-gui-app-with-fission/)
+- [Compose an Android app from reusable Fission components](/blog/compose-an-android-app-from-reusable-fission-widgets/)
+- [Persist Android app state with Fission Store and SQLite](/blog/persist-android-app-state-with-fission-store-and-sqlite/)
