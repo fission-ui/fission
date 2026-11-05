@@ -1,8 +1,8 @@
 ---
 layout: goal
 title: Add Android navigation and handle the system Back action
-description: "Step-by-step Rust guide to add Android navigation and handle the system Back action using Fission."
-goal: Compose Fission routes, return from detail screens and confirm before discarding an edited form.
+description: Learn Rust Android navigation with Fission Router and typed route parameters by building a property maintenance work-order app.
+goal: Open a real work order from a queue, update its status, and return to the queue with Android Back.
 path: /blog/add-android-navigation-and-handle-the-system-back-action/
 order: 31
 difficulty: Beginner
@@ -10,52 +10,52 @@ duration: 35 minutes
 run_command: "fission run --target android --project-dir ."
 app: android-add-android-navigation-and-handle-the-system-back-action
 outcomes:
-  - Implement the feature in shared Rust application code
-  - Explain the state, component and host behaviour involved
-  - Verify the Android workflow and follow physical-device checks when the task requires them
+  - Model a maintenance work order and build a useful queue
+  - Match a detail route and validate its ID with RouteParams
+  - Keep Android system Back and the visible route in sync
+  - Update a work order from its detail screen with a reducer
 ---
 
-## What you will build
+Riverside Property Services handles repairs across several apartment buildings. A coordinator starts the day with a queue of open jobs, opens one work order to see its location and reported problem, and returns to the same queue when the repair is complete. On Android, the system Back action should return from that detail screen just like the app’s own navigation.
 
-In this tutorial, you will compose Fission routes, return from detail screens and confirm before discarding an edited form. Try the interactive screen below in your browser. It changes local component state only; it does not open Android permission prompts, use device hardware or build an Android app. Follow the emulator checks below, then use a phone for hardware behavior.
+We will build that flow around three work orders. Fission’s `Router` will select the queue or a detail screen from the current path. The detail route will read its work-order ID from `RouteParams`, and a reducer will mark the repair complete. A route handler keeps app state in sync when Android changes the path through system Back.
 
-### How the screen uses Fission
+## Create the Android project
 
-Throughout this guide, the screen is written as a `fission_component!`. That component owns its temporary interaction state and renders widgets from that state; a reducer changes it after a user action. Put durable facts shared across screens in `GlobalState`, and request native or service work through an effect or capability after the view is built.
+Create the app and add Android as a target. The [Android development setup guide](/blog/set-up-rust-android-gui-development-with-fission/) covers installing the SDK and NDK and starting an emulator.
 
-## Create the project and add the target
-
-Install the Fission command line, create the app, and add its native target. The [canonical Android setup tutorial](/blog/set-up-rust-android-gui-development-with-fission/) covers SDK installation and device prerequisites.
-
+<Tabs>
+<TabItem label="Create the app">
 ```sh
 cargo install cargo-fission
-fission init android-add-android-navigation-and-handle-the-system-back-action
-cd android-add-android-navigation-and-handle-the-system-back-action
+fission init riverside-work-orders
+cd riverside-work-orders
 fission add-target android --project-dir .
 ```
-
-## Files created by Fission
-
-This is the starter tree after `fission init` and `fission add-target`; the component and state used for this task are additions in the steps below. Keep shared Rust behavior under `src/` and leave target launch and packaging in `platforms/android/`.
-
+</TabItem>
+<TabItem label="Files for this task">
 ```text
-android-add-android-navigation-and-handle-the-system-back-action/
+riverside-work-orders/
 ├── Cargo.toml                 # Rust package and dependencies
-├── fission.toml               # app identity, targets and capabilities
+├── fission.toml               # app identity and target configuration
 ├── src/
-│   ├── main.rs                # generated app entrypoint
-│   ├── lib.rs                 # shared app setup
-│   └── app.rs                 # shared Fission screen
+│   ├── main.rs                # generated target entry point
+│   ├── lib.rs                 # shared app and shell setup
+│   └── app.rs                 # work orders, routes, and components
 └── platforms/
-    └── android/              # generated Android host
+    └── android/               # generated Android host and packaging
 ```
+</TabItem>
+</Tabs>
 
-Keep `src/app.rs`, shared state, reducers and reusable `fission_component!` components in the common Rust project. Add a state, service or effect module only when this feature needs that boundary, and use a name tied to the feature. The generated Android host owns launch and packaging details; shared components describe the user task without importing Android APIs.
+The queue, route state, and screens all belong in shared Rust code under `src/`. The generated Android host starts the app and packages it for the device; it does not need its own copy of the work-order rules.
 
 <!-- fission:step id="start-screen" -->
-## Try the browser-safe interaction
+## Build the maintenance queue
 
-The preview is a compiled Fission component with two deliberately local simulations. Press **Simulate success** to inspect the normal result, then **Simulate unavailable** to see how the screen can explain that a capability cannot proceed. These actions change only preview state: they do not request permission, access a sensor or run the target app. In the main step, compare that state boundary with the feature-specific instructions.
+Start with the information a coordinator needs before opening a job: its short ID, location, priority, current status, and reported problem. We will use sample records in memory so the first screen is ready to inspect as soon as the app opens. Later, a service or database can replace this sample source without changing the way the queue lays out each row.
+
+`WorkOrderCard` presents one repair request. `WorkOrderList` counts the open and urgent jobs, then gives each record a stable key so Fission can keep rows associated with the same work order when the list changes.
 
 <Tabs>
 <TabItem label="src/app.rs">
@@ -63,72 +63,185 @@ The preview is a compiled Fission component with two deliberately local simulati
 ```rust
 use fission::prelude::*;
 
-fission_component! {
-    pub AndroidNavigation<()> {
-        props {
-            title: String,
-            step: String,
-            goal: String,
-        }
-        state {
-            simulated_success: bool = false,
-            simulated_unavailable: bool = false,
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WorkOrderStatus {
+    New,
+    Assigned,
+    Resolved,
+}
+
+impl WorkOrderStatus {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::New => "New",
+            Self::Assigned => "Assigned",
+            Self::Resolved => "Resolved",
         }
     }
-    view(preview, _state, cx) {
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WorkOrder {
+    pub id: u32,
+    pub title: &'static str,
+    pub property: &'static str,
+    pub location: &'static str,
+    pub requested_by: &'static str,
+    pub reported_at: &'static str,
+    pub priority: &'static str,
+    pub assigned_to: Option<&'static str>,
+    pub description: &'static str,
+    pub status: WorkOrderStatus,
+}
+
+fn sample_work_orders() -> Vec<WorkOrder> {
+    vec![
+        WorkOrder {
+            id: 4201,
+            title: "Boiler pressure is dropping",
+            property: "Riverside House",
+            location: "Basement · plant room B",
+            requested_by: "Mina Patel · apartment 3B",
+            reported_at: "Today · 8:12 am",
+            priority: "Urgent",
+            assigned_to: Some("Luis Ortega"),
+            description: "The pressure gauge falls below its normal range every few minutes. Residents in the north wing have also reported that their radiators are cool.",
+            status: WorkOrderStatus::Assigned,
+        },
+        WorkOrder {
+            id: 4207,
+            title: "Bedroom window will not latch",
+            property: "Willow Court",
+            location: "Apartment 2A · second floor",
+            requested_by: "Elliot Chen · apartment 2A",
+            reported_at: "Today · 8:46 am",
+            priority: "Standard",
+            assigned_to: None,
+            description: "The bedroom window closes but the handle will not lock. Please check the latch and let the resident know before entering.",
+            status: WorkOrderStatus::New,
+        },
+        WorkOrder {
+            id: 4212,
+            title: "Kitchen tap keeps dripping",
+            property: "Riverside House",
+            location: "Apartment 4D · kitchen",
+            requested_by: "Samira Ali · apartment 4D",
+            reported_at: "Today · 9:03 am",
+            priority: "Standard",
+            assigned_to: Some("Priya Shah"),
+            description: "Water continues to drip after the handle is fully closed. The resident has placed a bowl underneath and is available after 2:00 pm.",
+            status: WorkOrderStatus::Assigned,
+        },
+    ]
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WorkOrderState {
+    pub current_path: String,
+    pub work_orders: Vec<WorkOrder>,
+    pub notice: String,
+}
+
+impl Default for WorkOrderState {
+    fn default() -> Self {
+        Self {
+            current_path: "/".to_string(),
+            work_orders: sample_work_orders(),
+            notice: "Three open repairs are waiting for the maintenance team.".to_string(),
+        }
+    }
+}
+
+impl GlobalState for WorkOrderState {}
+
+fission_component! {
+    pub WorkOrderCard<()> { work_order: WorkOrder }
+    view(card, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
     } =>
     SemanticsRegion(
-        identifier: Some("tutorial-preview".to_string()),
-        label: Some(preview.title.clone()),
+        identifier: Some(format!("work-order-{}", card.work_order.id)),
+        label: Some(format!("Work order {}: {}", card.work_order.id, card.work_order.title)),
         child: Container(
-            Column(gap: tokens.spacing.m, children: [
-                Text(preview.title.clone())
-
-                    .weight(tokens.typography.font_weight_bold),
-                Text(preview.step.clone())
+            Column(gap: tokens.spacing.xs, align_items: ir_op::AlignItems::Start, children: [
+                Row(gap: tokens.spacing.s, children: [
+                    Text(format!("WO-{}", card.work_order.id))
+                        .weight(tokens.typography.font_weight_semibold),
+                    Text(card.work_order.priority.to_string())
+                        .color(tokens.colors.text_secondary),
+                    Text(card.work_order.status.label())
+                        .color(tokens.colors.text_secondary),
+                ]),
+                Text(card.work_order.title.to_string())
+                    .weight(tokens.typography.font_weight_semibold),
+                Text(format!("{} · {}", card.work_order.property, card.work_order.location))
                     .color(tokens.colors.text_secondary),
-                Text(preview.goal.clone()),
-                Button(
-                    child: Text(if preview.simulated_success {
-                        "Reset success simulation".to_string()
-                    } else {
-                        "Simulate success".to_string()
-                    }),
-                    key: "tutorial-complete",
-                    on_press: reduce {
-                        preview.simulated_success = !preview.simulated_success;
-                        if preview.simulated_success { preview.simulated_unavailable = false; }
-                    },
-                ),
-                Text(if preview.simulated_success {
-                    format!("Simulated success for {}. Only browser-local state changed. Use the target steps below to verify the real behaviour.", preview.goal)
-                } else {
-                    "Ready: no native request has run. Choose a simulation to see how the screen state changes.".to_string()
-                }),
-                Button(
-                    child: Text(if preview.simulated_unavailable {
-                        "Clear unavailable simulation".to_string()
-                    } else {
-                        "Simulate unavailable".to_string()
-                    }),
-                    key: "tutorial-unavailable",
-                    on_press: reduce {
-                        preview.simulated_unavailable = !preview.simulated_unavailable;
-                        if preview.simulated_unavailable { preview.simulated_success = false; }
-                    },
-                ),
-                if preview.simulated_unavailable {
-                    Text(format!("Simulated unavailable result for {}. No native request ran; the target app should explain the real reason and recovery action.", preview.title))
-                } else {
-                    Text("No unavailable response is being simulated.".to_string())
-                },
-            ])
+                Text(format!("Reported by {}", card.work_order.requested_by))
+                    .color(tokens.colors.text_secondary),
+            ]),
         )
-        .padding_all(tokens.spacing.l)
+        .padding_all(tokens.spacing.m)
         .bg(tokens.colors.surface)
         .border(tokens.colors.border, 1.0)
-        .border_radius(tokens.radii.large),
+        .border_radius(tokens.radii.medium)
+        .width_length(Length::percent(100.0)),
+    )
+}
+
+fission_component! {
+    pub WorkOrderList<WorkOrderState> {}
+    view(_queue, state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let open_count = state.work_orders.iter()
+            .filter(|order| order.status != WorkOrderStatus::Resolved)
+            .count();
+        let urgent_count = state.work_orders.iter()
+            .filter(|order| order.status != WorkOrderStatus::Resolved && order.priority == "Urgent")
+            .count();
+    } =>
+    SemanticsRegion(
+        identifier: Some("riverside-work-order-queue".to_string()),
+        label: Some("Riverside maintenance work orders".to_string()),
+        child: Scroll(
+            flex_grow: 1.0,
+            height: cx.view.viewport_size().height,
+            semantic_label: Some("Open maintenance work orders".to_string()),
+            child: Container(
+                Column(align_items: ir_op::AlignItems::Center, children: [
+                    Container(
+                        Column(gap: tokens.spacing.l, children: [
+                            Column(gap: tokens.spacing.xs, children: [
+                                Text("Riverside Property Services")
+                                    .weight(tokens.typography.font_weight_bold),
+                                Text("Maintenance work orders")
+                                    .color(tokens.colors.text_secondary),
+                            ]),
+                            Row(gap: tokens.spacing.m, children: [
+                                Text(format!("Open · {}", open_count)),
+                                Text(format!("Urgent · {}", urgent_count))
+                                    .color(tokens.colors.text_secondary),
+                            ]),
+                            Text(state.notice.clone())
+                                .color(tokens.colors.text_secondary),
+                            Column(gap: tokens.spacing.s, children: [
+                                for order in state.work_orders.iter() {
+                                    WorkOrderCard(order.clone(), key: order.id)
+                                },
+                            ]),
+                        ]),
+                    )
+                    .padding_all(tokens.spacing.l)
+                    .bg(tokens.colors.background)
+                    .width_length(Length::clamp(
+                        Length::points(0.0),
+                        Length::percent(100.0),
+                        Length::points(760.0),
+                    )),
+                ]),
+            )
+            .width_length(Length::percent(100.0))
+            .bg(tokens.colors.background),
+        ),
     )
 }
 ```
@@ -138,22 +251,15 @@ fission_component! {
 ```rust
 mod app;
 
+use app::WorkOrderState;
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
-
-#[wasm_bindgen(inline_js = "export function tutorial_title() { const parts = document.title.split(' — '); return parts.slice(1).join(' — ') || 'Fission tutorial'; } export function tutorial_step() { return document.title.split(' — ')[0] || 'Tutorial step'; } export function tutorial_goal() { return document.querySelector('meta[name=\"tutorial-goal\"]')?.content || 'Complete the task and verify it on the target.'; }")]
-extern "C" {
-    fn tutorial_title() -> String;
-    fn tutorial_step() -> String;
-    fn tutorial_goal() -> String;
-}
 
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::AndroidNavigation::new(tutorial_title(), tutorial_step(), tutorial_goal());
-    WebApp::<(), _>::new(preview)
-        .with_title("Fission tutorial preview")
+    WebApp::<WorkOrderState, _>::new(app::WorkOrderList::new())
+        .with_title("Riverside maintenance work orders")
         .mount("#fission-web-mount")
         .run()
         .map_err(|error| JsValue::from_str(&error.to_string()))
@@ -161,114 +267,429 @@ pub fn run() -> Result<(), JsValue> {
 ```
 </TabItem>
 </Tabs>
+
 <!-- fission:preview -->
 
 <!-- fission:checkpoint -->
-Press **Simulate success** and check the visible status change. Then choose **Simulate unavailable** and check that the screen explains the unavailable outcome. Both actions change browser-local state only; they do not invoke the native capability.
+Find work order `WO-4201`. The card should identify Riverside House’s basement plant room, show that the boiler pressure problem is urgent, and name Luis Ortega as the assignee. Notice that the other two jobs have their own properties, locations, residents, and reported problems.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 
-<!-- fission:step id="main-flow" -->
-## Add Android navigation and handle the system Back action
+<!-- fission:step id="route-to-work-order" -->
+## Open a work order and return with Android Back
 
-Represent the active destination with the Fission Router and RouterParams so a detail screen can receive a typed route parameter. Keep the edit draft with the form component and store a durable saved record in GlobalState. On Android, handle system Back consistently with the visible Back control; on iOS, preserve the navigation stack and confirm before discarding a dirty draft. Test opening a detail route, returning, cancelling the discard prompt, confirming the discard, and opening a deep link directly into the detail route. An unknown record ID should render a not-found state rather than an empty or crashing screen.
+Now give each row an action. The queue and detail screen are two destinations in one app, so their current path belongs in `WorkOrderState`. `Router` compares that path with the route table and builds only the matching screen. A route such as `/work-orders/4201` contains the record ID; the detail route reads that value from `RouteParams` and checks it against the records before displaying anything.
 
-The component below is a browser-safe version of this screen. It uses Fission's retained component state and widgets to make the task visible; it does not call a native provider or operating-system API.
+When a coordinator marks a repair resolved, a reducer changes the shared work-order record. The queue count and detail screen then read the same updated state. Opening a record pushes a route through `ctx.effects.navigate`. Android’s system Back changes the shell route, and `with_route_handler` copies that change into `current_path`, so the Router returns to the queue.
 
+Replace `src/app.rs` with this version. The queue looks familiar, but its cards can now open typed detail routes, and the detail screen can update the repair status.
+
+<Tabs>
+<TabItem label="src/app.rs">
 <!-- fission:file path="src/app.rs" -->
 ```rust
 use fission::prelude::*;
 
-fission_component! {
-    pub ItemList<()> {
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WorkOrderStatus {
+    New,
+    Assigned,
+    Resolved,
+}
+
+impl WorkOrderStatus {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::New => "New",
+            Self::Assigned => "Assigned",
+            Self::Resolved => "Resolved",
+        }
     }
-    view(_screen, _state, _cx) =>
-        Column(children: [
-            Text("Items"),
-            Text("Draft record · tap Back to return"),
-        ])
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WorkOrder {
+    pub id: u32,
+    pub title: &'static str,
+    pub property: &'static str,
+    pub location: &'static str,
+    pub requested_by: &'static str,
+    pub reported_at: &'static str,
+    pub priority: &'static str,
+    pub assigned_to: Option<&'static str>,
+    pub description: &'static str,
+    pub status: WorkOrderStatus,
+}
+
+fn sample_work_orders() -> Vec<WorkOrder> {
+    vec![
+        WorkOrder {
+            id: 4201,
+            title: "Boiler pressure is dropping",
+            property: "Riverside House",
+            location: "Basement · plant room B",
+            requested_by: "Mina Patel · apartment 3B",
+            reported_at: "Today · 8:12 am",
+            priority: "Urgent",
+            assigned_to: Some("Luis Ortega"),
+            description: "The pressure gauge falls below its normal range every few minutes. Residents in the north wing have also reported that their radiators are cool.",
+            status: WorkOrderStatus::Assigned,
+        },
+        WorkOrder {
+            id: 4207,
+            title: "Bedroom window will not latch",
+            property: "Willow Court",
+            location: "Apartment 2A · second floor",
+            requested_by: "Elliot Chen · apartment 2A",
+            reported_at: "Today · 8:46 am",
+            priority: "Standard",
+            assigned_to: None,
+            description: "The bedroom window closes but the handle will not lock. Please check the latch and let the resident know before entering.",
+            status: WorkOrderStatus::New,
+        },
+        WorkOrder {
+            id: 4212,
+            title: "Kitchen tap keeps dripping",
+            property: "Riverside House",
+            location: "Apartment 4D · kitchen",
+            requested_by: "Samira Ali · apartment 4D",
+            reported_at: "Today · 9:03 am",
+            priority: "Standard",
+            assigned_to: Some("Priya Shah"),
+            description: "Water continues to drip after the handle is fully closed. The resident has placed a bowl underneath and is available after 2:00 pm.",
+            status: WorkOrderStatus::Assigned,
+        },
+    ]
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WorkOrderState {
+    pub current_path: String,
+    pub work_orders: Vec<WorkOrder>,
+    pub notice: String,
+}
+
+impl Default for WorkOrderState {
+    fn default() -> Self {
+        Self {
+            current_path: "/".to_string(),
+            work_orders: sample_work_orders(),
+            notice: "Three open repairs are waiting for the maintenance team.".to_string(),
+        }
+    }
+}
+
+impl GlobalState for WorkOrderState {}
+
+#[fission_reducer(OpenWorkOrder)]
+pub fn on_open_work_order(
+    state: &mut WorkOrderState,
+    work_order_id: u32,
+    cx: &mut ReducerContext<WorkOrderState>,
+) {
+    if state.work_orders.iter().any(|order| order.id == work_order_id) {
+        let path = format!("/work-orders/{work_order_id}");
+        state.current_path = path.clone();
+        cx.effects.navigate(path);
+    }
+}
+
+#[fission_reducer(MarkWorkOrderResolved)]
+pub fn on_mark_work_order_resolved(state: &mut WorkOrderState, work_order_id: u32) {
+    let Some(order) = state.work_orders.iter_mut().find(|order| order.id == work_order_id) else {
+        return;
+    };
+    if order.status == WorkOrderStatus::Resolved {
+        return;
+    }
+    order.status = WorkOrderStatus::Resolved;
+    state.notice = format!("Work order WO-{} is resolved.", order.id);
+}
+
+#[fission_reducer(BackToWorkOrders)]
+pub fn on_back_to_work_orders(
+    _state: &mut WorkOrderState,
+    _work_order_id: u32,
+    cx: &mut ReducerContext<WorkOrderState>,
+) {
+    cx.effects.navigation_back();
+}
+
+pub fn on_shell_route_changed(
+    state: &mut WorkOrderState,
+    action: fission::core::action::ShellRouteChanged,
+    _cx: &mut ReducerContext<WorkOrderState>,
+) {
+    state.current_path = action.location.pathname;
 }
 
 fission_component! {
-    pub ItemDetail<()> {
-    }
-    view(_screen, _state, _cx) =>
-        Column(children: [
-            Text("Item details"),
-            Text("Record 42"),
-        ])
+    pub WorkOrderCard<WorkOrderState> { work_order: WorkOrder }
+    view(card, _state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let open = with_reducer!(
+            cx.build,
+            OpenWorkOrder(card.work_order.id),
+            on_open_work_order,
+        );
+    } =>
+    SemanticsRegion(
+        identifier: Some(format!("work-order-{}", card.work_order.id)),
+        label: Some(format!("Work order {}: {}", card.work_order.id, card.work_order.title)),
+        child: Container(
+            Column(gap: tokens.spacing.s, align_items: ir_op::AlignItems::Start, children: [
+                Row(gap: tokens.spacing.s, children: [
+                    Text(format!("WO-{}", card.work_order.id))
+                        .weight(tokens.typography.font_weight_semibold),
+                    Text(card.work_order.priority.to_string())
+                        .color(tokens.colors.text_secondary),
+                    Text(card.work_order.status.label())
+                        .color(tokens.colors.text_secondary),
+                ]),
+                Text(card.work_order.title.to_string())
+                    .weight(tokens.typography.font_weight_semibold),
+                Text(format!("{} · {}", card.work_order.property, card.work_order.location))
+                    .color(tokens.colors.text_secondary),
+                Text(format!("Reported by {}", card.work_order.requested_by))
+                    .color(tokens.colors.text_secondary),
+                Button(
+                    child: Text("Open work order"),
+                    key: "open-work-order",
+                    variant: ButtonVariant::Outline,
+                    on_press: open,
+                )
+                .semantics_identifier(format!("work-order.open.{}", card.work_order.id)),
+            ]),
+        )
+        .padding_all(tokens.spacing.m)
+        .bg(tokens.colors.surface)
+        .border(tokens.colors.border, 1.0)
+        .border_radius(tokens.radii.medium)
+        .width_length(Length::percent(100.0)),
+    )
 }
 
 fission_component! {
-    pub AndroidNavigationSystemBackAction<()> {
-        props {
-            title: String,
-            step: String,
-            goal: String,
-        }
-        state {
-            detail_open: bool = false,
-        }
+    pub WorkOrderList<WorkOrderState> {}
+    view(_queue, state, cx) {
+        let tokens = &cx.view.env().theme.tokens;
+        let open_count = state.work_orders.iter()
+            .filter(|order| order.status != WorkOrderStatus::Resolved)
+            .count();
+        let urgent_count = state.work_orders.iter()
+            .filter(|order| order.status != WorkOrderStatus::Resolved && order.priority == "Urgent")
+            .count();
+    } =>
+    SemanticsRegion(
+        identifier: Some("riverside-work-order-queue".to_string()),
+        label: Some("Riverside maintenance work orders".to_string()),
+        child: Scroll(
+            flex_grow: 1.0,
+            height: cx.view.viewport_size().height,
+            semantic_label: Some("Open maintenance work orders".to_string()),
+            child: Container(
+                Column(align_items: ir_op::AlignItems::Center, children: [
+                    Container(
+                        Column(gap: tokens.spacing.l, children: [
+                            Column(gap: tokens.spacing.xs, children: [
+                                Text("Riverside Property Services")
+                                    .weight(tokens.typography.font_weight_bold),
+                                Text("Maintenance work orders")
+                                    .color(tokens.colors.text_secondary),
+                            ]),
+                            Row(gap: tokens.spacing.m, children: [
+                                Text(format!("Open · {}", open_count)),
+                                Text(format!("Urgent · {}", urgent_count))
+                                    .color(tokens.colors.text_secondary),
+                            ]),
+                            Text(state.notice.clone())
+                                .color(tokens.colors.text_secondary),
+                            Column(gap: tokens.spacing.s, children: [
+                                for order in state.work_orders.iter() {
+                                    WorkOrderCard(order.clone(), key: order.id)
+                                },
+                            ]),
+                        ]),
+                    )
+                    .padding_all(tokens.spacing.l)
+                    .bg(tokens.colors.background)
+                    .width_length(Length::clamp(
+                        Length::points(0.0),
+                        Length::percent(100.0),
+                        Length::points(760.0),
+                    )),
+                ]),
+            )
+            .width_length(Length::percent(100.0))
+            .bg(tokens.colors.background),
+        ),
+    )
+}
+
+fission_component! {
+    pub WorkOrderDetailRoute<WorkOrderState> {}
+    view(_route, state, _cx) {
+        let params = fission::build::read::<RouteParams>();
+        let requested_id = params.get("id").cloned().unwrap_or_default();
+        let work_order = requested_id
+            .parse::<u32>()
+            .ok()
+            .and_then(|id| state.work_orders.iter().find(|order| order.id == id))
+            .cloned();
+    } =>
+    WorkOrderDetail(work_order, requested_id)
+}
+
+fission_component! {
+    pub WorkOrderDetail<WorkOrderState> {
+        work_order: Option<WorkOrder>,
+        requested_id: String,
     }
     view(screen, _state, cx) {
         let tokens = &cx.view.env().theme.tokens;
-        let path = if screen.detail_open { "/items/42" } else { "/items" };
-        let router: Widget = Router::<()>::new()
-            .with_path(path.to_string())
-            .route_component("/items", ItemList)
-            .route_component("/items/:id", ItemDetail)
-            .into();
     } =>
     SemanticsRegion(
-        identifier: Some("route-preview".to_string()),
-        label: Some(screen.title.clone()),
-        child: Container(
-            Column(gap: tokens.spacing.m, children: [
-                Text(screen.title.clone())
-
-                    .weight(tokens.typography.font_weight_bold),
-                Text(screen.goal.clone()),
-                Button(
-                    child: Text(if screen.detail_open { "Back to items" } else { "Open record 42" }),
-                    key: "toggle-route",
-                    on_press: reduce { screen.detail_open = !screen.detail_open; },
-                ),
-                router,
-            ])
-        )
-        .padding_all(tokens.spacing.l)
-        .bg(tokens.colors.surface)
-        .border(tokens.colors.border, 1.0)
-        .border_radius(tokens.radii.large),
+        identifier: Some("riverside-work-order-detail".to_string()),
+        label: Some("Maintenance work-order details".to_string()),
+        child: Scroll(
+            flex_grow: 1.0,
+            height: cx.view.viewport_size().height,
+            semantic_label: Some("Work-order details and actions".to_string()),
+            child: Container(
+                Column(align_items: ir_op::AlignItems::Center, children: [
+                    Container(
+                        if let Some(order) = screen.work_order.clone() {
+                            Column(gap: tokens.spacing.l, children: [
+                                Button(
+                                    child: Text("Back to work orders"),
+                                    key: "back-to-work-orders",
+                                    variant: ButtonVariant::Outline,
+                                    on_press: with_reducer!(
+                                        cx.build,
+                                        BackToWorkOrders(order.id),
+                                        on_back_to_work_orders,
+                                    ),
+                                ),
+                                Column(gap: tokens.spacing.s, children: [
+                                    Text(format!("WO-{} · {}", order.id, order.priority))
+                                        .color(tokens.colors.text_secondary),
+                                    Text(order.title.to_string())
+                                        .weight(tokens.typography.font_weight_bold),
+                                    Text(format!("{} · {}", order.property, order.location)),
+                                ]),
+                                Column(gap: tokens.spacing.xs, children: [
+                                    Text("Reported by")
+                                        .weight(tokens.typography.font_weight_semibold),
+                                    Text(order.requested_by.to_string()),
+                                    Text(format!("{} · {}", order.reported_at, order.status.label()))
+                                        .color(tokens.colors.text_secondary),
+                                ]),
+                                Column(gap: tokens.spacing.xs, children: [
+                                    Text("What needs attention")
+                                        .weight(tokens.typography.font_weight_semibold),
+                                    Text(order.description.to_string()),
+                                ]),
+                                Column(gap: tokens.spacing.xs, children: [
+                                    Text("Assigned technician")
+                                        .weight(tokens.typography.font_weight_semibold),
+                                    Text(order.assigned_to.unwrap_or("Not assigned yet").to_string())
+                                        .color(tokens.colors.text_secondary),
+                                ]),
+                                if order.status == WorkOrderStatus::Resolved {
+                                    Text("This repair is marked resolved.")
+                                        .color(tokens.colors.text_secondary)
+                                } else {
+                                    Button(
+                                        child: Text("Mark repair resolved"),
+                                        key: "mark-work-order-resolved",
+                                        variant: ButtonVariant::Primary,
+                                        on_press: with_reducer!(
+                                            cx.build,
+                                            MarkWorkOrderResolved(order.id),
+                                            on_mark_work_order_resolved,
+                                        ),
+                                    )
+                                    .semantics_identifier(format!("work-order.resolve.{}", order.id))
+                                },
+                            ])
+                        } else {
+                            Column(gap: tokens.spacing.m, children: [
+                                Text(format!("Work order {} was not found.", screen.requested_id))
+                                    .weight(tokens.typography.font_weight_semibold),
+                                Text("Check the work-order number or return to the queue."),
+                            ])
+                        },
+                    )
+                    .padding_all(tokens.spacing.l)
+                    .bg(tokens.colors.background)
+                    .width_length(Length::clamp(
+                        Length::points(0.0),
+                        Length::percent(100.0),
+                        Length::points(760.0),
+                    )),
+                ]),
+            )
+            .width_length(Length::percent(100.0))
+            .bg(tokens.colors.background),
+        ),
     )
 }
+
+fission_component! {
+    pub WorkOrdersApp<WorkOrderState> {}
+    view(_app, state, _cx) {
+        let router = Router::<WorkOrderState>::new()
+            .with_path(state.current_path.clone())
+            .route_component("/", WorkOrderList)
+            .route_component("/work-orders/:id", WorkOrderDetailRoute)
+            .not_found(|| Text::new("This work-order page does not exist."));
+    } =>
+    router
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn resolving_a_work_order_updates_the_shared_queue_record() {
+        let mut state = WorkOrderState::default();
+
+        on_mark_work_order_resolved(&mut state, 4201);
+
+        let order = state.work_orders.iter().find(|order| order.id == 4201).unwrap();
+        assert_eq!(order.status, WorkOrderStatus::Resolved);
+        assert_eq!(state.notice, "Work order WO-4201 is resolved.");
+    }
+
+    #[test]
+    fn an_unknown_work_order_id_does_not_change_the_queue() {
+        let mut state = WorkOrderState::default();
+        let before = state.clone();
+
+        on_mark_work_order_resolved(&mut state, 9999);
+
+        assert_eq!(state, before);
+    }
+}
 ```
-
-<!-- fission:preview -->
-
-
-<Tabs>
+</TabItem>
 <TabItem label="preview/lib.rs">
 <!-- fission:file path="preview/lib.rs" -->
 ```rust
 mod app;
 
+use app::{on_shell_route_changed, WorkOrderState, WorkOrdersApp};
 use fission::prelude::*;
 use wasm_bindgen::prelude::*;
-
-#[wasm_bindgen(inline_js = "export function tutorial_title() { const parts = document.title.split(' — '); return parts.slice(1).join(' — ') || 'Fission tutorial'; } export function tutorial_step() { return document.title.split(' — ')[0] || 'Tutorial step'; } export function tutorial_goal() { return document.querySelector('meta[name=\"tutorial-goal\"]')?.content || 'Complete the task and verify it on the target.'; }")]
-extern "C" {
-    fn tutorial_title() -> String;
-    fn tutorial_step() -> String;
-    fn tutorial_goal() -> String;
-}
 
 #[wasm_bindgen(start)]
 pub fn run() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    let preview = app::AndroidNavigationSystemBackAction::new(tutorial_title(), tutorial_step(), tutorial_goal());
-    WebApp::<(), _>::new(preview)
-        .with_title("Fission tutorial preview")
+    WebApp::<WorkOrderState, _>::new(WorkOrdersApp::new())
+        .with_title("Riverside work-order queue")
+        .with_navigation(WebNavigationConfig::new(WebRouteStrategy::Hash))
+        .with_route_handler(on_shell_route_changed)
         .mount("#fission-web-mount")
         .run()
         .map_err(|error| JsValue::from_str(&error.to_string()))
@@ -277,48 +698,103 @@ pub fn run() -> Result<(), JsValue> {
 </TabItem>
 </Tabs>
 
+<!-- fission:preview -->
+
 <!-- fission:checkpoint -->
-Open record 42 and return to the list. The browser router demonstrates route selection; system Back and unsaved-form confirmation still need target verification.
+Open `WO-4201`. Confirm the detail screen includes the boiler location, Mina’s report, the symptom description, and Luis’s assignment. Choose **Mark repair resolved**; the detail should now show its resolved status. Use the Android system Back action or **Back to work orders** to return to the queue. Its open count should decrease, and the same work order should now read **Resolved**. The browser preview uses its own hash route so the rest of the tutorial page stays in place while you navigate.
 <!-- /fission:checkpoint -->
 <!-- /fission:step -->
 
-<!-- fission:step id="edge-state" -->
-## Test in-app and inbound routes on Android
+<!-- fission:step id="run-on-android" -->
+## Connect the route handler to the Android shell
 
-Open the destination from inside the app, return to the previous screen, then open the same destination from its external URL. The external route should use the same typed route state as an in-app link rather than creating a second copy of the screen logic.
+The component code now knows how to render each route. The shell still needs a handler for route changes that originate outside a button, such as pressing Android Back. Register `on_shell_route_changed` when you create the app. It receives the new path from the shell and updates `WorkOrderState`; the next render then gives that path to `Router`.
 
-Try an unknown record ID and a malformed link as well as a valid one. The app should show a useful not-found or recovery screen, preserve unsaved work when required, and never render a blank route.
+Keep this setup in `src/lib.rs`. The generated `src/main.rs` and `platforms/android/` files can stay as Fission created them.
 
-### Run, test and build
+<Tabs>
+<TabItem label="src/lib.rs">
+<!-- fission:file path="src/lib.rs" -->
+```rust
+pub mod app;
 
+use app::{on_shell_route_changed, WorkOrderState, WorkOrdersApp};
+use fission::prelude::*;
+
+#[cfg(target_os = "android")]
+const ANDROID_TEST_CONTROL_PORT: u16 = 48762;
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+fn mobile_app() -> MobileApp<WorkOrderState, WorkOrdersApp> {
+    let app = MobileApp::<WorkOrderState, _>::new(WorkOrdersApp::new())
+        .with_title("Riverside maintenance work orders")
+        .with_route_handler(on_shell_route_changed);
+    #[cfg(target_os = "android")]
+    let app = app.with_test_control_port(ANDROID_TEST_CONTROL_PORT);
+    app
+}
+
+#[cfg(target_arch = "wasm32")]
+fn web_app() -> WebApp<WorkOrderState, WorkOrdersApp> {
+    WebApp::<WorkOrderState, _>::new(WorkOrdersApp::new())
+        .with_title("Riverside maintenance work orders")
+        .with_route_handler(on_shell_route_changed)
+}
+
+#[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
+pub fn run_desktop() -> anyhow::Result<()> {
+    DesktopApp::<WorkOrderState, _>::new(WorkOrdersApp::new())
+        .with_title("Riverside maintenance work orders")
+        .with_route_handler(on_shell_route_changed)
+        .run()
+}
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+pub fn run_mobile() -> anyhow::Result<()> {
+    mobile_app().run()
+}
+
+#[cfg(target_os = "android")]
+#[no_mangle]
+fn android_main(app_handle: AndroidApp) {
+    let _ = mobile_app().run_with_android_app(app_handle);
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen::prelude::wasm_bindgen(start)]
+pub fn run_web() -> Result<(), wasm_bindgen::JsValue> {
+    console_error_panic_hook::set_once();
+    web_app()
+        .run()
+        .map_err(|error| wasm_bindgen::JsValue::from_str(&error.to_string()))
+}
+```
+</TabItem>
+<TabItem label="Run and verify">
 ```sh
 cargo test
 fission doctor android --project-dir .
+fission devices --project-dir .
 fission run --target android --project-dir .
 fission test --target android --project-dir .
 fission build --target android --project-dir . --release
 ```
-
-`cargo test` runs Rust tests you add; the generated scaffold does not create feature-specific tests. `fission doctor` reports missing Android tools, `fission run` launches the selected emulator or connected device, and `fission test` checks that the generated host can start. A release build checks packaging, but none of these commands proves a physical permission or hardware flow works.
-
-
-### Emulator and connected-device commands
-
-The [Android SDK and NDK setup guide](/blog/set-up-rust-android-gui-development-with-fission/) is the single setup source. Check prerequisites and run the emulator with:
-
+</TabItem>
+<TabItem label="Open a specific emulator">
 ```sh
-fission doctor android --project-dir .
-fission run --target android --project-dir .
-fission test --target android --project-dir .
+fission devices --project-dir .
+fission run --target android --device <device-id> --project-dir .
 ```
+</TabItem>
+</Tabs>
 
+Run the Rust tests first. They check that resolving an existing order updates the shared record and that an unknown ID leaves the queue unchanged. In the emulator, open WO-4201, mark the repair resolved, then press Android Back. The queue should show the updated status and count. Open another order and use the visible **Back to work orders** control; it uses the same navigation history as the system action.
 
-### Current references
-
-These references explain the API contract behind the example and the target-specific behavior to verify:
-
-- [Router](/reference/widgets/router/)
-- [Fission state, handles and providers guide](/docs/guides/state-handles-and-providers/)
-- [Fission component and widget reference](/reference/widgets/catalog/)
-<!-- /fission:checkpoint -->
+The dynamic route also validates its parameter before rendering a record. If a user opens `/work-orders/9999`, the app explains that the work order was not found instead of displaying unrelated data or failing during conversion. See the [Router reference](/reference/widgets/router/) and [RouteParams reference](/reference/widgets/route-params/) for the matching rules, then follow the [Android device guide](/blog/run-a-fission-app-on-a-physical-android-phone/) to install the built app on a phone.
 <!-- /fission:step -->
+
+## Continue learning
+
+- [Compose an Android app from reusable Fission components](/blog/compose-an-android-app-from-reusable-fission-widgets/)
+- [Build validated Android forms that work with the soft keyboard](/blog/build-validated-android-forms-that-work-with-the-soft-keyboard/)
+- [Persist Android app state with Fission Store and SQLite](/blog/persist-android-app-state-with-fission-store-and-sqlite/)
